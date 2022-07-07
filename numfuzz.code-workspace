@@ -8,9 +8,9 @@
   },
   "folders": [
     {
-      "name": "✨ penrose",
+      "name": "✨ numfuzz",
       "path": "."
-    },
+    }
   ],
   "settings": {
     "editor.defaultFormatter": "esbenp.prettier-vscode",
