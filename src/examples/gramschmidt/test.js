@@ -1,0 +1,1 @@
+console.log(Number.isFinite(0));

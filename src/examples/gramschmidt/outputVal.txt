@@ -1,0 +1,3 @@
+GRAM-SCHMIDT REPORT
+
+Failed values

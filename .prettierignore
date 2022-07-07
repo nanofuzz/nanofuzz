@@ -1,0 +1,7 @@
+/README.md
+build/
+coverage/
+dist/
+public/app.css
+public/app.js
+tsconfig.tsbuildinfo
