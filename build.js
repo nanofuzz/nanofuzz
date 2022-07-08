@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const { build, file } = require("estrella");
 const common = {
-  entry: "./src/index.ts",
+  entry: "./src/index.js",
   bundle: true,
   sourcemap: "inline",
   tsconfig: "./tsconfig.json",

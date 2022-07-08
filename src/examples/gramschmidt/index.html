@@ -1,0 +1,28 @@
+<html>
+
+<head>
+    <link href="https://unpkg.com/tabulator-tables@5.2.7/dist/css/tabulator.min.css" rel="stylesheet">
+    <script type="text/javascript" src="https://unpkg.com/tabulator-tables@5.2.7/dist/js/tabulator.min.js"></script>
+</head>
+
+<body>
+    <div id="example-table"></div>
+    <script>
+        var table = new Tabulator("#example-table", {
+        ajaxURL:"myjsonfile.json", //ajax URL
+        groupBy:"HasError",
+        groupStartOpen:function(value, count, data, group){
+            return value === "True";
+        },
+        columns:[
+            {title: "ID", field: "id", sorter:"number"},
+            {title: "Input", field: "input", sorter:"string"},
+            {title: "Output", field: "basis", sorter:"string"},
+            {title: "Has Error", field: "HasError", sorter:"string"},
+            {title: "Error Type", field: "ErrorType", sorter:"string"},
+        ] });
+    
+    </script>
+</body>
+
+</html>

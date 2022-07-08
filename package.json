@@ -15,7 +15,7 @@
   "scripts": {
     "build": "node build.js",
     "test": "jest --watchAll=false",
-    "start": "yarn build.js;node ./build/dist/index.esm.js",
+    "start": "yarn build;node ./build/dist/index.esm.js",
     "docs": "typedoc --plugin none --out docs",
     "coverage": "yarn test --coverage --watchAll=false",
     "lint": "eslint --ext js,ts,tsx src",
