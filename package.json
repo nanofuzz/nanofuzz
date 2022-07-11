@@ -1,8 +1,8 @@
 {
-  "name": "numfuzz",
+  "name": "nanofuzz",
   "version": "0.1.0",
   "description": "Numeric Fuzzer for Typescript",
-  "repository": "https://github.com/penrose/numfuzz.git",
+  "repository": "https://github.com/penrose/nanofuzz.git",
   "author": "Penrose Team (https://penrose.cs.cmu.edu/)",
   "license": "MIT",
   "main": "build/dist/index.js",
