@@ -4,8 +4,8 @@
  * Accepts an array of daily expenses and returns the summed dinner expenses.
  * If `total` is passed in as a parameter, then use it as the starting total.
  *
- * Note: A previous routine (not included here) ensures `total` is a valid
- * number, if it is passed into this function.
+ * Note: A previous routine (not included here) ensures:
+ *  - `total` is a valid number, if provided.
  *
  * @param items Array of daily food expenses for one employee
  * @param total Optional starting total
