@@ -1,4 +1,4 @@
-import { getZeroMyId, MyId } from "./6";
+import { getZero } from "./6";
 
 /**
  * BUG REPORT
@@ -7,11 +7,11 @@ import { getZeroMyId, MyId } from "./6";
 describe("6", () => {
   // This test passes
   test("6a", () => {
-    expect(getZeroMyId([{ myId: 0, name: "zero" }])).toStrictEqual("zero");
+    expect(getZero([0])).toStrictEqual("0");
   });
 
   // Remove ".skip" to run this failing test
   test.skip("6b", () => {
-    expect(getZeroMyId([{ myId: 1, name: "one" }])).toStrictEqual("");
+    expect(getZero([1])).toStrictEqual("");
   });
 });
