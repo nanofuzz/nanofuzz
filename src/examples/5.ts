@@ -1,11 +1,11 @@
 /**
  * Adapted from: https://stackoverflow.com/questions/43001649/
  *
- * This function should return a finite real number -- never a NaN.
+ * This function returns a pseudo-random finite real number -- never a NaN.
  *
  * @returns number
  */
-export function getNumber(): number {
+export function getRandomNumber(): number {
   let a, b, q, p, x: number;
   do {
     do {

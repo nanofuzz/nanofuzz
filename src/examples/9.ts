@@ -5,11 +5,8 @@
  * If the `array` at `offset` is undefined, return the `dft` value;
  * otherwise, return the value at `array[offset]`.
  *
- * Note: A previous routine (not included here) ensures:
- *  - `offset` is an integer >= 0 and never NaN.
- *
  * @param array array of strings
- * @param offset offset into array of strings to retrieve
+ * @param offset finite integer offset into array of strings to retrieve
  * @param dft default string to return if array[offset] is undefined
  * @returns array[offset] if defined, otherwise dft
  */

@@ -5,10 +5,7 @@
  * the minimum salary found.  If no employees are provided, the
  * minimum salary is undefined.
  *
- * Note: A previous routine (not included here) ensures:
- *  - `salary` is always a real >= 0 and never NaN.
- *
- * @param list array of Employee objects
+ * @param list array of Employee objects. `salary` is always a real >= 0 and never NaN.
  * @returns the minimum salary from list
  */
 export function minSalary(list: Employee[]): number | undefined {

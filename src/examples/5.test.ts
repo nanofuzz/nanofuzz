@@ -1,4 +1,4 @@
-import { getNumber } from "./5";
+import { getRandomNumber } from "./5";
 
 /**
  * BUG REPORT:
@@ -7,6 +7,6 @@ import { getNumber } from "./5";
 describe("5", () => {
   // Remove ".skip" to run this flaky test
   test.skip("5a", () => {
-    expect(getNumber()).not.toBe(NaN);
+    expect(getRandomNumber()).not.toBe(NaN);
   });
 });

@@ -4,10 +4,7 @@
  * Returns the min of values in an array of Wells.  If `valueText` is
  * not provided on the Well object, use `value` to calculate min.
  *
- * Note: A previous routine (not included here) ensures:
- *  - All Well objects have either a `valueText` or a `value` property.
- *
- * @param wells An array of Well objects
+ * @param wells An array of Well objects.  All Well objects have either a `valueText` or a `value` property.
  * @returns min of values in the Well objects
  */
 export function minMaxValue(wells: Well[]): number {

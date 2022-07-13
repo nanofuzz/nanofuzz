@@ -3,10 +3,7 @@
  *
  * Accepts an array of numbers and returns the sum of the numbers.
  *
- * Note: A previous routine (not included here) ensures:
- *  - `value` is an array of numbers.
- *
- * @param values An array of numbers
+ * @param values An array of finite numbers
  * @returns The maximum number in the array
  */
 export function maxOfArray(values: any): number {
