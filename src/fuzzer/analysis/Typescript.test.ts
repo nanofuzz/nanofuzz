@@ -1,4 +1,10 @@
-import { getTsFnArgs, findFnInSource, ArgDef, ArgType } from "./Typescript";
+import {
+  getTsFnArgs,
+  findFnInSource,
+  ArgDef,
+  ArgType,
+  ArgTag,
+} from "./Typescript";
 
 // !!!
 describe("tsAnalysis", () => {
@@ -7,10 +13,10 @@ describe("tsAnalysis", () => {
       getTsFnArgs(`const $_f = (name: string, offset: number, happy: boolean, nums: number[][]):void => {
       const whatever:string = name + offset + happy + JSON.stringify(nums);}`)
     ).toStrictEqual([
-      new ArgDef("name", 0, ArgType.STRING, 0),
-      new ArgDef("offset", 1, ArgType.NUMBER, 0),
-      new ArgDef("happy", 2, ArgType.BOOLEAN, 0),
-      new ArgDef("nums", 3, ArgType.NUMBER, 2),
+      new ArgDef("name", 0, ArgTag.STRING, 0),
+      new ArgDef("offset", 1, ArgTag.NUMBER, 0),
+      new ArgDef("happy", 2, ArgTag.BOOLEAN, 0),
+      new ArgDef("nums", 3, ArgTag.NUMBER, 2),
     ]);
   });
 
@@ -19,10 +25,10 @@ describe("tsAnalysis", () => {
       getTsFnArgs(`function $_f(name: string, offset: number, happy: boolean, nums: number[][]):void {
       const whatever:string = name + offset + happy + JSON.stringify(nums);}`)
     ).toStrictEqual([
-      new ArgDef("name", 0, ArgType.STRING, 0),
-      new ArgDef("offset", 1, ArgType.NUMBER, 0),
-      new ArgDef("happy", 2, ArgType.BOOLEAN, 0),
-      new ArgDef("nums", 3, ArgType.NUMBER, 2),
+      new ArgDef("name", 0, ArgTag.STRING, 0),
+      new ArgDef("offset", 1, ArgTag.NUMBER, 0),
+      new ArgDef("happy", 2, ArgTag.BOOLEAN, 0),
+      new ArgDef("nums", 3, ArgTag.NUMBER, 2),
     ]);
   });
 
@@ -31,7 +37,7 @@ describe("tsAnalysis", () => {
       getTsFnArgs(`function totalDinnerExpenses( total?: number ): number {
         items.forEach((item) => (total += item.dinner));
         return total;}`)
-    ).toStrictEqual([new ArgDef("total", 0, ArgType.NUMBER, 0, true)]);
+    ).toStrictEqual([new ArgDef("total", 0, ArgTag.NUMBER, 0, true)]);
   });
 
   const src = `export function test(array: string[]): string {return "";}
@@ -41,29 +47,35 @@ describe("tsAnalysis", () => {
 
   test("findFnIsSource: All", () => {
     expect(findFnInSource(src)).toStrictEqual([
-      'function test(array: string[]): string {return "";}',
-      'function test2() {const test = (array:string[]):string => {return "";}}',
-      'const test = (array:string[]):string => {return "";}',
+      ["test", 'function test(array: string[]): string {return "";}'],
+      [
+        "test2",
+        'function test2() {const test = (array:string[]):string => {return "";}}',
+      ],
+      ["test", 'const test = (array:string[]):string => {return "";}'],
     ]);
   });
 
   test("findFnIsSource: By Name", () => {
     expect(findFnInSource(src, "test")).toStrictEqual([
-      'function test(array: string[]): string {return "";}',
-      'const test = (array:string[]):string => {return "";}',
+      ["test", 'function test(array: string[]): string {return "";}'],
+      ["test", 'const test = (array:string[]):string => {return "";}'],
     ]);
   });
 
   test("findFnIsSource: By Offset", () => {
     expect(findFnInSource(src, undefined, 130)).toStrictEqual([
-      'function test2() {const test = (array:string[]):string => {return "";}}',
-      'const test = (array:string[]):string => {return "";}',
+      [
+        "test2",
+        'function test2() {const test = (array:string[]):string => {return "";}}',
+      ],
+      ["test", 'const test = (array:string[]):string => {return "";}'],
     ]);
   });
 
   test("findFnIsSource: By Name and Offset", () => {
     expect(findFnInSource(src, "test", 130)).toStrictEqual([
-      'const test = (array:string[]):string => {return "";}',
+      ["test", 'const test = (array:string[]):string => {return "";}'],
     ]);
   });
 
