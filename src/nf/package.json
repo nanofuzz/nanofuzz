@@ -1,0 +1,63 @@
+{
+	"name": "nanofuzz",
+	"displayName": "nanofuzz",
+	"description": "NaN-o-fuzz",
+	"version": "0.0.1",
+	"publisher":"rhit-chois3",
+	"engines": {
+	  "vscode": "^1.69.0"
+	},
+	"categories": [
+	  "Other"
+	],
+	"activationEvents": [
+	"onCommand:nanofuzz.Fuzz",
+	"onCommand:nanofuzz.AskPrompt"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+	  "commands": [
+		{
+		  "command": "nanofuzz.Fuzz",
+		  "title": "Fuzz"
+		},
+		{
+		  "command": "nanofuzz.AskPrompt",
+		  "title": "AskPrompt"
+		}
+	  ],
+	  "menus":{
+		"editor/context": [
+		  {
+			"command": "nanofuzz.Fuzz",
+			"group": "bookmarks",
+			"when": "editorHasSelection"
+		  }
+		]
+	  }
+	},
+	
+	"scripts": {
+	  "vscode:prepublish": "yarn run compile",
+	  "compile": "tsc -p ./",
+	  "watch": "tsc -watch -p ./",
+	  "pretest": "yarn run compile && yarn run lint",
+	  "lint": "eslint src --ext ts",
+	  "test": "node ./out/test/runTest.js"
+	},
+	"devDependencies": {
+	  "@types/glob": "^7.2.0",
+	  "@types/mocha": "^9.1.1",
+	  "@types/node": "16.x",
+	  "@types/vscode": "^1.69.0",
+	  "@typescript-eslint/eslint-plugin": "^5.30.0",
+	  "@typescript-eslint/parser": "^5.30.0",
+	  "@vscode/test-electron": "^2.1.5",
+	  "esbuild": "^0.14.48",
+	  "eslint": "^8.18.0",
+	  "glob": "^8.0.3",
+	  "mocha": "^10.0.0",
+	  "typescript": "^4.7.4"
+	}
+  }
+  
