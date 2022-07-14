@@ -14,21 +14,30 @@ import {
  * - Numbers
  * - Booleans
  * - Strings
- * - Homogeneous arrays of the above of any dimension
+ * - Homogeneous n-dimensional arrays of the above types
+ * - any, provided a mapping to one of the above types
  *
- * !!! Not currently supported:
+ * Not currently supported (will throw an exception):
+ * - Type references
+ * - Tuples
  * - OR types
  * - Non-primitive types
  * - Deconstructed types
  * - Objects
  * - Generics
  *
- * Function has to be named
+ * Other Limitations:
+ * - Analyzes type-annotated TypeScript code, not untyped JS
+ * - Anonymous functions are not supported
+ * - Analysis of class methods is not supported
  */
 
 // !!! Requires TS function - NOT JS function because they lack type information
 // !!! Does not handle class methods
-export const getTsFnArgs = (src: string): ArgDef<ArgType>[] => {
+export const getTsFnArgs = (
+  src: string,
+  options: ArgOptions
+): ArgDef<ArgType>[] => {
   const args: ArgDef<ArgType>[] = [];
   const ast = parse(src, { range: true }); // Parse the source
 
@@ -49,7 +58,7 @@ export const getTsFnArgs = (src: string): ArgDef<ArgType>[] => {
       for (const i in fnInit.params) {
         const thisArg = fnInit.params[i];
         if (thisArg.type === AST_NODE_TYPES.Identifier) {
-          args.push(ArgDef.fromAstNode(thisArg, parseInt(i)));
+          args.push(ArgDef.fromAstNode(thisArg, parseInt(i), options));
         } else {
           throw new Error(`Unsupported argument type: ${thisArg.type}`);
         }
@@ -69,16 +78,15 @@ export const findFnInSource = (
   const ret: [string, string][] = [];
   const ast = parse(src, { range: true }); // Parse the source
 
-  // Traverse the AST to find property accesses
+  // Traverse the AST to find function definitions
   simpleTraverse(ast, {
     enter: (node, parent) => {
-      // Need to check for these situations:
+      // Need to look for these situations:
       // - Variable declarations that name an arrow function
       // - Traditional function declarations
-      // - Class methods --> Not supported right now !!!
-
-      // Arrow Function Definition: const xyz = (): void => { ... }
+      // - TODO: Class methods
       if (
+        // Arrow Function Definition: const xyz = (): void => { ... }
         node.type === AST_NODE_TYPES.VariableDeclarator &&
         parent !== undefined &&
         parent.type === AST_NODE_TYPES.VariableDeclaration &&
@@ -92,9 +100,8 @@ export const findFnInSource = (
           node.id.name,
           parent.kind + " " + src.substring(node.range[0], node.range[1]),
         ]);
-
-        // Standard Function Definition: function xyz(): void => { ... }
       } else if (
+        // Standard Function Definition: function xyz(): void => { ... }
         node.type === AST_NODE_TYPES.FunctionDeclaration &&
         node.id !== null &&
         (!fnName || node.id.name === fnName) &&
@@ -105,18 +112,15 @@ export const findFnInSource = (
     }, // enter
   }); // traverse AST
 
-  // !!! If pos is provided w/multiple matches, sort by offset delta
+  // TODO: If pos is provided w/multiple matches, sort by offset delta !!!
 
   return ret;
 };
 
 // !!! Need to support:
 //  - object types (currently not doing that)
-//  - vector bounds (we have dims here, but not length)
 //  - Can't currently set a constant for array!
-//  - Options:
-//     - string: length min/max, charset, locale for Intl.Collator
-//     - dims: size min/max along each dimension
+//  - Better i18n w/strings: Intl.Collator
 // !!!
 export class ArgDef<T extends ArgType> {
   // !!! Do we want to ref the fn also?
@@ -144,60 +148,48 @@ export class ArgDef<T extends ArgType> {
     this.dims = dims ?? 0;
     this.optional = optional ?? false;
 
-    // Ensure we have a fairly sensible set of default options
-    this.options = options ?? {};
-    switch (type) {
-      case ArgTag.STRING:
-        if (!this.options.charset)
-          this.options.charset =
-            " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
-        if (!this.options.length) this.options.length = { min: 1, max: 10 };
-        break;
-      case ArgTag.NUMBER:
-        if (!this.options.integer) this.options.integer = false;
-        break;
+    // Ensure we have a sensible set of options
+    this.options = options ?? ArgDef.getDefaultOptions();
+
+    // Fill the array dimensions w/defaults if missing or incongruent with the AST
+    if (this.options.dimLength.length !== this.getDim()) {
+      this.options.dimLength = Array(this.getDim()).fill(
+        this.options.dftDimLength
+      );
     }
 
-    // Ensure we have a length configured for each dimension
-    if (dims) {
-      if (this.options.dimLength === undefined) this.options.dimLength = [];
-      for (let i = 0; i < this.dims - 1; i++) {
-        const thisDimOpt = this.options.dimLength;
-        if (!thisDimOpt[i]) {
-          this.options.dimLength[i] = { min: 2, max: 2 };
-        }
-        if (thisDimOpt[i].min > thisDimOpt[i].max || thisDimOpt[i].min < 1) {
-          throw new Error(
-            `Invalid dimension length: min=${thisDimOpt[i].min} max=${thisDimOpt[i].min} arg: ${this.name}`
-          );
-        }
-      }
+    // Ensure each array dimension interval is valid
+    if (
+      this.options.dimLength.filter((e) => e.min > e.max || e.min < 0).length
+    ) {
+      throw new Error(
+        `Invalid dimension length: ${JSON.stringify(this.options.dimLength)}`
+      );
     }
 
-    // If an undefined or empty interval is provided, use the type's default
+    // If no interval is provided, use the type's default
     this.intervals =
       intervals === undefined || intervals.length === 0
-        ? (this.getDefaultIntervals(this.type) as Interval<T>[])
+        ? (this.getDefaultIntervals(this.type, this.options) as Interval<T>[])
         : intervals;
 
-    // Ensure min <= max on each interval
-    for (const i in this.intervals) {
-      if (this.intervals[i].min > this.intervals[i].max) {
-        throw new Error(
-          `Invalid interval: ${JSON.stringify(this.intervals[i])}`
-        );
-      }
+    // Ensure each non-array dimension is valid
+    if (this.intervals.filter((e) => e.min > e.max).length) {
+      throw new Error(`Invalid interval: ${JSON.stringify(this.intervals)}`);
     }
   }
 
   // !!!
-  private getDefaultIntervals(type: ArgTag): Interval<ArgType>[] {
+  private getDefaultIntervals(
+    type: ArgTag,
+    options: ArgOptions
+  ): Interval<ArgType>[] {
     switch (type) {
       case ArgTag.NUMBER:
         return [
           {
-            min: Number.MIN_VALUE,
-            max: Number.MAX_VALUE,
+            min: options.numNegative ? -100 : 0,
+            max: 100,
           },
         ];
       case ArgTag.STRING:
@@ -217,9 +209,13 @@ export class ArgDef<T extends ArgType> {
   }
 
   // !!!
-  public static fromAstNode(node: Identifier, offset: number): ArgDef<ArgType> {
+  public static fromAstNode(
+    node: Identifier,
+    offset: number,
+    options: ArgOptions
+  ): ArgDef<ArgType> {
     if (node.typeAnnotation !== undefined) {
-      const [type, dims] = ArgDef.getTypeFromNode(node.typeAnnotation);
+      const [type, dims] = ArgDef.getTypeFromNode(node.typeAnnotation, options);
       switch (type) {
         case ArgTag.STRING:
           return new ArgDef<string>(
@@ -227,7 +223,9 @@ export class ArgDef<T extends ArgType> {
             offset,
             type,
             dims,
-            node.optional
+            node.optional,
+            undefined,
+            options
           );
         case ArgTag.BOOLEAN:
           return new ArgDef<boolean>(
@@ -235,7 +233,9 @@ export class ArgDef<T extends ArgType> {
             offset,
             type,
             dims,
-            node.optional
+            node.optional,
+            undefined,
+            options
           );
         case ArgTag.NUMBER:
           return new ArgDef<number>(
@@ -243,7 +243,9 @@ export class ArgDef<T extends ArgType> {
             offset,
             type,
             dims,
-            node.optional
+            node.optional,
+            undefined,
+            options
           );
         case ArgTag.OBJECT:
           return new ArgDef<Record<string, unknown>>(
@@ -251,7 +253,9 @@ export class ArgDef<T extends ArgType> {
             offset,
             type,
             dims,
-            node.optional
+            node.optional,
+            undefined,
+            options
           );
       }
     } else {
@@ -264,12 +268,12 @@ export class ArgDef<T extends ArgType> {
 
   // !!!
   private static getTypeFromNode(
-    node: TSTypeAnnotation | TypeNode
+    node: TSTypeAnnotation | TypeNode,
+    options: ArgOptions
   ): [ArgTag, number] {
     switch (node.type) {
       case AST_NODE_TYPES.TSAnyKeyword:
-        //throw new Error("Unsupported type annotation: " + JSON.stringify(node));
-        return [ArgTag.NUMBER, 0]; // !!!
+        return [options.anyType, 0];
       case AST_NODE_TYPES.TSStringKeyword:
         return [ArgTag.STRING, 0];
       case AST_NODE_TYPES.TSBooleanKeyword:
@@ -277,9 +281,9 @@ export class ArgDef<T extends ArgType> {
       case AST_NODE_TYPES.TSNumberKeyword:
         return [ArgTag.NUMBER, 0];
       case AST_NODE_TYPES.TSTypeAnnotation:
-        return ArgDef.getTypeFromNode(node.typeAnnotation);
+        return ArgDef.getTypeFromNode(node.typeAnnotation, options);
       case AST_NODE_TYPES.TSArrayType: {
-        const [type, dims] = ArgDef.getTypeFromNode(node.elementType);
+        const [type, dims] = ArgDef.getTypeFromNode(node.elementType, options);
         return [type, dims + 1];
       }
       default:
@@ -336,7 +340,55 @@ export class ArgDef<T extends ArgType> {
   public getOptions(): ArgOptions {
     return { ...this.options };
   }
+  // !!!
+  public static getDefaultOptions(): ArgOptions {
+    return {
+      strCharset: DFT_STR_CHARSET,
+      strLength: DFT_STR_LENGTH,
+
+      numInteger: true,
+      numNegative: false,
+
+      anyType: ArgTag.NUMBER,
+      anyDims: 0,
+
+      dftDimLength: DFT_ARRAY_DIM,
+      dimLength: [],
+    };
+  }
+  // !!!
+  public static getDefaultFloatOptions(): ArgOptions {
+    return {
+      ...ArgDef.getDefaultOptions(),
+      numInteger: false,
+    };
+  }
 }
+
+// !!!
+export type ArgOptions = {
+  // For type string
+  strCharset: string; // !!!
+  strLength: Interval<number>; // !!!
+
+  // For type number
+  numInteger: boolean; // !!!
+  numNegative: boolean; // !!!
+
+  // For type any
+  anyType: ArgTag; // !!!
+  anyDims: number; // !!!
+
+  // For args with dimensions
+  dimLength: Interval<number>[]; // !!!
+  dftDimLength: Interval<number>; // !!!
+};
+
+// !!!
+const DFT_ARRAY_DIM: Interval<number> = { min: 0, max: 10 };
+const DFT_STR_CHARSET =
+  " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+const DFT_STR_LENGTH: Interval<number> = { min: 0, max: 10 };
 
 // !!!
 export enum ArgTag {
@@ -348,21 +400,8 @@ export enum ArgTag {
 export type ArgType = number | string | boolean | Record<string, unknown>;
 
 // !!!
-// TODO: Add support for open and closed intervals
+// TODO: Add support for open intervals
 export type Interval<T> = {
   min: T;
   max: T;
-};
-
-// !!!
-export type ArgOptions = {
-  // For type string
-  charset?: string;
-  length?: Interval<number>;
-
-  // For type number
-  integer?: boolean;
-
-  // For args with dimensions
-  dimLength?: Interval<number>[];
 };

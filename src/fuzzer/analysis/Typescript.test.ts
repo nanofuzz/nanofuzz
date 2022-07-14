@@ -6,37 +6,80 @@ import {
   ArgTag,
 } from "./Typescript";
 
+const argOptions = ArgDef.getDefaultOptions();
+
 // !!!
 describe("tsAnalysis", () => {
   test("arrowFunction", () => {
     expect(
-      getTsFnArgs(`const $_f = (name: string, offset: number, happy: boolean, nums: number[][]):void => {
-      const whatever:string = name + offset + happy + JSON.stringify(nums);}`)
+      getTsFnArgs(
+        `const $_f = (name: string, offset: number, happy: boolean, nums: number[][]):void => {
+        const whatever:string = name + offset + happy + JSON.stringify(nums);}`,
+        argOptions
+      )
     ).toStrictEqual([
-      new ArgDef("name", 0, ArgTag.STRING, 0),
-      new ArgDef("offset", 1, ArgTag.NUMBER, 0),
-      new ArgDef("happy", 2, ArgTag.BOOLEAN, 0),
-      new ArgDef("nums", 3, ArgTag.NUMBER, 2),
+      new ArgDef("name", 0, ArgTag.STRING, 0, undefined, undefined, argOptions),
+      new ArgDef(
+        "offset",
+        1,
+        ArgTag.NUMBER,
+        0,
+        undefined,
+        undefined,
+        argOptions
+      ),
+      new ArgDef(
+        "happy",
+        2,
+        ArgTag.BOOLEAN,
+        0,
+        undefined,
+        undefined,
+        argOptions
+      ),
+      new ArgDef("nums", 3, ArgTag.NUMBER, 2, undefined, undefined, argOptions),
     ]);
   });
 
   test("standardFunction", () => {
     expect(
-      getTsFnArgs(`function $_f(name: string, offset: number, happy: boolean, nums: number[][]):void {
-      const whatever:string = name + offset + happy + JSON.stringify(nums);}`)
+      getTsFnArgs(
+        `function $_f(name: string, offset: number, happy: boolean, nums: number[][]):void {
+        const whatever:string = name + offset + happy + JSON.stringify(nums);}`,
+        argOptions
+      )
     ).toStrictEqual([
-      new ArgDef("name", 0, ArgTag.STRING, 0),
-      new ArgDef("offset", 1, ArgTag.NUMBER, 0),
-      new ArgDef("happy", 2, ArgTag.BOOLEAN, 0),
-      new ArgDef("nums", 3, ArgTag.NUMBER, 2),
+      new ArgDef("name", 0, ArgTag.STRING, 0, undefined, undefined, argOptions),
+      new ArgDef(
+        "offset",
+        1,
+        ArgTag.NUMBER,
+        0,
+        undefined,
+        undefined,
+        argOptions
+      ),
+      new ArgDef(
+        "happy",
+        2,
+        ArgTag.BOOLEAN,
+        0,
+        undefined,
+        undefined,
+        argOptions
+      ),
+      new ArgDef("nums", 3, ArgTag.NUMBER, 2, undefined, undefined, argOptions),
     ]);
   });
 
   test("optionalParameter", () => {
     expect(
-      getTsFnArgs(`function totalDinnerExpenses( total?: number ): number {
+      getTsFnArgs(
+        `function totalDinnerExpenses( total?: number ): number {
         items.forEach((item) => (total += item.dinner));
-        return total;}`)
+        return total;}`,
+        argOptions
+      )
     ).toStrictEqual([new ArgDef("total", 0, ArgTag.NUMBER, 0, true)]);
   });
 

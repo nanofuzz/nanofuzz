@@ -7,7 +7,7 @@
  * @param wells An array of Well objects.  All Well objects have either a `valueText` or a `value` property.
  * @returns min of values in the Well objects
  */
-export function minMaxValue(wells: Well[]): number {
+export function minValue(wells: [string?, number?][]): number {
   return Math.min(
     ...wells.map((d) => Number(d[VALUE_TEXT]) || Number(d[VALUE]))
   );

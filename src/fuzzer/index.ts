@@ -2,13 +2,12 @@ import * as fs from "fs";
 import seedrandom from "seedrandom";
 import {
   ArgDef,
+  ArgOptions,
   ArgType,
   findFnInSource,
   getTsFnArgs,
 } from "./analysis/Typescript";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
-
-// !!! prng isn't advancing
 
 // !!!
 export const fuzzSetup = (
@@ -28,7 +27,7 @@ export const fuzzSetup = (
   const [foundFnName, foundFnSrc] = fnMatches[0];
   return {
     options: options,
-    inputs: getTsFnArgs(foundFnSrc),
+    inputs: getTsFnArgs(foundFnSrc, options.argOptions),
     fnName: foundFnName,
     fnSrc: foundFnSrc,
     srcFile: srcFile,
@@ -37,7 +36,7 @@ export const fuzzSetup = (
 
 // !!!
 export const fuzz = (env: FuzzEnv): FuzzTestResults => {
-  const prng = seedrandom(env.options.seed ?? "");
+  const prng = seedrandom(env.options.seed);
 
   // Main test loop
   for (let i = 0; i < env.options.numTests; i++) {
@@ -45,9 +44,10 @@ export const fuzz = (env: FuzzEnv): FuzzTestResults => {
     const generators: (() => any)[] = [];
     env.inputs.forEach((e) => generators.push(GeneratorFactory(e, prng)));
 
+    // We're not actually calling the function yet....
     console.log(
       `Calling ${env.fnName}(${generators
-        .map((e) => JSON.stringify(e()))
+        .map((e) => e() ?? "undefined")
         .join(",")})`
     );
   }
@@ -55,6 +55,14 @@ export const fuzz = (env: FuzzEnv): FuzzTestResults => {
   return {
     env: env,
     outputs: [], // !!!
+  };
+};
+
+// !!!
+export const getDefaultFuzzOptions = (): FuzzOptions => {
+  return {
+    argOptions: ArgDef.getDefaultOptions(),
+    numTests: 5, // !!!
   };
 };
 
@@ -70,6 +78,7 @@ export type FuzzEnv = {
 // !!!
 export type FuzzOptions = {
   outputFile?: string; // File to write output to
+  argOptions: ArgOptions; // Default options for arguments
   seed?: string; // Variation / seed (optional)
   numTests: number; // Number of fuzzing tests to execute
   // !!! oracleFn: typeof isReal; // The oracle function TODO: Create type for function shape

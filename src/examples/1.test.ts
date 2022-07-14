@@ -1,4 +1,4 @@
-import { minMaxValue, Well } from "./1";
+import { minValue, Well } from "./1";
 
 /**
  * BUG REPORT
@@ -7,11 +7,11 @@ import { minMaxValue, Well } from "./1";
 describe("1", () => {
   // This test passes
   test("1a", () => {
-    expect(minMaxValue([["2"], ["4"], ["1"]])).toStrictEqual(1);
+    expect(minValue([["2"], ["4"], ["1"]])).toStrictEqual(1);
   });
 
   // Remove ".skip" to run this failing test
   test.skip("1b", () => {
-    expect(minMaxValue([["2"], ["4"], ["0"]])).toStrictEqual(0);
+    expect(minValue([["2"], ["4"], ["0"]])).toStrictEqual(0);
   });
 });
