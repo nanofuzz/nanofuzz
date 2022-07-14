@@ -33,9 +33,11 @@
     "build-decls": "tsc --declaration --outDir build/dist && tsc-alias -p tsconfig.json"
   },
   "dependencies": {
+    "eslint": "^6.6.0",
     "@datastructures-js/queue": "^4.2.1",
     "immutable": "^4.1.0",
-    "smart-table-core": "^3.0.7"
+    "smart-table-core": "^3.0.7",
+    "seedrandom": "^3.0.5"
   },
   "devDependencies": {
     "@types/jest": "^27.4.1",
@@ -43,7 +45,7 @@
     "@typescript-eslint/eslint-plugin": "^4.5.0",
     "@typescript-eslint/eslint-plugin-tslint": "^4.5.0",
     "@typescript-eslint/parser": "^4.5.0",
-    "eslint": "^6.6.0",
+    "@types/seedrandom": "^2.4.28",
     "eslint-config-prettier": "^6.13.0",
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-import": "^2.22.1",
