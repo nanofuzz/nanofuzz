@@ -57,5 +57,6 @@ module.exports = {
     "**/*.test.tsx",
     "src/__testfixtures__/transformtest.input.ts",
     "src/__testfixtures__/transformtest.output.ts",
+    "*.js",
   ],
 };
