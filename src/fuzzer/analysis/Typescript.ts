@@ -148,12 +148,12 @@ export class ArgDef<T extends ArgType> {
     this.dims = dims ?? 0;
     this.optional = optional ?? false;
 
-    // Ensure we have a sensible set of options
-    this.options = options ?? ArgDef.getDefaultOptions();
+    // Ensure we have a sensible set of options.  Watch out for mutable state here.
+    this.options = options ? { ...options } : ArgDef.getDefaultOptions();
 
     // Fill the array dimensions w/defaults if missing or incongruent with the AST
     if (this.options.dimLength.length !== this.getDim()) {
-      this.options.dimLength = Array(this.getDim()).fill(
+      this.options.dimLength = new Array(this.getDim()).fill(
         this.options.dftDimLength
       );
     }
@@ -273,7 +273,7 @@ export class ArgDef<T extends ArgType> {
   ): [ArgTag, number] {
     switch (node.type) {
       case AST_NODE_TYPES.TSAnyKeyword:
-        return [options.anyType, 0];
+        return [options.anyType, options.anyDims];
       case AST_NODE_TYPES.TSStringKeyword:
         return [ArgTag.STRING, 0];
       case AST_NODE_TYPES.TSBooleanKeyword:
