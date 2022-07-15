@@ -25,7 +25,11 @@
     "isolatedModules": false,
     "strict": true,
     "declaration": true,
-    "declarationMap": true
+    "declarationMap": true,
+    "paths": {
+      "examples/*": ["./src/examples/*"],
+      "fuzzer/*": ["./src/fuzzer/*"]
+    }
   },
   "formatCodeOptions": {
     "baseIndentSize": 0,
