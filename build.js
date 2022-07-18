@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 const { build, file } = require("estrella");
 const common = {
-  entry: "./src/index.ts",
+  entry: "./src/extension.ts",
   bundle: true,
   sourcemap: "inline",
   tsconfig: "./tsconfig.json",
-  platform: "browser",
-  external: ["path", "fs", "crypto"],
+  platform: "node",
+  external: ["path", "fs", "crypto", "vscode", "typescript"],
 };
+/*
 build({
   ...common,
   outfile: "./build/dist/index.esm.js",
@@ -16,10 +17,10 @@ build({
   tslint: "off",
   run: "yarn run build-decls",
 });
-
+*/
 build({
   ...common,
-  outfile: "./build/dist/index.js",
+  outfile: "./build/extension/extension.js",
   platform: "node",
   minify: false,
   format: "cjs",

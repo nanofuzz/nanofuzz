@@ -8,9 +8,14 @@ import {
   getTsFnArgs,
 } from "./analysis/Typescript";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
+require("typescript-require");
+
+// Note: This is currently not suitable for use in a web extension:
+// - It directly uses fs
+// - It shells out to transpile TS code to JS (via typescript-require)
 
 // !!!
-export const fuzzSetup = (
+export const setup = (
   options: FuzzOptions,
   srcFile: string,
   fnName?: string,
@@ -26,7 +31,7 @@ export const fuzzSetup = (
 
   const [foundFnName, foundFnSrc] = fnMatches[0];
   return {
-    options: options,
+    options: { ...options },
     inputs: getTsFnArgs(foundFnSrc, options.argOptions),
     fnName: foundFnName,
     fnSrc: foundFnSrc,
@@ -35,8 +40,9 @@ export const fuzzSetup = (
 };
 
 // !!!
-export const fuzz = (env: FuzzEnv): FuzzTestResults => {
+export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
+  const fqSrcFile = fs.realpathSync(env.srcFile); // Help the module loader
   const results: FuzzTestResults = {
     env,
     results: [],
@@ -47,12 +53,16 @@ export const fuzz = (env: FuzzEnv): FuzzTestResults => {
     return { arg: e, gen: GeneratorFactory(e, prng) };
   });
 
-  // Build a wrapper to call the function
-  const fqSrcFile = fs.realpathSync(env.srcFile); // Help the module loader
+  // Build a wrapper around the function to be fuzzed that we can
+  // easily call in the testing loop.  The code we need to fuzz is
+  // likely to be raw TS that our JS VM can't compile. Here we use
+  // typescript-require, which hooks into *.ts requires via (the
+  // deprecated) require.extensions property.
+  //
+  /* eslint eslint-comments/no-use: off */
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = require(fqSrcFile);
   const fnWrapper = (input: FuzzIoElement[]): any => {
-    /* eslint eslint-comments/no-use: off */
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require(fqSrcFile);
     return mod[env.fnName](...input.map((e) => e.value));
   };
 
@@ -67,11 +77,10 @@ export const fuzz = (env: FuzzEnv): FuzzTestResults => {
 
     // Generate and store the inputs
     fuzzArgGen.forEach((e) => {
-      const inputVal = e.gen();
       result.input.push({
         name: e.arg.getName(),
         offset: e.arg.getOffset(),
-        value: inputVal,
+        value: e.gen(),
       });
     });
 
@@ -92,25 +101,13 @@ export const fuzz = (env: FuzzEnv): FuzzTestResults => {
     // How can it fail ... let us count the ways...
     if (result.exception || !isReal(rawOutput)) result.passed = false;
 
-    /* !!!
-    console.log(
-      `Called ${env.fnName}(${result.input
-        .map((e) => JSON.stringify(e.value ?? "undefined"))
-        .join(",")}) --> ${JSON.stringify(
-        result.output.map((e) => JSON.stringify(e.value))
-      )} ${
-        result.exception ? "threw (" + result.exceptionMessage + ") " : ""
-      }(${result.passed ? "passed" : "FAILED"})`
-    );
-    */
-
     // Store the result for this iteration
     results.results.push(result);
   } // for: Main test loop
 
   // Persist to outfile, if requested
-  if (env.options.outFile) {
-    fs.writeFileSync(env.options.outFile, JSON.stringify(results));
+  if (env.options.outputFile) {
+    fs.writeFileSync(env.options.outputFile, JSON.stringify(results));
   }
 
   // Return the result of the fuzzing activity
@@ -121,7 +118,7 @@ export const fuzz = (env: FuzzEnv): FuzzTestResults => {
 export const getDefaultFuzzOptions = (): FuzzOptions => {
   return {
     argOptions: ArgDef.getDefaultOptions(),
-    numTests: 1000, // !!!
+    numTests: 1000,
   };
 };
 
@@ -180,3 +177,5 @@ export const isRealValue = (x: any): boolean => {
   if (typeof x !== "number") return false;
   else return !(isNaN(x) || x === Infinity || x === -Infinity);
 };
+
+export * from "./analysis/Typescript";

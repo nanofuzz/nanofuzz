@@ -4,7 +4,7 @@ import {
   ArgOptions,
   ArgType,
   Interval,
-} from "fuzzer/analysis/Typescript";
+} from "../analysis/Typescript";
 
 // !!! Support:
 //  - different distributions (do with prng?)

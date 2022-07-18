@@ -28,8 +28,7 @@
     "declarationMap": true,
     "paths": {
       "examples/*": ["./src/examples/*"],
-      "fuzzer/*": ["./src/fuzzer/*"],
-      "extension/*": ["./src/extension/*"]
+      "fuzzer/*": ["./src/fuzzer/*"]
     }
   },
   "formatCodeOptions": {

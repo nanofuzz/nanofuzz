@@ -137,10 +137,10 @@ export class ArgDef<T extends ArgType> {
     name: string,
     offset: number,
     type: ArgTag,
+    options: ArgOptions,
     dims?: number,
     optional?: boolean,
-    intervals?: Interval<T>[],
-    options?: ArgOptions
+    intervals?: Interval<T>[]
   ) {
     this.name = name;
     this.offset = offset;
@@ -149,7 +149,7 @@ export class ArgDef<T extends ArgType> {
     this.optional = optional ?? false;
 
     // Ensure we have a sensible set of options.  Watch out for mutable state here.
-    this.options = options ? { ...options } : ArgDef.getDefaultOptions();
+    this.options = { ...options };
 
     // Fill the array dimensions w/defaults if missing or incongruent with the AST
     if (this.options.dimLength.length !== this.getDim()) {
@@ -222,40 +222,36 @@ export class ArgDef<T extends ArgType> {
             node.name,
             offset,
             type,
+            options,
             dims,
-            node.optional,
-            undefined,
-            options
+            node.optional
           );
         case ArgTag.BOOLEAN:
           return new ArgDef<boolean>(
             node.name,
             offset,
             type,
+            options,
             dims,
-            node.optional,
-            undefined,
-            options
+            node.optional
           );
         case ArgTag.NUMBER:
           return new ArgDef<number>(
             node.name,
             offset,
             type,
+            options,
             dims,
-            node.optional,
-            undefined,
-            options
+            node.optional
           );
         case ArgTag.OBJECT:
           return new ArgDef<Record<string, unknown>>(
             node.name,
             offset,
             type,
+            options,
             dims,
-            node.optional,
-            undefined,
-            options
+            node.optional
           );
       }
     } else {
@@ -320,6 +316,10 @@ export class ArgDef<T extends ArgType> {
     return this.intervals;
   }
   // !!!
+  public setIntervals(intervals: Interval<T>[]): void {
+    this.intervals = intervals;
+  }
+  // !!!
   public isConstant(): boolean {
     return (
       this.intervals.length === 1 &&
@@ -339,6 +339,9 @@ export class ArgDef<T extends ArgType> {
   // !!!
   public getOptions(): ArgOptions {
     return { ...this.options };
+  }
+  public setOptions(options: ArgOptions): void {
+    this.options = { ...options };
   }
   // !!!
   public static getDefaultOptions(): ArgOptions {

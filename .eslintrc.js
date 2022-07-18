@@ -28,13 +28,7 @@ module.exports = {
     project: "tsconfig.json",
     sourceType: "module",
   },
-  plugins: [
-    "eslint-comments",
-    "eslint-plugin-import",
-    "eslint-plugin-jsdoc",
-    "eslint-plugin-react",
-    "eslint-plugin-import",
-  ],
+  plugins: ["eslint-comments", "eslint-plugin-import", "eslint-plugin-jsdoc"],
   rules: {
     "@typescript-eslint/consistent-type-assertions": [
       1,
@@ -58,5 +52,6 @@ module.exports = {
     "src/__testfixtures__/transformtest.input.ts",
     "src/__testfixtures__/transformtest.output.ts",
     "*.js",
+    "src/test/suite/*",
   ],
 };

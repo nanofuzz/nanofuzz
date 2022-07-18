@@ -18,26 +18,10 @@ describe("tsAnalysis", () => {
         argOptions
       )
     ).toStrictEqual([
-      new ArgDef("name", 0, ArgTag.STRING, 0, undefined, undefined, argOptions),
-      new ArgDef(
-        "offset",
-        1,
-        ArgTag.NUMBER,
-        0,
-        undefined,
-        undefined,
-        argOptions
-      ),
-      new ArgDef(
-        "happy",
-        2,
-        ArgTag.BOOLEAN,
-        0,
-        undefined,
-        undefined,
-        argOptions
-      ),
-      new ArgDef("nums", 3, ArgTag.NUMBER, 2, undefined, undefined, argOptions),
+      new ArgDef("name", 0, ArgTag.STRING, argOptions, 0),
+      new ArgDef("offset", 1, ArgTag.NUMBER, argOptions, 0),
+      new ArgDef("happy", 2, ArgTag.BOOLEAN, argOptions, 0),
+      new ArgDef("nums", 3, ArgTag.NUMBER, argOptions, 2),
     ]);
   });
 
@@ -49,26 +33,10 @@ describe("tsAnalysis", () => {
         argOptions
       )
     ).toStrictEqual([
-      new ArgDef("name", 0, ArgTag.STRING, 0, undefined, undefined, argOptions),
-      new ArgDef(
-        "offset",
-        1,
-        ArgTag.NUMBER,
-        0,
-        undefined,
-        undefined,
-        argOptions
-      ),
-      new ArgDef(
-        "happy",
-        2,
-        ArgTag.BOOLEAN,
-        0,
-        undefined,
-        undefined,
-        argOptions
-      ),
-      new ArgDef("nums", 3, ArgTag.NUMBER, 2, undefined, undefined, argOptions),
+      new ArgDef("name", 0, ArgTag.STRING, argOptions, 0),
+      new ArgDef("offset", 1, ArgTag.NUMBER, argOptions, 0),
+      new ArgDef("happy", 2, ArgTag.BOOLEAN, argOptions, 0),
+      new ArgDef("nums", 3, ArgTag.NUMBER, argOptions, 2),
     ]);
   });
 
@@ -80,7 +48,9 @@ describe("tsAnalysis", () => {
         return total;}`,
         argOptions
       )
-    ).toStrictEqual([new ArgDef("total", 0, ArgTag.NUMBER, 0, true)]);
+    ).toStrictEqual([
+      new ArgDef("total", 0, ArgTag.NUMBER, argOptions, 0, true),
+    ]);
   });
 
   const src = `export function test(array: string[]): string {return "";}
