@@ -8,8 +8,13 @@ import {
 
 const argOptions = ArgDef.getDefaultOptions();
 
-// !!!
-describe("tsAnalysis", () => {
+/**
+ * Test that the TypeScript analyzer retrieves function parameters correctly in
+ * the circumstances we expect to encounter.
+ *
+ * TODO: Add 'skip' tests for the situations we do not support yet.
+ */
+describe("fuzzer/analysis/Typescript", () => {
   test("arrowFunction", () => {
     expect(
       getTsFnArgs(
@@ -91,6 +96,4 @@ describe("tsAnalysis", () => {
       ["test", 'const test = (array:string[]):string => {return "";}'],
     ]);
   });
-
-  // !!! Test what we don't support yet
 });

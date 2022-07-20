@@ -2,24 +2,27 @@ import { ArgDef } from "./analysis/Typescript";
 import { setup, fuzz, FuzzOptions, getDefaultFuzzOptions } from "./index";
 
 /**
- * These are not real tests, but they are useful for debugging
- * TODO: Create real tests
+ * Fuzzer option for integer arguments and a seed for deterministic test execution.
  */
-
-// !!!
 const intOptions: FuzzOptions = {
   ...getDefaultFuzzOptions(),
   seed: "qwertyuiop",
-  outFile: "fuzzedGen.json",
 };
+
+/**
+ * Fuzzer option for float arguments and a seed for deterministic test execution.
+ */
 const floatOptions: FuzzOptions = {
   ...intOptions,
   argOptions: ArgDef.getDefaultFloatOptions(),
 };
 
-// !!!
+/**
+ * These tests currently just ensure that the fuzzer runs and produces output
+ * for each example. TODO: Add tests that check the fuzzer output.
+ */
 describe("Fuzzer", () => {
-  // !!! Missing support for tuple types
+  // TODO: Add support for tuple types !!!
   test.skip("Fuzz example 1", async () => {
     const results = (
       await fuzz(setup(intOptions, "./src/examples/1.ts", "minValue"))
@@ -73,7 +76,7 @@ describe("Fuzzer", () => {
     expect(results.length).not.toStrictEqual(0);
   });
 
-  // !!! Missing support for type references
+  // TODO: Add support for type references
   test.skip("Fuzz example 7", async () => {
     const results = (
       await fuzz(setup(intOptions, "./src/examples/7.ts", "sortByWinLoss"))
@@ -88,15 +91,14 @@ describe("Fuzzer", () => {
     expect(results.length).not.toStrictEqual(0);
   });
 
-  // !!! Missing support for string randomization
-  test.skip("Fuzz example 9", async () => {
+  test("Fuzz example 9", async () => {
     const results = (
       await fuzz(setup(intOptions, "./src/examples/9.ts", "getOffsetOrDefault"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
 
-  // !!! Vector length is randomized here (probably do not want that)
+  // TODO: Vector length is randomized here - probably do not want that !!!
   test("Fuzz example 10", async () => {
     const results = (
       await fuzz(setup(intOptions, "./src/examples/10.ts", "gramSchmidt"))
@@ -104,11 +106,11 @@ describe("Fuzzer", () => {
     expect(results.length).not.toStrictEqual(0);
   });
 
-  // !!! Probably no bug to find in 11
+  // Note: not aware of any bug in this routine
   test("Fuzz example 11", async () => {
     const results = (
       await fuzz(setup(intOptions, "./src/examples/11.ts", "josephus"))
     ).results;
-    expect(results.length).not.toStrictEqual(0); // !!!
+    expect(results.length).not.toStrictEqual(0);
   });
 });

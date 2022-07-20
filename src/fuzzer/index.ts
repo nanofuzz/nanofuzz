@@ -10,11 +10,22 @@ import {
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 require("typescript-require");
 
-// Note: This is currently not suitable for use in a web extension:
-// - It directly uses fs
-// - It shells out to transpile TS code to JS (via typescript-require)
+/**
+ * WARNING: To embed this module into a VS Code web extension, at a minimu, the following
+ * changes are required:
+ *  1. Remove module `fs`: it requires direct fs access)
+ *  2. Remove module `typescript-require`: it shells out to execute `tsc
+ */
 
-// !!!
+/**
+ * Builds and returns the environment required by fuzz().
+ *
+ * @param options fuzzer option set
+ * @param srcFile file name of Typescript module containing the function to fuzz
+ * @param fnName optional name of the function to fuzz
+ * @param offset optional offset within the source file of the function to fuzz
+ * @returns a fuzz environment
+ */
 export const setup = (
   options: FuzzOptions,
   srcFile: string,
@@ -24,6 +35,13 @@ export const setup = (
   const srcText = fs.readFileSync(srcFile);
   const fnMatches = findFnInSource(srcText.toString(), fnName, offset);
 
+  // Ensure we have a valid set of Fuzz options
+  if (!isOptionValid(options))
+    throw new Error(
+      `Invalid options provided: ${JSON.stringify(options, null, 2)}`
+    );
+
+  // Ensure we found a function to fuzz
   if (!fnMatches.length)
     throw new Error(
       `Could not find function ${fnName}@${offset} in: ${srcFile})}`
@@ -37,9 +55,16 @@ export const setup = (
     fnSrc: foundFnSrc,
     srcFile: srcFile,
   };
-};
+}; // setup()
 
-// !!!
+/**
+ * Fuzzes the function specified in the fuzz environment and returns the test results.
+ *
+ * @param env fuzz environment (created by calling setup())
+ * @returns Promise containing the fuzz test results
+ *
+ * Throws an exception if the fuzz options are invalid
+ */
 export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.srcFile); // Help the module loader
@@ -47,6 +72,12 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     env,
     results: [],
   };
+
+  // Ensure we have a valid set of Fuzz options
+  if (!isOptionValid(env.options))
+    throw new Error(
+      `Invalid options provided: ${JSON.stringify(env.options, null, 2)}`
+    );
 
   // Build a generator for each argument
   const fuzzArgGen = env.inputs.map((e) => {
@@ -76,6 +107,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     };
 
     // Generate and store the inputs
+    // TODO: We should provide a way to filter inputs
     fuzzArgGen.forEach((e) => {
       result.input.push({
         name: e.arg.getName(),
@@ -99,7 +131,12 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     }
 
     // How can it fail ... let us count the ways...
-    if (result.exception || !isReal(rawOutput)) result.passed = false;
+    // TODO Add suppport for multiple validators !!!
+    if (
+      result.exception ||
+      (typeof rawOutput !== "string" && !implicitOracle(rawOutput))
+    )
+      result.passed = false;
 
     // Store the result for this iteration
     results.results.push(result);
@@ -112,70 +149,102 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
 
   // Return the result of the fuzzing activity
   return results;
-};
+}; // fuzz()
 
-// !!!
+/**
+ * Checks whether the given option set is valid.
+ *
+ * @param options fuzzer option set
+ * @returns true if the options are valid, false otherwise
+ */
+const isOptionValid = (options: FuzzOptions): boolean => {
+  return !(options.numTests < 0 || !ArgDef.isOptionValid(options.argOptions));
+}; // isOptionValid()
+
+/**
+ * Returns a default set of fuzzer options.
+ *
+ * @returns default set of fuzzer options
+ */
 export const getDefaultFuzzOptions = (): FuzzOptions => {
   return {
     argOptions: ArgDef.getDefaultOptions(),
     numTests: 1000,
   };
+}; // getDefaultFuzzOptions()
+
+/**
+ * The implicit oracle returns true only if the value contains no nulls, undefineds, NaNs,
+ * or Infinity values.
+ *
+ * @param x any value
+ * @returns true if x has no nulls, undefineds, NaNs, or Infinity values; false otherwise
+ */
+export const implicitOracle = (x: any): boolean => {
+  if (Array.isArray(x)) return !x.flat().some((e) => !implicitOracleValue(e));
+  else if (x === null || x === undefined) return false;
+  else if (typeof x === "object")
+    return !Object.values(x).some((e) => !implicitOracleValue(e));
+  else return implicitOracleValue(x);
 };
 
-// !!!
+/**
+ * Helped function for implicitOracle() that checks individual values
+ */
+const implicitOracleValue = (x: any): boolean => {
+  if (typeof x === "number")
+    return !(isNaN(x) || x === Infinity || x === -Infinity);
+  return true; // string, boolean
+};
+
+/**
+ * Fuzzer Environment required to fuzz a function.
+ */
 export type FuzzEnv = {
-  options: FuzzOptions;
-  inputs: ArgDef<ArgType>[];
-  fnName: string;
-  fnSrc: string;
-  srcFile: string;
+  options: FuzzOptions; // fuzzer options
+  srcFile: string; // source file path
+  fnName: string; // function name
+  fnSrc: string; // typescript source code of the function
+  inputs: ArgDef<ArgType>[]; // input argument definitions
 };
 
-// !!!
+/**
+ * Fuzzer Options that specify the fuzzing behavior
+ */
 export type FuzzOptions = {
-  outputFile?: string; // File to write output to
-  argOptions: ArgOptions; // Default options for arguments
-  seed?: string; // Variation / seed (optional)
-  numTests: number; // Number of fuzzing tests to execute
-  outFile?: string; // Optional JSON output file
-  // !!! oracleFn: typeof isReal; // The oracle function TODO: Create type for function shape
+  outputFile?: string; // optional file to receive the fuzzing output (JSON format)
+  argOptions: ArgOptions; // default options for arguments
+  seed?: string; // optional seed for pseudo-random number generator
+  numTests: number; // number of fuzzing tests to execute (>= 0)
+  // !!! oracleFn: typeof isReal; // TODO The oracle function !!!
 };
 
-// !!!
+/**
+ * Fuzzer Test Result
+ */
 export type FuzzTestResults = {
-  env: FuzzEnv;
-  results: FuzzTestResult[];
+  env: FuzzEnv; // fuzzer environment
+  results: FuzzTestResult[]; // fuzzing test results
 };
 
-// !!!
+/**
+ * Single Fuzzer Test Result
+ */
 export type FuzzTestResult = {
-  input: FuzzIoElement[];
-  output: FuzzIoElement[];
-  exception: boolean;
-  exceptionMessage?: string;
+  input: FuzzIoElement[]; // function input
+  output: FuzzIoElement[]; // function output
+  exception: boolean; // true if an exception was thrown
+  exceptionMessage?: string; // exception message if an exception was thrown
   passed: boolean; // true if output matches oracle; false, otherwise
 };
 
-// !!!
+/**
+ * Fuzzer Input/Output Element; i.e., a concrete input or output value
+ */
 export type FuzzIoElement = {
-  name: string;
-  offset: number;
-  value: any;
-};
-
-// !!!
-export const isReal = (x: any): boolean => {
-  if (Array.isArray(x)) return !x.flat().some((e) => !isRealValue(e));
-  else if (x === null || x === undefined) return false;
-  else if (typeof x === "object")
-    return !Object.values(x).some((e) => !isRealValue(e));
-  else return isRealValue(x);
-};
-
-// !!!
-export const isRealValue = (x: any): boolean => {
-  if (typeof x !== "number") return false;
-  else return !(isNaN(x) || x === Infinity || x === -Infinity);
+  name: string; // name of element
+  offset: number; // offset of element (0-based)
+  value: any; // value of element
 };
 
 export * from "./analysis/Typescript";
