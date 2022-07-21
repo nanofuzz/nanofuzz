@@ -40,7 +40,7 @@ export function GeneratorFactory<T extends ArgType>(
   // Setup environment for callback
   const intervals = arg.getIntervals();
   const options = arg.getOptions();
-  const dimLengths = arg.getOptions().dimLength;
+  const dimLength = arg.getOptions().dimLength;
   const isOptional = arg.isOptional();
 
   // Callback fn to generate random value
@@ -59,9 +59,9 @@ export function GeneratorFactory<T extends ArgType>(
   };
 
   // If the arg is an array, return the array generator
-  const randArgValueWrapper = !dimLengths.length
+  const randArgValueWrapper = !dimLength.length
     ? randFnWrapper
-    : () => nArray(prng, randFnWrapper, dimLengths, options);
+    : () => nArray(prng, randFnWrapper, dimLength, options);
 
   // Inject undefined values into arg only if it is optional
   return isOptional
@@ -214,20 +214,25 @@ const getRandomString = <T extends ArgType>(
  *
  * @param prng pseudo-random number generator
  * @param genFn generator for array element inputs
- * @param dimLengths array of lengths for each n-dimension
+ * @param dimLength array of lengths for each n-dimension
  * @param options argument option set
  * @returns n-dimensional array of random values
  */
 const nArray = (
   prng: seedrandom.prng,
   genFn: () => ArgType,
-  dimLengths: Interval<number>[],
+  dimLength: Interval<number>[],
   options: ArgOptions
 ): any => {
-  if (dimLengths.length) {
-    const [dim, ...rest] = dimLengths; // split the array: head, tail
+  if (dimLength.length) {
+    const [dim, ...rest] = dimLength; // split the array: head, tail
     const newArray = []; // output array
-    const thisDim = getRandomNumber(prng, dim.min, dim.max, options);
+    const thisDim = getRandomNumber(
+      prng,
+      dim.min,
+      dim.max,
+      ArgDef.getDefaultOptions()
+    );
     for (let i = 0; i < thisDim; i++) {
       newArray[i] = nArray(prng, genFn, rest, options);
     }
