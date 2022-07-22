@@ -33,8 +33,10 @@ export function activate(context: vscode.ExtensionContext): void {
       }
 
       // Ensure the editor is saved / not dirty
-      if (editor.document.isDirty)
+      if (editor.document.isDirty) {
         vscode.window.showErrorMessage("Please save the file before fuzzing.");
+        return;
+      }
 
       // Get the current active editor filename
       const srcFile = editor.document.uri.path; //full path of the file which the function is in.
@@ -64,7 +66,7 @@ export function activate(context: vscode.ExtensionContext): void {
       // TODO: make this a dialog - and remember the input !!!
       // TODO: ask about number of fuzz iterations !!!
       // TODO: ask about matrix dimensions !!!
-      fuzzStatusBar.text = `$(loading~spin) Fuzzing '${fuzzSetup.fnName}'...`;
+      fuzzStatusBar.text = `$(loading~spin) Fuzzing ${fuzzSetup.fnName}()...`;
       fuzzStatusBar.show();
 
       for (const i in fuzzSetup.inputs) {
@@ -154,7 +156,7 @@ export function activate(context: vscode.ExtensionContext): void {
       // Finally, call the fuzzer & keep the user updated
       const results = await fuzzer.fuzz(fuzzSetup);
       vscode.window.showInformationMessage(
-        `Done fuzzing '${fuzzSetup.fnName}'`
+        `Done fuzzing ${fuzzSetup.fnName}()`
       );
       const pass = results.results.reduce(
         (sum: number, e: fuzzer.FuzzTestResult) => (e.passed ? sum + 1 : sum),
