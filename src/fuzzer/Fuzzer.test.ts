@@ -112,4 +112,26 @@ describe("Fuzzer", () => {
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
+
+  test("Fuzz example 12", async () => {
+    const results = (
+      await fuzz(setup(intOptions, "./src/examples/12.ts", "levenshtein"))
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+  });
+
+  test("Fuzz example 13", async () => {
+    const results = (
+      await fuzz(setup(intOptions, "./src/examples/13.ts", "isSteady"))
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+  });
+
+  // TODO: Halt non-terminating tests
+  test.skip("Fuzz example 14", async () => {
+    const results = (
+      await fuzz(setup(intOptions, "./src/examples/14.ts", "modInv"))
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+  });
 });
