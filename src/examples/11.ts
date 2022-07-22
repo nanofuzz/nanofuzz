@@ -1,16 +1,26 @@
 /**
- * Adapted from: https://rosettacode.org/wiki/Josephus_problem#TypeScript
+ * Adapted from: https://rosettacode.org/wiki/Identity_matrix#TypeScript
  *
- * n prisoners are standing on a circle, sequentially numbered from 0 to n − 1.
- * An executioner walks along the circle, starting from prisoner 0, and kills
- * every k-th prisoner.  As the process goes on, the circle becomes smaller and
- * smaller, until only one prisoner remains, who is then freed.
+ * This function returns an identity matrix of n x n size such that:
+ *   n = 1 => 1,
+ *   n = 2 => [[1,0],[0,1],
+ *   n = 3 => [[1,0,0],[0,1,0],[0,0,1]],
+ *   ... and so on ...
  *
- * @param n Number of prisoners (integer greater than 0)
- * @param k Kill every k-th prisoner (integer greater than 0)
- * @returns the prisoner number that survives this grim process
+ * @param n dimensions of identity matrix (integer > 0)
+ * @returns identity matrix of n x n size
  */
-export function josephus(n: number, k: number): number {
-  if (!n) return 1;
-  return ((josephus(n - 1, k) + k - 1) % n) + 1;
+export function idMatrix(n: number): string | number | number[] | number[][] {
+  if (n < 1) return "Not defined";
+  else if (n === 1) return 1;
+  else {
+    const idMatrix: number[][] = [];
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i !== j) idMatrix[i][j] = 0;
+        else idMatrix[i][j] = 1;
+      }
+    }
+    return idMatrix;
+  }
 }

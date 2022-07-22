@@ -1,4 +1,4 @@
-import { josephus } from "./11";
+import { idMatrix } from "./11";
 
 /**
  * BUG REPORT
@@ -7,11 +7,14 @@ import { josephus } from "./11";
 describe("11", () => {
   // This test passes
   test("11a", () => {
-    expect(josephus(41, 3)).toStrictEqual(31);
+    expect(idMatrix(1)).toStrictEqual(1);
   });
 
   // Remove ".skip" to run this failing test
-  test("11b", () => {
-    expect(josephus(2, 4)).toStrictEqual(1);
+  test.skip("11b", () => {
+    expect(idMatrix(2)).toStrictEqual([
+      [1, 0],
+      [0, 1],
+    ]);
   });
 });
