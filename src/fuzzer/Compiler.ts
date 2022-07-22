@@ -1,5 +1,10 @@
-// Adapted from npm module 'typescript-require,' which has not been maintained
-// for a long time and lacked support for ES6+.
+/**
+ * Adapted from: https://github.com/theblacksmith/typescript-require
+ *
+ * This npm module has not been maintained for a long time and lacked
+ * support for ES6+ modules. This adaptation adds ES2020 support,
+ * allows better control over options, and adds basic type checking.
+ */
 import vm from "vm";
 import fs from "fs";
 import path from "path";
@@ -7,6 +12,9 @@ import path from "path";
 const tsc = path.join(path.dirname(require.resolve("typescript")), "tsc.js");
 const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8"));
 
+/**
+ * Default compilation options
+ */
 let options: CompilerOptions = {
   nodeLib: false,
   target: "ES2020", // default to ES2020
@@ -14,9 +22,12 @@ let options: CompilerOptions = {
   emitOnError: false,
   exitOnError: true,
   tmpDir: path.join(process.cwd(), "tmp"),
-  lib: ["DOM", "ScriptHost", "ES5", "ES6", "ES7", "esnext"],
+  lib: ["DOM", "ScriptHost", "ES2020"], // default to ES2020
 };
 
+/**
+ * Compiler Options
+ */
 export type CompilerOptions = {
   nodeLib: boolean;
   target: string;
@@ -27,13 +38,27 @@ export type CompilerOptions = {
   lib: string[];
 };
 
+/**
+ * Set the compiler options
+ *
+ * @param opts CompilerOptions to set
+ */
 export function setOptions(opts: CompilerOptions): void {
-  options = opts;
-}
-export function getOptions(): CompilerOptions {
-  return options;
+  options = { ...opts };
 }
 
+/**
+ * Gets the current compiler options
+ *
+ * @returns current set of compiler options
+ */
+export function getOptions(): CompilerOptions {
+  return { ...options };
+}
+
+/**
+ * Activate the TypeScript compiler hook
+ */
 export function activate(): void {
   require.extensions[".ts"] = function (module) {
     const jsname = compileTS(module);
@@ -41,10 +66,21 @@ export function activate(): void {
   };
 }
 
+/**
+ * De-activate the TypeScript compiler hook
+ */
 export function deactivate(): void {
   require.extensions[".ts"] = undefined;
 }
 
+/**
+ * Returns true if the TypeScript file has been modified since it was
+ * last compiled to Javascript.
+ *
+ * @param tsname TypeScript file name
+ * @param jsname JavaScript file name
+ * @returns true if the TypeScript file has been modified since the JavaScript file was last compiled
+ */
 function isModified(tsname: string, jsname: string) {
   const tsMTime = fs.statSync(tsname).mtime;
   let jsMTime: Date = new Date(0);
@@ -59,7 +95,8 @@ function isModified(tsname: string, jsname: string) {
 }
 
 /**
- * Compiles TypeScript file, returns js file path
+ * Compiles TypeScript file and returns js file path
+ *
  * @return {string} js file path
  */
 function compileTS(module: any) {
@@ -74,10 +111,12 @@ function compileTS(module: any) {
     path.basename(module.filename, ".ts") + ".js"
   );
 
+  // If the Javascript file is current, return it directly
   if (!isModified(module.filename, jsname)) {
     return jsname;
   }
 
+  // Construct tsc args
   const argv = [
     "node",
     "tsc.js",
@@ -108,6 +147,7 @@ function compileTS(module: any) {
     },
   });
 
+  // Create the context for the sandbox
   const sandbox = {
     process: proc,
     require: require,
@@ -118,17 +158,22 @@ function compileTS(module: any) {
     __filename: tsc,
   };
 
+  // Execute the module script
   tscScript.runInNewContext(sandbox);
   if (exitCode !== 0) {
-    throw new Error(
-      "Unable to compile TypeScript file." + " " + module.filaname
-    );
-    //throw new Error("Unable to compile TypeScript file." + " " + module.filaname + " " + JSON.stringify(sandbox));
+    throw new Error("Unable to compile TypeScript file.");
   }
 
   return jsname;
 }
 
+/**
+ * Execute the Javascript module
+ *
+ * @param jsname name of the Javascript file
+ * @param module Javqscript module
+ * @returns The script result, if any
+ */
 function runJS(jsname: string, module: any) {
   const content = fs.readFileSync(jsname, "utf8");
 

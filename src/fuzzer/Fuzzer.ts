@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import vm from "vm";
 import seedrandom from "seedrandom";
 import {
   ArgDef,
@@ -11,10 +12,10 @@ import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 
 /**
- * WARNING: To embed this module into a VS Code web extension, at a minimu, the following
- * changes are required:
- *  1. Remove module `fs`: it requires direct fs access)
- *  2. Remove module `Compiler`: it uses `fs` and shells out to `tsc`
+ * WARNING: To embed this module into a VS Code web extension, at a minimu,
+ * the following issues need to be resolved:
+ *  1. Module `fs` requires direct fs access)
+ *  2. Module `Compiler` uses `fs` and shells out to `tsc`
  */
 
 /**
@@ -68,7 +69,6 @@ export const setup = (
 export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.srcFile); // Help the module loader
-  console.log(`Fuzzing ${env.fnName} in ${env.srcFile} (${fqSrcFile})`);
   const results: FuzzTestResults = {
     env,
     results: [],
@@ -85,9 +85,10 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     return { arg: e, gen: GeneratorFactory(e, prng) };
   });
 
-  // Load the module that includes the function.  This
-  // will be a TypeScript source file, so we first must
-  // compile it to JavaScript prior to execution.
+  // The module that includes the function to fuzz will
+  // be a TypeScript source file, so we first must compile
+  // it to JavaScript prior to execution.  This activates the
+  // TypeScript compiler that hooks into the require() function.
   compiler.activate();
 
   // The fuzz target is likely under development, so
@@ -97,7 +98,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   /* eslint eslint-comments/no-use: off */
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require(fqSrcFile);
-  compiler.deactivate();
+  compiler.deactivate(); // Deactivate the TypeScript compiler
 
   // Ensure what we found is a function
   if (!(env.fnName in mod))
@@ -111,16 +112,23 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
 
   // Build a wrapper around the function to be fuzzed that we can
   // easily call in the testing loop.
-  const fnWrapper = (input: FuzzIoElement[]): any => {
+  const fnWrapper = functionTimeout((input: FuzzIoElement[]): any => {
     return mod[env.fnName](...input.map((e) => e.value));
-  };
+  }, env.options.fnTimeout);
 
   // Main test loop
-  for (let i = 0; i < env.options.numTests; i++) {
+  const startTime = new Date().getTime();
+  for (let i = 0; i < env.options.maxTests; i++) {
+    // End testing if we exceed the suite timeout
+    if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
+      break;
+    }
+
     const result: FuzzTestResult = {
       input: [],
       output: [],
       exception: false,
+      timeout: false,
       passed: true,
     };
 
@@ -135,25 +143,28 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     });
 
     // Call the function via the wrapper
-    let rawOutput: any;
     try {
-      rawOutput = fnWrapper(result.input);
       result.output.push({
         name: "0",
         offset: 0,
-        value: rawOutput,
+        value: fnWrapper(result.input),
       });
     } catch (e: any) {
-      result.exception = true;
-      result.exceptionMessage = e.message;
-      result.stack = e.stack;
+      if (isTimeoutError(e)) {
+        result.timeout = true;
+      } else {
+        result.exception = true;
+        result.exceptionMessage = e.message;
+        result.stack = e.stack;
+      }
     }
 
     // How can it fail ... let us count the ways...
     // TODO Add suppport for multiple validators !!!
     if (
       result.exception ||
-      (typeof rawOutput !== "string" && !implicitOracle(rawOutput))
+      result.timeout ||
+      result.output.some((e) => !implicitOracle(e))
     )
       result.passed = false;
 
@@ -177,7 +188,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
  * @returns true if the options are valid, false otherwise
  */
 const isOptionValid = (options: FuzzOptions): boolean => {
-  return !(options.numTests < 0 || !ArgDef.isOptionValid(options.argOptions));
+  return !(options.maxTests < 0 || !ArgDef.isOptionValid(options.argOptions));
 }; // isOptionValid()
 
 /**
@@ -188,7 +199,9 @@ const isOptionValid = (options: FuzzOptions): boolean => {
 export const getDefaultFuzzOptions = (): FuzzOptions => {
   return {
     argOptions: ArgDef.getDefaultOptions(),
-    numTests: 1000,
+    maxTests: 1000,
+    fnTimeout: 100,
+    suiteTimeout: 3000,
   };
 }; // getDefaultFuzzOptions()
 
@@ -206,6 +219,56 @@ export const implicitOracle = (x: any): boolean => {
     return !Object.values(x).some((e) => !implicitOracleValue(e));
   else return implicitOracleValue(x);
 };
+
+/**
+ * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
+ *
+ * The original function-timeout is an ES module; incorporating it here
+ * avoids adding Babel to the dev toolchain solely for the benefit of Jest,
+ * for which ESM support without Babel remains buggy / experimental. Maybe
+ * we can remove this in the future or just add Babel for Jest.
+ *
+ * This function accepts a function and a timeout as input.  It then returns
+ * a wrapper function that will throw an exception if the function does not
+ * complete within, roughly, the timeout.
+ *
+ * @param function_ function to be executed with the timeout
+ * @param param1
+ * @returns
+ */
+export default function functionTimeout(function_: any, timeout: number): any {
+  const script = new vm.Script("returnValue = function_()");
+
+  const wrappedFunction = (...arguments_: any[]) => {
+    const context = {
+      returnValue: undefined,
+      function_: () => function_(...arguments_),
+    };
+
+    script.runInNewContext(context, { timeout: timeout });
+
+    return context.returnValue;
+  };
+
+  Object.defineProperty(wrappedFunction, "name", {
+    value: `functionTimeout(${function_.name || "<anonymous>"})`,
+    configurable: true,
+  });
+
+  return wrappedFunction;
+}
+
+/**
+ * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
+ *
+ * Returns true if the exception is a timeout.
+ *
+ * @param error exception
+ * @returns true if the exeception is a timeout exception, false otherwise
+ */
+export function isTimeoutError(error: { code?: string }): boolean {
+  return "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
+}
 
 /**
  * Helped function for implicitOracle() that checks individual values
@@ -234,7 +297,9 @@ export type FuzzOptions = {
   outputFile?: string; // optional file to receive the fuzzing output (JSON format)
   argOptions: ArgOptions; // default options for arguments
   seed?: string; // optional seed for pseudo-random number generator
-  numTests: number; // number of fuzzing tests to execute (>= 0)
+  maxTests: number; // number of fuzzing tests to execute (>= 0)
+  fnTimeout: number; // timeout threshold in ms per test
+  suiteTimeout: number; // timeout for the entire test suite
   // !!! oracleFn: typeof isReal; // TODO The oracle function !!!
 };
 
@@ -255,6 +320,7 @@ export type FuzzTestResult = {
   exception: boolean; // true if an exception was thrown
   exceptionMessage?: string; // exception message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
+  timeout: boolean; // true if the fn call timed out
   passed: boolean; // true if output matches oracle; false, otherwise
 };
 
