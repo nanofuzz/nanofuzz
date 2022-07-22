@@ -4,7 +4,7 @@ import {
   ArgTag,
   getTsFnArgs,
 } from "../analysis/Typescript";
-import { setup, fuzz, FuzzOptions, getDefaultFuzzOptions } from "../index";
+import { setup, fuzz, FuzzOptions, getDefaultFuzzOptions } from "../Fuzzer";
 import { GeneratorFactory } from "./GeneratorFactory";
 import seedrandom from "seedrandom";
 

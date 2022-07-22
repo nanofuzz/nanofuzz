@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import * as fuzzer from "./fuzzer/index";
+import * as fuzzer from "./fuzzer/Fuzzer";
 
 /**
  * Called by VS Code to activates the extension.

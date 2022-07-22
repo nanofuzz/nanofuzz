@@ -1,5 +1,5 @@
 import { ArgDef } from "./analysis/Typescript";
-import { setup, fuzz, FuzzOptions, getDefaultFuzzOptions } from "./index";
+import { setup, fuzz, FuzzOptions, getDefaultFuzzOptions } from "./Fuzzer";
 
 /**
  * Fuzzer option for integer arguments and a seed for deterministic test execution.
@@ -106,10 +106,9 @@ describe("Fuzzer", () => {
     expect(results.length).not.toStrictEqual(0);
   });
 
-  // Note: not aware of any bug in this routine
   test("Fuzz example 11", async () => {
     const results = (
-      await fuzz(setup(intOptions, "./src/examples/11.ts", "josephus"))
+      await fuzz(setup(intOptions, "./src/examples/11.ts", "idMatrix"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });

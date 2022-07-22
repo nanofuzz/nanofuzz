@@ -8,13 +8,13 @@ import {
   getTsFnArgs,
 } from "./analysis/Typescript";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
-require("typescript-require");
+import * as compiler from "./Compiler";
 
 /**
  * WARNING: To embed this module into a VS Code web extension, at a minimu, the following
  * changes are required:
  *  1. Remove module `fs`: it requires direct fs access)
- *  2. Remove module `typescript-require`: it shells out to execute `tsc
+ *  2. Remove module `Compiler`: it uses `fs` and shells out to `tsc`
  */
 
 /**
@@ -68,6 +68,7 @@ export const setup = (
 export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.srcFile); // Help the module loader
+  console.log(`Fuzzing ${env.fnName} in ${env.srcFile} (${fqSrcFile})`);
   const results: FuzzTestResults = {
     env,
     results: [],
@@ -84,15 +85,32 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     return { arg: e, gen: GeneratorFactory(e, prng) };
   });
 
-  // Build a wrapper around the function to be fuzzed that we can
-  // easily call in the testing loop.  The code we need to fuzz is
-  // likely to be raw TS that our JS VM can't compile. Here we use
-  // typescript-require, which hooks into *.ts requires via (the
-  // deprecated) require.extensions property.
-  //
+  // Load the module that includes the function.  This
+  // will be a TypeScript source file, so we first must
+  // compile it to JavaScript prior to execution.
+  compiler.activate();
+
+  // The fuzz target is likely under development, so
+  // invalidate the cache to get the latest copy.
+  delete require.cache[require.resolve(fqSrcFile)];
+
   /* eslint eslint-comments/no-use: off */
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require(fqSrcFile);
+  compiler.deactivate();
+
+  // Ensure what we found is a function
+  if (!(env.fnName in mod))
+    throw new Error(
+      `Could not find exported function ${env.fnName} in ${env.srcFile} to fuzz`
+    );
+  else if (typeof mod[env.fnName] !== "function")
+    throw new Error(
+      `Cannot fuzz exported member '${env.fnName} in ${env.srcFile} because it is not a function`
+    );
+
+  // Build a wrapper around the function to be fuzzed that we can
+  // easily call in the testing loop.
   const fnWrapper = (input: FuzzIoElement[]): any => {
     return mod[env.fnName](...input.map((e) => e.value));
   };
@@ -128,6 +146,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     } catch (e: any) {
       result.exception = true;
       result.exceptionMessage = e.message;
+      result.stack = e.stack;
     }
 
     // How can it fail ... let us count the ways...
@@ -235,6 +254,7 @@ export type FuzzTestResult = {
   output: FuzzIoElement[]; // function output
   exception: boolean; // true if an exception was thrown
   exceptionMessage?: string; // exception message if an exception was thrown
+  stack?: string; // stack trace if an exception was thrown
   passed: boolean; // true if output matches oracle; false, otherwise
 };
 
