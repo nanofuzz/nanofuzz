@@ -8,8 +8,13 @@ import {
 
 const argOptions = ArgDef.getDefaultOptions();
 
-// !!!
-describe("tsAnalysis", () => {
+/**
+ * Test that the TypeScript analyzer retrieves function parameters correctly in
+ * the circumstances we expect to encounter.
+ *
+ * TODO: Add 'skip' tests for the situations we do not support yet.
+ */
+describe("fuzzer/analysis/Typescript", () => {
   test("arrowFunction", () => {
     expect(
       getTsFnArgs(
@@ -18,26 +23,10 @@ describe("tsAnalysis", () => {
         argOptions
       )
     ).toStrictEqual([
-      new ArgDef("name", 0, ArgTag.STRING, 0, undefined, undefined, argOptions),
-      new ArgDef(
-        "offset",
-        1,
-        ArgTag.NUMBER,
-        0,
-        undefined,
-        undefined,
-        argOptions
-      ),
-      new ArgDef(
-        "happy",
-        2,
-        ArgTag.BOOLEAN,
-        0,
-        undefined,
-        undefined,
-        argOptions
-      ),
-      new ArgDef("nums", 3, ArgTag.NUMBER, 2, undefined, undefined, argOptions),
+      new ArgDef("name", 0, ArgTag.STRING, argOptions, 0),
+      new ArgDef("offset", 1, ArgTag.NUMBER, argOptions, 0),
+      new ArgDef("happy", 2, ArgTag.BOOLEAN, argOptions, 0),
+      new ArgDef("nums", 3, ArgTag.NUMBER, argOptions, 2),
     ]);
   });
 
@@ -49,26 +38,10 @@ describe("tsAnalysis", () => {
         argOptions
       )
     ).toStrictEqual([
-      new ArgDef("name", 0, ArgTag.STRING, 0, undefined, undefined, argOptions),
-      new ArgDef(
-        "offset",
-        1,
-        ArgTag.NUMBER,
-        0,
-        undefined,
-        undefined,
-        argOptions
-      ),
-      new ArgDef(
-        "happy",
-        2,
-        ArgTag.BOOLEAN,
-        0,
-        undefined,
-        undefined,
-        argOptions
-      ),
-      new ArgDef("nums", 3, ArgTag.NUMBER, 2, undefined, undefined, argOptions),
+      new ArgDef("name", 0, ArgTag.STRING, argOptions, 0),
+      new ArgDef("offset", 1, ArgTag.NUMBER, argOptions, 0),
+      new ArgDef("happy", 2, ArgTag.BOOLEAN, argOptions, 0),
+      new ArgDef("nums", 3, ArgTag.NUMBER, argOptions, 2),
     ]);
   });
 
@@ -80,7 +53,9 @@ describe("tsAnalysis", () => {
         return total;}`,
         argOptions
       )
-    ).toStrictEqual([new ArgDef("total", 0, ArgTag.NUMBER, 0, true)]);
+    ).toStrictEqual([
+      new ArgDef("total", 0, ArgTag.NUMBER, argOptions, 0, true),
+    ]);
   });
 
   const src = `export function test(array: string[]): string {return "";}
@@ -121,6 +96,4 @@ describe("tsAnalysis", () => {
       ["test", 'const test = (array:string[]):string => {return "";}'],
     ]);
   });
-
-  // !!! Test what we don't support yet
 });
