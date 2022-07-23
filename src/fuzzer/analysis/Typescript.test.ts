@@ -18,7 +18,7 @@ describe("fuzzer/analysis/Typescript", () => {
   test("arrowFunction", () => {
     expect(
       getTsFnArgs(
-        `const $_f = (name: string, offset: number, happy: boolean, nums: number[][]):void => {
+        `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void => {
         const whatever:string = name + offset + happy + JSON.stringify(nums);}`,
         argOptions
       )
@@ -27,13 +27,21 @@ describe("fuzzer/analysis/Typescript", () => {
       new ArgDef("offset", 1, ArgTag.NUMBER, argOptions, 0),
       new ArgDef("happy", 2, ArgTag.BOOLEAN, argOptions, 0),
       new ArgDef("nums", 3, ArgTag.NUMBER, argOptions, 2),
+      new ArgDef("obj", 4, ArgTag.OBJECT, argOptions, 0, undefined, undefined, [
+        new ArgDef("num", 0, ArgTag.NUMBER, argOptions, 0),
+        new ArgDef("numA", 1, ArgTag.NUMBER, argOptions, 1),
+        new ArgDef("str", 2, ArgTag.STRING, argOptions, 0),
+        new ArgDef("strA", 3, ArgTag.STRING, argOptions, 1),
+        new ArgDef("bool", 4, ArgTag.BOOLEAN, argOptions, 0),
+        new ArgDef("boolA", 5, ArgTag.BOOLEAN, argOptions, 1),
+      ]),
     ]);
   });
 
   test("standardFunction", () => {
     expect(
       getTsFnArgs(
-        `function $_f(name: string, offset: number, happy: boolean, nums: number[][]):void {
+        `function $_f(name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void {
         const whatever:string = name + offset + happy + JSON.stringify(nums);}`,
         argOptions
       )
@@ -42,6 +50,14 @@ describe("fuzzer/analysis/Typescript", () => {
       new ArgDef("offset", 1, ArgTag.NUMBER, argOptions, 0),
       new ArgDef("happy", 2, ArgTag.BOOLEAN, argOptions, 0),
       new ArgDef("nums", 3, ArgTag.NUMBER, argOptions, 2),
+      new ArgDef("obj", 4, ArgTag.OBJECT, argOptions, 0, undefined, undefined, [
+        new ArgDef("num", 0, ArgTag.NUMBER, argOptions, 0),
+        new ArgDef("numA", 1, ArgTag.NUMBER, argOptions, 1),
+        new ArgDef("str", 2, ArgTag.STRING, argOptions, 0),
+        new ArgDef("strA", 3, ArgTag.STRING, argOptions, 1),
+        new ArgDef("bool", 4, ArgTag.BOOLEAN, argOptions, 0),
+        new ArgDef("boolA", 5, ArgTag.BOOLEAN, argOptions, 1),
+      ]),
     ]);
   });
 
