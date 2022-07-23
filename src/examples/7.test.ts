@@ -1,4 +1,4 @@
-import { sortByWinLoss, PlayerRecord } from "./7";
+import { sortByWinLoss } from "./7";
 
 /**
  * BUG REPORT
@@ -9,14 +9,14 @@ describe("7", () => {
   test("7a", () => {
     expect(
       sortByWinLoss([
-        [2, 1], // 2/1
-        [3, 1], // 3/1
-        [1, 2], // 1/2
+        { win: 2, lose: 1 }, // 2/1
+        { win: 3, lose: 1 }, // 3/1
+        { win: 1, lose: 2 }, // 1/2
       ])
     ).toStrictEqual([
-      [3, 1], // 3/1
-      [2, 1], // 2/1
-      [1, 2], // 1/2
+      { win: 3, lose: 1, rank: 3 }, // 3/1
+      { win: 2, lose: 1, rank: 2 }, // 2/1
+      { win: 1, lose: 2, rank: 0.5 }, // 1/2
     ]);
   });
 
@@ -24,14 +24,14 @@ describe("7", () => {
   test.skip("7b", () => {
     expect(
       sortByWinLoss([
-        [0, 0], // 0/0
-        [2, 2], // 2/2
-        [3, 1], // 3/1
+        { win: 0, lose: 0 }, // 0/0
+        { win: 2, lose: 2 }, // 2/2
+        { win: 3, lose: 1 }, // 3/1
       ])
     ).toStrictEqual([
-      [3, 1], // 3/1
-      [2, 2], // 2/2
-      [0, 0], // 1/0
+      { win: 3, lose: 1, rank: 3 }, // 3/1
+      { win: 2, lose: 2, rank: 1 }, // 2/2
+      { win: 0, lose: 0, rank: 0 }, // 0/0
     ]);
   });
 });
