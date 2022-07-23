@@ -1,5 +1,11 @@
 import seedrandom from "seedrandom";
-import { ArgDef, ArgOptions, ArgType, Interval } from "../analysis/Typescript";
+import {
+  ArgDef,
+  ArgOptions,
+  ArgTag,
+  ArgType,
+  Interval,
+} from "../analysis/Typescript";
 
 /**
  * Builds and returns a generator function that generates a pseudo-
@@ -32,19 +38,38 @@ export function GeneratorFactory<T extends ArgType>(
     case "string":
       randFn = getRandomString;
       break;
-    case "object": // fallthrough !!!
+    case "object":
+      // We generate this here using arg
+      randFn = <T extends ArgType>(
+        prng: seedrandom.prng,
+        min: T,
+        max: T,
+        options: ArgOptions
+      ): T => {
+        if (typeof min !== "object" || typeof max !== "object")
+          throw new Error("Min and max must be objects");
+        const outObj = {};
+        for (const child of arg.getChildren()) {
+          outObj[child.getName()] = GeneratorFactory(child, prng)();
+        }
+        return outObj as T;
+      };
+      break;
     default:
       throw new Error(`Unsupported argument type: ${arg.getType()[0]}`);
   }
 
   // Setup environment for callback
   const intervals = arg.getIntervals();
+  const type = arg.getType();
   const options = arg.getOptions();
   const dimLength = arg.getOptions().dimLength;
   const isOptional = arg.isOptional();
 
   // Callback fn to generate random value
   const randFnWrapper = () => {
+    if (type === ArgTag.OBJECT) return randFn(prng, {}, {}, options);
+
     // TODO: weight interval selection based on the size of the interval !!!
     const interval =
       intervals[

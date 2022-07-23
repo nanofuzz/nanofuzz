@@ -300,7 +300,7 @@ export type FuzzOptions = {
   maxTests: number; // number of fuzzing tests to execute (>= 0)
   fnTimeout: number; // timeout threshold in ms per test
   suiteTimeout: number; // timeout for the entire test suite
-  // !!! oracleFn: typeof isReal; // TODO The oracle function !!!
+  // !!! oracleFn: // TODO The oracle function
 };
 
 /**

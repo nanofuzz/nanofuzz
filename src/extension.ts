@@ -71,86 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
       for (const i in fuzzSetup.inputs) {
         const thisInput = fuzzSetup.inputs[i];
-        const argPrefix = `${thisInput.getName()}:`;
-
-        if (thisInput.getType() === fuzzer.ArgTag.NUMBER) {
-          // Ask if it's a float or an integer
-          const floatOrInt = await vscode.window.showQuickPick(
-            [
-              { label: "Integer", description: "Integer" },
-              { label: "Float", description: "Float" },
-            ],
-            {
-              placeHolder: `${argPrefix} Fuzz with floats or an integers? (default: integers)`,
-            }
-          );
-          let cvtFn: typeof parseInt;
-          if (floatOrInt && floatOrInt.label === "Float") {
-            cvtFn = parseFloat;
-            thisInput.setOptions({
-              ...thisInput.getOptions(),
-              numInteger: false,
-            });
-          } else {
-            cvtFn = parseInt;
-            thisInput.setOptions({
-              ...thisInput.getOptions(),
-              numInteger: true,
-            });
-          }
-
-          // Allow the user to override the default min/max
-          const intervals = thisInput.getIntervals();
-          const min =
-            (await vscode.window.showInputBox({
-              prompt: `${argPrefix} Please enter a MINIMUM number to fuzz`,
-              value: Number(intervals[0].min).toString(),
-            })) ?? Number(intervals[0].min).toString();
-          const max =
-            (await vscode.window.showInputBox({
-              prompt: `${argPrefix} Please enter a MAXIMUM number to fuzz`,
-              value: Number(intervals[0].max).toString(),
-            })) ?? Number(intervals[0].max).toString();
-          thisInput.setIntervals([{ min: cvtFn(min), max: cvtFn(max) }]);
-        } // if: Numeric Input
-
-        if (thisInput.getType() === fuzzer.ArgTag.STRING) {
-          // Allow the user to override the default min/max
-          const intervals = thisInput.getIntervals();
-          const min =
-            (await vscode.window.showInputBox({
-              prompt: `${argPrefix} Please enter a MINIMUM string value to fuzz`,
-              value: intervals[0].min.toString(),
-            })) ?? intervals[0].min.toString();
-          const max =
-            (await vscode.window.showInputBox({
-              prompt: `${argPrefix} Please enter a MAXIMUM string value to fuzz`,
-              value: intervals[0].max.toString(),
-            })) ?? intervals[0].max.toString();
-          thisInput.setIntervals([{ min: min, max: max }]);
-
-          // Allow the user to override the default string length
-          const inputOptions = thisInput.getOptions();
-          const minLength = parseInt(
-            (await vscode.window.showInputBox({
-              prompt: `${argPrefix} Please enter a MINIMUM string length to fuzz`,
-              value: inputOptions.strLength.min.toString(),
-            })) ?? inputOptions.strLength.min.toString()
-          );
-          const maxLength = parseInt(
-            (await vscode.window.showInputBox({
-              prompt: `${argPrefix} Please enter a MAXIMUM string length to fuzz`,
-              value: inputOptions.strLength.max.toString(),
-            })) ?? inputOptions.strLength.max.toString()
-          );
-          thisInput.setOptions({
-            ...inputOptions,
-            strLength: {
-              min: isNaN(minLength) ? inputOptions.strLength.min : minLength,
-              max: isNaN(maxLength) ? inputOptions.strLength.max : maxLength,
-            },
-          });
-        } // if: String Input
+        await getRangeParams(thisInput);
       } // for: fuzzSetup.inputs
 
       // Finally, call the fuzzer & keep the user updated
@@ -170,7 +91,7 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.workspace
         .openTextDocument({
           language: "json",
-          content: JSON.stringify(results, null, 2),
+          content: JSON.stringify(results.results, null, 2),
         })
         .then((doc) => {
           vscode.window.showTextDocument(doc);
@@ -184,4 +105,112 @@ export function activate(context: vscode.ExtensionContext): void {
  */
 export function deactivate(): void {
   // !!!
+}
+
+/**
+ * Asks the user for range information for the given argument.
+ *
+ * @param arg argument for which we need range information
+ * @returns void
+ */
+async function getRangeParams(
+  arg: fuzzer.ArgDef<fuzzer.ArgType>
+): Promise<void> {
+  const argPrefix = `${arg.getName()}:`;
+
+  switch (arg.getType()) {
+    // Object -------------------------------------------------------- //
+    case fuzzer.ArgTag.OBJECT:
+      for (const child of arg.getChildren()) {
+        await getRangeParams(child);
+      }
+      break;
+
+    // Number -------------------------------------------------------- //
+    case fuzzer.ArgTag.NUMBER: {
+      // Ask if it's a float or an integer
+      const floatOrInt = await vscode.window.showQuickPick(
+        [
+          { label: "Integer", description: "Integer" },
+          { label: "Float", description: "Float" },
+        ],
+        {
+          placeHolder: `${argPrefix} Fuzz with floats or an integers? (default: integers)`,
+        }
+      );
+      let cvtFn: typeof parseInt;
+      if (floatOrInt && floatOrInt.label === "Float") {
+        cvtFn = parseFloat;
+        arg.setOptions({
+          ...arg.getOptions(),
+          numInteger: false,
+        });
+      } else {
+        cvtFn = parseInt;
+        arg.setOptions({
+          ...arg.getOptions(),
+          numInteger: true,
+        });
+      }
+
+      // Allow the user to override the default min/max
+      const intervals = arg.getIntervals();
+      const min =
+        (await vscode.window.showInputBox({
+          prompt: `${argPrefix} Please enter a MINIMUM number to fuzz`,
+          value: Number(intervals[0].min).toString(),
+        })) ?? Number(intervals[0].min).toString();
+      const max =
+        (await vscode.window.showInputBox({
+          prompt: `${argPrefix} Please enter a MAXIMUM number to fuzz`,
+          value: Number(intervals[0].max).toString(),
+        })) ?? Number(intervals[0].max).toString();
+      arg.setIntervals([{ min: cvtFn(min), max: cvtFn(max) }]);
+
+      break;
+    }
+
+    // String -------------------------------------------------------- //
+    case fuzzer.ArgTag.STRING: {
+      // Allow the user to override the default min/max
+      /* Tteam not presently interested in string min/max value
+      const intervals = thisInput.getIntervals();
+      const min =
+        (await vscode.window.showInputBox({
+          prompt: `${argPrefix} Please enter a MINIMUM string value to fuzz`,
+          value: intervals[0].min.toString(),
+        })) ?? intervals[0].min.toString();
+      const max =
+        (await vscode.window.showInputBox({
+          prompt: `${argPrefix} Please enter a MAXIMUM string value to fuzz`,
+          value: intervals[0].max.toString(),
+        })) ?? intervals[0].max.toString();
+      thisInput.setIntervals([{ min: min, max: max }]);*/
+
+      // Allow the user to override the default string length
+      const inputOptions = arg.getOptions();
+      const minLength = parseInt(
+        (await vscode.window.showInputBox({
+          prompt: `${argPrefix} Please enter a MINIMUM string length to fuzz`,
+          value: inputOptions.strLength.min.toString(),
+        })) ?? inputOptions.strLength.min.toString()
+      );
+      const maxLength = parseInt(
+        (await vscode.window.showInputBox({
+          prompt: `${argPrefix} Please enter a MAXIMUM string length to fuzz`,
+          value: inputOptions.strLength.max.toString(),
+        })) ?? inputOptions.strLength.max.toString()
+      );
+      arg.setOptions({
+        ...inputOptions,
+        strLength: {
+          min: isNaN(minLength) ? inputOptions.strLength.min : minLength,
+          max: isNaN(maxLength) ? inputOptions.strLength.max : maxLength,
+        },
+      });
+
+      break;
+    }
+  }
+  return;
 }

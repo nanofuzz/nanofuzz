@@ -22,8 +22,7 @@ const floatOptions: FuzzOptions = {
  * for each example. TODO: Add tests that check the fuzzer output.
  */
 describe("Fuzzer", () => {
-  // TODO: Add support for tuple types !!!
-  test.skip("Fuzz example 1", async () => {
+  test("Fuzz example 1", async () => {
     const results = (
       await fuzz(setup(intOptions, "./src/examples/1.ts", "minValue"))
     ).results;
@@ -127,8 +126,7 @@ describe("Fuzzer", () => {
     expect(results.length).not.toStrictEqual(0);
   });
 
-  // TODO: Halt non-terminating tests
-  test.skip("Fuzz example 14", async () => {
+  test("Fuzz example 14", async () => {
     const results = (
       await fuzz(setup(intOptions, "./src/examples/14.ts", "modInv"))
     ).results;

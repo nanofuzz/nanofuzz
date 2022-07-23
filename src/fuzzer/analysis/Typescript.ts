@@ -6,6 +6,7 @@ import {
 import {
   Identifier,
   TSTypeAnnotation,
+  TSPropertySignature,
   TypeNode,
 } from "@typescript-eslint/types/dist/ast-spec";
 
@@ -22,6 +23,7 @@ import {
  * - Booleans
  * - Strings
  * - Homogeneous n-dimensional arrays of the above types
+ * - Literal object types
  * - any, provided a mapping to one of the above types
  *
  * Argument types NOT currently supported (will throw an exception):
@@ -30,7 +32,6 @@ import {
  * - OR types
  * - Non-primitive types
  * - Deconstructed types
- * - Objects
  * - Generics
  *
  * Other limitations of the current implementation
@@ -156,6 +157,7 @@ export class ArgDef<T extends ArgType> {
   private optional: boolean; // whether the argument is optional
   private intervals: Interval<T>[]; // input intervals for the argument
   private options: ArgOptions; // default argument options
+  private children: ArgDef<ArgType>[]; // child arguments (if this is an object)
 
   /**
    * Constructor to instantiate a new ArgDef object.
@@ -175,13 +177,15 @@ export class ArgDef<T extends ArgType> {
     options: ArgOptions,
     dims?: number,
     optional?: boolean,
-    intervals?: Interval<T>[]
+    intervals?: Interval<T>[],
+    children?: ArgDef<ArgType>[]
   ) {
     this.name = name;
     this.offset = offset;
     this.type = type;
     this.dims = dims ?? 0;
     this.optional = optional ?? false;
+    this.children = type === ArgTag.OBJECT ? children ?? [] : [];
 
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(options))
@@ -224,7 +228,9 @@ export class ArgDef<T extends ArgType> {
 
     // If no interval is provided, use the type's default
     this.intervals =
-      intervals === undefined || intervals.length === 0
+      intervals === undefined ||
+      intervals.length === 0 ||
+      type === ArgTag.OBJECT
         ? (ArgDef.getDefaultIntervals(this.type, this.options) as Interval<T>[])
         : intervals;
 
@@ -263,7 +269,7 @@ export class ArgDef<T extends ArgType> {
       case ArgTag.BOOLEAN:
         return [{ min: false, max: true }];
       case ArgTag.OBJECT:
-        throw new Error("Unsupported type: OBJECT"); // !!!
+        return [];
       default:
         throw new Error(`Unsupported type: ${type}`);
     }
@@ -280,11 +286,23 @@ export class ArgDef<T extends ArgType> {
    * Throws an exception if the argument is missing a type annotation.
    */
   public static fromAstNode(
-    node: Identifier,
+    node: Identifier | TSPropertySignature,
     offset: number,
     options: ArgOptions
   ): ArgDef<ArgType> {
     if (node.typeAnnotation !== undefined) {
+      let name: string;
+
+      if (node.type === AST_NODE_TYPES.Identifier) {
+        name = node.name;
+      } else {
+        if (node.key.type === AST_NODE_TYPES.Identifier) {
+          name = node.key.name;
+        } else {
+          throw new Error("Unsupported key type: " + node.key.type);
+        }
+      }
+
       // Get the node's type and dimensions
       const [type, dims] = ArgDef.getTypeFromNode(node.typeAnnotation, options);
 
@@ -292,7 +310,7 @@ export class ArgDef<T extends ArgType> {
       switch (type) {
         case ArgTag.STRING:
           return new ArgDef<string>(
-            node.name,
+            name,
             offset,
             type,
             options,
@@ -301,7 +319,7 @@ export class ArgDef<T extends ArgType> {
           );
         case ArgTag.BOOLEAN:
           return new ArgDef<boolean>(
-            node.name,
+            name,
             offset,
             type,
             options,
@@ -310,7 +328,7 @@ export class ArgDef<T extends ArgType> {
           );
         case ArgTag.NUMBER:
           return new ArgDef<number>(
-            node.name,
+            name,
             offset,
             type,
             options,
@@ -319,12 +337,14 @@ export class ArgDef<T extends ArgType> {
           );
         case ArgTag.OBJECT:
           return new ArgDef<Record<string, unknown>>(
-            node.name,
+            name,
             offset,
             type,
             options,
             dims,
-            node.optional
+            node.optional,
+            undefined,
+            ArgDef.getChildrenFromNode(node.typeAnnotation, options)
           );
       }
     } else {
@@ -360,14 +380,53 @@ export class ArgDef<T extends ArgType> {
         return [ArgTag.NUMBER, 0];
       case AST_NODE_TYPES.TSTypeAnnotation:
         return ArgDef.getTypeFromNode(node.typeAnnotation, options);
+      case AST_NODE_TYPES.TSTypeLiteral:
+        return [ArgTag.OBJECT, 0];
       case AST_NODE_TYPES.TSArrayType: {
         const [type, dims] = ArgDef.getTypeFromNode(node.elementType, options);
         return [type, dims + 1];
       }
       default:
-        throw new Error("Unsupported type annotation: " + JSON.stringify(node));
+        throw new Error(
+          "Unsupported type annotation: " + JSON.stringify(node, null, 2)
+        );
     }
   } // getTypeFromNode()
+
+  /**
+   * Getts the children of an object using its argument node as input.
+   *
+   * @param node argument's type annotation AST node
+   * @param options Default argument options
+   * @returns array of ArgDef objects representing the argument's children
+   */
+  private static getChildrenFromNode(
+    node: TSTypeAnnotation,
+    options: ArgOptions
+  ): ArgDef<ArgType>[] {
+    // Collapse array annotations -- we previously handled those
+    while (node.typeAnnotation.type === AST_NODE_TYPES.TSArrayType)
+      node.typeAnnotation = node.typeAnnotation.elementType;
+
+    switch (node.typeAnnotation.type) {
+      case AST_NODE_TYPES.TSTypeLiteral: {
+        let i = 0;
+        return node.typeAnnotation.members.map((member) => {
+          if (member.type === AST_NODE_TYPES.TSPropertySignature)
+            return ArgDef.fromAstNode(member, i++, options);
+          else
+            throw new Error(
+              "Unsupported object property type annotation: " +
+                JSON.stringify(member, null, 2)
+            );
+        });
+      }
+      default:
+        throw new Error(
+          "Unsupported object type annotation: " + JSON.stringify(node, null, 2)
+        );
+    }
+  } // getChildrenFromNode()
 
   /**
    * Sets the argument interval to be a constant value.
@@ -509,6 +568,15 @@ export class ArgDef<T extends ArgType> {
         )}`
       );
     this.options = { ...options };
+  }
+
+  /**
+   * Returns the argument's children.
+   *
+   * @returns the argument's children (if it is an object)
+   */
+  public getChildren(): ArgDef<ArgType>[] {
+    return [...this.children];
   }
 
   /**
