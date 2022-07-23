@@ -213,11 +213,13 @@ export const getDefaultFuzzOptions = (): FuzzOptions => {
  * @returns true if x has no nulls, undefineds, NaNs, or Infinity values; false otherwise
  */
 export const implicitOracle = (x: any): boolean => {
-  if (Array.isArray(x)) return !x.flat().some((e) => !implicitOracleValue(e));
+  if (Array.isArray(x)) return !x.flat().some((e) => !implicitOracle(e));
+  if (typeof x === "number")
+    return !(isNaN(x) || x === Infinity || x === -Infinity);
   else if (x === null || x === undefined) return false;
   else if (typeof x === "object")
-    return !Object.values(x).some((e) => !implicitOracleValue(e));
-  else return implicitOracleValue(x);
+    return !Object.values(x).some((e) => !implicitOracle(e));
+  else return true; //implicitOracleValue(x);
 };
 
 /**
@@ -269,15 +271,6 @@ export default function functionTimeout(function_: any, timeout: number): any {
 export function isTimeoutError(error: { code?: string }): boolean {
   return "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
 }
-
-/**
- * Helped function for implicitOracle() that checks individual values
- */
-const implicitOracleValue = (x: any): boolean => {
-  if (typeof x === "number")
-    return !(isNaN(x) || x === Infinity || x === -Infinity);
-  return true; // string, boolean
-};
 
 /**
  * Fuzzer Environment required to fuzz a function.

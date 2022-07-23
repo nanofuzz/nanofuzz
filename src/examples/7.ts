@@ -15,13 +15,10 @@
  * @param array array of PlayerRecord objects
  * @returns the same array sorted by win/loss ratio
  */
-export function sortByWinLoss(array: PlayerRecord[]): PlayerRecord[] {
-  return array.sort((a, b) => b[WIN] / b[LOSE] - a[WIN] / a[LOSE]);
+export function sortByWinLoss(
+  array: { win: number; lose: number }[]
+): { win: number; lose: number; rank: number }[] {
+  return array.map((e) => { return {
+    ...e,rank: e.win / e.lose
+  }}).sort((a, b) => b.rank - a.rank);
 }
-
-/**
- * A player's win-lose record.
- */
-export type PlayerRecord = [number, number];
-const WIN = 0;
-const LOSE = 1;
