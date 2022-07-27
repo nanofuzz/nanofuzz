@@ -1,12 +1,20 @@
 import {
-  getTsFnArgs,
-  findFnInSource,
+  FunctionDef,
+  FunctionRef,
   ArgDef,
   ArgType,
   ArgTag,
 } from "./Typescript";
 
 const argOptions = ArgDef.getDefaultOptions();
+const dummyModule = "dummy.ts";
+const dummyRef: FunctionRef = {
+  src: "",
+  module: dummyModule,
+  name: "test",
+  startOffset: 0,
+  endOffset: 999,
+};
 
 /**
  * Test that the TypeScript analyzer retrieves function parameters correctly in
@@ -17,11 +25,14 @@ const argOptions = ArgDef.getDefaultOptions();
 describe("fuzzer/analysis/Typescript", () => {
   test("arrowFunction", () => {
     expect(
-      getTsFnArgs(
-        `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void => {
+      new FunctionDef(
+        {
+          ...dummyRef,
+          src: `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void => {
         const whatever:string = name + offset + happy + JSON.stringify(nums);}`,
+        },
         argOptions
-      )
+      ).getArgDefs()
     ).toStrictEqual([
       new ArgDef("name", 0, ArgTag.STRING, argOptions, 0),
       new ArgDef("offset", 1, ArgTag.NUMBER, argOptions, 0),
@@ -40,11 +51,14 @@ describe("fuzzer/analysis/Typescript", () => {
 
   test("standardFunction", () => {
     expect(
-      getTsFnArgs(
-        `function $_f(name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void {
-        const whatever:string = name + offset + happy + JSON.stringify(nums);}`,
+      new FunctionDef(
+        {
+          ...dummyRef,
+          src: `function $_f(name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void {
+            const whatever:string = name + offset + happy + JSON.stringify(nums);}`,
+        },
         argOptions
-      )
+      ).getArgDefs()
     ).toStrictEqual([
       new ArgDef("name", 0, ArgTag.STRING, argOptions, 0),
       new ArgDef("offset", 1, ArgTag.NUMBER, argOptions, 0),
@@ -63,12 +77,15 @@ describe("fuzzer/analysis/Typescript", () => {
 
   test("optionalParameter", () => {
     expect(
-      getTsFnArgs(
-        `function totalDinnerExpenses( total?: number ): number {
-        items.forEach((item) => (total += item.dinner));
-        return total;}`,
+      new FunctionDef(
+        {
+          ...dummyRef,
+          src: `function totalDinnerExpenses( total?: number ): number {
+            items.forEach((item) => (total += item.dinner));
+            return total;}`,
+        },
         argOptions
-      )
+      ).getArgDefs()
     ).toStrictEqual([
       new ArgDef("total", 0, ArgTag.NUMBER, argOptions, 0, true),
     ]);
@@ -80,36 +97,86 @@ describe("fuzzer/analysis/Typescript", () => {
   const test3 = 0;`;
 
   test("findFnIsSource: All", () => {
-    expect(findFnInSource(src)).toStrictEqual([
-      ["test", 'function test(array: string[]): string {return "";}'],
-      [
-        "test2",
-        'function test2() {const test = (array:string[]):string => {return "";}}',
-      ],
-      ["test", 'const test = (array:string[]):string => {return "";}'],
+    expect(
+      FunctionDef.find(src, dummyModule).map((e) => e.getRef())
+    ).toStrictEqual([
+      {
+        name: "test",
+        module: "dummy.ts",
+        src: 'function test(array: string[]): string {return "";}',
+        startOffset: 7,
+        endOffset: 58,
+      },
+      {
+        name: "test2",
+        module: "dummy.ts",
+        src: 'function test2() {const test = (array:string[]):string => {return "";}}',
+        startOffset: 99,
+        endOffset: 170,
+      },
+      {
+        name: "test",
+        module: "dummy.ts",
+        src: 'const test = (array:string[]):string => {return "";}',
+        startOffset: 123,
+        endOffset: 169,
+      },
     ]);
   });
 
   test("findFnIsSource: By Name", () => {
-    expect(findFnInSource(src, "test")).toStrictEqual([
-      ["test", 'function test(array: string[]): string {return "";}'],
-      ["test", 'const test = (array:string[]):string => {return "";}'],
+    expect(
+      FunctionDef.find(src, dummyModule, "test").map((e) => e.getRef())
+    ).toStrictEqual([
+      {
+        name: "test",
+        module: "dummy.ts",
+        src: 'function test(array: string[]): string {return "";}',
+        startOffset: 7,
+        endOffset: 58,
+      },
+      {
+        name: "test",
+        module: "dummy.ts",
+        src: 'const test = (array:string[]):string => {return "";}',
+        startOffset: 123,
+        endOffset: 169,
+      },
     ]);
   });
 
   test("findFnIsSource: By Offset", () => {
-    expect(findFnInSource(src, undefined, 130)).toStrictEqual([
-      [
-        "test2",
-        'function test2() {const test = (array:string[]):string => {return "";}}',
-      ],
-      ["test", 'const test = (array:string[]):string => {return "";}'],
+    expect(
+      FunctionDef.find(src, dummyModule, undefined, 130).map((e) => e.getRef())
+    ).toStrictEqual([
+      {
+        name: "test2",
+        module: "dummy.ts",
+        src: 'function test2() {const test = (array:string[]):string => {return "";}}',
+        startOffset: 99,
+        endOffset: 170,
+      },
+      {
+        name: "test",
+        module: "dummy.ts",
+        src: 'const test = (array:string[]):string => {return "";}',
+        startOffset: 123,
+        endOffset: 169,
+      },
     ]);
   });
 
   test("findFnIsSource: By Name and Offset", () => {
-    expect(findFnInSource(src, "test", 130)).toStrictEqual([
-      ["test", 'const test = (array:string[]):string => {return "";}'],
+    expect(
+      FunctionDef.find(src, dummyModule, "test", 130).map((e) => e.getRef())
+    ).toStrictEqual([
+      {
+        name: "test",
+        module: "dummy.ts",
+        src: 'const test = (array:string[]):string => {return "";}',
+        startOffset: 123,
+        endOffset: 169,
+      },
     ]);
   });
 });

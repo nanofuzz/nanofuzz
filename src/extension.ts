@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as fuzzer from "./fuzzer/Fuzzer";
+import { FuzzPanel } from "./ui/FuzzPanel";
 
 /**
  * Called by VS Code to activates the extension.
@@ -62,22 +63,43 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
+      // --------------------- UI ---------------------- //
+
+      FuzzPanel.render(context.extensionUri, fuzzSetup);
+
+      return; // !!!
+
       // Now ask the user for input
       // TODO: make this a dialog - and remember the input !!!
       // TODO: ask about number of fuzz iterations !!!
       // TODO: ask about matrix dimensions !!!
-      fuzzStatusBar.text = `$(loading~spin) Fuzzing ${fuzzSetup.fnName}()...`;
+      fuzzStatusBar.text = `$(loading~spin) Fuzzing ${fuzzSetup.function.getName()}()...`;
       fuzzStatusBar.show();
 
-      for (const i in fuzzSetup.inputs) {
-        const thisInput = fuzzSetup.inputs[i];
+      for (const i in fuzzSetup.function.getArgDefs()) {
+        const thisInput = fuzzSetup.function.getArgDefs()[i];
         await getRangeParams(thisInput);
       } // for: fuzzSetup.inputs
+
+      /*
+      vscode.workspace.openNotebookDocument()
+      node.notebook.new
+      node.notebook.newREPL
+
+      const contents = await fs.readFile(path.join(context.extensionUri.fsPath, selection.path));
+      const nb = await new ContentProvider();
+      void vscode.workspace.openNotebookDocument(notebookType, nb);
+
+      const fuzzer = require("./src/fuzzer/Fuzzer.ts");
+      const env = fuzzer.setup(fuzzer.getDefaultFuzzOptions(), "./src/examples/1.ts", "minValue");
+      const fuzzResult = fuzzer.fuzz(env).results;
+      fuzzResult;
+      */
 
       // Finally, call the fuzzer & keep the user updated
       const results = await fuzzer.fuzz(fuzzSetup);
       vscode.window.showInformationMessage(
-        `Done fuzzing ${fuzzSetup.fnName}()`
+        `Done fuzzing ${fuzzSetup.function.getName()}()`
       );
       const pass = results.results.reduce(
         (sum: number, e: fuzzer.FuzzTestResult) => (e.passed ? sum + 1 : sum),
@@ -85,7 +107,7 @@ export function activate(context: vscode.ExtensionContext): void {
       );
       const fail = results.results.length - pass;
       const icon = fail === 0 ? "$(pass)" : "$(error)";
-      fuzzStatusBar.text = `${icon} Last fuzz: ${pass} pass, ${fail} fail (${fuzzSetup.fnName})`;
+      fuzzStatusBar.text = `${icon} Last fuzz: ${pass} pass, ${fail} fail (${fuzzSetup.function.getName()})`;
 
       // Display the results in a new editor (TODO: user report goes here)
       vscode.workspace
@@ -98,6 +120,41 @@ export function activate(context: vscode.ExtensionContext): void {
         });
     })
   ); // push command: nanofuzz.Fuzz
+
+  // !!!
+  /*
+  context.subscriptions.push(
+    vscode.commands.registerCommand("catCoding.start", () => {
+      FuzzPanel.createOrShow(context.extensionUri);
+    })
+  ); // push command: !!!
+
+  // !!!
+  context.subscriptions.push(
+    vscode.commands.registerCommand("catCoding.doRefactor", () => {
+      if (FuzzPanel.currentPanel) {
+        FuzzPanel.currentPanel.doRefactor();
+      }
+    })
+  ); // push command: !!!
+  */
+
+  // !!!
+  // Make sure we register a serializer in activation event
+  vscode.window.registerWebviewPanelSerializer(FuzzPanel.viewType, {
+    async deserializeWebviewPanel(
+      webviewPanel: vscode.WebviewPanel,
+      state: any
+    ) {
+      console.log(`Got state: ${state}`);
+      // Reset the webview options so we use latest uri for `localResourceRoots`.
+      webviewPanel.webview.options = FuzzPanel.getWebviewOptions(
+        context.extensionUri
+      );
+      // !!! vvvv TODO: Fix this vvvv
+      //FuzzPanel.revive(webviewPanel, context.extensionUri);
+    },
+  });
 }
 
 /**
@@ -120,11 +177,12 @@ async function getRangeParams(
 
   switch (arg.getType()) {
     // Object -------------------------------------------------------- //
-    case fuzzer.ArgTag.OBJECT:
+    case fuzzer.ArgTag.OBJECT: {
       for (const child of arg.getChildren()) {
         await getRangeParams(child);
       }
       break;
+    } // case: OBJECT
 
     // Number -------------------------------------------------------- //
     case fuzzer.ArgTag.NUMBER: {
@@ -168,7 +226,7 @@ async function getRangeParams(
       arg.setIntervals([{ min: cvtFn(min), max: cvtFn(max) }]);
 
       break;
-    }
+    } // case: NUMBER
 
     // String -------------------------------------------------------- //
     case fuzzer.ArgTag.STRING: {
@@ -210,7 +268,8 @@ async function getRangeParams(
       });
 
       break;
-    }
-  }
+    } // case: STRING
+  } // switch (arg.getType())
+
   return;
-}
+} // getRangeParams

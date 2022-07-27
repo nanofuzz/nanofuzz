@@ -9,6 +9,8 @@ import {
   TSPropertySignature,
   TypeNode,
 } from "@typescript-eslint/types/dist/ast-spec";
+import * as fs from "fs"; // TODO: Switch to vscode fs provider
+import { isThisTypeNode } from "typescript";
 
 /**
  * Provides basic Typescript analysis support for questions such as:
@@ -44,104 +46,171 @@ import {
  */
 
 /**
- * Given a Typescript function's source, returns the function's arguments.
- *
- * @param src The function source code to be analyzed
- * @param options The options to be used for the analysis
- * @returns array of ArgDef objects, one for each argument in the function
- *
- * Throws an exception if the function is not supported for analysis.
+ * !!!
  */
-export const getTsFnArgs = (
-  src: string,
-  options: ArgOptions
-): ArgDef<ArgType>[] => {
-  const args: ArgDef<ArgType>[] = [];
-  const ast = parse(src, { range: true }); // Parse the source
+export class FunctionDef {
+  private argDefs: ArgDef<ArgType>[] = [];
+  private ref: FunctionRef;
 
-  // Retrieve the function arguments
-  const fnDecl = ast.body[0];
-  if (
-    fnDecl.type === AST_NODE_TYPES.VariableDeclaration ||
-    fnDecl.type === AST_NODE_TYPES.FunctionDeclaration
-  ) {
-    const fnInit =
-      "declarations" in fnDecl ? fnDecl.declarations[0].init : fnDecl;
+  // !!!
+  constructor(ref: FunctionRef, options?: ArgOptions) {
+    options = options ?? ArgDef.getDefaultOptions();
+    this.ref = ref;
+
+    this.argDefs = [];
+    const ast = parse(this.ref.src, { range: true }); // Parse the source
+
+    // Retrieve the function arguments
+    const fnDecl = ast.body[0];
     if (
-      fnInit !== null &&
-      (fnInit.type === AST_NODE_TYPES.FunctionExpression ||
-        fnInit.type === AST_NODE_TYPES.FunctionDeclaration ||
-        fnInit.type === AST_NODE_TYPES.ArrowFunctionExpression)
+      fnDecl.type === AST_NODE_TYPES.VariableDeclaration ||
+      fnDecl.type === AST_NODE_TYPES.FunctionDeclaration
     ) {
-      for (const i in fnInit.params) {
-        const thisArg = fnInit.params[i];
-        if (thisArg.type === AST_NODE_TYPES.Identifier) {
-          args.push(ArgDef.fromAstNode(thisArg, parseInt(i), options));
-        } else {
-          throw new Error(`Unsupported argument type: ${thisArg.type}`);
+      const fnInit =
+        "declarations" in fnDecl ? fnDecl.declarations[0].init : fnDecl;
+      if (
+        fnInit !== null &&
+        (fnInit.type === AST_NODE_TYPES.FunctionExpression ||
+          fnInit.type === AST_NODE_TYPES.FunctionDeclaration ||
+          fnInit.type === AST_NODE_TYPES.ArrowFunctionExpression)
+      ) {
+        for (const i in fnInit.params) {
+          const thisArg = fnInit.params[i];
+          if (thisArg.type === AST_NODE_TYPES.Identifier) {
+            this.argDefs.push(
+              ArgDef.fromAstNode(thisArg, parseInt(i), options)
+            );
+          } else {
+            throw new Error(`Unsupported argument type: ${thisArg.type}`);
+          }
         }
       }
-      return args;
+    } else {
+      throw new Error(`Unsupported function declaration`);
     }
   }
-  throw new Error(`Unsupported function declaration`);
-}; // fn: getTsFnArgs
 
-/**
- * Analyzes a Typescript module and returns a list of functions and their souces that
- * are defined within the module.  If `fnName` and/or `offset` are specified, the list
- * of functions will be filtered by the provided criteria.
- *
- * @param src The module source code to be analyzed
- * @param fnName The optional function name to find
- * @param offset The optional offset inside the desired function body
- * @returns an array of tuples containing matching function names and their source code
- *
- * Throws an exception if the function is not supported for analysis.
- */
-export const findFnInSource = (
-  src: string,
-  fnName?: string,
-  offset?: number
-): [string, string][] => {
-  const ret: [string, string][] = [];
-  const ast = parse(src, { range: true }); // Parse the source
+  // !!!
+  public getName(): string {
+    return this.ref.name;
+  }
+  // !!!
+  public getSrc(): string {
+    return this.ref.src;
+  }
+  // !!!
+  public getArgDefs(): ArgDef<ArgType>[] {
+    return this.argDefs;
+  }
+  // !!!
+  public getStartOffset(): number {
+    return this.ref.startOffset;
+  }
+  // !!!
+  public getEndOffset(): number {
+    return this.ref.endOffset;
+  }
+  // !!!
+  public getModule(): string {
+    return this.ref.module;
+  }
+  // !!!
+  public getRef(): FunctionRef {
+    return { ...this.ref };
+  }
+  // !!!
+  public applyOverrides(overrides: ArgOptionOverrides): void {
+    // Apply argument overrides
+    for (const argName of Object.keys(overrides.argOptions)) {
+      const arg = this.argDefs.find((arg) => arg.getName() === argName);
+      if (arg !== undefined) arg.setOptions(overrides.argOptions[argName]);
+    }
+  } // fn: applyOverrides()
 
-  // Traverse the AST to find function definitions
-  simpleTraverse(ast, {
-    enter: (node, parent) => {
-      if (
-        // Arrow Function Definition: const xyz = (): void => { ... }
-        node.type === AST_NODE_TYPES.VariableDeclarator &&
-        parent !== undefined &&
-        parent.type === AST_NODE_TYPES.VariableDeclaration &&
-        node.init &&
-        node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
-        node.id.type === AST_NODE_TYPES.Identifier &&
-        (!fnName || node.id.name === fnName) &&
-        (!offset || (node.range[0] <= offset && node.range[1] >= offset))
-      ) {
-        ret.push([
-          node.id.name,
-          parent.kind + " " + src.substring(node.range[0], node.range[1]),
-        ]);
-      } else if (
-        // Standard Function Definition: function xyz(): void => { ... }
-        node.type === AST_NODE_TYPES.FunctionDeclaration &&
-        node.id !== null &&
-        (!fnName || node.id.name === fnName) &&
-        (!offset || (node.range[0] <= offset && node.range[1] >= offset))
-      ) {
-        ret.push([node.id.name, src.substring(node.range[0], node.range[1])]);
-      }
-      // - TODO: Add support for class methods
-    }, // enter
-  }); // traverse AST
+  /**
+   * Analyzes a Typescript module and returns a list of functions and their souces that
+   * are defined within the module.  If `fnName` and/or `offset` are specified, the list
+   * of functions will be filtered by the provided criteria.
+   *
+   * @param src The module source code to be analyzed
+   * @param fnName The optional function name to find
+   * @param offset The optional offset inside the desired function body
+   * @returns an array of `FunctionDef`s containing matching functions
+   *
+   * Throws an exception if the function is not supported for analysis.
+   */
+  public static find(
+    src: string,
+    module: string,
+    fnName?: string,
+    offset?: number,
+    options?: ArgOptions
+  ): FunctionDef[] {
+    const ret: FunctionRef[] = [];
+    const ast = parse(src, { range: true }); // Parse the source
 
-  // TODO: If pos is provided w/multiple matches, sort by offset delta !!!
+    // Traverse the AST to find function definitions
+    simpleTraverse(ast, {
+      enter: (node, parent) => {
+        if (
+          // Arrow Function Definition: const xyz = (): void => { ... }
+          node.type === AST_NODE_TYPES.VariableDeclarator &&
+          parent !== undefined &&
+          parent.type === AST_NODE_TYPES.VariableDeclaration &&
+          node.init &&
+          node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
+          node.id.type === AST_NODE_TYPES.Identifier &&
+          (!fnName || node.id.name === fnName) &&
+          (!offset || (node.range[0] <= offset && node.range[1] >= offset))
+        ) {
+          ret.push({
+            name: node.id.name,
+            module: module,
+            src:
+              parent.kind + " " + src.substring(node.range[0], node.range[1]),
+            startOffset: node.range[0],
+            endOffset: node.range[1],
+          });
+        } else if (
+          // Standard Function Definition: function xyz(): void => { ... }
+          node.type === AST_NODE_TYPES.FunctionDeclaration &&
+          node.id !== null &&
+          (!fnName || node.id.name === fnName) &&
+          (!offset || (node.range[0] <= offset && node.range[1] >= offset))
+        ) {
+          ret.push({
+            name: node.id.name,
+            module: module,
+            src: src.substring(node.range[0], node.range[1]),
+            startOffset: node.range[0],
+            endOffset: node.range[1],
+          });
+        }
+        // TODO: Add support for class methods
+      }, // enter
+    }); // traverse AST
 
-  return ret;
-}; // fn: findFnInSource
+    // If offset is provided and we have multiple matches,
+    // return the function that is closest to the offset
+    if (offset !== undefined && ret.length > 0) {
+      ret.reduce((best, curr) =>
+        curr.startOffset - offset < best.startOffset - offset ? curr : best
+      );
+    }
+
+    return ret.map((e) => new FunctionDef(e, options));
+  } // fn: find
+
+  // !!!
+  public getArgDefsFlat(): ArgDef<ArgType>[] {
+    const ret: ArgDef<ArgType>[] = [];
+    for (const arg of this.argDefs) {
+      ret.push(arg);
+      ret.push(...arg.getChildrenFlat());
+    }
+    return ret;
+  } // fn: getArgDefsFlat()
+}
 
 /**
  * The ArgDef class describes a Typescript function argument using three input sources:
@@ -557,17 +626,40 @@ export class ArgDef<T extends ArgType> {
    *
    * @param options the argument's option set
    */
-  public setOptions(options: ArgOptions): void {
+  public setOptions(options: ArgOptions | ArgOptionOverride): void {
+    // Cascade child options to child arguments
+    if ("children" in options) {
+      for (const child in options.children) {
+        const childArg = this.children.find((e) => e.getName() === child);
+        if (childArg !== undefined) {
+          childArg.setOptions(options.children[child]);
+        } else {
+          throw new Error(`Child argument ${child} not found in ${this.name}`);
+        }
+      }
+      delete options.children;
+    }
+
+    // Handle numMin and numMax overrides
+    if (this.type === ArgTag.NUMBER) {
+      if ("numIntervals" in options && options.numIntervals !== undefined)
+        this.setIntervals(options.numIntervals as Interval<T>[]);
+    }
+
+    // Merge the two option sets; incoming has precedence
+    const newOptions = { ...this.options, ...options };
+    delete newOptions["children"], newOptions["numMin"], newOptions["numMax"];
+
     // Ensure the options are valid before ingesting them
-    if (!ArgDef.isOptionValid(options))
+    if (!ArgDef.isOptionValid(newOptions))
       throw new Error(
         `Invalid options provided.  Check intervals and length values: ${JSON.stringify(
-          options,
+          newOptions,
           null,
           2
         )}`
       );
-    this.options = { ...options };
+    this.options = newOptions;
   }
 
   /**
@@ -577,6 +669,16 @@ export class ArgDef<T extends ArgType> {
    */
   public getChildren(): ArgDef<ArgType>[] {
     return [...this.children];
+  }
+
+  // !!!
+  public getChildrenFlat(): ArgDef<ArgType>[] {
+    const ret: ArgDef<ArgType>[] = [];
+    for (const child of this.children) {
+      ret.push(child);
+      ret.push(...child.getChildrenFlat());
+    }
+    return ret;
   }
 
   /**
@@ -631,6 +733,15 @@ export class ArgDef<T extends ArgType> {
   } // fn: isOptionValid
 } // class: ArgDef
 
+// !!!
+export type FunctionRef = {
+  module: string;
+  name: string;
+  src: string;
+  startOffset: number;
+  endOffset: number;
+};
+
 /**
  * The set of options for an argument.  This option set is used to "fill in" information
  * that is not provided by analyzing the function.  For instance, a function signature
@@ -654,6 +765,22 @@ export type ArgOptions = {
   // for number[][]: dimLength[0] = length of 1st dimension
   // and dimLength[1] = length of 2nd dimension.
   dftDimLength: Interval<number>; // Length of any dimension not specified in dimLength.
+};
+
+// !!!
+export type ArgOptionOverrides = {
+  [k: string]: ArgOptionOverride;
+};
+
+// !!!
+export type ArgOptionOverride = {
+  numInteger?: boolean;
+  numSigned?: boolean;
+  numIntervals?: Interval<number>[];
+  dimLength?: Interval<number>[];
+  strLength?: Interval<number>;
+  strCharset?: string;
+  children?: ArgOptionOverrides;
 };
 
 /**
