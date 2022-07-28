@@ -26,8 +26,14 @@ function main() {
 
   // Load the data from the HTML
   const resultsData = JSON.parse(
-    document.getElementById("fuzzResultsData").innerHTML
-  );
+    document
+      .getElementById("fuzzResultsData")
+      .innerHTML.replace(/&gt;/g, ">")
+      .replace(/&lt;/g, "<")
+      .replace(/&#0?39;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, "&")
+  ); // TODO: Use a library for this. !!!
 
   // Get the results grid object
   const resultsGrid = document.getElementById("fuzzResultsGrid");
@@ -131,11 +137,11 @@ function handleFuzzStart(e) {
     const max = document.getElementById(idBase + "-max");
     if (min !== null && max !== null) {
       disableArr.push(min, max);
-      const minVal = min?.getAttribute("current-value");
-      const maxVal = max?.getAttribute("current-value");
+      const minVal = min.getAttribute("current-value");
+      const maxVal = max.getAttribute("current-value");
       if (minVal !== undefined && maxVal !== undefined) {
-        thisOverride["min"] = minVal;
-        thisOverride["max"] = maxVal;
+        thisOverride["min"] = Number(minVal);
+        thisOverride["max"] = Number(maxVal);
       }
     } // TODO: Validation !!!
 
@@ -151,7 +157,6 @@ function handleFuzzStart(e) {
     const trueFalse = document.getElementById(idBase + "-trueFalse");
     const trueOnly = document.getElementById(idBase + "-trueOnly");
     const falseOnly = document.getElementById(idBase + "-falseOnly");
-
     if (trueFalse !== null && trueOnly !== null && falseOnly !== null) {
       disableArr.push(trueFalse, trueOnly, falseOnly);
       thisOverride["min"] =
@@ -161,18 +166,38 @@ function handleFuzzStart(e) {
     }
 
     // Get the string length min and max
-    const minStrLen = document
-      .getElementById(idBase + "-minStrLen")
-      ?.getAttribute("current-value");
-    const maxStrLen = document
-      .getElementById(idBase + "-maxStrLen")
-      ?.getAttribute("current-value");
-    if (minStrLen !== undefined && maxStrLen !== undefined) {
-      disableArr.push(document.getElementById(idBase + "-minStrLen"));
-      disableArr.push(document.getElementById(idBase + "-maxStrLen"));
-      thisOverride["minStrLen"] = minStrLen;
-      thisOverride["maxStrLen"] = maxStrLen;
+    const minStrLen = document.getElementById(idBase + "-minStrLen");
+    const maxStrLen = document.getElementById(idBase + "-maxStrLen");
+    if (minStrLen !== null && maxStrLen !== null) {
+      disableArr.push(minStrLen, maxStrLen);
+      const minStrLenVal = minStrLen.getAttribute("current-value");
+      const maxStrLenVal = maxStrLen.getAttribute("current-value");
+      if (minStrLenVal !== undefined && maxStrLenVal !== undefined) {
+        thisOverride["minStrLen"] = Number(minStrLenVal);
+        thisOverride["maxStrLen"] = Number(maxStrLenVal);
+      }
     } // TODO: Validation !!!
+
+    // Get the min and max for each array dimension
+    const dimLength = [];
+    let dim = 0;
+    let arrayBase = `${idBase}-array-${dim}`;
+    while (document.getElementById(`${arrayBase}-min`) !== null) {
+      const min = document.getElementById(`${arrayBase}-min`);
+      const max = document.getElementById(`${arrayBase}-max`);
+      if (min !== null && max !== null) {
+        disableArr.push(min, max);
+        const minVal = min.getAttribute("current-value");
+        const maxVal = max.getAttribute("current-value");
+        if (minVal !== undefined && maxVal !== undefined) {
+          dimLength.push({ min: Number(minVal), max: Number(maxVal) });
+        }
+      }
+      arrayBase = `${idBase}-array-${++dim}`;
+    }
+    if (dimLength.length > 0) {
+      thisOverride["dimLength"] = dimLength;
+    }
   }
 
   // Disable input elements while the Fuzzer runs.
@@ -191,5 +216,3 @@ function handleFuzzStart(e) {
 function getIdBase(i) {
   return "argDef-" + i;
 }
-
-export {};

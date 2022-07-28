@@ -194,7 +194,7 @@ export class FuzzPanel {
       // Number is integer
       if (thisOverride.numInteger !== undefined) {
         thisArg.setOptions({
-          numInteger: thisOverride.numInteger,
+          numInteger: !!thisOverride.numInteger,
         });
       }
 
@@ -209,6 +209,25 @@ export class FuzzPanel {
             max: Number(thisOverride.maxStrLen),
           },
         });
+      } // !!! validation
+
+      // Array dimensions
+      if (
+        thisOverride.dimLength !== undefined &&
+        thisOverride.dimLength.length
+      ) {
+        thisOverride.dimLength.forEach((e: fuzzer.Interval<number>) => {
+          if (typeof e === "object" && "min" in e && "max" in e) {
+            e = { min: Number(e.min), max: Number(e.max) };
+          } else {
+            throw new Error(
+              `Invalid interval for array dimensions: ${JSON.stringify(e)}`
+            );
+          }
+        });
+        thisArg.setOptions({
+          dimLength: thisOverride.dimLength,
+        });
       }
     } // !!!
 
@@ -217,7 +236,13 @@ export class FuzzPanel {
     this._updateHtml();
 
     // Fuzz the function & store the results
-    this._results = await fuzzer.fuzz(this._fuzzEnv);
+    try {
+      this._results = await fuzzer.fuzz(this._fuzzEnv);
+    } catch (e: any) {
+      vscode.window.showErrorMessage(
+        `The fuzzer stopped with this error: ${e.message}`
+      );
+    }
 
     // Update the UI
     this._state = FuzzPanelState.done;
@@ -287,9 +312,6 @@ export class FuzzPanel {
     env.function
       .getArgDefs()
       .forEach((arg) => (argDefHtml += this._argDefToHtmlForm(arg, counter)));
-
-    // TODO: Add timeouts and max iterations !!!
-    // TODO: Add decorators and filter links for the failures and passing items
 
     // Prettier abhorrently butchers this HTML, so disable prettier here
     // prettier-ignore
@@ -375,42 +397,32 @@ export class FuzzPanel {
   // !!!
   private _argDefToHtmlForm(
     arg: fuzzer.ArgDef<fuzzer.ArgType>,
-    counter: { id: number },
-    depth = 0
+    counter: { id: number }
   ): string {
     const id = counter.id++;
     const idBase = `argDef-${id}`;
     const argType = arg.getType();
     const disabledFlag =
       this._state === FuzzPanelState.busy ? ` disabled ` : "";
+    const dimString = "[]".repeat(arg.getDim());
+    const typeString =
+      argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase();
 
     let html = /*html*/ `<div class="argDef" id="${idBase}">
-      <div class="argDef-name" style="font-size:1.25em;">${
-        depth ? "" : "Argument: "
-      }<strong>${htmlEscape(arg.getName())}</strong>`;
+      <div class="argDef-name" style="font-size:1.25em;">
+        <strong>${htmlEscape(arg.getName())}</strong>
+         : ${typeString}${dimString} =
+      </div>`;
 
-    // Type of the argument
-    switch (argType) {
-      case fuzzer.ArgTag.OBJECT:
-        html += /*html*/ ` = {`;
-        break;
-      case fuzzer.ArgTag.NUMBER:
-        html += /*html*/ ` : ${argType.toLowerCase()} =`; // !!!
-        break;
-      default:
-        html += /*html*/ ` : ${argType.toLowerCase()} =`;
-    }
-
-    html += /*html*/ `</div>`;
     html += /*html*/ `
       <div class="argDef-type-${htmlEscape(
         arg.getType()
-      )}" id="${idBase}-${argType}" style="padding-left: .75em;">`;
+      )}" id="${idBase}-${argType}" style="padding-left: 1em;">`;
 
     // Argument options
     switch (arg.getType()) {
       case fuzzer.ArgTag.NUMBER: {
-        // TODO: validate for ints and floats
+        // TODO: validate for ints and floats !!!
         html += /*html*/ `<vscode-text-field ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
           Number(arg.getIntervals()[0].min).toString()
         )}">Minimum value</vscode-text-field>`;
@@ -426,6 +438,7 @@ export class FuzzPanel {
       }
 
       case fuzzer.ArgTag.STRING: {
+        // TODO: validate for ints > 0 !!!
         html += /*html*/ `<vscode-text-field ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().strLength.min.toString()
         )}">Minimum string length</vscode-text-field>`;
@@ -444,6 +457,7 @@ export class FuzzPanel {
         html +=
           /*html*/
           `<vscode-radio-group>
+            <label slot="label">Values</label>
             <vscode-radio ${disabledFlag} id="${idBase}-trueFalse" name="${idBase}-trueFalse" ${
             intervals[0].min !== intervals[0].max ? " checked " : ""
           }>True and false</vscode-radio>
@@ -458,107 +472,61 @@ export class FuzzPanel {
       }
 
       case fuzzer.ArgTag.OBJECT: {
+        // Output the array form prior to the child arguments.
+        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
         html += `<div>`;
         arg
           .getChildren()
-          .forEach(
-            (child) =>
-              (html += this._argDefToHtmlForm(child, counter, depth + 1))
-          );
+          .forEach((child) => (html += this._argDefToHtmlForm(child, counter)));
         html += `</div>`;
         break;
       }
     }
-    // TODO: Handle dimensions
 
-    html += `</div>${
-      argType === fuzzer.ArgTag.OBJECT
-        ? /*html*/ `<span style="font-size:1.25em;">}</span>`
-        : ""
-    }</div>`;
+    if (argType !== fuzzer.ArgTag.OBJECT) {
+      html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
+    }
+
+    html += `</div>`;
+    if (argType === fuzzer.ArgTag.OBJECT) {
+      html += /*html*/ `<span style="font-size:1.25em;">}</span>`;
+    }
+    html += `</div>`;
+
     return html;
   } // fn: _argDefToHtmlForm
 
-  // !!! remove
-  /*
-  private _getHtmlForWebview(webview: vscode.Webview, catGifPath: string) {
-    // Local path to main script run in the webview
-    const scriptPathOnDisk = vscode.Uri.joinPath(
-      this._extensionUri,
-      "media",
-      "main.js"
-    );
+  // !!!
+  private _argDefArrayToHtmlForm(
+    arg: fuzzer.ArgDef<fuzzer.ArgType>,
+    idBase: string,
+    disabledFlag: string
+  ): string {
+    let html = "";
 
-    // And the uri we use to load this script in the webview
-    const scriptUri = webview.asWebviewUri(scriptPathOnDisk);
+    // Array dimensions
+    for (let dim = 0; dim < arg.getDim(); dim++) {
+      const arrayBase = `${idBase}-array-${dim}`;
 
-    // Local path to css styles
-    const styleResetPath = vscode.Uri.joinPath(
-      this._extensionUri,
-      "media",
-      "reset.css"
-    );
-    const stylesPathMainPath = vscode.Uri.joinPath(
-      this._extensionUri,
-      "media",
-      "vscode.css"
-    );
-
-    // Uri to load styles into webview
-    const stylesResetUri = webview.asWebviewUri(styleResetPath);
-    const stylesMainUri = webview.asWebviewUri(stylesPathMainPath);
-
-    // Use a nonce to only allow specific scripts to be run
-    const nonce = FuzzPanel.getNonce();
-
-    return `<!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-
-            <!--
-                Use a content security policy to only allow loading images from https or from our extension directory,
-                and only allow scripts that have a specific nonce.
-            -->
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; img-src ${webview.cspSource} https:; script-src 'nonce-${nonce}';">
-
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-            <link href="${stylesResetUri}" rel="stylesheet">
-            <link href="${stylesMainUri}" rel="stylesheet">
-
-            <title>Fuzz Panel</title>
-        </head>
-        <body>
-
-            <img src="${catGifPath}" width="300" />
-            <h1 id="lines-of-code-counter">0</h1>
-
-            <script nonce="${nonce}" src="${scriptUri}"></script>
-        </body>
-        </html>`;
-     } */
-
-  // !!! remove
-  /*
-  private static getNonce() {
-    let text = "";
-    const possible =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    for (let i = 0; i < 32; i++) {
-      text += possible.charAt(Math.floor(Math.random() * possible.length));
+      // TODO: validate for ints > 0 !!!
+      html += /*html*/ ``;
+      html +=
+        /*html*/
+        `<div>
+          <vscode-text-field ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
+          arg.getOptions().dimLength[dim].min.toString()
+        )}">Array${"[]".repeat(dim + 1)}: min length
+          </vscode-text-field>
+          <vscode-text-field ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${htmlEscape(
+          arg.getOptions().dimLength[dim].max.toString()
+        )}">Array${"[]".repeat(dim + 1)}: max length
+          </vscode-text-field>
+        </div>`;
     }
-    return text;
-  }*/
 
-  // !!! remove
-  /*
-  public doRefactor(): void {
-    // Send a message to the webview webview.
-    // You can send any JSON serializable data.
-    this._panel.webview.postMessage({ command: "refactor" });
-  }*/
-}
+    return html;
+  } // fn: _arraySizeHtmlForm
+} // class: FuzzPanel
 
 // !!!
 export type FuzzPanelMessage = {
