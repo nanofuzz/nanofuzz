@@ -11,18 +11,20 @@ export function activate(context: vscode.ExtensionContext): void {
   /**
    * The status bar item that displays summarized fuzzer output.
    */
+  /*!!!
   const fuzzStatusBar = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
     100
   );
   fuzzStatusBar.hide();
+  */
 
   /**
    * Push the Fuzz command to the VS Code command palette.
    */
   context.subscriptions.push(
     vscode.commands.registerCommand("nanofuzz.Fuzz", async () => {
-      fuzzStatusBar.hide();
+      // !!! fuzzStatusBar.hide();
 
       // Get the current active editor
       const editor = vscode.window.activeTextEditor;
@@ -63,61 +65,10 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
-      // --------------------- UI ---------------------- //
-
+      // Load the fuzz panel
       FuzzPanel.render(context.extensionUri, fuzzSetup);
 
-      return; // !!!
-
-      // Now ask the user for input
-      // TODO: make this a dialog - and remember the input !!!
-      // TODO: ask about number of fuzz iterations !!!
-      // TODO: ask about matrix dimensions !!!
-      fuzzStatusBar.text = `$(loading~spin) Fuzzing ${fuzzSetup.function.getName()}()...`;
-      fuzzStatusBar.show();
-
-      for (const i in fuzzSetup.function.getArgDefs()) {
-        const thisInput = fuzzSetup.function.getArgDefs()[i];
-        await getRangeParams(thisInput);
-      } // for: fuzzSetup.inputs
-
-      /*
-      vscode.workspace.openNotebookDocument()
-      node.notebook.new
-      node.notebook.newREPL
-
-      const contents = await fs.readFile(path.join(context.extensionUri.fsPath, selection.path));
-      const nb = await new ContentProvider();
-      void vscode.workspace.openNotebookDocument(notebookType, nb);
-
-      const fuzzer = require("./src/fuzzer/Fuzzer.ts");
-      const env = fuzzer.setup(fuzzer.getDefaultFuzzOptions(), "./src/examples/1.ts", "minValue");
-      const fuzzResult = fuzzer.fuzz(env).results;
-      fuzzResult;
-      */
-
-      // Finally, call the fuzzer & keep the user updated
-      const results = await fuzzer.fuzz(fuzzSetup);
-      vscode.window.showInformationMessage(
-        `Done fuzzing ${fuzzSetup.function.getName()}()`
-      );
-      const pass = results.results.reduce(
-        (sum: number, e: fuzzer.FuzzTestResult) => (e.passed ? sum + 1 : sum),
-        0
-      );
-      const fail = results.results.length - pass;
-      const icon = fail === 0 ? "$(pass)" : "$(error)";
-      fuzzStatusBar.text = `${icon} Last fuzz: ${pass} pass, ${fail} fail (${fuzzSetup.function.getName()})`;
-
-      // Display the results in a new editor (TODO: user report goes here)
-      vscode.workspace
-        .openTextDocument({
-          language: "json",
-          content: JSON.stringify(results.results, null, 2),
-        })
-        .then((doc) => {
-          vscode.window.showTextDocument(doc);
-        });
+      return;
     })
   ); // push command: nanofuzz.Fuzz
 
@@ -140,13 +91,15 @@ export function activate(context: vscode.ExtensionContext): void {
   */
 
   // !!!
-  // Make sure we register a serializer in activation event
+  // Register a serializer in activation event
   vscode.window.registerWebviewPanelSerializer(FuzzPanel.viewType, {
     async deserializeWebviewPanel(
       webviewPanel: vscode.WebviewPanel,
       state: any
     ) {
-      console.log(`Got state: ${state}`);
+      console.log(
+        `Got deserializeWebviewPanel state: ${JSON.stringify(state)}`
+      ); // !!!
       // Reset the webview options so we use latest uri for `localResourceRoots`.
       webviewPanel.webview.options = FuzzPanel.getWebviewOptions(
         context.extensionUri

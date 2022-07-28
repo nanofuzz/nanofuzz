@@ -142,6 +142,7 @@ export const fuzz = async (
       break;
     }
 
+    // Initial set of results - overwritten below
     const result: FuzzTestResult = {
       input: [],
       output: [],
@@ -165,7 +166,7 @@ export const fuzz = async (
       result.output.push({
         name: "0",
         offset: 0,
-        value: fnWrapper(result.input),
+        value: fnWrapper(result.input), // <-- Wrapper
       });
     } catch (e: any) {
       if (isTimeoutError(e)) {
