@@ -127,17 +127,16 @@ function handleFuzzStart(e) {
     overrides.args.push(thisOverride);
 
     // Get the min and max values
-    const min = document
-      .getElementById(idBase + "-min")
-      ?.getAttribute("current-value");
-    const max = document
-      .getElementById(idBase + "-max")
-      ?.getAttribute("current-value");
-    if (min !== undefined && max !== undefined) {
-      disableArr.push(document.getElementById(idBase + "-min"));
-      disableArr.push(document.getElementById(idBase + "-max"));
-      thisOverride["min"] = min;
-      thisOverride["max"] = max;
+    const min = document.getElementById(idBase + "-min");
+    const max = document.getElementById(idBase + "-max");
+    if (min !== null && max !== null) {
+      disableArr.push(min, max);
+      const minVal = min?.getAttribute("current-value");
+      const maxVal = max?.getAttribute("current-value");
+      if (minVal !== undefined && maxVal !== undefined) {
+        thisOverride["min"] = minVal;
+        thisOverride["max"] = maxVal;
+      }
     } // TODO: Validation !!!
 
     // Get the number type
@@ -146,6 +145,19 @@ function handleFuzzStart(e) {
       disableArr.push(numInteger);
       thisOverride["numInteger"] =
         numInteger.getAttribute("current-checked") === "true" ? true : false;
+    }
+
+    // Get boolean values
+    const trueFalse = document.getElementById(idBase + "-trueFalse");
+    const trueOnly = document.getElementById(idBase + "-trueOnly");
+    const falseOnly = document.getElementById(idBase + "-falseOnly");
+
+    if (trueFalse !== null && trueOnly !== null && falseOnly !== null) {
+      disableArr.push(trueFalse, trueOnly, falseOnly);
+      thisOverride["min"] =
+        trueOnly.getAttribute("current-checked") === "true" ? true : false;
+      thisOverride["max"] =
+        falseOnly.getAttribute("current-checked") === "true" ? false : true;
     }
 
     // Get the string length min and max

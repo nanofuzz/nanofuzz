@@ -356,10 +356,10 @@ export class FuzzPanel {
               <h4 style="margin-bottom: .25em;">Exception: threw a runtime exception</h4><vscode-data-grid id="fuzzResultsGrid-exception" generate-header="sticky" aria-label="Basic" />
             </div>
             <div id="badOutput">
-              <h4 style="margin-bottom: .25em;">Invalid Outputs: null, NaN, Infinity, undefined</h4> <vscode-data-grid id="fuzzResultsGrid-badOutput" generate-header="sticky" aria-label="Basic" />
+              <h4 style="margin-bottom: .25em;">Invalid Outputs: null, NaN, Infinity, or undefined</h4> <vscode-data-grid id="fuzzResultsGrid-badOutput" generate-header="sticky" aria-label="Basic" />
             </div>
             <div id="passed">
-              <h4 style="margin-bottom: .25em;">Passed: no timeout, exception, null, NaN, Infinity, undefined</h4> <vscode-data-grid id="fuzzResultsGrid-passed" generate-header="sticky" aria-label="Basic" />
+              <h4 style="margin-bottom: .25em;">Passed: no timeout, exception, null, NaN, Infinity, or undefined</h4> <vscode-data-grid id="fuzzResultsGrid-passed" generate-header="sticky" aria-label="Basic" />
             </div>
           </div>
           <div id="fuzzResultsData" style="display:none">
@@ -405,7 +405,7 @@ export class FuzzPanel {
     html += /*html*/ `
       <div class="argDef-type-${htmlEscape(
         arg.getType()
-      )}" id="${idBase}-${argType}" style="padding-left: .5em;">`;
+      )}" id="${idBase}-${argType}" style="padding-left: .75em;">`;
 
     // Argument options
     switch (arg.getType()) {
@@ -437,7 +437,23 @@ export class FuzzPanel {
       }
 
       case fuzzer.ArgTag.BOOLEAN: {
-        // TODO: booleans !!!
+        let intervals = arg.getIntervals();
+        if (intervals.length === 0) {
+          intervals = [{ min: false, max: true }];
+        }
+        html +=
+          /*html*/
+          `<vscode-radio-group>
+            <vscode-radio ${disabledFlag} id="${idBase}-trueFalse" name="${idBase}-trueFalse" ${
+            intervals[0].min !== intervals[0].max ? " checked " : ""
+          }>True and false</vscode-radio>
+            <vscode-radio ${disabledFlag} id="${idBase}-trueOnly" name="${idBase}-trueOnly" ${
+            intervals[0].min && intervals[0].max ? " checked " : ""
+          }>True</vscode-radio>
+            <vscode-radio ${disabledFlag} id="${idBase}-falseOnly" name="${idBase}-falseOnly" ${
+            !intervals[0].min && !intervals[0].max ? " checked " : ""
+          }>False</vscode-radio>
+          </vscode-radio-group>`;
         break;
       }
 
