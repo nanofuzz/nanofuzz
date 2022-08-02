@@ -4,22 +4,43 @@ import * as util from "./Utils";
 import { htmlEscape } from "escape-goat";
 
 /**
- * !!!
+ * FuzzPanel displays fuzzer options, actions, and the last results for a
+ * given FuzzEnvironment within a VS Code Webview.
+ *
+ * This class follows the Singleton pattern in that it keeps track of all
+ * FuzzPanels created so that no more than onw panel exists at a time for
+ * each FuzzEnvironment.
+ *
+ * For its user interface, this extension relies on the VS Code Webview
+ * API and WebView controls.  Client-side Javascript is contained in
+ * a separate FuzzPanelMain.js.
  */
 export class FuzzPanel {
-  /**
-   * !!!
-   */
-  public static currentPanels: Record<string, FuzzPanel> = {};
-  public static readonly viewType = "fuzz";
-  private readonly _panel: vscode.WebviewPanel; // !!!
-  private readonly _extensionUri: vscode.Uri; // !!!
-  private _disposables: vscode.Disposable[] = []; // !!!
-  private _fuzzEnv: fuzzer.FuzzEnv; // !!!
-  private _state: FuzzPanelState = FuzzPanelState.init;
-  private _results?: fuzzer.FuzzTestResults;
+  // Static variables
+  public static currentPanels: Record<string, FuzzPanel> = {}; // Map of panels indeved by the result of getFnRefKey()
+  public static readonly viewType = "FuzzPanel"; // The name of this panel type
 
-  // !!!
+  // Instance variables
+  private readonly _panel: vscode.WebviewPanel; // The WebView panel for this FuzzPanel instance
+  private readonly _extensionUri: vscode.Uri; // Current Uri of the extension
+  private _disposables: vscode.Disposable[] = []; // !!!
+  private _fuzzEnv: fuzzer.FuzzEnv; // The Fuzz environment this panel represents
+  private _state: FuzzPanelState = FuzzPanelState.init; // The current state of the fuzzer.
+
+  // State-dependent instance variables
+  private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
+  private _errorMessage?: string; // error state: the error message
+
+  // ------------------------ Static Methods ------------------------ //
+
+  /**
+   * This method either (a) creates a new FuzzPanel if one does not yet
+   * exist for the given FuzzEnv, or (b) displays the existing FuzzPanel
+   * for the given FuzzEnv, if it exists.
+   *
+   * @param extensionUri Extension Uri
+   * @param env FuzzEnv for which to display or create the FuzzPanel
+   */
   public static render(extensionUri: vscode.Uri, env: fuzzer.FuzzEnv): void {
     const fnRef = JSON.stringify(env.function.getRef());
 
@@ -29,18 +50,26 @@ export class FuzzPanel {
     } else {
       // Otherwise, create a new panel.
       const panel = vscode.window.createWebviewPanel(
-        FuzzPanel.viewType,
-        `Fuzz: ${env.function.getName()}()`,
-        vscode.ViewColumn.Beside,
-        FuzzPanel.getWebviewOptions(extensionUri)
+        FuzzPanel.viewType, // FuzzPanel view type
+        `Fuzz: ${env.function.getName()}()`, // webview title
+        vscode.ViewColumn.Beside, // open beside the editor
+        FuzzPanel.getWebviewOptions(extensionUri) // options
       );
 
-      // Register the panel
+      // Register the new panel
       FuzzPanel.currentPanels[fnRef] = new FuzzPanel(panel, extensionUri, env);
     }
   }
 
-  // !!!
+  /**
+   * Revive the WebView after a VS Code or extension restart
+   *
+   * TODO: This feature does not work work yet. !!!
+   *
+   * @param panel Webview panel to revive
+   * @param extensionUri Uri of the extension
+   * @param env Fuzzer Environment
+   */
   public static revive(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
@@ -50,6 +79,12 @@ export class FuzzPanel {
       new FuzzPanel(panel, extensionUri, env);
   }
 
+  /**
+   * Determine the options to use when creating the FuzzPanel WebView
+   *
+   * @param extensionUri The Uri of the extension
+   * @returns The options to use when creating the FuzzPanel WebView
+   */
   public static getWebviewOptions(
     extensionUri: vscode.Uri
   ): vscode.WebviewPanelOptions & vscode.WebviewOptions {
@@ -65,7 +100,15 @@ export class FuzzPanel {
     };
   }
 
-  // !!!
+  // ------------------------ Instance Methods ------------------------ //
+
+  /**
+   * Creates a new instance of FuzzPanel.
+   *
+   * @param panel The WebView panel for this FuzzPanel instance
+   * @param extensionUri Extension Uri
+   * @param env FuzzEnv for which to create the FuzzPanel
+   */
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
@@ -75,8 +118,8 @@ export class FuzzPanel {
     this._extensionUri = extensionUri;
     this._fuzzEnv = env;
 
-    // Listen for when the panel is disposed
-    // This happens when the user closes the panel or when the panel is closed programmatically
+    // Listen for when the panel is disposed.  This happens when the
+    // user closes the panel or when it is closed programmatically
     this._panel.onDidDispose(
       () => {
         this.dispose();
@@ -85,18 +128,6 @@ export class FuzzPanel {
       this._disposables
     );
 
-    // Update the content based on view changes
-    /*
-    this._panel.onDidChangeViewState(
-      (e) => {
-        if (this._panel.visible) {
-          this._update();
-        }
-      },
-      null,
-      this._disposables
-    );*/
-
     // Handle messages from the webview
     this._setWebviewMessageListener(this._panel.webview);
 
@@ -104,20 +135,25 @@ export class FuzzPanel {
     this._updateHtml();
   } // fn: constructor
 
-  // !!!
-  private _updateHtml(): void {
-    this._panel.webview.html = this._getWebviewContent(
-      this._panel.webview,
-      this._extensionUri
-    );
-  }
-
-  // !!!
+  /**
+   * Provides a key string that represents the fuzz environment
+   * and is suitable for looking up a FuzzPanel in the
+   * currentPanels map.
+   *
+   * @returns A key string that represents the fuzz environment
+   */
   public getFnRefKey(): string {
     return JSON.stringify(this._fuzzEnv.function.getRef());
   }
 
-  // !!!
+  // ----------------------- Message Handling ----------------------- //
+
+  /**
+   * Registers the message handler that allows the client side of
+   * the WebView to communicate back with this extension.
+   *
+   * @param webview WebView instance
+   */
   private _setWebviewMessageListener(webview: vscode.Webview) {
     webview.onDidReceiveMessage(
       async (message: FuzzPanelMessage) => {
@@ -134,11 +170,24 @@ export class FuzzPanel {
     );
   } // fn: _setWebviewMessageListener
 
-  // !!!
+  /**
+   * Message handler for the `fuzz.start` command.
+   *
+   * This handler:
+   *  1. Accepts a JSON object containing an updated set
+   *     of fuzzer and argument options as input
+   *  2. Updates the fuzzer environment accordingly (note:
+   *     logical validation of these options takes place
+   *     within the Fuzzer and ArgDef classes)
+   *  3. Runs the fuzzer
+   *  4. Updates the WebView with the results
+   *
+   * @param json JSON input
+   */
   private async _doFuzzStartCmd(json: string): Promise<void> {
     const panelInput: {
-      fuzzer: Record<string, any>;
-      args: Record<string, any>;
+      fuzzer: Record<string, any>; // !!! Improve typing
+      args: Record<string, any>; // !!! Improve typing
     } = JSON.parse(json);
     const argsFlat = this._fuzzEnv.function.getArgDefsFlat();
 
@@ -232,24 +281,27 @@ export class FuzzPanel {
     } // !!!
 
     // Update the UI
+    this._results = undefined;
     this._state = FuzzPanelState.busy;
     this._updateHtml();
 
     // Fuzz the function & store the results
     try {
       this._results = await fuzzer.fuzz(this._fuzzEnv);
+      this._errorMessage = undefined;
+      this._state = FuzzPanelState.done;
     } catch (e: any) {
-      vscode.window.showErrorMessage(
-        `The fuzzer stopped with this error: ${e.message}`
-      );
+      this._state = FuzzPanelState.error;
+      this._errorMessage = e.message ?? "Unknown error";
     }
 
     // Update the UI
-    this._state = FuzzPanelState.done;
     this._updateHtml();
   } // fn: _doFuzzStartCmd
 
-  // !!!
+  /**
+   * Disposes all objects used by this instance
+   */
   public dispose(): void {
     // Remove this panel from the list of current panels.
     delete FuzzPanel.currentPanels[this.getFnRefKey()];
@@ -263,11 +315,15 @@ export class FuzzPanel {
     }
   } // fn: dispose
 
-  // !!!
-  private _getWebviewContent(
-    webview: vscode.Webview,
-    extensionUri: vscode.Uri
-  ): string {
+  // ------------------------- Webview HTML ------------------------- //
+
+  /**
+   * Updates the WebView HTML with the current state of the FuzzPanel
+   */
+  private _updateHtml(): void {
+    const webview: vscode.Webview = this._panel.webview;
+    const extensionUri: vscode.Uri = this._extensionUri;
+
     // TODO: Move styles to CSS !!!
     const disabledFlag =
       this._state === FuzzPanelState.busy ? ` disabled ` : "";
@@ -315,7 +371,7 @@ export class FuzzPanel {
 
     // Prettier abhorrently butchers this HTML, so disable prettier here
     // prettier-ignore
-    return /*html*/ `
+    this._panel.webview.html = /*html*/ `
       <!DOCTYPE html>
       <html lang="en">
         <head>
@@ -358,6 +414,16 @@ export class FuzzPanel {
             <vscode-button ${disabledFlag} id="fuzz.options" appearance="secondary">More options</vscode-button>
           </div>
 
+          <!-- Fuzzer Errors -->
+          <div class="fuzzErrors" ${
+            this._state === FuzzPanelState.error
+              ? ""
+              : /*html*/ `style="display:none;"`
+          }>
+            <h3>The fuzzer stopped with this error:</h3>
+            <p>${this._errorMessage ?? "Unknown error"}</p>
+          </div>
+
           <!-- Fuzzer Output -->
           <div class="fuzzResults" ${
             this._state === FuzzPanelState.done
@@ -394,7 +460,13 @@ export class FuzzPanel {
     `;
   } // fn: _getWebviewContent
 
-  // !!!
+  /**
+   * Returns an HTML form representing an argument definition.
+   *
+   * @param arg Argument definition to render
+   * @param counter Counter internally incremented for each argument
+   * @returns html string of the argument definition form
+   */
   private _argDefToHtmlForm(
     arg: fuzzer.ArgDef<fuzzer.ArgType>,
     counter: { id: number }
@@ -496,7 +568,14 @@ export class FuzzPanel {
     return html;
   } // fn: _argDefToHtmlForm
 
-  // !!!
+  /**
+   * Returns an HTML form representing an array argument definition.
+   *
+   * @param arg Argument definition to render as an array
+   * @param idBase The arg id base of the parent argument form
+   * @param disabledFlag Indicates whether controls are disabled
+   * @returns html string representing an argument's array form
+   */
   private _argDefArrayToHtmlForm(
     arg: fuzzer.ArgDef<fuzzer.ArgType>,
     idBase: string,
@@ -528,15 +607,22 @@ export class FuzzPanel {
   } // fn: _arraySizeHtmlForm
 } // class: FuzzPanel
 
-// !!!
+// ----------------------------- Types ----------------------------- //
+
+/**
+ * Represents a message from the WebView client to its FuzzPanel.
+ */
 export type FuzzPanelMessage = {
   command: string;
-  json: string;
+  json: string; // !!! Better typing here
 };
 
-// !!!
+/**
+ * Represents the possible states of the FuzzPanel
+ */
 export enum FuzzPanelState {
   init = "init", // Nothing has been fuzzed yet
   busy = "busy", // Fuzzing is in progress
   done = "done", // Fuzzing is done
+  error = "error", // Fuzzing stopped due to an error
 }
