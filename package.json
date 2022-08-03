@@ -33,6 +33,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onCommand:nanofuzz.Fuzz",
     "onLanguage:typescript",
     "onLanguage:typescriptreact"
   ],
