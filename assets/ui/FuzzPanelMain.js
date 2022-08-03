@@ -17,13 +17,6 @@ function main() {
     .getElementById("fuzz.options")
     .addEventListener("click", (e) => toggleFuzzOptions(e));
 
-  // Add event listeners to the grid type filters
-  gridTypes.forEach((type) => {
-    document
-      .getElementById(`link-${type}`)
-      ?.addEventListener("click", (e) => showGrid(type));
-  });
-
   // Load the data from the HTML
   const resultsData = JSON.parse(
     document
@@ -34,9 +27,6 @@ function main() {
       .replace(/&quot;/g, '"')
       .replace(/&amp;/g, "&")
   ); // TODO: Use a library for this. !!!
-
-  // Get the results grid object
-  const resultsGrid = document.getElementById("fuzzResultsGrid");
 
   // Fill the result grids
   if (Object.keys(resultsData).length) {
@@ -74,14 +64,11 @@ function main() {
       }
     }
 
-    let setVisibleYet = false; // only allow one visible grid
+    // Fill the grids with data
     gridTypes.forEach((type) => {
-      document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type];
-      if (data[type].length && !setVisibleYet) {
-        document.getElementById(type).style.display = "block";
-        setVisibleYet = true;
-      } else {
-        document.getElementById(type).style.display = "none";
+      if (data[type].length) {
+        document.getElementById(`fuzzResultsGrid-${type}`).rowsData =
+          data[type];
       }
     });
   }
@@ -89,7 +76,6 @@ function main() {
 
 // !!!
 function showGrid(gridType) {
-  debugger;
   gridTypes.forEach((type) => {
     if (type === gridType) {
       document.getElementById(type).style.display = "block";

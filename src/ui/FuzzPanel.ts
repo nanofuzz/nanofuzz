@@ -353,7 +353,7 @@ export class FuzzPanel {
 
     // Prettier abhorrently butchers this HTML, so disable prettier here
     // prettier-ignore
-    this._panel.webview.html = /*html*/ `
+    let html = /*html*/ `
       <!DOCTYPE html>
       <html lang="en">
         <head>
@@ -412,34 +412,66 @@ export class FuzzPanel {
               ? ""
               : /*html*/ `style="display:none;"`
           }>
-            <h3>Output:</h3>
-            <p>
-              ${resultSummary.timeout ? ` <vscode-link id="link-timeout">${resultSummary.timeout} timed out</vscode-link>.` : ""} 
-              ${resultSummary.exception ? ` <vscode-link id="link-exception">${resultSummary.exception} threw exception</vscode-link>.` : ""} 
-              ${resultSummary.badOutput ? ` <vscode-link id="link-badOutput">${resultSummary.badOutput} invalid outputs</vscode-link>.` : ""} 
-              ${resultSummary.passed ? ` <vscode-link id="link-passed">${resultSummary.passed} passed</vscode-link>.` : ` 0 passed.`} 
-            </p>
-            <div id="timeout">
-              <h4 style="margin-bottom: .25em;">Timeout: did not terminate within ${this._fuzzEnv.options.fnTimeout}ms</h4> <vscode-data-grid id="fuzzResultsGrid-timeout" generate-header="sticky" aria-label="Basic" />
-            </div>
-            <div id="exception">
-              <h4 style="margin-bottom: .25em;">Exception: threw a runtime exception</h4><vscode-data-grid id="fuzzResultsGrid-exception" generate-header="sticky" aria-label="Basic" />
-            </div>
-            <div id="badOutput">
-              <h4 style="margin-bottom: .25em;">Invalid Outputs: null, NaN, Infinity, or undefined</h4> <vscode-data-grid id="fuzzResultsGrid-badOutput" generate-header="sticky" aria-label="Basic" />
-            </div>
-            <div id="passed">
-              <h4 style="margin-bottom: .25em;">Passed: no timeout, exception, null, NaN, Infinity, or undefined</h4> <vscode-data-grid id="fuzzResultsGrid-passed" generate-header="sticky" aria-label="Basic" />
-            </div>
+            <vscode-panels>`;
+
+    const tabs = [
+      {
+        id: "timeout",
+        name: "Timeouts",
+        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms`,
+      },
+      {
+        id: "exception",
+        name: "Exceptions",
+        description: `The inputs resulted in a runtime exception`,
+      },
+      {
+        id: "badOutput",
+        name: "Invalid Outputs",
+        description: `These outputs contain: null, NaN, Infinity, or undefined`,
+      },
+      {
+        id: "passed",
+        name: "Passed",
+        description: `Passed: no timeout, exception, null, NaN, Infinity, or undefined`,
+      },
+    ];
+    tabs.forEach((e) => {
+      if (resultSummary[e.id] > 0)
+        // prettier-ignore
+        html += /*html*/ `
+              <vscode-panel-tab id="tab-${e.id}">
+                ${e.name}<vscode-badge appearance="secondary">${
+                  resultSummary[e.id]
+                }</vscode-badge>
+              </vscode-panel-tab>`;
+    });
+    tabs.forEach((e) => {
+      if (resultSummary[e.id] > 0)
+        html += /*html*/ `
+              <vscode-panel-view id="view-${e.id}">
+                <section>
+                  <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.description}</h4>
+                  <vscode-data-grid id="fuzzResultsGrid-${e.id}" generate-header="sticky" aria-label="Basic" />
+                </section>
+              </vscode-panel-view>`;
+    });
+
+    html += /*html*/ `
+            </vscode-panels>
           </div>
           <div id="fuzzResultsData" style="display:none">
             ${
-              this._results === undefined ? "{}" : htmlEscape(JSON.stringify(this._results))
+              this._results === undefined
+                ? "{}"
+                : htmlEscape(JSON.stringify(this._results))
             }
           </div>
         </body>
       </html>
     `;
+
+    this._panel.webview.html = html;
   } // fn: _getWebviewContent
 
   /**
