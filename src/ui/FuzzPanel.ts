@@ -62,24 +62,6 @@ export class FuzzPanel {
   }
 
   /**
-   * Revive the WebView after a VS Code or extension restart
-   *
-   * TODO: This feature does not work work yet. !!!
-   *
-   * @param panel Webview panel to revive
-   * @param extensionUri Uri of the extension
-   * @param env Fuzzer Environment
-   */
-  public static revive(
-    panel: vscode.WebviewPanel,
-    extensionUri: vscode.Uri,
-    env: fuzzer.FuzzEnv
-  ): void {
-    FuzzPanel.currentPanels[JSON.stringify(env.function.getRef())] =
-      new FuzzPanel(panel, extensionUri, env);
-  }
-
-  /**
    * Determine the options to use when creating the FuzzPanel WebView
    *
    * @param extensionUri The Uri of the extension

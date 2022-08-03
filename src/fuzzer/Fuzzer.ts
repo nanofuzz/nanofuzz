@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as vscode from "vscode";
 import vm from "vm";
 import seedrandom from "seedrandom";
 import {
@@ -204,9 +205,15 @@ const isOptionValid = (options: FuzzOptions): boolean => {
 export const getDefaultFuzzOptions = (): FuzzOptions => {
   return {
     argDefaults: ArgDef.getDefaultOptions(),
-    maxTests: 1000, // !!! externalize
-    fnTimeout: 100, // !!! externalize
-    suiteTimeout: 3000, // !!! externalize
+    maxTests: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("maxTests", 1000),
+    fnTimeout: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("fnTimeout", 100),
+    suiteTimeout: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("suiteTimeout", 3000),
   };
 }; // fn: getDefaultFuzzOptions()
 

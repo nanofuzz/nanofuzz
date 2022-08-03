@@ -60,7 +60,97 @@
         "mac": "ctrl+alt+f",
         "when": "editorLangId == typescript && editorTextFocus"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "NaNofuzz",
+      "properties": {
+        "nanofuzz.fuzzer.maxTests": {
+          "title": "Maximum number of tests",
+          "type": "integer",
+          "default": 1000,
+          "minimum": 1,
+          "description": "Maximum number of tests the fuzzer should run before stopping."
+        },
+        "nanofuzz.fuzzer.suiteTimeout": {
+          "title": "Maximum time to run the fuzzer (ms)",
+          "type": "integer",
+          "default": 3000,
+          "minimum": 0,
+          "description": "Maximum time (in ms) to allow the fuzzer to run before stopping."
+        },
+        "nanofuzz.fuzzer.fnTimeout": {
+          "title": "Timeout test after (ms)",
+          "type": "integer",
+          "default": 100,
+          "minimum": 0,
+          "description": "Maximum time (in ms) to allow a test function to run before making it as a timeout."
+        },
+        "nanofuzz.argdef.strCharset": {
+          "title": "String character set",
+          "type": "string",
+          "default": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~",
+          "description": "Characters to select from when randomly generating string inputs"
+        },
+        "nanofuzz.argdef.strLength.min": {
+          "title": "Minimum string length",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Minimum length of a randomly-generated input string"
+        },
+        "nanofuzz.argdef.strLength.max": {
+          "title": "Maximum string length",
+          "type": "integer",
+          "default": 10,
+          "minimum": 0,
+          "description": "Maximum length of a randomly-generated input string"
+        },
+        "nanofuzz.argdef.numInteger": {
+          "title": "Generate integer inputs?",
+          "type": "boolean",
+          "default": true,
+          "description": "Generate integers as numeric inputs by default?"
+        },
+        "nanofuzz.argdef.numSigned": {
+          "title": "Generate signed inputs?",
+          "type": "boolean",
+          "default": false,
+          "description": "Generate signed values as numeric inputs by default?"
+        },
+        "nanofuzz.argdef.dftDimLength.min": {
+          "title": "Minimum array length",
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Minimum array length generate by default."
+        },
+        "nanofuzz.argdef.dftDimLength.max": {
+          "title": "Maximum array length",
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "description": "Minimum array length generate by default."
+        },
+        "nanofuzz.argdef.anyType": {
+          "title": "Treat any types as",
+          "type": "string",
+          "enum": [
+            "number",
+            "string",
+            "boolean"
+          ],
+          "default": "number",
+          "description": "Default type of any type arguments."
+        },
+        "nanofuzz.argdef.anyDims": {
+          "title": "Array dimensions for any types",
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Default number of array dimensions for any types.  0=not an array."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "node build.js",

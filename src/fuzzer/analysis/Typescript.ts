@@ -9,8 +9,7 @@ import {
   TSPropertySignature,
   TypeNode,
 } from "@typescript-eslint/types/dist/ast-spec";
-import * as fs from "fs"; // TODO: Switch to vscode fs provider
-import { isThisTypeNode } from "typescript";
+import * as vscode from "vscode";
 
 /**
  * Provides basic Typescript analysis support for questions such as:
@@ -693,16 +692,44 @@ export class ArgDef<T extends ArgType> {
    */
   public static getDefaultOptions(): ArgOptions {
     return {
-      strCharset: DFT_STR_CHARSET,
-      strLength: DFT_STR_LENGTH,
+      // String defaults
+      strCharset: vscode.workspace
+        .getConfiguration("nanofuzz.argdef")
+        .get("strCharset", DFT_STR_CHARSET),
+      strLength: {
+        min: vscode.workspace
+          .getConfiguration("nanofuzz.argdef.strLength")
+          .get("min", DFT_STR_LENGTH.min),
+        max: vscode.workspace
+          .getConfiguration("nanofuzz.argdef.strLength")
+          .get("max", DFT_STR_LENGTH.max),
+      },
 
-      numInteger: true,
-      numSigned: false,
+      // Numeric defaults
+      numInteger: vscode.workspace
+        .getConfiguration("nanofuzz.argdef")
+        .get("numInteger", true),
+      numSigned: vscode.workspace
+        .getConfiguration("nanofuzz.argdef")
+        .get("numSigned", false),
 
-      anyType: ArgTag.NUMBER,
-      anyDims: 0,
+      // `Any` defaults
+      anyType: vscode.workspace
+        .getConfiguration("nanofuzz.argdef")
+        .get("anyType", ArgTag.NUMBER),
+      anyDims: vscode.workspace
+        .getConfiguration("nanofuzz.argdef")
+        .get("anyDims", 0),
 
-      dftDimLength: DFT_DIMENSION_LENGTH,
+      // Dimensions
+      dftDimLength: {
+        min: vscode.workspace
+          .getConfiguration("nanofuzz.argdef.dftDimLength")
+          .get("min", DFT_DIMENSION_LENGTH.min),
+        max: vscode.workspace
+          .getConfiguration("nanofuzz.argdef.dftDimLength")
+          .get("max", DFT_DIMENSION_LENGTH.max),
+      },
       dimLength: [],
     };
   }
