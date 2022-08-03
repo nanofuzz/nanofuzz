@@ -1,10 +1,5 @@
-import {
-  FunctionDef,
-  FunctionRef,
-  ArgDef,
-  ArgType,
-  ArgTag,
-} from "./Typescript";
+import { FunctionDef, FunctionRef } from "./FunctionDef";
+import { ArgDef, ArgType, ArgTag } from "./ArgDef";
 
 const argOptions = ArgDef.getDefaultOptions();
 const dummyModule = "dummy.ts";
@@ -22,7 +17,7 @@ const dummyRef: FunctionRef = {
  *
  * TODO: Add 'skip' tests for the situations we do not support yet.
  */
-describe("fuzzer/analysis/Typescript", () => {
+describe("fuzzer/analysis/typescript/FunctionDef", () => {
   test("arrowFunction", () => {
     expect(
       new FunctionDef(

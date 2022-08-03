@@ -1,5 +1,5 @@
-import { ArgDef } from "./analysis/Typescript";
 import {
+  ArgDef,
   setup,
   fuzz,
   FuzzOptions,

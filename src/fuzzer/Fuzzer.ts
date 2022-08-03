@@ -2,13 +2,8 @@ import * as fs from "fs";
 import * as vscode from "vscode";
 import vm from "vm";
 import seedrandom from "seedrandom";
-import {
-  ArgDef,
-  FunctionDef,
-  ArgOptionOverrides,
-  ArgOptions,
-  ArgType,
-} from "./analysis/Typescript";
+import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
+import { FunctionDef } from "./analysis/typescript/FunctionDef";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 
@@ -335,4 +330,5 @@ export type FuzzIoElement = {
   value: any; // value of element
 };
 
-export * from "./analysis/Typescript";
+export * from "./analysis/typescript/FunctionDef";
+export * from "./analysis/typescript/ArgDef";
