@@ -146,7 +146,7 @@ export class FunctionDef {
     offset?: number,
     options?: ArgOptions
   ): FunctionDef[] {
-    const ret: FunctionRef[] = [];
+    let ret: FunctionRef[] = [];
     const ast = parse(src, { range: true }); // Parse the source
 
     // Traverse the AST to find function definitions
@@ -193,9 +193,14 @@ export class FunctionDef {
     // If offset is provided and we have multiple matches,
     // return the function that is closest to the offset
     if (offset !== undefined && ret.length > 0) {
-      ret.reduce((best, curr) =>
-        curr.startOffset - offset < best.startOffset - offset ? curr : best
-      );
+      ret = [
+        ret.reduce((best, curr) =>
+          offset >= curr.startOffset &&
+          offset - curr.startOffset < offset - best.startOffset
+            ? curr
+            : best
+        ),
+      ];
     }
 
     return ret.map((e) => new FunctionDef(e, options));

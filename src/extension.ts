@@ -1,6 +1,12 @@
 import * as vscode from "vscode";
 import * as fuzzer from "./fuzzer/Fuzzer";
+import { FunctionRef } from "./fuzzer/Fuzzer";
 import { FuzzPanel } from "./ui/FuzzPanel";
+
+const languages = ["typescript", "typescriptreact"]; // Languages supported
+const commands = {
+  fuzz: "nanofuzz.Fuzz", // Commands supported
+};
 
 /**
  * Called by VS Code to activates the extension.
@@ -9,220 +15,127 @@ import { FuzzPanel } from "./ui/FuzzPanel";
  */
 export function activate(context: vscode.ExtensionContext): void {
   /**
-   * The status bar item that displays summarized fuzzer output.
-   */
-  /*!!!
-  const fuzzStatusBar = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    100
-  );
-  fuzzStatusBar.hide();
-  */
-
-  /**
    * Push the Fuzz command to the VS Code command palette.
    */
   context.subscriptions.push(
-    vscode.commands.registerCommand("nanofuzz.Fuzz", async () => {
-      // !!! fuzzStatusBar.hide();
+    vscode.commands.registerCommand(
+      commands.fuzz,
+      async (match?: FunctionMatch) => {
+        // Get the function name (only present on a CodeLens match)
+        const fnName: string | undefined = match ? match.ref.name : undefined;
 
-      // Get the current active editor
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showErrorMessage(
-          "Please select a function to fuzz in the editor."
-        );
-        return; // If there is no active editor, return.
-      }
+        // Get the current active document
+        const editor = vscode.window.activeTextEditor;
+        const document = match
+          ? match.document
+          : vscode.window.activeTextEditor?.document;
+        if (!document || !editor) {
+          vscode.window.showErrorMessage(
+            "Please select a function to fuzz in the editor."
+          );
+          return; // If there is no active editor, return.
+        }
 
-      // Ensure the editor is saved / not dirty
-      if (editor.document.isDirty) {
-        vscode.window.showErrorMessage("Please save the file before fuzzing.");
+        // Ensure the document is saved / not dirty
+        if (document.isDirty) {
+          vscode.window.showErrorMessage(
+            "Please save the file before fuzzing."
+          );
+          return;
+        }
+
+        // Get the current active editor filename
+        const srcFile = document.uri.path; //full path of the file which the function is in.
+
+        // Get the current cursor offset
+        const pos = match
+          ? match.ref.startOffset
+          : document.offsetAt(editor.selection.active);
+
+        // Call the fuzzer to analyze the function
+        const fuzzOptions = fuzzer.getDefaultFuzzOptions();
+        let fuzzSetup: fuzzer.FuzzEnv;
+        try {
+          fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName, pos);
+        } catch (e: any) {
+          vscode.window.showErrorMessage(
+            `The fuzzer could not find or does not support fuzzing this function. Messge: "${e.message}"`
+          );
+          return;
+        }
+
+        // Load the fuzz panel
+        FuzzPanel.render(context.extensionUri, fuzzSetup);
+
         return;
       }
-
-      // Get the current active editor filename
-      const srcFile = editor.document.uri.path; //full path of the file which the function is in.
-
-      // Get the current cursor offset
-      const pos = editor.document.offsetAt(editor.selection.active);
-      if (!pos) {
-        vscode.window.showErrorMessage(
-          "Please select a function to fuzz in the editor."
-        );
-        return; // If there is no word at the cursor, return.
-      }
-
-      // Call the fuzzer to analyze the function
-      const fuzzOptions = fuzzer.getDefaultFuzzOptions();
-      let fuzzSetup: fuzzer.FuzzEnv;
-      try {
-        fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, undefined, pos);
-      } catch (e: any) {
-        vscode.window.showErrorMessage(
-          `The fuzzer either could not find or does not support fuzzing the function at the cursor location. Messge: "${e.message}"`
-        );
-        return;
-      }
-
-      // Load the fuzz panel
-      FuzzPanel.render(context.extensionUri, fuzzSetup);
-
-      return;
-    })
+    )
   ); // push command: nanofuzz.Fuzz
 
-  // !!!
-  /*
-  context.subscriptions.push(
-    vscode.commands.registerCommand("catCoding.start", () => {
-      FuzzPanel.createOrShow(context.extensionUri);
-    })
-  ); // push command: !!!
-
-  // !!!
-  context.subscriptions.push(
-    vscode.commands.registerCommand("catCoding.doRefactor", () => {
-      if (FuzzPanel.currentPanel) {
-        FuzzPanel.currentPanel.doRefactor();
-      }
-    })
-  ); // push command: !!!
-  */
-
-  // !!!
-  // Register a serializer in activation event
-  vscode.window.registerWebviewPanelSerializer(FuzzPanel.viewType, {
-    async deserializeWebviewPanel(
-      webviewPanel: vscode.WebviewPanel,
-      state: any
-    ) {
-      console.log(
-        `Got deserializeWebviewPanel state: ${JSON.stringify(state)}`
-      ); // !!!
-      // Reset the webview options so we use latest uri for `localResourceRoots`.
-      webviewPanel.webview.options = FuzzPanel.getWebviewOptions(
-        context.extensionUri
-      );
-      // !!! vvvv TODO: Fix this vvvv
-      //FuzzPanel.revive(webviewPanel, context.extensionUri);
-    },
+  /**
+   * Push our CodeLens provider to the VS Code editor
+   */
+  languages.forEach((lang) => {
+    context.subscriptions.push(
+      vscode.languages.registerCodeLensProvider(lang, { provideCodeLenses })
+    );
   });
-}
+
+  /**
+   * The CodeLens Provider
+   */
+  function provideCodeLenses(
+    document: vscode.TextDocument,
+    token: vscode.CancellationToken
+  ) {
+    // Use the TypeScript analyzer to find all fn declarations in the module
+    const matches: FunctionMatch[] = [];
+    try {
+      const functions = fuzzer.FunctionDef.find(
+        document.getText(),
+        document.fileName
+      );
+      for (const fn of functions) {
+        matches.push({
+          document,
+          ref: fn.getRef(),
+        });
+      }
+    } catch (e: any) {
+      console.error(
+        `Error parsing typescript file: ${document.fileName} error: ${e.message}`
+      );
+    }
+
+    // Build the map of CodeLens objects at each function location
+    return matches.map(
+      (match) =>
+        new vscode.CodeLens(
+          new vscode.Range(
+            document.positionAt(match.ref.startOffset),
+            document.positionAt(match.ref.endOffset)
+          ),
+          {
+            title: "Fuzz...",
+            command: commands.fuzz,
+            arguments: [match],
+          }
+        )
+    );
+  } // fn: provideCodeLenses()
+} // fn: activate()
 
 /**
  * De-activaton logic for the extension
  */
 export function deactivate(): void {
   // !!!
-}
+} // fn: deactivate()
 
 /**
- * Asks the user for range information for the given argument.
- *
- * @param arg argument for which we need range information
- * @returns void
+ * Represents a link between a vscode document and a function definition
  */
-async function getRangeParams(
-  arg: fuzzer.ArgDef<fuzzer.ArgType>
-): Promise<void> {
-  const argPrefix = `${arg.getName()}:`;
-
-  switch (arg.getType()) {
-    // Object -------------------------------------------------------- //
-    case fuzzer.ArgTag.OBJECT: {
-      for (const child of arg.getChildren()) {
-        await getRangeParams(child);
-      }
-      break;
-    } // case: OBJECT
-
-    // Number -------------------------------------------------------- //
-    case fuzzer.ArgTag.NUMBER: {
-      // Ask if it's a float or an integer
-      const floatOrInt = await vscode.window.showQuickPick(
-        [
-          { label: "Integer", description: "Integer" },
-          { label: "Float", description: "Float" },
-        ],
-        {
-          placeHolder: `${argPrefix} Fuzz with floats or an integers? (default: integers)`,
-        }
-      );
-      let cvtFn: typeof parseInt;
-      if (floatOrInt && floatOrInt.label === "Float") {
-        cvtFn = parseFloat;
-        arg.setOptions({
-          ...arg.getOptions(),
-          numInteger: false,
-        });
-      } else {
-        cvtFn = parseInt;
-        arg.setOptions({
-          ...arg.getOptions(),
-          numInteger: true,
-        });
-      }
-
-      // Allow the user to override the default min/max
-      const intervals = arg.getIntervals();
-      const min =
-        (await vscode.window.showInputBox({
-          prompt: `${argPrefix} Please enter a MINIMUM number to fuzz`,
-          value: Number(intervals[0].min).toString(),
-        })) ?? Number(intervals[0].min).toString();
-      const max =
-        (await vscode.window.showInputBox({
-          prompt: `${argPrefix} Please enter a MAXIMUM number to fuzz`,
-          value: Number(intervals[0].max).toString(),
-        })) ?? Number(intervals[0].max).toString();
-      arg.setIntervals([{ min: cvtFn(min), max: cvtFn(max) }]);
-
-      break;
-    } // case: NUMBER
-
-    // String -------------------------------------------------------- //
-    case fuzzer.ArgTag.STRING: {
-      // Allow the user to override the default min/max
-      /* Tteam not presently interested in string min/max value
-      const intervals = thisInput.getIntervals();
-      const min =
-        (await vscode.window.showInputBox({
-          prompt: `${argPrefix} Please enter a MINIMUM string value to fuzz`,
-          value: intervals[0].min.toString(),
-        })) ?? intervals[0].min.toString();
-      const max =
-        (await vscode.window.showInputBox({
-          prompt: `${argPrefix} Please enter a MAXIMUM string value to fuzz`,
-          value: intervals[0].max.toString(),
-        })) ?? intervals[0].max.toString();
-      thisInput.setIntervals([{ min: min, max: max }]);*/
-
-      // Allow the user to override the default string length
-      const inputOptions = arg.getOptions();
-      const minLength = parseInt(
-        (await vscode.window.showInputBox({
-          prompt: `${argPrefix} Please enter a MINIMUM string length to fuzz`,
-          value: inputOptions.strLength.min.toString(),
-        })) ?? inputOptions.strLength.min.toString()
-      );
-      const maxLength = parseInt(
-        (await vscode.window.showInputBox({
-          prompt: `${argPrefix} Please enter a MAXIMUM string length to fuzz`,
-          value: inputOptions.strLength.max.toString(),
-        })) ?? inputOptions.strLength.max.toString()
-      );
-      arg.setOptions({
-        ...inputOptions,
-        strLength: {
-          min: isNaN(minLength) ? inputOptions.strLength.min : minLength,
-          max: isNaN(maxLength) ? inputOptions.strLength.max : maxLength,
-        },
-      });
-
-      break;
-    } // case: STRING
-  } // switch (arg.getType())
-
-  return;
-} // getRangeParams
+type FunctionMatch = {
+  document: vscode.TextDocument;
+  ref: FunctionRef;
+};

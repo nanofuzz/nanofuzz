@@ -96,7 +96,7 @@ describe("fuzzer/analysis/Typescript", () => {
   export function test2() {const test = (array:string[]):string => {return "";}};
   const test3 = 0;`;
 
-  test("findFnIsSource: All", () => {
+  test("findFnInSource: All", () => {
     expect(
       FunctionDef.find(src, dummyModule).map((e) => e.getRef())
     ).toStrictEqual([
@@ -124,7 +124,7 @@ describe("fuzzer/analysis/Typescript", () => {
     ]);
   });
 
-  test("findFnIsSource: By Name", () => {
+  test("findFnInSource: By Name", () => {
     expect(
       FunctionDef.find(src, dummyModule, "test").map((e) => e.getRef())
     ).toStrictEqual([
@@ -145,17 +145,10 @@ describe("fuzzer/analysis/Typescript", () => {
     ]);
   });
 
-  test("findFnIsSource: By Offset", () => {
+  test("findFnInSource: By Offset", () => {
     expect(
       FunctionDef.find(src, dummyModule, undefined, 130).map((e) => e.getRef())
     ).toStrictEqual([
-      {
-        name: "test2",
-        module: "dummy.ts",
-        src: 'function test2() {const test = (array:string[]):string => {return "";}}',
-        startOffset: 99,
-        endOffset: 170,
-      },
       {
         name: "test",
         module: "dummy.ts",
@@ -166,7 +159,7 @@ describe("fuzzer/analysis/Typescript", () => {
     ]);
   });
 
-  test("findFnIsSource: By Name and Offset", () => {
+  test("findFnInSource: By Name and Offset", () => {
     expect(
       FunctionDef.find(src, dummyModule, "test", 130).map((e) => e.getRef())
     ).toStrictEqual([

@@ -35,6 +35,8 @@ export const setup = (
 ): FuzzEnv => {
   module = require.resolve(module);
   const srcText = fs.readFileSync(module);
+
+  // Find the function definitions in the source file
   const fnMatches = FunctionDef.find(
     srcText.toString(),
     module,
@@ -68,29 +70,13 @@ export const setup = (
  *
  * Throws an exception if the fuzz options are invalid
  */
-export const fuzz = async (
-  env: FuzzEnv,
-  overrides?: FuzzOptionsOverride
-): Promise<FuzzTestResults> => {
+export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
     results: [],
   };
-
-  // Apply overrides if present
-  if (overrides !== undefined) {
-    // Apply function argument overrides
-    if (overrides.argOptions !== undefined) {
-      env.function.applyOverrides(overrides.argOptions);
-    }
-
-    // Apply fuzzer overrides
-    for (const [key, value] of Object.entries(overrides)) {
-      if (key in env.options) env.options[key] = value;
-    }
-  }
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(env.options))
@@ -198,7 +184,7 @@ export const fuzz = async (
 
   // Return the result of the fuzzing activity
   return results;
-}; // fuzz()
+}; // fn: fuzz()
 
 /**
  * Checks whether the given option set is valid.
@@ -208,7 +194,7 @@ export const fuzz = async (
  */
 const isOptionValid = (options: FuzzOptions): boolean => {
   return !(options.maxTests < 0 || !ArgDef.isOptionValid(options.argDefaults));
-}; // isOptionValid()
+}; // fn: isOptionValid()
 
 /**
  * Returns a default set of fuzzer options.
@@ -218,11 +204,11 @@ const isOptionValid = (options: FuzzOptions): boolean => {
 export const getDefaultFuzzOptions = (): FuzzOptions => {
   return {
     argDefaults: ArgDef.getDefaultOptions(),
-    maxTests: 1000,
-    fnTimeout: 100,
-    suiteTimeout: 3000,
+    maxTests: 1000, // !!! externalize
+    fnTimeout: 100, // !!! externalize
+    suiteTimeout: 3000, // !!! externalize
   };
-}; // getDefaultFuzzOptions()
+}; // fn: getDefaultFuzzOptions()
 
 /**
  * The implicit oracle returns true only if the value contains no nulls, undefineds, NaNs,
@@ -239,7 +225,7 @@ export const implicitOracle = (x: any): boolean => {
   else if (typeof x === "object")
     return !Object.values(x).some((e) => !implicitOracle(e));
   else return true; //implicitOracleValue(x);
-};
+}; // fn: implicitOracle()
 
 /**
  * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
@@ -277,7 +263,7 @@ export default function functionTimeout(function_: any, timeout: number): any {
   });
 
   return wrappedFunction;
-}
+} // fn: functionTimeout()
 
 /**
  * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
@@ -289,7 +275,7 @@ export default function functionTimeout(function_: any, timeout: number): any {
  */
 export function isTimeoutError(error: { code?: string }): boolean {
   return "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
-}
+} // fn: isTimeoutError()
 
 /**
  * Fuzzer Environment required to fuzz a function.
@@ -310,11 +296,6 @@ export type FuzzOptions = {
   fnTimeout: number; // timeout threshold in ms per test
   suiteTimeout: number; // timeout for the entire test suite
   // !!! oracleFn: // TODO The oracle function
-};
-
-// !!!
-export type FuzzOptionsOverride = Partial<FuzzOptions> & {
-  argOptions?: ArgOptionOverrides;
 };
 
 /**
