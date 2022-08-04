@@ -28,7 +28,8 @@
     "declarationMap": true,
     "paths": {
       "examples/*": ["./src/examples/*"],
-      "fuzzer/*": ["./src/fuzzer/*"]
+      "fuzzer/*": ["./src/fuzzer/*"],
+      "ui/*": ["./src/ui/*"]
     }
   },
   "formatCodeOptions": {
@@ -52,7 +53,7 @@
     "placeOpenBraceOnNewLineForFunctions": false,
     "placeOpenBraceOnNewLineForControlBlocks": false
   },
-  "include": ["src"],
+  "include": ["src", "assets/FuzzPanelMain.js"],
   "exclude": [
     "node_modules",
     "build",

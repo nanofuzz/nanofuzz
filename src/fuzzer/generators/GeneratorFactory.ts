@@ -5,7 +5,7 @@ import {
   ArgTag,
   ArgType,
   Interval,
-} from "../analysis/Typescript";
+} from "../analysis/typescript/ArgDef";
 
 /**
  * Builds and returns a generator function that generates a pseudo-

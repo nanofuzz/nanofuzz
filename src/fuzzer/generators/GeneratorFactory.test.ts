@@ -1,9 +1,5 @@
-import {
-  ArgDef,
-  ArgOptions,
-  ArgTag,
-  getTsFnArgs,
-} from "../analysis/Typescript";
+import { FunctionDef } from "../analysis/typescript/FunctionDef";
+import { ArgDef, ArgOptions, ArgTag } from "../analysis/typescript/ArgDef";
 import { setup, fuzz, FuzzOptions, getDefaultFuzzOptions } from "../Fuzzer";
 import { GeneratorFactory } from "./GeneratorFactory";
 import seedrandom from "seedrandom";
@@ -115,10 +111,18 @@ describe("fuzzer/generator/GeneratorFactory", () => {
  * @param intMin Ninimum integer value
  * @param intMax Maximim integer value
  */
-
 const testRandomInt = (intMin: number, intMax: number): void => {
   const prng = seedrandom(seed);
-  const arg = getTsFnArgs(tsFnWithNumberInput, ArgDef.getDefaultOptions());
+  const arg = new FunctionDef(
+    {
+      module: "dummy.ts",
+      name: "test",
+      src: tsFnWithNumberInput,
+      startOffset: 0,
+      endOffset: 999,
+    },
+    ArgDef.getDefaultOptions()
+  ).getArgDefs();
   arg[0].setIntervals([{ min: intMin, max: intMax }]);
   const gen = GeneratorFactory(arg[0], prng);
   for (let i = 0; i < 1000; i++) {
@@ -148,7 +152,16 @@ const testRandomIntException = (intMin: number, intMax: number): void => {
  */
 const testRandomFloat = (floatMin: number, floatMax: number): void => {
   const prng = seedrandom(seed);
-  const arg = getTsFnArgs(tsFnWithNumberInput, ArgDef.getDefaultFloatOptions());
+  const arg = new FunctionDef(
+    {
+      module: "dummy.ts",
+      name: "test",
+      src: tsFnWithNumberInput,
+      startOffset: 0,
+      endOffset: 999,
+    },
+    ArgDef.getDefaultFloatOptions()
+  ).getArgDefs();
   arg[0].setIntervals([{ min: floatMin, max: floatMax }]);
   const gen = GeneratorFactory(arg[0], prng);
   for (let i = 0; i < 1000; i++) {
@@ -181,7 +194,16 @@ const testRandomBool = (boolMin: boolean, boolMax: boolean): void => {
   const prng = seedrandom(seed);
 
   // Analyze the function, set the intervals, and get the generator
-  const arg = getTsFnArgs(tsFnWithBoolInput, ArgDef.getDefaultFloatOptions());
+  const arg = new FunctionDef(
+    {
+      module: "dummy.ts",
+      name: "test",
+      src: tsFnWithBoolInput,
+      startOffset: 0,
+      endOffset: 999,
+    },
+    ArgDef.getDefaultFloatOptions()
+  ).getArgDefs();
   arg[0].setIntervals([{ min: boolMin, max: boolMax }]);
   const gen = GeneratorFactory(arg[0], prng);
 
@@ -220,7 +242,16 @@ const testRandomString = (
   strMax = strMax.padEnd(strLenMin, options.strCharset[0]);
 
   // Analyze the function, set the intervals, and get the generator
-  const arg = getTsFnArgs(tsFnWithStringInput, options);
+  const arg = new FunctionDef(
+    {
+      module: "dummy.ts",
+      name: "test",
+      src: tsFnWithStringInput,
+      startOffset: 0,
+      endOffset: 999,
+    },
+    options
+  ).getArgDefs();
   arg[0].setIntervals([{ min: strMin, max: strMax }]);
   const gen = GeneratorFactory(arg[0], prng);
 

@@ -34,27 +34,121 @@
   ],
   "activationEvents": [
     "onCommand:nanofuzz.Fuzz",
-    "onCommand:nanofuzz.AskPrompt"
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact"
   ],
   "contributes": {
     "commands": [
       {
         "command": "nanofuzz.Fuzz",
-        "title": "Fuzz"
-      },
-      {
-        "command": "nanofuzz.AskPrompt",
-        "title": "AskPrompt"
+        "title": "AutoTest"
       }
     ],
     "menus": {
       "editor/context": [
         {
           "command": "nanofuzz.Fuzz",
-          "group": "bookmarks",
-          "when": "editorHasSelection"
+          "group": "z_commands",
+          "when": "editorLangId == typescript && editorTextFocus"
         }
       ]
+    },
+    "keybindings": [
+      {
+        "command": "nanofuzz.Fuzz",
+        "key": "ctrl+alt+a",
+        "when": "editorLangId == typescript && editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "NaNofuzz",
+      "properties": {
+        "nanofuzz.fuzzer.maxTests": {
+          "title": "Maximum number of tests",
+          "type": "integer",
+          "default": 1000,
+          "minimum": 1,
+          "description": "Maximum number of tests the fuzzer should run before stopping."
+        },
+        "nanofuzz.fuzzer.suiteTimeout": {
+          "title": "Maximum time to run the fuzzer (ms)",
+          "type": "integer",
+          "default": 3000,
+          "minimum": 0,
+          "description": "Maximum time (in ms) to allow the fuzzer to run before stopping."
+        },
+        "nanofuzz.fuzzer.fnTimeout": {
+          "title": "Timeout test after (ms)",
+          "type": "integer",
+          "default": 100,
+          "minimum": 0,
+          "description": "Maximum time (in ms) to allow a test function to run before making it as a timeout."
+        },
+        "nanofuzz.argdef.strCharset": {
+          "title": "String character set",
+          "type": "string",
+          "default": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~",
+          "description": "Characters to select from when randomly generating string inputs"
+        },
+        "nanofuzz.argdef.strLength.min": {
+          "title": "Minimum string length",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Minimum length of a randomly-generated input string"
+        },
+        "nanofuzz.argdef.strLength.max": {
+          "title": "Maximum string length",
+          "type": "integer",
+          "default": 10,
+          "minimum": 0,
+          "description": "Maximum length of a randomly-generated input string"
+        },
+        "nanofuzz.argdef.numInteger": {
+          "title": "Generate integer inputs?",
+          "type": "boolean",
+          "default": true,
+          "description": "Generate integers as numeric inputs by default?"
+        },
+        "nanofuzz.argdef.numSigned": {
+          "title": "Generate signed inputs?",
+          "type": "boolean",
+          "default": false,
+          "description": "Generate signed values as numeric inputs by default?"
+        },
+        "nanofuzz.argdef.dftDimLength.min": {
+          "title": "Minimum array length",
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Minimum array length generate by default."
+        },
+        "nanofuzz.argdef.dftDimLength.max": {
+          "title": "Maximum array length",
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "description": "Minimum array length generate by default."
+        },
+        "nanofuzz.argdef.anyType": {
+          "title": "Treat any types as",
+          "type": "string",
+          "enum": [
+            "number",
+            "string",
+            "boolean"
+          ],
+          "default": "number",
+          "description": "Default type of any type arguments."
+        },
+        "nanofuzz.argdef.anyDims": {
+          "title": "Array dimensions for any types",
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Default number of array dimensions for any types.  0=not an array."
+        }
+      }
     }
   },
   "scripts": {
@@ -73,15 +167,14 @@
   },
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
+    "@vscode/webview-ui-toolkit": "^1.0.0",
     "eslint": "^7.3.2",
     "immutable": "^4.1.0",
     "seedrandom": "^3.0.5",
     "typescript": "^4.1.3"
   },
   "devDependencies": {
-    "@types/glob": "^7.2.0",
     "@types/jest": "^27.4.1",
-    "@types/mocha": "^9.1.1",
     "@types/node": "16.x",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.69.0",
@@ -90,16 +183,15 @@
     "@typescript-eslint/parser": "^4.5.0",
     "@vscode/test-electron": "^2.1.5",
     "esbuild": "^0.14.48",
+    "escape-goat": "^4.0.0",
     "eslint-config-prettier": "^6.13.0",
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-jsdoc": "^30.7.3",
     "eslint-plugin-react": "^7.28.0",
     "estrella": "^1.4.1",
-    "glob": "^8.0.3",
     "jest": "^27.5.1",
     "jest-junit": "^12.0.0",
-    "mocha": "^10.0.0",
     "ts-jest": "^27.1.3",
     "tsc-alias": "^1.6.7",
     "tslib": "^2.1.0",

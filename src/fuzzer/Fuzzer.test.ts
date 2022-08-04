@@ -1,5 +1,5 @@
-import { ArgDef } from "./analysis/Typescript";
 import {
+  ArgDef,
   setup,
   fuzz,
   FuzzOptions,
@@ -20,7 +20,7 @@ const intOptions: FuzzOptions = {
  */
 const floatOptions: FuzzOptions = {
   ...intOptions,
-  argOptions: ArgDef.getDefaultFloatOptions(),
+  argDefaults: ArgDef.getDefaultFloatOptions(),
 };
 
 /**
@@ -177,24 +177,21 @@ describe("Fuzzer", () => {
   });
 
   test("Fuzz example 1", async () => {
-    const results = (
-      await fuzz(setup(intOptions, "./src/examples/1.ts", "minValue"))
-    ).results;
+    const results = (await fuzz(setup(intOptions, "examples/1.ts", "minValue")))
+      .results;
     expect(results.length).not.toStrictEqual(0);
   });
 
   test("Fuzz example 2", async () => {
     const results = (
-      await fuzz(setup(intOptions, "./src/examples/2.ts", "getSortSetting"))
+      await fuzz(setup(intOptions, "examples/2.ts", "getSortSetting"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
 
   test("Fuzz example 3", async () => {
     const results = (
-      await fuzz(
-        setup(floatOptions, "./src/examples/3.ts", "totalDinnerExpenses")
-      )
+      await fuzz(setup(floatOptions, "examples/3.ts", "totalDinnerExpenses"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
@@ -205,9 +202,9 @@ describe("Fuzzer", () => {
         setup(
           {
             ...intOptions,
-            argOptions: { ...intOptions.argOptions, anyDims: 1 },
+            argDefaults: { ...intOptions.argDefaults, anyDims: 1 },
           },
-          "./src/examples/4.ts",
+          "examples/4.ts",
           "maxOfArray"
         )
       )
@@ -217,35 +214,34 @@ describe("Fuzzer", () => {
 
   test("Fuzz example 5", async () => {
     const results = (
-      await fuzz(setup(intOptions, "./src/examples/5.ts", "getRandomNumber"))
+      await fuzz(setup(intOptions, "examples/5.ts", "getRandomNumber"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
 
   test("Fuzz example 6", async () => {
-    const results = (
-      await fuzz(setup(intOptions, "./src/examples/6.ts", "getZero"))
-    ).results;
+    const results = (await fuzz(setup(intOptions, "examples/6.ts", "getZero")))
+      .results;
     expect(results.length).not.toStrictEqual(0);
   });
 
   test("Fuzz example 7", async () => {
     const results = (
-      await fuzz(setup(intOptions, "./src/examples/7.ts", "sortByWinLoss"))
+      await fuzz(setup(intOptions, "examples/7.ts", "sortByWinLoss"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
 
   test("Fuzz example 8", async () => {
     const results = (
-      await fuzz(setup(intOptions, "./src/examples/8.ts", "minSalary"))
+      await fuzz(setup(intOptions, "examples/8.ts", "minSalary"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
 
   test("Fuzz example 9", async () => {
     const results = (
-      await fuzz(setup(intOptions, "./src/examples/9.ts", "getOffsetOrDefault"))
+      await fuzz(setup(intOptions, "examples/9.ts", "getOffsetOrDefault"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
@@ -253,36 +249,35 @@ describe("Fuzzer", () => {
   // TODO: Vector length is randomized here - probably do not want that !!!
   test("Fuzz example 10", async () => {
     const results = (
-      await fuzz(setup(intOptions, "./src/examples/10.ts", "gramSchmidt"))
+      await fuzz(setup(intOptions, "examples/10.ts", "gramSchmidt"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
 
   test("Fuzz example 11", async () => {
     const results = (
-      await fuzz(setup(intOptions, "./src/examples/11.ts", "idMatrix"))
+      await fuzz(setup(intOptions, "examples/11.ts", "idMatrix"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
 
   test("Fuzz example 12", async () => {
     const results = (
-      await fuzz(setup(intOptions, "./src/examples/12.ts", "levenshtein"))
+      await fuzz(setup(intOptions, "examples/12.ts", "levenshtein"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
 
   test("Fuzz example 13", async () => {
     const results = (
-      await fuzz(setup(intOptions, "./src/examples/13.ts", "isSteady"))
+      await fuzz(setup(intOptions, "examples/13.ts", "isSteady"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
   });
 
   test("Fuzz example 14", async () => {
-    const results = (
-      await fuzz(setup(intOptions, "./src/examples/14.ts", "modInv"))
-    ).results;
+    const results = (await fuzz(setup(intOptions, "examples/14.ts", "modInv")))
+      .results;
     expect(results.length).not.toStrictEqual(0);
   });
 });

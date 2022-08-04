@@ -1,22 +1,17 @@
-import {
-  AST_NODE_TYPES,
-  parse,
-  simpleTraverse,
-} from "@typescript-eslint/typescript-estree";
+import { AST_NODE_TYPES } from "@typescript-eslint/typescript-estree";
 import {
   Identifier,
   TSTypeAnnotation,
   TSPropertySignature,
   TypeNode,
 } from "@typescript-eslint/types/dist/ast-spec";
+import * as vscode from "vscode";
 
 /**
- * Provides basic Typescript analysis support for questions such as:
- *  1. What functions are in a module? --> findFnInSource()
- *  2. What arguments are in a function's signature?  --> getTsFnArgs()
- *
- * To answer question 2, an array of ArgDef objects is returned, which provides
- * information about the arguments.
+ * The ArgDef class describes a Typescript function argument using three input sources:
+ *  1. The argument's function signature --> type, dimension, optionality, offset
+ *  2. ArgOptions --> input intervals, how to handle any types
+ *  3. User overrides --> all values
  *
  * Argument types that are currently supported:
  * - Numbers
@@ -33,121 +28,6 @@ import {
  * - Non-primitive types
  * - Deconstructed types
  * - Generics
- *
- * Other limitations of the current implementation
- * - Requires a type-annotated TypeScript function signature
- * - Anonymous functions are not supported
- * - Analysis of class methods is not supported
- * - Presently cannot set an entire array as a constant (only its elements)
- * - String values are compared using default sort order, regarldess of the
- *   order specified in ArgOptions.strCharset.
- */
-
-/**
- * Given a Typescript function's source, returns the function's arguments.
- *
- * @param src The function source code to be analyzed
- * @param options The options to be used for the analysis
- * @returns array of ArgDef objects, one for each argument in the function
- *
- * Throws an exception if the function is not supported for analysis.
- */
-export const getTsFnArgs = (
-  src: string,
-  options: ArgOptions
-): ArgDef<ArgType>[] => {
-  const args: ArgDef<ArgType>[] = [];
-  const ast = parse(src, { range: true }); // Parse the source
-
-  // Retrieve the function arguments
-  const fnDecl = ast.body[0];
-  if (
-    fnDecl.type === AST_NODE_TYPES.VariableDeclaration ||
-    fnDecl.type === AST_NODE_TYPES.FunctionDeclaration
-  ) {
-    const fnInit =
-      "declarations" in fnDecl ? fnDecl.declarations[0].init : fnDecl;
-    if (
-      fnInit !== null &&
-      (fnInit.type === AST_NODE_TYPES.FunctionExpression ||
-        fnInit.type === AST_NODE_TYPES.FunctionDeclaration ||
-        fnInit.type === AST_NODE_TYPES.ArrowFunctionExpression)
-    ) {
-      for (const i in fnInit.params) {
-        const thisArg = fnInit.params[i];
-        if (thisArg.type === AST_NODE_TYPES.Identifier) {
-          args.push(ArgDef.fromAstNode(thisArg, parseInt(i), options));
-        } else {
-          throw new Error(`Unsupported argument type: ${thisArg.type}`);
-        }
-      }
-      return args;
-    }
-  }
-  throw new Error(`Unsupported function declaration`);
-}; // fn: getTsFnArgs
-
-/**
- * Analyzes a Typescript module and returns a list of functions and their souces that
- * are defined within the module.  If `fnName` and/or `offset` are specified, the list
- * of functions will be filtered by the provided criteria.
- *
- * @param src The module source code to be analyzed
- * @param fnName The optional function name to find
- * @param offset The optional offset inside the desired function body
- * @returns an array of tuples containing matching function names and their source code
- *
- * Throws an exception if the function is not supported for analysis.
- */
-export const findFnInSource = (
-  src: string,
-  fnName?: string,
-  offset?: number
-): [string, string][] => {
-  const ret: [string, string][] = [];
-  const ast = parse(src, { range: true }); // Parse the source
-
-  // Traverse the AST to find function definitions
-  simpleTraverse(ast, {
-    enter: (node, parent) => {
-      if (
-        // Arrow Function Definition: const xyz = (): void => { ... }
-        node.type === AST_NODE_TYPES.VariableDeclarator &&
-        parent !== undefined &&
-        parent.type === AST_NODE_TYPES.VariableDeclaration &&
-        node.init &&
-        node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
-        node.id.type === AST_NODE_TYPES.Identifier &&
-        (!fnName || node.id.name === fnName) &&
-        (!offset || (node.range[0] <= offset && node.range[1] >= offset))
-      ) {
-        ret.push([
-          node.id.name,
-          parent.kind + " " + src.substring(node.range[0], node.range[1]),
-        ]);
-      } else if (
-        // Standard Function Definition: function xyz(): void => { ... }
-        node.type === AST_NODE_TYPES.FunctionDeclaration &&
-        node.id !== null &&
-        (!fnName || node.id.name === fnName) &&
-        (!offset || (node.range[0] <= offset && node.range[1] >= offset))
-      ) {
-        ret.push([node.id.name, src.substring(node.range[0], node.range[1])]);
-      }
-      // - TODO: Add support for class methods
-    }, // enter
-  }); // traverse AST
-
-  // TODO: If pos is provided w/multiple matches, sort by offset delta !!!
-
-  return ret;
-}; // fn: findFnInSource
-
-/**
- * The ArgDef class describes a Typescript function argument using three input sources:
- *  1. The argument's function signature --> type, dimension, optionality, offset
- *  2. ArgOptions --> input intervals, how to handle any types
- *  3. User overrides --> all values
  */
 export class ArgDef<T extends ArgType> {
   private name: string; // name of the argument
@@ -557,17 +437,40 @@ export class ArgDef<T extends ArgType> {
    *
    * @param options the argument's option set
    */
-  public setOptions(options: ArgOptions): void {
+  public setOptions(options: ArgOptions | ArgOptionOverride): void {
+    // Cascade child options to child arguments
+    if ("children" in options) {
+      for (const child in options.children) {
+        const childArg = this.children.find((e) => e.getName() === child);
+        if (childArg !== undefined) {
+          childArg.setOptions(options.children[child]);
+        } else {
+          throw new Error(`Child argument ${child} not found in ${this.name}`);
+        }
+      }
+      delete options.children;
+    }
+
+    // Handle numMin and numMax overrides
+    if (this.type === ArgTag.NUMBER) {
+      if ("numIntervals" in options && options.numIntervals !== undefined)
+        this.setIntervals(options.numIntervals as Interval<T>[]);
+    }
+
+    // Merge the two option sets; incoming has precedence
+    const newOptions = { ...this.options, ...options };
+    delete newOptions["children"], newOptions["numMin"], newOptions["numMax"];
+
     // Ensure the options are valid before ingesting them
-    if (!ArgDef.isOptionValid(options))
+    if (!ArgDef.isOptionValid(newOptions))
       throw new Error(
         `Invalid options provided.  Check intervals and length values: ${JSON.stringify(
-          options,
+          newOptions,
           null,
           2
         )}`
       );
-    this.options = { ...options };
+    this.options = newOptions;
   }
 
   /**
@@ -580,22 +483,65 @@ export class ArgDef<T extends ArgType> {
   }
 
   /**
+   * Returns a flat array of all arguments, including the children
+   * of arguments.  The selection is depth-first.
+   *
+   * @returns the argument's descendents (if it is an object)
+   */
+  public getChildrenFlat(): ArgDef<ArgType>[] {
+    const ret: ArgDef<ArgType>[] = [];
+    for (const child of this.children) {
+      ret.push(child);
+      ret.push(...child.getChildrenFlat());
+    }
+    return ret;
+  }
+
+  /**
    * Returns the default option set for signed integer values.
    *
    * @returns the default option set for signed integer values
    */
   public static getDefaultOptions(): ArgOptions {
     return {
-      strCharset: DFT_STR_CHARSET,
-      strLength: DFT_STR_LENGTH,
+      // String defaults
+      strCharset: vscode.workspace
+        .getConfiguration("nanofuzz.argdef")
+        .get("strCharset", DFT_STR_CHARSET),
+      strLength: {
+        min: vscode.workspace
+          .getConfiguration("nanofuzz.argdef.strLength")
+          .get("min", DFT_STR_LENGTH.min),
+        max: vscode.workspace
+          .getConfiguration("nanofuzz.argdef.strLength")
+          .get("max", DFT_STR_LENGTH.max),
+      },
 
-      numInteger: true,
-      numSigned: false,
+      // Numeric defaults
+      numInteger: vscode.workspace
+        .getConfiguration("nanofuzz.argdef")
+        .get("numInteger", true),
+      numSigned: vscode.workspace
+        .getConfiguration("nanofuzz.argdef")
+        .get("numSigned", false),
 
-      anyType: ArgTag.NUMBER,
-      anyDims: 0,
+      // `Any` defaults
+      anyType: vscode.workspace
+        .getConfiguration("nanofuzz.argdef")
+        .get("anyType", ArgTag.NUMBER),
+      anyDims: vscode.workspace
+        .getConfiguration("nanofuzz.argdef")
+        .get("anyDims", 0),
 
-      dftDimLength: DFT_DIMENSION_LENGTH,
+      // Dimensions
+      dftDimLength: {
+        min: vscode.workspace
+          .getConfiguration("nanofuzz.argdef.dftDimLength")
+          .get("min", DFT_DIMENSION_LENGTH.min),
+        max: vscode.workspace
+          .getConfiguration("nanofuzz.argdef.dftDimLength")
+          .get("max", DFT_DIMENSION_LENGTH.max),
+      },
       dimLength: [],
     };
   }
@@ -654,6 +600,26 @@ export type ArgOptions = {
   // for number[][]: dimLength[0] = length of 1st dimension
   // and dimLength[1] = length of 2nd dimension.
   dftDimLength: Interval<number>; // Length of any dimension not specified in dimLength.
+};
+
+/**
+ * A set of option overrides for a set of arguments.
+ */
+export type ArgOptionOverrides = {
+  [k: string]: ArgOptionOverride;
+};
+
+/**
+ * Argument option overrides
+ */
+export type ArgOptionOverride = {
+  numInteger?: boolean;
+  numSigned?: boolean;
+  numIntervals?: Interval<number>[];
+  dimLength?: Interval<number>[];
+  strLength?: Interval<number>;
+  strCharset?: string;
+  children?: ArgOptionOverrides;
 };
 
 /**

@@ -1,13 +1,9 @@
 import * as fs from "fs";
+import * as vscode from "vscode";
 import vm from "vm";
 import seedrandom from "seedrandom";
-import {
-  ArgDef,
-  ArgOptions,
-  ArgType,
-  findFnInSource,
-  getTsFnArgs,
-} from "./analysis/Typescript";
+import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
+import { FunctionDef } from "./analysis/typescript/FunctionDef";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 
@@ -22,19 +18,27 @@ import * as compiler from "./Compiler";
  * Builds and returns the environment required by fuzz().
  *
  * @param options fuzzer option set
- * @param srcFile file name of Typescript module containing the function to fuzz
+ * @param module file name of Typescript module containing the function to fuzz
  * @param fnName optional name of the function to fuzz
  * @param offset optional offset within the source file of the function to fuzz
  * @returns a fuzz environment
  */
 export const setup = (
   options: FuzzOptions,
-  srcFile: string,
+  module: string,
   fnName?: string,
   offset?: number
 ): FuzzEnv => {
-  const srcText = fs.readFileSync(srcFile);
-  const fnMatches = findFnInSource(srcText.toString(), fnName, offset);
+  module = require.resolve(module);
+  const srcText = fs.readFileSync(module);
+
+  // Find the function definitions in the source file
+  const fnMatches = FunctionDef.find(
+    srcText.toString(),
+    module,
+    fnName,
+    offset
+  );
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
@@ -45,16 +49,12 @@ export const setup = (
   // Ensure we found a function to fuzz
   if (!fnMatches.length)
     throw new Error(
-      `Could not find function ${fnName}@${offset} in: ${srcFile})}`
+      `Could not find function ${fnName}@${offset} in: ${module})}`
     );
 
-  const [foundFnName, foundFnSrc] = fnMatches[0];
   return {
     options: { ...options },
-    inputs: getTsFnArgs(foundFnSrc, options.argOptions),
-    fnName: foundFnName,
-    fnSrc: foundFnSrc,
-    srcFile: srcFile,
+    function: fnMatches[0],
   };
 }; // setup()
 
@@ -68,7 +68,7 @@ export const setup = (
  */
 export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
-  const fqSrcFile = fs.realpathSync(env.srcFile); // Help the module loader
+  const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
     results: [],
@@ -81,7 +81,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     );
 
   // Build a generator for each argument
-  const fuzzArgGen = env.inputs.map((e) => {
+  const fuzzArgGen = env.function.getArgDefs().map((e) => {
     return { arg: e, gen: GeneratorFactory(e, prng) };
   });
 
@@ -101,19 +101,19 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   compiler.deactivate(); // Deactivate the TypeScript compiler
 
   // Ensure what we found is a function
-  if (!(env.fnName in mod))
+  if (!(env.function.getName() in mod))
     throw new Error(
-      `Could not find exported function ${env.fnName} in ${env.srcFile} to fuzz`
+      `Could not find exported function ${env.function.getName()} in ${env.function.getModule()} to fuzz`
     );
-  else if (typeof mod[env.fnName] !== "function")
+  else if (typeof mod[env.function.getName()] !== "function")
     throw new Error(
-      `Cannot fuzz exported member '${env.fnName} in ${env.srcFile} because it is not a function`
+      `Cannot fuzz exported member '${env.function.getName()} in ${env.function.getModule()} because it is not a function`
     );
 
   // Build a wrapper around the function to be fuzzed that we can
   // easily call in the testing loop.
   const fnWrapper = functionTimeout((input: FuzzIoElement[]): any => {
-    return mod[env.fnName](...input.map((e) => e.value));
+    return mod[env.function.getName()](...input.map((e) => e.value));
   }, env.options.fnTimeout);
 
   // Main test loop
@@ -124,6 +124,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
       break;
     }
 
+    // Initial set of results - overwritten below
     const result: FuzzTestResult = {
       input: [],
       output: [],
@@ -147,7 +148,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
       result.output.push({
         name: "0",
         offset: 0,
-        value: fnWrapper(result.input),
+        value: fnWrapper(result.input), // <-- Wrapper
       });
     } catch (e: any) {
       if (isTimeoutError(e)) {
@@ -179,7 +180,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
 
   // Return the result of the fuzzing activity
   return results;
-}; // fuzz()
+}; // fn: fuzz()
 
 /**
  * Checks whether the given option set is valid.
@@ -188,8 +189,8 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
  * @returns true if the options are valid, false otherwise
  */
 const isOptionValid = (options: FuzzOptions): boolean => {
-  return !(options.maxTests < 0 || !ArgDef.isOptionValid(options.argOptions));
-}; // isOptionValid()
+  return !(options.maxTests < 0 || !ArgDef.isOptionValid(options.argDefaults));
+}; // fn: isOptionValid()
 
 /**
  * Returns a default set of fuzzer options.
@@ -198,12 +199,18 @@ const isOptionValid = (options: FuzzOptions): boolean => {
  */
 export const getDefaultFuzzOptions = (): FuzzOptions => {
   return {
-    argOptions: ArgDef.getDefaultOptions(),
-    maxTests: 1000,
-    fnTimeout: 100,
-    suiteTimeout: 3000,
+    argDefaults: ArgDef.getDefaultOptions(),
+    maxTests: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("maxTests", 1000),
+    fnTimeout: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("fnTimeout", 100),
+    suiteTimeout: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("suiteTimeout", 3000),
   };
-}; // getDefaultFuzzOptions()
+}; // fn: getDefaultFuzzOptions()
 
 /**
  * The implicit oracle returns true only if the value contains no nulls, undefineds, NaNs,
@@ -220,7 +227,7 @@ export const implicitOracle = (x: any): boolean => {
   else if (typeof x === "object")
     return !Object.values(x).some((e) => !implicitOracle(e));
   else return true; //implicitOracleValue(x);
-};
+}; // fn: implicitOracle()
 
 /**
  * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
@@ -258,7 +265,7 @@ export default function functionTimeout(function_: any, timeout: number): any {
   });
 
   return wrappedFunction;
-}
+} // fn: functionTimeout()
 
 /**
  * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
@@ -270,17 +277,14 @@ export default function functionTimeout(function_: any, timeout: number): any {
  */
 export function isTimeoutError(error: { code?: string }): boolean {
   return "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
-}
+} // fn: isTimeoutError()
 
 /**
  * Fuzzer Environment required to fuzz a function.
  */
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
-  srcFile: string; // source file path
-  fnName: string; // function name
-  fnSrc: string; // typescript source code of the function
-  inputs: ArgDef<ArgType>[]; // input argument definitions
+  function: FunctionDef; // the function to fuzz
 };
 
 /**
@@ -288,7 +292,7 @@ export type FuzzEnv = {
  */
 export type FuzzOptions = {
   outputFile?: string; // optional file to receive the fuzzing output (JSON format)
-  argOptions: ArgOptions; // default options for arguments
+  argDefaults: ArgOptions; // default options for arguments
   seed?: string; // optional seed for pseudo-random number generator
   maxTests: number; // number of fuzzing tests to execute (>= 0)
   fnTimeout: number; // timeout threshold in ms per test
@@ -326,4 +330,5 @@ export type FuzzIoElement = {
   value: any; // value of element
 };
 
-export * from "./analysis/Typescript";
+export * from "./analysis/typescript/FunctionDef";
+export * from "./analysis/typescript/ArgDef";
