@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as fuzzer from "./fuzzer/Fuzzer";
 import { FunctionRef } from "./fuzzer/Fuzzer";
-import { FuzzPanel } from "./ui/FuzzPanel";
+import { FuzzPanel, FuzzPanelStateSerialized } from "./ui/FuzzPanel";
 
 const languages = ["typescript", "typescriptreact"]; // Languages supported
 const commands = {
@@ -14,6 +14,9 @@ const commands = {
  * @param context extension context provided by the VS Code extension host
  */
 export function activate(context: vscode.ExtensionContext): void {
+  //
+  // --------------------------- Commands --------------------------- //
+
   /**
    * Push the Fuzz command to the VS Code command palette.
    */
@@ -71,6 +74,24 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     )
   ); // push command: nanofuzz.Fuzz
+
+  // ---------------------------- Panels ---------------------------- //
+
+  /**
+   * Register a FuzzPanelSerializer so the FuzzPanel window persists
+   * across VS Code sessions.
+   */
+  vscode.window.registerWebviewPanelSerializer(FuzzPanel.viewType, {
+    async deserializeWebviewPanel(
+      webviewPanel: vscode.WebviewPanel,
+      state: FuzzPanelStateSerialized
+    ): Promise<void> {
+      // Restore content of the webview.
+      FuzzPanel.revive(webviewPanel, context.extensionUri, state);
+    },
+  });
+
+  // --------------------------- CodeLens --------------------------- //
 
   /**
    * Push our CodeLens provider to the VS Code editor

@@ -35,7 +35,8 @@
   "activationEvents": [
     "onCommand:nanofuzz.Fuzz",
     "onLanguage:typescript",
-    "onLanguage:typescriptreact"
+    "onLanguage:typescriptreact",
+    "onWebviewPanel:FuzzPanel"
   ],
   "contributes": {
     "commands": [

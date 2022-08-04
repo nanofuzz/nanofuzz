@@ -23,14 +23,15 @@ function main() {
 
   // Load the data from the HTML
   const resultsData = JSON.parse(
-    document
-      .getElementById("fuzzResultsData")
-      .innerHTML.replace(/&gt;/g, ">")
-      .replace(/&lt;/g, "<")
-      .replace(/&#0?39;/g, "'")
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, "&")
-  ); // TODO: Use a library for this. !!!
+    htmlEscape(document.getElementById("fuzzResultsData").innerHTML)
+  );
+
+  // Load and save the state back to the webview.  There does not seem to be
+  // an 'official' way to directly persist state within the extension itself,
+  // at least as of vscode 1.69.2.  Hence, the roundtrip.
+  vscode.setState(
+    JSON.parse(htmlEscape(document.getElementById("fuzzPanelState").innerHTML))
+  );
 
   // Fill the result grids
   if (Object.keys(resultsData).length) {
@@ -58,12 +59,6 @@ function main() {
         outputs[`output`] =
           o.value === undefined ? "undefined" : JSON.stringify(o.value);
       });
-
-      /*
-      e.output !== undefined && e.output.length === 1
-        ? JSON.stringify(e.output[0].value)
-        : JSON.stringify(e.output.map((f) => f.value));
-      */
 
       // Toss each result into the appropriate grid
       if (e.passed) {
@@ -219,4 +214,21 @@ function handleFuzzStart(e) {
  */
 function getIdBase(i) {
   return "argDef-" + i;
+}
+
+/**
+ * Adapted from: escape-goat/index.js
+ *
+ * Unescapes an HTML string.
+ *
+ * @param html HTML to unescape
+ * @returns unescaped string
+ */
+function htmlEscape(html) {
+  return html
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&#0?39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&");
 }

@@ -55,10 +55,46 @@ export class FuzzPanel {
         FuzzPanel.getWebviewOptions(extensionUri) // options
       );
 
-      // Register the new panel
-      FuzzPanel.currentPanels[fnRef] = new FuzzPanel(panel, extensionUri, env);
+      // Create the new FuzzPanel
+      new FuzzPanel(panel, extensionUri, env);
     }
-  }
+  } // fn: render()
+
+  /**
+   * Creates a new FuzzPanel with the given state.  This is used to
+   * restore a FuzzPanel across VS Code restarts.
+   *
+   * @param panel The WebView panel for this FuzzPanel instance
+   * @param extensionUri Uri of extension
+   * @param state State of the FuzzPanel
+   * @returns FuzzPanel instance for the given state
+   */
+  public static revive(
+    panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    state: FuzzPanelStateSerialized
+  ): void {
+    // Revive the FuzzPanel using the previous state
+    if (
+      typeof state === "object" &&
+      "tag" in state &&
+      state.tag === fuzzPanelStateVer
+    ) {
+      // Create a new fuzzer environment
+      const env = fuzzer.setup(
+        state.options,
+        state.fnRef.module,
+        state.fnRef.name,
+        state.fnRef.startOffset
+      );
+
+      // Create the new FuzzPanel
+      new FuzzPanel(panel, extensionUri, env);
+    } else {
+      // Dispose of any panels we can't revive
+      panel.dispose();
+    }
+  } // fn: revive()
 
   /**
    * Determine the options to use when creating the FuzzPanel WebView
@@ -75,6 +111,9 @@ export class FuzzPanel {
 
       // Enable searching on this panel
       enableFindWidget: true,
+
+      // Retain the webview contents when hidden
+      retainContextWhenHidden: true,
 
       // And restrict the webview to only loading content from our extension's `media` directory.
       // !!! localResourceRoots: [vscode.Uri.joinPath(extensionUri, "media")],
@@ -114,7 +153,23 @@ export class FuzzPanel {
 
     // Set the webview's initial html content
     this._updateHtml();
+
+    // Register the new panel
+    FuzzPanel.currentPanels[this.getFnRefKey()] = this;
   } // fn: constructor
+
+  /**
+   * Returns the state of the FuzzPanel for serialization.
+   *
+   * @returns the state of the FuzzPanel
+   */
+  private getState(): FuzzPanelStateSerialized {
+    return {
+      tag: fuzzPanelStateVer,
+      fnRef: this._fuzzEnv.function.getRef(),
+      options: this._fuzzEnv.options,
+    };
+  } // fn: getState()
 
   /**
    * Provides a key string that represents the fuzz environment
@@ -459,6 +514,8 @@ export class FuzzPanel {
     html += /*html*/ `
             </vscode-panels>
           </div>
+
+          <!-- Fuzzer Result Payload: for the client script to process -->
           <div id="fuzzResultsData" style="display:none">
             ${
               this._results === undefined
@@ -466,6 +523,12 @@ export class FuzzPanel {
                 : htmlEscape(JSON.stringify(this._results))
             }
           </div>
+
+          <!-- Fuzzer State Payload: for the client script to persist -->
+          <div id="fuzzPanelState" style="display:none">
+            ${htmlEscape(JSON.stringify(this.getState()))}
+          </div>
+                    
         </body>
       </html>
     `;
@@ -659,6 +722,11 @@ export function getUri(
 // ----------------------------- Types ----------------------------- //
 
 /**
+ * The Fuzzer State Version we currently support.
+ */
+const fuzzPanelStateVer = "FuzzPanelStateSerialized1.0.0";
+
+/**
  * Represents a message from the WebView client to its FuzzPanel.
  */
 export type FuzzPanelMessage = {
@@ -675,3 +743,12 @@ export enum FuzzPanelState {
   done = "done", // Fuzzing is done
   error = "error", // Fuzzing stopped due to an error
 }
+
+/**
+ * The serialized state of a FuzzPanel
+ */
+export type FuzzPanelStateSerialized = {
+  tag: string;
+  fnRef: fuzzer.FunctionRef;
+  options: fuzzer.FuzzOptions;
+};
