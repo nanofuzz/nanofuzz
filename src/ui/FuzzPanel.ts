@@ -96,6 +96,7 @@ export class FuzzPanel {
     }
   } // fn: revive()
 
+
   /**
    * Determine the options to use when creating the FuzzPanel WebView
    *
