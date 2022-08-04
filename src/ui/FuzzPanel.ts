@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import * as fuzzer from "../fuzzer/Fuzzer";
-import * as util from "./Utils";
 import { htmlEscape } from "escape-goat";
 
 /**
@@ -51,7 +50,7 @@ export class FuzzPanel {
       // Otherwise, create a new panel.
       const panel = vscode.window.createWebviewPanel(
         FuzzPanel.viewType, // FuzzPanel view type
-        `Fuzz: ${env.function.getName()}()`, // webview title
+        `AutoTest: ${env.function.getName()}()`, // webview title
         vscode.ViewColumn.Beside, // open beside the editor
         FuzzPanel.getWebviewOptions(extensionUri) // options
       );
@@ -260,7 +259,7 @@ export class FuzzPanel {
           dimLength: thisOverride.dimLength,
         });
       }
-    } // !!!
+    } // for: each argument
 
     // Update the UI
     this._results = undefined;
@@ -279,7 +278,7 @@ export class FuzzPanel {
 
     // Update the UI
     this._updateHtml();
-  } // fn: _doFuzzStartCmd
+  } // fn: _doFuzzStartCmd()
 
   /**
    * Disposes all objects used by this instance
@@ -295,29 +294,45 @@ export class FuzzPanel {
       const x = this._disposables.pop();
       if (x) x.dispose();
     }
-  } // fn: dispose
+  } // fn: dispose()
 
   // ------------------------- Webview HTML ------------------------- //
 
   /**
    * Updates the WebView HTML with the current state of the FuzzPanel
+   *
+   * TODO: Move styles to CSS !!!
    */
   private _updateHtml(): void {
-    const webview: vscode.Webview = this._panel.webview;
-    const extensionUri: vscode.Uri = this._extensionUri;
-
-    // TODO: Move styles to CSS !!!
+    const webview: vscode.Webview = this._panel.webview; // Current webview
+    const extensionUri: vscode.Uri = this._extensionUri; // Extension URI
     const disabledFlag =
-      this._state === FuzzPanelState.busy ? ` disabled ` : "";
-
+      this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const resultSummary = {
       passed: 0,
       failed: 0,
       timeout: 0,
       exception: 0,
       badOutput: 0,
-    };
+    }; // Summary of fuzzing results
+    const toolkitUri = getUri(webview, extensionUri, [
+      "node_modules",
+      "@vscode",
+      "webview-ui-toolkit",
+      "dist",
+      "toolkit.js",
+    ]); // URI to the VS Code webview ui toolkit
+    const scriptUrl = getUri(webview, extensionUri, [
+      "assets",
+      "ui",
+      "FuzzPanelMain.js",
+    ]); // URI to client-side panel script
+    const env = this._fuzzEnv; // Fuzzer environment
+    const fnRef = env.function.getRef(); // Reference to function under test
+    const counter = { id: 0 }; // Unique counter for argument ids
+    let argDefHtml = ""; // HTML representing argument definitions
 
+    // If fuzzer results are available, calculate how many tests passed, failed, etc.
     if (this._state === FuzzPanelState.done && this._results !== undefined) {
       for (const result of this._results.results) {
         if (result.passed) resultSummary.passed++;
@@ -328,25 +343,9 @@ export class FuzzPanel {
           else resultSummary.badOutput++;
         }
       }
-    }
+    } // if: results are available
 
-    const toolkitUri = util.getUri(webview, extensionUri, [
-      "node_modules",
-      "@vscode",
-      "webview-ui-toolkit",
-      "dist",
-      "toolkit.js", // A toolkit.min.js file is also available
-    ]);
-
-    const scriptUrl = util.getUri(webview, extensionUri, [
-      "assets",
-      "ui",
-      "FuzzPanelMain.js",
-    ]);
-    const env = this._fuzzEnv;
-    const fnRef = env.function.getRef();
-    const counter = { id: 0 };
-    let argDefHtml = "";
+    // Render the HTML for each argument
     env.function
       .getArgDefs()
       .forEach((arg) => (argDefHtml += this._argDefToHtmlForm(arg, counter)));
@@ -361,12 +360,12 @@ export class FuzzPanel {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <script type="module" src="${toolkitUri}"></script>
           <script type="module" src="${scriptUrl}"></script>
-          <title>Fuzz Panel</title>
+          <title>AutoTest Panel</title>
         </head>
         <body>
-          <h2 style="margin-bottom:.5em;margin-top:.1em;">Fuzz ${htmlEscape(
+          <h2 style="margin-bottom:.5em;margin-top:.1em;">AutoTest ${htmlEscape(
             fnRef.name
-          )}() with inputs:</h2>
+          )}() w/inputs:</h2>
 
           <!-- Function Arguments -->
           <div id="argDefs">${argDefHtml}</div>
@@ -392,7 +391,7 @@ export class FuzzPanel {
 
           <!-- Button Bar -->
           <div style="padding-top: .25em;">
-            <vscode-button ${disabledFlag} id="fuzz.start"  appearance="primary">Fuzz</vscode-button>
+            <vscode-button ${disabledFlag} id="fuzz.start"  appearance="primary">Test</vscode-button>
             <vscode-button ${disabledFlag} id="fuzz.options" appearance="secondary">More options</vscode-button>
           </div>
 
@@ -414,6 +413,7 @@ export class FuzzPanel {
           }>
             <vscode-panels>`;
 
+    // If we have results, render the output tabs to display the results.
     const tabs = [
       {
         id: "timeout",
@@ -456,7 +456,6 @@ export class FuzzPanel {
                 </section>
               </vscode-panel-view>`;
     });
-
     html += /*html*/ `
             </vscode-panels>
           </div>
@@ -471,11 +470,14 @@ export class FuzzPanel {
       </html>
     `;
 
+    // Update the webview with the new HTML
     this._panel.webview.html = html;
-  } // fn: _getWebviewContent
+  } // fn: _updateHtml()
 
   /**
-   * Returns an HTML form representing an argument definition.
+   * Returns an HTML form representing an argument definition.  The counter
+   * is passed by reference so it can be unique across the entire tree of
+   * arguments: objects can be nested arbitrarily.
    *
    * @param arg Argument definition to render
    * @param counter Counter internally incremented for each argument
@@ -483,30 +485,38 @@ export class FuzzPanel {
    */
   private _argDefToHtmlForm(
     arg: fuzzer.ArgDef<fuzzer.ArgType>,
-    counter: { id: number }
+    counter: { id: number } // pass counter by reference
   ): string {
-    const id = counter.id++;
-    const idBase = `argDef-${id}`;
-    const argType = arg.getType();
+    const id = counter.id++; // unique id for each argument
+    const idBase = `argDef-${id}`; // base HTML id for this argument
+    const argType = arg.getType(); // type of argument
     const disabledFlag =
-      this._state === FuzzPanelState.busy ? ` disabled ` : "";
-    const dimString = "[]".repeat(arg.getDim());
+      this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
+    const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
     const typeString =
-      argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase();
+      argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase(); // Text indicating arg type
+    const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
 
-    let html = /*html*/ `<div class="argDef" id="${idBase}">
+    let html = /*html*/ `
+    <!-- Argument Definition -->
+    <div class="argDef" id="${idBase}">
+      <!-- Argument Name -->
       <div class="argDef-name" style="font-size:1.25em;">
-        <strong>${htmlEscape(arg.getName())}</strong>
-         : ${typeString}${dimString} =
+        <strong>${htmlEscape(
+          arg.getName()
+        )}</strong>${optionalString}: ${typeString}${dimString} =
       </div>`;
 
     html += /*html*/ `
+      <!-- Argument Type -->
       <div class="argDef-type-${htmlEscape(
         arg.getType()
-      )}" id="${idBase}-${argType}" style="padding-left: 1em;">`;
+      )}" id="${idBase}-${argType}" style="padding-left: 1em;">
+      <!-- Argument Options -->`;
 
     // Argument options
     switch (arg.getType()) {
+      // Number-specific Options
       case fuzzer.ArgTag.NUMBER: {
         // TODO: validate for ints and floats !!!
         html += /*html*/ `<vscode-text-field ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
@@ -523,6 +533,7 @@ export class FuzzPanel {
         break;
       }
 
+      // String-specific Options
       case fuzzer.ArgTag.STRING: {
         // TODO: validate for ints > 0 !!!
         html += /*html*/ `<vscode-text-field ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
@@ -535,6 +546,7 @@ export class FuzzPanel {
         break;
       }
 
+      // Boolean-specific Options
       case fuzzer.ArgTag.BOOLEAN: {
         let intervals = arg.getIntervals();
         if (intervals.length === 0) {
@@ -557,8 +569,10 @@ export class FuzzPanel {
         break;
       }
 
+      // Object-specific Options
       case fuzzer.ArgTag.OBJECT: {
-        // Output the array form prior to the child arguments.
+        // Only for objects: output the array form prior to the child arguments.
+        // This seems odd, but the screen reads better to the user this way.
         html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
         html += `<div>`;
         arg
@@ -569,18 +583,21 @@ export class FuzzPanel {
       }
     }
 
+    // For objects: output any sub-arguments.
     if (argType !== fuzzer.ArgTag.OBJECT) {
       html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
     }
 
     html += `</div>`;
+    // For objects: output the end of object character ("}") here
     if (argType === fuzzer.ArgTag.OBJECT) {
       html += /*html*/ `<span style="font-size:1.25em;">}</span>`;
     }
     html += `</div>`;
 
+    // Return the argument's HTML
     return html;
-  } // fn: _argDefToHtmlForm
+  } // fn: _argDefToHtmlForm()
 
   /**
    * Returns an HTML form representing an array argument definition.
@@ -618,8 +635,26 @@ export class FuzzPanel {
     }
 
     return html;
-  } // fn: _arraySizeHtmlForm
+  } // fn: _arraySizeHtmlForm()
 } // class: FuzzPanel
+
+// ------------------------ Helper Functions ----------------------- //
+
+/**
+ * Convenience function to build a uri to a project file at runtime.
+ *
+ * @param webview webview object
+ * @param extensionUri uri of extension
+ * @param pathList list of paths to concatenate
+ * @returns A vscode uri to the requested path
+ */
+export function getUri(
+  webview: vscode.Webview,
+  extensionUri: vscode.Uri,
+  pathList: string[]
+): vscode.Uri {
+  return webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, ...pathList));
+} // fn: getUri()
 
 // ----------------------------- Types ----------------------------- //
 

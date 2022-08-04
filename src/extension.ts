@@ -31,7 +31,7 @@ export function activate(context: vscode.ExtensionContext): void {
           : vscode.window.activeTextEditor?.document;
         if (!document || !editor) {
           vscode.window.showErrorMessage(
-            "Please select a function to fuzz in the editor."
+            "Please select a function to autotest in the editor."
           );
           return; // If there is no active editor, return.
         }
@@ -39,7 +39,7 @@ export function activate(context: vscode.ExtensionContext): void {
         // Ensure the document is saved / not dirty
         if (document.isDirty) {
           vscode.window.showErrorMessage(
-            "Please save the file before fuzzing."
+            "Please save the file before autotesting."
           );
           return;
         }
@@ -59,7 +59,7 @@ export function activate(context: vscode.ExtensionContext): void {
           fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName, pos);
         } catch (e: any) {
           vscode.window.showErrorMessage(
-            `The fuzzer could not find or does not support fuzzing this function. Messge: "${e.message}"`
+            `Could not find or does not support this function. Messge: "${e.message}"`
           );
           return;
         }
@@ -79,7 +79,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
       vscode.languages.registerCodeLensProvider(lang, { provideCodeLenses })
     );
-  });
+  }); // push CodeLens provider
 
   /**
    * The CodeLens Provider
@@ -116,7 +116,7 @@ export function activate(context: vscode.ExtensionContext): void {
             document.positionAt(match.ref.endOffset)
           ),
           {
-            title: "Fuzz...",
+            title: "AutoTest...",
             command: commands.fuzz,
             arguments: [match],
           }

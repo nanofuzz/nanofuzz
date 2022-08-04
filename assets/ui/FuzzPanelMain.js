@@ -1,11 +1,15 @@
 const vscode = acquireVsCodeApi();
 
+// Attach main to the window onLoad() event
 window.addEventListener("load", main);
 
-// !!!
+// List of output grids that store fuzzer results
 const gridTypes = ["timeout", "exception", "badOutput", "passed"];
 
-// !!!
+/**
+ * Sets up the UI when the page is loaded, including setting up
+ * event handlers and filling the output grids if data is available.
+ */
 function main() {
   // Add event listener for the fuzz.start button
   document
@@ -35,22 +39,33 @@ function main() {
       data[type] = [];
     });
 
+    // Loop over each result
     for (const e of resultsData.results) {
+      // Name each input argument and make it clear which inputs were not provided
+      // (i.e., the argument was optional).  Otherwise, stringify the value for
+      // display.
       const inputs = {};
       e.input.forEach((i) => {
-        inputs[`input-${i.name}`] =
-          i.value === undefined ? "undefined" : JSON.stringify(i.value);
+        inputs[`input: ${i.name}`] =
+          i.value === undefined ? "(no input)" : JSON.stringify(i.value);
       });
+
+      // There are 0-1 outputs: if an output is present, just name it `output`
+      // and make it clear which outputs are undefined.  Otherwise, stringify
+      // the value for display.
       const outputs = {};
       e.output.forEach((o) => {
-        outputs[`output-${o.name}`] =
+        outputs[`output`] =
           o.value === undefined ? "undefined" : JSON.stringify(o.value);
       });
 
+      /*
       e.output !== undefined && e.output.length === 1
         ? JSON.stringify(e.output[0].value)
         : JSON.stringify(e.output.map((f) => f.value));
+      */
 
+      // Toss each result into the appropriate grid
       if (e.passed) {
         data["passed"].push({ ...inputs, ...outputs });
       } else {
@@ -62,7 +77,7 @@ function main() {
           data["badOutput"].push({ ...inputs, ...outputs });
         }
       }
-    }
+    } // for: each result
 
     // Fill the grids with data
     gridTypes.forEach((type) => {
@@ -74,18 +89,11 @@ function main() {
   }
 } // fn: main
 
-// !!!
-function showGrid(gridType) {
-  gridTypes.forEach((type) => {
-    if (type === gridType) {
-      document.getElementById(type).style.display = "block";
-    } else {
-      document.getElementById(type).style.display = "none";
-    }
-  });
-} // fn: showGrid
-
-// !!!
+/**
+ * Toggles whether more fuzzer options are shown.
+ *
+ * @param e onClick() event
+ */
 function toggleFuzzOptions(e) {
   const fuzzOptions = document.getElementById("fuzzOptions");
   if (fuzzOptions.style.display === "none") {
@@ -97,11 +105,16 @@ function toggleFuzzOptions(e) {
   }
 } // fn: toggleFuzzOptions
 
-// !!!
+/**
+ * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
+ * from the UI and sends them to the extension to start the fuzzer.
+ *
+ * @param e onClick() event
+ */
 function handleFuzzStart(e) {
-  const overrides = { fuzzer: {}, args: [] };
-  const disableArr = [e.currentTarget]; // TODO: fuzz.options button
-  const fuzzBase = "fuzz";
+  const overrides = { fuzzer: {}, args: [] }; // Fuzzer option overrides (from UI)
+  const disableArr = [e.currentTarget]; // List of controls to disable while fuzzer is busy
+  const fuzzBase = "fuzz"; // Base html id name
 
   // Process fuzzer options
   ["suiteTimeout", "maxTests", "fnTimeout"].forEach((e) => {
@@ -198,7 +211,12 @@ function handleFuzzStart(e) {
   });
 } // fn: handleFuzzStart
 
-// !!!
+/**
+ * Returns a base id name for a particular argument input.
+ *
+ * @param i unique argument id
+ * @returns HTML id for the argument
+ */
 function getIdBase(i) {
   return "argDef-" + i;
 }

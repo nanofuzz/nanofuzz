@@ -41,7 +41,7 @@
     "commands": [
       {
         "command": "nanofuzz.Fuzz",
-        "title": "Fuzz"
+        "title": "AutoTest"
       }
     ],
     "menus": {
@@ -56,8 +56,7 @@
     "keybindings": [
       {
         "command": "nanofuzz.Fuzz",
-        "key": "ctrl+alt+f",
-        "mac": "ctrl+alt+f",
+        "key": "ctrl+alt+a",
         "when": "editorLangId == typescript && editorTextFocus"
       }
     ],
