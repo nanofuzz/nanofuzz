@@ -43,6 +43,14 @@
       {
         "command": "nanofuzz.Fuzz",
         "title": "AutoTest"
+      },
+      {
+        "command": "nanofuzz.telemetry.DumpLog",
+        "title": "Dump Telemetry Log"
+      },
+      {
+        "command": "nanofuzz.telemetry.ClearLog",
+        "title": "Clear Telemetry Log"
       }
     ],
     "menus": {
@@ -148,6 +156,32 @@
           "default": 0,
           "minimum": 0,
           "description": "Default number of array dimensions for any types.  0=not an array."
+        },
+        "nanofuzz.telemetry.timeoutMinutes": {
+          "title": "Timeout session after this many minutes (0=no timeout)",
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Number of minutes until session is automatically ended."
+        },
+        "nanofuzz.telemetry.purseCallbackUri": {
+          "title": "Telemetry update Url",
+          "type": "string",
+          "default": "",
+          "description": "Url target for telemetry updates.  (\"\" = no callback)"
+        },
+        "nanofuzz.telemetry.purseCallbackSecs": {
+          "title": "Telemtry update interval (seconds)",
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Interval (seconds) between telemetry pushes to URL. (0=no push)"
+        },
+        "nanofuzz.telemetry.purseCallbackKey": {
+          "title": "Telemetry key for this session",
+          "type": "string",
+          "default": "",
+          "description": "Key to use for telemetry updates. (\"\" = no key)"
         }
       }
     }

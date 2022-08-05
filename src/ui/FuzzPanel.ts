@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fuzzer from "../fuzzer/Fuzzer";
 import { htmlEscape } from "escape-goat";
+import { FunctionRef } from "../fuzzer/Fuzzer";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -18,11 +19,12 @@ export class FuzzPanel {
   // Static variables
   public static currentPanels: Record<string, FuzzPanel> = {}; // Map of panels indeved by the result of getFnRefKey()
   public static readonly viewType = "FuzzPanel"; // The name of this panel type
+  public static context: vscode.ExtensionContext;
 
   // Instance variables
   private readonly _panel: vscode.WebviewPanel; // The WebView panel for this FuzzPanel instance
   private readonly _extensionUri: vscode.Uri; // Current Uri of the extension
-  private _disposables: vscode.Disposable[] = []; // !!!
+  private _disposables: vscode.Disposable[] = []; // List of disposables
   private _fuzzEnv: fuzzer.FuzzEnv; // The Fuzz environment this panel represents
   private _state: FuzzPanelState = FuzzPanelState.init; // The current state of the fuzzer.
 
@@ -74,6 +76,8 @@ export class FuzzPanel {
     extensionUri: vscode.Uri,
     state: FuzzPanelStateSerialized
   ): void {
+    let fuzzPanel: FuzzPanel | undefined;
+
     // Revive the FuzzPanel using the previous state
     if (
       typeof state === "object" &&
@@ -81,21 +85,27 @@ export class FuzzPanel {
       state.tag === fuzzPanelStateVer
     ) {
       // Create a new fuzzer environment
-      const env = fuzzer.setup(
-        state.options,
-        state.fnRef.module,
-        state.fnRef.name,
-        state.fnRef.startOffset
-      );
-
-      // Create the new FuzzPanel
-      new FuzzPanel(panel, extensionUri, env);
-    } else {
-      // Dispose of any panels we can't revive
+      try {
+        const env = fuzzer.setup(
+          state.options,
+          state.fnRef.module,
+          state.fnRef.name,
+          state.fnRef.startOffset
+        );
+        // Create the new FuzzPanel
+        fuzzPanel = new FuzzPanel(panel, extensionUri, env);
+      } catch (e: any) {
+        // It's possible the source code changed between restarting;
+        // just log the exception and continue. Restoring these panels
+        // is best effort anyway.
+        console.error(`Unable to revive FuzzPanel: ${e.message}`);
+      }
+    }
+    // Dispose of any panels we can't revive
+    if (fuzzPanel === undefined) {
       panel.dispose();
     }
   } // fn: revive()
-
 
   /**
    * Determine the options to use when creating the FuzzPanel WebView
@@ -720,12 +730,147 @@ export function getUri(
   return webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, ...pathList));
 } // fn: getUri()
 
-// ----------------------------- Types ----------------------------- //
+/**
+ * Handles the nanofuzz.Fuzz command by creating a fuzz environment for
+ * the function specified as input -- or the current cursor position if
+ * no function is specified.
+ *
+ * @param match optional: a reference to the function to fuzz
+ * @returns void
+ */
+export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
+  // Get the function name (only present on a CodeLens match)
+  const fnName: string | undefined = match ? match.ref.name : undefined;
+
+  // Get the current active document
+  const editor = vscode.window.activeTextEditor;
+  const document = match
+    ? match.document
+    : vscode.window.activeTextEditor?.document;
+  if (!document || !editor) {
+    vscode.window.showErrorMessage(
+      "Please select a function to autotest in the editor."
+    );
+    return; // If there is no active editor, return.
+  }
+
+  // Ensure the document is saved / not dirty
+  if (document.isDirty) {
+    vscode.window.showErrorMessage("Please save the file before autotesting.");
+    return;
+  }
+
+  // Get the current active editor filename
+  const srcFile = document.uri.path; //full path of the file which the function is in.
+
+  // Get the current cursor offset
+  const pos = match
+    ? match.ref.startOffset
+    : document.offsetAt(editor.selection.active);
+
+  // Call the fuzzer to analyze the function
+  const fuzzOptions = fuzzer.getDefaultFuzzOptions();
+  let fuzzSetup: fuzzer.FuzzEnv;
+  try {
+    fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName, pos);
+  } catch (e: any) {
+    vscode.window.showErrorMessage(
+      `Could not find or does not support this function. Messge: "${e.message}"`
+    );
+    return;
+  }
+
+  // Load the fuzz panel
+  FuzzPanel.render(FuzzPanel.context.extensionUri, fuzzSetup);
+
+  return;
+} // fn: handleFuzzCommand()
+
+/**
+ * Returns an array of FuzzPanel CodeLens objects for the given document.
+ *
+ * @param document text document to analyze
+ * @param token cancellation token (unused)
+ * @returns array of CodeLens objects
+ */
+export function provideCodeLenses(
+  document: vscode.TextDocument,
+  token: vscode.CancellationToken
+): vscode.CodeLens[] {
+  // Use the TypeScript analyzer to find all fn declarations in the module
+  const matches: FunctionMatch[] = [];
+  try {
+    const functions = fuzzer.FunctionDef.find(
+      document.getText(),
+      document.fileName
+    );
+    for (const fn of functions) {
+      matches.push({
+        document,
+        ref: fn.getRef(),
+      });
+    }
+  } catch (e: any) {
+    console.error(
+      `Error parsing typescript file: ${document.fileName} error: ${e.message}`
+    );
+  }
+
+  // Build the map of CodeLens objects at each function location
+  return matches.map(
+    (match) =>
+      new vscode.CodeLens(
+        new vscode.Range(
+          document.positionAt(match.ref.startOffset),
+          document.positionAt(match.ref.endOffset)
+        ),
+        {
+          title: "AutoTest...",
+          command: commands.fuzz.name,
+          arguments: [match],
+        }
+      )
+  );
+} // fn: provideCodeLenses()
+
+/**
+ * Initializes the module
+ *
+ * @param context extension context
+ */
+export function init(context: vscode.ExtensionContext): void {
+  FuzzPanel.context = context; // Set the context
+}
+
+/**
+ * De-initializes the module
+ */
+export function deinit(): void {
+  // noop
+}
+
+// --------------------------- Constants --------------------------- //
+
+/**
+ * Commands supported by this module
+ *
+ * Note: Manually update package.json.
+ */
+export const commands = {
+  fuzz: { name: "nanofuzz.Fuzz", fn: handleFuzzCommand },
+};
+
+/**
+ * Languages supported by this module
+ */
+export const languages = ["typescript", "typescriptreact"];
 
 /**
  * The Fuzzer State Version we currently support.
  */
-const fuzzPanelStateVer = "FuzzPanelStateSerialized1.0.0";
+const fuzzPanelStateVer = "FuzzPanelStateSerialized-1.0.0";
+
+// ----------------------------- Types ----------------------------- //
 
 /**
  * Represents a message from the WebView client to its FuzzPanel.
@@ -752,4 +897,12 @@ export type FuzzPanelStateSerialized = {
   tag: string;
   fnRef: fuzzer.FunctionRef;
   options: fuzzer.FuzzOptions;
+};
+
+/**
+ * Represents a link between a vscode document and a function definition
+ */
+export type FunctionMatch = {
+  document: vscode.TextDocument;
+  ref: FunctionRef;
 };
