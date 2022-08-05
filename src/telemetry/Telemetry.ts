@@ -1,13 +1,11 @@
 import * as vscode from "vscode";
 import { Logger, LoggerEntry } from "./Logger";
-import { Memory } from "./Memory";
 
-let currentWindow = "";
-let currentTerm = "";
-let memory: Memory;
-let dataLog: Logger;
-let context: vscode.ExtensionContext;
-const config: PurseConfig = {};
+let currentWindow = ""; // !!!
+let currentTerm = ""; // !!!
+let logger: Logger; // !!!
+let context: vscode.ExtensionContext; // !!!
+let config: PurseConfig; // !!!
 
 /**
  * Initialize the module.
@@ -19,17 +17,18 @@ export async function init(inContext: vscode.ExtensionContext): Promise<void> {
   context = inContext;
 
   // Setup Workspace Storage
-  memory = new Memory(context.workspaceState);
-  dataLog = new Logger(memory);
+  logger = Logger.getLogger(context.extensionUri);
 
   // Load config
-  const cfg = vscode.workspace.getConfiguration("nanofuzz.telemetry");
-  config.timeoutMinutes = cfg.get("timeoutMinutes", 0);
-  config.purseCallbackUri = cfg.get("purseCallbackUri");
-  config.purseCallbackSecs = cfg.get("purseCallbackSecs", 15);
-  config.purseCallbackKey = cfg.get("purseCallbackKey");
-
-  console.info("Telemetry is active");
+  const cfg = vscode.workspace.getConfiguration("telemetry");
+  config = {
+    active: cfg.get("active", false),
+  };
+  if (config.active) {
+    console.info("Telemetry is active");
+  } else {
+    console.info("Telemetry is inactive");
+  }
 }
 
 /**
@@ -39,16 +38,24 @@ export function deinit(): void {
   currentWindow = "";
   currentTerm = "";
 
-  console.debug("Telemetry de-activated");
+  /**
+   * The following code is usually not effective when the vscode
+   * window is closed.  For an explanation as to why, see:
+   * https://github.com/microsoft/vscode/issues/122825#issuecomment-814218149
+   */
+  logger.flush();
 }
 
 /**
  * Filenames for code editors start with '/' or '\'
  *
+ * !!! Not sure this is what we want here.
+ *
  * @param fn filename
  * @returns true if filename starts with '/' or '\'
  */
 function isCodeEditor(fn: string): boolean {
+  console.debug(`isCodeEditor: ${fn}`); // !!!
   return fn.charAt(0) === "/" || fn.charAt(0) === "\\";
 }
 
@@ -61,21 +68,15 @@ export const commands = {
   dumpLog: {
     name: "nanofuzz.telemetry.DumpLog",
     fn: (): void => {
-      vscode.workspace
-        .openTextDocument({ content: dataLog.toJSON(), language: "json" })
-        .then((document) => {
-          vscode.window.showTextDocument(document);
-          vscode.window.showInformationMessage(
-            `Log Data dumped to document ${document.uri}`
-          );
-        });
+      logger.flush();
+      vscode.window.showInformationMessage(`Log Data flushed to file system`);
     },
   },
   clearLog: {
     name: "nanofuzz.telemetry.ClearLog",
     fn: (): void => {
-      dataLog.clear();
-      dataLog.push(new LoggerEntry("logDataCleared"));
+      logger.clear();
+      logger.push(new LoggerEntry("logDataCleared"));
       vscode.window.showInformationMessage("Log Data cleared");
     },
   },
@@ -91,14 +92,14 @@ export const listeners: Listener<any>[] = [
   {
     event: vscode.workspace.onDidChangeConfiguration,
     fn: (e: vscode.ConfigurationChangeEvent): void => {
-      dataLog.push(new LoggerEntry("onDidChangeConfiguration"));
+      logger.push(new LoggerEntry("onDidChangeConfiguration"));
     },
   },
   {
     event: vscode.workspace.onDidChangeTextDocument,
     fn: (e: vscode.TextDocumentChangeEvent): void => {
       for (const c of e.contentChanges) {
-        dataLog.push(
+        logger.push(
           new LoggerEntry(
             "onDidChangeTextDocument",
             "%s:%s to %s:%s in [%s] replaced with: %s`",
@@ -125,8 +126,8 @@ export const listeners: Listener<any>[] = [
       currentWindow =
         editor !== undefined && isCodeEditor(editor.document.fileName)
           ? editor.document.fileName
-          : "";
-      dataLog.push(
+          : editor?.document.uri.toString() ?? "";
+      logger.push(
         new LoggerEntry(
           "onDidChangeActiveTextEditor",
           "Current editor: [%s]; Previous editor: [%s]",
@@ -140,7 +141,7 @@ export const listeners: Listener<any>[] = [
     fn: (e: vscode.TextEditorSelectionChangeEvent): void => {
       for (const s of e.selections) {
         const selectedText = e.textEditor.document.getText(s);
-        dataLog.push(
+        logger.push(
           new LoggerEntry(
             "onDidChangeTextEditorSelection",
             "%s:%s to %s:%s in [%s] text: %s",
@@ -161,7 +162,7 @@ export const listeners: Listener<any>[] = [
     event: vscode.window.onDidChangeTextEditorVisibleRanges,
     fn: (e: vscode.TextEditorVisibleRangesChangeEvent): void => {
       for (const r of e.visibleRanges) {
-        dataLog.push(
+        logger.push(
           new LoggerEntry(
             "onDidChangeTextEditorVisibleRanges",
             "%s:%s to %s:%s [%s]",
@@ -183,7 +184,7 @@ export const listeners: Listener<any>[] = [
   {
     event: vscode.window.onDidOpenTerminal,
     fn: (term: vscode.Terminal): void => {
-      dataLog.push(
+      logger.push(
         new LoggerEntry("onDidOpenTerminal", "Opened terminal: [%s]", [
           term.name,
         ])
@@ -195,7 +196,7 @@ export const listeners: Listener<any>[] = [
     fn: (term: vscode.Terminal | undefined): void => {
       const previousTerm: string = currentTerm;
       currentTerm = term === undefined ? "" : term.name;
-      dataLog.push(
+      logger.push(
         new LoggerEntry(
           "onDidChangeActiveTerminal",
           "Current terminal: [%s]; Previous terminal: [%s]",
@@ -207,7 +208,7 @@ export const listeners: Listener<any>[] = [
   {
     event: vscode.window.onDidChangeTerminalState,
     fn: (term: vscode.Terminal): void => {
-      dataLog.push(
+      logger.push(
         new LoggerEntry(
           "onDidChangeTerminalState",
           "Current terminal: [%s]; InteractedWith: [%s]",
@@ -219,7 +220,7 @@ export const listeners: Listener<any>[] = [
   {
     event: vscode.window.onDidCloseTerminal,
     fn: (term: vscode.Terminal): void => {
-      dataLog.push(
+      logger.push(
         new LoggerEntry("onDidCloseTerminal", "Closed terminal: [%s]", [
           term.name,
         ])
@@ -236,14 +237,13 @@ type Listener<T extends any> = {
   fn: (e: T) => void;
 };
 
-// !!!
+/**
+ * Telemetry configuration
+ *
+ * Note: Also update package.json
+ */
 type PurseConfig = {
-  openMessage?: string; // Message to display on experiment start
-  timeoutMinutes?: number; // Devcontainer inactivity timeout
-  machineType?: string; // Devcontainer machine image type
-  purseCallbackUri?: string; // URI callback to PURSE experiment server
-  purseCallbackSecs?: number; // Interval (in seconds) for callback to PURSE
-  purseCallbackKey?: string; // Key for this experiment participant
+  active: boolean; // Indicates whether to start telemetry
 };
 
 /*

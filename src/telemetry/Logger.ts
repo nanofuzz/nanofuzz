@@ -1,35 +1,59 @@
-import { Memory } from "./Memory";
 import * as util from "util";
+import * as vscode from "vscode";
 
 /**
  * Lightweight storage for event data prior to de-staging.
+ *
+ * This is a singleton.  Use getLogger() to get the instance.
  */
 export class Logger {
-  constructor(private memory: Memory) {
+  public static getLogger(extensionUri: vscode.Uri): Logger {
+    if (Logger.theInstance === undefined)
+      Logger.theInstance = new Logger(extensionUri);
+    return Logger.theInstance;
+  }
+  private constructor(private extensionUri: vscode.Uri) {
     this.calcPersist();
   }
+  private static theInstance?: Logger;
   private log: LoggerEntry[] = [];
-  private oneMinute = 60000;
-  private chunkPrefix = `[Logger-Chunk]`;
+  private interval = 30000; // 30 seconds
+  private chunkPrefix = `LoggerChunk`;
   private lastPersist: Date = new Date();
   private nextPersist: Date = new Date(
-    this.lastPersist.getTime() + this.oneMinute
+    this.lastPersist.getTime() + this.interval
   );
   private calcPersist() {
     this.lastPersist = new Date();
-    this.nextPersist = new Date(this.lastPersist.getTime() + this.oneMinute);
+    this.nextPersist = new Date(this.lastPersist.getTime() + this.interval);
   }
   private persistChunk() {
-    const chunkName = `${this.chunkPrefix}${this.lastPersist.toISOString()}`;
+    const chunkName = `${this.chunkPrefix}-${this.lastPersist.toISOString()}`;
+    const chunkUri = vscode.Uri.joinPath(
+      this.extensionUri,
+      "telemetry",
+      chunkName + ".json"
+    ); // !!! externalize
 
     this.calcPersist(); // Reset the persistence stamps
-    this.memory.set(chunkName, this.log); // Persist this chunk
-    this.log = []; // Clear the persisted data
 
-    console.debug(`Persisted chunk: ${chunkName}`);
+    if (this.log.length) {
+      const logCopy = this.log;
+      this.log = []; // Clear the persisted data
+      console.debug(`Persisting chunk: ${chunkName}...`); // !!!
+      vscode.workspace.fs
+        .writeFile(chunkUri, Buffer.from(JSON.stringify(logCopy)))
+        .then(() => {
+          //this.memory.set(chunkName, this.log); // Persist this chunk
+          console.debug(`Persisted chunk: ${chunkName}`);
+        });
+    } else {
+      console.debug("No log data to persist");
+    }
   }
   public clear(): void {
     this.log = [];
+    /*
     const keys: readonly string[] = this.memory.keys();
     for (const keyidx in keys) {
       const key: string = keys[keyidx];
@@ -38,16 +62,20 @@ export class Logger {
         console.debug(`Deleted chunk: ${key}`);
       }
     }
-    console.debug(`Deleted log data`);
+    */
+    console.debug(`Cleared in-memory log data (any persisted chunks remain)`);
+  }
+  public flush(): void {
+    this.persistChunk();
   }
   public push(logEntry: LoggerEntry): void {
     this.log.push(logEntry);
-    console.debug(logEntry.toLogString());
 
     if (new Date() > this.nextPersist) {
       this.persistChunk(); // Persist if needed
     }
   }
+  /*
   public toJSON(): string {
     // Flush any pending chunks to storage - so we get them in the next step.
     if (this.log.length) {
@@ -73,6 +101,7 @@ export class Logger {
 
     return JSON.stringify(fullLog);
   }
+  */
 }
 
 /**
@@ -87,7 +116,7 @@ export class LoggerEntry {
     this.time = new Date().toISOString();
   }
   private time: string;
-  public toLogString(): string {
+  public toString(): string {
     const logStart = `${this.time}:${this.src}`;
     if (this.msg === undefined) {
       return logStart;

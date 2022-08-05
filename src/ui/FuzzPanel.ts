@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as fuzzer from "../fuzzer/Fuzzer";
 import { htmlEscape } from "escape-goat";
 import { FunctionRef } from "../fuzzer/Fuzzer";
+import { Logger, LoggerEntry } from "../telemetry/Logger";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -76,6 +77,8 @@ export class FuzzPanel {
     extensionUri: vscode.Uri,
     state: FuzzPanelStateSerialized
   ): void {
+    // Get a logger instance
+    const logger = Logger.getLogger(FuzzPanel.context.extensionUri);
     let fuzzPanel: FuzzPanel | undefined;
 
     // Revive the FuzzPanel using the previous state
@@ -94,6 +97,22 @@ export class FuzzPanel {
         );
         // Create the new FuzzPanel
         fuzzPanel = new FuzzPanel(panel, extensionUri, env);
+
+        // Attach a telemetry event handler to the panel
+        panel.onDidChangeViewState((e) => {
+          logger.push(
+            new LoggerEntry(
+              "FuzzPanel.onDidChangeViewState",
+              "Webview with title '%s' for function '%s' state changed.  Visible: %s.  Active %s.",
+              [
+                e.webviewPanel.title,
+                fuzzPanel!.getFnRefKey(),
+                e.webviewPanel.visible ? "true" : "false",
+                e.webviewPanel.active ? "true" : "false",
+              ]
+            )
+          );
+        });
       } catch (e: any) {
         // It's possible the source code changed between restarting;
         // just log the exception and continue. Restoring these panels
@@ -104,6 +123,14 @@ export class FuzzPanel {
     // Dispose of any panels we can't revive
     if (fuzzPanel === undefined) {
       panel.dispose();
+    } else {
+      logger.push(
+        new LoggerEntry(
+          "FuzzPanel.fuzz.open",
+          "Fuzzing panel opened. Target: %s.",
+          [fuzzPanel.getFnRefKey()]
+        )
+      );
     }
   } // fn: revive()
 
@@ -232,6 +259,9 @@ export class FuzzPanel {
    * @param json JSON input
    */
   private async _doFuzzStartCmd(json: string): Promise<void> {
+    // Get a logger instance
+    const logger = Logger.getLogger(FuzzPanel.context.extensionUri);
+
     const panelInput: {
       fuzzer: Record<string, any>; // !!! Improve typing
       args: Record<string, any>; // !!! Improve typing
@@ -332,14 +362,34 @@ export class FuzzPanel {
     this._state = FuzzPanelState.busy;
     this._updateHtml();
 
+    logger.push(
+      new LoggerEntry("FuzzPanel.fuzz.start", "Fuzzing started. Target: %s.", [
+        this.getFnRefKey(),
+      ])
+    );
+
     // Fuzz the function & store the results
     try {
       this._results = await fuzzer.fuzz(this._fuzzEnv);
       this._errorMessage = undefined;
       this._state = FuzzPanelState.done;
+      logger.push(
+        new LoggerEntry(
+          "FuzzPanel.fuzz.done",
+          "Fuzzing completed successfully. Target: %s. Results: %s",
+          [this.getFnRefKey(), JSON.stringify(this._results)]
+        )
+      );
     } catch (e: any) {
       this._state = FuzzPanelState.error;
       this._errorMessage = e.message ?? "Unknown error";
+      logger.push(
+        new LoggerEntry(
+          "FuzzPanel.fuzz.error",
+          "Fuzzing failed. Target: %s. Message: %s",
+          [this.getFnRefKey(), this._errorMessage ?? "Unknown error"]
+        )
+      );
     }
 
     // Update the UI
