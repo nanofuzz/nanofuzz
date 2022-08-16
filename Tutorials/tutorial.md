@@ -2,8 +2,16 @@
 
 ## Jest Runner tutorial
 
-# ADD SECTION ABOUT FORMATTING TEST CASES
-> Jest is a useful tool for running unit tests in Typescript. In a file that contains unit tests, there will be small, white text above each individual test, with the option RUN or DEBUG. By clicking the RUN button, you can run a single test or all tests together. Jest will generate a report in the terminal (it will take a few seconds) after running the tests, with information about which test cases passed and failed. 
+> Jest is a useful tool for running unit tests in Typescript. 
+
+A sample test in Jest looks like  the following. Feel free to copy this in your attempt.
+
+```Typescript
+  test("function name", () => {
+    expect(funcTest(args)) //Pass in arguments to function under test
+    .toStrictEqual(expVal); // Compare expected with actual value
+  });
+```
 
 
 
@@ -56,7 +64,7 @@ Using the same example GCD code from above, we can demonstrate NaNofuzz' functio
 
 ![NaNofuzzButton](./NaNofuzzButton.png)
 
-At the top of the function name, there is a "Fuzz..." button provided for users to begin the fuzzing process. Clicking on that outputs a report for the programmer to specify the range of input values that NaNofuzz can select from.
+At the top of the function name, there is an "Autotest..." button provided for users to begin the testing process. Clicking on that outputs a report for the programmer to specify the range of input values that NaNofuzz can select from.
 
 ![FuzzPage](./FuzzPage.png)
 
