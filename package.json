@@ -2,7 +2,7 @@
   "name": "nanofuzz",
   "version": "0.1.0",
   "displayName": "NaNofuzz",
-  "description": "Numeric Fuzzer for Typescript",
+  "description": "Automatic test generator for Typescript",
   "repository": "https://github.com/penrose/nanofuzz.git",
   "author": "Penrose Team (https://penrose.cs.cmu.edu/)",
   "license": "MIT",
@@ -34,6 +34,9 @@
   ],
   "activationEvents": [
     "onCommand:nanofuzz.Fuzz",
+    "onCommand:nanofuzz.telemetry.log",
+    "onCommand:nanofuzz.telemetry.DumpLog",
+    "onCommand:nanofuzz.telemetry.ClearLog",
     "onLanguage:typescript",
     "onLanguage:typescriptreact",
     "onWebviewPanel:FuzzPanel"
@@ -43,6 +46,18 @@
       {
         "command": "nanofuzz.Fuzz",
         "title": "AutoTest"
+      },
+      {
+        "command": "nanofuzz.telemetry.DumpLog",
+        "title": "Dump Telemetry Log"
+      },
+      {
+        "command": "nanofuzz.telemetry.ClearLog",
+        "title": "Clear Telemetry Log"
+      },
+      {
+        "command": "nanofuzz.telemetry.log",
+        "title": "Log Telemetry Event (internal)"
       }
     ],
     "menus": {
@@ -148,6 +163,13 @@
           "default": 0,
           "minimum": 0,
           "description": "Default number of array dimensions for any types.  0=not an array."
+        },
+        "telemetry.active": {
+          "title": "Activate telemetry? (requires restart)",
+          "type": "boolean",
+          "default": false,
+          "minimum": 0,
+          "description": "Activate telemetry? (requires restart)"
         }
       }
     }
