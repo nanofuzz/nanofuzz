@@ -25,7 +25,6 @@ import * as vscode from "vscode";
  * - Type references
  * - Tuples
  * - OR types
- * - Non-primitive types
  * - Deconstructed types
  * - Generics
  */

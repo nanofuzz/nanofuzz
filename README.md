@@ -3,18 +3,18 @@ NaNofuzz is a fast, easy-to-use automatic test generation tool for Typescript th
 
 <img width="1440" alt="image" src="https://user-images.githubusercontent.com/22134678/182907479-01dcf1dc-de09-4d55-af56-1837639d78af.png">
 
-Unlike some past automatic test generation tools, NaNofuzz takes an approach similar to fuzzing and uses a simple implicit oracle to determine whether or not a given test passes. NaNofuzz marks a test as failed if it:
+Unlike some past automatic test generation tools, NaNofuzz takes an approach similar to fuzzing and uses a simple implicit oracle to determine whether or not a given test passes. Surprisingly, this approach quickly finds many errors! NaNofuzz marks a test as failed if it:
  - throws a runtime exception
  - returns null, NaN, Infinity, or undefined
  - does not terminate within a configurable period of time
 
-Surprisingly, this approach quickly catches many errors! NaNofuzz supports standard and arrow functions with any mixture of the following parameter types:
+NaNofuzz supports standard and arrow functions with any mixture of the following parameter types:
  - Numbers (integers and floats, signed and unsigne)
  - Strings
  - Booleans
  - Literal object types
- - Arrays of any of the above
- - Optional parameters are supported
+ - n-dimension arrays of any of the above
+ - Optional and mandatory parameters
 
 The following are not yet supported:
  - Type references
