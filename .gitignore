@@ -107,3 +107,6 @@ dist
 
 # OS litter
 .DS_Store
+
+# Telemetry data
+/telemetry
