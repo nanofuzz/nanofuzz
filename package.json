@@ -2,7 +2,7 @@
   "name": "nanofuzz",
   "version": "0.1.0",
   "displayName": "NaNofuzz",
-  "description": "Numeric Fuzzer for Typescript",
+  "description": "Automatic test generator for Typescript",
   "repository": "https://github.com/penrose/nanofuzz.git",
   "author": "Penrose Team (https://penrose.cs.cmu.edu/)",
   "license": "MIT",
