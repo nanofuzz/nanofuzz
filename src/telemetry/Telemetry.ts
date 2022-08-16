@@ -81,6 +81,12 @@ export const commands = {
       vscode.window.showInformationMessage("Log Data cleared");
     },
   },
+  logTelemetry: {
+    name: "nanofuzz.telemetry.log",
+    fn: (le?: LoggerEntry): void => {
+      if (le !== undefined && typeof le === "object") logger.push(le);
+    },
+  },
 };
 
 /**
@@ -282,3 +288,5 @@ vscode.window.registerTerminalLinkProvider({
     },
 });
 */
+
+export { LoggerEntry };

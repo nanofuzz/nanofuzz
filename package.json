@@ -34,6 +34,9 @@
   ],
   "activationEvents": [
     "onCommand:nanofuzz.Fuzz",
+    "onCommand:nanofuzz.telemetry.log",
+    "onCommand:nanofuzz.telemetry.DumpLog",
+    "onCommand:nanofuzz.telemetry.ClearLog",
     "onLanguage:typescript",
     "onLanguage:typescriptreact",
     "onWebviewPanel:FuzzPanel"
@@ -51,6 +54,10 @@
       {
         "command": "nanofuzz.telemetry.ClearLog",
         "title": "Clear Telemetry Log"
+      },
+      {
+        "command": "nanofuzz.telemetry.log",
+        "title": "Log Telemetry Event (internal)"
       }
     ],
     "menus": {

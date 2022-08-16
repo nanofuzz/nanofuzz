@@ -1,8 +1,7 @@
 import * as vscode from "vscode";
 import * as fuzzer from "../fuzzer/Fuzzer";
 import { htmlEscape } from "escape-goat";
-import { FunctionRef } from "../fuzzer/Fuzzer";
-import { Logger, LoggerEntry } from "../telemetry/Logger";
+import * as telemetry from "../telemetry/Telemetry";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -77,8 +76,6 @@ export class FuzzPanel {
     extensionUri: vscode.Uri,
     state: FuzzPanelStateSerialized
   ): void {
-    // Get a logger instance
-    const logger = Logger.getLogger(FuzzPanel.context.extensionUri);
     let fuzzPanel: FuzzPanel | undefined;
 
     // Revive the FuzzPanel using the previous state
@@ -100,8 +97,9 @@ export class FuzzPanel {
 
         // Attach a telemetry event handler to the panel
         panel.onDidChangeViewState((e) => {
-          logger.push(
-            new LoggerEntry(
+          vscode.commands.executeCommand(
+            telemetry.commands.logTelemetry.name,
+            new telemetry.LoggerEntry(
               "FuzzPanel.onDidChangeViewState",
               "Webview with title '%s' for function '%s' state changed.  Visible: %s.  Active %s.",
               [
@@ -124,8 +122,9 @@ export class FuzzPanel {
     if (fuzzPanel === undefined) {
       panel.dispose();
     } else {
-      logger.push(
-        new LoggerEntry(
+      vscode.commands.executeCommand(
+        telemetry.commands.logTelemetry.name,
+        new telemetry.LoggerEntry(
           "FuzzPanel.fuzz.open",
           "Fuzzing panel opened. Target: %s.",
           [fuzzPanel.getFnRefKey()]
@@ -259,9 +258,6 @@ export class FuzzPanel {
    * @param json JSON input
    */
   private async _doFuzzStartCmd(json: string): Promise<void> {
-    // Get a logger instance
-    const logger = Logger.getLogger(FuzzPanel.context.extensionUri);
-
     const panelInput: {
       fuzzer: Record<string, any>; // !!! Improve typing
       args: Record<string, any>; // !!! Improve typing
@@ -362,10 +358,14 @@ export class FuzzPanel {
     this._state = FuzzPanelState.busy;
     this._updateHtml();
 
-    logger.push(
-      new LoggerEntry("FuzzPanel.fuzz.start", "Fuzzing started. Target: %s.", [
-        this.getFnRefKey(),
-      ])
+    // Log start of Fuzzing
+    vscode.commands.executeCommand(
+      telemetry.commands.logTelemetry.name,
+      new telemetry.LoggerEntry(
+        "FuzzPanel.fuzz.start",
+        "Fuzzing started. Target: %s.",
+        [this.getFnRefKey()]
+      )
     );
 
     // Fuzz the function & store the results
@@ -373,8 +373,9 @@ export class FuzzPanel {
       this._results = await fuzzer.fuzz(this._fuzzEnv);
       this._errorMessage = undefined;
       this._state = FuzzPanelState.done;
-      logger.push(
-        new LoggerEntry(
+      vscode.commands.executeCommand(
+        telemetry.commands.logTelemetry.name,
+        new telemetry.LoggerEntry(
           "FuzzPanel.fuzz.done",
           "Fuzzing completed successfully. Target: %s. Results: %s",
           [this.getFnRefKey(), JSON.stringify(this._results)]
@@ -383,8 +384,9 @@ export class FuzzPanel {
     } catch (e: any) {
       this._state = FuzzPanelState.error;
       this._errorMessage = e.message ?? "Unknown error";
-      logger.push(
-        new LoggerEntry(
+      vscode.commands.executeCommand(
+        telemetry.commands.logTelemetry.name,
+        new telemetry.LoggerEntry(
           "FuzzPanel.fuzz.error",
           "Fuzzing failed. Target: %s. Message: %s",
           [this.getFnRefKey(), this._errorMessage ?? "Unknown error"]
@@ -954,5 +956,5 @@ export type FuzzPanelStateSerialized = {
  */
 export type FunctionMatch = {
   document: vscode.TextDocument;
-  ref: FunctionRef;
+  ref: fuzzer.FunctionRef;
 };
