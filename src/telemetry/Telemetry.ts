@@ -1,11 +1,11 @@
 import * as vscode from "vscode";
 import { Logger, LoggerEntry } from "./Logger";
 
-let currentWindow = ""; // !!!
-let currentTerm = ""; // !!!
-let logger: Logger; // !!!
-let context: vscode.ExtensionContext; // !!!
-let config: PurseConfig; // !!!
+let currentWindow = ""; // Current editor window filename / uri
+let currentTerm = ""; // Current terminal window name
+let logger: Logger; // Telemetry logger
+let context: vscode.ExtensionContext; // Context of this extension
+let config: PurseConfig; // Configuration settings
 
 /**
  * Initialize the module.
@@ -39,8 +39,9 @@ export function deinit(): void {
   currentTerm = "";
 
   /**
-   * The following code is usually not effective when the vscode
-   * window is closed.  For an explanation as to why, see:
+   * The following code is usually ineffective when the vscode window
+   * is closed. For an explanation as to why, see Microsoft's explanation
+   * below. The long and short of it is we may not be able to persist data.
    * https://github.com/microsoft/vscode/issues/122825#issuecomment-814218149
    */
   logger.flush();
@@ -231,7 +232,9 @@ export const listeners: Listener<any>[] = [
 
 // ----------------------------- Types ----------------------------- //
 
-// !!!
+/**
+ * Associates a callback function with an vscode event.
+ */
 type Listener<T extends any> = {
   event: vscode.Event<T>;
   fn: (e: T) => void;

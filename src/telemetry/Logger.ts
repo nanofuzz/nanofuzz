@@ -40,13 +40,10 @@ export class Logger {
     if (this.log.length) {
       const logCopy = this.log;
       this.log = []; // Clear the persisted data
-      console.debug(`Persisting chunk: ${chunkName}...`); // !!!
-      vscode.workspace.fs
-        .writeFile(chunkUri, Buffer.from(JSON.stringify(logCopy)))
-        .then(() => {
-          //this.memory.set(chunkName, this.log); // Persist this chunk
-          console.debug(`Persisted chunk: ${chunkName}`);
-        });
+      vscode.workspace.fs.writeFile(
+        chunkUri,
+        Buffer.from(JSON.stringify(logCopy))
+      );
     } else {
       console.debug("No log data to persist");
     }

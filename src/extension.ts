@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import * as fp from "./ui/FuzzPanel";
 import * as tm from "./telemetry/Telemetry";
-import { fchmod } from "fs";
 
 const disposables: vscode.Disposable[] = []; // Keep track of disposables
 
