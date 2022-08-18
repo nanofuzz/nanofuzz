@@ -11,17 +11,6 @@ export function gcd(a:number, b:number):number {
     return gcd(b, (a % b));
 }
 
-
-
-
-
-
-
-
-
-
-
-
 export function fibonacci(num:number):number {
   if (num <= 1) {
     return 1;

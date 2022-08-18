@@ -3,8 +3,14 @@
 ## Jest Runner tutorial
 
 > Jest is a useful tool for running unit tests in Typescript. 
+Instead of typing things into the terminal, you get a nice UI like this!
 
-A sample test in Jest looks like  the following. Feel free to copy this in your attempt.
+![image](./screenshot.png)
+
+You can click on the white button that says "Run" and Jest will run all your tests for you.
+
+
+A sample test in Jest looks like the following. Feel free to copy this in your attempt.
 
 ```Typescript
   test("function name", () => {
@@ -40,9 +46,6 @@ describe("gcdTest", () => {
 ```
 We want to run Jest to easily generate reports in a compact, intuitive way in the terminal. JestRunner has made it easy to run tests by pressing the run button, instead of manually specifying in the terminal.
 In gcd.test.ts you will see this above any test case you are trying to run. 
-
-
-# PUT THIS AT TOP
 ![image](./screenshot.png)
 
 If you select the 'Run' button to specifically test for test $a$, it outputs a report in the terminal. Try this for yourself. 
@@ -57,6 +60,16 @@ Using this information, you can easily write tests and run them for any function
 
 
 ## NaNofuzz tutorial
+
+NaNofuzz is the tool we built. If you click the Autotest button...
+![NaNofuzzButton](./NaNofuzzButton.png)
+You get a nice UI that allows you to test the function.
+
+![FuzzPage](./FuzzPage.png)
+
+
+
+
 
 > NaNofuzz is a tool for automatically generating tests for functions. NaNofuzz generates random inputs and checks if the function throws an error, times out, or returns NaN, infinity, null or undefined. NaNofuzz can be run directly in VS Code. Above the function name in the program file, there is an option, in white font, that says “fuzz…” This button, when pressed, will create a page with options that ask the programmer to specify ranges for inputs for each argument. After all values have been configured, the user can select “fuzz” to automatically test the function!
 
