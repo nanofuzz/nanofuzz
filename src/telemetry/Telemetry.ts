@@ -12,7 +12,7 @@ let config: PurseConfig; // Configuration settings
  *
  * @param context extension context
  */
-export async function init(inContext: vscode.ExtensionContext): Promise<void> {
+export function init(inContext: vscode.ExtensionContext): void {
   console.info("Telemetry is starting...");
   context = inContext;
 

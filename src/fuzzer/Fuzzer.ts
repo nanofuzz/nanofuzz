@@ -1,4 +1,3 @@
-import * as fs from "fs";
 import * as vscode from "vscode";
 import vm from "vm";
 import seedrandom from "seedrandom";
@@ -6,13 +5,6 @@ import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
-
-/**
- * WARNING: To embed this module into a VS Code web extension, at a minimu,
- * the following issues need to be resolved:
- *  1. Module `fs` requires direct fs access)
- *  2. Module `Compiler` uses `fs` and shells out to `tsc`
- */
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -23,14 +15,14 @@ import * as compiler from "./Compiler";
  * @param offset optional offset within the source file of the function to fuzz
  * @returns a fuzz environment
  */
-export const setup = (
+export const setup = async (
   options: FuzzOptions,
   module: string,
   fnName?: string,
   offset?: number
-): FuzzEnv => {
-  module = require.resolve(module);
-  const srcText = fs.readFileSync(module);
+): Promise<FuzzEnv> => {
+  module = require.resolve(module); // !!!!
+  const srcText = await vscode.workspace.fs.readFile(vscode.Uri.parse(module));
 
   // Find the function definitions in the source file
   const fnMatches = FunctionDef.find(
@@ -68,7 +60,7 @@ export const setup = (
  */
 export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
-  const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
+  const fqSrcUri = env.function.getModule();
   const results: FuzzTestResults = {
     env,
     results: [],
@@ -91,13 +83,13 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   // TypeScript compiler that hooks into the require() function.
   compiler.activate();
 
-  // The fuzz target is likely under development, so
-  // invalidate the cache to get the latest copy.
-  delete require.cache[require.resolve(fqSrcFile)];
+  // The fuzz target is likely under development, so invalidate
+  // any cached copies to ensure we retrieve the latest copy.
+  delete require.cache[require.resolve(fqSrcUri)];
 
   /* eslint eslint-comments/no-use: off */
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require(fqSrcFile);
+  const mod = await require(fqSrcUri);
   compiler.deactivate(); // Deactivate the TypeScript compiler
 
   // Ensure what we found is a function
@@ -174,9 +166,9 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   } // for: Main test loop
 
   // Persist to outfile, if requested
-  if (env.options.outputFile) {
-    fs.writeFileSync(env.options.outputFile, JSON.stringify(results));
-  }
+  //if (env.options.outputFile) {
+  //  fs.writeFileSync(env.options.outputFile, JSON.stringify(results));
+  //}
 
   // Return the result of the fuzzing activity
   return results;
@@ -291,7 +283,7 @@ export type FuzzEnv = {
  * Fuzzer Options that specify the fuzzing behavior
  */
 export type FuzzOptions = {
-  outputFile?: string; // optional file to receive the fuzzing output (JSON format)
+  //outputFile?: string; // optional file to receive the fuzzing output (JSON format)
   argDefaults: ArgOptions; // default options for arguments
   seed?: string; // optional seed for pseudo-random number generator
   maxTests: number; // number of fuzzing tests to execute (>= 0)

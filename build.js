@@ -6,7 +6,7 @@ const common = {
   sourcemap: "inline",
   tsconfig: "./tsconfig.json",
   platform: "node",
-  external: ["path", "fs", "crypto", "vscode", "typescript"],
+  external: ["path", "crypto", "vscode", "typescript"],
 };
 /*
 build({

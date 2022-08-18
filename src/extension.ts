@@ -3,6 +3,8 @@ import * as fp from "./ui/FuzzPanel";
 import * as tm from "./telemetry/Telemetry";
 
 const disposables: vscode.Disposable[] = []; // Keep track of disposables
+const modules = [fp, tm];
+let extensionContext: vscode.ExtensionContext | undefined; // Extension context
 
 /**
  * Called by VS Code to activates the extension.
@@ -10,18 +12,22 @@ const disposables: vscode.Disposable[] = []; // Keep track of disposables
  * @param context extension context provided by the VS Code extension host
  */
 export function activate(context: vscode.ExtensionContext): void {
-  tm.init(context);
-  fp.init(context);
+  extensionContext = context;
+  modules.forEach((module) => {
+    module.init(context);
+  });
 
   // --------------------------- Commands --------------------------- //
 
   /**
    * Push the commands to the VS Code command palette.
    */
-  for (const cmd of Object.values({ ...fp.commands, ...tm.commands })) {
-    const reg = vscode.commands.registerCommand(cmd.name, cmd.fn);
-    context.subscriptions.push(reg);
-    disposables.push(reg);
+  for (const module of modules) {
+    for (const cmd of Object.values(module.commands)) {
+      const reg = vscode.commands.registerCommand(cmd.name, cmd.fn);
+      context.subscriptions.push(reg);
+      disposables.push(reg);
+    }
   }
 
   // ---------------------------- Panels ---------------------------- //
@@ -68,6 +74,18 @@ export function activate(context: vscode.ExtensionContext): void {
  */
 export function deactivate(): void {
   disposables.forEach((e) => e.dispose());
-  fp.deinit();
-  tm.deinit();
+  modules.forEach((module) => {
+    module.deinit();
+  });
 } // fn: deactivate()
+
+/**
+ * Returns the current extension context
+ */
+export function getExtensionContext(): vscode.ExtensionContext {
+  if (extensionContext === undefined) {
+    throw new Error("Extension context is undefined");
+  } else {
+    return extensionContext;
+  }
+} // fn: getExtensionContext()

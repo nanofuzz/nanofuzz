@@ -85,51 +85,54 @@ export class FuzzPanel {
       state.tag === fuzzPanelStateVer
     ) {
       // Create a new fuzzer environment
-      try {
-        const env = fuzzer.setup(
+      fuzzer
+        .setup(
           state.options,
           state.fnRef.module,
           state.fnRef.name,
           state.fnRef.startOffset
-        );
-        // Create the new FuzzPanel
-        fuzzPanel = new FuzzPanel(panel, extensionUri, env);
-
-        // Attach a telemetry event handler to the panel
-        panel.onDidChangeViewState((e) => {
-          vscode.commands.executeCommand(
-            telemetry.commands.logTelemetry.name,
-            new telemetry.LoggerEntry(
-              "FuzzPanel.onDidChangeViewState",
-              "Webview with title '%s' for function '%s' state changed.  Visible: %s.  Active %s.",
-              [
-                e.webviewPanel.title,
-                fuzzPanel!.getFnRefKey(),
-                e.webviewPanel.visible ? "true" : "false",
-                e.webviewPanel.active ? "true" : "false",
-              ]
-            )
-          );
-        });
-      } catch (e: any) {
-        // It's possible the source code changed between restarting;
-        // just log the exception and continue. Restoring these panels
-        // is best effort anyway.
-        console.error(`Unable to revive FuzzPanel: ${e.message}`);
-      }
-    }
-    // Dispose of any panels we can't revive
-    if (fuzzPanel === undefined) {
-      panel.dispose();
-    } else {
-      vscode.commands.executeCommand(
-        telemetry.commands.logTelemetry.name,
-        new telemetry.LoggerEntry(
-          "FuzzPanel.fuzz.open",
-          "Fuzzing panel opened. Target: %s.",
-          [fuzzPanel.getFnRefKey()]
         )
-      );
+        .then((env) => {
+          // Create the new FuzzPanel
+          fuzzPanel = new FuzzPanel(panel, extensionUri, env);
+
+          // Attach a telemetry event handler to the panel
+          panel.onDidChangeViewState((e) => {
+            vscode.commands.executeCommand(
+              telemetry.commands.logTelemetry.name,
+              new telemetry.LoggerEntry(
+                "FuzzPanel.onDidChangeViewState",
+                "Webview with title '%s' for function '%s' state changed.  Visible: %s.  Active %s.",
+                [
+                  e.webviewPanel.title,
+                  fuzzPanel!.getFnRefKey(),
+                  e.webviewPanel.visible ? "true" : "false",
+                  e.webviewPanel.active ? "true" : "false",
+                ]
+              )
+            );
+          });
+        })
+        .catch((e) => {
+          // It's possible the source code changed between restarting;
+          // just log the exception and continue. Restoring these panels
+          // is best effort anyway.
+          console.error(`Unable to revive FuzzPanel: ${e.message}`);
+
+          // Dispose of any panels we can't revive
+          if (fuzzPanel === undefined) {
+            panel.dispose();
+          } else {
+            vscode.commands.executeCommand(
+              telemetry.commands.logTelemetry.name,
+              new telemetry.LoggerEntry(
+                "FuzzPanel.fuzz.open",
+                "Fuzzing panel opened. Target: %s.",
+                [fuzzPanel.getFnRefKey()]
+              )
+            );
+          }
+        });
     }
   } // fn: revive()
 
@@ -152,8 +155,17 @@ export class FuzzPanel {
       // Retain the webview contents when hidden
       retainContextWhenHidden: true,
 
-      // And restrict the webview to only loading content from our extension's `media` directory.
-      // !!! localResourceRoots: [vscode.Uri.joinPath(extensionUri, "media")],
+      // Restrict the webview to loading content from 'assets.'
+      localResourceRoots: [
+        vscode.Uri.joinPath(extensionUri, "assets"),
+        vscode.Uri.joinPath(
+          extensionUri,
+          "node_modules",
+          "@vscode",
+          "webview-ui-toolkit",
+          "dist"
+        ),
+      ],
     };
   }
 
@@ -790,7 +802,7 @@ export function getUri(
  * @param match optional: a reference to the function to fuzz
  * @returns void
  */
-export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
+export function handleFuzzCommand(match?: FunctionMatch): void {
   // Get the function name (only present on a CodeLens match)
   const fnName: string | undefined = match ? match.ref.name : undefined;
 
@@ -822,19 +834,17 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
 
   // Call the fuzzer to analyze the function
   const fuzzOptions = fuzzer.getDefaultFuzzOptions();
-  let fuzzSetup: fuzzer.FuzzEnv;
-  try {
-    fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName, pos);
-  } catch (e: any) {
-    vscode.window.showErrorMessage(
-      `Could not find or does not support this function. Messge: "${e.message}"`
-    );
-    return;
-  }
-
-  // Load the fuzz panel
-  FuzzPanel.render(FuzzPanel.context.extensionUri, fuzzSetup);
-
+  fuzzer
+    .setup(fuzzOptions, srcFile, fnName, pos)
+    .then((fuzzSetup) => {
+      // Load the fuzz panel
+      FuzzPanel.render(FuzzPanel.context.extensionUri, fuzzSetup);
+    })
+    .catch((e) => {
+      vscode.window.showErrorMessage(
+        `Could not find or does not support this function. Messge: "${e.message}"`
+      );
+    });
   return;
 } // fn: handleFuzzCommand()
 
