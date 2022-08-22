@@ -21,6 +21,7 @@ The following are not yet supported:
  - OR types, Tuples, Generics, or Function parameters
  - Deconstructed types
  - Object methods
+ - Cross-module use of enums: we transpile via typescript.transpileModule().
 
 These design choices allow NaNofuzz to be fast, lightweight, easy to integrate into an everyday workflow, and helps programmers quickly find important edge cases they may have missed.
 

@@ -1,11 +1,11 @@
 import seedrandom from "seedrandom";
+import { ArgDef } from "../analysis/typescript/ArgDef";
 import {
-  ArgDef,
   ArgOptions,
   ArgTag,
   ArgType,
   Interval,
-} from "../analysis/typescript/ArgDef";
+} from "../analysis/typescript/Types";
 
 /**
  * Builds and returns a generator function that generates a pseudo-

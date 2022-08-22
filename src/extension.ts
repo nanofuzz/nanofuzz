@@ -78,14 +78,3 @@ export function deactivate(): void {
     module.deinit();
   });
 } // fn: deactivate()
-
-/**
- * Returns the current extension context
- */
-export function getExtensionContext(): vscode.ExtensionContext {
-  if (extensionContext === undefined) {
-    throw new Error("Extension context is undefined");
-  } else {
-    return extensionContext;
-  }
-} // fn: getExtensionContext()

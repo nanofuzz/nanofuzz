@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 const { build, file } = require("estrella");
 const common = {
-  entry: "./src/extension.ts",
   bundle: true,
-  sourcemap: "inline",
+  sourcemap: "both",
   tsconfig: "./tsconfig.json",
   platform: "node",
-  external: ["path", "crypto", "vscode", "typescript"],
+  external: ["vscode"],
 };
 /*
 build({
@@ -18,11 +17,19 @@ build({
   run: "yarn run build-decls",
 });
 */
+// Extension
 build({
   ...common,
-  outfile: "./build/extension/extension.js",
-  platform: "node",
+  entry: "./src/extension.ts",
+  outfile: "./build/extension.js",
   minify: false,
   format: "cjs",
-  sourcemap: "both",
+});
+// Worker
+build({
+  ...common,
+  entry: "./src/fuzzer/Worker.ts",
+  outfile: "./build/workers/fuzzer.js",
+  minify: false,
+  format: "cjs",
 });

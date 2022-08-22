@@ -1,5 +1,6 @@
-import { FunctionDef, FunctionRef } from "./FunctionDef";
-import { ArgDef, ArgType, ArgTag } from "./ArgDef";
+import { FunctionDef } from "./FunctionDef";
+import { ArgType, ArgTag, FunctionRef } from "./Types";
+import { ArgDef } from "./ArgDef";
 
 const argOptions = ArgDef.getDefaultOptions();
 const dummyModule = "dummy.ts";

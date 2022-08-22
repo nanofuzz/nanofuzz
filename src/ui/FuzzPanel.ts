@@ -2,6 +2,15 @@ import * as vscode from "vscode";
 import * as fuzzer from "../fuzzer/Fuzzer";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
+import { FuzzEnv, FuzzOptions, FuzzTestResults } from "fuzzer/Types";
+import { ArgDef } from "fuzzer/analysis/typescript/ArgDef";
+import {
+  ArgTag,
+  ArgType,
+  FunctionRef,
+  Interval,
+} from "fuzzer/analysis/typescript/Types";
+import { FunctionDef } from "fuzzer/analysis/typescript/FunctionDef";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -25,11 +34,11 @@ export class FuzzPanel {
   private readonly _panel: vscode.WebviewPanel; // The WebView panel for this FuzzPanel instance
   private readonly _extensionUri: vscode.Uri; // Current Uri of the extension
   private _disposables: vscode.Disposable[] = []; // List of disposables
-  private _fuzzEnv: fuzzer.FuzzEnv; // The Fuzz environment this panel represents
+  private _fuzzEnv: FuzzEnv; // The Fuzz environment this panel represents
   private _state: FuzzPanelState = FuzzPanelState.init; // The current state of the fuzzer.
 
   // State-dependent instance variables
-  private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
+  private _results?: FuzzTestResults; // done state: the fuzzer output
   private _errorMessage?: string; // error state: the error message
 
   // ------------------------ Static Methods ------------------------ //
@@ -42,7 +51,7 @@ export class FuzzPanel {
    * @param extensionUri Extension Uri
    * @param env FuzzEnv for which to display or create the FuzzPanel
    */
-  public static render(extensionUri: vscode.Uri, env: fuzzer.FuzzEnv): void {
+  public static render(extensionUri: vscode.Uri, env: FuzzEnv): void {
     const fnRef = JSON.stringify(env.function.getRef());
 
     // If we already have a panel for this fuzz env, show it.
@@ -88,6 +97,7 @@ export class FuzzPanel {
       fuzzer
         .setup(
           state.options,
+          extensionUri,
           state.fnRef.module,
           state.fnRef.name,
           state.fnRef.startOffset
@@ -158,6 +168,7 @@ export class FuzzPanel {
       // Restrict the webview to loading content from 'assets.'
       localResourceRoots: [
         vscode.Uri.joinPath(extensionUri, "assets"),
+        vscode.Uri.joinPath(extensionUri, "build", "workers"),
         vscode.Uri.joinPath(
           extensionUri,
           "node_modules",
@@ -165,6 +176,7 @@ export class FuzzPanel {
           "webview-ui-toolkit",
           "dist"
         ),
+        vscode.Uri.joinPath(extensionUri, "node_modules", "typescript"), // !!!!
       ],
     };
   }
@@ -181,7 +193,7 @@ export class FuzzPanel {
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
-    env: fuzzer.FuzzEnv
+    env: FuzzEnv
   ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
@@ -289,7 +301,7 @@ export class FuzzPanel {
     // Apply argument option changes
     for (const i in panelInput.args) {
       const thisOverride = panelInput.args[i];
-      const thisArg: fuzzer.ArgDef<fuzzer.ArgType> = argsFlat[i];
+      const thisArg: ArgDef<ArgType> = argsFlat[i];
       if (Number(i) + 1 > argsFlat.length)
         throw new Error(
           `FuzzPanel input has ${panelInput.args.length} but the function has ${argsFlat.length}`
@@ -298,7 +310,7 @@ export class FuzzPanel {
       // Min and max values
       if (thisOverride.min !== undefined && thisOverride.max !== undefined) {
         switch (thisArg.getType()) {
-          case fuzzer.ArgTag.NUMBER:
+          case ArgTag.NUMBER:
             thisArg.setIntervals([
               {
                 min: Number(thisOverride.min),
@@ -306,7 +318,7 @@ export class FuzzPanel {
               },
             ]);
             break;
-          case fuzzer.ArgTag.BOOLEAN:
+          case ArgTag.BOOLEAN:
             thisArg.setIntervals([
               {
                 min: !!thisOverride.min,
@@ -314,7 +326,7 @@ export class FuzzPanel {
               },
             ]);
             break;
-          case fuzzer.ArgTag.STRING:
+          case ArgTag.STRING:
             thisArg.setIntervals([
               {
                 min: thisOverride.min.toString(),
@@ -350,7 +362,7 @@ export class FuzzPanel {
         thisOverride.dimLength !== undefined &&
         thisOverride.dimLength.length
       ) {
-        thisOverride.dimLength.forEach((e: fuzzer.Interval<number>) => {
+        thisOverride.dimLength.forEach((e: Interval<number>) => {
           if (typeof e === "object" && "min" in e && "max" in e) {
             e = { min: Number(e.min), max: Number(e.max) };
           } else {
@@ -622,7 +634,7 @@ export class FuzzPanel {
    * @returns html string of the argument definition form
    */
   private _argDefToHtmlForm(
-    arg: fuzzer.ArgDef<fuzzer.ArgType>,
+    arg: ArgDef<ArgType>,
     counter: { id: number } // pass counter by reference
   ): string {
     const id = counter.id++; // unique id for each argument
@@ -632,7 +644,7 @@ export class FuzzPanel {
       this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
     const typeString =
-      argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase(); // Text indicating arg type
+      argType === ArgTag.OBJECT ? "Object" : argType.toLowerCase(); // Text indicating arg type
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
 
     let html = /*html*/ `
@@ -655,7 +667,7 @@ export class FuzzPanel {
     // Argument options
     switch (arg.getType()) {
       // Number-specific Options
-      case fuzzer.ArgTag.NUMBER: {
+      case ArgTag.NUMBER: {
         // TODO: validate for ints and floats !!!
         html += /*html*/ `<vscode-text-field ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
           Number(arg.getIntervals()[0].min).toString()
@@ -672,7 +684,7 @@ export class FuzzPanel {
       }
 
       // String-specific Options
-      case fuzzer.ArgTag.STRING: {
+      case ArgTag.STRING: {
         // TODO: validate for ints > 0 !!!
         html += /*html*/ `<vscode-text-field ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().strLength.min.toString()
@@ -685,7 +697,7 @@ export class FuzzPanel {
       }
 
       // Boolean-specific Options
-      case fuzzer.ArgTag.BOOLEAN: {
+      case ArgTag.BOOLEAN: {
         let intervals = arg.getIntervals();
         if (intervals.length === 0) {
           intervals = [{ min: false, max: true }];
@@ -708,7 +720,7 @@ export class FuzzPanel {
       }
 
       // Object-specific Options
-      case fuzzer.ArgTag.OBJECT: {
+      case ArgTag.OBJECT: {
         // Only for objects: output the array form prior to the child arguments.
         // This seems odd, but the screen reads better to the user this way.
         html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
@@ -722,13 +734,13 @@ export class FuzzPanel {
     }
 
     // For objects: output any sub-arguments.
-    if (argType !== fuzzer.ArgTag.OBJECT) {
+    if (argType !== ArgTag.OBJECT) {
       html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
     }
 
     html += `</div>`;
     // For objects: output the end of object character ("}") here
-    if (argType === fuzzer.ArgTag.OBJECT) {
+    if (argType === ArgTag.OBJECT) {
       html += /*html*/ `<span style="font-size:1.25em;">}</span>`;
     }
     html += `</div>`;
@@ -746,7 +758,7 @@ export class FuzzPanel {
    * @returns html string representing an argument's array form
    */
   private _argDefArrayToHtmlForm(
-    arg: fuzzer.ArgDef<fuzzer.ArgType>,
+    arg: ArgDef<ArgType>,
     idBase: string,
     disabledFlag: string
   ): string {
@@ -835,7 +847,7 @@ export function handleFuzzCommand(match?: FunctionMatch): void {
   // Call the fuzzer to analyze the function
   const fuzzOptions = fuzzer.getDefaultFuzzOptions();
   fuzzer
-    .setup(fuzzOptions, srcFile, fnName, pos)
+    .setup(fuzzOptions, FuzzPanel.context.extensionUri, srcFile, fnName, pos)
     .then((fuzzSetup) => {
       // Load the fuzz panel
       FuzzPanel.render(FuzzPanel.context.extensionUri, fuzzSetup);
@@ -862,10 +874,7 @@ export function provideCodeLenses(
   // Use the TypeScript analyzer to find all fn declarations in the module
   const matches: FunctionMatch[] = [];
   try {
-    const functions = fuzzer.FunctionDef.find(
-      document.getText(),
-      document.fileName
-    );
+    const functions = FunctionDef.find(document.getText(), document.fileName);
     for (const fn of functions) {
       matches.push({
         document,
@@ -876,6 +885,11 @@ export function provideCodeLenses(
     console.error(
       `Error parsing typescript file: ${document.fileName} error: ${e.message}`
     );
+  }
+
+  // Cancel if the result is no longer needed
+  if (token.isCancellationRequested) {
+    return [];
   }
 
   // Build the map of CodeLens objects at each function location
@@ -957,8 +971,8 @@ export enum FuzzPanelState {
  */
 export type FuzzPanelStateSerialized = {
   tag: string;
-  fnRef: fuzzer.FunctionRef;
-  options: fuzzer.FuzzOptions;
+  fnRef: FunctionRef;
+  options: FuzzOptions;
 };
 
 /**
@@ -966,5 +980,5 @@ export type FuzzPanelStateSerialized = {
  */
 export type FunctionMatch = {
   document: vscode.TextDocument;
-  ref: fuzzer.FunctionRef;
+  ref: FunctionRef;
 };

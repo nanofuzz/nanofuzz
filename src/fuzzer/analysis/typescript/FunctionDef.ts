@@ -3,7 +3,9 @@ import {
   parse,
   simpleTraverse,
 } from "@typescript-eslint/typescript-estree";
-import { ArgDef, ArgOptionOverrides, ArgOptions, ArgType } from "./ArgDef";
+import { ArgDef } from "./ArgDef";
+import { ArgOptionOverrides, ArgType, ArgOptions } from "./Types";
+import { FunctionRef } from "./Types";
 
 /**
  * The FunctionDef class represents a function definition in a Typescript source
@@ -232,14 +234,3 @@ export class FunctionDef {
     return ret;
   } // fn: getArgDefsFlat()
 } // class: FunctionDef
-
-/**
- * Represents a reference to a function in a source code file.
- */
-export type FunctionRef = {
-  module: string;
-  name: string;
-  src: string;
-  startOffset: number;
-  endOffset: number;
-};

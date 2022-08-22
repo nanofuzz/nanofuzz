@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
-import vm from "vm";
 import seedrandom from "seedrandom";
-import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
+import { ArgDef } from "./analysis/typescript/ArgDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
-import * as compiler from "./Compiler";
+import { Runner } from "./Runner";
+import { FuzzEnv, FuzzOptions, FuzzTestResult, FuzzTestResults } from "./Types";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -17,6 +17,7 @@ import * as compiler from "./Compiler";
  */
 export const setup = async (
   options: FuzzOptions,
+  extensionUri: vscode.Uri,
   module: string,
   fnName?: string,
   offset?: number
@@ -46,6 +47,7 @@ export const setup = async (
 
   return {
     options: { ...options },
+    extensionUri: extensionUri,
     function: fnMatches[0],
   };
 }; // setup()
@@ -60,7 +62,6 @@ export const setup = async (
  */
 export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
-  const fqSrcUri = env.function.getModule();
   const results: FuzzTestResults = {
     env,
     results: [],
@@ -73,40 +74,16 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     );
 
   // Build a generator for each argument
-  const fuzzArgGen = env.function.getArgDefs().map((e) => {
+  const fuzzArgGen = env.function.getArgDefs().map((e: any) => {
     return { arg: e, gen: GeneratorFactory(e, prng) };
   });
 
-  // The module that includes the function to fuzz will
-  // be a TypeScript source file, so we first must compile
-  // it to JavaScript prior to execution.  This activates the
-  // TypeScript compiler that hooks into the require() function.
-  compiler.activate();
-
-  // The fuzz target is likely under development, so invalidate
-  // any cached copies to ensure we retrieve the latest copy.
-  delete require.cache[require.resolve(fqSrcUri)];
-
-  /* eslint eslint-comments/no-use: off */
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = await require(fqSrcUri);
-  compiler.deactivate(); // Deactivate the TypeScript compiler
-
-  // Ensure what we found is a function
-  if (!(env.function.getName() in mod))
-    throw new Error(
-      `Could not find exported function ${env.function.getName()} in ${env.function.getModule()} to fuzz`
-    );
-  else if (typeof mod[env.function.getName()] !== "function")
-    throw new Error(
-      `Cannot fuzz exported member '${env.function.getName()} in ${env.function.getModule()} because it is not a function`
-    );
-
-  // Build a wrapper around the function to be fuzzed that we can
-  // easily call in the testing loop.
-  const fnWrapper = functionTimeout((input: FuzzIoElement[]): any => {
-    return mod[env.function.getName()](...input.map((e) => e.value));
-  }, env.options.fnTimeout);
+  // Build a function Runner we can easily call in the testing loop
+  const runner = new Runner(
+    env.function.getRef(),
+    env.options.fnTimeout,
+    env.extensionUri
+  );
 
   // Main test loop
   const startTime = new Date().getTime();
@@ -127,7 +104,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
 
     // Generate and store the inputs
     // TODO: We should provide a way to filter inputs
-    fuzzArgGen.forEach((e) => {
+    fuzzArgGen.forEach((e: any) => {
       result.input.push({
         name: e.arg.getName(),
         offset: e.arg.getOffset(),
@@ -135,22 +112,40 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
       });
     });
 
-    // Call the function via the wrapper
+    // Call the function via the wrapper & map its output
+    const runOutput = await runner.run(result.input); // <-- Wrapper
+    if (runOutput.timeout) {
+      result.timeout = true;
+    } else if (runOutput.exception !== undefined) {
+      result.exception = true;
+      result.exceptionMessage = runOutput.exception;
+    } else {
+      result.output.push({
+        name: "0",
+        offset: 0,
+        value: runOutput.output,
+      });
+    }
+    /* !!!!
     try {
       result.output.push({
         name: "0",
         offset: 0,
-        value: fnWrapper(result.input), // <-- Wrapper
+        value: await runner.run(result.input), // <-- Wrapper
       });
     } catch (e: any) {
-      if (isTimeoutError(e)) {
-        result.timeout = true;
-      } else {
-        result.exception = true;
-        result.exceptionMessage = e.message;
-        result.stack = e.stack;
-      }
+      console.log("Fuzzer: Promise reject exception"); // !!!!
     }
+    console.log(`Fuzzer: timedOut: ${runner.timedOut()}`);
+    console.log(`Fuzzer: exception: ${runner.threwException()}`);
+    if (runner.timedOut()) {
+      result.timeout = true;
+    }
+    if (runner.threwException()) {
+      result.exception = true;
+      result.exceptionMessage = runner.getException();
+    }
+    */
 
     // How can it fail ... let us count the ways...
     // TODO Add suppport for multiple validators !!!
@@ -164,6 +159,9 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     // Store the result for this iteration
     results.results.push(result);
   } // for: Main test loop
+
+  // !!!
+  runner.close();
 
   // Persist to outfile, if requested
   //if (env.options.outputFile) {
@@ -220,107 +218,3 @@ export const implicitOracle = (x: any): boolean => {
     return !Object.values(x).some((e) => !implicitOracle(e));
   else return true; //implicitOracleValue(x);
 }; // fn: implicitOracle()
-
-/**
- * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
- *
- * The original function-timeout is an ES module; incorporating it here
- * avoids adding Babel to the dev toolchain solely for the benefit of Jest,
- * for which ESM support without Babel remains buggy / experimental. Maybe
- * we can remove this in the future or just add Babel for Jest.
- *
- * This function accepts a function and a timeout as input.  It then returns
- * a wrapper function that will throw an exception if the function does not
- * complete within, roughly, the timeout.
- *
- * @param function_ function to be executed with the timeout
- * @param param1
- * @returns
- */
-export default function functionTimeout(function_: any, timeout: number): any {
-  const script = new vm.Script("returnValue = function_()");
-
-  const wrappedFunction = (...arguments_: any[]) => {
-    const context = {
-      returnValue: undefined,
-      function_: () => function_(...arguments_),
-    };
-
-    script.runInNewContext(context, { timeout: timeout });
-
-    return context.returnValue;
-  };
-
-  Object.defineProperty(wrappedFunction, "name", {
-    value: `functionTimeout(${function_.name || "<anonymous>"})`,
-    configurable: true,
-  });
-
-  return wrappedFunction;
-} // fn: functionTimeout()
-
-/**
- * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
- *
- * Returns true if the exception is a timeout.
- *
- * @param error exception
- * @returns true if the exeception is a timeout exception, false otherwise
- */
-export function isTimeoutError(error: { code?: string }): boolean {
-  return "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
-} // fn: isTimeoutError()
-
-/**
- * Fuzzer Environment required to fuzz a function.
- */
-export type FuzzEnv = {
-  options: FuzzOptions; // fuzzer options
-  function: FunctionDef; // the function to fuzz
-};
-
-/**
- * Fuzzer Options that specify the fuzzing behavior
- */
-export type FuzzOptions = {
-  //outputFile?: string; // optional file to receive the fuzzing output (JSON format)
-  argDefaults: ArgOptions; // default options for arguments
-  seed?: string; // optional seed for pseudo-random number generator
-  maxTests: number; // number of fuzzing tests to execute (>= 0)
-  fnTimeout: number; // timeout threshold in ms per test
-  suiteTimeout: number; // timeout for the entire test suite
-  // !!! oracleFn: // TODO The oracle function
-};
-
-/**
- * Fuzzer Test Result
- */
-export type FuzzTestResults = {
-  env: FuzzEnv; // fuzzer environment
-  results: FuzzTestResult[]; // fuzzing test results
-};
-
-/**
- * Single Fuzzer Test Result
- */
-export type FuzzTestResult = {
-  input: FuzzIoElement[]; // function input
-  output: FuzzIoElement[]; // function output
-  exception: boolean; // true if an exception was thrown
-  exceptionMessage?: string; // exception message if an exception was thrown
-  stack?: string; // stack trace if an exception was thrown
-  timeout: boolean; // true if the fn call timed out
-  passed: boolean; // true if output matches oracle; false, otherwise
-};
-
-/**
- * Fuzzer Input/Output Element; i.e., a concrete input or output value
- */
-export type FuzzIoElement = {
-  name: string; // name of element
-  offset: number; // offset of element (0-based)
-  value: any; // value of element
-};
-
-export * from "./analysis/typescript/FunctionDef";
-export * from "./analysis/typescript/ArgDef";
