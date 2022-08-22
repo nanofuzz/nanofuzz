@@ -565,7 +565,7 @@ export class FuzzPanel {
       {
         id: "exception",
         name: "Exceptions",
-        description: `The inputs resulted in a runtime exception`,
+        description: `These inputs resulted in a runtime exception`,
       },
       {
         id: "badOutput",
