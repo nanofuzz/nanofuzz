@@ -28,8 +28,8 @@ build({
 // Worker
 build({
   ...common,
-  entry: "./src/fuzzer/Worker.ts",
-  outfile: "./build/workers/fuzzer.js",
+  entry: "./src/fuzzer/FuzzWorker.ts",
+  outfile: "./build/workers/FuzzWorker.js",
   minify: false,
   format: "cjs",
 });

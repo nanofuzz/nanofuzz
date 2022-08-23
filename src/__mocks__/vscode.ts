@@ -2,11 +2,11 @@ import * as fs from "fs";
 import { parse } from "path";
 
 /**
- * This is a workaround to use jest to unit test NaNofuzz
- * modules that use vscode to store configuration data.
+ * This is a mock that allows jest to unit test NaNofuzz
+ * modules that use the vscode API (i.e., for configuration data).
  *
- * If we eliminate jest and test inside VSCode, we can
- * remove this.
+ * If we eliminate jest and test inside VSCode, it may be possible
+ * to remove this.
  */
 export const workspace = {
   getConfiguration: (k: string) => {

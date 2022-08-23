@@ -1,35 +1,20 @@
-import { parentPort, workerData } from "worker_threads"; // !!!!
-//import Worker from "web-worker"; // !!!!
 import * as compiler from "./Compiler";
 import { FuzzWorkerInput, FuzzWorkerOutput } from "./Types";
+import { WorkerServer } from "./WorkerServer";
 
 console.log("WebWorker: starting"); // !!!!
-let id: number;
-let isNode: boolean;
 
-try {
-  /* eslint eslint-comments/no-use: off */
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, no-constant-condition
-  isNode = Worker !== undefined ? false : true;
-} catch {
-  isNode = true;
-}
+const server = new WorkerServer();
+const id = server.getId();
 
-if (isNode) {
-  id = workerData.id;
-  parentPort!.on("message", messageHandler);
-} else {
-  isNode = false;
-  id = parseInt(self.name);
-  addEventListener("message", messageHandler);
-}
-
-console.log(`WebWorker ${id}: started ${isNode ? "(node)" : "(browser)"}`); // !!!!
+console.log(
+  `WebWorker ${id}: started ${WorkerServer.isNode() ? "(node)" : "(browser)"}`
+); // !!!
 
 // !!!
-function messageHandler(value: any): void {
-  console.log(`client: message received: ${JSON.stringify(value)}`); // !!!!
-  const payload: FuzzWorkerInput = "data" in value ? value.data : value;
+server.addEventListener("message", (message: any): void => {
+  console.log(`client: message received: ${JSON.stringify(message)}`); // !!!!
+  const payload: FuzzWorkerInput = "data" in message ? message.data : message;
 
   console.log(
     `WebWorker ${id}: executing fn: ${JSON.stringify(payload.fnRef)}`
@@ -44,14 +29,10 @@ function messageHandler(value: any): void {
     console.log(`WebWorker ${id}: exception thrown: ${e.message}`); // !!!!
   }
 
-  // !!!
-  if (isNode) {
-    parentPort!.postMessage(result);
-  } else {
-    postMessage(result);
-  }
+  server.postMessage(result);
+
   console.log(`WebWorker ${id}: returned to client: ${JSON.stringify(result)}`); // !!!!
-}
+});
 
 // !!!
 function run(
