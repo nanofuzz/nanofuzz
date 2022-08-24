@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
 import { WorkerClient } from "./WorkerClient";
-import { FuzzIoElement, FuzzWorkerInput, FuzzWorkerOutput } from "./Types";
+import {
+  FuzzIoElement,
+  FuzzWorkerInputMessage,
+  FuzzWorkerMessage,
+  FuzzWorkerOutput,
+} from "./Types";
 import { FunctionRef } from "./analysis/typescript/Types";
 
 // !!!
@@ -10,25 +15,25 @@ export class Runner {
   private _extensionUri: vscode.Uri; // !!!
   private _worker: WorkerClient | undefined; // !!!
   private _workerCount = 0; // !!!!
+  private _compiledCode: string; // !!!
 
   // !!!
-  constructor(fnRef: FunctionRef, timeout: number, extensionUri: vscode.Uri) {
+  constructor(
+    fnRef: FunctionRef,
+    timeout: number,
+    extensionUri: vscode.Uri,
+    compiledCode: string
+  ) {
     this._timeout = timeout;
     this._fnRef = fnRef;
     this._extensionUri = extensionUri;
+    this._compiledCode = compiledCode;
+
     this._getWorker();
   }
 
   // !!!
   private _getWorker(): WorkerClient {
-    console.log(
-      vscode.Uri.joinPath(
-        this._extensionUri,
-        "build",
-        "workers",
-        "fuzzer.js"
-      ).toString()
-    ); // !!!!
     const workerUri = new URL(
       vscode.Uri.joinPath(
         this._extensionUri,
@@ -38,12 +43,15 @@ export class Runner {
       ).toString()
     );
 
+    // !!!
     if (this._worker === undefined) {
       console.log("client: starting worker: " + workerUri.toString()); // !!!!
       console.log("client: extension root: " + this._extensionUri.toString()); // !!!!")
       this._worker = new WorkerClient(workerUri, ++this._workerCount);
+      this._worker.postMessage({ tag: "code", code: this._compiledCode });
       console.log(`client: worker #${this._workerCount} created`); // !!!!
     }
+
     return this._worker;
   }
 
@@ -63,9 +71,12 @@ export class Runner {
     return new Promise<FuzzWorkerOutput>((resolve) => {
       const fuzzWorker = this._getWorker();
 
-      const fuzzWorkerInput: FuzzWorkerInput = {
-        fnRef: this._fnRef,
-        inputs: inputs,
+      const fuzzWorkerInput: FuzzWorkerInputMessage = {
+        tag: "input",
+        input: {
+          fnRef: this._fnRef,
+          inputs: inputs,
+        },
       };
 
       // !!!
@@ -83,18 +94,21 @@ export class Runner {
       // !!!
       const messageHandler = (message: any) => {
         const id = this._workerCount;
+        const payload: FuzzWorkerMessage = message;
         console.log(
           `client: worker ${id} message received: ${JSON.stringify(message)}`
         ); // !!!!
-        clearTimeout(timerReject);
-        const payload: FuzzWorkerOutput =
-          "data" in message ? message.data : message;
-        resolve(payload);
+        if (payload.tag === "output") {
+          clearTimeout(timerReject);
+          resolve(payload.output);
+        }
       };
 
+      // !!!
       fuzzWorker.removeAllListeners("message");
       fuzzWorker.addEventListener("message", messageHandler);
 
+      // !!!
       fuzzWorker.postMessage(fuzzWorkerInput);
       console.log(`client: input posted`); // !!!!
     });

@@ -26,9 +26,9 @@ const floatOptions: FuzzOptions = {
 /**
  * Extension Uri
  */
-const extensionUri = vscode.Uri.file("file://" + path.resolve("."));
+const extensionUri = vscode.Uri.file(path.resolve("."));
 console.log(`Path: ${path.resolve(".")}`); // !!!!
-console.log(`Extension Uri: ${extensionUri.fsPath}`); // !!!!
+console.log(`Extension Uri: ${extensionUri.toString()}`); // !!!!
 
 /**
  * These tests currently just ensure that the fuzzer runs and produces output
@@ -186,7 +186,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 01", async () => {
     const results = (
       await fuzz(
-        await setup(intOptions, extensionUri, "examples/1.ts", "minValue")
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/1.ts"),
+          name: "minValue",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -195,7 +198,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 02", async () => {
     const results = (
       await fuzz(
-        await setup(intOptions, extensionUri, "examples/2.ts", "getSortSetting")
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/2.ts"),
+          name: "getSortSetting",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -204,12 +210,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 03", async () => {
     const results = (
       await fuzz(
-        await setup(
-          floatOptions,
-          extensionUri,
-          "examples/3.ts",
-          "totalDinnerExpenses"
-        )
+        await setup(floatOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/3.ts"),
+          name: "totalDinnerExpenses",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -224,8 +228,10 @@ describe("Fuzzer", () => {
             argDefaults: { ...intOptions.argDefaults, anyDims: 1 },
           },
           extensionUri,
-          "examples/4.ts",
-          "maxOfArray"
+          {
+            module: new URL(extensionUri + "/src/examples/4.ts"),
+            name: "maxOfArray",
+          }
         )
       )
     ).results;
@@ -235,12 +241,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 05", async () => {
     const results = (
       await fuzz(
-        await setup(
-          intOptions,
-          extensionUri,
-          "examples/5.ts",
-          "getRandomNumber"
-        )
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/5.ts"),
+          name: "getRandomNumber",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -249,7 +253,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 06", async () => {
     const results = (
       await fuzz(
-        await setup(intOptions, extensionUri, "examples/6.ts", "getZero")
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/6.ts"),
+          name: "getZero",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -258,7 +265,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 07", async () => {
     const results = (
       await fuzz(
-        await setup(intOptions, extensionUri, "examples/7.ts", "sortByWinLoss")
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/7.ts"),
+          name: "sortByWinLoss",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -267,7 +277,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 08", async () => {
     const results = (
       await fuzz(
-        await setup(intOptions, extensionUri, "examples/8.ts", "minSalary")
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/8.ts"),
+          name: "minSalary",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -276,12 +289,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 09", async () => {
     const results = (
       await fuzz(
-        await setup(
-          intOptions,
-          extensionUri,
-          "examples/9.ts",
-          "getOffsetOrDefault"
-        )
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/9.ts"),
+          name: "getOffsetOrDefault",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -291,7 +302,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 10", async () => {
     const results = (
       await fuzz(
-        await setup(intOptions, extensionUri, "examples/10.ts", "gramSchmidt")
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/10.ts"),
+          name: "gramSchmidt",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -300,7 +314,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 11", async () => {
     const results = (
       await fuzz(
-        await setup(intOptions, extensionUri, "examples/11.ts", "idMatrix")
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/11.ts"),
+          name: "idMatrix",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -309,7 +326,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 12", async () => {
     const results = (
       await fuzz(
-        await setup(intOptions, extensionUri, "examples/12.ts", "levenshtein")
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/12.ts"),
+          name: "levenshtein",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -318,7 +338,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 13", async () => {
     const results = (
       await fuzz(
-        await setup(intOptions, extensionUri, "examples/13.ts", "isSteady")
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/13.ts"),
+          name: "isSteady",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);
@@ -327,7 +350,10 @@ describe("Fuzzer", () => {
   test("Fuzz example 14", async () => {
     const results = (
       await fuzz(
-        await setup(intOptions, extensionUri, "examples/14.ts", "modInv")
+        await setup(intOptions, extensionUri, {
+          module: new URL(extensionUri + "/src/examples/14.ts"),
+          name: "modInv",
+        })
       )
     ).results;
     expect(results.length).not.toStrictEqual(0);

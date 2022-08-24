@@ -115,7 +115,7 @@ const testRandomInt = (intMin: number, intMax: number): void => {
   const prng = seedrandom(seed);
   const arg = new FunctionDef(
     {
-      module: "dummy.ts",
+      module: new URL("file://dummy.ts"),
       name: "test",
       src: tsFnWithNumberInput,
       startOffset: 0,
@@ -154,7 +154,7 @@ const testRandomFloat = (floatMin: number, floatMax: number): void => {
   const prng = seedrandom(seed);
   const arg = new FunctionDef(
     {
-      module: "dummy.ts",
+      module: new URL("file://dummy.ts"),
       name: "test",
       src: tsFnWithNumberInput,
       startOffset: 0,
@@ -196,7 +196,7 @@ const testRandomBool = (boolMin: boolean, boolMax: boolean): void => {
   // Analyze the function, set the intervals, and get the generator
   const arg = new FunctionDef(
     {
-      module: "dummy.ts",
+      module: new URL("file://dummy.ts"),
       name: "test",
       src: tsFnWithBoolInput,
       startOffset: 0,
@@ -244,7 +244,7 @@ const testRandomString = (
   // Analyze the function, set the intervals, and get the generator
   const arg = new FunctionDef(
     {
-      module: "dummy.ts",
+      module: new URL("file://dummy.ts"),
       name: "test",
       src: tsFnWithStringInput,
       startOffset: 0,

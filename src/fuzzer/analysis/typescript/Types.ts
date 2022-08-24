@@ -2,12 +2,21 @@
  * Represents a reference to a function in a source code file.
  */
 export type FunctionRef = {
-  module: string;
+  module: URL;
   name: string;
   src: string;
   startOffset: number;
   endOffset: number;
 };
+
+// !!!
+export type FunctionRefWeak = Optional<
+  FunctionRef,
+  "endOffset" | "name" | "startOffset" | "src"
+>;
+
+// !!! https://stackoverflow.com/a/61108377
+export type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>;
 
 /**
  * The set of options for an argument.  This option set is used to "fill in" information

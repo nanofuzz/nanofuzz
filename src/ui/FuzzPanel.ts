@@ -8,6 +8,7 @@ import {
   ArgTag,
   ArgType,
   FunctionRef,
+  FunctionRefWeak,
   Interval,
 } from "fuzzer/analysis/typescript/Types";
 import { FunctionDef } from "fuzzer/analysis/typescript/FunctionDef";
@@ -95,13 +96,7 @@ export class FuzzPanel {
     ) {
       // Create a new fuzzer environment
       fuzzer
-        .setup(
-          state.options,
-          extensionUri,
-          state.fnRef.module,
-          state.fnRef.name,
-          state.fnRef.startOffset
-        )
+        .setup(state.options, extensionUri, state.fnRef)
         .then((env) => {
           // Create the new FuzzPanel
           fuzzPanel = new FuzzPanel(panel, extensionUri, env);
@@ -811,45 +806,29 @@ export function getUri(
  * the function specified as input -- or the current cursor position if
  * no function is specified.
  *
- * @param match optional: a reference to the function to fuzz
+ * @param match reference to the function to fuzz
  * @returns void
  */
 export function handleFuzzCommand(match?: FunctionMatch): void {
-  // Get the function name (only present on a CodeLens match)
-  const fnName: string | undefined = match ? match.ref.name : undefined;
-
-  // Get the current active document
-  const editor = vscode.window.activeTextEditor;
-  const document = match
-    ? match.document
-    : vscode.window.activeTextEditor?.document;
-  if (!document || !editor) {
+  if (!match || !("ref" in match) || !("document" in match)) {
     vscode.window.showErrorMessage(
-      "Please select a function to autotest in the editor."
+      "Please start NaNofuzz using the 'AutoTest...' CodeLens."
     );
-    return; // If there is no active editor, return.
+    return;
   }
 
   // Ensure the document is saved / not dirty
-  if (document.isDirty) {
+  if (match.document.isDirty) {
     vscode.window.showErrorMessage("Please save the file before autotesting.");
     return;
   }
 
-  // Get the current active editor filename
-  const srcFile = document.uri.path; //full path of the file which the function is in.
-
-  // Get the current cursor offset
-  const pos = match
-    ? match.ref.startOffset
-    : document.offsetAt(editor.selection.active);
-
   // Call the fuzzer to analyze the function
   const fuzzOptions = fuzzer.getDefaultFuzzOptions();
   fuzzer
-    .setup(fuzzOptions, FuzzPanel.context.extensionUri, srcFile, fnName, pos)
+    .setup(fuzzOptions, FuzzPanel.context.extensionUri, match.ref)
+    // Then load the fuzz panel
     .then((fuzzSetup) => {
-      // Load the fuzz panel
       FuzzPanel.render(FuzzPanel.context.extensionUri, fuzzSetup);
     })
     .catch((e) => {
@@ -874,7 +853,9 @@ export function provideCodeLenses(
   // Use the TypeScript analyzer to find all fn declarations in the module
   const matches: FunctionMatch[] = [];
   try {
-    const functions = FunctionDef.find(document.getText(), document.fileName);
+    const functions = FunctionDef.find(document.getText(), {
+      module: new URL(document.uri.toString()),
+    });
     for (const fn of functions) {
       matches.push({
         document,

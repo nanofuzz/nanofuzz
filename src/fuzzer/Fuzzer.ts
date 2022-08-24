@@ -1,37 +1,33 @@
 import * as vscode from "vscode";
+import * as compiler from "./Compiler";
 import seedrandom from "seedrandom";
 import { ArgDef } from "./analysis/typescript/ArgDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import { Runner } from "./Runner";
 import { FuzzEnv, FuzzOptions, FuzzTestResult, FuzzTestResults } from "./Types";
+import { FunctionRefWeak } from "./analysis/typescript/Types";
 
 /**
  * Builds and returns the environment required by fuzz().
  *
  * @param options fuzzer option set
- * @param module file name of Typescript module containing the function to fuzz
- * @param fnName optional name of the function to fuzz
- * @param offset optional offset within the source file of the function to fuzz
+ * @param extensionUri uri of the extension
+ * @param fnRef weak reference to the function to be fuzzed
  * @returns a fuzz environment
  */
 export const setup = async (
   options: FuzzOptions,
   extensionUri: vscode.Uri,
-  module: string,
-  fnName?: string,
-  offset?: number
+  fnRef: FunctionRefWeak
 ): Promise<FuzzEnv> => {
-  module = require.resolve(module); // !!!!
-  const srcText = await vscode.workspace.fs.readFile(vscode.Uri.parse(module));
+  // !!!
+  const srcText = await vscode.workspace.fs.readFile(
+    vscode.Uri.parse(fnRef.module.toString())
+  );
 
   // Find the function definitions in the source file
-  const fnMatches = FunctionDef.find(
-    srcText.toString(),
-    module,
-    fnName,
-    offset
-  );
+  const fnMatches = FunctionDef.find(srcText.toString(), fnRef);
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
@@ -42,7 +38,7 @@ export const setup = async (
   // Ensure we found a function to fuzz
   if (!fnMatches.length)
     throw new Error(
-      `Could not find function ${fnName}@${offset} in: ${module})}`
+      `Could not find function ${fnRef.name}@${fnRef.startOffset} in: ${fnRef.module})}`
     );
 
   return {
@@ -78,11 +74,27 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     return { arg: e, gen: GeneratorFactory(e, prng) };
   });
 
+  // Compile the module
+  // !!!! This isn't right -- not following all dependencies
+  const compiledCode = compiler.transpileTS(
+    (
+      await vscode.workspace.fs.readFile(
+        vscode.Uri.parse(env.function.getRef().module.toString())
+      )
+    ).toString()
+  );
+
+  // Invalidate the module cache entry
+  //delete require.cache[
+  //  require.resolve(env.function.getRef().module.toString())
+  //]; // !!!!!
+
   // Build a function Runner we can easily call in the testing loop
   const runner = new Runner(
     env.function.getRef(),
     env.options.fnTimeout,
-    env.extensionUri
+    env.extensionUri,
+    compiledCode
   );
 
   // Main test loop
@@ -126,26 +138,6 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
         value: runOutput.output,
       });
     }
-    /* !!!!
-    try {
-      result.output.push({
-        name: "0",
-        offset: 0,
-        value: await runner.run(result.input), // <-- Wrapper
-      });
-    } catch (e: any) {
-      console.log("Fuzzer: Promise reject exception"); // !!!!
-    }
-    console.log(`Fuzzer: timedOut: ${runner.timedOut()}`);
-    console.log(`Fuzzer: exception: ${runner.threwException()}`);
-    if (runner.timedOut()) {
-      result.timeout = true;
-    }
-    if (runner.threwException()) {
-      result.exception = true;
-      result.exceptionMessage = runner.getException();
-    }
-    */
 
     // How can it fail ... let us count the ways...
     // TODO Add suppport for multiple validators !!!

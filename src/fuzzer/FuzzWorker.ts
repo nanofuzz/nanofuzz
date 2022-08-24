@@ -1,77 +1,105 @@
-import * as compiler from "./Compiler";
-import { FuzzWorkerInput, FuzzWorkerOutput } from "./Types";
+import { FuzzWorkerOutput, FuzzWorkerMessage } from "./Types";
 import { WorkerServer } from "./WorkerServer";
 
-console.log("WebWorker: starting"); // !!!!
+console.log("WebWorker startup..."); // !!!!
 
-const server = new WorkerServer();
-const id = server.getId();
+const server = new WorkerServer(); // !!!
+const id = server.getId(); // !!!
+const module = { exports: {} }; // !!!
 
 console.log(
-  `WebWorker ${id}: started ${WorkerServer.isNode() ? "(node)" : "(browser)"}`
+  `WebWorker ${id}: started (mode: ${
+    WorkerServer.isNode() ? "node" : "browser"
+  })`
 ); // !!!
 
 // !!!
+// !!! Important Note: we lack vscode API access in subworkers
 server.addEventListener("message", (message: any): void => {
-  console.log(`client: message received: ${JSON.stringify(message)}`); // !!!!
-  const payload: FuzzWorkerInput = "data" in message ? message.data : message;
+  console.log(`WebWorker ${id}: message received: ${JSON.stringify(message)}`); // !!!!
+  const fuzzMessage: FuzzWorkerMessage = message;
 
-  console.log(
-    `WebWorker ${id}: executing fn: ${JSON.stringify(payload.fnRef)}`
-  ); // !!!!
-  const result: FuzzWorkerOutput = { timeout: false, output: undefined };
+  // !!!
+  switch (fuzzMessage.tag) {
+    // !!!
+    case "code": {
+      module.exports = {};
+      new Function("exports", "module", `${fuzzMessage.code}`).call(
+        global,
+        module.exports,
+        module
+      );
+      break;
+    } // case: code
 
-  try {
-    result.output = run(payload.fnRef, payload.inputs);
-    console.log(`WebWorker ${id}: done running fn`);
-  } catch (e: any) {
-    result.exception = e.message;
-    console.log(`WebWorker ${id}: exception thrown: ${e.message}`); // !!!!
-  }
+    // !!!
+    case "input": {
+      if (Object.keys(module.exports).length === 0) {
+        throw new Error(
+          `WebWorker ${id}: received input before receiving code`
+        );
+      }
+      console.log(
+        `WebWorker ${id}: executing fn: ${JSON.stringify(
+          fuzzMessage.input.fnRef
+        )}`
+      ); // !!!!
+      const result: FuzzWorkerOutput = { timeout: false, output: undefined };
 
-  server.postMessage(result);
+      try {
+        result.output = run(fuzzMessage.input.fnRef, fuzzMessage.input.inputs);
+        console.log(`WebWorker ${id}: done running fn`);
+      } catch (e: any) {
+        result.exception = e.message;
+        console.log(`WebWorker ${id}: exception thrown: ${e.message}`); // !!!!
+      }
 
-  console.log(`WebWorker ${id}: returned to client: ${JSON.stringify(result)}`); // !!!!
-});
+      /// !!!
+      server.postMessage({ tag: "output", output: result });
+
+      console.log(
+        `WebWorker ${id}: returned to client: ${JSON.stringify(result)}`
+      ); // !!!!          break;
+    } // case: input
+  } // !!!
+
+  // !!!! const payload: FuzzWorkerInput = "data" in message ? message.data : message;
+}); // switch: fuzzMessage.tag
 
 // !!!
 function run(
   fnRef: any /*FunctionRef*/,
   inputs: any[] /*FuzzIoElement[]*/
 ): any | undefined {
-  console.log(`WebWorker ${id}: running with input`); // !!!!
+  console.log(`WebWorker ${id}: running ${fnRef.name}() with input`); // !!!!
 
   // The module that includes the function to fuzz will
   // be a TypeScript source file, so we first must compile
   // it to JavaScript prior to execution.  This activates the
   // TypeScript compiler that hooks into the require() function.
-  compiler.activate();
+  // !!!!compiler.activate();
 
-  // The fuzz target is likely under development, so invalidate
-  // any cached copies to ensure we retrieve the latest copy.
-  delete require.cache[require.resolve(fnRef.module)];
-
-  console.log(`WebWorker ${id}: require user module`); // !!!!
+  //console.log(`WebWorker ${id}: require user module`); // !!!!
   /* eslint eslint-comments/no-use: off */
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require(fnRef.module);
-  console.log(`WebWorker ${id}: user module loaded`); // !!!!
+  // !!!const mod = require(fnRef.module); // !!!!
+  console.log(`WebWorker ${id}: user module loaded: ${fnRef.module}`); // !!!!
 
-  compiler.deactivate(); // Deactivate the TypeScript compiler
+  // !!!!compiler.deactivate(); // Deactivate the TypeScript compiler
 
   // Ensure what we found is a function
-  if (!(fnRef.name in mod))
+  if (!(fnRef.name in module.exports))
     throw new Error(
       `Could not find exported function ${fnRef.name} in ${fnRef.module} to fuzz`
     );
-  else if (typeof mod[fnRef.name] !== "function")
+  else if (typeof module.exports[fnRef.name] !== "function")
     throw new Error(
       `Cannot fuzz exported member '${fnRef.name} in ${fnRef.module} because it is not a function`
     );
 
   // Run the function with the inputs and return its value
   console.log(`WebWorker ${id}: running fn`); // !!!!
-  return mod[fnRef.name](...inputs.map((e) => e.value)); // !!!!!
+  return module.exports[fnRef.name](...inputs.map((e) => e.value)); // !!!!!
   /*
    })
     .catch((e: any) => {
@@ -80,5 +108,3 @@ function run(
     });
     */
 }
-
-export {}; // !!!!

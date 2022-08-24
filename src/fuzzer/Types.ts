@@ -66,3 +66,27 @@ export type FuzzWorkerOutput = {
   output: any | undefined;
   timeout: boolean;
 };
+
+// !!!
+export type FuzzWorkerMessage =
+  | FuzzWorkerCodeMessage
+  | FuzzWorkerInputMessage
+  | FuzzWorkerOutputMessage;
+
+// !!!
+export type FuzzWorkerCodeMessage = {
+  tag: "code";
+  code: string;
+};
+
+// !!!
+export type FuzzWorkerInputMessage = {
+  tag: "input";
+  input: FuzzWorkerInput;
+};
+
+// !!!
+export type FuzzWorkerOutputMessage = {
+  tag: "output";
+  output: FuzzWorkerOutput;
+};

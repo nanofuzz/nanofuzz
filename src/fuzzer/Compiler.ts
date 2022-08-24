@@ -3,7 +3,7 @@
  * them to js for execution.
  */
 import typescript from "typescript";
-import * as pirates from "pirates";
+import * as pirates from "pirates"; // !!!!
 
 /**
  * Default compilation options
@@ -41,6 +41,7 @@ export function getOptions(): typescript.CompilerOptions {
 
 /**
  * Activate the TypeScript compiler hook & save the revert function
+ * !!!!
  */
 export function activate(): void {
   if (hookRevert === undefined) {
@@ -58,6 +59,7 @@ export function activate(): void {
 
 /**
  * De-activate the TypeScript compiler hook by calling the rever function
+ * !!!!
  */
 export function deactivate(): void {
   if (hookRevert !== undefined) {
@@ -69,10 +71,10 @@ export function deactivate(): void {
 /**
  * Transpiles TypeScript source to js source
  *
- * @param moduleUri Uri of module
+ * @param tsModuleSource TS Source code
  * @returns transpiled js source
  */
-function transpileTS(tsModuleSource: string): string {
+export function transpileTS(tsModuleSource: string): string {
   try {
     // Transpile the module and return the transpile result
     return typescript.transpileModule(tsModuleSource.toString(), {

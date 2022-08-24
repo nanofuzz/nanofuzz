@@ -1,5 +1,4 @@
 import * as fs from "fs";
-import { parse } from "path";
 
 /**
  * This is a mock that allows jest to unit test NaNofuzz
@@ -11,7 +10,7 @@ import { parse } from "path";
 export const workspace = {
   getConfiguration: (k: string) => {
     return {
-      get: (k: string, dft?: any) => dft,
+      get: (k: string, dft: any) => dft, // Always return the default value
     };
   },
   fs: {
@@ -33,14 +32,15 @@ export const workspace = {
   },
 };
 export class Uri {
-  private path: string;
-  constructor(path: string) {
-    this.path = path;
+  private _uriString: string;
+  constructor(uriString: string) {
+    this._uriString = uriString;
+    console.log("Constructe new Uri: " + uriString); // !!!!
   }
   public static parse(...s: any[]): Uri {
     const str = s.map((e) => e.toString()).join("/");
-    console.log("str: " + str);
-    return new Uri(str.startsWith("file://") ? str : "file://" + str);
+    console.log("parse str: " + str);
+    return new this(str.startsWith("file://") ? str : "file://" + str);
   }
   public static file(...s: any[]): Uri {
     return this.parse(...s);
@@ -49,6 +49,6 @@ export class Uri {
     return this.parse(...s);
   }
   public toString(): string {
-    return this.path;
+    return this._uriString;
   }
 }

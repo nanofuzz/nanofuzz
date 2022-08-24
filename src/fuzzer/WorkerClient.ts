@@ -45,21 +45,27 @@ export class WorkerClient {
     if (this._state === "terminated") {
       throw new Error(`Worker ${this._id} previously terminated`);
     }
-    (this._isNode ? this._getNodeImpl() : this._getBrowserImpl()).postMessage(
+    (this._nodeImpl ? this._getNodeImpl() : this._getBrowserImpl()).postMessage(
       payload
     );
   }
 
   // !!!
-  public addEventListener(type: "message", handler: any): void {
+  // Interop: we only pass the "data" property from the message
+  public addEventListener(
+    type: "message",
+    listener: (ev: MessageEvent<any>) => any
+  ): void {
     if (this._state === "terminated") {
       throw new Error(`Worker ${this._id} previously terminated`);
     }
-    this._handlers.push({ type: type, handler: handler });
+    this._handlers.push({ type: type, handler: listener });
     if (this._isNode) {
-      this._getNodeImpl().addListener(type, handler);
+      this._getNodeImpl().addListener(type, listener);
     } else {
-      this._getBrowserImpl().addEventListener(type, handler);
+      this._getBrowserImpl().addEventListener(type, (message) => {
+        listener(message.data);
+      });
     }
   }
 
@@ -75,6 +81,7 @@ export class WorkerClient {
       this._handlers.forEach((handler) => {
         browserImpl.removeEventListener(type, handler);
       });
+      this._handlers = [];
     }
   }
 
@@ -82,17 +89,15 @@ export class WorkerClient {
   private _getBrowserImpl(): Worker {
     if (this._browserImpl) {
       return this._browserImpl;
-    } else {
-      throw new Error("browserImpl not initialized");
     }
+    throw new Error("browserImpl not initialized");
   }
 
   // !!!
   private _getNodeImpl(): nodeworker.Worker {
     if (this._nodeImpl) {
       return this._nodeImpl;
-    } else {
-      throw new Error("nodeImpl not initialized");
     }
+    throw new Error("nodeImpl not initialized");
   }
 }

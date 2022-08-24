@@ -4,7 +4,12 @@ import {
   simpleTraverse,
 } from "@typescript-eslint/typescript-estree";
 import { ArgDef } from "./ArgDef";
-import { ArgOptionOverrides, ArgType, ArgOptions } from "./Types";
+import {
+  ArgOptionOverrides,
+  ArgType,
+  ArgOptions,
+  FunctionRefWeak,
+} from "./Types";
 import { FunctionRef } from "./Types";
 
 /**
@@ -113,7 +118,7 @@ export class FunctionDef {
    *
    * @returns the module filename where the function is defined
    */
-  public getModule(): string {
+  public getModule(): URL {
     return this.ref.module;
   }
   /**
@@ -146,17 +151,15 @@ export class FunctionDef {
    * of functions will be filtered by the provided criteria.
    *
    * @param src The module source code to be analyzed
-   * @param fnName The optional function name to find
-   * @param offset The optional offset inside the desired function body
+   * @param fnRef The function attributes to find
+   * @param options The optional set of options to use to define found functions
    * @returns an array of `FunctionDef`s containing matching functions
    *
    * Throws an exception if the function is not supported for analysis.
    */
   public static find(
     src: string,
-    module: string,
-    fnName?: string,
-    offset?: number,
+    fnRef: FunctionRefWeak,
     options?: ArgOptions
   ): FunctionDef[] {
     let ret: FunctionRef[] = [];
@@ -173,12 +176,14 @@ export class FunctionDef {
           node.init &&
           node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
           node.id.type === AST_NODE_TYPES.Identifier &&
-          (!fnName || node.id.name === fnName) &&
-          (!offset || (node.range[0] <= offset && node.range[1] >= offset))
+          (!fnRef.name || node.id.name === fnRef.name) &&
+          (!fnRef.startOffset ||
+            (node.range[0] <= fnRef.startOffset &&
+              node.range[1] >= fnRef.startOffset))
         ) {
           ret.push({
             name: node.id.name,
-            module: module,
+            module: fnRef.module,
             src:
               parent.kind + " " + src.substring(node.range[0], node.range[1]),
             startOffset: node.range[0],
@@ -188,12 +193,14 @@ export class FunctionDef {
           // Standard Function Definition: function xyz(): void => { ... }
           node.type === AST_NODE_TYPES.FunctionDeclaration &&
           node.id !== null &&
-          (!fnName || node.id.name === fnName) &&
-          (!offset || (node.range[0] <= offset && node.range[1] >= offset))
+          (!fnRef.name || node.id.name === fnRef.name) &&
+          (!fnRef.startOffset ||
+            (node.range[0] <= fnRef.startOffset &&
+              node.range[1] >= fnRef.startOffset))
         ) {
           ret.push({
             name: node.id.name,
-            module: module,
+            module: fnRef.module,
             src: src.substring(node.range[0], node.range[1]),
             startOffset: node.range[0],
             endOffset: node.range[1],
@@ -205,11 +212,12 @@ export class FunctionDef {
 
     // If offset is provided and we have multiple matches,
     // return the function that is closest to the offset
-    if (offset !== undefined && ret.length > 0) {
+    if (fnRef.startOffset !== undefined && ret.length > 0) {
+      const startOffset = fnRef.startOffset;
       ret = [
         ret.reduce((best, curr) =>
-          offset >= curr.startOffset &&
-          offset - curr.startOffset < offset - best.startOffset
+          startOffset >= curr.startOffset &&
+          startOffset - curr.startOffset < startOffset - best.startOffset
             ? curr
             : best
         ),
