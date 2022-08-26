@@ -4,6 +4,7 @@
   "recommendations": [
     "dbaeumer.vscode-eslint",
     "tobermory.es6-string-html",
-    "firsttris.vscode-jest-runner"
+    "firsttris.vscode-jest-runner",
+    "eamodio.tsl-problem-matcher"
   ]
 }

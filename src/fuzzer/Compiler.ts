@@ -3,7 +3,7 @@
  * them to js for execution.
  */
 import typescript from "typescript";
-import * as pirates from "pirates"; // !!!!
+//import * as pirates from "pirates"; // !!!!
 
 /**
  * Default compilation options
@@ -19,7 +19,7 @@ let compilerOptions: typescript.CompilerOptions = {
  * Function that removes the *.ts transpilation hook.
  * Maintained by activate() and deactivate().
  */
-let hookRevert: any | undefined = undefined;
+// !!!!let hookRevert: any | undefined = undefined;
 
 /**
  * Set the compiler options
@@ -43,6 +43,7 @@ export function getOptions(): typescript.CompilerOptions {
  * Activate the TypeScript compiler hook & save the revert function
  * !!!!
  */
+/*
 export function activate(): void {
   if (hookRevert === undefined) {
     hookRevert = pirates.addHook(
@@ -56,17 +57,20 @@ export function activate(): void {
     );
   }
 }
+*/
 
 /**
  * De-activate the TypeScript compiler hook by calling the rever function
  * !!!!
  */
+/*
 export function deactivate(): void {
   if (hookRevert !== undefined) {
     hookRevert();
     hookRevert = undefined;
   }
 }
+*/
 
 /**
  * Transpiles TypeScript source to js source

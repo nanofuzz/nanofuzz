@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { WorkerClient } from "./WorkerClient";
+import { WorkerServer } from "./WorkerServer";
 import {
   FuzzIoElement,
   FuzzWorkerInputMessage,
@@ -37,9 +38,9 @@ export class Runner {
     const workerUri = new URL(
       vscode.Uri.joinPath(
         this._extensionUri,
-        "build",
+        "dist",
         "workers",
-        "FuzzWorker.js"
+        "FuzzWorker." + (WorkerServer.isNode() ? "node" : "web") + ".js"
       ).toString()
     );
 

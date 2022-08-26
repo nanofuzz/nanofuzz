@@ -2,16 +2,15 @@ import * as vscode from "vscode";
 import * as fuzzer from "../fuzzer/Fuzzer";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
-import { FuzzEnv, FuzzOptions, FuzzTestResults } from "fuzzer/Types";
-import { ArgDef } from "fuzzer/analysis/typescript/ArgDef";
+import { FuzzEnv, FuzzOptions, FuzzTestResults } from "../fuzzer/Types";
+import { ArgDef } from "../fuzzer/analysis/typescript/ArgDef";
 import {
   ArgTag,
   ArgType,
   FunctionRef,
-  FunctionRefWeak,
   Interval,
-} from "fuzzer/analysis/typescript/Types";
-import { FunctionDef } from "fuzzer/analysis/typescript/FunctionDef";
+} from "../fuzzer/analysis/typescript/Types";
+import { FunctionDef } from "../fuzzer/analysis/typescript/FunctionDef";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -22,8 +21,8 @@ import { FunctionDef } from "fuzzer/analysis/typescript/FunctionDef";
  * each FuzzEnvironment.
  *
  * For its user interface, this extension relies on the VS Code Webview
- * API and WebView controls.  Client-side Javascript is contained in
- * a separate FuzzPanelMain.js.
+ * API and WebView controls.  Client-side Javascript is contained in:
+ * assets/FuzzPanelMain.js.
  */
 export class FuzzPanel {
   // Static variables
