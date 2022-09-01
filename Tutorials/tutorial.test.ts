@@ -1,4 +1,4 @@
-import { gcd } from "./gcd";
+import { gcd } from "./tutorial";
 
 describe("gcdTest", () => {
     test("gcd a", () => {

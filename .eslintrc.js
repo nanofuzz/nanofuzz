@@ -49,9 +49,7 @@ module.exports = {
   ignorePatterns: [
     "**/*.test.ts",
     "**/*.test.tsx",
-    "src/__testfixtures__/transformtest.input.ts",
-    "src/__testfixtures__/transformtest.output.ts",
+    "tutorials/*.ts",
     "*.js",
-    "src/test/suite/*",
   ],
 };

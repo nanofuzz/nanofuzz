@@ -1,9 +1,3 @@
-
-
-
-
-
-
 export function gcd(a:number, b:number):number {
   if (b === 0)
     return a;

@@ -1,67 +1,8 @@
-# Tutorials for user study
-
-## Jest Runner tutorial
-
-> Jest is a useful tool for running unit tests in Typescript. 
-Instead of typing things into the terminal, you get a nice UI like this!
-
-![image](./screenshot.png)
-
-You can click on the white button that says "Run" and Jest will run all your tests for you.
-
-
-A sample test in Jest looks like the following. Feel free to copy this in your attempt.
-
-```Typescript
-  test("function name", () => {
-    expect(funcTest(args)) //Pass in arguments to function under test
-    .toStrictEqual(expVal); // Compare expected with actual value
-  });
-```
-
-
-
-This tutorial will demonstrate testing with Jest Runner using the Euclidean algorithm. Feel free to follow along using the provided files, gcd.ts and gcd.test.ts. 
-
-gcd.ts is the file that has the implementation of the Euclidean algorithm in it. 
-
-```Typescript
-function gcd(a:number, b:number):number {
-  if (b === 0)
-    return a;
-  else
-    return gcd(b, (a % b));
-}
-```
-
-
-gcd.test.ts has the test cases to test gcd.ts.
-
-```Typescript
-describe("gcdTest", () => {
-    test("gcd a", () => {
-      expect(gcd(100, 10)).toStrictEqual(10);
-    });
-  });
-```
-We want to run Jest to easily generate reports in a compact, intuitive way in the terminal. JestRunner has made it easy to run tests by pressing the run button, instead of manually specifying in the terminal.
-In gcd.test.ts you will see this above any test case you are trying to run. 
-![image](./screenshot.png)
-
-If you select the 'Run' button to specifically test for test $a$, it outputs a report in the terminal. Try this for yourself. 
-
-![JestTerminalOutput](./JestTerminalOutput.png)
-
-After a few seconds, the output is generated.
-As you can see, test $a$ passed, while test $b$ was skipped, since we explicitly commanded the runner to run test A only.
-
-Using this information, you can easily write tests and run them for any function in Typescript.
-
-
-
 ## NaNofuzz tutorial
 
-NaNofuzz is the tool we built. If you click the Autotest button...
+> NaNofuzz is a useful tool for automatically generating tests for Typescript programs.
+
+To use NaNofuzz, click the `Autotest` button above any Typescript function...
 ![NaNofuzzButton](./NaNofuzzButton.png)
 You get a nice UI that allows you to test the function.
 
