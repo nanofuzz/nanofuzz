@@ -623,6 +623,7 @@ export class FuzzPanel {
       argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase(); // Text indicating arg type
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
 
+    // prettier-ignore
     let html = /*html*/ `
     <!-- Argument Definition -->
     <div class="argDef" id="${idBase}">
@@ -631,6 +632,10 @@ export class FuzzPanel {
         <strong>${htmlEscape(
           arg.getName()
         )}</strong>${optionalString}: ${typeString}${dimString} =
+        ${argType === fuzzer.ArgTag.OBJECT
+          ? ' {'
+          : ''
+        }
       </div>`;
 
     html += /*html*/ `
