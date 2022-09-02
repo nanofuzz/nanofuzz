@@ -1,9 +1,5 @@
 import { sortByWinLoss } from "./7";
 
-/**
- * BUG REPORT
- * Test 7a passes, but test 7b fails with an incorrect sort.
- */
 describe("7", () => {
   // This test passes
   test("7a", () => {

@@ -1,21 +1,39 @@
-# Jest Runner tutorial
+# Tutorial: Jest
 
-> Jest is a useful tool for unit testing Typescript programs. Once you define your test cases, it's easy to run tests by clicking the `Run` button above any test.
+Jest is a useful tool for quickly unit testing Typescript programs.
 
-![image](./screenshot.png)
+## How to use Jest:
 
-Open the `tutorial.test.ts` file in this tutorial folder.  Clicking the `Run` button above the test will automatically run your tests.
+1. Define your unit tests in a `*.test.ts` file
+2. Click the `Run` button above any test in the `*.test.ts` file.
+3. Inspect the results
 
-A sample test in Jest looks like the following.  Please take a moment to read and familiarize yourself with it.
+We will walk through each step in the tutorial below.
+
+## Reading a Jest unit test
+
+Please examine the Jest unit test below.
 
 ```Typescript
-  test("function name", () => {
-    expect(funcTest(args)) //Pass in arguments to function under test
-    .toStrictEqual(expVal); // Compare expected with actual value
-  });
+Run|Debug
+test("gcd test", () => { // Name of test
+  expect(
+    gcd(100,10) // Call gcd w/inputs 100 and 10
+  ).toStrictEqual(10); // Expect the output to equal 10
+});
 ```
 
-`tutorial.ts` is the file that has the implementation of the Euclidean algorithm tested in `tutotial.test.ts`. 
+Can you find the key parts of the test?
+
+1. The Jest unit test is named `gcd test`.
+2. This test calls function `gcd()` with inputs `100` and `10`.
+3. If the output of `gcd(100,10)` is `10`, then the unit test `PASS`es; otherwise, it `FAIL`s.
+
+All Jest unit tests follow a similar pattern to the above.
+
+## The function we are testing
+
+The source code for `gcd()` may be found in `tutorial.ts` within the same `tutorials` folder. It looks like this?
 
 ```Typescript
 function gcd(a:number, b:number):number {
@@ -26,21 +44,41 @@ function gcd(a:number, b:number):number {
 }
 ```
 
-`tutorial.test.ts` has the test cases to test gcd.ts.
+## Exercise 1
+
+Open the `tutorial.test.ts` file in this tutorial folder.
+
+Click the `Run` button above any test to automatically run it. The test will run in the terminal window.
+
+In the terminal window, did the test `PASS` or `FAIL`?
+
+## Exercise 2
+
+Open the `tutorial.test.ts` file in this same `tutorials` folder.
+
+Create a new unit test that `PASS`es when `gcd(75,25)` outputs `25`.
+
+> **Tip**: You can copy and paste Jest tests. Then change the name, input, and output values to make a new test. It's that simple!
+
+The test you created should look similar to:
 
 ```Typescript
-describe("gcdTest", () => {
-    test("gcd a", () => {
-      expect(gcd(100, 10)).toStrictEqual(10);
-    });
-  });
+Run|Debug
+test("gcd test c", () => {
+  expect(
+    gcd(75, 25)
+  ).toStrictEqual(25);
+});
 ```
 
-To run these tests, we simply click the `Run` button.  A test report is output to the terminal.
-![image](./screenshot.png)
+Now click the `Run` button to run the test.
 
-![JestTerminalOutput](./JestTerminalOutput.png)
+In the terminal window, did the test `PASS` or `FAIL`?
 
-To add more tests, simply type them into `tutorial.test.ts`.  It's that simple.
+## Conclusion
 
-Using this information, you can easily write tests and run them for any function in Typescript using Jest.
+Creating new Jest unit tests is as simple as copying and pasting then changing the values and names in the new test. Then click `Run`. That's it!
+
+> **Tip**: You can copy and paste Jest tests. Then change the name, input, and output values to make a new test. It's that simple!
+
+There are many advanced Jest features you may explore in the Jest documentation, but what you have learned is all you need for the tasks we will be performing today.

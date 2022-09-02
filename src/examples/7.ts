@@ -13,12 +13,17 @@
  * In the case where a === b, both [a,b] and [b,a] are valid.
  *
  * @param array array of PlayerRecord objects
- * @returns the same array sorted by win/loss ratio
+ * @returns a copy of the same array sorted by win/loss
  */
 export function sortByWinLoss(
   array: { win: number; lose: number }[]
 ): { win: number; lose: number; rank: number }[] {
-  return array.map((e) => { return {
-    ...e,rank: e.win / e.lose
-  }}).sort((a, b) => b.rank - a.rank);
+  return array
+    .map((e) => {
+      return {
+        ...e,
+        rank: e.win / e.lose,
+      };
+    })
+    .sort((a, b) => b.rank - a.rank);
 }
