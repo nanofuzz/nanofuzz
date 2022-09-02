@@ -653,9 +653,19 @@ export class FuzzPanel {
           Number(arg.getIntervals()[0].max).toString()
         )}">Maximum value</vscode-text-field>`;
         html += " ";
-        html += /*html*/ `<vscode-checkbox ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger"${
-          arg.getOptions().numInteger ? "checked" : ""
-        }>Integers</vscode-checkbox>`;
+        html +=
+          /*html*/
+          `<vscode-radio-group>
+            <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
+            arg.getOptions().numInteger ? " checked " : ""
+          }>Integer</vscode-radio>
+            <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
+            !arg.getOptions().numInteger ? " checked " : ""
+          }>Float</vscode-radio>
+          </vscode-radio-group>`;
+        // html += /*html*/ `<vscode-checkbox ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger"${
+        //   arg.getOptions().numInteger ? "checked" : ""
+        // }>Integers</vscode-checkbox>`;
         break;
       }
 
