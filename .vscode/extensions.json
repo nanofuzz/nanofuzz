@@ -1,9 +1,8 @@
 {
-  // See http://go.microsoft.com/fwlink/?LinkId=827846
-  // for the documentation about the extensions.json format
   "recommendations": [
     "dbaeumer.vscode-eslint",
-    "tobermory.es6-string-html",
-    "firsttris.vscode-jest-runner"
+    "esbenp.prettier-vscode",
+    "firsttris.vscode-jest-runner",
+    "tobermory.es6-string-html"
   ]
 }
