@@ -1,7 +1,6 @@
 {
   "recommendations": [
     "dbaeumer.vscode-eslint",
-    "eamodio.tsl-problem-matcher",
     "esbenp.prettier-vscode",
     "firsttris.vscode-jest-runner",
     "tobermory.es6-string-html"
