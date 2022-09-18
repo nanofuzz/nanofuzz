@@ -1,7 +1,8 @@
 {
   "name": "nanofuzz",
-  "version": "0.1.3",
   "displayName": "NaNofuzz",
+  "publisher": "penrose",
+  "version": "0.1.3",
   "description": "Automatic test generator for Typescript",
   "repository": "https://github.com/penrose/nanofuzz.git",
   "author": "Penrose Team (https://penrose.cs.cmu.edu/)",
@@ -183,6 +184,7 @@
     "lint": "eslint --ext js,ts,tsx src",
     "build-decls": "tsc --declaration --outDir build/dist && tsc-alias -p tsconfig.json",
     "vscode:prepublish": "yarn run compile",
+    "package": "vsce package --yarn",
     "compile": "yarn build",
     "watch": "tsc -watch -p ./",
     "pretest": "yarn run compile && yarn run lint",
@@ -221,6 +223,7 @@
     "tsc-alias": "^1.6.7",
     "tslib": "^2.1.0",
     "typedoc": "^0.22.11",
-    "typedoc-plugin-markdown": "^3.11.13"
+    "typedoc-plugin-markdown": "^3.11.13",
+    "vsce": "^2.11.0"
   }
 }
