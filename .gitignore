@@ -110,3 +110,6 @@ dist
 
 # Telemetry data
 /telemetry
+
+# Extension bundles
+*.vsix

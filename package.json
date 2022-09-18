@@ -1,6 +1,6 @@
 {
   "name": "nanofuzz",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "displayName": "NaNofuzz",
   "description": "Automatic test generator for Typescript",
   "repository": "https://github.com/penrose/nanofuzz.git",
@@ -186,7 +186,9 @@
     "compile": "yarn build",
     "watch": "tsc -watch -p ./",
     "pretest": "yarn run compile && yarn run lint",
-    "ext:test": "node ./build/extension/test/runTest.js"
+    "ext:test": "node ./build/extension/test/runTest.js",
+    "publish": "npx vsce publish --yarn",
+    "package": "npx vsce package --yarn"
   },
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
