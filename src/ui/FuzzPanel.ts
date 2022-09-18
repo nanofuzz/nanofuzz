@@ -541,7 +541,7 @@ export class FuzzPanel {
       {
         id: "exception",
         name: "Exceptions",
-        description: `The inputs resulted in a runtime exception`,
+        description: `These inputs resulted in a runtime exception`,
       },
       {
         id: "badOutput",
@@ -623,6 +623,7 @@ export class FuzzPanel {
       argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase(); // Text indicating arg type
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
 
+    // prettier-ignore
     let html = /*html*/ `
     <!-- Argument Definition -->
     <div class="argDef" id="${idBase}">
@@ -631,6 +632,10 @@ export class FuzzPanel {
         <strong>${htmlEscape(
           arg.getName()
         )}</strong>${optionalString}: ${typeString}${dimString} =
+        ${argType === fuzzer.ArgTag.OBJECT
+          ? ' {'
+          : ''
+        }
       </div>`;
 
     html += /*html*/ `
@@ -653,9 +658,19 @@ export class FuzzPanel {
           Number(arg.getIntervals()[0].max).toString()
         )}">Maximum value</vscode-text-field>`;
         html += " ";
-        html += /*html*/ `<vscode-checkbox ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger"${
-          arg.getOptions().numInteger ? "checked" : ""
-        }>Integers</vscode-checkbox>`;
+        html +=
+          /*html*/
+          `<vscode-radio-group>
+            <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
+            arg.getOptions().numInteger ? " checked " : ""
+          }>Integer</vscode-radio>
+            <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
+            !arg.getOptions().numInteger ? " checked " : ""
+          }>Float</vscode-radio>
+          </vscode-radio-group>`;
+        // html += /*html*/ `<vscode-checkbox ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger"${
+        //   arg.getOptions().numInteger ? "checked" : ""
+        // }>Integers</vscode-checkbox>`;
         break;
       }
 

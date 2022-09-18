@@ -8,6 +8,7 @@
 import vm from "vm";
 import fs from "fs";
 import path from "path";
+import os from "os";
 
 const tsc = path.join(path.dirname(require.resolve("typescript")), "tsc.js");
 const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8"));
@@ -20,8 +21,7 @@ let options: CompilerOptions = {
   target: "ES2020", // default to ES2020
   moduleKind: "commonjs",
   emitOnError: false,
-  exitOnError: true,
-  tmpDir: path.join(process.cwd(), "tmp"),
+  tmpDir: path.join(os.tmpdir(), "tsreq"), 
   lib: ["DOM", "ScriptHost", "ES2020"], // default to ES2020
 };
 
@@ -33,7 +33,6 @@ export type CompilerOptions = {
   target: string;
   moduleKind: string;
   emitOnError: boolean;
-  exitOnError: boolean;
   tmpDir: string;
   lib: string[];
 };
@@ -101,15 +100,14 @@ function isModified(tsname: string, jsname: string) {
  */
 function compileTS(module: any) {
   let exitCode = 0;
-  const tmpDir = path.join(options.tmpDir, "tsreq");
-  const relativeFolder = path.dirname(
-    path.relative(process.cwd(), module.filename)
-  );
+  const moduleDirName = path.dirname(module.filename);
+  const relativeFolder = "." + (moduleDirName.charAt(1) === ":" ? moduleDirName.substring(2) : moduleDirName);
   const jsname = path.join(
-    tmpDir,
+    options.tmpDir,
     relativeFolder,
-    path.basename(module.filename, ".ts") + ".js"
+    path.basename(module.filename,".ts") + ".js"
   );
+  console.log(`Transpiling: '${module.filename}' to '${jsname}'`);
 
   // If the Javascript file is current, return it directly
   if (!isModified(module.filename, jsname)) {
@@ -121,14 +119,14 @@ function compileTS(module: any) {
     "node",
     "tsc.js",
     options.emitOnError ? "" : "--noEmitOnError",
-    "--rootDir",
-    process.cwd(),
+    //"--rootDir",
+    //process.cwd(),
     "--target",
     options.target ? options.target : "ES2020",
     options.moduleKind ? "--module" : "",
     options.moduleKind ? options.moduleKind : "",
     "--outDir",
-    tmpDir,
+    path.join(options.tmpDir,relativeFolder),
     "--lib",
     Array.isArray(options.lib) ? options.lib.join(",") : options.lib,
     module.filename,
@@ -137,11 +135,10 @@ function compileTS(module: any) {
   const proc = merge(merge({}, process), {
     argv: compact(argv),
     exit: function (code: number) {
-      if (code !== 0 && options.exitOnError) {
+      if (code !== 0) {
         console.error(
-          "Fatal Error. Unable to compile TypeScript file. Exiting."
+          "Fatal Error. Unable to compile TypeScript file."
         );
-        process.exit(code);
       }
       exitCode = code;
     },

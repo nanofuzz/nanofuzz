@@ -17,17 +17,4 @@ describe("10", () => {
       [0, 1],
     ]);
   });
-
-  // Remove ".skip" to run this failing test
-  test.skip("10b", () => {
-    expect(
-      gramSchmidt([
-        [0, 0],
-        [6, 2],
-      ])
-    ).toStrictEqual([
-      [1, 0],
-      [0, 1],
-    ]);
-  });
 });

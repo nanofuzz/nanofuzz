@@ -44,12 +44,7 @@ function gramSchmidtHelper(matrix: number[][]): number[][] {
   }
 }
 
-function project(newVec: number[], vector: number[]): number[] {
-  const dotProd = getDotProd(newVec, vector);
-  const resVec = multiply(dotProd, vector);
-  const orthoVec = subtract(resVec, newVec);
-  return orthoVec;
-}
+
 
 function normalize(vector: number[]): number[] {
   const multiple = Math.sqrt(getDotProd(vector, vector));
@@ -60,6 +55,13 @@ function getDotProd(vec1: number[], vec2: number[]): number {
   let prod = 0;
   for (let i = 0; i < vec1.length; i++) prod += vec1[i] * vec2[i];
   return prod;
+}
+
+function project(newVec: number[], vector: number[]): number[] {
+  const dotProd = getDotProd(newVec, vector);
+  const resVec = multiply(dotProd, vector);
+  const orthoVec = subtract(resVec, newVec);
+  return orthoVec;
 }
 
 function multiply(dotProd: number, vec: number[]): number[] {
