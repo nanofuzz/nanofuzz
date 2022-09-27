@@ -46,19 +46,23 @@
     "commands": [
       {
         "command": "nanofuzz.Fuzz",
-        "title": "AutoTest"
+        "title": "AutoTest",
+        "category": "NaNofuzz"
       },
       {
         "command": "nanofuzz.telemetry.DumpLog",
-        "title": "Dump Telemetry Log"
+        "title": "Dump Telemetry Log",
+        "category": "NaNofuzz"
       },
       {
         "command": "nanofuzz.telemetry.ClearLog",
-        "title": "Clear Telemetry Log"
+        "title": "Clear Telemetry Log",
+        "category": "NaNofuzz"
       },
       {
         "command": "nanofuzz.telemetry.log",
-        "title": "Log Telemetry Event (internal)"
+        "title": "Log Telemetry Event (internal)",
+        "category": "NaNofuzz"
       }
     ],
     "menus": {
