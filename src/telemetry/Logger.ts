@@ -28,12 +28,24 @@ export class Logger {
     this.nextPersist = new Date(this.lastPersist.getTime() + this.interval);
   }
   private persistChunk() {
+    const { workspaceFolders } = vscode.workspace;
+    if (workspaceFolders === undefined) {
+      console.debug(`No workspace folders, not persisting log chunk`);
+      return;
+    }
+    if (workspaceFolders.length !== 1) {
+      console.debug(
+        `${workspaceFolders.length} workspace folders instead of 1, not persisting log chunk`
+      );
+      return;
+    }
+
     const chunkName = `${this.chunkPrefix}-${this.lastPersist.toISOString()}`;
     const chunkUri = vscode.Uri.joinPath(
-      this.extensionUri,
+      workspaceFolders[0].uri,
       "telemetry",
       chunkName + ".json"
-    ); // !!! externalize
+    );
 
     this.calcPersist(); // Reset the persistence stamps
 
