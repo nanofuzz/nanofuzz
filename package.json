@@ -184,13 +184,12 @@
     "lint": "eslint --ext js,ts,tsx src",
     "build-decls": "tsc --declaration --outDir build/dist && tsc-alias -p tsconfig.json",
     "vscode:prepublish": "yarn run compile",
+    "publish": "vsce publish --yarn",
     "package": "vsce package --yarn",
     "compile": "yarn build",
     "watch": "tsc -watch -p ./",
     "pretest": "yarn run compile && yarn run lint",
-    "ext:test": "node ./build/extension/test/runTest.js",
-    "publish": "npx vsce publish --yarn",
-    "package": "npx vsce package --yarn"
+    "ext:test": "node ./build/extension/test/runTest.js"
   },
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
