@@ -317,6 +317,7 @@ export class ArgDef<T extends ArgType> {
     if (this.type === ArgTag.STRING && typeof value === "string") {
       this.options.strLength = { min: value.length, max: value.length };
     }
+    this.dims = 0;
   }
 
   /**
@@ -396,7 +397,8 @@ export class ArgDef<T extends ArgType> {
   public isConstant(): boolean {
     return (
       this.intervals.length === 1 &&
-      this.intervals[0].min === this.intervals[0].max
+      this.intervals[0].min === this.intervals[0].max &&
+      this.getDim() === 0
     );
   }
 
