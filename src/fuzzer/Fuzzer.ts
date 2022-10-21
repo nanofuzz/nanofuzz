@@ -116,6 +116,9 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     return mod[env.function.getName()](...input.map((e) => e.value));
   }, env.options.fnTimeout);
 
+  // Load previously saved tests
+  const savedTests: FuzzIoElement[][] = []; // !!!! Load from file
+
   // Main test loop
   const startTime = new Date().getTime();
   for (let i = 0; i < env.options.maxTests; i++) {
@@ -126,6 +129,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
 
     // Initial set of results - overwritten below
     const result: FuzzTestResult = {
+      saved: false,
       input: [],
       output: [],
       exception: false,
@@ -133,15 +137,20 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
       passed: true,
     };
 
-    // Generate and store the inputs
-    // TODO: We should provide a way to filter inputs
-    fuzzArgGen.forEach((e) => {
-      result.input.push({
-        name: e.arg.getName(),
-        offset: e.arg.getOffset(),
-        value: e.gen(),
+    // Before searching, consume the pool of saved tests
+    if (savedTests.length) {
+      result.input = savedTests.pop()!;
+    } else {
+      // Generate and store the inputs
+      // TODO: We should provide a way to filter inputs
+      fuzzArgGen.forEach((e) => {
+        result.input.push({
+          name: e.arg.getName(),
+          offset: e.arg.getOffset(),
+          value: e.gen(),
+        });
       });
-    });
+    }
 
     // Call the function via the wrapper
     try {
@@ -312,6 +321,7 @@ export type FuzzTestResults = {
  * Single Fuzzer Test Result
  */
 export type FuzzTestResult = {
+  saved: boolean; // true if the test was saved (not randomly generated)
   input: FuzzIoElement[]; // function input
   output: FuzzIoElement[]; // function output
   exception: boolean; // true if an exception was thrown

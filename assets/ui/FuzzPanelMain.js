@@ -42,6 +42,9 @@ function main() {
 
     // Loop over each result
     for (const e of resultsData.results) {
+      // Indicate which tests are saved !!!! want this to be a checkbox
+      const saved = { "saved?": !!(e.saved ?? false) ? "saved" : "unsaved" };
+
       // Name each input argument and make it clear which inputs were not provided
       // (i.e., the argument was optional).  Otherwise, stringify the value for
       // display.
@@ -62,14 +65,18 @@ function main() {
 
       // Toss each result into the appropriate grid
       if (e.passed) {
-        data["passed"].push({ ...inputs, ...outputs });
+        data["passed"].push({ ...inputs, ...outputs, ...saved });
       } else {
         if (e.exception) {
-          data["exception"].push({ ...inputs, exception: e.exceptionMessage });
+          data["exception"].push({
+            ...inputs,
+            exception: e.exceptionMessage,
+            ...saved,
+          });
         } else if (e.timeout) {
-          data["timeout"].push({ ...inputs });
+          data["timeout"].push({ saved, ...inputs, ...saved });
         } else {
-          data["badOutput"].push({ ...inputs, ...outputs });
+          data["badOutput"].push({ ...inputs, ...outputs, ...saved });
         }
       }
     } // for: each result
@@ -99,6 +106,11 @@ function toggleFuzzOptions(e) {
     e.currentTarget.innerHTML = "More options";
   }
 } // fn: toggleFuzzOptions
+
+// !!!!
+function handleSaveToggle(e) {
+  // !!!!
+}
 
 /**
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options

@@ -25,6 +25,7 @@ The following are not yet supported:
  - Object methods
  - Saving auto-generated tests for use in CI
  - Compiling to module formats other than CommonJS
+ - Sandboxing external side-effects
 
 > **Note:**
 >

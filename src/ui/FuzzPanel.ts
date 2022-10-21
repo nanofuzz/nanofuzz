@@ -574,7 +574,7 @@ export class FuzzPanel {
               <vscode-panel-view id="view-${e.id}">
                 <section>
                   <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.description}</h4>
-                  <vscode-data-grid id="fuzzResultsGrid-${e.id}" generate-header="sticky" aria-label="Basic" />
+                  <vscode-data-grid id="fuzzResultsGrid-${e.id}" generate-header="sticky" aria-label="${e.name}" />
                 </section>
               </vscode-panel-view>`;
     });
