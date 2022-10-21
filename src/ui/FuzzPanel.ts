@@ -359,43 +359,47 @@ export class FuzzPanel {
     this._updateHtml();
 
     // Log start of Fuzzing
-    vscode.commands.executeCommand(
-      telemetry.commands.logTelemetry.name,
-      new telemetry.LoggerEntry(
-        "FuzzPanel.fuzz.start",
-        "Fuzzing started. Target: %s.",
-        [this.getFnRefKey()]
-      )
-    );
-
-    // Fuzz the function & store the results
-    try {
-      this._results = await fuzzer.fuzz(this._fuzzEnv);
-      this._errorMessage = undefined;
-      this._state = FuzzPanelState.done;
+    setTimeout(async () => {
       vscode.commands.executeCommand(
         telemetry.commands.logTelemetry.name,
         new telemetry.LoggerEntry(
-          "FuzzPanel.fuzz.done",
-          "Fuzzing completed successfully. Target: %s. Results: %s",
-          [this.getFnRefKey(), JSON.stringify(this._results)]
+          "FuzzPanel.fuzz.start",
+          "Fuzzing started. Target: %s.",
+          [this.getFnRefKey()]
         )
       );
-    } catch (e: any) {
-      this._state = FuzzPanelState.error;
-      this._errorMessage = e.message ?? "Unknown error";
-      vscode.commands.executeCommand(
-        telemetry.commands.logTelemetry.name,
-        new telemetry.LoggerEntry(
-          "FuzzPanel.fuzz.error",
-          "Fuzzing failed. Target: %s. Message: %s",
-          [this.getFnRefKey(), this._errorMessage ?? "Unknown error"]
-        )
-      );
-    }
 
-    // Update the UI
-    this._updateHtml();
+      // Fuzz the function & store the results
+      try {
+        console.debug("fuzzerStart"); // !!!!
+        this._results = await fuzzer.fuzz(this._fuzzEnv);
+        console.debug("fuzzerDone"); // !!!!
+        this._errorMessage = undefined;
+        this._state = FuzzPanelState.done;
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "FuzzPanel.fuzz.done",
+            "Fuzzing completed successfully. Target: %s. Results: %s",
+            [this.getFnRefKey(), JSON.stringify(this._results)]
+          )
+        );
+      } catch (e: any) {
+        this._state = FuzzPanelState.error;
+        this._errorMessage = e.message ?? "Unknown error";
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "FuzzPanel.fuzz.error",
+            "Fuzzing failed. Target: %s. Message: %s",
+            [this.getFnRefKey(), this._errorMessage ?? "Unknown error"]
+          )
+        );
+      }
+
+      // Update the UI
+      this._updateHtml();
+    });
   } // fn: _doFuzzStartCmd()
 
   /**
@@ -509,7 +513,7 @@ export class FuzzPanel {
 
           <!-- Button Bar -->
           <div style="padding-top: .25em;">
-            <vscode-button ${disabledFlag} id="fuzz.start"  appearance="primary">Test</vscode-button>
+            <vscode-button ${disabledFlag} id="fuzz.start"  appearance="primary">${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}</vscode-button>
             <vscode-button ${disabledFlag} id="fuzz.options" appearance="secondary">More options</vscode-button>
           </div>
 
