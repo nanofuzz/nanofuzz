@@ -56,7 +56,6 @@ export function deinit(): void {
  * @returns true if filename starts with '/' or '\'
  */
 function isCodeEditor(fn: string): boolean {
-  console.debug(`isCodeEditor: ${fn}`); // !!!
   return fn.charAt(0) === "/" || fn.charAt(0) === "\\";
 }
 
