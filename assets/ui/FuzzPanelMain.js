@@ -11,6 +11,8 @@ const gridTypes = ["timeout", "exception", "badOutput", "passed"];
  * event handlers and filling the output grids if data is available.
  */
 function main() {
+  const savedLabel = "saved?";
+
   // Add event listener for the fuzz.start button
   document
     .getElementById("fuzz.start")
@@ -42,8 +44,8 @@ function main() {
 
     // Loop over each result
     for (const e of resultsData.results) {
-      // Indicate which tests are saved !!!! want this to be a checkbox
-      const saved = { "saved?": !!(e.saved ?? false) ? "saved" : "unsaved" };
+      // Indicate which tests are saved
+      const saved = { [savedLabel]: !!(e.saved ?? false) };
 
       // Name each input argument and make it clear which inputs were not provided
       // (i.e., the argument was optional).  Otherwise, stringify the value for
@@ -84,8 +86,34 @@ function main() {
     // Fill the grids with data
     gridTypes.forEach((type) => {
       if (data[type].length) {
-        document.getElementById(`fuzzResultsGrid-${type}`).rowsData =
-          data[type];
+        //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type];
+        const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
+        const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
+
+        // Render the header row
+        const hRow = thead.appendChild(document.createElement("tr"));
+        Object.keys(data[type][0]).forEach((e) => {
+          const cell = hRow.appendChild(document.createElement("th"));
+          cell.innerHTML = `<big>${e}</big>`; // !!!! escaping?
+          cell.style = "text-align:left;padding:4px 6px;";
+        });
+
+        // Render the data rows
+        data[type].forEach((e) => {
+          const row = tbody.appendChild(document.createElement("tr"));
+          Object.keys(e).forEach((k) => {
+            if (k === savedLabel) {
+              const cell = row.appendChild(document.createElement("td"));
+              cell.style = "text-align:center;padding:4px 6px;";
+              cell.innerHTML = `<vscode-checkbox />`;
+              //!!!!${e[k] ? "checked" : ""} />`;
+            } else {
+              const cell = row.appendChild(document.createElement("td"));
+              cell.innerHTML = e[k]; // escaping?
+              cell.style = "word-break:break-word;padding:4px 6px;";
+            }
+          });
+        });
       }
     });
   }

@@ -540,17 +540,17 @@ export class FuzzPanel {
       {
         id: "timeout",
         name: "Timeouts",
-        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms`,
+        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms:`,
       },
       {
         id: "exception",
         name: "Exceptions",
-        description: `These inputs resulted in a runtime exception`,
+        description: `These inputs resulted in a runtime exception:`,
       },
       {
         id: "badOutput",
         name: "Invalid Outputs",
-        description: `These outputs contain: null, NaN, Infinity, or undefined`,
+        description: `These outputs contain: null, NaN, Infinity, or undefined:`,
       },
       {
         id: "passed",
@@ -574,7 +574,12 @@ export class FuzzPanel {
               <vscode-panel-view id="view-${e.id}">
                 <section>
                   <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.description}</h4>
-                  <vscode-data-grid id="fuzzResultsGrid-${e.id}" generate-header="sticky" aria-label="${e.name}" />
+                  <div id="fuzzResultsGrid-${e.id}">
+                    <table style="width:100%;">
+                      <thead id="fuzzResultsGrid-${e.id}-thead" />
+                      <tbody id="fuzzResultsGrid-${e.id}-tbody" />
+                    </table>
+                  </div>
                 </section>
               </vscode-panel-view>`;
     });
