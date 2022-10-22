@@ -575,7 +575,7 @@ export class FuzzPanel {
                 <section>
                   <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.description}</h4>
                   <div id="fuzzResultsGrid-${e.id}">
-                    <table style="width:100%;">
+                    <table style="width:100%;padding-left:4px;">
                       <thead id="fuzzResultsGrid-${e.id}-thead" />
                       <tbody id="fuzzResultsGrid-${e.id}-tbody" />
                     </table>
