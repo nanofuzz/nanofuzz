@@ -1,0 +1,82 @@
+/** Grid Styles **/
+
+.fuzzGrid {
+  width: 100%;
+  padding-left: 4px;
+}
+.fuzzGrid td {
+  word-break: break-word;
+  padding: 4px 6px;
+}
+.fuzzGrid th {
+  text-align: left;
+  padding: 4px 6px;
+}
+td.fuzzGridCellSaved {
+  text-align: center;
+}
+th.fuzzGridCellSaved {
+  text-align: center;
+}
+
+/** Tooltips: adapted from: https://www.w3schools.com/css/css_tooltip.asp **/
+
+.tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.tooltip-left .tooltiptext {
+  visibility: hidden;
+  width: 120px;
+  background-color: black;
+  color: #fff;
+  text-align: center;
+  border-radius: 6px;
+  padding: 5px 0;
+  position: absolute;
+  z-index: 1;
+  top: -5px;
+  right: 110%;
+}
+
+.tooltip-left .tooltiptext::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  margin-top: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: transparent transparent transparent black;
+}
+
+.tooltip-top .tooltiptext {
+  visibility: hidden;
+  width: 120px;
+  background-color: black;
+  color: #fff;
+  text-align: center;
+  border-radius: 6px;
+  padding: 5px 0;
+  position: absolute;
+  z-index: 1;
+  bottom: 150%;
+  left: 50%;
+  margin-left: -60px;
+}
+
+.tooltip-top .tooltiptext::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: black transparent transparent transparent;
+}
+
+.tooltip:hover .tooltiptext {
+  visibility: visible;
+}

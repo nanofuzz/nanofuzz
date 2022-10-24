@@ -1,6 +1,5 @@
 import { FunctionDef } from "../analysis/typescript/FunctionDef";
 import { ArgDef, ArgOptions, ArgTag } from "../analysis/typescript/ArgDef";
-import { setup, fuzz, FuzzOptions, getDefaultFuzzOptions } from "../Fuzzer";
 import { GeneratorFactory } from "./GeneratorFactory";
 import seedrandom from "seedrandom";
 

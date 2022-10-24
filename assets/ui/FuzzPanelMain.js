@@ -6,12 +6,16 @@ window.addEventListener("load", main);
 // List of output grids that store fuzzer results
 const gridTypes = ["timeout", "exception", "badOutput", "passed"];
 
+// Fuzzer Results
+let resultsData;
+
 /**
  * Sets up the UI when the page is loaded, including setting up
  * event handlers and filling the output grids if data is available.
  */
 function main() {
-  const savedLabel = "saved?";
+  const savedLabel = "saved";
+  const idLabel = "id";
 
   // Add event listener for the fuzz.start button
   document
@@ -24,15 +28,17 @@ function main() {
     .addEventListener("click", (e) => toggleFuzzOptions(e));
 
   // Load the data from the HTML
-  const resultsData = JSON.parse(
-    htmlEscape(document.getElementById("fuzzResultsData").innerHTML)
+  resultsData = JSON.parse(
+    htmlUnescape(document.getElementById("fuzzResultsData").innerHTML)
   );
 
   // Load and save the state back to the webview.  There does not seem to be
   // an 'official' way to directly persist state within the extension itself,
   // at least as of vscode 1.69.2.  Hence, the roundtrip.
   vscode.setState(
-    JSON.parse(htmlEscape(document.getElementById("fuzzPanelState").innerHTML))
+    JSON.parse(
+      htmlUnescape(document.getElementById("fuzzPanelState").innerHTML)
+    )
   );
 
   // Fill the result grids
@@ -43,9 +49,11 @@ function main() {
     });
 
     // Loop over each result
+    let idx = 0;
     for (const e of resultsData.results) {
       // Indicate which tests are saved
       const saved = { [savedLabel]: !!(e.saved ?? false) };
+      const id = { [idLabel]: idx++ };
 
       // Name each input argument and make it clear which inputs were not provided
       // (i.e., the argument was optional).  Otherwise, stringify the value for
@@ -67,18 +75,19 @@ function main() {
 
       // Toss each result into the appropriate grid
       if (e.passed) {
-        data["passed"].push({ ...inputs, ...outputs, ...saved });
+        data["passed"].push({ ...id, ...inputs, ...outputs, ...saved });
       } else {
         if (e.exception) {
           data["exception"].push({
+            ...id,
             ...inputs,
             exception: e.exceptionMessage,
             ...saved,
           });
         } else if (e.timeout) {
-          data["timeout"].push({ saved, ...inputs, ...saved });
+          data["timeout"].push({ ...id, saved, ...inputs, ...saved });
         } else {
-          data["badOutput"].push({ ...inputs, ...outputs, ...saved });
+          data["badOutput"].push({ ...id, ...inputs, ...outputs, ...saved });
         }
       }
     } // for: each result
@@ -92,25 +101,41 @@ function main() {
 
         // Render the header row
         const hRow = thead.appendChild(document.createElement("tr"));
-        Object.keys(data[type][0]).forEach((e) => {
-          const cell = hRow.appendChild(document.createElement("th"));
-          cell.innerHTML = `<big>${e}</big>`; // !!!! escaping?
-          cell.style = "text-align:left;padding:4px 6px;";
+        Object.keys(data[type][0]).forEach((k) => {
+          if (k === savedLabel) {
+            const cell = hRow.appendChild(document.createElement("th"));
+            cell.className = "fuzzGridCellSaved";
+            cell.innerHTML = `<big><div class="tooltip tooltip-left">${htmlEscape(
+              k
+            )}</big><span class="tooltiptext">Saved for CI &amp; next AutoTest</span>`;
+          } else if (k === idLabel) {
+            // noop
+          } else {
+            const cell = hRow.appendChild(document.createElement("th"));
+            cell.innerHTML = `<big>${htmlEscape(k)}</big>`;
+          }
         });
 
         // Render the data rows
         data[type].forEach((e) => {
+          let id = -1;
           const row = tbody.appendChild(document.createElement("tr"));
           Object.keys(e).forEach((k) => {
             if (k === savedLabel) {
               const cell = row.appendChild(document.createElement("td"));
-              cell.style = "text-align:center;padding:4px 6px;";
-              cell.innerHTML = `<vscode-checkbox />`;
-              //!!!!${e[k] ? "checked" : ""} />`;
+              cell.className = "fuzzGridCellSaved";
+              const cbox = cell.appendChild(
+                document.createElement("vscode-checkbox")
+              );
+              cbox.checked = e[k];
+              cbox.addEventListener("click", (e) => {
+                handleSaveToggle(id, e.target.checked);
+              });
+            } else if (k === idLabel) {
+              id = parseInt(e[k]);
             } else {
               const cell = row.appendChild(document.createElement("td"));
-              cell.innerHTML = e[k]; // escaping?
-              cell.style = "word-break:break-word;padding:4px 6px;";
+              cell.innerHTML = htmlEscape(e[k]);
             }
           });
         });
@@ -135,9 +160,21 @@ function toggleFuzzOptions(e) {
   }
 } // fn: toggleFuzzOptions
 
-// !!!!
-function handleSaveToggle(e) {
-  // !!!!
+/**
+ * Toggles whether a test is saved for CI and the next AutoTest.
+ *
+ * @param id offset of test in resultsData
+ * @param saving true if saving, false if not saving
+ */
+function handleSaveToggle(id, saving) {
+  // Get the test data
+  const testInput = { input: resultsData.results[id].input };
+
+  // Send the request to the extension
+  vscode.postMessage({
+    command: saving ? "test.save" : "test.unsave",
+    json: JSON.stringify(testInput),
+  });
 }
 
 /**
@@ -241,7 +278,7 @@ function handleFuzzStart(e) {
 
   // Send the fuzzer start command to the extension
   vscode.postMessage({
-    command: "fuzz.start", // !!!
+    command: "fuzz.start",
     json: JSON.stringify(overrides),
   });
 } // fn: handleFuzzStart
@@ -264,11 +301,28 @@ function getIdBase(i) {
  * @param html HTML to unescape
  * @returns unescaped string
  */
-function htmlEscape(html) {
+function htmlUnescape(html) {
   return html
     .replace(/&gt;/g, ">")
     .replace(/&lt;/g, "<")
     .replace(/&#0?39;/g, "'")
     .replace(/&quot;/g, '"')
     .replace(/&amp;/g, "&");
+}
+
+/**
+ * Adapted from: escape-goat/index.js
+ *
+ * Escapes a string for use in HTML.
+ *
+ * @param str string to escape
+ * @returns escaped string
+ */
+function htmlEscape(str) {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

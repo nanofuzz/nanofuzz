@@ -66,7 +66,10 @@ export const setup = (
  *
  * Throws an exception if the fuzz options are invalid
  */
-export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
+export const fuzz = async (
+  env: FuzzEnv,
+  savedTests: FuzzSavedTest[] = []
+): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
@@ -116,11 +119,9 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     return mod[env.function.getName()](...input.map((e) => e.value));
   }, env.options.fnTimeout);
 
-  // Load previously saved tests
-  const savedTests: FuzzIoElement[][] = []; // !!!! Load from file
-
   // Main test loop
   const startTime = new Date().getTime();
+  const allInputs: Record<string, boolean> = {};
   for (let i = 0; i < env.options.maxTests; i++) {
     // End testing if we exceed the suite timeout
     if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
@@ -138,8 +139,10 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
     };
 
     // Before searching, consume the pool of saved tests
-    if (savedTests.length) {
-      result.input = savedTests.pop()!;
+    const savedTest = savedTests.pop();
+    if (savedTest) {
+      result.input = savedTest.input;
+      result.saved = true;
     } else {
       // Generate and store the inputs
       // TODO: We should provide a way to filter inputs
@@ -150,6 +153,15 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
           value: e.gen(),
         });
       });
+    }
+
+    // Skip tests if we previously processed the input
+    const inputHash = JSON.stringify(result.input);
+    if (inputHash in allInputs) {
+      i--; // don't count this test
+      continue; // skip this test
+    } else {
+      allInputs[inputHash] = true;
     }
 
     // Call the function via the wrapper
@@ -329,6 +341,13 @@ export type FuzzTestResult = {
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
   passed: boolean; // true if output matches oracle; false, otherwise
+};
+
+/**
+ * Saved Fuzzer Tests
+ */
+export type FuzzSavedTest = {
+  input: FuzzIoElement[]; // function input
 };
 
 /**
