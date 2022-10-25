@@ -9,6 +9,7 @@ const dummyRef: FunctionRef = {
   name: "test",
   startOffset: 0,
   endOffset: 999,
+  export: true,
 };
 
 /**
@@ -101,6 +102,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         src: 'function test(array: string[]): string {return "";}',
         startOffset: 7,
         endOffset: 58,
+        export: true,
       },
       {
         name: "test2",
@@ -108,6 +110,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         src: 'function test2() {const test = (array:string[]):string => {return "";}}',
         startOffset: 99,
         endOffset: 170,
+        export: true,
       },
       {
         name: "test",
@@ -115,6 +118,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         src: 'const test = (array:string[]):string => {return "";}',
         startOffset: 123,
         endOffset: 169,
+        export: false,
       },
     ]);
   });
@@ -129,6 +133,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         src: 'function test(array: string[]): string {return "";}',
         startOffset: 7,
         endOffset: 58,
+        export: true,
       },
       {
         name: "test",
@@ -136,6 +141,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         src: 'const test = (array:string[]):string => {return "";}',
         startOffset: 123,
         endOffset: 169,
+        export: false,
       },
     ]);
   });
@@ -150,6 +156,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         src: 'const test = (array:string[]):string => {return "";}',
         startOffset: 123,
         endOffset: 169,
+        export: false,
       },
     ]);
   });
@@ -164,6 +171,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         src: 'const test = (array:string[]):string => {return "";}',
         startOffset: 123,
         endOffset: 169,
+        export: false,
       },
     ]);
   });

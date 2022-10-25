@@ -56,7 +56,7 @@ export const setup = (
     options: { ...options },
     function: fnMatches[0],
   };
-}; // setup()
+}; // fn: setup()
 
 /**
  * Fuzzes the function specified in the fuzz environment and returns the test results.
@@ -66,7 +66,10 @@ export const setup = (
  *
  * Throws an exception if the fuzz options are invalid
  */
-export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
+export const fuzz = async (
+  env: FuzzEnv,
+  savedTests: FuzzSavedTest[] = []
+): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
@@ -118,6 +121,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
 
   // Main test loop
   const startTime = new Date().getTime();
+  const allInputs: Record<string, boolean> = {};
   for (let i = 0; i < env.options.maxTests; i++) {
     // End testing if we exceed the suite timeout
     if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
@@ -126,6 +130,7 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
 
     // Initial set of results - overwritten below
     const result: FuzzTestResult = {
+      saved: false,
       input: [],
       output: [],
       exception: false,
@@ -133,15 +138,32 @@ export const fuzz = async (env: FuzzEnv): Promise<FuzzTestResults> => {
       passed: true,
     };
 
-    // Generate and store the inputs
-    // TODO: We should provide a way to filter inputs
-    fuzzArgGen.forEach((e) => {
-      result.input.push({
-        name: e.arg.getName(),
-        offset: e.arg.getOffset(),
-        value: e.gen(),
+    // Before searching, consume the pool of saved tests
+    const savedTest = savedTests.pop();
+    if (savedTest) {
+      result.input = savedTest.input;
+      result.saved = true;
+    } else {
+      // Generate and store the inputs
+      // TODO: We should provide a way to filter inputs
+      fuzzArgGen.forEach((e) => {
+        result.input.push({
+          name: e.arg.getName(),
+          offset: e.arg.getOffset(),
+          value: e.gen(),
+        });
       });
-    });
+    }
+
+    // Skip tests if we previously processed the input
+    const inputHash = JSON.stringify(result.input);
+    if (inputHash in allInputs) {
+      i--; // don't count this test
+      continue; // skip this test
+    } else {
+      // add test input to the list so we don't test it again
+      allInputs[inputHash] = true;
+    }
 
     // Call the function via the wrapper
     try {
@@ -312,6 +334,7 @@ export type FuzzTestResults = {
  * Single Fuzzer Test Result
  */
 export type FuzzTestResult = {
+  saved: boolean; // true if the test was saved (not randomly generated)
   input: FuzzIoElement[]; // function input
   output: FuzzIoElement[]; // function output
   exception: boolean; // true if an exception was thrown
@@ -319,6 +342,13 @@ export type FuzzTestResult = {
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
   passed: boolean; // true if output matches oracle; false, otherwise
+};
+
+/**
+ * Saved Fuzzer Tests
+ */
+export type FuzzSavedTest = {
+  input: FuzzIoElement[]; // function input
 };
 
 /**

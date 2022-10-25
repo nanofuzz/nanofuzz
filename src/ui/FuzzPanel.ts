@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import * as fuzzer from "../fuzzer/Fuzzer";
+import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
+import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -236,12 +238,162 @@ export class FuzzPanel {
           case "fuzz.start":
             this._doFuzzStartCmd(json);
             break;
+          case "test.save":
+            this._doTestSaveCmd(json, true);
+            break;
+          case "test.unsave":
+            this._doTestSaveCmd(json, false);
+            break;
         }
       },
       undefined,
       this._disposables
     );
   } // fn: _setWebviewMessageListener
+
+  /**
+   * Performs a test save or delete, depending on the `saving` parameter.
+   *
+   * @param json inputs to save or delete from saved tests
+   * @param saving true=save test; false=delete test
+   */
+  private _doTestSaveCmd(json: string, saving: boolean) {
+    const saveSet: Record<string, fuzzer.FuzzSavedTest> = this._getSavedTests();
+    let changed = false; // Did we change anything?
+
+    // Add or delete the test, as needed
+    if (json in saveSet) {
+      // If we are unsaving and the test is in the file, remove it
+      if (!saving) {
+        delete saveSet[json];
+        changed = true;
+      }
+    } else {
+      // if we are saving a test but it is not in the file, add the test
+      if (saving) {
+        saveSet[json] = JSON.parse(json);
+        changed = true;
+      }
+    }
+
+    // Persist changes
+    if (changed) {
+      // Update the saved tests file
+      const testCount = this._putSavedTests(saveSet);
+
+      // Get the filename of the Jest file
+      const jestFile = jestadapter.getFilename(
+        this._fuzzEnv.function.getModule()
+      );
+
+      if (testCount) {
+        // Generate the Jest test data for CI
+        const jestTests = jestadapter.toString(
+          this._getAllSavedTests(),
+          this._fuzzEnv.function.getModule(),
+          this._fuzzEnv.options.fnTimeout
+        );
+
+        // Persist the Jest tests for CI
+        try {
+          fs.writeFileSync(jestFile, jestTests);
+        } catch (e: any) {
+          vscode.window.showErrorMessage(
+            `Unable to update test file: ${jestFile} (${e.message})`
+          );
+        }
+      } else {
+        // Delete the test file: it will contain no tests
+        try {
+          fs.rmSync(jestFile);
+        } catch (e: any) {
+          vscode.window.showErrorMessage(
+            `Unable to remove test file: ${jestFile} (${e.message})`
+          );
+        }
+      }
+    }
+  } // fn: _doTestSaveCmd()
+
+  /**
+   * Returns the filename where saved tests are persisted.
+   *
+   * @returns filename of saved tests
+   */
+  private _getSavedTestFilename(): string {
+    let module = this._fuzzEnv.function.getModule();
+    module = module.split(".").slice(0, -1).join(".") || module;
+    return module + ".nano.test.json";
+  } // fn: _getSavedTestFilename()
+
+  /**
+   * Returns saved tests for all functions in the current module.
+   *
+   * @returns all saved tests for all functions in the current module
+   */
+  private _getAllSavedTests(): Record<
+    string,
+    Record<string, fuzzer.FuzzSavedTest>
+  > {
+    const jsonFile = this._getSavedTestFilename();
+
+    try {
+      return JSON.parse(fs.readFileSync(jsonFile).toString());
+    } catch (e: any) {
+      return {};
+    }
+  } // fn: _getAllSavedTests()
+
+  /**
+   * Returns the saved tests for just the current function.
+   *
+   * @returns saved tests for the current function
+   */
+  private _getSavedTests(): Record<string, fuzzer.FuzzSavedTest> {
+    const saveSet = this._getAllSavedTests();
+    const fnName = this._fuzzEnv.function.getName(); // Name of the function being tested
+
+    // Return the saved tests for the function, if any
+    return fnName in saveSet ? saveSet[fnName] : {};
+  } // fn: _getSavedTests()
+
+  /**
+   * Persists the saved tests for the current function.
+   *
+   * @param saveSet the saved tests for the current function
+   * @returns the number of saved tests
+   */
+  private _putSavedTests(
+    saveSet: Record<string, fuzzer.FuzzSavedTest>
+  ): number {
+    const jsonFile = this._getSavedTestFilename();
+    const fullSet = this._getAllSavedTests();
+
+    // Update the function in the dataset
+    fullSet[this._fuzzEnv.function.getName()] = saveSet;
+
+    // Count the number of tests
+    let testCount = 0;
+    Object.values(fullSet).forEach((fnTests) => {
+      testCount += Object.keys(fnTests).length;
+    });
+
+    // Persist the saved tests
+    try {
+      if (testCount) {
+        fs.writeFileSync(jsonFile, JSON.stringify(fullSet)); // Update the file
+      } else {
+        fs.rmSync(jsonFile); // Delete the file (no data)
+      }
+    } catch (e: any) {
+      vscode.window.showErrorMessage(
+        `Unable to update json file: ${jsonFile} (${e.message})`
+      );
+    }
+
+    // Return the number of tests persisted
+    return testCount;
+  } // fn: _putSavedTests()
 
   /**
    * Message handler for the `fuzz.start` command.
@@ -371,9 +523,11 @@ export class FuzzPanel {
 
       // Fuzz the function & store the results
       try {
-        console.debug("fuzzerStart"); // !!!!
-        this._results = await fuzzer.fuzz(this._fuzzEnv);
-        console.debug("fuzzerDone"); // !!!!
+        this._results = await fuzzer.fuzz(
+          this._fuzzEnv,
+          Object.values(this._getSavedTests())
+        );
+
         this._errorMessage = undefined;
         this._state = FuzzPanelState.done;
         vscode.commands.executeCommand(
@@ -449,6 +603,11 @@ export class FuzzPanel {
       "ui",
       "FuzzPanelMain.js",
     ]); // URI to client-side panel script
+    const cssUrl = getUri(webview, extensionUri, [
+      "assets",
+      "ui",
+      "FuzzPanelMain.css",
+    ]); // URI to client-side panel script
     const env = this._fuzzEnv; // Fuzzer environment
     const fnRef = env.function.getRef(); // Reference to function under test
     const counter = { id: 0 }; // Unique counter for argument ids
@@ -482,6 +641,7 @@ export class FuzzPanel {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <script type="module" src="${toolkitUri}"></script>
           <script type="module" src="${scriptUrl}"></script>
+          <link rel="stylesheet" type="text/css" href="${cssUrl}">
           <title>AutoTest Panel</title>
         </head>
         <body>
@@ -540,17 +700,17 @@ export class FuzzPanel {
       {
         id: "timeout",
         name: "Timeouts",
-        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms`,
+        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms:`,
       },
       {
         id: "exception",
         name: "Exceptions",
-        description: `These inputs resulted in a runtime exception`,
+        description: `These inputs resulted in a runtime exception:`,
       },
       {
         id: "badOutput",
         name: "Invalid Outputs",
-        description: `These outputs contain: null, NaN, Infinity, or undefined`,
+        description: `These outputs contain: null, NaN, Infinity, or undefined:`,
       },
       {
         id: "passed",
@@ -574,7 +734,12 @@ export class FuzzPanel {
               <vscode-panel-view id="view-${e.id}">
                 <section>
                   <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.description}</h4>
-                  <vscode-data-grid id="fuzzResultsGrid-${e.id}" generate-header="sticky" aria-label="Basic" />
+                  <div id="fuzzResultsGrid-${e.id}">
+                    <table class="fuzzGrid">
+                      <thead id="fuzzResultsGrid-${e.id}-thead" />
+                      <tbody id="fuzzResultsGrid-${e.id}-tbody" />
+                    </table>
+                  </div>
                 </section>
               </vscode-panel-view>`;
     });
@@ -672,9 +837,6 @@ export class FuzzPanel {
             !arg.getOptions().numInteger ? " checked " : ""
           }>Float</vscode-radio>
           </vscode-radio-group>`;
-        // html += /*html*/ `<vscode-checkbox ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger"${
-        //   arg.getOptions().numInteger ? "checked" : ""
-        // }>Integers</vscode-checkbox>`;
         break;
       }
 
@@ -860,6 +1022,8 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
 /**
  * Returns an array of FuzzPanel CodeLens objects for the given document.
  *
+ * Note: Only exported functions are returned.
+ *
  * @param document text document to analyze
  * @param token cancellation token (unused)
  * @returns array of CodeLens objects
@@ -874,7 +1038,8 @@ export function provideCodeLenses(
     const functions = fuzzer.FunctionDef.find(
       document.getText(),
       document.fileName
-    );
+    ).filter((e) => e.isExported()); // only exported functions
+
     for (const fn of functions) {
       matches.push({
         document,

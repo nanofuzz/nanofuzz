@@ -1,6 +1,5 @@
 import { FunctionDef } from "../analysis/typescript/FunctionDef";
 import { ArgDef, ArgOptions, ArgTag } from "../analysis/typescript/ArgDef";
-import { setup, fuzz, FuzzOptions, getDefaultFuzzOptions } from "../Fuzzer";
 import { GeneratorFactory } from "./GeneratorFactory";
 import seedrandom from "seedrandom";
 
@@ -120,6 +119,7 @@ const testRandomInt = (intMin: number, intMax: number): void => {
       src: tsFnWithNumberInput,
       startOffset: 0,
       endOffset: 999,
+      export: true,
     },
     ArgDef.getDefaultOptions()
   ).getArgDefs();
@@ -159,6 +159,7 @@ const testRandomFloat = (floatMin: number, floatMax: number): void => {
       src: tsFnWithNumberInput,
       startOffset: 0,
       endOffset: 999,
+      export: true,
     },
     ArgDef.getDefaultFloatOptions()
   ).getArgDefs();
@@ -201,6 +202,7 @@ const testRandomBool = (boolMin: boolean, boolMax: boolean): void => {
       src: tsFnWithBoolInput,
       startOffset: 0,
       endOffset: 999,
+      export: true,
     },
     ArgDef.getDefaultFloatOptions()
   ).getArgDefs();
@@ -249,6 +251,7 @@ const testRandomString = (
       src: tsFnWithStringInput,
       startOffset: 0,
       endOffset: 999,
+      export: true,
     },
     options
   ).getArgDefs();
