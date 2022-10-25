@@ -1,9 +1,9 @@
 # NaNofuzz
-NaNofuzz is a fast, easy-to-use automatic test suite generation tool for Typescript that integrates with a developer's VS Code workflow.  We like working code, and NaNofuzz is designed to be used during initial development to more quickly reach working code nirvana.  NaNofuzz is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
+NaNofuzz is a fast, easy-to-use automatic test suite generation tool for Typescript that integrates with a developer's VS Code workflow.  We like working code, and NaNofuzz is designed to be used during initial development to more quickly reach working code nirvana while avoiding regressions.  NaNofuzz is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
-<img width="1440" alt="image" src="https://user-images.githubusercontent.com/22134678/182907479-01dcf1dc-de09-4d55-af56-1837639d78af.png">
+![image](https://user-images.githubusercontent.com/22134678/197847957-d816ff32-b758-4060-9326-d6eac0908ffd.png)
 
-Unlike some past automatic test generation tools, NaNofuzz takes an approach similar to fuzzing and uses a simple implicit oracle to determine whether or not a given test passes. Surprisingly, this approach quickly finds many errors! NaNofuzz marks a test as failed if it:
+Unlike some past automatic test suite generation tools, NaNofuzz takes an approach similar to fuzzing and uses a simple implicit oracle to determine whether or not a given test passes. Surprisingly, this approach quickly finds many errors! NaNofuzz marks a test as failed if it:
  - throws a runtime exception
  - returns null, NaN, Infinity, or undefined
  - does not terminate within a configurable period of time
