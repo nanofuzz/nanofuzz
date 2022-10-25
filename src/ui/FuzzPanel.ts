@@ -281,18 +281,46 @@ export class FuzzPanel {
       // Update the saved tests file
       this._putSavedTests(saveSet);
 
-      // Generate the Jest test data for CI
-      const jestTests = jestadapter.toString(
-        this._getAllSavedTests(),
-        this._fuzzEnv.function.getModule(),
-        this._fuzzEnv.options.fnTimeout
+      // Get all tests for all functions in the module
+      const allTests = this._getAllSavedTests();
+
+      // Get the filename of the Jest file
+      const jestFile = jestadapter.getFilename(
+        this._fuzzEnv.function.getModule()
       );
 
-      // Persist the Jest tests for CI
-      fs.writeFileSync(
-        jestadapter.getFilename(this._fuzzEnv.function.getModule()),
-        jestTests
-      );
+      // Count the number of tests
+      let testCount = 0;
+      Object.values(allTests).forEach((fnTests) => {
+        testCount += Object.keys(fnTests).length;
+      });
+
+      if (testCount) {
+        // Generate the Jest test data for CI
+        const jestTests = jestadapter.toString(
+          allTests,
+          this._fuzzEnv.function.getModule(),
+          this._fuzzEnv.options.fnTimeout
+        );
+
+        // Persist the Jest tests for CI
+        try {
+          fs.writeFileSync(jestFile, jestTests);
+        } catch (e: any) {
+          vscode.window.showErrorMessage(
+            `Unable to update test file: ${jestFile} (${e.message})`
+          );
+        }
+      } else {
+        // Delete the test file: it will contain no tests
+        try {
+          fs.rmSync(jestFile);
+        } catch (e: any) {
+          vscode.window.showErrorMessage(
+            `Unable to remove test file: ${jestFile} (${e.message})`
+          );
+        }
+      }
     }
   } // fn: _doTestSaveCmd()
 
