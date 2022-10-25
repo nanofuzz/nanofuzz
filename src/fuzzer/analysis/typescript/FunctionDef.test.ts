@@ -9,6 +9,7 @@ const dummyRef: FunctionRef = {
   name: "test",
   startOffset: 0,
   endOffset: 999,
+  export: true,
 };
 
 /**

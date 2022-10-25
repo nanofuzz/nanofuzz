@@ -981,6 +981,8 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
 /**
  * Returns an array of FuzzPanel CodeLens objects for the given document.
  *
+ * Note: Only exported functions are returned.
+ *
  * @param document text document to analyze
  * @param token cancellation token (unused)
  * @returns array of CodeLens objects
@@ -995,7 +997,8 @@ export function provideCodeLenses(
     const functions = fuzzer.FunctionDef.find(
       document.getText(),
       document.fileName
-    );
+    ).filter((e) => e.isExported()); // only exported functions
+
     for (const fn of functions) {
       matches.push({
         document,

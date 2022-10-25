@@ -73,7 +73,8 @@ export class FunctionDef {
    */
   public getName(): string {
     return this.ref.name;
-  }
+  } // fn: getName()
+
   /**
    * Returns the function's source code
    *
@@ -81,7 +82,8 @@ export class FunctionDef {
    */
   public getSrc(): string {
     return this.ref.src;
-  }
+  } // fn: getSrc()
+
   /**
    * Returns the array of function arguments
    *
@@ -89,7 +91,8 @@ export class FunctionDef {
    */
   public getArgDefs(): ArgDef<ArgType>[] {
     return [...this.argDefs];
-  }
+  } // fn: getArgDefs()
+
   /**
    * Returns the starting offset of the function in the source file.
    *
@@ -97,7 +100,8 @@ export class FunctionDef {
    */
   public getStartOffset(): number {
     return this.ref.startOffset;
-  }
+  } // fn: getStartOffset()
+
   /**
    * Returns the ending offset of the function in the source file.
    *
@@ -105,7 +109,8 @@ export class FunctionDef {
    */
   public getEndOffset(): number {
     return this.ref.endOffset;
-  }
+  } // fn: getEndOffset()
+
   /**
    * Returns the module filename where the function is defined
    *
@@ -113,7 +118,8 @@ export class FunctionDef {
    */
   public getModule(): string {
     return this.ref.module;
-  }
+  } // fn: getModule()
+
   /**
    * Returns the full in-source reference to the function.
    *
@@ -121,7 +127,16 @@ export class FunctionDef {
    */
   public getRef(): FunctionRef {
     return { ...this.ref };
-  }
+  } // fn: getRef()
+
+  /**
+   * Returns true if the function is exported; false, otherwise.
+   *
+   * @returns true if the function is exported; false, otherwise.
+   */
+  public isExported(): boolean {
+    return this.ref.export;
+  } // fn: isExported()
 
   /**
    * Applies option overrides to the function definition,
@@ -161,45 +176,55 @@ export class FunctionDef {
     const ast = parse(src, { range: true }); // Parse the source
 
     // Traverse the AST to find function definitions
-    simpleTraverse(ast, {
-      enter: (node, parent) => {
-        if (
-          // Arrow Function Definition: const xyz = (): void => { ... }
-          node.type === AST_NODE_TYPES.VariableDeclarator &&
-          parent !== undefined &&
-          parent.type === AST_NODE_TYPES.VariableDeclaration &&
-          node.init &&
-          node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
-          node.id.type === AST_NODE_TYPES.Identifier &&
-          (!fnName || node.id.name === fnName) &&
-          (!offset || (node.range[0] <= offset && node.range[1] >= offset))
-        ) {
-          ret.push({
-            name: node.id.name,
-            module: module,
-            src:
-              parent.kind + " " + src.substring(node.range[0], node.range[1]),
-            startOffset: node.range[0],
-            endOffset: node.range[1],
-          });
-        } else if (
-          // Standard Function Definition: function xyz(): void => { ... }
-          node.type === AST_NODE_TYPES.FunctionDeclaration &&
-          node.id !== null &&
-          (!fnName || node.id.name === fnName) &&
-          (!offset || (node.range[0] <= offset && node.range[1] >= offset))
-        ) {
-          ret.push({
-            name: node.id.name,
-            module: module,
-            src: src.substring(node.range[0], node.range[1]),
-            startOffset: node.range[0],
-            endOffset: node.range[1],
-          });
-        }
-        // TODO: Add support for class methods
-      }, // enter
-    }); // traverse AST
+    simpleTraverse(
+      ast,
+      {
+        enter: (node, parent) => {
+          if (
+            // Arrow Function Definition: const xyz = (): void => { ... }
+            node.type === AST_NODE_TYPES.VariableDeclarator &&
+            parent !== undefined &&
+            parent.type === AST_NODE_TYPES.VariableDeclaration &&
+            node.init &&
+            node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
+            node.id.type === AST_NODE_TYPES.Identifier &&
+            (!fnName || node.id.name === fnName) &&
+            (!offset || (node.range[0] <= offset && node.range[1] >= offset))
+          ) {
+            ret.push({
+              name: node.id.name,
+              module: module,
+              src:
+                parent.kind + " " + src.substring(node.range[0], node.range[1]),
+              startOffset: node.range[0],
+              endOffset: node.range[1],
+              export: parent.parent
+                ? parent.parent.type === AST_NODE_TYPES.ExportNamedDeclaration
+                : false,
+            });
+          } else if (
+            // Standard Function Definition: function xyz(): void => { ... }
+            node.type === AST_NODE_TYPES.FunctionDeclaration &&
+            node.id !== null &&
+            (!fnName || node.id.name === fnName) &&
+            (!offset || (node.range[0] <= offset && node.range[1] >= offset))
+          ) {
+            ret.push({
+              name: node.id.name,
+              module: module,
+              src: src.substring(node.range[0], node.range[1]),
+              startOffset: node.range[0],
+              endOffset: node.range[1],
+              export: parent
+                ? parent.type === AST_NODE_TYPES.ExportNamedDeclaration
+                : false,
+            });
+          }
+          // TODO: Add support for class methods
+        }, // enter
+      },
+      true // set parent pointers
+    ); // traverse AST
 
     // If offset is provided and we have multiple matches,
     // return the function that is closest to the offset
@@ -242,4 +267,5 @@ export type FunctionRef = {
   src: string;
   startOffset: number;
   endOffset: number;
+  export: boolean;
 };
