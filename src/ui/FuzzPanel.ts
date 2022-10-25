@@ -279,26 +279,17 @@ export class FuzzPanel {
     // Persist changes
     if (changed) {
       // Update the saved tests file
-      this._putSavedTests(saveSet);
-
-      // Get all tests for all functions in the module
-      const allTests = this._getAllSavedTests();
+      const testCount = this._putSavedTests(saveSet);
 
       // Get the filename of the Jest file
       const jestFile = jestadapter.getFilename(
         this._fuzzEnv.function.getModule()
       );
 
-      // Count the number of tests
-      let testCount = 0;
-      Object.values(allTests).forEach((fnTests) => {
-        testCount += Object.keys(fnTests).length;
-      });
-
       if (testCount) {
         // Generate the Jest test data for CI
         const jestTests = jestadapter.toString(
-          allTests,
+          this._getAllSavedTests(),
           this._fuzzEnv.function.getModule(),
           this._fuzzEnv.options.fnTimeout
         );
@@ -370,16 +361,38 @@ export class FuzzPanel {
    * Persists the saved tests for the current function.
    *
    * @param saveSet the saved tests for the current function
+   * @returns the number of saved tests
    */
-  private _putSavedTests(saveSet: Record<string, fuzzer.FuzzSavedTest>) {
+  private _putSavedTests(
+    saveSet: Record<string, fuzzer.FuzzSavedTest>
+  ): number {
     const jsonFile = this._getSavedTestFilename();
     const fullSet = this._getAllSavedTests();
 
     // Update the function in the dataset
     fullSet[this._fuzzEnv.function.getName()] = saveSet;
 
-    // Write the file
-    fs.writeFileSync(jsonFile, JSON.stringify(fullSet));
+    // Count the number of tests
+    let testCount = 0;
+    Object.values(fullSet).forEach((fnTests) => {
+      testCount += Object.keys(fnTests).length;
+    });
+
+    // Persist the saved tests
+    try {
+      if (testCount) {
+        fs.writeFileSync(jsonFile, JSON.stringify(fullSet)); // Update the file
+      } else {
+        fs.rmSync(jsonFile); // Delete the file (no data)
+      }
+    } catch (e: any) {
+      vscode.window.showErrorMessage(
+        `Unable to update json file: ${jsonFile} (${e.message})`
+      );
+    }
+
+    // Return the number of tests persisted
+    return testCount;
   } // fn: _putSavedTests()
 
   /**
