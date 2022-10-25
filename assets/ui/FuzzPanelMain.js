@@ -85,7 +85,7 @@ function main() {
             ...saved,
           });
         } else if (e.timeout) {
-          data["timeout"].push({ ...id, saved, ...inputs, ...saved });
+          data["timeout"].push({ ...id, ...inputs, ...saved });
         } else {
           data["badOutput"].push({ ...id, ...inputs, ...outputs, ...saved });
         }
