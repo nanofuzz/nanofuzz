@@ -56,7 +56,7 @@ export const setup = (
     options: { ...options },
     function: fnMatches[0],
   };
-}; // setup()
+}; // fn: setup()
 
 /**
  * Fuzzes the function specified in the fuzz environment and returns the test results.
@@ -161,6 +161,7 @@ export const fuzz = async (
       i--; // don't count this test
       continue; // skip this test
     } else {
+      // add test input to the list so we don't test it again
       allInputs[inputHash] = true;
     }
 

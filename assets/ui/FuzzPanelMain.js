@@ -6,7 +6,7 @@ window.addEventListener("load", main);
 // List of output grids that store fuzzer results
 const gridTypes = ["timeout", "exception", "badOutput", "passed"];
 
-// Fuzzer Results
+// Fuzzer Results (filled by main during load event)
 let resultsData;
 
 /**
@@ -142,7 +142,7 @@ function main() {
       }
     });
   }
-} // fn: main
+} // fn: main()
 
 /**
  * Toggles whether more fuzzer options are shown.
@@ -158,7 +158,7 @@ function toggleFuzzOptions(e) {
     fuzzOptions.style.display = "none";
     e.currentTarget.innerHTML = "More options";
   }
-} // fn: toggleFuzzOptions
+} // fn: toggleFuzzOptions()
 
 /**
  * Toggles whether a test is saved for CI and the next AutoTest.
@@ -175,7 +175,7 @@ function handleSaveToggle(id, saving) {
     command: saving ? "test.save" : "test.unsave",
     json: JSON.stringify(testInput),
   });
-}
+} // fn: handleSaveToggle()
 
 /**
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
@@ -291,7 +291,7 @@ function handleFuzzStart(e) {
  */
 function getIdBase(i) {
   return "argDef-" + i;
-}
+} // fn: getIdBase()
 
 /**
  * Adapted from: escape-goat/index.js
@@ -308,7 +308,7 @@ function htmlUnescape(html) {
     .replace(/&#0?39;/g, "'")
     .replace(/&quot;/g, '"')
     .replace(/&amp;/g, "&");
-}
+} // fn: htmlUnescape()
 
 /**
  * Adapted from: escape-goat/index.js
@@ -325,4 +325,4 @@ function htmlEscape(str) {
     .replace(/'/g, "&#39;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
+} // fn: htmlEscape()

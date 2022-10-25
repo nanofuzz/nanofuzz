@@ -3,6 +3,7 @@ import * as fuzzer from "../fuzzer/Fuzzer";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
+import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -277,11 +278,23 @@ export class FuzzPanel {
 
     // Persist changes
     if (changed) {
+      // Update the saved tests file
       this._putSavedTests(saveSet);
 
-      // !!!! Call the Fuzzer to generate the Jest file
+      // Generate the Jest test data for CI
+      const jestTests = jestadapter.toString(
+        this._getAllSavedTests(),
+        this._fuzzEnv.function.getModule(),
+        this._fuzzEnv.options.fnTimeout
+      );
+
+      // Persist the Jest tests for CI
+      fs.writeFileSync(
+        jestadapter.getFilename(this._fuzzEnv.function.getModule()),
+        jestTests
+      );
     }
-  }
+  } // fn: _doTestSaveCmd()
 
   /**
    * Returns the filename where saved tests are persisted.
@@ -289,8 +302,10 @@ export class FuzzPanel {
    * @returns filename of saved tests
    */
   private _getSavedTestFilename(): string {
-    return this._fuzzEnv.function.getRef().module + ".nanofuzz.test.json";
-  }
+    let module = this._fuzzEnv.function.getModule();
+    module = module.split(".").slice(0, -1).join(".") || module;
+    return module + ".nano.test.json";
+  } // fn: _getSavedTestFilename()
 
   /**
    * Returns saved tests for all functions in the current module.
@@ -308,7 +323,7 @@ export class FuzzPanel {
     } catch (e: any) {
       return {};
     }
-  }
+  } // fn: _getAllSavedTests()
 
   /**
    * Returns the saved tests for just the current function.
@@ -321,7 +336,7 @@ export class FuzzPanel {
 
     // Return the saved tests for the function, if any
     return fnName in saveSet ? saveSet[fnName] : {};
-  }
+  } // fn: _getSavedTests()
 
   /**
    * Persists the saved tests for the current function.
@@ -337,7 +352,7 @@ export class FuzzPanel {
 
     // Write the file
     fs.writeFileSync(jsonFile, JSON.stringify(fullSet));
-  }
+  } // fn: _putSavedTests()
 
   /**
    * Message handler for the `fuzz.start` command.
