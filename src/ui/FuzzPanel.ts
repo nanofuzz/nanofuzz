@@ -598,6 +598,13 @@ export class FuzzPanel {
       "dist",
       "toolkit.js",
     ]); // URI to the VS Code webview ui toolkit
+    const codiconsUri = getUri(webview, extensionUri, [
+      "node_modules",
+      "@vscode",
+      "codicons",
+      "dist",
+      "codicon.css",
+    ]);
     const scriptUrl = getUri(webview, extensionUri, [
       "assets",
       "ui",
@@ -642,6 +649,7 @@ export class FuzzPanel {
           <script type="module" src="${toolkitUri}"></script>
           <script type="module" src="${scriptUrl}"></script>
           <link rel="stylesheet" type="text/css" href="${cssUrl}">
+          <link rel="stylesheet" type="text/css" href="${codiconsUri}">
           <title>AutoTest Panel</title>
         </head>
         <body>

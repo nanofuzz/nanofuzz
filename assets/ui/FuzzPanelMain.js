@@ -6,6 +6,12 @@ window.addEventListener("load", main);
 // List of output grids that store fuzzer results
 const gridTypes = ["timeout", "exception", "badOutput", "passed"];
 
+// Pin button states
+const pinState = {
+  pinned: `<div class="tooltip tooltip-left"><span class="codicon codicon-pinned"></span><span class="tooltiptext">Save test case &amp; use in CI</span></div>`,
+  pin: `<div class="tooltip tooltip-left"><span style="opacity:0.3" class="codicon codicon-pin"></span><span class="tooltiptext">Do not save test case</span></div>`,
+};
+
 // Fuzzer Results (filled by main during load event)
 let resultsData;
 
@@ -105,9 +111,7 @@ function main() {
           if (k === savedLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.className = "fuzzGridCellSaved";
-            cell.innerHTML = `<big><div class="tooltip tooltip-left">${htmlEscape(
-              k
-            )}</big><span class="tooltiptext">Saved for CI &amp; next AutoTest</span>`;
+            cell.innerHTML = `<big>pin</big>`;
           } else if (k === idLabel) {
             // noop
           } else {
@@ -124,13 +128,12 @@ function main() {
             if (k === savedLabel) {
               const cell = row.appendChild(document.createElement("td"));
               cell.className = "fuzzGridCellSaved";
-              const cbox = cell.appendChild(
-                document.createElement("vscode-checkbox")
-              );
-              cbox.checked = e[k];
-              cbox.addEventListener("click", (e) => {
-                handleSaveToggle(id, e.target.checked);
-              });
+              const button = document.createElement("div");
+              button.id = `fuzzSaveToggle-${id}`;
+              button.setAttribute("aria-label", e[k] ? "pinned" : "pin");
+              button.innerHTML = e[k] ? pinState.pinned : pinState.pin;
+              button.addEventListener("click", () => handleSaveToggle(id));
+              cell.appendChild(button);
             } else if (k === idLabel) {
               id = parseInt(e[k]);
             } else {
@@ -164,16 +167,38 @@ function toggleFuzzOptions(e) {
  * Toggles whether a test is saved for CI and the next AutoTest.
  *
  * @param id offset of test in resultsData
- * @param saving true if saving, false if not saving
  */
-function handleSaveToggle(id, saving) {
-  // Get the test data
+function handleSaveToggle(id) {
+  // Get the test data for the test case
   const testInput = { input: resultsData.results[id].input };
 
+  // Get the control that was clicked
+  const button = document.getElementById(`fuzzSaveToggle-${id}`);
+
+  // Are we pinning or unpinning the test?
+  const pinning = button.innerHTML === pinState.pin;
+
+  // Disable the control while we wait for the response
+  button.disabled = true;
+
   // Send the request to the extension
-  vscode.postMessage({
-    command: saving ? "test.save" : "test.unsave",
-    json: JSON.stringify(testInput),
+  window.setTimeout(() => {
+    vscode.postMessage({
+      command: pinning ? "test.save" : "test.unsave",
+      json: JSON.stringify(testInput),
+    });
+
+    // Update the control state
+    if (pinning) {
+      button.innerHTML = pinState.pinned;
+      button.setAttribute("aria-label", "pinned");
+    } else {
+      button.innerHTML = pinState.pin;
+      button.setAttribute("aria-label", "pin");
+    }
+
+    // Disable the control while we wait for the response
+    button.disabled = false;
   });
 } // fn: handleSaveToggle()
 
