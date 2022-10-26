@@ -2,7 +2,7 @@
   "name": "nanofuzz",
   "displayName": "NaNofuzz",
   "publisher": "penrose",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Automatic test generator for Typescript",
   "repository": "https://github.com/penrose/nanofuzz.git",
   "author": "Penrose Team (https://penrose.cs.cmu.edu/)",
@@ -201,6 +201,7 @@
   },
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
+    "@vscode/codicons": "^0.0.32",
     "@vscode/webview-ui-toolkit": "^1.0.0",
     "eslint": "^7.3.2",
     "immutable": "^4.1.0",
