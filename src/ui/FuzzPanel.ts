@@ -238,11 +238,11 @@ export class FuzzPanel {
           case "fuzz.start":
             this._doFuzzStartCmd(json);
             break;
-          case "test.save":
-            this._doTestSaveCmd(json, true);
+          case "test.pin":
+            this._doTestPinnedCmd(json, true);
             break;
-          case "test.unsave":
-            this._doTestSaveCmd(json, false);
+          case "test.unpin":
+            this._doTestPinnedCmd(json, false);
             break;
         }
       },
@@ -252,34 +252,35 @@ export class FuzzPanel {
   } // fn: _setWebviewMessageListener
 
   /**
-   * Performs a test save or delete, depending on the `saving` parameter.
+   * Performs a test pin or unpin, depending on the `pin` parameter.
    *
-   * @param json inputs to save or delete from saved tests
-   * @param saving true=save test; false=delete test
+   * @param json inputs to pin or unpins
+   * @param pin true=pin test; false=unpin test
    */
-  private _doTestSaveCmd(json: string, saving: boolean) {
-    const saveSet: Record<string, fuzzer.FuzzSavedTest> = this._getSavedTests();
+  private _doTestPinnedCmd(json: string, pin: boolean) {
+    const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
+      this._getPinnedTests();
     let changed = false; // Did we change anything?
 
     // Add or delete the test, as needed
-    if (json in saveSet) {
+    if (json in pinnedSet) {
       // If we are unsaving and the test is in the file, remove it
-      if (!saving) {
-        delete saveSet[json];
+      if (!pin) {
+        delete pinnedSet[json];
         changed = true;
       }
     } else {
       // if we are saving a test but it is not in the file, add the test
-      if (saving) {
-        saveSet[json] = JSON.parse(json);
+      if (pin) {
+        pinnedSet[json] = JSON.parse(json);
         changed = true;
       }
     }
 
     // Persist changes
     if (changed) {
-      // Update the saved tests file
-      const testCount = this._putSavedTests(saveSet);
+      // Update the pinned tests file
+      const testCount = this._putPinnedTests(pinnedSet);
 
       // Get the filename of the Jest file
       const jestFile = jestadapter.getFilename(
@@ -289,7 +290,7 @@ export class FuzzPanel {
       if (testCount) {
         // Generate the Jest test data for CI
         const jestTests = jestadapter.toString(
-          this._getAllSavedTests(),
+          this._getAllPinnedTests(),
           this._fuzzEnv.function.getModule(),
           this._fuzzEnv.options.fnTimeout
         );
@@ -313,64 +314,64 @@ export class FuzzPanel {
         }
       }
     }
-  } // fn: _doTestSaveCmd()
+  } // fn: _doTestPinnedCmd()
 
   /**
-   * Returns the filename where saved tests are persisted.
+   * Returns the filename where pinned tests are persisted.
    *
-   * @returns filename of saved tests
+   * @returns filename of pinned tests
    */
-  private _getSavedTestFilename(): string {
+  private _getPinnedTestFilename(): string {
     let module = this._fuzzEnv.function.getModule();
     module = module.split(".").slice(0, -1).join(".") || module;
     return module + ".nano.test.json";
-  } // fn: _getSavedTestFilename()
+  } // fn: _getPinnedTestFilename()
 
   /**
-   * Returns saved tests for all functions in the current module.
+   * Returns pinned tests for all functions in the current module.
    *
-   * @returns all saved tests for all functions in the current module
+   * @returns all pinned tests for all functions in the current module
    */
-  private _getAllSavedTests(): Record<
+  private _getAllPinnedTests(): Record<
     string,
-    Record<string, fuzzer.FuzzSavedTest>
+    Record<string, fuzzer.FuzzPinnedTest>
   > {
-    const jsonFile = this._getSavedTestFilename();
+    const jsonFile = this._getPinnedTestFilename();
 
     try {
       return JSON.parse(fs.readFileSync(jsonFile).toString());
     } catch (e: any) {
       return {};
     }
-  } // fn: _getAllSavedTests()
+  } // fn: _getAllPinnedTests()
 
   /**
-   * Returns the saved tests for just the current function.
+   * Returns the pinned tests for just the current function.
    *
-   * @returns saved tests for the current function
+   * @returns pinned tests for the current function
    */
-  private _getSavedTests(): Record<string, fuzzer.FuzzSavedTest> {
-    const saveSet = this._getAllSavedTests();
+  private _getPinnedTests(): Record<string, fuzzer.FuzzPinnedTest> {
+    const pinnedSet = this._getAllPinnedTests();
     const fnName = this._fuzzEnv.function.getName(); // Name of the function being tested
 
-    // Return the saved tests for the function, if any
-    return fnName in saveSet ? saveSet[fnName] : {};
-  } // fn: _getSavedTests()
+    // Return the pinned tests for the function, if any
+    return fnName in pinnedSet ? pinnedSet[fnName] : {};
+  } // fn: _getPinnedTests()
 
   /**
-   * Persists the saved tests for the current function.
+   * Persists the pinned tests for the current function.
    *
-   * @param saveSet the saved tests for the current function
-   * @returns the number of saved tests
+   * @param pinnedSet the pinned tests for the current function
+   * @returns the number of pinned tests
    */
-  private _putSavedTests(
-    saveSet: Record<string, fuzzer.FuzzSavedTest>
+  private _putPinnedTests(
+    pinnedSet: Record<string, fuzzer.FuzzPinnedTest>
   ): number {
-    const jsonFile = this._getSavedTestFilename();
-    const fullSet = this._getAllSavedTests();
+    const jsonFile = this._getPinnedTestFilename();
+    const fullSet = this._getAllPinnedTests();
 
     // Update the function in the dataset
-    fullSet[this._fuzzEnv.function.getName()] = saveSet;
+    fullSet[this._fuzzEnv.function.getName()] = pinnedSet;
 
     // Count the number of tests
     let testCount = 0;
@@ -378,7 +379,7 @@ export class FuzzPanel {
       testCount += Object.keys(fnTests).length;
     });
 
-    // Persist the saved tests
+    // Persist the pinned tests
     try {
       if (testCount) {
         fs.writeFileSync(jsonFile, JSON.stringify(fullSet)); // Update the file
@@ -393,7 +394,7 @@ export class FuzzPanel {
 
     // Return the number of tests persisted
     return testCount;
-  } // fn: _putSavedTests()
+  } // fn: _putPinnedTests()
 
   /**
    * Message handler for the `fuzz.start` command.
@@ -525,7 +526,7 @@ export class FuzzPanel {
       try {
         this._results = await fuzzer.fuzz(
           this._fuzzEnv,
-          Object.values(this._getSavedTests())
+          Object.values(this._getPinnedTests())
         );
 
         this._errorMessage = undefined;

@@ -68,7 +68,7 @@ export const setup = (
  */
 export const fuzz = async (
   env: FuzzEnv,
-  savedTests: FuzzSavedTest[] = []
+  pinnedTests: FuzzPinnedTest[] = []
 ): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
@@ -130,7 +130,7 @@ export const fuzz = async (
 
     // Initial set of results - overwritten below
     const result: FuzzTestResult = {
-      saved: false,
+      pinned: false,
       input: [],
       output: [],
       exception: false,
@@ -138,11 +138,11 @@ export const fuzz = async (
       passed: true,
     };
 
-    // Before searching, consume the pool of saved tests
-    const savedTest = savedTests.pop();
-    if (savedTest) {
-      result.input = savedTest.input;
-      result.saved = true;
+    // Before searching, consume the pool of pinned tests
+    const pinnedTest = pinnedTests.pop();
+    if (pinnedTest) {
+      result.input = pinnedTest.input;
+      result.pinned = true;
     } else {
       // Generate and store the inputs
       // TODO: We should provide a way to filter inputs
@@ -334,7 +334,7 @@ export type FuzzTestResults = {
  * Single Fuzzer Test Result
  */
 export type FuzzTestResult = {
-  saved: boolean; // true if the test was saved (not randomly generated)
+  pinned: boolean; // true if the test was pinned (not randomly generated)
   input: FuzzIoElement[]; // function input
   output: FuzzIoElement[]; // function output
   exception: boolean; // true if an exception was thrown
@@ -345,9 +345,9 @@ export type FuzzTestResult = {
 };
 
 /**
- * Saved Fuzzer Tests
+ * Pinned Fuzzer Tests
  */
-export type FuzzSavedTest = {
+export type FuzzPinnedTest = {
   input: FuzzIoElement[]; // function input
 };
 

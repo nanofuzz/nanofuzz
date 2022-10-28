@@ -9,7 +9,7 @@ const gridTypes = ["timeout", "exception", "badOutput", "passed"];
 // Pin button states
 const pinState = {
   pinned: `<div class="tooltip tooltip-left"><span class="codicon codicon-pinned"></span><span class="tooltiptext">Save test case &amp; use in CI</span></div>`,
-  pin: `<div class="tooltip tooltip-left"><span style="opacity:0.3" class="codicon codicon-pin"></span><span class="tooltiptext">Do not save test case</span></div>`,
+  pin: `<div class="pin-button"><span class="codicon codicon-pin"></span></div>`,
 };
 
 // Fuzzer Results (filled by main during load event)
@@ -20,7 +20,7 @@ let resultsData;
  * event handlers and filling the output grids if data is available.
  */
 function main() {
-  const savedLabel = "saved";
+  const pinnedLabel = "pinned";
   const idLabel = "id";
 
   // Add event listener for the fuzz.start button
@@ -57,8 +57,8 @@ function main() {
     // Loop over each result
     let idx = 0;
     for (const e of resultsData.results) {
-      // Indicate which tests are saved
-      const saved = { [savedLabel]: !!(e.saved ?? false) };
+      // Indicate which tests are pinned
+      const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
       const id = { [idLabel]: idx++ };
 
       // Name each input argument and make it clear which inputs were not provided
@@ -81,19 +81,19 @@ function main() {
 
       // Toss each result into the appropriate grid
       if (e.passed) {
-        data["passed"].push({ ...id, ...inputs, ...outputs, ...saved });
+        data["passed"].push({ ...id, ...inputs, ...outputs, ...pinned });
       } else {
         if (e.exception) {
           data["exception"].push({
             ...id,
             ...inputs,
             exception: e.exceptionMessage,
-            ...saved,
+            ...pinned,
           });
         } else if (e.timeout) {
-          data["timeout"].push({ ...id, ...inputs, ...saved });
+          data["timeout"].push({ ...id, ...inputs, ...pinned });
         } else {
-          data["badOutput"].push({ ...id, ...inputs, ...outputs, ...saved });
+          data["badOutput"].push({ ...id, ...inputs, ...outputs, ...pinned });
         }
       }
     } // for: each result
@@ -108,9 +108,9 @@ function main() {
         // Render the header row
         const hRow = thead.appendChild(document.createElement("tr"));
         Object.keys(data[type][0]).forEach((k) => {
-          if (k === savedLabel) {
+          if (k === pinnedLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
-            cell.className = "fuzzGridCellSaved";
+            cell.className = "fuzzGridCellPinned";
             cell.innerHTML = `<big>pin</big>`;
           } else if (k === idLabel) {
             // noop
@@ -125,14 +125,14 @@ function main() {
           let id = -1;
           const row = tbody.appendChild(document.createElement("tr"));
           Object.keys(e).forEach((k) => {
-            if (k === savedLabel) {
+            if (k === pinnedLabel) {
               const cell = row.appendChild(document.createElement("td"));
-              cell.className = "fuzzGridCellSaved";
+              cell.className = "fuzzGridCellPinned";
               const button = document.createElement("div");
               button.id = `fuzzSaveToggle-${id}`;
               button.setAttribute("aria-label", e[k] ? "pinned" : "pin");
               button.innerHTML = e[k] ? pinState.pinned : pinState.pin;
-              button.addEventListener("click", () => handleSaveToggle(id));
+              button.addEventListener("click", () => handlePinToggle(id));
               cell.appendChild(button);
             } else if (k === idLabel) {
               id = parseInt(e[k]);
@@ -164,11 +164,11 @@ function toggleFuzzOptions(e) {
 } // fn: toggleFuzzOptions()
 
 /**
- * Toggles whether a test is saved for CI and the next AutoTest.
+ * Toggles whether a test is pinned for CI and the next AutoTest.
  *
  * @param id offset of test in resultsData
  */
-function handleSaveToggle(id) {
+function handlePinToggle(id) {
   // Get the test data for the test case
   const testInput = { input: resultsData.results[id].input };
 
@@ -184,7 +184,7 @@ function handleSaveToggle(id) {
   // Send the request to the extension
   window.setTimeout(() => {
     vscode.postMessage({
-      command: pinning ? "test.save" : "test.unsave",
+      command: pinning ? "test.pin" : "test.unpin",
       json: JSON.stringify(testInput),
     });
 

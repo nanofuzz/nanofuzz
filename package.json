@@ -2,7 +2,7 @@
   "name": "nanofuzz",
   "displayName": "NaNofuzz",
   "publisher": "penrose",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Automatic test generator for Typescript",
   "repository": "https://github.com/penrose/nanofuzz.git",
   "author": "Penrose Team (https://penrose.cs.cmu.edu/)",
