@@ -1,17 +1,17 @@
-import { FuzzSavedTest, implicitOracle } from "../Fuzzer";
+import { FuzzPinnedTest, implicitOracle } from "../Fuzzer";
 import * as os from "os";
 import * as path from "path";
 
 /**
  * Converts a set of NaNofuzz saved tests into a Jest test suite
  *
- * @param savedTests list of saved NaNofuzz tests for the module under test
+ * @param pinnedTests list of saved NaNofuzz tests for the module under test
  * @param module path to module under test
  * @param timeout timeout for each test in ms
  * @returns string containing the Jest test suite for this module
  */
 export const toString = (
-  savedTests: Record<string, Record<string, FuzzSavedTest>>,
+  pinnedTests: Record<string, Record<string, FuzzPinnedTest>>,
   module: string,
   timeout: number
 ): string => {
@@ -38,12 +38,12 @@ export const toString = (
   jestData.push(`jest.setTimeout(${timeout});`, ``);
 
   // Generate a Jest test for each saved test
-  for (const fn in savedTests) {
+  for (const fn in pinnedTests) {
     let i = 0;
-    for (const testId in savedTests[fn]) {
+    for (const testId in pinnedTests[fn]) {
       let x = 0;
       let str = "";
-      savedTests[fn][testId].input
+      pinnedTests[fn][testId].input
         .map((e) => e.value)
         .forEach((e) => {
           str += x++ ? "," : "";

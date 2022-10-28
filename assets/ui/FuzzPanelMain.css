@@ -12,11 +12,18 @@
   text-align: left;
   padding: 4px 6px;
 }
-td.fuzzGridCellSaved {
+td.fuzzGridCellPinned {
   text-align: center;
 }
-th.fuzzGridCellSaved {
+th.fuzzGridCellPinned {
   text-align: center;
+}
+
+div.pin-button {
+  opacity: 0%;
+}
+div.pin-button:hover {
+  opacity: 100%;
 }
 
 /** Tooltips: adapted from: https://www.w3schools.com/css/css_tooltip.asp **/
