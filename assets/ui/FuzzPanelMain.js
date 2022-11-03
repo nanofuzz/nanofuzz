@@ -8,8 +8,10 @@ const gridTypes = ["timeout", "exception", "badOutput", "passed"];
 
 // Pin button states
 const pinState = {
-  pinned: `<div class="tooltip tooltip-left"><span class="codicon codicon-pinned"></span><span class="tooltiptext">Save test case &amp; use in CI</span></div>`,
-  pin: `<div class="pin-button"><span class="codicon codicon-pin"></span></div>`,
+  htmlPinned: `<span class="codicon codicon-pinned"></span>`,
+  htmlPin: `<span class="codicon codicon-pin"></span>`,
+  classPinned: "fuzzGridCellPinned",
+  classPin: "fuzzGridCellPin",
 };
 
 // Fuzzer Results (filled by main during load event)
@@ -127,13 +129,11 @@ function main() {
           Object.keys(e).forEach((k) => {
             if (k === pinnedLabel) {
               const cell = row.appendChild(document.createElement("td"));
-              cell.className = "fuzzGridCellPinned";
-              const button = document.createElement("div");
-              button.id = `fuzzSaveToggle-${id}`;
-              button.setAttribute("aria-label", e[k] ? "pinned" : "pin");
-              button.innerHTML = e[k] ? pinState.pinned : pinState.pin;
-              button.addEventListener("click", () => handlePinToggle(id));
-              cell.appendChild(button);
+              cell.className = e[k] ? pinState.classPinned : pinState.classPin;
+              cell.id = `fuzzSaveToggle-${id}`;
+              cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
+              cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
+              cell.addEventListener("click", () => handlePinToggle(id));
             } else if (k === idLabel) {
               id = parseInt(e[k]);
             } else {
@@ -176,7 +176,7 @@ function handlePinToggle(id) {
   const button = document.getElementById(`fuzzSaveToggle-${id}`);
 
   // Are we pinning or unpinning the test?
-  const pinning = button.innerHTML === pinState.pin;
+  const pinning = button.innerHTML === pinState.htmlPin;
 
   // Disable the control while we wait for the response
   button.disabled = true;
@@ -190,10 +190,12 @@ function handlePinToggle(id) {
 
     // Update the control state
     if (pinning) {
-      button.innerHTML = pinState.pinned;
+      button.innerHTML = pinState.htmlPinned;
+      button.className = pinState.classPinned;
       button.setAttribute("aria-label", "pinned");
     } else {
-      button.innerHTML = pinState.pin;
+      button.innerHTML = pinState.htmlPin;
+      button.className = pinState.classPin;
       button.setAttribute("aria-label", "pin");
     }
 
