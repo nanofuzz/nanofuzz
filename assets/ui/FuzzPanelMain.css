@@ -12,17 +12,20 @@
   text-align: left;
   padding: 4px 6px;
 }
-td.fuzzGridCellPinned {
+td.fuzzGridCellPinned,
+td.fuzzGridCellPin {
   text-align: center;
 }
-th.fuzzGridCellPinned {
+th.fuzzGridCellPinned,
+th.fuzzGridCellPin {
   text-align: center;
 }
 
-div.pin-button {
+td.fuzzGridCellPin {
   opacity: 0%;
 }
-div.pin-button:hover {
+td.fuzzGridCellPinned,
+td.fuzzGridCellPin:hover {
   opacity: 100%;
 }
 

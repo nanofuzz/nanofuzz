@@ -76,6 +76,7 @@ export const fuzz = async (
     env,
     results: [],
   };
+  let dupeCount = 0; // Number of duplicated tests since the last non-duplicated test
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(env.options))
@@ -120,9 +121,18 @@ export const fuzz = async (
   }, env.options.fnTimeout);
 
   // Main test loop
+  // We break out of this loop when any of the following are true:
+  //  (1) We have reached the maximum number of tests
+  //  (2) We have reached the maximum number of duplicate tests
+  //      since the last non-duplicated test
+  //  (3) We have reached the time limit for the test suite to run
   const startTime = new Date().getTime();
   const allInputs: Record<string, boolean> = {};
-  for (let i = 0; i < env.options.maxTests; i++) {
+  for (
+    let i = 0;
+    i < env.options.maxTests && dupeCount < env.options.maxTests;
+    i++
+  ) {
     // End testing if we exceed the suite timeout
     if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
       break;
@@ -159,8 +169,10 @@ export const fuzz = async (
     const inputHash = JSON.stringify(result.input);
     if (inputHash in allInputs) {
       i--; // don't count this test
+      dupeCount++; // but count the duplicate
       continue; // skip this test
     } else {
+      dupeCount = 0; // reset the duplicate count
       // add test input to the list so we don't test it again
       allInputs[inputHash] = true;
     }
