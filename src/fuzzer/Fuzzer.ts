@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as vscode from "vscode";
+import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
 import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
@@ -43,7 +44,7 @@ export const setup = (
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
     throw new Error(
-      `Invalid options provided: ${JSON.stringify(options, null, 2)}`
+      `Invalid options provided: ${JSON5.stringify(options, null, 2)}`
     );
 
   // Ensure we found a function to fuzz
@@ -81,7 +82,7 @@ export const fuzz = async (
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(env.options))
     throw new Error(
-      `Invalid options provided: ${JSON.stringify(env.options, null, 2)}`
+      `Invalid options provided: ${JSON5.stringify(env.options, null, 2)}`
     );
 
   // Build a generator for each argument
@@ -166,7 +167,7 @@ export const fuzz = async (
     }
 
     // Skip tests if we previously processed the input
-    const inputHash = JSON.stringify(result.input);
+    const inputHash = JSON5.stringify(result.input);
     if (inputHash in allInputs) {
       i--; // don't count this test
       dupeCount++; // but count the duplicate
@@ -209,7 +210,7 @@ export const fuzz = async (
 
   // Persist to outfile, if requested
   if (env.options.outputFile) {
-    fs.writeFileSync(env.options.outputFile, JSON.stringify(results));
+    fs.writeFileSync(env.options.outputFile, JSON5.stringify(results));
   }
 
   // Return the result of the fuzzing activity

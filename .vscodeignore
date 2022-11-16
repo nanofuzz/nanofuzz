@@ -4,6 +4,7 @@
 !LICENSE
 !node_modules/@vscode/webview-ui-toolkit/
 !node_modules/@vscode/codicons/
+!node_modules/json5/
 !node_modules/typescript/
 !package.json
 !README.md

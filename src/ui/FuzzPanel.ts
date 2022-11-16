@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as JSON5 from "json5";
 import * as fuzzer from "../fuzzer/Fuzzer";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
@@ -45,7 +46,7 @@ export class FuzzPanel {
    * @param env FuzzEnv for which to display or create the FuzzPanel
    */
   public static render(extensionUri: vscode.Uri, env: fuzzer.FuzzEnv): void {
-    const fnRef = JSON.stringify(env.function.getRef());
+    const fnRef = JSON5.stringify(env.function.getRef());
 
     // If we already have a panel for this fuzz env, show it.
     if (fnRef in FuzzPanel.currentPanels) {
@@ -218,7 +219,7 @@ export class FuzzPanel {
    * @returns A key string that represents the fuzz environment
    */
   public getFnRefKey(): string {
-    return JSON.stringify(this._fuzzEnv.function.getRef());
+    return JSON5.stringify(this._fuzzEnv.function.getRef());
   }
 
   // ----------------------- Message Handling ----------------------- //
@@ -272,7 +273,7 @@ export class FuzzPanel {
     } else {
       // if we are saving a test but it is not in the file, add the test
       if (pin) {
-        pinnedSet[json] = JSON.parse(json);
+        pinnedSet[json] = JSON5.parse(json);
         changed = true;
       }
     }
@@ -339,7 +340,7 @@ export class FuzzPanel {
     const jsonFile = this._getPinnedTestFilename();
 
     try {
-      return JSON.parse(fs.readFileSync(jsonFile).toString());
+      return JSON5.parse(fs.readFileSync(jsonFile).toString());
     } catch (e: any) {
       return {};
     }
@@ -382,7 +383,7 @@ export class FuzzPanel {
     // Persist the pinned tests
     try {
       if (testCount) {
-        fs.writeFileSync(jsonFile, JSON.stringify(fullSet)); // Update the file
+        fs.writeFileSync(jsonFile, JSON5.stringify(fullSet)); // Update the file
       } else {
         fs.rmSync(jsonFile); // Delete the file (no data)
       }
@@ -414,7 +415,7 @@ export class FuzzPanel {
     const panelInput: {
       fuzzer: Record<string, any>; // !!! Improve typing
       args: Record<string, any>; // !!! Improve typing
-    } = JSON.parse(json);
+    } = JSON5.parse(json);
     const argsFlat = this._fuzzEnv.function.getArgDefsFlat();
 
     // Apply numeric fuzzer option changes
@@ -496,7 +497,7 @@ export class FuzzPanel {
             e = { min: Number(e.min), max: Number(e.max) };
           } else {
             throw new Error(
-              `Invalid interval for array dimensions: ${JSON.stringify(e)}`
+              `Invalid interval for array dimensions: ${JSON5.stringify(e)}`
             );
           }
         });
@@ -536,7 +537,7 @@ export class FuzzPanel {
           new telemetry.LoggerEntry(
             "FuzzPanel.fuzz.done",
             "Fuzzing completed successfully. Target: %s. Results: %s",
-            [this.getFnRefKey(), JSON.stringify(this._results)]
+            [this.getFnRefKey(), JSON5.stringify(this._results)]
           )
         );
       } catch (e: any) {
@@ -606,6 +607,12 @@ export class FuzzPanel {
       "dist",
       "codicon.css",
     ]);
+    const json5Uri = getUri(webview, extensionUri, [
+      "node_modules",
+      "json5",
+      "dist",
+      "index.js",
+    ]); // URI to the json5 library
     const scriptUrl = getUri(webview, extensionUri, [
       "assets",
       "ui",
@@ -648,6 +655,7 @@ export class FuzzPanel {
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <script type="module" src="${toolkitUri}"></script>
+          <script src="${json5Uri}"></script>
           <script type="module" src="${scriptUrl}"></script>
           <link rel="stylesheet" type="text/css" href="${cssUrl}">
           <link rel="stylesheet" type="text/css" href="${codiconsUri}">
@@ -761,13 +769,13 @@ export class FuzzPanel {
             ${
               this._results === undefined
                 ? "{}"
-                : htmlEscape(JSON.stringify(this._results))
+                : htmlEscape(JSON5.stringify(this._results))
             }
           </div>
 
           <!-- Fuzzer State Payload: for the client script to persist -->
           <div id="fuzzPanelState" style="display:none">
-            ${htmlEscape(JSON.stringify(this.getState()))}
+            ${htmlEscape(JSON5.stringify(this.getState()))}
           </div>
                     
         </body>

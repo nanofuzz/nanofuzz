@@ -1,4 +1,5 @@
 import { FuzzPinnedTest, implicitOracle } from "../Fuzzer";
+import * as JSON5 from "json5";
 import * as os from "os";
 import * as path from "path";
 
@@ -47,7 +48,7 @@ export const toString = (
         .map((e) => e.value)
         .forEach((e) => {
           str += x++ ? "," : "";
-          str += JSON.stringify(e);
+          str += JSON5.stringify(e);
         });
       jestData.push(
         `test("${fn}.${i++}", () => {expect(implicitOracle(themodule.${fn}(${str}))).toBe(true);});`,
