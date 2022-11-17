@@ -132,7 +132,8 @@ export const fuzz = async (
   const allInputs: Record<string, boolean> = {};
   for (
     let i = 0;
-    i < env.options.maxTests && dupeCount < env.options.maxTests;
+    i < env.options.maxTests &&
+    dupeCount < Math.max(env.options.maxTests, 1000);
     i++
   ) {
     // End testing if we exceed the suite timeout
@@ -177,8 +178,11 @@ export const fuzz = async (
       continue; // skip this test
     } else {
       dupeCount = 0; // reset the duplicate count
-      // add test input to the list so we don't test it again
-      allInputs[inputHash] = true;
+      // if the function accepts inputs, add test input
+      // to the list so we don't test it again,
+      if (env.function.getArgDefs().length) {
+        allInputs[inputHash] = true;
+      }
     }
 
     // Call the function via the wrapper
