@@ -127,6 +127,7 @@ export const fuzz = async (
   //  (2) We have reached the maximum number of duplicate tests
   //      since the last non-duplicated test
   //  (3) We have reached the time limit for the test suite to run
+  // Note: Pinned tests are not counted against the maxTests limit
   const startTime = new Date().getTime();
   const allInputs: Record<string, boolean> = {};
   for (
@@ -150,10 +151,12 @@ export const fuzz = async (
     };
 
     // Before searching, consume the pool of pinned tests
+    // Note: Do not count pinned tests against the maxTests limit
     const pinnedTest = pinnedTests.pop();
     if (pinnedTest) {
       result.input = pinnedTest.input;
       result.pinned = true;
+      i--; // don't count pinned tests
     } else {
       // Generate and store the inputs
       // TODO: We should provide a way to filter inputs

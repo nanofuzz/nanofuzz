@@ -672,7 +672,7 @@ export class FuzzPanel {
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" style="display:none">
             <vscode-divider></vscode-divider>
-            <p>These settings control how long the fuzzer runs.  It stops when either limit is reached.</p>
+            <p>These settings control how long testing runs. Testing stops when either limit is reached.  Pinned tests count against the maximum runtime but do not count against the maximum number of tests.</p>
             <vscode-text-field ${disabledFlag} id="fuzz-suiteTimeout" name="fuzz-suiteTimeout" value="${this._fuzzEnv.options.suiteTimeout}">
               Max runtime (ms)
             </vscode-text-field>
@@ -681,7 +681,7 @@ export class FuzzPanel {
             </vscode-text-field>
 
             <vscode-divider></vscode-divider>
-            <p>To ensure the fuzzer completes, it stops long-running function calls. Define how long a function may run until marked as a timeout failure.</p>
+            <p>To ensure testing completes, stop long-running function calls and mark them as timeouts.</p>
             <vscode-text-field ${disabledFlag} id="fuzz-fnTimeout" name="fuzz-fnTimeout" value="${this._fuzzEnv.options.fnTimeout}">
               Stop function call after (ms)
             </vscode-text-field>
