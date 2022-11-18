@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as vscode from "vscode";
+import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
 import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
@@ -43,7 +44,7 @@ export const setup = (
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
     throw new Error(
-      `Invalid options provided: ${JSON.stringify(options, null, 2)}`
+      `Invalid options provided: ${JSON5.stringify(options, null, 2)}`
     );
 
   // Ensure we found a function to fuzz
@@ -81,7 +82,7 @@ export const fuzz = async (
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(env.options))
     throw new Error(
-      `Invalid options provided: ${JSON.stringify(env.options, null, 2)}`
+      `Invalid options provided: ${JSON5.stringify(env.options, null, 2)}`
     );
 
   // Build a generator for each argument
@@ -126,11 +127,13 @@ export const fuzz = async (
   //  (2) We have reached the maximum number of duplicate tests
   //      since the last non-duplicated test
   //  (3) We have reached the time limit for the test suite to run
+  // Note: Pinned tests are not counted against the maxTests limit
   const startTime = new Date().getTime();
   const allInputs: Record<string, boolean> = {};
   for (
     let i = 0;
-    i < env.options.maxTests && dupeCount < env.options.maxTests;
+    i < env.options.maxTests &&
+    dupeCount < Math.max(env.options.maxTests, 1000);
     i++
   ) {
     // End testing if we exceed the suite timeout
@@ -149,10 +152,12 @@ export const fuzz = async (
     };
 
     // Before searching, consume the pool of pinned tests
+    // Note: Do not count pinned tests against the maxTests limit
     const pinnedTest = pinnedTests.pop();
     if (pinnedTest) {
       result.input = pinnedTest.input;
       result.pinned = true;
+      i--; // don't count pinned tests
     } else {
       // Generate and store the inputs
       // TODO: We should provide a way to filter inputs
@@ -166,15 +171,18 @@ export const fuzz = async (
     }
 
     // Skip tests if we previously processed the input
-    const inputHash = JSON.stringify(result.input);
+    const inputHash = JSON5.stringify(result.input);
     if (inputHash in allInputs) {
       i--; // don't count this test
       dupeCount++; // but count the duplicate
       continue; // skip this test
     } else {
       dupeCount = 0; // reset the duplicate count
-      // add test input to the list so we don't test it again
-      allInputs[inputHash] = true;
+      // if the function accepts inputs, add test input
+      // to the list so we don't test it again,
+      if (env.function.getArgDefs().length) {
+        allInputs[inputHash] = true;
+      }
     }
 
     // Call the function via the wrapper
@@ -209,7 +217,7 @@ export const fuzz = async (
 
   // Persist to outfile, if requested
   if (env.options.outputFile) {
-    fs.writeFileSync(env.options.outputFile, JSON.stringify(results));
+    fs.writeFileSync(env.options.outputFile, JSON5.stringify(results));
   }
 
   // Return the result of the fuzzing activity

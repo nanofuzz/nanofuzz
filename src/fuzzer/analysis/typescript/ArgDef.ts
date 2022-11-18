@@ -1,4 +1,5 @@
 import { AST_NODE_TYPES } from "@typescript-eslint/typescript-estree";
+import * as JSON5 from "json5";
 import {
   Identifier,
   TSTypeAnnotation,
@@ -69,7 +70,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(options))
       throw new Error(
-        `Invalid options provided.  Check intervals and length values: ${JSON.stringify(
+        `Invalid options provided.  Check intervals and length values: ${JSON5.stringify(
           options,
           null,
           2
@@ -79,7 +80,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure the input intervals, if provided, are valid
     if (intervals !== undefined && !intervals.some((e) => e.min > e.max))
       throw new Error(
-        `Invalid intervals provided. Required: min <= max. ${JSON.stringify(
+        `Invalid intervals provided. Required: min <= max. ${JSON5.stringify(
           options,
           null,
           2
@@ -101,7 +102,7 @@ export class ArgDef<T extends ArgType> {
       this.options.dimLength.filter((e) => e.min > e.max || e.min < 0).length
     ) {
       throw new Error(
-        `Invalid dimension length: ${JSON.stringify(this.options.dimLength)}`
+        `Invalid dimension length: ${JSON5.stringify(this.options.dimLength)}`
       );
     }
 
@@ -115,7 +116,7 @@ export class ArgDef<T extends ArgType> {
 
     // Ensure each non-array dimension is valid
     if (this.intervals.filter((e) => e.min > e.max).length) {
-      throw new Error(`Invalid interval: ${JSON.stringify(this.intervals)}`);
+      throw new Error(`Invalid interval: ${JSON5.stringify(this.intervals)}`);
     }
   } // end: constructor
 
@@ -229,7 +230,7 @@ export class ArgDef<T extends ArgType> {
     } else {
       throw new Error(
         "Missing type annotation (already transpiled to JS?): " +
-          JSON.stringify(node)
+          JSON5.stringify(node)
       );
     }
   } // fromAstNode()
@@ -267,7 +268,7 @@ export class ArgDef<T extends ArgType> {
       }
       default:
         throw new Error(
-          "Unsupported type annotation: " + JSON.stringify(node, null, 2)
+          "Unsupported type annotation: " + JSON5.stringify(node, null, 2)
         );
     }
   } // getTypeFromNode()
@@ -296,13 +297,14 @@ export class ArgDef<T extends ArgType> {
           else
             throw new Error(
               "Unsupported object property type annotation: " +
-                JSON.stringify(member, null, 2)
+                JSON5.stringify(member, null, 2)
             );
         });
       }
       default:
         throw new Error(
-          "Unsupported object type annotation: " + JSON.stringify(node, null, 2)
+          "Unsupported object type annotation: " +
+            JSON5.stringify(node, null, 2)
         );
     }
   } // getChildrenFromNode()
@@ -384,7 +386,7 @@ export class ArgDef<T extends ArgType> {
   public setIntervals(intervals: Interval<T>[]): void {
     if (intervals.some((e) => e.min > e.max))
       throw new Error(
-        `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
+        `Invalid interval provided (max>min): ${JSON5.stringify(intervals)}`
       );
     this.intervals = intervals;
   }
@@ -465,7 +467,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(newOptions))
       throw new Error(
-        `Invalid options provided.  Check intervals and length values: ${JSON.stringify(
+        `Invalid options provided.  Check intervals and length values: ${JSON5.stringify(
           newOptions,
           null,
           2

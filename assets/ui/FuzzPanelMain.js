@@ -36,7 +36,7 @@ function main() {
     .addEventListener("click", (e) => toggleFuzzOptions(e));
 
   // Load the data from the HTML
-  resultsData = JSON.parse(
+  resultsData = JSON5.parse(
     htmlUnescape(document.getElementById("fuzzResultsData").innerHTML)
   );
 
@@ -44,7 +44,7 @@ function main() {
   // an 'official' way to directly persist state within the extension itself,
   // at least as of vscode 1.69.2.  Hence, the roundtrip.
   vscode.setState(
-    JSON.parse(
+    JSON5.parse(
       htmlUnescape(document.getElementById("fuzzPanelState").innerHTML)
     )
   );
@@ -69,7 +69,7 @@ function main() {
       const inputs = {};
       e.input.forEach((i) => {
         inputs[`input: ${i.name}`] =
-          i.value === undefined ? "(no input)" : JSON.stringify(i.value);
+          i.value === undefined ? "(no input)" : JSON5.stringify(i.value);
       });
 
       // There are 0-1 outputs: if an output is present, just name it `output`
@@ -78,7 +78,7 @@ function main() {
       const outputs = {};
       e.output.forEach((o) => {
         outputs[`output`] =
-          o.value === undefined ? "undefined" : JSON.stringify(o.value);
+          o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
 
       // Toss each result into the appropriate grid
@@ -185,7 +185,7 @@ function handlePinToggle(id) {
   window.setTimeout(() => {
     vscode.postMessage({
       command: pinning ? "test.pin" : "test.unpin",
-      json: JSON.stringify(testInput),
+      json: JSON5.stringify(testInput),
     });
 
     // Update the control state
@@ -306,7 +306,7 @@ function handleFuzzStart(e) {
   // Send the fuzzer start command to the extension
   vscode.postMessage({
     command: "fuzz.start",
-    json: JSON.stringify(overrides),
+    json: JSON5.stringify(overrides),
   });
 } // fn: handleFuzzStart
 

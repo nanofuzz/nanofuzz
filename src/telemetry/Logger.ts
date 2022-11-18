@@ -1,5 +1,6 @@
 import * as util from "util";
 import * as vscode from "vscode";
+import * as JSON5 from "json5";
 
 /**
  * Lightweight storage for event data prior to de-staging.
@@ -54,7 +55,7 @@ export class Logger {
       this.log = []; // Clear the persisted data
       vscode.workspace.fs.writeFile(
         chunkUri,
-        Buffer.from(JSON.stringify(logCopy))
+        Buffer.from(JSON5.stringify(logCopy))
       );
     } else {
       console.debug("No log data to persist");
@@ -108,7 +109,7 @@ export class Logger {
       }
     }
 
-    return JSON.stringify(fullLog);
+    return JSON5.stringify(fullLog);
   }
   */
 }

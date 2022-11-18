@@ -1,3 +1,4 @@
+import * as JSON5 from "json5";
 import { FunctionDef, FunctionRef } from "./FunctionDef";
 import { ArgDef, ArgType, ArgTag } from "./ArgDef";
 
@@ -25,7 +26,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         {
           ...dummyRef,
           src: `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void => {
-        const whatever:string = name + offset + happy + JSON.stringify(nums);}`,
+        const whatever:string = name + offset + happy + JSON5.stringify(nums);}`,
         },
         argOptions
       ).getArgDefs()
@@ -51,7 +52,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         {
           ...dummyRef,
           src: `function $_f(name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void {
-            const whatever:string = name + offset + happy + JSON.stringify(nums);}`,
+            const whatever:string = name + offset + happy + JSON5.stringify(nums);}`,
         },
         argOptions
       ).getArgDefs()
