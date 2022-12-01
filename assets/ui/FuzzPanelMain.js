@@ -238,8 +238,8 @@ function handleFuzzStart(e) {
       const minVal = min.getAttribute("current-value");
       const maxVal = max.getAttribute("current-value");
       if (minVal !== undefined && maxVal !== undefined) {
-        thisOverride["min"] = Number(minVal);
-        thisOverride["max"] = Number(maxVal);
+        thisOverride["min"] = Math.min(Number(minVal), Number(maxVal));
+        thisOverride["max"] = Math.max(Number(minVal), Number(maxVal));
       }
     } // TODO: Validation !!!
 
@@ -271,8 +271,15 @@ function handleFuzzStart(e) {
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
       if (minStrLenVal !== undefined && maxStrLenVal !== undefined) {
-        thisOverride["minStrLen"] = Number(minStrLenVal);
-        thisOverride["maxStrLen"] = Number(maxStrLenVal);
+        thisOverride["minStrLen"] = Math.max(
+          0,
+          Math.min(Number(minStrLenVal), Number(maxStrLenVal))
+        );
+        thisOverride["maxStrLen"] = Math.max(
+          Number(minStrLenVal),
+          Number(maxStrLenVal),
+          0
+        );
       }
     } // TODO: Validation !!!
 
@@ -288,7 +295,10 @@ function handleFuzzStart(e) {
         const minVal = min.getAttribute("current-value");
         const maxVal = max.getAttribute("current-value");
         if (minVal !== undefined && maxVal !== undefined) {
-          dimLength.push({ min: Number(minVal), max: Number(maxVal) });
+          dimLength.push({
+            min: Math.max(Math.min(Number(minVal), Number(maxVal)), 0),
+            max: Math.max(Number(minVal), Number(maxVal), 0),
+          });
         }
       }
       arrayBase = `${idBase}-array-${++dim}`;
