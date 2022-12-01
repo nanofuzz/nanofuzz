@@ -22,11 +22,11 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
  - Jest
 
 The following are not yet supported:
- - Type references, deconstructed types, OR types, Tuples, Generics, or Function types
+ - Type references, deconstructed types, OR types, Tuples, Enums, Generics, or Function types
  - Non-finite numeric inputs (NaN, Infinity, null)
  - Object methods
  - Compiling to module formats other than CommonJS
- - Support for statefull tests
+ - Support for stateful tests
  - Sandboxing external side-effects
  - Custom generators, filters, and oracles
 
