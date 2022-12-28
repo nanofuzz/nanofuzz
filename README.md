@@ -8,7 +8,7 @@ Unlike some past automatic test suite generation tools, NaNofuzz takes an approa
  - returns null, NaN, Infinity, or undefined
  - does not terminate within a configurable period of time
 
-These design choices allow NaNofuzz to be fast, lightweight, easy to integrate into an everyday workflow, and helps programmers quickly find important edge cases they may have missed.
+These design choices allow NaNofuzz to be fast, lightweight, easy to integrate into an everyday workflow, and help programmers quickly find important edge cases more quickly.
 
 NaNofuzz supports standard and arrow functions with any mixture of the following parameter types:
  - Numbers (integers and floats, signed and unsigne)
@@ -25,8 +25,8 @@ The following are not yet supported:
  - Type references, deconstructed types, OR types, Tuples, Enums, Generics, or Function types
  - Non-finite numeric inputs (NaN, Infinity, null)
  - Object methods
- - Compiling to module formats other than CommonJS
- - Support for stateful tests
+ - Compiling to module formats other than CommonJS (see [VS Code issue #130367](https://github.com/microsoft/vscode/issues/130367))
+ - Support for stateful, flaky, or non-deterministic tests
  - Sandboxing external side-effects
  - Custom generators, filters, and oracles
 
