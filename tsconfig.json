@@ -15,6 +15,7 @@
     "importHelpers": true,
     "strictNullChecks": true,
     "suppressImplicitAnyIndexErrors": true,
+    "ignoreDeprecations": "5.0",
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "noUnusedLocals": false,

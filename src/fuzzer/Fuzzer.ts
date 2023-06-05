@@ -149,6 +149,7 @@ export const fuzz = async (
       exception: false,
       timeout: false,
       passed: true,
+      elapsedTime: 0,
     };
 
     // Before searching, consume the pool of pinned tests
@@ -187,14 +188,18 @@ export const fuzz = async (
 
     // Call the function via the wrapper
     try {
+      const startElapsedTime = performance.now(); // start timer (higher precision)
+      result.elapsedTime = startElapsedTime; // don't know if there's a better way?
       result.output.push({
         name: "0",
         offset: 0,
         value: fnWrapper(result.input), // <-- Wrapper
       });
+      result.elapsedTime = performance.now() - startElapsedTime; // stop timer
     } catch (e: any) {
       if (isTimeoutError(e)) {
         result.timeout = true;
+        result.elapsedTime = performance.now() - result.elapsedTime;
       } else {
         result.exception = true;
         result.exceptionMessage = e.message;
@@ -362,6 +367,7 @@ export type FuzzTestResult = {
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
   passed: boolean; // true if output matches oracle; false, otherwise
+  elapsedTime: number; // elapsed time of test
 };
 
 /**
