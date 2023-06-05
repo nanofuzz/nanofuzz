@@ -153,7 +153,6 @@ function main() {
       if (data[type].length) {
         //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type];
         const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
-        var tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
         // Note: I'm changing this so that I can replace the tbody later
         // (tbody used to be a const variable)
         //const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
@@ -167,9 +166,14 @@ function main() {
             cell.innerHTML = `<big>pin</big>`;
             cell.addEventListener("click", () => {
               // NOTE: don't forget to change this!!!!!!!!!!!!!!
-              handleColumnSort(type, k, data, tbody);
-              var empty_tbody = document.createElement("tbody");
-              tbody = empty_tbody;
+              handleColumnSort(
+                type,
+                k,
+                data,
+                document.getElementById(`fuzzResultsGrid-${type}-tbody`)
+              );
+              //var empty_tbody = document.createElement("tbody");
+              //tbody = empty_tbody;
             }); //the event listener
             // will "listen" for click on the column header
           } else if (k === idLabel) {
@@ -179,7 +183,12 @@ function main() {
             cell.innerHTML = `<big>${htmlEscape(k)}</big>`;
             cell.addEventListener("click", () => {
               // tbody.remove();
-              handleColumnSort(type, k, data, tbody);
+              handleColumnSort(
+                type,
+                k,
+                data,
+                document.getElementById(`fuzzResultsGrid-${type}-tbody`)
+              );
               // displayTableBody(data, tbody); //moved this into other function
 
               // var empty_tbody = document.createElement("tbody");
@@ -199,6 +208,7 @@ function main() {
         });
 
         // Render the data rows
+        var tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
         data[type].forEach((e) => {
           let id = -1;
           const row = tbody.appendChild(document.createElement("tr"));
@@ -408,7 +418,7 @@ function handleColumnSort(type, col, data, oldTbody) {
   console.log("..finished sort function..");
   console.log("AFTER:", data[type]);
 
-  displayTableBody(data, oldTbody);
+  displayTableBody(data, oldTbody, type);
 
   //What we want is data[type], which will be an array of the bracket objects
   //Each bracket object corresponds to 1 test:
@@ -425,7 +435,7 @@ function handleColumnSort(type, col, data, oldTbody) {
  * NOTE:
  * Current status: Not correct - can sort it once and update the screen, but cannot do multiple times.
  * */
-function displayTableBody(data, oldTbody) {
+function displayTableBody(data, oldTbody, type) {
   // Making me add these, which are defined in the main function:
   const pinnedLabel = "pinned";
   const idLabel = "id";
@@ -434,50 +444,50 @@ function displayTableBody(data, oldTbody) {
   let tbId = -1;
 
   // Fill the grids with data
-  gridTypes.forEach((type) => {
-    if (data[type].length) {
-      //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type];
-      //////// const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`); //Don't know how to make this work - need unique ID
-      ++tbId;
-      let table = oldTbody.parentNode;
-      let tbody = document.createElement("tbody");
-      console.log(oldTbody.parentNode);
-      oldTbody.remove();
-      table.appendChild(tbody);
-      tbody.setAttribute("id", `fuzzResultsGrid-${type}-tbody`);
+  //gridTypes.forEach((type) => {
+  if (data[type].length) {
+    //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type];
+    //////// const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`); //Don't know how to make this work - need unique ID
+    ++tbId;
+    let table = oldTbody.parentNode;
+    let tbody = document.createElement("tbody");
+    console.log(oldTbody.parentNode);
+    oldTbody.remove();
+    table.appendChild(tbody);
+    tbody.setAttribute("id", oldTbody.getAttribute("id"));
 
-      console.log(tbody.parentNode);
-      // Now we've created a new table body ^^^
+    console.log(tbody.parentNode);
+    // Now we've created a new table body ^^^
 
-      // Render the data rows
-      data[type].forEach((e) => {
-        let id = -1;
-        const row = tbody.appendChild(document.createElement("tr"));
-        Object.keys(e).forEach((k) => {
-          if (k === pinnedLabel) {
-            const cell = row.appendChild(document.createElement("td"));
-            cell.className = e[k] ? pinState.classPinned : pinState.classPin;
-            cell.id = `fuzzSaveToggle-${id}`;
-            cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
-            cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
-            cell.addEventListener("click", () => handlePinToggle(id));
-          } else if (k === idLabel) {
-            id = parseInt(e[k]);
-          } else {
-            const cell = row.appendChild(document.createElement("td"));
-            cell.innerHTML = htmlEscape(e[k]);
-          }
-        });
+    // Render the data rows
+    data[type].forEach((e) => {
+      let id = -1;
+      const row = tbody.appendChild(document.createElement("tr"));
+      Object.keys(e).forEach((k) => {
+        if (k === pinnedLabel) {
+          const cell = row.appendChild(document.createElement("td"));
+          cell.className = e[k] ? pinState.classPinned : pinState.classPin;
+          cell.id = `fuzzSaveToggle-${id}`;
+          cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
+          cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
+          cell.addEventListener("click", () => handlePinToggle(id));
+        } else if (k === idLabel) {
+          id = parseInt(e[k]);
+        } else {
+          const cell = row.appendChild(document.createElement("td"));
+          cell.innerHTML = htmlEscape(e[k]);
+        }
       });
-      // console.log(oldTbody);
-      // console.log(tbody);
-      // console.log(oldTbody.parentNode);
-      // oldTbody.parentNode.replaceChild(tbody, oldTbody);
-      // tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`); //Don't think this is doing anything
-    }
+    });
+    // console.log(oldTbody);
+    // console.log(tbody);
+    // console.log(oldTbody.parentNode);
+    // oldTbody.parentNode.replaceChild(tbody, oldTbody);
+    // tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`); //Don't think this is doing anything
+  }
 
-    // oldTbody.remove();
-  });
+  // oldTbody.remove();
+  //});
 }
 
 /**
