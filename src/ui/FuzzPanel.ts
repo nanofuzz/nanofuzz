@@ -34,6 +34,8 @@ export class FuzzPanel {
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
   private _errorMessage?: string; // error state: the error message
+  private _sortColumns?: FuzzSortColumns; // ..... the message containing column sort orders .....
+  // private _sortColumns?: string; // ..... the message containing column sort orders .....
 
   // ------------------------ Static Methods ------------------------ //
 
@@ -245,6 +247,9 @@ export class FuzzPanel {
           case "test.unpin":
             this._doTestPinnedCmd(json, false);
             break;
+          case "columnSortOrders":
+            this._storeColumnSortOrders(json);
+            break;
         }
       },
       undefined,
@@ -396,6 +401,13 @@ export class FuzzPanel {
     // Return the number of tests persisted
     return testCount;
   } // fn: _putPinnedTests()
+
+  /**
+   * Message handler for the `columnSortOrders' command.
+   */
+  private _storeColumnSortOrders(json: string) {
+    this._sortColumns = JSON5.parse(json);
+  }
 
   /**
    * Message handler for the `fuzz.start` command.
@@ -581,7 +593,7 @@ export class FuzzPanel {
    *
    * TODO: Move styles to CSS !!!
    */
-  private _updateHtml(): void {
+  _updateHtml(): void {
     const webview: vscode.Webview = this._panel.webview; // Current webview
     const extensionUri: vscode.Uri = this._extensionUri; // Extension URI
     const disabledFlag =
@@ -753,7 +765,7 @@ export class FuzzPanel {
                   <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.description}</h4>
                   <div id="fuzzResultsGrid-${e.id}">
                     <table class="fuzzGrid">
-                      <thead id="fuzzResultsGrid-${e.id}-thead" />
+                      <thead class="columnSortOrder" id="fuzzResultsGrid-${e.id}-thead" /> 
                       <tbody id="fuzzResultsGrid-${e.id}-tbody" />
                     </table>
                   </div>
@@ -770,6 +782,15 @@ export class FuzzPanel {
               this._results === undefined
                 ? "{}"
                 : htmlEscape(JSON5.stringify(this._results))
+            }
+          </div>
+
+          <!-- Fuzzer Sort Columns: for the client script to process -->
+          <div id="fuzzSortColumns" style="display:none">
+            ${
+              this._sortColumns === undefined
+                ? "{}"
+                : htmlEscape(JSON5.stringify(this._sortColumns))
             }
           </div>
 
@@ -1159,3 +1180,5 @@ export type FunctionMatch = {
   document: vscode.TextDocument;
   ref: fuzzer.FunctionRef;
 };
+
+export type FuzzSortColumns = Record<string, string>;

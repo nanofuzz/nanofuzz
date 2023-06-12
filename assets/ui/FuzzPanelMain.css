@@ -90,3 +90,16 @@ td.fuzzGridCellPin:hover {
 .tooltip:hover .tooltiptext {
   visibility: visible;
 }
+
+.columnSortDesc::after {
+  content: "    ▼";
+}
+
+.columnSortAsc::after {
+  content: "    ▲";
+}
+
+/* .columnSortNone::after {
+  content: "    ▲";
+  color: black;
+} */

@@ -1,10 +1,3 @@
-// import {
-//   ArgDef,
-//   ArgOptionOverrides,
-//   ArgOptions,
-//   ArgType,
-// } from "../../src/fuzzer/analysis/typescript/ArgDef";
-
 const vscode = acquireVsCodeApi();
 
 // Attach main to the window onLoad() event
@@ -21,20 +14,20 @@ const pinState = {
   classPin: "fuzzGridCellPin",
 };
 
-// Sort order for each grid and column vvvvvvvvvvvvvvvvvvvvvvvv
+// Sort order for each grid and column
 const sortOrder = ["asc", "desc", "none"];
 function getDefaultColumnSortOrder() {
-  return { pinned: "desc" }; //!!!!!!supposed to say desc
+  return { pinned: "desc" };
 }
-// Data structure object we created on the spot:
-const columnSortOrders = {
+const defaultColumnSortOrders = {
   timeout: getDefaultColumnSortOrder(),
   exception: getDefaultColumnSortOrder(),
   badOutput: getDefaultColumnSortOrder(),
   passed: getDefaultColumnSortOrder(),
 };
-// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+// Column sort orders (filled by main or handleColumnSort())
+let columnSortOrders;
 // Fuzzer Results (filled by main during load event)
 let resultsData;
 
@@ -61,6 +54,16 @@ function main() {
     htmlUnescape(document.getElementById("fuzzResultsData").innerHTML)
   );
 
+  // Load column sort orders from the HTML
+  let message = JSON5.parse(
+    htmlUnescape(document.getElementById("fuzzSortColumns").innerHTML)
+  );
+  if (Object.keys(message).length === 0) {
+    columnSortOrders = defaultColumnSortOrders;
+  } else {
+    columnSortOrders = JSON.parse(JSON.stringify(message));
+  }
+
   // Load and save the state back to the webview.  There does not seem to be
   // an 'official' way to directly persist state within the extension itself,
   // at least as of vscode 1.69.2.  Hence, the roundtrip.
@@ -70,12 +73,9 @@ function main() {
     )
   );
 
-  // Thinking we start here...
-  // Actually, we already have `data` set up, so probably later on
-
   // Fill the result grids
   if (Object.keys(resultsData).length) {
-    const data = {}; // !!!!!!!!!used to be `const data = {}`
+    const data = {};
     gridTypes.forEach((type) => {
       data[type] = [];
     });
@@ -105,15 +105,12 @@ function main() {
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
 
-      //console.log("Elapsed time:" + e.elapsedTime);
-
       // Toss each result into the appropriate grid
       if (e.passed) {
         data["passed"].push({
           ...id,
           ...inputs,
           ...outputs,
-          //"running time (ms)": JSON5.stringify(e.elapsedTime), // convert to string
           "running time (ms)": e.elapsedTime.toFixed(3), // converts to string
           ...pinned,
         });
@@ -123,7 +120,7 @@ function main() {
             ...id,
             ...inputs,
             exception: e.exceptionMessage,
-            "running time (ms)": e.elapsedTime.toFixed(3), // converts to string
+            "running time (ms)": e.elapsedTime.toFixed(3),
             ...pinned,
           });
         } else if (e.timeout) {
@@ -145,65 +142,32 @@ function main() {
       }
     } // for: each result
 
-    // Thinking maybe here: vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-
     // Fill the grids with data
-    // (note: forEach() performs an action on every element of the array)
     gridTypes.forEach((type) => {
       if (data[type].length) {
         //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type];
         const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
-        // Note: I'm changing this so that I can replace the tbody later
-        // (tbody used to be a const variable)
-        //const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
+        const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
 
-        // Render the header row//////////////////////////////////////////////////////////////////
+        // Render the header row
         const hRow = thead.appendChild(document.createElement("tr"));
         Object.keys(data[type][0]).forEach((k) => {
           if (k === pinnedLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.className = "fuzzGridCellPinned";
             cell.innerHTML = `<big>pin</big>`;
+            cell.setAttribute("class", "columnSortDesc");
             cell.addEventListener("click", () => {
-              // NOTE: don't forget to change this!!!!!!!!!!!!!!
-              handleColumnSort(
-                type,
-                k,
-                data,
-                document.getElementById(`fuzzResultsGrid-${type}-tbody`)
-              );
-              //var empty_tbody = document.createElement("tbody");
-              //tbody = empty_tbody;
-            }); //the event listener
-            // will "listen" for click on the column header
+              handleColumnSort(cell, type, k, data, tbody, false);
+            });
           } else if (k === idLabel) {
             // noop
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.innerHTML = `<big>${htmlEscape(k)}</big>`;
             cell.addEventListener("click", () => {
-              // tbody.remove();
-              handleColumnSort(
-                type,
-                k,
-                data,
-                document.getElementById(`fuzzResultsGrid-${type}-tbody`)
-              );
-              // displayTableBody(data, tbody); //moved this into other function
-
-              // var empty_tbody = document.createElement("tbody");
-              // for (
-              //   var cn = tbody.childNodes, l = cn.length, i = 0;
-              //   i < l;
-              //   i++
-              // ) {
-              //   cn[i].parentNode.removeChild(cn[i]);
-              // }
-              // tbody.remove(); //This works!!!!!!!
-
-              // document.replaceChild(empty_tbody, tbody); //Uncaught DOMException: Failed to execute 'replaceChild' on 'Node': The node to be replaced is not a child of this node.
+              handleColumnSort(cell, type, k, data, tbody, false);
             });
-            //console.log(data[type]);
           }
         });
 
@@ -229,10 +193,20 @@ function main() {
           });
         });
 
-        // const empty_tbody = document.createElement("tbody");
-      }
+        // Initial sort, according to columnSortOrders
+        let hRowIdx = 0;
+        for (let k = 0; k < Object.keys(data[type][0]).length; ++k) {
+          let col = Object.keys(data[type][0])[k];
+          let cell = hRow.cells[hRowIdx];
+          if (col === idLabel) {
+            continue;
+          }
+          handleColumnSort(cell, type, col, data, tbody, true);
+          ++hRowIdx;
+        }
+      } // for: each type
     });
-  } // (the end of the if statement)
+  }
 } // fn: main()
 
 /**
@@ -272,7 +246,7 @@ function handlePinToggle(id) {
   // Send the request to the extension
   window.setTimeout(() => {
     vscode.postMessage({
-      command: pinning ? "test.pin" : "test.unpin", //or
+      command: pinning ? "test.pin" : "test.unpin",
       json: JSON5.stringify(testInput),
     });
 
@@ -292,203 +266,221 @@ function handlePinToggle(id) {
   });
 } // fn: handleSaveToggle()
 
-function handleColumnSort(type, col, data, oldTbody) {
-  /**
-   * TO DO:
-   *
-   * Currently simplified version, need to include the for loop to go through all the
-   * columns (for a given tab).
-   *
-   * Figure out how to update the screen after sorting.
-   *
-   * Come up with way to deal with sorting different types of objects.
-   *
-   * Then: Also need to make use of data structure, allow user to keep clicking and clicking,
-   * do more stuff with UI, etc.
-   */
+/**
+ * Sorts table based on columns. Each column can be toggled between 'asc', 'desc', and
+ * 'none'. The first columns that the user clicks have the highest priority. Later
+ * columns that are clicked are used to break ties.
+ *
+ * @param cell cell of hRow
+ * @param type (timeout, exception, badOutput, passed)
+ * @param col (ex: input:a, output, pin)
+ * @param data
+ * @param tbody table body
+ * @param isFirst bool determining if the initial sort is occurring, or if the function
+ * is being called because the user clicked on a column
+ */
+function handleColumnSort(cell, type, col, data, tbody, isFirst) {
+  updateColumnArrows(cell, type, col, isFirst);
 
-  console.log(data[type]);
+  // Add column names in order
+  var colNames = [];
+  for (var colName in columnSortOrders[type]) {
+    colNames.push(colName);
+  }
 
-  data[type].sort((a, b) => {
-    var aType;
-    //If the values are not numeric, then we should sort alphabetically
-    //  (Would it make more sense to sort strings by length?)    console.log("typeof a[col]:", typeof a[col]);
-    try {
-      aType = typeof JSON.parse(a[col]);
-    } catch (error) {
-      aType = "string"; //sort alphabetically
-    }
-    // if (Number(a[col]).toString() == "NaN") {
-    //   aType = "string";
-    //   console.log("it's a string-------");
-    //   // Here, it could be a string, or it could also be a bool (alphabetically probably is
-    //   // still okay?), or it could be one of the exceptions (NaN, null, undefined, etc)
-    // } else aType = typeof JSON.parse(a[col]);
+  // Sort columns
+  // (This was the original plan:)
+  // Go through the columns in backwards order, so that the first columns you
+  // clicked on take precedence over later ones
+  // (Potential new plan:)
+  // Go through the columns in order, so that the most recent columns you click
+  // on take precedence over earlier ones
+  // Still need to figure out how to deal with pin - special case
+  for (let i = colNames.length - 1; i >= 0; --i) {
+    col = colNames[i];
+    data[type].sort((a, b) => {
+      if (columnSortOrders[type][col] == "none") {
+        // If none, return
+        return;
+      } else if (columnSortOrders[type][col] == "desc") {
+        // If descending, reverse a and b
+        let temp = a;
+        a = b;
+        b = temp;
+      }
+      // Determine type of object
+      var aType;
+      try {
+        aType = typeof JSON.parse(a[col]);
+      } catch (error) {
+        aType = "string";
+      }
+      // Save original strings (to break ties alphabetically)
+      var aVal = a[col],
+        bVal = b[col];
 
-    /**
-     * NOTE: Doesn't work for arrays of strings/literal objects
-     * (currently sorting alphabetically, not by length)
-     *
-     * It does work for arrays of numbers
-     *
-     * Don't think it's working for the pinned column (or maybe it is..)
-     *
-     * Can we assume that a and b have the same type? Not always
-     */
-    switch (aType) {
-      case "string":
-        console.log("string");
-        a = a[col];
-        b = b[col];
-        break;
-      case "number":
-        console.log("number");
-        a = Number(a[col]);
-        b = Number(b[col]);
-        break;
-      case "object":
-        console.log("object:");
-        //trying to sort by length in this case...
-        //(assuming options here are array vs literal object)
-        if (a[col].length) {
-          console.log("array");
-          //Means it's an array
+      switch (aType) {
+        case "string":
+          // Sort by length, break ties alphabetically
           a = a[col].length;
           b = b[col].length;
-        } else {
-          console.log("literal object");
-          //Means it's a literal object
-          a = Object.keys(a[col]).length;
-          b = Object.keys(b[col]).length;
           break;
+        case "boolean":
+          // Sort alphabetically
+          a = a[col];
+          b = b[col];
+          break;
+        case "number":
+          // Sort numerically
+          a = Number(a[col]);
+          b = Number(b[col]);
+          break;
+        case "object":
+          // Sort by length
+          if (a[col].length) {
+            a = a[col].length;
+            b = b[col].length;
+            // If numerical values, break ties based on number
+            try {
+              aVal = JSON.parse(a[col]);
+              bVal = JSON.parse(b[col]);
+            } catch (error) {
+              // noop
+              // If not numerical values, break ties alphabetically
+            }
+          } else {
+            a = Object.keys(a[col]).length;
+            b = Object.keys(b[col]).length;
+            break;
+          }
+      }
+
+      // Compare values and sort
+      if (a === b) {
+        if (aVal === bVal) {
+          return 0; // a = b
+        } else if (aVal > bVal) {
+          // break tie
+          return 2;
+        } else {
+          // break tie
+          return -2;
         }
-    }
+      } else if (a > b) {
+        return 2; // a > b
+      } else {
+        return -2; // a < b
+      }
+    });
+  }
+  // Sorting done, display sorted table
+  displaySortedTableBody(data, tbody, type);
 
-    // if (aType == "number") {
-    //   console.log("number");
-    //   a = Number(a[col]);
-    //   b = Number(b[col]);
-    // } else if (aType == "object") {
-    //   //trying to sort by length in this case...
-    //   if (a[col].length) {
-    //     console.log("array");
-    //     //means it's an array, assuming options are array vs literal object
-    //     a = a[col].length;
-    //     b = b[col].length;
-    //   } else {
-    //     console.log("literal object");
-    //     //means it's a literal object, assuming options are array vs literal object
-    //     a = Object.keys(a[col]).length;
-    //     b = Object.keys(b[col]).length;
-    //   }
-    // }
-    // //Otherwise, assume it's a string or bool
-    // else console.log("string or bool");
-
-    /*
-    if (Number(a) != NaN) {
-      console.log("Number(a) != NaN, meaning it's a number");
-      console.log("a:", a);
-      //a and b are currently objects
-      // console.log(Object.prototype.toString.call(a)); //yields [object Object]
-      // console.log(Object.prototype.toString.call(new FormData()));
-      // console.log(
-      //   Object.prototype.toString.call(new FormData()) === "[object FormData]"
-      // );
-      a = Number(a[col]);
-      b = Number(b[col]);
-    } else console.log("it's not a number");
-    */
-
-    if (a === b) {
-      return 0; //same
-    } else if (a > b) {
-      return 2; //a > b
-    } else {
-      return -2; //a < b
-    }
-
-    // for (col in columnSortOrders["passed"]) {
-    //   //console.log("for (col in columnSortOrders['passed'])");
-    //   if (a[col] === b[col]) return 0; //same
-    //   else if (a[col] > b[col]) return -2; //a > b
-    //   else return 2; //a < b
-    // }
-  });
-  console.log("..finished sort function..");
-  console.log("AFTER:", data[type]);
-
-  displayTableBody(data, oldTbody, type);
-
-  //What we want is data[type], which will be an array of the bracket objects
-  //Each bracket object corresponds to 1 test:
-  //{id: 0, input: __, output: "NaN", pinned = true, running time = ".5"}
-
-  // Get the test data for the test case
-  // Get the control that was clicked
-  // Are we pinning or unpinning the test?
-  // Disable the control while we wait for the response
-  // Send the request to the extension
-} // fn: handleColumnSort
+  // Send message to extension (so that if you click Test again, your sort order will
+  // be retained)
+  if (!isFirst) {
+    vscode.postMessage({
+      command: "columnSortOrders",
+      json: JSON5.stringify(columnSortOrders),
+    });
+  }
+} // fn: handleColumnSort`
 
 /**
- * NOTE:
- * Current status: Not correct - can sort it once and update the screen, but cannot do multiple times.
- * */
-function displayTableBody(data, oldTbody, type) {
-  // Making me add these, which are defined in the main function:
+ * Displays column arrows in header row, and updates columnSortOrders
+ *
+ * @param cell cell of hRow
+ * @param type (timeout, exception, badOutput, passed)
+ * @param col (ex: input:a, output, pin)
+ * @param isFirst bool determining if the initial sort is occurring, or if the function
+ * is being called because the user clicked on a column
+ * @returns
+ */
+function updateColumnArrows(cell, type, col, isFirst) {
+  let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
+  let currIndex = -1;
+  // Here, currIndex represents an index of sortOrder = ['asc','desc','none']
+  if (!currOrder) {
+    // If currOrder is undefined, either return or set currOrder to default value 'asc'
+    if (isFirst) {
+      return;
+    } else {
+      currOrder = "asc";
+      currIndex = 0;
+    }
+  } else {
+    // If currOrder is already defined and isFirst is not true (meaning the user clicked
+    // on a column), change the sorting direction to the next value in the cycle
+    // (asc -> desc, desc -> none, none -> asc)
+    if (!isFirst) {
+      for (let i = 0; i < sortOrder.length; ++i) {
+        if (currOrder === sortOrder[i]) currIndex = i;
+      }
+      currIndex = (currIndex + 1) % sortOrder.length;
+      currOrder = sortOrder[currIndex];
+    }
+  }
+
+  // Set attribute to display appropriate arrow
+  switch (currOrder) {
+    case "asc":
+      cell.setAttribute("class", "columnSortAsc");
+      break;
+    case "desc":
+      cell.setAttribute("class", "columnSortDesc");
+      break;
+    case "none":
+      cell.setAttribute("class", "columnSortNone");
+      break;
+    default:
+      assert(false); // shouldn't get here
+  }
+  // To ensure that the order of keys in columnSortOrders reflects the order that the
+  // user clicked the columns, delete the modified key and add it back to the end.
+  if (!isFirst) {
+    delete columnSortOrders[type][col];
+    columnSortOrders[type][col] = sortOrder[currIndex];
+  }
+} //fn: updateColumnArrows
+
+/**
+ * Updates the table body to reflect new sorted order
+ *
+ * @param data
+ * @param tbody table body
+ * @param type (timeout, exception, badOutput, passed)
+ */
+function displaySortedTableBody(data, tbody, type) {
   const pinnedLabel = "pinned";
   const idLabel = "id";
 
-  // oldTbody.remove();
-  let tbId = -1;
-
-  // Fill the grids with data
-  //gridTypes.forEach((type) => {
-  if (data[type].length) {
-    //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type];
-    //////// const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`); //Don't know how to make this work - need unique ID
-    ++tbId;
-    let table = oldTbody.parentNode;
-    let tbody = document.createElement("tbody");
-    console.log(oldTbody.parentNode);
-    oldTbody.remove();
-    table.appendChild(tbody);
-    tbody.setAttribute("id", oldTbody.getAttribute("id"));
-
-    console.log(tbody.parentNode);
-    // Now we've created a new table body ^^^
-
-    // Render the data rows
-    data[type].forEach((e) => {
-      let id = -1;
-      const row = tbody.appendChild(document.createElement("tr"));
-      Object.keys(e).forEach((k) => {
-        if (k === pinnedLabel) {
-          const cell = row.appendChild(document.createElement("td"));
-          cell.className = e[k] ? pinState.classPinned : pinState.classPin;
-          cell.id = `fuzzSaveToggle-${id}`;
-          cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
-          cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
-          cell.addEventListener("click", () => handlePinToggle(id));
-        } else if (k === idLabel) {
-          id = parseInt(e[k]);
-        } else {
-          const cell = row.appendChild(document.createElement("td"));
-          cell.innerHTML = htmlEscape(e[k]);
-        }
-      });
+  // Change data rows
+  let i = 0;
+  data[type].forEach((e) => {
+    let id = -1;
+    let j = 0;
+    Object.keys(e).forEach((k) => {
+      // Iterate over rows
+      let row = tbody.rows[i];
+      // Iterate over cells
+      let cell = row.cells[j];
+      if (k === pinnedLabel) {
+        cell.className = e[k] ? pinState.classPinned : pinState.classPin;
+        cell.id = `fuzzSaveToggle-${id}`;
+        cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
+        cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
+        cell.addEventListener("click", () => handlePinToggle(id));
+      } else if (k === idLabel) {
+        id = parseInt(e[k]);
+        --j; // don't count this column
+      } else {
+        cell.innerHTML = htmlEscape(e[k]);
+      }
+      ++j;
     });
-    // console.log(oldTbody);
-    // console.log(tbody);
-    // console.log(oldTbody.parentNode);
-    // oldTbody.parentNode.replaceChild(tbody, oldTbody);
-    // tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`); //Don't think this is doing anything
-  }
-
-  // oldTbody.remove();
-  //});
-}
+    ++i;
+  });
+} //fn: displaySortedTableBody
 
 /**
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
