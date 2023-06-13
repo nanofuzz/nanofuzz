@@ -172,7 +172,7 @@ function main() {
         });
 
         // Render the data rows
-        var tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
+        // var tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
         data[type].forEach((e) => {
           let id = -1;
           const row = tbody.appendChild(document.createElement("tr"));
