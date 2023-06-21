@@ -158,7 +158,7 @@ function main() {
             cell.innerHTML = `<big>pin</big>`;
             cell.setAttribute("class", "columnSortDesc");
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, type, k, data, tbody, false);
+              handleColumnSort(cell, hRow, type, k, data, tbody, false);
             });
           } else if (k === idLabel) {
             // noop
@@ -166,7 +166,7 @@ function main() {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.innerHTML = `<big>${htmlEscape(k)}</big>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, type, k, data, tbody, false);
+              handleColumnSort(cell, hRow, type, k, data, tbody, false);
             });
           }
         });
@@ -201,7 +201,7 @@ function main() {
           if (col === idLabel) {
             continue;
           }
-          handleColumnSort(cell, type, col, data, tbody, true);
+          handleColumnSort(cell, hRow, type, col, data, tbody, true);
           ++hRowIdx;
         }
       } // for: each type
@@ -267,112 +267,129 @@ function handlePinToggle(id) {
 } // fn: handleSaveToggle()
 
 /**
- * Sorts table based on columns. Each column can be toggled between 'asc', 'desc', and
- * 'none'. The first columns that the user clicks have the highest priority. Later
- * columns that are clicked are used to break ties.
+ * Sorts table based on a column. Each column can be toggled between 'asc', 'desc', and
+ * 'none'. The most recent column that the user clicks has the highest precedence.
+ * Uses stable sort, so previously sorted rows will not change unless they have to.
  *
  * @param cell cell of hRow
+ * @param hRow header row
  * @param type (timeout, exception, badOutput, passed)
  * @param col (ex: input:a, output, pin)
  * @param data
  * @param tbody table body
  * @param isFirst bool determining if the initial sort is occurring, or if the function
  * is being called because the user clicked on a column
+ *
+ * 'Initial sort' could be:
+ *  - Making sure the pinned column is sorted at the beginning
+ *  - Making sure we retain previous sort settings if you click 'Test' again
  */
-function handleColumnSort(cell, type, col, data, tbody, isFirst) {
-  updateColumnArrows(cell, type, col, isFirst);
+function handleColumnSort(cell, hRow, type, col, data, tbody, isFirst) {
+  // We are only explicitly sorting by one column at a time (with 'pinned' being a
+  // special case)
+  // Reset the other column arrows to 'none'
+  if (!isFirst) resetOtherColumnArrows(hRow, type, col, data);
+  updateColumnArrow(cell, type, col, isFirst);
 
-  // Add column names in order
-  var colNames = [];
-  for (var colName in columnSortOrders[type]) {
-    colNames.push(colName);
-  }
+  // Sort data[type] based on column 'col'
+  data[type].sort((a, b) => {
+    if (columnSortOrders[type][col] == "none") {
+      // If none, return
+      return;
+    } else if (columnSortOrders[type][col] == "desc") {
+      // If descending, reverse a and b
+      let temp = a;
+      a = b;
+      b = temp;
+    }
+    // Determine type of object
+    var aType;
+    try {
+      aType = typeof JSON.parse(a[col]);
+    } catch (error) {
+      aType = "string";
+    }
+    // Save original strings (to break ties alphabetically)
+    var aVal = a[col],
+      bVal = b[col];
 
-  // Sort columns
-  // (This was the original plan:)
-  // Go through the columns in backwards order, so that the first columns you
-  // clicked on take precedence over later ones
-  // (Potential new plan:)
-  // Go through the columns in order, so that the most recent columns you click
-  // on take precedence over earlier ones
-  // Still need to figure out how to deal with pin - special case
-  for (let i = colNames.length - 1; i >= 0; --i) {
-    col = colNames[i];
-    data[type].sort((a, b) => {
-      if (columnSortOrders[type][col] == "none") {
-        // If none, return
-        return;
-      } else if (columnSortOrders[type][col] == "desc") {
-        // If descending, reverse a and b
-        let temp = a;
-        a = b;
-        b = temp;
-      }
-      // Determine type of object
-      var aType;
-      try {
-        aType = typeof JSON.parse(a[col]);
-      } catch (error) {
-        aType = "string";
-      }
-      // Save original strings (to break ties alphabetically)
-      var aVal = a[col],
-        bVal = b[col];
-
-      switch (aType) {
-        case "string":
-          // Sort by length, break ties alphabetically
+    switch (aType) {
+      case "string":
+        // Sort by length, break ties alphabetically
+        a = a[col].length;
+        b = b[col].length;
+        break;
+      case "boolean":
+        // Sort alphabetically
+        a = a[col];
+        b = b[col];
+        break;
+      case "number":
+        // Sort numerically
+        a = Number(a[col]);
+        b = Number(b[col]);
+        break;
+      case "object":
+        // Sort by length
+        if (a[col].length) {
           a = a[col].length;
           b = b[col].length;
-          break;
-        case "boolean":
-          // Sort alphabetically
-          a = a[col];
-          b = b[col];
-          break;
-        case "number":
-          // Sort numerically
-          a = Number(a[col]);
-          b = Number(b[col]);
-          break;
-        case "object":
-          // Sort by length
-          if (a[col].length) {
-            a = a[col].length;
-            b = b[col].length;
-            // If numerical values, break ties based on number
-            try {
-              aVal = JSON.parse(a[col]);
-              bVal = JSON.parse(b[col]);
-            } catch (error) {
-              // noop
-              // If not numerical values, break ties alphabetically
-            }
-          } else {
-            a = Object.keys(a[col]).length;
-            b = Object.keys(b[col]).length;
-            break;
+          // If numerical values, break ties based on number
+          try {
+            aVal = JSON.parse(a[col]);
+            bVal = JSON.parse(b[col]);
+          } catch (error) {
+            // noop
+            // If not numerical values, break ties alphabetically
           }
-      }
-
-      // Compare values and sort
-      if (a === b) {
-        if (aVal === bVal) {
-          return 0; // a = b
-        } else if (aVal > bVal) {
-          // break tie
-          return 2;
         } else {
-          // break tie
-          return -2;
+          a = Object.keys(a[col]).length;
+          b = Object.keys(b[col]).length;
+          break;
         }
-      } else if (a > b) {
-        return 2; // a > b
+    }
+
+    // Compare values and sort
+    if (a === b) {
+      if (aVal === bVal) {
+        return 0; // a = b
+      } else if (aVal > bVal) {
+        // break tie
+        return 2;
       } else {
-        return -2; // a < b
+        // break tie
+        return -2;
       }
-    });
-  }
+    } else if (a > b) {
+      return 2; // a > b
+    } else {
+      return -2; // a < b
+    }
+  });
+
+  // Special case for pinned column, to ensure that it is always sorted
+  data[type].sort((a, b) => {
+    if (columnSortOrders[type]["pinned"] == "none") {
+      // If none, return
+      return;
+    } else if (columnSortOrders[type]["pinned"] == "desc") {
+      // If descending, reverse a and b
+      let temp = a;
+      a = b;
+      b = temp;
+    }
+    a = a["pinned"];
+    b = b["pinned"];
+
+    if (a === b) {
+      return 0;
+    } else if (a > b) {
+      return 2; // a > b
+    } else {
+      return -2; // a < b
+    }
+  });
+
   // Sorting done, display sorted table
   displaySortedTableBody(data, tbody, type);
 
@@ -387,7 +404,36 @@ function handleColumnSort(cell, type, col, data, tbody, isFirst) {
 } // fn: handleColumnSort`
 
 /**
- * Displays column arrows in header row, and updates columnSortOrders
+ * For a given type, set columns arrows to 'none', unless the column is
+ * the current column being sorted by. The 'pinned' column is a special case
+ *
+ * @param hRow header row
+ * @param type (timeout, exception, badOutput, passed)
+ * @param thisCol the current column being sorted by
+ * @param data
+ */
+function resetOtherColumnArrows(hRow, type, thisCol, data) {
+  // For a given type, iterate over the columns (ex: input:a, output, pin)
+  let hRowIdx = 0;
+  for (let k = 0; k < Object.keys(data[type][0]).length; ++k) {
+    let col = Object.keys(data[type][0])[k];
+    let cell = hRow.cells[hRowIdx];
+    if (col === "id") {
+      continue;
+    }
+    if (col === thisCol || col === "pinned" || thisCol == "pinned") {
+      ++hRowIdx;
+      continue;
+    }
+    // Reset the column arrow to 'none'
+    columnSortOrders[type][col] = "none";
+    cell.setAttribute("class", "columnSortNone");
+    ++hRowIdx;
+  }
+}
+
+/**
+ * Displays column arrow in header row, and updates columnSortOrders
  *
  * @param cell cell of hRow
  * @param type (timeout, exception, badOutput, passed)
@@ -396,7 +442,10 @@ function handleColumnSort(cell, type, col, data, tbody, isFirst) {
  * is being called because the user clicked on a column
  * @returns
  */
-function updateColumnArrows(cell, type, col, isFirst) {
+function updateColumnArrow(cell, type, col, isFirst) {
+  // Pinned column is a special case -- will always check at the end to see if it wants
+  // the pinned column sorted in a certain way. That arrow should be displayed.
+
   let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
   let currIndex = -1;
   // Here, currIndex represents an index of sortOrder = ['asc','desc','none']
@@ -435,10 +484,8 @@ function updateColumnArrows(cell, type, col, isFirst) {
     default:
       assert(false); // shouldn't get here
   }
-  // To ensure that the order of keys in columnSortOrders reflects the order that the
-  // user clicked the columns, delete the modified key and add it back to the end.
+
   if (!isFirst) {
-    delete columnSortOrders[type][col];
     columnSortOrders[type][col] = sortOrder[currIndex];
   }
 } //fn: updateColumnArrows
