@@ -150,6 +150,7 @@ export const fuzz = async (
       timeout: false,
       passed: true,
       elapsedTime: 0,
+      label: { check: false, error: false, question: false },
     };
 
     // Before searching, consume the pool of pinned tests
@@ -368,6 +369,7 @@ export type FuzzTestResult = {
   timeout: boolean; // true if the fn call timed out
   passed: boolean; // true if output matches oracle; false, otherwise
   elapsedTime: number; // elapsed time of test
+  label: {}; // check x question mark
 };
 
 /**

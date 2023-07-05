@@ -29,6 +29,29 @@ td.fuzzGridCellPin:hover {
   opacity: 100%;
 }
 
+td.classCheckOff {
+  opacity: 50%;
+}
+td.classErrorOff {
+  opacity: 50%;
+}
+td.classQuestionOff {
+  opacity: 50%;
+}
+
+td.classCheckOn {
+  opacity: 100%;
+  color: rgba(95, 250, 152, 0.665);
+}
+td.classErrorOn {
+  opacity: 100%;
+  color: rgba(251, 81, 81, 0.665);
+}
+td.classQuestionOn {
+  opacity: 100%;
+  color: rgb(230, 212, 108);
+}
+
 /** Tooltips: adapted from: https://www.w3schools.com/css/css_tooltip.asp **/
 
 .tooltip {

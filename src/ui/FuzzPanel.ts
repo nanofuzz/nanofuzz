@@ -236,12 +236,14 @@ export class FuzzPanel {
     webview.onDidReceiveMessage(
       async (message: FuzzPanelMessage) => {
         const { command, json } = message;
+        console.log("RECEIVED A MESSAGE:", command);
 
         switch (command) {
           case "fuzz.start":
             this._doFuzzStartCmd(json);
             break;
           case "test.pin":
+            // this._doTestPinnedCmd(json, true, JSON5.parse(json).correctness);
             this._doTestPinnedCmd(json, true);
             break;
           case "test.unpin":
@@ -263,6 +265,74 @@ export class FuzzPanel {
    * @param json inputs to pin or unpins
    * @param pin true=pin test; false=unpin test
    */
+  // private _doTestPinnedCmd(json: string, pin: boolean, correctness: string) {
+  //   console.log("CURRENT JSON:", json);
+  //   // console.log("correctness, pin:", correctness, pin);
+  //   const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
+  //     this._getPinnedTests();
+  //   let changed = false; // Did we change anything?
+
+  //   console.log("PINNEDSET:", pinnedSet);
+  //   console.log("json in pinnedSet?", json in pinnedSet);
+  //   // Add or delete the test, as needed
+  //   if (json in pinnedSet && !pin && correctness === "none") {
+  //     // If we are unsaving and the test is in the file, remove it
+  //     delete pinnedSet[json];
+  //     changed = true;
+  //   } else {
+  //     // if we are saving a test but it is not in the file, add the test
+  //     pinnedSet[json] = JSON5.parse(json);
+  //     changed = true;
+  //   }
+
+  //   if (json in pinnedSet) {
+  //     if (!pin) {
+  //       delete pinnedSet[json];
+  //       changed = true;
+  //     }
+  //   } else {
+  //     pinnedSet[json] = JSON5.parse(json);
+  //     changed = true;
+  //   }
+
+  //   // Persist changes
+  //   if (changed) {
+  //     // Update the pinned tests file
+  //     const testCount = this._putPinnedTests(pinnedSet);
+
+  //     // Get the filename of the Jest file
+  //     const jestFile = jestadapter.getFilename(
+  //       this._fuzzEnv.function.getModule()
+  //     );
+
+  //     if (testCount) {
+  //       // Generate the Jest test data for CI
+  //       const jestTests = jestadapter.toString(
+  //         this._getAllPinnedTests(),
+  //         this._fuzzEnv.function.getModule(),
+  //         this._fuzzEnv.options.fnTimeout
+  //       );
+
+  //       // Persist the Jest tests for CI
+  //       try {
+  //         fs.writeFileSync(jestFile, jestTests);
+  //       } catch (e: any) {
+  //         vscode.window.showErrorMessage(
+  //           `Unable to update test file: ${jestFile} (${e.message})`
+  //         );
+  //       }
+  //     } else {
+  //       // Delete the test file: it will contain no tests
+  //       try {
+  //         fs.rmSync(jestFile);
+  //       } catch (e: any) {
+  //         vscode.window.showErrorMessage(
+  //           `Unable to remove test file: ${jestFile} (${e.message})`
+  //         );
+  //       }
+  //     }
+  //   }
+  // } // fn: _doTestPinnedCmd()
   private _doTestPinnedCmd(json: string, pin: boolean) {
     const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
       this._getPinnedTests();
