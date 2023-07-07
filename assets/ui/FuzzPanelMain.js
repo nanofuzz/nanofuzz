@@ -170,6 +170,7 @@ function main() {
     // Fill the grids with data
     // console.log("DATA:", data);
     // console.log("data[badOutput][0]:", data["badOutput"][0]);
+
     gridTypes.forEach((type) => {
       if (data[type].length) {
         //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type];
@@ -214,8 +215,25 @@ function main() {
               cell.className = e[k] ? pinState.classPinned : pinState.classPin;
               cell.id = `fuzzSaveToggle-${id}`;
               cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
+              cell.setAttribute("cellId", id);
               cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
-              cell.addEventListener("click", () => handlePinToggle(id));
+              //cell.addEventListener("click", () => handlePinToggle(id));
+              cell.addEventListener("click", (e) =>
+                handlePinToggle(
+                  e.currentTarget.getAttribute("cellId"),
+                  type,
+                  data,
+                  pinnedLabel
+                )
+              );
+
+              /**
+               *
+               * Confused????
+               *
+               * Printing this a bunch of times:
+               * RECEIVED A MESSAGE: test.unpin
+               */
             } else if (k === idLabel) {
               id = parseInt(e[k]);
             } else if (k === correctLabel) {
@@ -260,7 +278,12 @@ function main() {
           let cell = hRow.cells[hRowIdx];
           if (col === idLabel) {
             continue;
+          } else if (col === correctLabel) {
+            // continue for now
+            continue;
           }
+          //
+          // ME
           handleColumnSort(cell, hRow, type, col, data, tbody, true);
           ++hRowIdx;
         }
@@ -289,53 +312,13 @@ function toggleFuzzOptions(e) {
  * Toggles whether a test is pinned for CI and the next AutoTest.
  *
  * @param id offset of test in resultsData
+ * @param type grid type (e.g., passed, invalid)
+ * @param data the back-end data structure
+ * @param pinnedLabel the label representing whether item is pinned
  */
-// function handlePinToggle(id) {
-//   // Get the test data for the test case
-//   const testInput = {
-//     input: resultsData.results[id].input,
-//     // correctness: "none", //Is this the problem?????
-//   };
+function handlePinToggle(id, type, data, pinnedLabel) {
+  id = parseInt(id); // Make sure id is an integer
 
-//   // Get the control that was clicked
-//   const button = document.getElementById(`fuzzSaveToggle-${id}`);
-
-//   // Are we pinning or unpinning the test?
-//   const pinning = button.innerHTML === pinState.htmlPin;
-
-//   // Disable the control while we wait for the response
-//   button.disabled = true;
-
-//   console.log("PINNING SOMETHING:");
-//   console.log("input:", testInput.input);
-//   console.log("id:", id);
-//   console.log("pinning:", pinning);
-//   // console.log("correctness:", testInput.correctness);
-//   console.log("");
-
-//   // Send the request to the extension
-//   window.setTimeout(() => {
-//     vscode.postMessage({
-//       command: pinning ? "test.pin" : "test.unpin",
-//       json: JSON5.stringify(testInput),
-//     });
-
-//     // Update the control state
-//     if (pinning) {
-//       button.innerHTML = pinState.htmlPinned;
-//       button.className = pinState.classPinned;
-//       button.setAttribute("aria-label", "pinned");
-//     } else {
-//       button.innerHTML = pinState.htmlPin;
-//       button.className = pinState.classPin;
-//       button.setAttribute("aria-label", "pin");
-//     }
-
-//     // Disable the control while we wait for the response
-//     button.disabled = false;
-//   });
-// } // fn: handleSaveToggle()
-function handlePinToggle(id) {
   // Get the test data for the test case
   const testInput = { input: resultsData.results[id].input };
 
@@ -364,6 +347,15 @@ function handlePinToggle(id) {
       button.innerHTML = pinState.htmlPin;
       button.className = pinState.classPin;
       button.setAttribute("aria-label", "pin");
+    }
+    button.setAttribute("cellId", id);
+    console.log("data[type][id]:", JSON.stringify(data[type]));
+    console.log("looking for id", id);
+    const index = data[type].findIndex((element) => element.id == id);
+    if (index > -1) {
+      data[type][index][pinnedLabel] = pinning;
+    } else {
+      console.log("invalid id");
     }
 
     // Disable the control while we wait for the response
@@ -614,7 +606,7 @@ function handleColumnSort(cell, hRow, type, col, data, tbody, isFirst) {
   });
 
   // Sorting done, display sorted table
-  displaySortedTableBody(data, tbody, type);
+  displaySortedTableBody(data, tbody, type); //problem
 
   // Send message to extension (so that if you click Test again, your sort order will
   // be retained)
@@ -737,12 +729,18 @@ function displaySortedTableBody(data, tbody, type) {
       let cell = row.cells[j];
       if (k === pinnedLabel) {
         cell.className = e[k] ? pinState.classPinned : pinState.classPin;
+        if (id === -1) {
+          throw "ID is equal to -1"; // not a problem
+        }
         cell.id = `fuzzSaveToggle-${id}`;
         cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
+        cell.setAttribute("cellId", id);
         cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
-        cell.addEventListener("click", () => handlePinToggle(id));
+        // cell.addEventListener("click", (e) =>
+        //   handlePinToggle(e.currentTarget.getAttribute("cellId"))
+        // );
       } else if (k === idLabel) {
-        id = parseInt(e[k]);
+        id = parseInt(e[k]); // THISISME !!!!!!!!!!!!
         --j; // don't count this column
       } else if (k === correctLabel) {
         // THISISME
