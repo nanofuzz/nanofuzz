@@ -5,6 +5,7 @@ import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
+import { isIndexSignatureDeclaration } from "typescript";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -34,8 +35,7 @@ export class FuzzPanel {
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
   private _errorMessage?: string; // error state: the error message
-  private _sortColumns?: FuzzSortColumns; // ..... the message containing column sort orders .....
-  // private _sortColumns?: string; // ..... the message containing column sort orders .....
+  private _sortColumns?: FuzzSortColumns; // the message containing column sort orders
 
   // ------------------------ Static Methods ------------------------ //
 
@@ -236,14 +236,12 @@ export class FuzzPanel {
     webview.onDidReceiveMessage(
       async (message: FuzzPanelMessage) => {
         const { command, json } = message;
-        console.log("RECEIVED A MESSAGE:", command);
 
         switch (command) {
           case "fuzz.start":
             this._doFuzzStartCmd(json);
             break;
           case "test.pin":
-            // this._doTestPinnedCmd(json, true, JSON5.parse(json).correctness);
             this._doTestPinnedCmd(json, true);
             break;
           case "test.unpin":
@@ -265,97 +263,16 @@ export class FuzzPanel {
    * @param json inputs to pin or unpins
    * @param pin true=pin test; false=unpin test
    */
-  // private _doTestPinnedCmd(json: string, pin: boolean, correctness: string) {
-  //   console.log("CURRENT JSON:", json);
-  //   // console.log("correctness, pin:", correctness, pin);
-  //   const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
-  //     this._getPinnedTests();
-  //   let changed = false; // Did we change anything?
-
-  //   console.log("PINNEDSET:", pinnedSet);
-  //   console.log("json in pinnedSet?", json in pinnedSet);
-  //   // Add or delete the test, as needed
-  //   if (json in pinnedSet && !pin && correctness === "none") {
-  //     // If we are unsaving and the test is in the file, remove it
-  //     delete pinnedSet[json];
-  //     changed = true;
-  //   } else {
-  //     // if we are saving a test but it is not in the file, add the test
-  //     pinnedSet[json] = JSON5.parse(json);
-  //     changed = true;
-  //   }
-
-  //   if (json in pinnedSet) {
-  //     if (!pin) {
-  //       delete pinnedSet[json];
-  //       changed = true;
-  //     }
-  //   } else {
-  //     pinnedSet[json] = JSON5.parse(json);
-  //     changed = true;
-  //   }
-
-  //   // Persist changes
-  //   if (changed) {
-  //     // Update the pinned tests file
-  //     const testCount = this._putPinnedTests(pinnedSet);
-
-  //     // Get the filename of the Jest file
-  //     const jestFile = jestadapter.getFilename(
-  //       this._fuzzEnv.function.getModule()
-  //     );
-
-  //     if (testCount) {
-  //       // Generate the Jest test data for CI
-  //       const jestTests = jestadapter.toString(
-  //         this._getAllPinnedTests(),
-  //         this._fuzzEnv.function.getModule(),
-  //         this._fuzzEnv.options.fnTimeout
-  //       );
-
-  //       // Persist the Jest tests for CI
-  //       try {
-  //         fs.writeFileSync(jestFile, jestTests);
-  //       } catch (e: any) {
-  //         vscode.window.showErrorMessage(
-  //           `Unable to update test file: ${jestFile} (${e.message})`
-  //         );
-  //       }
-  //     } else {
-  //       // Delete the test file: it will contain no tests
-  //       try {
-  //         fs.rmSync(jestFile);
-  //       } catch (e: any) {
-  //         vscode.window.showErrorMessage(
-  //           `Unable to remove test file: ${jestFile} (${e.message})`
-  //         );
-  //       }
-  //     }
-  //   }
-  // } // fn: _doTestPinnedCmd()
   private _doTestPinnedCmd(json: string, pin: boolean) {
     const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
       this._getPinnedTests();
-    let changed = false; // Did we change anything?
-
-    // Add or delete the test, as needed
-    if (json in pinnedSet) {
-      // If we are unsaving and the test is in the file, remove it
-      if (!pin) {
-        delete pinnedSet[json];
-        changed = true;
-      }
-    } else {
-      // if we are saving a test but it is not in the file, add the test
-      if (pin) {
-        pinnedSet[json] = JSON5.parse(json);
-        changed = true;
-      }
-    }
+    let changed = this._updatePinnedSet(json, pinnedSet, pin); // Did we change anything?
 
     // Persist changes
     if (changed) {
       // Update the pinned tests file
+      // The json file should contain all tests that are pinned and/or have a correct
+      // icon selected
       const testCount = this._putPinnedTests(pinnedSet);
 
       // Get the filename of the Jest file
@@ -365,6 +282,8 @@ export class FuzzPanel {
 
       if (testCount) {
         // Generate the Jest test data for CI
+        // The Jest file should contain all tests that are pinned (having only a correct
+        // icon does not count)
         const jestTests = jestadapter.toString(
           this._getAllPinnedTests(),
           this._fuzzEnv.function.getModule(),
@@ -471,6 +390,97 @@ export class FuzzPanel {
     // Return the number of tests persisted
     return testCount;
   } // fn: _putPinnedTests()
+
+  /**
+   * Add and/or delete from pinnedSet
+   * @param json current test case
+   * @param pinnedSet set of pinned test cases
+   * @param saving are we saving or unsaving?
+   * @returns if changed
+   */
+  private _updatePinnedSet(
+    json: string,
+    pinnedSet: Record<string, fuzzer.FuzzPinnedTest>,
+    saving: boolean
+  ): boolean {
+    let changed = false;
+    const currTest = JSON5.parse(json);
+    let currInput = JSON5.parse(json).input[0];
+    currInput = JSON.stringify(currInput);
+    /*
+    Ex:
+    "{\"name\":\"columnSortSetting\",\"offset\":0,\"value\":16}": 
+    {
+      "input": [{ "name": "columnSortSetting", "offset": 0, "value": 16 }],
+      "output": [{ "name": "0", "offset": 0, "value": 16 }],
+      "pinned": true,
+      "correct": "check"
+    }
+    */
+
+    // If input is already in pinnedSet
+    if (pinnedSet[currInput]) {
+      if (
+        // If we're unpinning a test that used to be pinned, and a correct icon is
+        // not selected, delete
+        !saving &&
+        !currTest.pinned &&
+        pinnedSet[currInput].pinned &&
+        pinnedSet[currInput].correct === "none"
+      ) {
+        delete pinnedSet[currInput];
+      } else if (
+        // If we're unpinning a test that used to be pinned, and a correct icon IS
+        // selected, modify
+        !saving &&
+        !currTest.pinned &&
+        pinnedSet[currInput].pinned &&
+        pinnedSet[currInput].correct !== "none"
+      ) {
+        pinnedSet[currInput].pinned = false;
+      } else if (
+        // If we're unselecting a correct icon and an icon used to be selected,
+        // and it's not pinned, delete
+        !saving &&
+        currTest.correct == "none" &&
+        pinnedSet[currInput].correct !== "none" &&
+        !pinnedSet[currInput].pinned
+      ) {
+        delete pinnedSet[currInput];
+      } else if (
+        // If we're unselecting a correct icon and an icon used to be selected,
+        // and it IS pinned, modify
+        !saving &&
+        currTest.correct !== "none" &&
+        pinnedSet[currInput].correct !== "none" &&
+        pinnedSet[currInput].pinned
+      ) {
+        pinnedSet[currInput].correct = currTest.correct;
+      } else if (currTest.correct !== "none") {
+        // If we're selecting a correct icon
+        pinnedSet[currInput].correct = currTest.correct;
+      } else if (
+        currTest.correct === "none" &&
+        pinnedSet[currInput].correct !== "none" &&
+        currTest.pinned === pinnedSet[currInput].pinned
+      ) {
+        // If we're unselecting a correct icon (that is currently selected)
+        pinnedSet[currInput].correct = currTest.correct;
+      } else {
+        // If we're clicking the pin button
+        pinnedSet[currInput].pinned = currTest.pinned;
+      }
+      changed = true;
+    } else {
+      // If input is not already in pinnedSet
+      if (saving) {
+        // Add new test case
+        pinnedSet[currInput] = JSON5.parse(json);
+        changed = true;
+      }
+    }
+    return changed;
+  }
 
   /**
    * Message handler for the `columnSortOrders' command.

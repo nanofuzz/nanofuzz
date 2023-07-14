@@ -150,7 +150,7 @@ export const fuzz = async (
       timeout: false,
       passed: true,
       elapsedTime: 0,
-      label: { check: false, error: false, question: false },
+      correct: "none",
     };
 
     // Before searching, consume the pool of pinned tests
@@ -158,7 +158,8 @@ export const fuzz = async (
     const pinnedTest = pinnedTests.pop();
     if (pinnedTest) {
       result.input = pinnedTest.input;
-      result.pinned = true;
+      result.pinned = pinnedTest.pinned;
+      result.correct = pinnedTest.correct;
       i--; // don't count pinned tests
     } else {
       // Generate and store the inputs
@@ -189,8 +190,8 @@ export const fuzz = async (
 
     // Call the function via the wrapper
     try {
-      const startElapsedTime = performance.now(); // start timer (higher precision)
-      result.elapsedTime = startElapsedTime; // don't know if there's a better way?
+      const startElapsedTime = performance.now(); // start timer
+      result.elapsedTime = startElapsedTime;
       result.output.push({
         name: "0",
         offset: 0,
@@ -369,7 +370,7 @@ export type FuzzTestResult = {
   timeout: boolean; // true if the fn call timed out
   passed: boolean; // true if output matches oracle; false, otherwise
   elapsedTime: number; // elapsed time of test
-  label: {}; // check x question mark
+  correct: string; // check, error, question, or none
 };
 
 /**
@@ -377,6 +378,9 @@ export type FuzzTestResult = {
  */
 export type FuzzPinnedTest = {
   input: FuzzIoElement[]; // function input
+  output: FuzzIoElement[]; // function output
+  pinned: boolean; // is the test pinned?
+  correct: string; // check, error, question, or none
 };
 
 /**

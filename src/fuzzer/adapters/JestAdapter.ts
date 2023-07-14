@@ -42,18 +42,57 @@ export const toString = (
   for (const fn in pinnedTests) {
     let i = 0;
     for (const testId in pinnedTests[fn]) {
+      if (!pinnedTests[fn][testId].pinned) {
+        continue; // Don't generate Jest tests for saved tests that have correct icons but aren't pinned
+      }
       let x = 0;
-      let str = "";
+      let inputStr = "";
       pinnedTests[fn][testId].input
         .map((e) => e.value)
         .forEach((e) => {
-          str += x++ ? "," : "";
-          str += JSON5.stringify(e);
+          inputStr += x++ ? "," : "";
+          inputStr += JSON5.stringify(e);
         });
-      jestData.push(
-        `test("${fn}.${i++}", () => {expect(implicitOracle(themodule.${fn}(${str}))).toBe(true);});`,
-        ``
-      );
+
+      x = 0;
+      let outputStr = "";
+      pinnedTests[fn][testId].output
+        .map((e) => e.value)
+        .forEach((e) => {
+          outputStr += x++ ? "," : "";
+          outputStr += JSON5.stringify(e);
+        });
+
+      switch (pinnedTests[fn][testId].correct) {
+        case "check":
+          // to strict equal
+          jestData.push(
+            `test("${fn}.${i++}", () => {expect(themodule.${fn}(${inputStr})).toStrictEqual(${outputStr});});`,
+            ``
+          );
+          break;
+        case "error":
+          // to not strict equal
+          jestData.push(
+            `test("${fn}.${i++}", () => {expect(themodule.${fn}(${inputStr})).not.toStrictEqual(${outputStr});});`,
+            ``
+          );
+          break;
+        case "question":
+          // implicit oracle
+          jestData.push(
+            `test("${fn}.${i++}", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);});`,
+            ``
+          );
+          break;
+        case "none":
+          // implicit oracle
+          jestData.push(
+            `test("${fn}.${i++}", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);});`,
+            ``
+          );
+          break;
+      }
     }
   }
 

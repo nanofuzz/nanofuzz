@@ -6,6 +6,11 @@ window.addEventListener("load", main);
 // List of output grids that store fuzzer results
 const gridTypes = ["timeout", "exception", "badOutput", "passed"];
 
+// Column labels
+const pinnedLabel = "pinned";
+const idLabel = "id";
+const correctLabel = "correct output?";
+
 // Pin button states
 const pinState = {
   htmlPinned: `<span class="codicon codicon-pinned"></span>`,
@@ -14,7 +19,6 @@ const pinState = {
   classPin: "fuzzGridCellPin",
 };
 
-//THISISME
 const correctState = {
   htmlCheck: `<span class="codicon codicon-pass"></span>`, // check in circle
   htmlError: `<span class="codicon codicon-error"></span>`, // X in circle
@@ -26,9 +30,14 @@ const correctState = {
   classCheckOff: "classCheckOff",
   classErrorOff: "classErrorOff",
   classQuestionOff: "classQuestionOff",
-  // htmlCheckOn: `<span class="codicon codicon-check"></span>`, // check mark
-  // htmlCloseOn: `<span class="codicon codicon-close"></span>`, // X mark
-  // htmlQuestionOn: "?", // question mark
+};
+
+// Correct icon sorting values
+const correctVals = {
+  check: 0,
+  error: 1,
+  question: 2,
+  none: 3,
 };
 
 // Sort order for each grid and column
@@ -53,10 +62,6 @@ let resultsData;
  * event handlers and filling the output grids if data is available.
  */
 function main() {
-  const pinnedLabel = "pinned";
-  const idLabel = "id";
-  const correctLabel = "correct output?"; //THISISME
-
   // Add event listener for the fuzz.start button
   document
     .getElementById("fuzz.start")
@@ -104,9 +109,8 @@ function main() {
       // Indicate which tests are pinned
       const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
       const id = { [idLabel]: idx++ };
-      const correct = { [correctLabel]: e.label };
+      const correct = { [correctLabel]: e.correct };
 
-      // console.log("correct: ", correct);
       // Name each input argument and make it clear which inputs were not provided
       // (i.e., the argument was optional).  Otherwise, stringify the value for
       // display.
@@ -124,17 +128,15 @@ function main() {
         outputs[`output`] =
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
-
       // Toss each result into the appropriate grid
       if (e.passed) {
         data["passed"].push({
           ...id,
           ...inputs,
           ...outputs,
-          "running time (ms)": e.elapsedTime.toFixed(3), // converts to string
+          "running time (ms)": e.elapsedTime.toFixed(3),
           ...pinned,
-          ...correct, //THISISME
-          // "correct output?": "0",
+          ...correct,
         });
       } else {
         if (e.exception) {
@@ -144,7 +146,7 @@ function main() {
             exception: e.exceptionMessage,
             "running time (ms)": e.elapsedTime.toFixed(3),
             ...pinned,
-            ...correct, //THISISME
+            ...correct,
           });
         } else if (e.timeout) {
           data["timeout"].push({
@@ -152,7 +154,7 @@ function main() {
             ...inputs,
             "running time (ms)": e.elapsedTime.toFixed(3),
             ...pinned,
-            ...correct, //THISISME
+            ...correct,
           });
         } else {
           data["badOutput"].push({
@@ -168,9 +170,6 @@ function main() {
     } // for: each result
 
     // Fill the grids with data
-    // console.log("DATA:", data);
-    // console.log("data[badOutput][0]:", data["badOutput"][0]);
-
     gridTypes.forEach((type) => {
       if (data[type].length) {
         //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type];
@@ -181,25 +180,27 @@ function main() {
         const hRow = thead.appendChild(document.createElement("tr"));
         Object.keys(data[type][0]).forEach((k) => {
           if (k === pinnedLabel) {
-            // console.log("we're inside the pin case");
             const cell = hRow.appendChild(document.createElement("th"));
             cell.className = "fuzzGridCellPinned";
             cell.innerHTML = `<big>pin</big>`;
             cell.setAttribute("class", "columnSortDesc");
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, data, tbody, false);
+              handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
           } else if (k === idLabel) {
             // noop
           } else if (k === correctLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
-            cell.innerHTML = `<big>correct output?</big>`; //This is what goes in the header col
+            cell.innerHTML = `<big>correct output?</big>`;
             cell.colSpan = 3;
+            cell.addEventListener("click", () => {
+              handleColumnSort(cell, hRow, type, k, data, tbody, true);
+            });
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.innerHTML = `<big>${htmlEscape(k)}</big>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, data, tbody, false);
+              handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
           }
         });
@@ -215,55 +216,88 @@ function main() {
               cell.className = e[k] ? pinState.classPinned : pinState.classPin;
               cell.id = `fuzzSaveToggle-${id}`;
               cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
-              cell.setAttribute("cellId", id);
               cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
-              //cell.addEventListener("click", () => handlePinToggle(id));
               cell.addEventListener("click", (e) =>
                 handlePinToggle(
-                  e.currentTarget.getAttribute("cellId"),
+                  e.currentTarget.parentElement.getAttribute("id"),
                   type,
-                  data,
-                  pinnedLabel
+                  data
                 )
               );
-
-              /**
-               *
-               * Confused????
-               *
-               * Printing this a bunch of times:
-               * RECEIVED A MESSAGE: test.unpin
-               */
             } else if (k === idLabel) {
               id = parseInt(e[k]);
+              row.setAttribute("id", id);
             } else if (k === correctLabel) {
+              // Add check mark icon
               const cell1 = row.appendChild(document.createElement("td"));
-              cell1.className = e[k].check
-                ? correctState.classCheckOn
-                : correctState.classCheckOff;
               cell1.innerHTML = correctState.htmlCheck;
-              // cell1.addEventListener("click", () =>
-              //   handleCorrectToggle(cell1, id, cell1, cell2, cell3)
-              // );
-
+              cell1.setAttribute("correctType", "check");
+              cell1.addEventListener("click", (e) =>
+                handleCorrectToggle(
+                  cell1,
+                  e.currentTarget.parentElement.getAttribute("id"),
+                  data,
+                  type,
+                  cell1,
+                  cell2,
+                  cell3
+                )
+              );
+              // Add X mark icon
               const cell2 = row.appendChild(document.createElement("td"));
-              cell2.className = e[k].error
-                ? correctState.classErrorOn
-                : correctState.classErrorOff;
               cell2.innerHTML = correctState.htmlError;
-              // cell2.addEventListener("click", () =>
-              //   handleCorrectToggle(cell2, id, cell1, cell2, cell3)
-              // );
-
+              cell2.setAttribute("correctType", "error");
+              cell2.addEventListener("click", (e) =>
+                handleCorrectToggle(
+                  cell2,
+                  e.currentTarget.parentElement.getAttribute("id"),
+                  data,
+                  type,
+                  cell1,
+                  cell2,
+                  cell3,
+                  data
+                )
+              );
+              // Add question mark icon
               const cell3 = row.appendChild(document.createElement("td"));
               cell3.innerHTML = correctState.htmlQuestion;
-              cell3.className = e[k].question
-                ? correctState.classQuestionOn
-                : correctState.classQuestionOff;
-              // cell3.setAttribute("class", "questionOn"); //??
-              // cell3.addEventListener("click", () =>
-              //   handleCorrectToggle(cell3, id, cell1, cell2, cell3)
-              // );
+              cell3.setAttribute("correctType", "question");
+              cell3.addEventListener("click", (e) =>
+                handleCorrectToggle(
+                  cell3,
+                  e.currentTarget.parentElement.getAttribute("id"),
+                  data,
+                  type,
+                  cell1,
+                  cell2,
+                  cell3,
+                  data
+                )
+              );
+              // Determine if on or off
+              // Set to default initially
+              cell1.className = correctState.classCheckOff;
+              cell1.setAttribute("onOff", false);
+              cell2.className = correctState.classErrorOff;
+              cell2.setAttribute("onOff", false);
+              cell3.className = correctState.classQuestionOff;
+              cell3.setAttribute("onOff", false);
+              // Check if any are on
+              if (e[k] === "none") {
+                // noop
+              } else if (e[k] === "check") {
+                cell1.className = correctState.classCheckOn;
+                cell1.setAttribute("onOff", true);
+              } else if (e[k] === "error") {
+                cell2.className = correctState.classErrorOn;
+                cell2.setAttribute("onOff", true);
+              } else if (e[k] === "question") {
+                cell3.className = correctState.classQuestionOn;
+                cell3.setAttribute("onOff", true);
+              } else {
+                assert(false);
+              }
             } else {
               const cell = row.appendChild(document.createElement("td"));
               cell.innerHTML = htmlEscape(e[k]);
@@ -278,13 +312,8 @@ function main() {
           let cell = hRow.cells[hRowIdx];
           if (col === idLabel) {
             continue;
-          } else if (col === correctLabel) {
-            // continue for now
-            continue;
           }
-          //
-          // ME
-          handleColumnSort(cell, hRow, type, col, data, tbody, true);
+          handleColumnSort(cell, hRow, type, col, data, tbody, false);
           ++hRowIdx;
         }
       } // for: each type
@@ -314,19 +343,21 @@ function toggleFuzzOptions(e) {
  * @param id offset of test in resultsData
  * @param type grid type (e.g., passed, invalid)
  * @param data the back-end data structure
- * @param pinnedLabel the label representing whether item is pinned
  */
-function handlePinToggle(id, type, data, pinnedLabel) {
-  id = parseInt(id); // Make sure id is an integer
-
-  // Get the test data for the test case
-  const testInput = { input: resultsData.results[id].input };
-
+function handlePinToggle(id, type, data) {
   // Get the control that was clicked
   const button = document.getElementById(`fuzzSaveToggle-${id}`);
 
   // Are we pinning or unpinning the test?
   const pinning = button.innerHTML === pinState.htmlPin;
+
+  // Get the test data for the test case
+  const testInput = {
+    input: resultsData.results[id].input,
+    output: resultsData.results[id].output,
+    pinned: pinning,
+    correct: "none",
+  };
 
   // Disable the control while we wait for the response
   button.disabled = true;
@@ -348,9 +379,6 @@ function handlePinToggle(id, type, data, pinnedLabel) {
       button.className = pinState.classPin;
       button.setAttribute("aria-label", "pin");
     }
-    button.setAttribute("cellId", id);
-    console.log("data[type][id]:", JSON.stringify(data[type]));
-    console.log("looking for id", id);
     const index = data[type].findIndex((element) => element.id == id);
     if (index > -1) {
       data[type][index][pinnedLabel] = pinning;
@@ -364,49 +392,92 @@ function handlePinToggle(id, type, data, pinnedLabel) {
 } // fn: handleSaveToggle()
 
 /**
- * Toggles the check/X/? icon.
+ * Toggles the correct icons on or off (check mark, X mark, question mark).
  * @param button
  * @param id
  * @param cell1
  * @param cell2
  * @param cell3
  */
-function handleCorrectToggle(button, id, cell1, cell2, cell3) {
-  console.log("clicked: ", resultsData.results[id].input);
-  let correctType;
-  let onOff; //Are you clicking it on or off? (ex: If it's currently on, you're clicking
-  // it off)
+function handleCorrectToggle(button, id, data, type, cell1, cell2, cell3) {
+  const index = data[type].findIndex((element) => element.id == id);
+  if (index <= -1) {
+    console.log("invalid id");
+    throw e;
+  }
+
+  // Change the state of the correct icon that was clicked
+  // Only one icon should be selected at a time; if an icon is turned on, all
+  // others should be turned off
   switch (button.className) {
     case correctState.classCheckOn:
-      correctType = "check";
-      onOff = false;
+      // clicking check off
+      button.className = correctState.classCheckOff;
+      button.setAttribute("onOff", false);
+      data[type][index][correctLabel] = "none";
       break;
+
     case correctState.classErrorOn:
-      correctType = "error";
-      onOff = false;
+      // clicking error off
+      button.className = correctState.classErrorOff;
+      button.setAttribute("onOff", false);
+      data[type][index][correctLabel] = "none";
       break;
+
     case correctState.classQuestionOn:
-      correctType = "question";
-      onOff = false;
+      // clicking question off
+      button.className = correctState.classQuestionOff;
+      button.setAttribute("onOff", false);
+      data[type][index][correctLabel] = "none";
       break;
+
     case correctState.classCheckOff:
-      correctType = "check";
-      onOff = true;
+      // clicking check on
+      button.className = correctState.classCheckOn;
+      button.setAttribute("onOff", true);
+      data[type][index][correctLabel] = "check";
+      // turn others off
+      cell2.className = correctState.classErrorOff;
+      cell2.setAttribute("onOff", false);
+      cell3.className = correctState.classQuestionOff;
+      cell3.setAttribute("onOff", false);
       break;
+
     case correctState.classErrorOff:
-      correctType = "error";
-      onOff = true;
+      // clicking error on
+      button.className = correctState.classErrorOn;
+      button.setAttribute("onOff", true);
+      data[type][index][correctLabel] = "error";
+      // turn others off
+      cell1.className = correctState.classCheckOff;
+      cell1.setAttribute("onOff", false);
+      cell3.className = correctState.classQuestionOff;
+      cell3.setAttribute("onOff", false);
       break;
+
     case correctState.classQuestionOff:
-      correctType = "question";
-      onOff = true;
+      // clicking question on
+      button.className = correctState.classQuestionOn;
+      button.setAttribute("onOff", true);
+      data[type][index][correctLabel] = "question";
+      // turn others off
+      cell1.className = correctState.classCheckOff;
+      cell1.setAttribute("onOff", false);
+      cell2.className = correctState.classErrorOff;
+      cell2.setAttribute("onOff", false);
       break;
   }
+
+  const onOff = JSON.parse(button.getAttribute("onOff"));
+  const pinCell = document.getElementById(`fuzzSaveToggle-${id}`);
+  const isPinned = pinCell.className === pinState.classPinned;
 
   // Get the test data for the test case
   const testInput = {
     input: resultsData.results[id].input,
-    correctness: correctType,
+    output: resultsData.results[id].output,
+    pinned: isPinned,
+    correct: onOff ? button.getAttribute("correctType") : "none", // check, error, question, or none
   };
 
   // Disable the control while we wait for the response
@@ -418,64 +489,6 @@ function handleCorrectToggle(button, id, cell1, cell2, cell3) {
       command: onOff ? "test.pin" : "test.unpin",
       json: JSON5.stringify(testInput),
     });
-
-    // Only one button can be selected at a time. If a button is turned on, all
-    // others should be turned off
-
-    // Do the classes, and update resultsData
-    switch (button.className) {
-      case correctState.classCheckOn:
-        // clicking check off
-        button.className = correctState.classCheckOff;
-        resultsData.results[id].label.check = false;
-        break;
-
-      case correctState.classErrorOn:
-        // clicking error off
-        button.className = correctState.classErrorOff;
-        resultsData.results[id].label.error = false;
-        break;
-
-      case correctState.classQuestionOn:
-        // clicking question off
-        button.className = correctState.classQuestionOff;
-        resultsData.results[id].label.question = false;
-        break;
-
-      case correctState.classCheckOff:
-        // clicking check on
-        button.className = correctState.classCheckOn;
-        resultsData.results[id].label.check = true;
-        // turn others off
-        cell2.className = correctState.classErrorOff;
-        resultsData.results[id].label.error = false;
-        cell3.className = correctState.classQuestionOff;
-        resultsData.results[id].label.question = false;
-        break;
-
-      case correctState.classErrorOff:
-        // clicking error on
-        button.className = correctState.classErrorOn;
-        resultsData.results[id].label.error = true;
-        // turn others off
-        cell1.className = correctState.classCheckOff;
-        resultsData.results[id].label.check = false;
-        cell3.className = correctState.classQuestionOff;
-        resultsData.results[id].label.question = false;
-        break;
-
-      case correctState.classQuestionOff:
-        // clicking question on
-        button.className = correctState.classQuestionOn;
-        resultsData.results[id].label.question = true;
-        // turn others off
-        cell1.className = correctState.classCheckOff;
-        resultsData.results[id].label.check = false;
-        cell2.className = correctState.classErrorOff;
-        resultsData.results[id].label.error = false;
-        break;
-    }
-
     // Disable the control while we wait for the response
     button.disabled = false;
   });
@@ -492,125 +505,119 @@ function handleCorrectToggle(button, id, cell1, cell2, cell3) {
  * @param col (ex: input:a, output, pin)
  * @param data
  * @param tbody table body
- * @param isFirst bool determining if the initial sort is occurring, or if the function
+ * @param isClicking bool determining if the initial sort is occurring, or if the function
  * is being called because the user clicked on a column
  *
  * 'Initial sort' could be:
- *  - Making sure the pinned column is sorted at the beginning
+ *  - Making sure the pinned/correct columns are sorted at the beginning
  *  - Making sure we retain previous sort settings if you click 'Test' again
  */
-function handleColumnSort(cell, hRow, type, col, data, tbody, isFirst) {
-  // We are only explicitly sorting by one column at a time (with 'pinned' being a
-  // special case)
+function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
+  // We are only explicitly sorting by one column at a time (with the pinned and correct
+  // columns being special cases)
   // Reset the other column arrows to 'none'
-  if (!isFirst) resetOtherColumnArrows(hRow, type, col, data);
-  updateColumnArrow(cell, type, col, isFirst);
+  if (isClicking) resetOtherColumnArrows(hRow, type, column, data);
+  updateColumnArrow(cell, type, column, isClicking);
 
-  // Sort data[type] based on column 'col'
-  data[type].sort((a, b) => {
-    if (columnSortOrders[type][col] == "none") {
-      // If none, return
-      return;
-    } else if (columnSortOrders[type][col] == "desc") {
-      // If descending, reverse a and b
-      let temp = a;
-      a = b;
-      b = temp;
-    }
-    // Determine type of object
-    var aType;
-    try {
-      aType = typeof JSON.parse(a[col]);
-    } catch (error) {
-      aType = "string";
-    }
-    // Save original strings (to break ties alphabetically)
-    var aVal = a[col],
-      bVal = b[col];
-
-    switch (aType) {
-      case "string":
-        // Sort by length, break ties alphabetically
-        a = a[col].length;
-        b = b[col].length;
-        break;
-      case "boolean":
-        // Sort alphabetically
-        a = a[col];
-        b = b[col];
-        break;
-      case "number":
-        // Sort numerically
-        a = Number(a[col]);
-        b = Number(b[col]);
-        break;
-      case "object":
-        // Sort by length
-        if (a[col].length) {
-          a = a[col].length;
-          b = b[col].length;
-          // If numerical values, break ties based on number
-          try {
-            aVal = JSON.parse(a[col]);
-            bVal = JSON.parse(b[col]);
-          } catch (error) {
-            // noop
-            // If not numerical values, break ties alphabetically
-          }
-        } else {
-          a = Object.keys(a[col]).length;
-          b = Object.keys(b[col]).length;
-          break;
-        }
-    }
-
-    // Compare values and sort
-    if (a === b) {
-      if (aVal === bVal) {
-        return 0; // a = b
-      } else if (aVal > bVal) {
-        // break tie
-        return 2;
-      } else {
-        // break tie
-        return -2;
+  // If we're toggling, sort based on column 'col'.
+  // Otherwise, we also need to sort based on column 'correct output?' and 'pinned'.
+  let cols;
+  if (isClicking) {
+    cols = [column];
+  } else {
+    cols = [column, correctLabel, pinnedLabel];
+  }
+  for (const col of cols) {
+    data[type].sort((a, b) => {
+      // Ascending, descending, or none?
+      // If none, return; if descending, switch a and b
+      if (columnSortOrders[type][col] == "none") {
+        return;
+      } else if (columnSortOrders[type][col] == "desc") {
+        let temp = a;
+        a = b;
+        b = temp;
       }
-    } else if (a > b) {
-      return 2; // a > b
-    } else {
-      return -2; // a < b
-    }
-  });
+      // Determine type of object
+      var aType;
+      try {
+        aType = typeof JSON.parse(a[col]);
+      } catch (error) {
+        aType = "string";
+      }
+      // Save original strings (to break ties alphabetically)
+      var aVal = a[col],
+        bVal = b[col];
 
-  // Special case for pinned column, to ensure that it is always sorted
-  data[type].sort((a, b) => {
-    if (columnSortOrders[type]["pinned"] == "none") {
-      // If none, return
-      return;
-    } else if (columnSortOrders[type]["pinned"] == "desc") {
-      // If descending, reverse a and b
-      let temp = a;
-      a = b;
-      b = temp;
-    }
-    a = a["pinned"];
-    b = b["pinned"];
+      // How are we sorting?
+      switch (aType) {
+        case "string":
+          if (col === correctLabel) {
+            // Sort by numerical values
+            // "check": 0, "error": 1, "question": 2, "none": 3
+            a = correctVals[a[correctLabel]];
+            b = correctVals[b[correctLabel]];
+          } else {
+            // Sort by length, break ties alphabetically
+            a = a[col].length;
+            b = b[col].length;
+          }
+          break;
+        case "boolean":
+          // Sort alphabetically
+          a = a[col];
+          b = b[col];
+          break;
+        case "number":
+          // Sort numerically
+          a = Number(a[col]);
+          b = Number(b[col]);
+          break;
+        case "object":
+          // Sort by length
+          if (a[col].length) {
+            a = a[col].length;
+            b = b[col].length;
+            // If numerical values, break ties based on number
+            try {
+              aVal = JSON.parse(a[col]);
+              bVal = JSON.parse(b[col]);
+            } catch (error) {
+              // noop
+              // If not numerical values, break ties alphabetically
+            }
+          } else {
+            a = Object.keys(a[col]).length;
+            b = Object.keys(b[col]).length;
+            break;
+          }
+      }
 
-    if (a === b) {
-      return 0;
-    } else if (a > b) {
-      return 2; // a > b
-    } else {
-      return -2; // a < b
-    }
-  });
+      // Compare values and sort
+      if (a === b) {
+        if (aVal === bVal) {
+          return 0; // a = b
+        } else if (aVal > bVal) {
+          // break tie
+          return 2;
+        } else {
+          // break tie
+          return -2;
+        }
+      } else if (a > b) {
+        return 2; // a > b
+      } else {
+        return -2; // a < b
+      }
+    });
+  }
 
-  // Sorting done, display sorted table
-  displaySortedTableBody(data, tbody, type); //problem
+  // Sorting done, display table
+  displaySortedTableBody(data, tbody, type);
 
   // Send message to extension (so that if you click Test again, your sort order will
   // be retained)
-  if (!isFirst) {
+  if (isClicking) {
     vscode.postMessage({
       command: "columnSortOrders",
       json: JSON5.stringify(columnSortOrders),
@@ -653,11 +660,11 @@ function resetOtherColumnArrows(hRow, type, thisCol, data) {
  * @param cell cell of hRow
  * @param type (timeout, exception, badOutput, passed)
  * @param col (ex: input:a, output, pin)
- * @param isFirst bool determining if the initial sort is occurring, or if the function
+ * @param isClicking bool determining if the initial sort is occurring, or if the function
  * is being called because the user clicked on a column
  * @returns
  */
-function updateColumnArrow(cell, type, col, isFirst) {
+function updateColumnArrow(cell, type, col, isClicking) {
   // Pinned column is a special case -- will always check at the end to see if it wants
   // the pinned column sorted in a certain way. That arrow should be displayed.
 
@@ -666,7 +673,7 @@ function updateColumnArrow(cell, type, col, isFirst) {
   // Here, currIndex represents an index of sortOrder = ['asc','desc','none']
   if (!currOrder) {
     // If currOrder is undefined, either return or set currOrder to default value 'asc'
-    if (isFirst) {
+    if (!isClicking) {
       return;
     } else {
       currOrder = "asc";
@@ -676,7 +683,7 @@ function updateColumnArrow(cell, type, col, isFirst) {
     // If currOrder is already defined and isFirst is not true (meaning the user clicked
     // on a column), change the sorting direction to the next value in the cycle
     // (asc -> desc, desc -> none, none -> asc)
-    if (!isFirst) {
+    if (isClicking) {
       for (let i = 0; i < sortOrder.length; ++i) {
         if (currOrder === sortOrder[i]) currIndex = i;
       }
@@ -700,7 +707,7 @@ function updateColumnArrow(cell, type, col, isFirst) {
       assert(false); // shouldn't get here
   }
 
-  if (!isFirst) {
+  if (isClicking) {
     columnSortOrders[type][col] = sortOrder[currIndex];
   }
 } //fn: updateColumnArrows
@@ -713,38 +720,61 @@ function updateColumnArrow(cell, type, col, isFirst) {
  * @param type (timeout, exception, badOutput, passed)
  */
 function displaySortedTableBody(data, tbody, type) {
-  const pinnedLabel = "pinned";
-  const idLabel = "id";
-  const correctLabel = "correct output?";
-
-  // Change data rows
+  // Change values in tbody, based on sorted data structure `data[type]`
   let i = 0;
   data[type].forEach((e) => {
+    // For each entry e in the array `data[type]`
+    // e.g.  e = {id: , input: , correct: ...}
     let id = -1;
     let j = 0;
     Object.keys(e).forEach((k) => {
+      // For each column name k
+      // e.g.  k = id, input, correct, ...
+
       // Iterate over rows
       let row = tbody.rows[i];
       // Iterate over cells
+      // j will update with k (j corresponds to a column in the tbody row)
+      // i will update with e (i corresponds to a row in the tbody)
       let cell = row.cells[j];
       if (k === pinnedLabel) {
         cell.className = e[k] ? pinState.classPinned : pinState.classPin;
-        if (id === -1) {
-          throw "ID is equal to -1"; // not a problem
-        }
         cell.id = `fuzzSaveToggle-${id}`;
         cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
-        cell.setAttribute("cellId", id);
         cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
-        // cell.addEventListener("click", (e) =>
-        //   handlePinToggle(e.currentTarget.getAttribute("cellId"))
-        // );
       } else if (k === idLabel) {
-        id = parseInt(e[k]); // THISISME !!!!!!!!!!!!
-        --j; // don't count this column
+        id = parseInt(e[k]);
+        row.setAttribute("id", id);
+        --j; // don't count this column (hidden)
       } else if (k === correctLabel) {
-        // THISISME
-        // what do I do here???????????
+        let cell1 = row.cells[j];
+        let cell2 = row.cells[j + 1];
+        let cell3 = row.cells[j + 2];
+
+        // Set to default initially
+        cell1.className = correctState.classCheckOff;
+        // cell1.setAttribute("cellId", id);
+        cell1.setAttribute("onOff", false);
+        cell2.className = correctState.classErrorOff;
+        cell2.setAttribute("onOff", false);
+        cell3.className = correctState.classQuestionOff;
+        cell3.setAttribute("onOff", false);
+        // Check if any are on
+        if (e[k] === "none") {
+          // noop
+        } else if (e[k] === "check") {
+          cell1.className = correctState.classCheckOn;
+          cell1.setAttribute("onOff", true);
+          resultsData.results[id].correct = e[k];
+        } else if (e[k] === "error") {
+          cell2.className = correctState.classErrorOn;
+          cell2.setAttribute("onOff", true);
+        } else if (e[k] === "question") {
+          cell3.className = correctState.classQuestionOn;
+          cell3.setAttribute("onOff", true);
+        } else {
+          assert(false);
+        }
       } else {
         cell.innerHTML = htmlEscape(e[k]);
       }
