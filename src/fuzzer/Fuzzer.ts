@@ -160,7 +160,10 @@ export const fuzz = async (
       result.input = pinnedTest.input;
       result.pinned = pinnedTest.pinned;
       result.correct = pinnedTest.correct;
-      i--; // don't count pinned tests
+      if (pinnedTest.expectedOutput) {
+        result.expectedOutput = pinnedTest.expectedOutput;
+      }
+      --i; // don't count pinned tests
     } else {
       // Generate and store the inputs
       // TODO: We should provide a way to filter inputs
@@ -371,6 +374,7 @@ export type FuzzTestResult = {
   passed: boolean; // true if output matches oracle; false, otherwise
   elapsedTime: number; // elapsed time of test
   correct: string; // check, error, question, or none
+  expectedOutput?: any; // expected function output (the correct value, if check icon; the incorrect value, if error icon)
 };
 
 /**
@@ -381,6 +385,7 @@ export type FuzzPinnedTest = {
   output: FuzzIoElement[]; // function output
   pinned: boolean; // is the test pinned?
   correct: string; // check, error, question, or none
+  expectedOutput?: any; // expected function output
 };
 
 /**

@@ -45,11 +45,23 @@ td.classCheckOn {
 }
 td.classErrorOn {
   opacity: 100%;
-  color: rgba(251, 81, 81, 0.665);
+  color: rgba(250, 65, 65, 0.665);
 }
 td.classQuestionOn {
   opacity: 100%;
   color: rgb(230, 212, 108);
+}
+
+td.classErrorCell {
+  opacity: 100%;
+  outline-style: solid;
+  outline-width: medium;
+  outline-color: rgb(208, 38, 72);
+}
+tr.classErrorRow {
+  opacity: 100%;
+  color: black;
+  background-color: rgb(233, 94, 124);
 }
 
 /** Tooltips: adapted from: https://www.w3schools.com/css/css_tooltip.asp **/

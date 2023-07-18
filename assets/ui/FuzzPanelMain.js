@@ -6,10 +6,11 @@ window.addEventListener("load", main);
 // List of output grids that store fuzzer results
 const gridTypes = ["timeout", "exception", "badOutput", "passed"];
 
-// Column labels
+// Column name labels
 const pinnedLabel = "pinned";
 const idLabel = "id";
 const correctLabel = "correct output?";
+const expectedLabel = "expectedOutput";
 
 // Pin button states
 const pinState = {
@@ -110,6 +111,9 @@ function main() {
       const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
       const id = { [idLabel]: idx++ };
       const correct = { [correctLabel]: e.correct };
+      const expectedOutputs = {
+        [expectedLabel]: e.expectedOutput,
+      };
 
       // Name each input argument and make it clear which inputs were not provided
       // (i.e., the argument was optional).  Otherwise, stringify the value for
@@ -128,6 +132,7 @@ function main() {
         outputs[`output`] =
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
+
       // Toss each result into the appropriate grid
       if (e.passed) {
         data["passed"].push({
@@ -137,6 +142,7 @@ function main() {
           "running time (ms)": e.elapsedTime.toFixed(3),
           ...pinned,
           ...correct,
+          ...expectedOutputs,
         });
       } else {
         if (e.exception) {
@@ -147,6 +153,7 @@ function main() {
             "running time (ms)": e.elapsedTime.toFixed(3),
             ...pinned,
             ...correct,
+            ...expectedOutputs,
           });
         } else if (e.timeout) {
           data["timeout"].push({
@@ -155,6 +162,7 @@ function main() {
             "running time (ms)": e.elapsedTime.toFixed(3),
             ...pinned,
             ...correct,
+            ...expectedOutputs,
           });
         } else {
           data["badOutput"].push({
@@ -164,6 +172,7 @@ function main() {
             "running time (ms)": e.elapsedTime.toFixed(3),
             ...pinned,
             ...correct,
+            ...expectedOutputs,
           });
         }
       }
@@ -189,6 +198,8 @@ function main() {
             });
           } else if (k === idLabel) {
             // noop
+          } else if (k === expectedLabel) {
+            // noop
           } else if (k === correctLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.innerHTML = `<big>correct output?</big>`;
@@ -203,121 +214,24 @@ function main() {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
           }
-        });
+        }); // for each column k
 
-        // Render the data rows
-        // var tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
-        data[type].forEach((e) => {
-          let id = -1;
-          const row = tbody.appendChild(document.createElement("tr"));
-          Object.keys(e).forEach((k) => {
-            if (k === pinnedLabel) {
-              const cell = row.appendChild(document.createElement("td"));
-              cell.className = e[k] ? pinState.classPinned : pinState.classPin;
-              cell.id = `fuzzSaveToggle-${id}`;
-              cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
-              cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
-              cell.addEventListener("click", (e) =>
-                handlePinToggle(
-                  e.currentTarget.parentElement.getAttribute("id"),
-                  type,
-                  data
-                )
-              );
-            } else if (k === idLabel) {
-              id = parseInt(e[k]);
-              row.setAttribute("id", id);
-            } else if (k === correctLabel) {
-              // Add check mark icon
-              const cell1 = row.appendChild(document.createElement("td"));
-              cell1.innerHTML = correctState.htmlCheck;
-              cell1.setAttribute("correctType", "check");
-              cell1.addEventListener("click", (e) =>
-                handleCorrectToggle(
-                  cell1,
-                  e.currentTarget.parentElement.getAttribute("id"),
-                  data,
-                  type,
-                  cell1,
-                  cell2,
-                  cell3
-                )
-              );
-              // Add X mark icon
-              const cell2 = row.appendChild(document.createElement("td"));
-              cell2.innerHTML = correctState.htmlError;
-              cell2.setAttribute("correctType", "error");
-              cell2.addEventListener("click", (e) =>
-                handleCorrectToggle(
-                  cell2,
-                  e.currentTarget.parentElement.getAttribute("id"),
-                  data,
-                  type,
-                  cell1,
-                  cell2,
-                  cell3,
-                  data
-                )
-              );
-              // Add question mark icon
-              const cell3 = row.appendChild(document.createElement("td"));
-              cell3.innerHTML = correctState.htmlQuestion;
-              cell3.setAttribute("correctType", "question");
-              cell3.addEventListener("click", (e) =>
-                handleCorrectToggle(
-                  cell3,
-                  e.currentTarget.parentElement.getAttribute("id"),
-                  data,
-                  type,
-                  cell1,
-                  cell2,
-                  cell3,
-                  data
-                )
-              );
-              // Determine if on or off
-              // Set to default initially
-              cell1.className = correctState.classCheckOff;
-              cell1.setAttribute("onOff", false);
-              cell2.className = correctState.classErrorOff;
-              cell2.setAttribute("onOff", false);
-              cell3.className = correctState.classQuestionOff;
-              cell3.setAttribute("onOff", false);
-              // Check if any are on
-              if (e[k] === "none") {
-                // noop
-              } else if (e[k] === "check") {
-                cell1.className = correctState.classCheckOn;
-                cell1.setAttribute("onOff", true);
-              } else if (e[k] === "error") {
-                cell2.className = correctState.classErrorOn;
-                cell2.setAttribute("onOff", true);
-              } else if (e[k] === "question") {
-                cell3.className = correctState.classQuestionOn;
-                cell3.setAttribute("onOff", true);
-              } else {
-                assert(false);
-              }
-            } else {
-              const cell = row.appendChild(document.createElement("td"));
-              cell.innerHTML = htmlEscape(e[k]);
-            }
-          });
-        });
+        // Render the data rows, set up event listeners
+        drawTableBody(data, type, tbody);
 
         // Initial sort, according to columnSortOrders
         let hRowIdx = 0;
         for (let k = 0; k < Object.keys(data[type][0]).length; ++k) {
           let col = Object.keys(data[type][0])[k];
           let cell = hRow.cells[hRowIdx];
-          if (col === idLabel) {
+          if (col === idLabel || col === expectedLabel) {
             continue;
           }
           handleColumnSort(cell, hRow, type, col, data, tbody, false);
           ++hRowIdx;
         }
-      } // for: each type
-    });
+      } // if (data[type].length)
+    }); // for each type (e.g. bad output, passed)
   }
 } // fn: main()
 
@@ -393,21 +307,34 @@ function handlePinToggle(id, type, data) {
 
 /**
  * Toggles the correct icons on or off (check mark, X mark, question mark).
- * @param button
- * @param id
- * @param cell1
- * @param cell2
- * @param cell3
+ *
+ * @param button icon that was clicked
+ * @param row current row
+ * @param data backend data structure
+ * @param type e.g. bad output, passed
+ * @param tbody table body for 'type'
+ * @param cell1 check icon
+ * @param cell2 error icon
+ * @param cell3 question icon
  */
-function handleCorrectToggle(button, id, data, type, cell1, cell2, cell3) {
+function handleCorrectToggle(
+  button,
+  row,
+  data,
+  type,
+  tbody,
+  cell1,
+  cell2,
+  cell3
+) {
+  const id = row.getAttribute("id");
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) {
-    console.log("invalid id");
-    throw e;
+    throw e("invalid id");
   }
 
   // Change the state of the correct icon that was clicked
-  // Only one icon should be selected at a time; if an icon is turned on, all
+  // Only one icon should be selected at a time; if we turn an icon on, all
   // others should be turned off
   switch (button.className) {
     case correctState.classCheckOn:
@@ -415,6 +342,9 @@ function handleCorrectToggle(button, id, data, type, cell1, cell2, cell3) {
       button.className = correctState.classCheckOff;
       button.setAttribute("onOff", false);
       data[type][index][correctLabel] = "none";
+      // delete saved expected value
+      delete data[type][index][expectedLabel];
+      // drawTableBody(data, type, tbody);
       break;
 
     case correctState.classErrorOn:
@@ -422,6 +352,9 @@ function handleCorrectToggle(button, id, data, type, cell1, cell2, cell3) {
       button.className = correctState.classErrorOff;
       button.setAttribute("onOff", false);
       data[type][index][correctLabel] = "none";
+      // delete saved expected value
+      delete data[type][index][expectedLabel];
+      // drawTableBody(data, type, tbody);
       break;
 
     case correctState.classQuestionOn:
@@ -441,6 +374,8 @@ function handleCorrectToggle(button, id, data, type, cell1, cell2, cell3) {
       cell2.setAttribute("onOff", false);
       cell3.className = correctState.classQuestionOff;
       cell3.setAttribute("onOff", false);
+      //save expected output value
+      data[type][index][expectedLabel] = data[type][index]["output"];
       break;
 
     case correctState.classErrorOff:
@@ -453,6 +388,9 @@ function handleCorrectToggle(button, id, data, type, cell1, cell2, cell3) {
       cell1.setAttribute("onOff", false);
       cell3.className = correctState.classQuestionOff;
       cell3.setAttribute("onOff", false);
+      //save expected output value
+      data[type][index][expectedLabel] = data[type][index]["output"];
+      // drawTableBody(data, type, tbody);
       break;
 
     case correctState.classQuestionOff:
@@ -468,6 +406,9 @@ function handleCorrectToggle(button, id, data, type, cell1, cell2, cell3) {
       break;
   }
 
+  // Redraw table
+  drawTableBody(data, type, tbody);
+
   const onOff = JSON.parse(button.getAttribute("onOff"));
   const pinCell = document.getElementById(`fuzzSaveToggle-${id}`);
   const isPinned = pinCell.className === pinState.classPinned;
@@ -478,6 +419,7 @@ function handleCorrectToggle(button, id, data, type, cell1, cell2, cell3) {
     output: resultsData.results[id].output,
     pinned: isPinned,
     correct: onOff ? button.getAttribute("correctType") : "none", // check, error, question, or none
+    expectedOutput: data[type][index][expectedLabel],
   };
 
   // Disable the control while we wait for the response
@@ -503,10 +445,10 @@ function handleCorrectToggle(button, id, data, type, cell1, cell2, cell3) {
  * @param hRow header row
  * @param type (timeout, exception, badOutput, passed)
  * @param col (ex: input:a, output, pin)
- * @param data
+ * @param data backend data structure
  * @param tbody table body
- * @param isClicking bool determining if the initial sort is occurring, or if the function
- * is being called because the user clicked on a column
+ * @param isClicking bool determining if the function is being called because the user
+ * clicked on a column, or if an initial sort is occurring
  *
  * 'Initial sort' could be:
  *  - Making sure the pinned/correct columns are sorted at the beginning
@@ -613,7 +555,7 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
   }
 
   // Sorting done, display table
-  displaySortedTableBody(data, tbody, type);
+  drawTableBody(data, type, tbody);
 
   // Send message to extension (so that if you click Test again, your sort order will
   // be retained)
@@ -635,13 +577,13 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
  * @param data
  */
 function resetOtherColumnArrows(hRow, type, thisCol, data) {
-  // For a given type, iterate over the columns (ex: input:a, output, pin)
+  // For a given type, iterate over the columns (ex: input a, output, pin)
   let hRowIdx = 0;
   for (let k = 0; k < Object.keys(data[type][0]).length; ++k) {
     let col = Object.keys(data[type][0])[k];
     let cell = hRow.cells[hRowIdx];
-    if (col === "id") {
-      continue;
+    if (col === "id" || col === expectedLabel) {
+      continue; // hidden
     }
     if (col === thisCol || col === "pinned" || thisCol == "pinned") {
       ++hRowIdx;
@@ -677,7 +619,7 @@ function updateColumnArrow(cell, type, col, isClicking) {
       return;
     } else {
       currOrder = "asc";
-      currIndex = 0;
+      currIndex = 0; // index in [asc, desc, none]
     }
   } else {
     // If currOrder is already defined and isFirst is not true (meaning the user clicked
@@ -713,76 +655,189 @@ function updateColumnArrow(cell, type, col, isClicking) {
 } //fn: updateColumnArrows
 
 /**
- * Updates the table body to reflect new sorted order
+ * Draw table body and fill in with values from data[type]. Add event listeners
+ * for sorting, pinning, correct icons
  *
- * @param data
+ * @param data backend data structure
+ * @param type e.g. bad output, passed, etc
  * @param tbody table body
- * @param type (timeout, exception, badOutput, passed)
  */
-function displaySortedTableBody(data, tbody, type) {
-  // Change values in tbody, based on sorted data structure `data[type]`
-  let i = 0;
-  data[type].forEach((e) => {
-    // For each entry e in the array `data[type]`
-    // e.g.  e = {id: , input: , correct: ...}
-    let id = -1;
-    let j = 0;
-    Object.keys(e).forEach((k) => {
-      // For each column name k
-      // e.g.  k = id, input, correct, ...
+function drawTableBody(data, type, tbody) {
+  // Clear table
+  while (tbody.rows.length > 0) tbody.deleteRow(0);
 
-      // Iterate over rows
-      let row = tbody.rows[i];
-      // Iterate over cells
-      // j will update with k (j corresponds to a column in the tbody row)
-      // i will update with e (i corresponds to a row in the tbody)
-      let cell = row.cells[j];
+  // For each entry in data[type]
+  data[type].forEach((e) => {
+    let id = -1;
+    const row = tbody.appendChild(document.createElement("tr"));
+    Object.keys(e).forEach((k) => {
       if (k === pinnedLabel) {
+        const cell = row.appendChild(document.createElement("td"));
+        // Add pin icon
         cell.className = e[k] ? pinState.classPinned : pinState.classPin;
         cell.id = `fuzzSaveToggle-${id}`;
         cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
         cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
+        cell.addEventListener("click", (e) =>
+          handlePinToggle(
+            e.currentTarget.parentElement.getAttribute("id"),
+            type,
+            data
+          )
+        );
       } else if (k === idLabel) {
         id = parseInt(e[k]);
         row.setAttribute("id", id);
-        --j; // don't count this column (hidden)
+      } else if (k === expectedLabel) {
+        // noop
       } else if (k === correctLabel) {
-        let cell1 = row.cells[j];
-        let cell2 = row.cells[j + 1];
-        let cell3 = row.cells[j + 2];
-
-        // Set to default initially
+        // Add check mark icon
+        const cell1 = row.appendChild(document.createElement("td"));
+        cell1.innerHTML = correctState.htmlCheck;
+        cell1.setAttribute("correctType", "check");
+        cell1.addEventListener("click", () =>
+          handleCorrectToggle(
+            cell1,
+            row,
+            data,
+            type,
+            tbody,
+            cell1,
+            cell2,
+            cell3
+          )
+        );
+        // Add X mark icon
+        const cell2 = row.appendChild(document.createElement("td"));
+        cell2.innerHTML = correctState.htmlError;
+        cell2.setAttribute("correctType", "error");
+        cell2.addEventListener("click", () =>
+          handleCorrectToggle(
+            cell2,
+            row,
+            data,
+            type,
+            tbody,
+            cell1,
+            cell2,
+            cell3
+          )
+        );
+        // Add question mark icon
+        const cell3 = row.appendChild(document.createElement("td"));
+        cell3.innerHTML = correctState.htmlQuestion;
+        cell3.setAttribute("correctType", "question");
+        cell3.addEventListener("click", () =>
+          handleCorrectToggle(
+            cell3,
+            row,
+            data,
+            type,
+            tbody,
+            cell1,
+            cell2,
+            cell3
+          )
+        );
+        // Determine if on or off (set to default initially)
         cell1.className = correctState.classCheckOff;
-        // cell1.setAttribute("cellId", id);
         cell1.setAttribute("onOff", false);
         cell2.className = correctState.classErrorOff;
         cell2.setAttribute("onOff", false);
         cell3.className = correctState.classQuestionOff;
         cell3.setAttribute("onOff", false);
         // Check if any are on
-        if (e[k] === "none") {
-          // noop
-        } else if (e[k] === "check") {
-          cell1.className = correctState.classCheckOn;
-          cell1.setAttribute("onOff", true);
-          resultsData.results[id].correct = e[k];
-        } else if (e[k] === "error") {
-          cell2.className = correctState.classErrorOn;
-          cell2.setAttribute("onOff", true);
-        } else if (e[k] === "question") {
-          cell3.className = correctState.classQuestionOn;
-          cell3.setAttribute("onOff", true);
-        } else {
-          assert(false);
+        switch (e[k]) {
+          case "none":
+            break;
+          case "check":
+            cell1.className = correctState.classCheckOn;
+            cell1.setAttribute("onOff", true);
+            handleExpectedOutput(data, type, row, tbody);
+            break;
+          case "error":
+            cell2.className = correctState.classErrorOn;
+            cell2.setAttribute("onOff", true);
+            handleExpectedOutput(data, type, row, tbody);
+            break;
+          case "question":
+            cell3.className = correctState.classQuestionOn;
+            cell3.setAttribute("onOff", true);
+            break;
         }
       } else {
+        const cell = row.appendChild(document.createElement("td"));
         cell.innerHTML = htmlEscape(e[k]);
       }
-      ++j;
     });
-    ++i;
   });
-} //fn: displaySortedTableBody
+} //fn: drawTableBody()
+
+/**
+ * Check if actual output matches expected output (based on correct icons selected).
+ *
+ * @param data backend data structure
+ * @param type e.g. bad output, passed
+ * @param row row of tbody
+ * @param tbody table body for 'type'
+ */
+function handleExpectedOutput(data, type, row, tbody) {
+  const id = row.getAttribute("id");
+  const index = data[type].findIndex((element) => element.id == id);
+  if (index <= -1) {
+    throw e("invalid id");
+  }
+  const correctType = data[type][index][correctLabel];
+  const numInputs = resultsData.results[0].input.length; // will use to index into row
+
+  if (!sameExpectedOutput(index, type, data, correctType)) {
+    const expectedRow = tbody.appendChild(document.createElement("tr"));
+    const cell = expectedRow.appendChild(document.createElement("td"));
+    cell.colSpan = row.cells.length;
+    cell.parentElement.className = "classErrorRow"; // make row red
+    row.cells[numInputs].className = "classErrorCell"; // draw red box around output cell
+
+    if (correctType === "check") {
+      cell.innerHTML = `expected: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
+    } else if (correctType === "error") {
+      cell.innerHTML = `expected not: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
+    }
+  }
+}
+
+/**
+ * If the check mark icon is selected, check that the actual output and expected output
+ * are equal. If the X icon is selected, check that the actual output and expected output
+ * are not equal.
+ * @param id
+ * @param type
+ * @param data
+ * @returns
+ */
+function sameExpectedOutput(index, type, data, correctType) {
+  const actualOut = data[type][index]["output"];
+  const expectedOut = data[type][index][expectedLabel];
+
+  let actualType, expectedType;
+  try {
+    actualType = typeof JSON.parse(actualOut);
+  } catch (error) {
+    actualType = "string";
+  }
+  try {
+    expectedType = typeof JSON.parse(expectedOut);
+  } catch (error) {
+    expectedType = "string";
+  }
+
+  if (correctType === "check") {
+    return actualOut === expectedOut && actualType === expectedType;
+  } else if (correctType === "error") {
+    return actualOut !== expectedOut;
+  } else {
+    assert(false);
+  }
+}
 
 /**
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
