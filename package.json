@@ -4,7 +4,7 @@
   "publisher": "penrose",
   "version": "0.1.13",
   "description": "Automatic test suite generator for TypeScript",
-  "repository": "https://github.com/penrose/nanofuzz.git",
+  "repository": "https://github.com/nanofuzz/nanofuzz.git",
   "author": "Sunshine Lab, Carnegie Mellon University",
   "license": "MIT",
   "main": "build/extension/extension.js",
