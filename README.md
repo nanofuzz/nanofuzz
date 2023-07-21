@@ -1,14 +1,14 @@
 # NaNofuzz
-NaNofuzz is a fast, easy-to-use automatic test suite generation tool for Typescript that integrates with a developer's VS Code workflow.  We like working code, and NaNofuzz is designed to be used during initial development to more quickly reach working code nirvana while avoiding regressions.  NaNofuzz is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
+NaNofuzz is a fast, easy-to-use automatic test suite generation tool for Typescript that integrates with a developer's VS Code workflow.  We like working code, and NaNofuzz is designed to be used during testing or development to more quickly reach working code nirvana. NaNofuzz is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
 ![image](https://user-images.githubusercontent.com/22134678/198139136-20a7105b-29e1-435e-8ba6-2e1b92ff3bed.png)
 
-Unlike some past automatic test suite generation tools, NaNofuzz takes an approach similar to fuzzing and uses a simple implicit oracle to determine whether or not a given test passes. Surprisingly, this approach quickly finds many errors! NaNofuzz marks a test as failed if it:
+Unlike some past automatic test suite generation tools, NaNofuzz takes an approach similar to fuzzing and uses an implicit oracle to detect likely errors. Surprisingly, this approach can quickly find many errors. NaNofuzz draws your attention to a test if it:
  - throws a runtime exception
  - returns null, NaN, Infinity, or undefined
  - does not terminate within a configurable period of time
 
-These design choices allow NaNofuzz to be fast, lightweight, easy to integrate into an everyday workflow, and help programmers quickly find important edge cases more quickly.
+These design choices allow NaNofuzz to be fast, lightweight, easy to integrate into an everyday workflow, and help developers quickly find important edge cases more quickly.
 
 NaNofuzz supports standard and arrow functions with any mixture of the following parameter types:
  - Numbers (integers and floats, signed and unsigne)
@@ -27,9 +27,16 @@ The following are not yet supported:
  - Object methods
  - Compiling to module formats other than CommonJS (see [VS Code issue #130367](https://github.com/microsoft/vscode/issues/130367))
  - Support for stateful, flaky, or non-deterministic tests
- - Sandboxing external side-effects
- - Custom generators, filters, and oracles
+ - Sandboxing external side-effects, mocks, or stubs
+ - Custom generators, validators, and filters
+ - Test case minimization
 
-> **Note:**
->
-> This is a research project not presently intended for production use. Contributions are welcome to address the limitations above.
+ NaNofuzz is a research project not presently intended for production use. Contributions are welcome to address the limitations above.
+
+### NaNofuzz Research Paper
+
+To reference NaNofuzz in your research, we request you to cite our upcoming ESEC/FSE'23 paper:
+
+> Matthew C. Davis, Sangheon Choi, Sam Estep, Brad A. Myers, and Joshua Sunshine. **Nanofuzz: a usable tool for automatic test generation**. In Proceedings of the 31st ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering, 2023. (accepted and pending publication; [pre-print](https://cmumatt.github.io/assets/NaNofuzz_2023.pdf))
+
+
