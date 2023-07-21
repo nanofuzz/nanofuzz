@@ -2,14 +2,14 @@
   "name": "nanofuzz",
   "displayName": "NaNofuzz",
   "publisher": "penrose",
-  "version": "0.1.12",
-  "description": "Automatic test suite generator for Typescript",
+  "version": "0.1.13",
+  "description": "Automatic test suite generator for TypeScript",
   "repository": "https://github.com/penrose/nanofuzz.git",
-  "author": "Penrose Team (https://penrose.cs.cmu.edu/)",
+  "author": "Sunshine Lab, Carnegie Mellon University",
   "license": "MIT",
   "main": "build/extension/extension.js",
   "module": "build/dist/index.esm.js",
-  "unpkg": "build/dist/penrose.min.js",
+  "unpkg": "build/dist/index.min.js",
   "types": "build/dist/index.d.ts",
   "type": "commonjs",
   "files": [
@@ -40,7 +40,7 @@
     "onStartupFinished",
     "onCommand:nanofuzz.Fuzz",
     "onCommand:nanofuzz.telemetry.log",
-    "onCommand:nanofuzz.telemetry.DumpLog",
+    "onCommand:nanofuzz.telemetry.FlushLog",
     "onCommand:nanofuzz.telemetry.ClearLog",
     "onLanguage:typescript",
     "onLanguage:typescriptreact",
@@ -54,8 +54,8 @@
         "category": "NaNofuzz"
       },
       {
-        "command": "nanofuzz.telemetry.DumpLog",
-        "title": "Dump Telemetry Log",
+        "command": "nanofuzz.telemetry.FlushLog",
+        "title": "Flush Telemetry Log to storage",
         "category": "NaNofuzz"
       },
       {
@@ -178,7 +178,7 @@
           "type": "boolean",
           "default": false,
           "minimum": 0,
-          "description": "Activate telemetry? (requires restart)"
+          "description": "Activate telemetry?"
         }
       }
     }
@@ -228,7 +228,7 @@
     "estrella": "^1.4.1",
     "jest": "^27.5.1",
     "jest-junit": "^12.0.0",
-    "nanofuzz-study": "penrose/nanofuzz-study#main",
+    "nanofuzz-study": "nanofuzz/nanofuzz-study#main",
     "ts-jest": "^27.1.3",
     "tsc-alias": "^1.6.7",
     "tslib": "^2.1.0",

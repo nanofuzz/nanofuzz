@@ -6,6 +6,7 @@ let currentTerm = ""; // Current terminal window name
 let logger: Logger; // Telemetry logger
 let context: vscode.ExtensionContext; // Context of this extension
 let config: PurseConfig; // Configuration settings
+let logFlusher: NodeJS.Timeout | undefined; // Interval to flush log data
 
 /**
  * Initialize the module.
@@ -14,20 +15,43 @@ let config: PurseConfig; // Configuration settings
  */
 export async function init(inContext: vscode.ExtensionContext): Promise<void> {
   console.info("Telemetry is starting...");
-  context = inContext;
+  context = inContext; // We don't use this but may need it later
+  context.extensionPath; // Make unused variable error go away
 
-  // Setup Workspace Storage
-  logger = Logger.getLogger(context.extensionUri);
+  // Get logger instance
+  logger = Logger.getLogger();
 
-  // Load config
-  const cfg = vscode.workspace.getConfiguration("telemetry");
+  // Load config (we update this if we detect config changes later)
+  loadConfig();
+}
+
+/**
+ * Load and handle the configuration
+ */
+function loadConfig(): void {
+  const oldConfig = config;
+
+  // Load configuration
   config = {
-    active: cfg.get("active", false),
+    active: vscode.workspace.getConfiguration("telemetry").get("active", false),
   };
-  if (config.active) {
-    console.info("Telemetry is active");
-  } else {
-    console.info("Telemetry is inactive");
+
+  // Handle change in logging config
+  if (oldConfig === undefined || oldConfig.active !== config.active) {
+    if (config.active) {
+      console.info("Telemetry is active");
+      logger.setActive(true);
+      logger.push(new LoggerEntry("onTelemetryActivated"));
+      logFlusher = setInterval(() => {
+        logger.flush();
+      }, 30000);
+    } else {
+      console.info("Telemetry is inactive");
+      logger.push(new LoggerEntry("onTelemetryDeactivated"));
+      logger.setActive(false);
+      logger.flush();
+      logFlusher?.unref();
+    }
   }
 }
 
@@ -37,6 +61,9 @@ export async function init(inContext: vscode.ExtensionContext): Promise<void> {
 export function deinit(): void {
   currentWindow = "";
   currentTerm = "";
+
+  // Stop auto-flushing the log
+  logFlusher?.unref();
 
   /**
    * The following code is usually ineffective when the vscode window
@@ -65,8 +92,8 @@ function isCodeEditor(fn: string): boolean {
  * Note: Manually update package.json.
  */
 export const commands = {
-  dumpLog: {
-    name: "nanofuzz.telemetry.DumpLog",
+  FlushLog: {
+    name: "nanofuzz.telemetry.FlushLog",
     fn: (): void => {
       logger.flush();
       vscode.window.showInformationMessage(`Log Data flushed to file system`);
@@ -98,7 +125,15 @@ export const listeners: Listener<any>[] = [
   {
     event: vscode.workspace.onDidChangeConfiguration,
     fn: (e: vscode.ConfigurationChangeEvent): void => {
-      logger.push(new LoggerEntry("onDidChangeConfiguration"));
+      // If the config is active, we need to log the change and re-load
+      if (config.active) {
+        logger.push(new LoggerEntry("onDidChangeConfiguration"));
+        loadConfig(); // Re-load config due to config change
+      } else {
+        // Otherwise, re-load the config and log the configuration change.
+        loadConfig(); // Re-load config due to config change
+        logger.push(new LoggerEntry("onDidChangeConfiguration"));
+      }
     },
   },
   {
