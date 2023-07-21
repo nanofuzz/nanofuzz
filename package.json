@@ -234,6 +234,6 @@
     "tslib": "^2.1.0",
     "typedoc": "^0.22.11",
     "typedoc-plugin-markdown": "^3.11.13",
-    "vsce": "^2.11.0"
+    "@vscode/vsce": "^2.15.0"
   }
 }
