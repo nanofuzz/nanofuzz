@@ -62,6 +62,12 @@ export const toString = (
           outputStr += x++ ? "," : "";
           outputStr += JSON5.stringify(e);
         });
+      // If there is a saved expected output, use that
+      if (pinnedTests[fn][testId].expectedOutput) {
+        console.log("outputStr before:", outputStr);
+        outputStr = pinnedTests[fn][testId].expectedOutput;
+        console.log("outputStr after:", outputStr);
+      }
 
       switch (pinnedTests[fn][testId].correct) {
         case "check":

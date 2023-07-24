@@ -11,6 +11,7 @@ const pinnedLabel = "pinned";
 const idLabel = "id";
 const correctLabel = "correct output?";
 const expectedLabel = "expectedOutput";
+const elapsedTimeLabel = "running time (ms)";
 
 // Pin button states
 const pinState = {
@@ -110,9 +111,12 @@ function main() {
       // Indicate which tests are pinned
       const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
       const id = { [idLabel]: idx++ };
-      const correct = { [correctLabel]: e.correct };
-      const expectedOutputs = {
+      let correct = { [correctLabel]: e.correct };
+      let expectedOutputs = {
         [expectedLabel]: e.expectedOutput,
+      };
+      let elapsedTimes = {
+        [elapsedTimeLabel]: e.elapsedTime.toFixed(3),
       };
 
       // Name each input argument and make it clear which inputs were not provided
@@ -139,7 +143,7 @@ function main() {
           ...id,
           ...inputs,
           ...outputs,
-          "running time (ms)": e.elapsedTime.toFixed(3),
+          ...elapsedTimes,
           ...pinned,
           ...correct,
           ...expectedOutputs,
@@ -150,7 +154,7 @@ function main() {
             ...id,
             ...inputs,
             exception: e.exceptionMessage,
-            "running time (ms)": e.elapsedTime.toFixed(3),
+            ...elapsedTimes,
             ...pinned,
             ...correct,
             ...expectedOutputs,
@@ -159,7 +163,7 @@ function main() {
           data["timeout"].push({
             ...id,
             ...inputs,
-            "running time (ms)": e.elapsedTime.toFixed(3),
+            ...elapsedTimes,
             ...pinned,
             ...correct,
             ...expectedOutputs,
@@ -169,7 +173,7 @@ function main() {
             ...id,
             ...inputs,
             ...outputs,
-            "running time (ms)": e.elapsedTime.toFixed(3),
+            ...elapsedTimes,
             ...pinned,
             ...correct,
             ...expectedOutputs,
@@ -259,19 +263,26 @@ function toggleFuzzOptions(e) {
  * @param data the back-end data structure
  */
 function handlePinToggle(id, type, data) {
+  const index = data[type].findIndex((element) => element.id == id);
+  if (index <= -1) throw e("invalid id");
+
   // Get the control that was clicked
   const button = document.getElementById(`fuzzSaveToggle-${id}`);
 
   // Are we pinning or unpinning the test?
   const pinning = button.innerHTML === pinState.htmlPin;
+  data[type][index][pinnedLabel] = pinning;
 
   // Get the test data for the test case
-  const testInput = {
+  const testCase = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
-    pinned: pinning,
-    correct: "none",
+    pinned: data[type][index][pinnedLabel],
+    correct: data[type][index][correctLabel],
   };
+  if (data[type][index][expectedLabel]) {
+    testCase.expectedOutput = data[type][index][expectedLabel];
+  }
 
   // Disable the control while we wait for the response
   button.disabled = true;
@@ -280,7 +291,7 @@ function handlePinToggle(id, type, data) {
   window.setTimeout(() => {
     vscode.postMessage({
       command: pinning ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(testInput),
+      json: JSON5.stringify(testCase),
     });
 
     // Update the control state
@@ -292,12 +303,6 @@ function handlePinToggle(id, type, data) {
       button.innerHTML = pinState.htmlPin;
       button.className = pinState.classPin;
       button.setAttribute("aria-label", "pin");
-    }
-    const index = data[type].findIndex((element) => element.id == id);
-    if (index > -1) {
-      data[type][index][pinnedLabel] = pinning;
-    } else {
-      console.log("invalid id");
     }
 
     // Disable the control while we wait for the response
@@ -329,9 +334,7 @@ function handleCorrectToggle(
 ) {
   const id = row.getAttribute("id");
   const index = data[type].findIndex((element) => element.id == id);
-  if (index <= -1) {
-    throw e("invalid id");
-  }
+  if (index <= -1) throw e("invalid id");
 
   // Change the state of the correct icon that was clicked
   // Only one icon should be selected at a time; if we turn an icon on, all
@@ -344,7 +347,6 @@ function handleCorrectToggle(
       data[type][index][correctLabel] = "none";
       // delete saved expected value
       delete data[type][index][expectedLabel];
-      // drawTableBody(data, type, tbody);
       break;
 
     case correctState.classErrorOn:
@@ -354,7 +356,6 @@ function handleCorrectToggle(
       data[type][index][correctLabel] = "none";
       // delete saved expected value
       delete data[type][index][expectedLabel];
-      // drawTableBody(data, type, tbody);
       break;
 
     case correctState.classQuestionOn:
@@ -389,8 +390,7 @@ function handleCorrectToggle(
       cell3.className = correctState.classQuestionOff;
       cell3.setAttribute("onOff", false);
       //save expected output value
-      data[type][index][expectedLabel] = data[type][index]["output"];
-      // drawTableBody(data, type, tbody);
+      data[type][index][expectedLabel] = data[type][index]["output"]; //How am I doing this????????
       break;
 
     case correctState.classQuestionOff:
@@ -407,14 +407,14 @@ function handleCorrectToggle(
   }
 
   // Redraw table
-  drawTableBody(data, type, tbody);
+  drawTableBody(data, type, tbody, true, button);
 
   const onOff = JSON.parse(button.getAttribute("onOff"));
   const pinCell = document.getElementById(`fuzzSaveToggle-${id}`);
   const isPinned = pinCell.className === pinState.classPinned;
 
   // Get the test data for the test case
-  const testInput = {
+  const testCase = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: isPinned,
@@ -429,7 +429,7 @@ function handleCorrectToggle(
   window.setTimeout(() => {
     vscode.postMessage({
       command: onOff ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(testInput),
+      json: JSON5.stringify(testCase),
     });
     // Disable the control while we wait for the response
     button.disabled = false;
@@ -656,13 +656,13 @@ function updateColumnArrow(cell, type, col, isClicking) {
 
 /**
  * Draw table body and fill in with values from data[type]. Add event listeners
- * for sorting, pinning, correct icons
+ * for pinning, toggling correct icons
  *
  * @param data backend data structure
  * @param type e.g. bad output, passed, etc
  * @param tbody table body
  */
-function drawTableBody(data, type, tbody) {
+function drawTableBody(data, type, tbody, isClicking, button) {
   // Clear table
   while (tbody.rows.length > 0) tbody.deleteRow(0);
 
@@ -753,12 +753,12 @@ function drawTableBody(data, type, tbody) {
           case "check":
             cell1.className = correctState.classCheckOn;
             cell1.setAttribute("onOff", true);
-            handleExpectedOutput(data, type, row, tbody);
+            handleExpectedOutput(data, type, row, tbody, isClicking, button);
             break;
           case "error":
             cell2.className = correctState.classErrorOn;
             cell2.setAttribute("onOff", true);
-            handleExpectedOutput(data, type, row, tbody);
+            handleExpectedOutput(data, type, row, tbody, isClicking, button);
             break;
           case "question":
             cell3.className = correctState.classQuestionOn;
@@ -774,40 +774,86 @@ function drawTableBody(data, type, tbody) {
 } //fn: drawTableBody()
 
 /**
- * Check if actual output matches expected output (based on correct icons selected).
+ * Checks if actual output matches expected output (based on correct icons selected).
+ * If not, shows error message.
+ * Assumes that either the check or error icon is selected.
  *
  * @param data backend data structure
  * @param type e.g. bad output, passed
  * @param row row of tbody
  * @param tbody table body for 'type'
  */
-function handleExpectedOutput(data, type, row, tbody) {
+function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
   const id = row.getAttribute("id");
+  let toggledId;
+  if (isClicking) toggledId = button.parentElement.getAttribute("id");
+
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) {
     throw e("invalid id");
   }
   const correctType = data[type][index][correctLabel];
-  const numInputs = resultsData.results[0].input.length; // will use to index into row
+  const numInputs = resultsData.results[0].input.length; // will use to index into `row`
 
+  // If actual output does not match expected output, show error message
   if (!sameExpectedOutput(index, type, data, correctType)) {
     const expectedRow = tbody.appendChild(document.createElement("tr"));
     const cell = expectedRow.appendChild(document.createElement("td"));
     cell.colSpan = row.cells.length;
-    cell.parentElement.className = "classErrorRow"; // make row red
     row.cells[numInputs].className = "classErrorCell"; // draw red box around output cell
-
     if (correctType === "check") {
+      // If it's marked with a check, show error message
+      expectedRow.className = "classErrorRow";
       cell.innerHTML = `expected: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
+    } else if (correctType === "error" && isClicking && id === toggledId) {
+      // If it's marked X and it's the row currently being clicked on, show error message
+      // asking for operator type, expected output
+      expectedRow.className = "classExpectedOutputRow";
+      cell.innerHTML = expectedOutputHtml(id, index, data, type);
+      let textField = document.getElementById(`fuzz-expectedOutput${id}`);
+      let radioNotEqual = document.getElementById(`fuzz-radioNotEqual${id}`);
+      let radioEqual = document.getElementById(`fuzz-radioEqual${id}`);
+      textField.addEventListener("change", (e) =>
+        handleSaveExpectedOut(e, id, data, type, index)
+      );
+      radioNotEqual.addEventListener("change", () =>
+        handleSaveOperator(radioNotEqual, radioEqual, id, data, type, index)
+      );
     } else if (correctType === "error") {
+      // If it's marked X but isn't the row currently being clicked on, show error message
+      expectedRow.className = "classErrorRow";
       cell.innerHTML = `expected not: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
     }
   }
 }
 
 /**
- * If the check mark icon is selected, check that the actual output and expected output
- * are equal. If the X icon is selected, check that the actual output and expected output
+ * HTML for X icon expected output row. Adds radio buttons for operator
+ * type -- 'not equal' (default), 'equal'. Adds text field for expected output
+ *
+ * @param id id of row
+ * @param index index in `data`
+ * @param data back-end data structure
+ * @param type e.g. bad output, passed
+ */
+function expectedOutputHtml(id, index, data, type) {
+  const defaultOutput = JSON5.stringify(data[type][index][expectedLabel]);
+  let html = /*html*/ `
+    expected to:
+    <vscode-radio-group>
+      <vscode-radio id="fuzz-radioNotEqual${id}" checked >not equal</vscode-radio>
+      <vscode-radio id="fuzz-radioEqual${id}">equal</vscode-radio>
+    </vscode-radio-group> 
+
+    <vscode-text-field id="fuzz-expectedOutput${id}" value=${defaultOutput}>
+    </vscode-text-field>
+    `;
+  return html;
+}
+
+/**
+ * If the check mark icon is selected, verify that the actual output and expected output
+ * are equal. If the X icon is selected, verify that the actual output and expected output
  * are not equal.
  * @param id
  * @param type
@@ -833,10 +879,78 @@ function sameExpectedOutput(index, type, data, correctType) {
   if (correctType === "check") {
     return actualOut === expectedOut && actualType === expectedType;
   } else if (correctType === "error") {
-    return actualOut !== expectedOut;
+    return actualOut !== expectedOut || actualType !== expectedType;
   } else {
     assert(false);
   }
+}
+
+/**
+ * Saves the value of the expected output typed into the text field.
+ *
+ * @param e on-change event
+ * @param id id of row
+ * @param data back-end data structure
+ * @param type e.g. bad output, passed
+ * @param index index in `data`
+ */
+function handleSaveExpectedOut(e, id, data, type, index) {
+  data[type][index][expectedLabel] =
+    e.currentTarget.getAttribute("current-value");
+
+  const testCase = {
+    input: resultsData.results[id].input,
+    output: resultsData.results[id].output,
+    pinned: data[type][index][pinnedLabel],
+    correct: data[type][index][correctLabel],
+    expectedOutput: data[type][index][expectedLabel],
+  };
+
+  // Send the request to the extension
+  window.setTimeout(() => {
+    vscode.postMessage({
+      command: "test.pin",
+      json: JSON5.stringify(testCase),
+    });
+  });
+}
+/**
+ *
+ * @param radioNotEqual radio button for 'not equal' operator
+ * @param radioEqual radio button for 'equal' operator
+ * @param id id of row
+ * @param data back-end data structure
+ * @param type e.g. bad output, passed
+ * @param index index in `data`
+ */
+function handleSaveOperator(radioNotEqual, radioEqual, id, data, type, index) {
+  let correctType;
+  if (radioNotEqual.getAttribute("current-checked") === "true") {
+    correctType = "check";
+  } else if (radioNotEqual.getAttribute("current-checked") === "false") {
+    correctType = "error";
+  } else if (radioNotEqual.getAttribute("current-checked") === null) {
+    correctType = "error";
+  } else {
+    assert(false);
+  }
+  data[type][index][correctLabel] = correctType;
+
+  const testCase = {
+    input: resultsData.results[id].input,
+    output: resultsData.results[id].output,
+    pinned: data[type][index][pinnedLabel],
+    correct: data[type][index][correctLabel],
+    expectedOutput: data[type][index][expectedLabel],
+  };
+
+  // Send the request to the extension
+  window.setTimeout(() => {
+    vscode.postMessage({
+      command: "test.pin",
+      json: JSON5.stringify(testCase),
+    });
+  });
 }
 
 /**

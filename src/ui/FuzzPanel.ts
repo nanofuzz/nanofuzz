@@ -248,7 +248,7 @@ export class FuzzPanel {
             this._doTestPinnedCmd(json, false);
             break;
           case "columnSortOrders":
-            this._storeColumnSortOrders(json);
+            this._saveColumnSortOrders(json);
             break;
         }
       },
@@ -258,14 +258,15 @@ export class FuzzPanel {
   } // fn: _setWebviewMessageListener
 
   /**
-   * Performs a test pin or unpin, depending on the `pin` parameter.
+   * Saves or unsaves a test, depending on the `pin` parameter.
    *
-   * @param json inputs to pin or unpins
-   * @param pin true=pin test; false=unpin test
+   * @param json test case to save or unsave
+   * @param pin true=save test; false=unsave test
    */
   private _doTestPinnedCmd(json: string, pin: boolean) {
     const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
       this._getPinnedTests();
+    // Update set of saved tests
     let changed = this._updatePinnedSet(json, pinnedSet, pin); // Did we change anything?
 
     // Persist changes
@@ -392,9 +393,9 @@ export class FuzzPanel {
   } // fn: _putPinnedTests()
 
   /**
-   * Add and/or delete from pinnedSet
+   * Add and/or delete from the set of saved tests. Returns if changed.
    * @param json current test case
-   * @param pinnedSet set of pinned test cases
+   * @param pinnedSet set of saved test cases
    * @param saving are we saving or unsaving?
    * @returns if changed
    */
@@ -406,78 +407,21 @@ export class FuzzPanel {
     let changed = false;
     const currTest = JSON5.parse(json);
     let currInput = JSON5.parse(json).input[0];
-    currInput = JSON.stringify(currInput);
-    /*
-    Ex:
-    "{\"name\":\"columnSortSetting\",\"offset\":0,\"value\":16}": 
-    {
-      "input": [{ "name": "columnSortSetting", "offset": 0, "value": 16 }],
-      "output": [{ "name": "0", "offset": 0, "value": 16 }],
-      "pinned": true,
-      "correct": "check"
-    }
-    */
+    currInput = JSON5.stringify(currInput);
 
-    // If input is already in pinnedSet
-    if (pinnedSet[currInput]) {
-      if (
-        // If we're unpinning a test that used to be pinned, and a correct icon is
-        // not selected, delete
-        !saving &&
-        !currTest.pinned &&
-        pinnedSet[currInput].pinned &&
-        pinnedSet[currInput].correct === "none"
-      ) {
-        delete pinnedSet[currInput];
-      } else if (
-        // If we're unpinning a test that used to be pinned, and a correct icon IS
-        // selected, modify
-        !saving &&
-        !currTest.pinned &&
-        pinnedSet[currInput].pinned &&
-        pinnedSet[currInput].correct !== "none"
-      ) {
-        pinnedSet[currInput].pinned = false;
-      } else if (
-        // If we're unselecting a correct icon and an icon used to be selected,
-        // and it's not pinned, delete
-        !saving &&
-        currTest.correct == "none" &&
-        pinnedSet[currInput].correct !== "none" &&
-        !pinnedSet[currInput].pinned
-      ) {
-        delete pinnedSet[currInput];
-      } else if (
-        // If we're unselecting a correct icon and an icon used to be selected,
-        // and it IS pinned, modify
-        !saving &&
-        currTest.correct !== "none" &&
-        pinnedSet[currInput].correct !== "none" &&
-        pinnedSet[currInput].pinned
-      ) {
-        pinnedSet[currInput].correct = currTest.correct;
-      } else if (currTest.correct !== "none") {
-        // If we're selecting a correct icon
-        pinnedSet[currInput].correct = currTest.correct;
-      } else if (
-        currTest.correct === "none" &&
-        pinnedSet[currInput].correct !== "none" &&
-        currTest.pinned === pinnedSet[currInput].pinned
-      ) {
-        // If we're unselecting a correct icon (that is currently selected)
-        pinnedSet[currInput].correct = currTest.correct;
-      } else {
-        // If we're clicking the pin button
-        pinnedSet[currInput].pinned = currTest.pinned;
-      }
+    // If input is already in pinnedSet and should be deleted, delete it
+    if (
+      pinnedSet[currInput] &&
+      currTest.pinned === false &&
+      currTest.correct === "none"
+    ) {
+      delete pinnedSet[currInput];
       changed = true;
-    } else {
-      // If input is not already in pinnedSet
-      if (saving) {
-        // Add new test case
-        pinnedSet[currInput] = JSON5.parse(json);
-        changed = true;
-      }
+    }
+    // If the test is being saved, add to pinnedSet
+    if (saving) {
+      pinnedSet[currInput] = currTest;
+      changed = true;
     }
     return changed;
   }
@@ -485,7 +429,7 @@ export class FuzzPanel {
   /**
    * Message handler for the `columnSortOrders' command.
    */
-  private _storeColumnSortOrders(json: string) {
+  private _saveColumnSortOrders(json: string) {
     this._sortColumns = JSON5.parse(json);
   }
 
@@ -503,7 +447,8 @@ export class FuzzPanel {
    *
    * @param json JSON input
    */
-  private async _doFuzzStartCmd(json: string): Promise<void> {
+  private async;
+  _doFuzzStartCmd(json: string): Promise<void> {
     const panelInput: {
       fuzzer: Record<string, any>; // !!! Improve typing
       args: Record<string, any>; // !!! Improve typing

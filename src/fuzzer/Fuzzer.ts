@@ -374,7 +374,7 @@ export type FuzzTestResult = {
   passed: boolean; // true if output matches oracle; false, otherwise
   elapsedTime: number; // elapsed time of test
   correct: string; // check, error, question, or none
-  expectedOutput?: any; // expected function output (the correct value, if check icon; the incorrect value, if error icon)
+  expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
 };
 
 /**
@@ -385,7 +385,7 @@ export type FuzzPinnedTest = {
   output: FuzzIoElement[]; // function output
   pinned: boolean; // is the test pinned?
   correct: string; // check, error, question, or none
-  expectedOutput?: any; // expected function output
+  expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
 };
 
 /**

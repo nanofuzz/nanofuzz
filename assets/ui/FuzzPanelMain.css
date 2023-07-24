@@ -29,6 +29,7 @@ td.fuzzGridCellPin:hover {
   opacity: 100%;
 }
 
+/* Correct icons */
 td.classCheckOff {
   opacity: 50%;
 }
@@ -38,7 +39,6 @@ td.classErrorOff {
 td.classQuestionOff {
   opacity: 50%;
 }
-
 td.classCheckOn {
   opacity: 100%;
   color: rgba(95, 250, 152, 0.665);
@@ -52,16 +52,21 @@ td.classQuestionOn {
   color: rgb(230, 212, 108);
 }
 
+/* Expected output */
 td.classErrorCell {
   opacity: 100%;
   outline-style: solid;
-  outline-width: medium;
-  outline-color: rgb(208, 38, 72);
+  outline-width: 0.05cm;
+  outline-color: rgb(206, 39, 72);
 }
 tr.classErrorRow {
   opacity: 100%;
-  color: black;
-  background-color: rgb(233, 94, 124);
+  background-color: rgb(49, 47, 47);
+}
+tr.classExpectedOutputRow {
+  opacity: 100%;
+  color: white;
+  background-color: rgb(49, 47, 47);
 }
 
 /** Tooltips: adapted from: https://www.w3schools.com/css/css_tooltip.asp **/
@@ -126,15 +131,10 @@ tr.classErrorRow {
   visibility: visible;
 }
 
+/* Sorting */
 .columnSortDesc::after {
   content: "    ▼";
 }
-
 .columnSortAsc::after {
   content: "    ▲";
 }
-
-/* .columnSortNone::after {
-  content: "    ▲";
-  color: black;
-} */
