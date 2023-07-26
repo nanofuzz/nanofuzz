@@ -624,11 +624,13 @@ export class FuzzPanel {
     const disabledFlag =
       this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const resultSummary = {
-      passed: 0,
-      failed: 0,
+      passedImplicit: 0, //
+      failedImplicit: 0, //
       timeout: 0,
       exception: 0,
       badOutput: 0,
+      passedExplicit: 0, //
+      failedExplicit: 0, //
     }; // Summary of fuzzing results
     const toolkitUri = getUri(webview, extensionUri, [
       "node_modules",
@@ -668,13 +670,18 @@ export class FuzzPanel {
     // If fuzzer results are available, calculate how many tests passed, failed, etc.
     if (this._state === FuzzPanelState.done && this._results !== undefined) {
       for (const result of this._results.results) {
-        if (result.passed) resultSummary.passed++;
+        if (result.passedImplicit) resultSummary.passedImplicit++;
         else {
-          resultSummary.failed++;
+          resultSummary.failedImplicit++;
           if (result.exception) resultSummary.exception++;
           else if (result.timeout) resultSummary.timeout++;
           else resultSummary.badOutput++;
         }
+        //
+        if (result.passedExplicit === true) ++resultSummary.passedExplicit;
+        else if (result.passedExplicit === false)
+          ++resultSummary.failedExplicit;
+        //(note: could be undefined)
       }
     } // if: results are available
 
@@ -752,6 +759,11 @@ export class FuzzPanel {
     // If we have results, render the output tabs to display the results.
     const tabs = [
       {
+        id: "failedExplicit",
+        name: "Failed",
+        description: `These outputs do not match the expected outputs that were specified using the correctness icons:`,
+      },
+      {
         id: "timeout",
         name: "Timeouts",
         description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms:`,
@@ -763,25 +775,44 @@ export class FuzzPanel {
       },
       {
         id: "badOutput",
-        name: "Invalid Outputs",
+        name: "Likely Failed",
         description: `These outputs contain: null, NaN, Infinity, or undefined:`,
       },
       {
-        id: "passed",
+        id: "passedImplicit",
+        name: "Likely Passed",
+        // description: `Passed: no timeout, exception, null, NaN, Infinity, or undefined`,
+        description: `These outputs do not contain: timeout, exception, null, NaN, Infinity, or undefined:`,
+      },
+      {
+        id: "passedExplicit",
         name: "Passed",
-        description: `Passed: no timeout, exception, null, NaN, Infinity, or undefined`,
+        description: `These outputs match the expected outputs that were specified using the correctness icons:`,
       },
     ];
     tabs.forEach((e) => {
-      if (resultSummary[e.id] > 0)
-        // prettier-ignore
-        html += /*html*/ `
+      if (resultSummary[e.id] > 0) {
+        if (e.id === "passedExplicit" || e.id === "failedExplicit") {
+          // prettier-ignore
+          html += /*html*/ `
               <vscode-panel-tab id="tab-${e.id}">
                 ${e.name}<vscode-badge appearance="secondary">${
                   resultSummary[e.id]
                 }</vscode-badge>
               </vscode-panel-tab>`;
+        } else {
+          html += /*html*/ `
+              <vscode-panel-tab id="tab-${e.id}">
+              ${e.name}<vscode-badge appearance="secondary">${
+            resultSummary[e.id]
+          }</vscode-badge>
+              </vscode-panel-tab>`;
+        }
+      }
     });
+    // <span class="codicon codicon-hubot"></span>
+    // <span class="codicon codicon-feedback"></span>
+
     tabs.forEach((e) => {
       if (resultSummary[e.id] > 0)
         html += /*html*/ `

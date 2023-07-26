@@ -7,6 +7,8 @@ import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
+import exp from "constants";
+import { error } from "console";
 
 /**
  * WARNING: To embed this module into a VS Code web extension, at a minimu,
@@ -148,7 +150,7 @@ export const fuzz = async (
       output: [],
       exception: false,
       timeout: false,
-      passed: true,
+      passedImplicit: true,
       elapsedTime: 0,
       correct: "none",
     };
@@ -219,8 +221,27 @@ export const fuzz = async (
       result.timeout ||
       result.output.some((e) => !implicitOracle(e))
     )
-      result.passed = false;
+      result.passedImplicit = false;
 
+    //THISISME
+    if (result.expectedOutput) {
+      let actualOutput = JSON5.stringify(result.output[0].value);
+
+      result.passedExplicit = actualEqualsExpectedOutput(
+        actualOutput,
+        result.expectedOutput,
+        result.correct
+      );
+
+      console.log(
+        "****** expectedoutput:",
+        result.expectedOutput,
+        "output:",
+        actualOutput,
+        "result.passedExplicit",
+        result.passedExplicit
+      );
+    }
     // Store the result for this iteration
     results.results.push(result);
   } // for: Main test loop
@@ -332,6 +353,42 @@ export function isTimeoutError(error: { code?: string }): boolean {
 } // fn: isTimeoutError()
 
 /**
+ *
+ * @param actualOut actual output
+ * @param expectedOut expected output
+ * @param correctType type of correct icon selected
+ * @returns if actualOut equals expectedOut
+ */
+function actualEqualsExpectedOutput(
+  actualOut: string,
+  expectedOut: string,
+  correctType: string
+): boolean {
+  let actualType, expectedType;
+  try {
+    actualType = typeof JSON.parse(actualOut);
+    if (actualType !== "string") actualOut = JSON5.parse(actualOut);
+  } catch (error) {
+    actualType = "string";
+  }
+  try {
+    expectedType = typeof JSON.parse(expectedOut);
+    if (expectedType !== "string") expectedOut = JSON5.parse(expectedOut);
+  } catch (error) {
+    expectedType = "string";
+  }
+
+  // Compare actual and expected
+  if (correctType === "check") {
+    return actualOut === expectedOut && actualType === expectedType;
+  } else if (correctType === "error") {
+    return actualOut !== expectedOut || actualType !== expectedType;
+  } else {
+    throw error;
+  }
+}
+
+/**
  * Fuzzer Environment required to fuzz a function.
  */
 export type FuzzEnv = {
@@ -371,7 +428,9 @@ export type FuzzTestResult = {
   exceptionMessage?: string; // exception message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
-  passed: boolean; // true if output matches oracle; false, otherwise
+  passedImplicit: boolean; // true if output matches oracle; false, otherwise
+  passedExplicit?: boolean; // ........
+  // could be undefined?
   elapsedTime: number; // elapsed time of test
   correct: string; // check, error, question, or none
   expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon

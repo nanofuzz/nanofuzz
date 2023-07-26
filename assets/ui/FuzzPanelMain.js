@@ -4,7 +4,18 @@ const vscode = acquireVsCodeApi();
 window.addEventListener("load", main);
 
 // List of output grids that store fuzzer results
-const gridTypes = ["timeout", "exception", "badOutput", "passed"];
+// const gridTypes = ["timeout", "exception", "badOutput", "passed"];
+// vvvvvvvvv
+// This will contain repeats...
+
+const gridTypes = [
+  "failedExplicit",
+  "passedExplicit",
+  "timeout",
+  "exception",
+  "badOutput",
+  "passedImplicit",
+];
 
 // Column name labels
 const pinnedLabel = "pinned";
@@ -47,11 +58,19 @@ const sortOrder = ["asc", "desc", "none"];
 function getDefaultColumnSortOrder() {
   return { pinned: "desc" };
 }
+// const defaultColumnSortOrders = {
+//   timeout: getDefaultColumnSortOrder(),
+//   exception: getDefaultColumnSortOrder(),
+//   badOutput: getDefaultColumnSortOrder(),
+//   passed: getDefaultColumnSortOrder(),
+// };
 const defaultColumnSortOrders = {
   timeout: getDefaultColumnSortOrder(),
   exception: getDefaultColumnSortOrder(),
   badOutput: getDefaultColumnSortOrder(),
-  passed: getDefaultColumnSortOrder(),
+  passedImplicit: getDefaultColumnSortOrder(),
+  passedExplicit: getDefaultColumnSortOrder(),
+  failedExplicit: getDefaultColumnSortOrder(),
 };
 
 // Column sort orders (filled by main or handleColumnSort())
@@ -138,8 +157,32 @@ function main() {
       });
 
       // Toss each result into the appropriate grid
-      if (e.passed) {
-        data["passed"].push({
+      // Explicit correctness
+      if (e.passedExplicit === true) {
+        //(note: could be undefined)
+        data["passedExplicit"].push({
+          ...id,
+          ...inputs,
+          ...outputs,
+          ...elapsedTimes,
+          ...pinned,
+          ...correct,
+          ...expectedOutputs,
+        });
+      } else if (e.passedExplicit === false) {
+        data["failedExplicit"].push({
+          ...id,
+          ...inputs,
+          ...outputs,
+          ...elapsedTimes,
+          ...pinned,
+          ...correct,
+          ...expectedOutputs,
+        });
+      }
+      // Implicit correctness
+      if (e.passedImplicit) {
+        data["passedImplicit"].push({
           ...id,
           ...inputs,
           ...outputs,
@@ -793,22 +836,23 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
     throw e("invalid id");
   }
   const correctType = data[type][index][correctLabel];
-  const numInputs = resultsData.results[0].input.length; // will use to index into `row`
+  const numInputs = resultsData.results[id].input.length; // will use to index into `row`
 
-  // If actual output does not match expected output, show error message
+  // If actual output does not match expected output, show expected/actual output
   if (!sameExpectedOutput(index, type, data, correctType)) {
+    // if (resultsData.results[id].passedExplicit === false) { //and also if undefined and currently, actual != expected
     const expectedRow = tbody.appendChild(document.createElement("tr"));
     const cell = expectedRow.appendChild(document.createElement("td"));
     cell.colSpan = row.cells.length;
-    row.cells[numInputs].className = "classErrorCell"; // draw red box around output cell
+    row.cells[numInputs].className = "classErrorCell"; // red box around output cell
     if (correctType === "check") {
-      // If it's marked with a check, show error message
-      expectedRow.className = "classErrorRow";
-      cell.innerHTML = `expected: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
+      // If it's marked with a check, show expected/actual output
+      expectedRow.className = "classErrorExpectedOutputRow";
+      cell.innerHTML = `Failed: expected: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
     } else if (correctType === "error" && isClicking && id === toggledId) {
-      // If it's marked X and it's the row currently being clicked on, show error message
-      // asking for operator type, expected output
-      expectedRow.className = "classExpectedOutputRow";
+      // If it's marked X and it's the row currently being clicked on, ask for operator
+      // type, expected output
+      expectedRow.className = "classGetExpectedOutputRow";
       cell.innerHTML = expectedOutputHtml(id, index, data, type);
       let textField = document.getElementById(`fuzz-expectedOutput${id}`);
       let radioNotEqual = document.getElementById(`fuzz-radioNotEqual${id}`);
@@ -820,9 +864,22 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         handleSaveOperator(radioNotEqual, radioEqual, id, data, type, index)
       );
     } else if (correctType === "error") {
-      // If it's marked X but isn't the row currently being clicked on, show error message
-      expectedRow.className = "classErrorRow";
-      cell.innerHTML = `expected not: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
+      // If it's marked X but isn't the row currently being clicked on, show expected/
+      // actual output
+      expectedRow.className = "classErrorExpectedOutputRow";
+      cell.innerHTML = `Failed: expected not: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
+    }
+  } else if (resultsData.results[id].passedExplicit === true) {
+    // If actual output does match expected output
+    if (correctType === "error") {
+      const expectedRow = tbody.appendChild(document.createElement("tr"));
+      const cell = expectedRow.appendChild(document.createElement("td"));
+      cell.colSpan = row.cells.length;
+      // row.cells[numInputs].className = "classCorrectCell"; // green box around output cell
+      expectedRow.className = "classExpectedOutputRow";
+      cell.innerHTML = `Passed: expected not: ${data[type][index][expectedLabel]}, and received: ${data[type][index]["output"]}`;
+    } else if (correctType === "check") {
+      // row.cells[numInputs].className = "classCorrectCell"; // green box around output cell
     }
   }
 }
