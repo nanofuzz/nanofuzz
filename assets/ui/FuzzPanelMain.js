@@ -4,10 +4,6 @@ const vscode = acquireVsCodeApi();
 window.addEventListener("load", main);
 
 // List of output grids that store fuzzer results
-// const gridTypes = ["timeout", "exception", "badOutput", "passed"];
-// vvvvvvvvv
-// This will contain repeats...
-
 const gridTypes = [
   "failedExplicit",
   "passedExplicit",
@@ -58,12 +54,6 @@ const sortOrder = ["asc", "desc", "none"];
 function getDefaultColumnSortOrder() {
   return { pinned: "desc" };
 }
-// const defaultColumnSortOrders = {
-//   timeout: getDefaultColumnSortOrder(),
-//   exception: getDefaultColumnSortOrder(),
-//   badOutput: getDefaultColumnSortOrder(),
-//   passed: getDefaultColumnSortOrder(),
-// };
 const defaultColumnSortOrders = {
   timeout: getDefaultColumnSortOrder(),
   exception: getDefaultColumnSortOrder(),
@@ -159,7 +149,6 @@ function main() {
       // Toss each result into the appropriate grid
       // Explicit correctness
       if (e.passedExplicit === true) {
-        //(note: could be undefined)
         data["passedExplicit"].push({
           ...id,
           ...inputs,
@@ -446,6 +435,8 @@ function handleCorrectToggle(
       cell1.setAttribute("onOff", false);
       cell2.className = correctState.classErrorOff;
       cell2.setAttribute("onOff", false);
+      // delete saved expected value
+      delete data[type][index][expectedLabel];
       break;
   }
 
@@ -461,7 +452,7 @@ function handleCorrectToggle(
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: isPinned,
-    correct: onOff ? button.getAttribute("correctType") : "none", // check, error, question, or none
+    correct: data[type][index][correctLabel],
     expectedOutput: data[type][index][expectedLabel],
   };
 
@@ -840,7 +831,6 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
 
   // If actual output does not match expected output, show expected/actual output
   if (!sameExpectedOutput(index, type, data, correctType)) {
-    // if (resultsData.results[id].passedExplicit === false) { //and also if undefined and currently, actual != expected
     const expectedRow = tbody.appendChild(document.createElement("tr"));
     const cell = expectedRow.appendChild(document.createElement("td"));
     cell.colSpan = row.cells.length;
@@ -870,16 +860,14 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
       cell.innerHTML = `Failed: expected not: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
     }
   } else if (resultsData.results[id].passedExplicit === true) {
-    // If actual output does match expected output
+    // If actual output matches expected output
     if (correctType === "error") {
       const expectedRow = tbody.appendChild(document.createElement("tr"));
       const cell = expectedRow.appendChild(document.createElement("td"));
       cell.colSpan = row.cells.length;
-      // row.cells[numInputs].className = "classCorrectCell"; // green box around output cell
       expectedRow.className = "classExpectedOutputRow";
       cell.innerHTML = `Passed: expected not: ${data[type][index][expectedLabel]}, and received: ${data[type][index]["output"]}`;
     } else if (correctType === "check") {
-      // row.cells[numInputs].className = "classCorrectCell"; // green box around output cell
     }
   }
 }
@@ -938,7 +926,6 @@ function sameExpectedOutput(index, type, data, correctType) {
   } else if (correctType === "error") {
     return actualOut !== expectedOut || actualType !== expectedType;
   } else {
-    assert(false);
   }
 }
 

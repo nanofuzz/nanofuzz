@@ -624,13 +624,13 @@ export class FuzzPanel {
     const disabledFlag =
       this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const resultSummary = {
-      passedImplicit: 0, //
-      failedImplicit: 0, //
+      passedImplicit: 0,
+      failedImplicit: 0,
       timeout: 0,
       exception: 0,
       badOutput: 0,
-      passedExplicit: 0, //
-      failedExplicit: 0, //
+      passedExplicit: 0,
+      failedExplicit: 0,
     }; // Summary of fuzzing results
     const toolkitUri = getUri(webview, extensionUri, [
       "node_modules",
@@ -677,11 +677,9 @@ export class FuzzPanel {
           else if (result.timeout) resultSummary.timeout++;
           else resultSummary.badOutput++;
         }
-        //
         if (result.passedExplicit === true) ++resultSummary.passedExplicit;
         else if (result.passedExplicit === false)
           ++resultSummary.failedExplicit;
-        //(note: could be undefined)
       }
     } // if: results are available
 
@@ -781,7 +779,6 @@ export class FuzzPanel {
       {
         id: "passedImplicit",
         name: "Likely Passed",
-        // description: `Passed: no timeout, exception, null, NaN, Infinity, or undefined`,
         description: `These outputs do not contain: timeout, exception, null, NaN, Infinity, or undefined:`,
       },
       {

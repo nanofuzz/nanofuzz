@@ -223,7 +223,6 @@ export const fuzz = async (
     )
       result.passedImplicit = false;
 
-    //THISISME
     if (result.expectedOutput) {
       let actualOutput = JSON5.stringify(result.output[0].value);
 
@@ -231,15 +230,6 @@ export const fuzz = async (
         actualOutput,
         result.expectedOutput,
         result.correct
-      );
-
-      console.log(
-        "****** expectedoutput:",
-        result.expectedOutput,
-        "output:",
-        actualOutput,
-        "result.passedExplicit",
-        result.passedExplicit
       );
     }
     // Store the result for this iteration
@@ -429,8 +419,7 @@ export type FuzzTestResult = {
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
   passedImplicit: boolean; // true if output matches oracle; false, otherwise
-  passedExplicit?: boolean; // ........
-  // could be undefined?
+  passedExplicit?: boolean; // true if actual output matches expected output
   elapsedTime: number; // elapsed time of test
   correct: string; // check, error, question, or none
   expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
