@@ -28,6 +28,7 @@ const pinState = {
   classPin: "fuzzGridCellPin",
 };
 
+// Correct icon states
 const correctState = {
   htmlCheck: `<span class="codicon codicon-pass"></span>`, // check in circle
   htmlError: `<span class="codicon codicon-error"></span>`, // X in circle
@@ -67,6 +68,8 @@ const defaultColumnSortOrders = {
 let columnSortOrders;
 // Fuzzer Results (filled by main during load event)
 let resultsData;
+// Validator functions (filled by main during load event)
+let validators;
 
 /**
  * Sets up the UI when the page is loaded, including setting up
@@ -83,10 +86,29 @@ function main() {
     .getElementById("fuzz.options")
     .addEventListener("click", (e) => toggleFuzzOptions(e));
 
+  // Add event listener for the customValidator button
+  document
+    .getElementById("customValidator")
+    .addEventListener("click", (e) => handleCustomValidator(e));
+
   // Load the data from the HTML
   resultsData = JSON5.parse(
     htmlUnescape(document.getElementById("fuzzResultsData").innerHTML)
   );
+
+  // Load validator functions from the HTML
+  validators = JSON5.parse(
+    htmlUnescape(document.getElementById("validators").innerHTML)
+  );
+  // Add event listeners for the validator radio buttons
+  validators.forEach((val) => {
+    document
+      .getElementById(`validator-${val.ref.name}`)
+      .addEventListener("click", (e) => handleToggleValidator(e));
+  });
+  document
+    .getElementById("validator-implicitOracle")
+    .addEventListener("click", (e) => handleToggleValidator(e));
 
   // Load column sort orders from the HTML
   let message = JSON5.parse(
@@ -147,7 +169,7 @@ function main() {
       });
 
       // Toss each result into the appropriate grid
-      // Explicit correctness
+      // Explicit correctness:
       if (e.passedExplicit === true) {
         data["passedExplicit"].push({
           ...id,
@@ -169,7 +191,7 @@ function main() {
           ...expectedOutputs,
         });
       }
-      // Implicit correctness
+      // Implicit correctness:
       if (e.passedImplicit) {
         data["passedImplicit"].push({
           ...id,
@@ -253,7 +275,7 @@ function main() {
         }); // for each column k
 
         // Render the data rows, set up event listeners
-        drawTableBody(data, type, tbody);
+        drawTableBody(data, type, tbody, false);
 
         // Initial sort, according to columnSortOrders
         let hRowIdx = 0;
@@ -369,7 +391,7 @@ function handleCorrectToggle(
   if (index <= -1) throw e("invalid id");
 
   // Change the state of the correct icon that was clicked
-  // Only one icon should be selected at a time; if we turn an icon on, all
+  // Only one icon should be selected at a time; if an icon is turned on, all
   // others should be turned off
   switch (button.className) {
     case correctState.classCheckOn:
@@ -589,10 +611,10 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
   }
 
   // Sorting done, display table
-  drawTableBody(data, type, tbody);
+  drawTableBody(data, type, tbody, false);
 
-  // Send message to extension (so that if you click Test again, your sort order will
-  // be retained)
+  // Send message to extension (so that the sort order is retained if you click
+  // 'Test' again)
   if (isClicking) {
     vscode.postMessage({
       command: "columnSortOrders",
@@ -656,8 +678,8 @@ function updateColumnArrow(cell, type, col, isClicking) {
       currIndex = 0; // index in [asc, desc, none]
     }
   } else {
-    // If currOrder is already defined and isFirst is not true (meaning the user clicked
-    // on a column), change the sorting direction to the next value in the cycle
+    // If currOrder is already defined and the user clicked on a column,
+    // change the sorting direction to the next value in the cycle
     // (asc -> desc, desc -> none, none -> asc)
     if (isClicking) {
       for (let i = 0; i < sortOrder.length; ++i) {
@@ -827,14 +849,14 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
     throw e("invalid id");
   }
   const correctType = data[type][index][correctLabel];
-  const numInputs = resultsData.results[id].input.length; // will use to index into `row`
+  const numInputs = resultsData.results[id].input.length;
 
   // If actual output does not match expected output, show expected/actual output
   if (!sameExpectedOutput(index, type, data, correctType)) {
     const expectedRow = tbody.appendChild(document.createElement("tr"));
     const cell = expectedRow.appendChild(document.createElement("td"));
     cell.colSpan = row.cells.length;
-    row.cells[numInputs].className = "classErrorCell"; // red box around output cell
+    row.cells[numInputs].className = "classErrorCell"; // red box
     if (correctType === "check") {
       // If it's marked with a check, show expected/actual output
       expectedRow.className = "classErrorExpectedOutputRow";
@@ -860,7 +882,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
       cell.innerHTML = `Failed: expected not: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
     }
   } else if (resultsData.results[id].passedExplicit === true) {
-    // If actual output matches expected output
+    // If actual output does match expected output
     if (correctType === "error") {
       const expectedRow = tbody.appendChild(document.createElement("tr"));
       const cell = expectedRow.appendChild(document.createElement("td"));
@@ -959,6 +981,8 @@ function handleSaveExpectedOut(e, id, data, type, index) {
   });
 }
 /**
+ * Sends message to backend to save the operator (e.g. not equal, equal)
+ * that was selected by the user with the radio buttons.
  *
  * @param radioNotEqual radio button for 'not equal' operator
  * @param radioEqual radio button for 'equal' operator
@@ -1112,6 +1136,34 @@ function handleFuzzStart(e) {
     json: JSON5.stringify(overrides),
   });
 } // fn: handleFuzzStart
+
+/**
+ * Send message to back-end to add code skeleton to source code (because the
+ * user clicked the customValidator button)
+ *
+ * @param e on-click event
+ */
+function handleCustomValidator(e) {
+  vscode.postMessage({
+    command: "customValidator",
+    json: JSON5.stringify(""),
+  });
+}
+
+/**
+ * Send message to back-end to save the validator that the user selected
+ * using the radio buttons
+ *
+ * @param e on-click event
+ */
+function handleToggleValidator(e) {
+  const validatorName = e.currentTarget.getAttribute("name");
+
+  vscode.postMessage({
+    command: "toggleValidator",
+    json: JSON5.stringify(validatorName),
+  });
+}
 
 /**
  * Returns a base id name for a particular argument input.

@@ -43,6 +43,16 @@ export const setup = (
     offset
   );
 
+  // Analyze source code, find any potential validator functions in the module
+  let valMatches;
+  try {
+    valMatches = FunctionDef.findValidators(srcText.toString(), module).filter(
+      (e) => e.isExported()
+    ); // only exported functions
+  } catch {
+    console.error(`Error parsing typescript file`);
+  }
+
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
     throw new Error(
@@ -58,6 +68,8 @@ export const setup = (
   return {
     options: { ...options },
     function: fnMatches[0],
+    validator: "implicitOracle",
+    validators: valMatches,
   };
 }; // fn: setup()
 
@@ -232,6 +244,20 @@ export const fuzz = async (
         result.correct
       );
     }
+
+    // If the implicit oracle is not selected, call the validator function
+    if (env.validator !== "implicitOracle") {
+      // Build the validator function wrapper
+      const validatorFnWrapper = functionTimeout(
+        (input: FuzzTestResult): any => {
+          return mod[env.validator](input);
+        },
+        env.options.fnTimeout
+      );
+      // Call the validator function wrapper
+      validatorFnWrapper(result);
+    }
+
     // Store the result for this iteration
     results.results.push(result);
   } // for: Main test loop
@@ -384,6 +410,8 @@ function actualEqualsExpectedOutput(
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
+  validator: string;
+  validators?: FunctionDef[];
 };
 
 /**

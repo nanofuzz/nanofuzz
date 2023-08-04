@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as JSON5 from "json5";
+import * as os from "os";
 import * as fuzzer from "../fuzzer/Fuzzer";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
@@ -35,7 +36,7 @@ export class FuzzPanel {
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
   private _errorMessage?: string; // error state: the error message
-  private _sortColumns?: FuzzSortColumns; // the message containing column sort orders
+  private _sortColumns?: FuzzSortColumns; // column sort orders
 
   // ------------------------ Static Methods ------------------------ //
 
@@ -250,6 +251,11 @@ export class FuzzPanel {
           case "columnSortOrders":
             this._saveColumnSortOrders(json);
             break;
+          case "customValidator":
+            this._doCustomValidatorCmd();
+            break;
+          case "toggleValidator":
+            this._doToggleValidator(json);
         }
       },
       undefined,
@@ -417,9 +423,8 @@ export class FuzzPanel {
     ) {
       delete pinnedSet[currInput];
       changed = true;
-    }
-    // If the test is being saved, add to pinnedSet
-    if (saving) {
+    } else {
+      // Else, save to pinnedSet
       pinnedSet[currInput] = currTest;
       changed = true;
     }
@@ -431,6 +436,44 @@ export class FuzzPanel {
    */
   private _saveColumnSortOrders(json: string) {
     this._sortColumns = JSON5.parse(json);
+  }
+
+  /**
+   * Add code skeleton for a custom validator to the program source code.
+   */
+  private _doCustomValidatorCmd() {
+    const env = this._fuzzEnv; // Fuzzer environment
+    const fnRef = env.function.getRef(); // Reference to function under test
+
+    let skeleton = [];
+    skeleton.push(``);
+    skeleton.push(``);
+    skeleton.push(
+      `export function ${fnRef.name}Validator(result: FuzzTestResult): FuzzTestResult {`
+    );
+    skeleton.push(`  return result;`);
+    skeleton.push(`}`);
+
+    const module = this._fuzzEnv.function.getModule();
+    try {
+      const fd = fs.openSync(module, "as+");
+      fs.writeFileSync(fd, skeleton.join(os.EOL));
+      fs.closeSync(fd);
+    } catch {
+      vscode.window.showErrorMessage(
+        `Unable to write custom validator code skeleton to source file`
+      );
+    }
+  }
+
+  /**
+   * Saves the name of the toggled validator function into this._fuzzEnv
+   *
+   * @param json name of validator function
+   */
+  private _doToggleValidator(json: string) {
+    const validatorName = JSON5.parse(json);
+    this._fuzzEnv.validator = validatorName;
   }
 
   /**
@@ -543,6 +586,18 @@ export class FuzzPanel {
         });
       }
     } // for: each argument
+
+    const module = this._fuzzEnv.function.getModule();
+    const srcText = fs.readFileSync(module);
+    // Analyze source code, find any potential validator functions in the module
+    try {
+      this._fuzzEnv.validators = fuzzer.FunctionDef.findValidators(
+        srcText.toString(),
+        module
+      ).filter((e) => e.isExported()); // only exported functions
+    } catch {
+      console.error(`Error parsing typescript file`);
+    }
 
     // Update the UI
     this._results = undefined;
@@ -709,7 +764,36 @@ export class FuzzPanel {
           )}() w/inputs:</h2>
 
           <!-- Function Arguments -->
-          <div id="argDefs">${argDefHtml}</div>
+          <div id="argDefs">${argDefHtml}</div>`;
+
+    // prettier-ignore
+    html += /*html*/ `
+          <!-- Button Bar for Validator -->
+          <div style="padding-top: .25em;">
+              <vscode-radio-group id="validatorFunctions">
+                <label slot="label">Validator:</label>
+                  <vscode-radio id="validator-implicitOracle" name="implicitOracle" 
+                  ${this._fuzzEnv.validator === "implicitOracle" ? "checked" : ""} >Implicit oracle</vscode-radio>`;
+    if (this._fuzzEnv.validators) {
+      for (let i = 0; i < this._fuzzEnv.validators.length; ++i) {
+        const name = this._fuzzEnv.validators[i].getName();
+        const idName = `validator-${name}`;
+        html += /*html*/ `
+                  <vscode-radio id=${idName} name=${name} 
+                  ${this._fuzzEnv.validator === name ? "checked" : ""}
+                  > ${name}()</vscode-radio>`;
+      }
+    }
+    // prettier-ignore
+    html += /*html*/ `
+              <vscode-radio-group>
+              </div>
+              <div style="padding-bottom: .25em;">
+                <vscode-button ${disabledFlag} id="customValidator"  appearance="secondary">
+                  ${this._state === FuzzPanelState.busy ? "+ Custom" : "+ Custom"}
+                </vscode-button>
+              </div>
+              <vscode-divider></vscode-divider>
 
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" style="display:none">
@@ -759,7 +843,8 @@ export class FuzzPanel {
       {
         id: "failedExplicit",
         name: "Failed",
-        description: `These outputs do not match the expected outputs that were specified using the correctness icons:`,
+        oracleDesc: "(Labeled by human oracle)",
+        description: `These do not match the expected outputs from the correctness icons:`,
       },
       {
         id: "timeout",
@@ -774,37 +859,31 @@ export class FuzzPanel {
       {
         id: "badOutput",
         name: "Likely Failed",
+        oracleDesc: "(Labeled by implicit oracle)",
         description: `These outputs contain: null, NaN, Infinity, or undefined:`,
       },
       {
         id: "passedImplicit",
-        name: "Likely Passed",
+        name: "Not 'Likely Failed'",
+        oracleDesc: "(Labeled by implicit oracle)",
         description: `These outputs do not contain: timeout, exception, null, NaN, Infinity, or undefined:`,
       },
       {
         id: "passedExplicit",
         name: "Passed",
-        description: `These outputs match the expected outputs that were specified using the correctness icons:`,
+        oracleDesc: "(Labeled by human oracle)",
+        description: `These match the expected outputs from the correctness icons:`,
       },
     ];
     tabs.forEach((e) => {
       if (resultSummary[e.id] > 0) {
-        if (e.id === "passedExplicit" || e.id === "failedExplicit") {
-          // prettier-ignore
-          html += /*html*/ `
+        // prettier-ignore
+        html += /*html*/ `
               <vscode-panel-tab id="tab-${e.id}">
                 ${e.name}<vscode-badge appearance="secondary">${
                   resultSummary[e.id]
                 }</vscode-badge>
               </vscode-panel-tab>`;
-        } else {
-          html += /*html*/ `
-              <vscode-panel-tab id="tab-${e.id}">
-              ${e.name}<vscode-badge appearance="secondary">${
-            resultSummary[e.id]
-          }</vscode-badge>
-              </vscode-panel-tab>`;
-        }
       }
     });
     // <span class="codicon codicon-hubot"></span>
@@ -815,8 +894,9 @@ export class FuzzPanel {
         html += /*html*/ `
               <vscode-panel-view id="view-${e.id}">
                 <section>
-                  <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.description}</h4>
-                  <div id="fuzzResultsGrid-${e.id}">
+                <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.oracleDesc}</h4>
+                <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.description}</h4>
+                <div id="fuzzResultsGrid-${e.id}">
                     <table class="fuzzGrid">
                       <thead class="columnSortOrder" id="fuzzResultsGrid-${e.id}-thead" /> 
                       <tbody id="fuzzResultsGrid-${e.id}-tbody" />
@@ -844,6 +924,15 @@ export class FuzzPanel {
               this._sortColumns === undefined
                 ? "{}"
                 : htmlEscape(JSON5.stringify(this._sortColumns))
+            }
+          </div>
+          
+          <!-- Validator Functions: for the client script to process -->
+          <div id="validators" style="display:none">
+            ${
+              this._fuzzEnv.validators === undefined
+                ? "[]"
+                : htmlEscape(JSON5.stringify(this._fuzzEnv.validators))
             }
           </div>
 
