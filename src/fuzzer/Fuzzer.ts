@@ -7,7 +7,6 @@ import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
-import exp from "constants";
 import { error } from "console";
 
 /**
@@ -236,7 +235,7 @@ export const fuzz = async (
       result.passedImplicit = false;
 
     if (result.expectedOutput) {
-      let actualOutput = JSON5.stringify(result.output[0].value);
+      const actualOutput = JSON5.stringify(result.output[0].value);
 
       result.passedExplicit = actualEqualsExpectedOutput(
         actualOutput,

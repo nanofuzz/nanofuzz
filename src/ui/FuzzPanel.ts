@@ -6,7 +6,6 @@ import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
-import { isIndexSignatureDeclaration } from "typescript";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -273,7 +272,7 @@ export class FuzzPanel {
     const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
       this._getPinnedTests();
     // Update set of saved tests
-    let changed = this._updatePinnedSet(json, pinnedSet, pin); // Did we change anything?
+    const changed = this._updatePinnedSet(json, pinnedSet, pin); // Did we change anything?
 
     // Persist changes
     if (changed) {
@@ -445,7 +444,7 @@ export class FuzzPanel {
     const env = this._fuzzEnv; // Fuzzer environment
     const fnRef = env.function.getRef(); // Reference to function under test
 
-    let skeleton = [];
+    const skeleton = [];
     skeleton.push(``);
     skeleton.push(``);
     skeleton.push(
@@ -490,8 +489,7 @@ export class FuzzPanel {
    *
    * @param json JSON input
    */
-  private async;
-  _doFuzzStartCmd(json: string): Promise<void> {
+  private async _doFuzzStartCmd(json: string): Promise<void> {
     const panelInput: {
       fuzzer: Record<string, any>; // !!! Improve typing
       args: Record<string, any>; // !!! Improve typing
