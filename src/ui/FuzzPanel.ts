@@ -593,14 +593,10 @@ export class FuzzPanel {
       }
     } // for: each argument
 
-    // Analyze source code, find any potential validator functions in the module
-    try {
-      this._fuzzEnv.validators = fuzzer.FunctionDef.findValidators(program)
-        .filter((e) => e.isExported())
-        .map((e) => e.getRef()); // only exported functions
-    } catch {
-      console.error(`Error parsing typescript file`);
-    }
+    // Get the validator functions for this module
+    this._fuzzEnv.validators = Object.values(program.getFunctions())
+      .filter((fn) => fn.isValidator())
+      .map((fn) => fn.getRef());
 
     // Update the UI
     this._results = undefined;

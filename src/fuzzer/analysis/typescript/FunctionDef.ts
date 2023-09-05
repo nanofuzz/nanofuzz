@@ -142,6 +142,19 @@ export class FunctionDef {
   } // fn: isExported()
 
   /**
+   * Returns true if the function is a validator; false, otherwise.
+   *
+   * @returns true if the function is a validator; false, otherwise.
+   */
+  public isValidator(): boolean {
+    return (
+      this.isExported() &&
+      this.argDefs.length === 1 &&
+      this.argDefs[0].getTypeRef() === "FuzzTestResult"
+    );
+  } // fn: isValidator()
+
+  /**
    * Applies option overrides to the function definition --
    * including to its arguments -- that influence how the function
    * analysis is interpreted.
@@ -255,114 +268,6 @@ export class FunctionDef {
 
     return ret.map((e) => new FunctionDef(program, e, options));
   } // fn: find
-
-  /**
-   * !!!! Merge w/find and move validator selection criteria to a different part of
-   * the program
-   *
-   * Analyzes a Typescript module and returns a list of potential validator functions that
-   * are defined within the module.
-   * (Not done; currently, it returns an array of all valid functions)
-   *
-   * @param src The source code to be analyzed
-   * @param module module
-   * @returns an array of `FunctionDef`s containing matching validator functions
-   */
-  public static findValidators(
-    program: ProgramDef,
-    fnName?: string,
-    offset?: number,
-    options?: ArgOptions
-  ): FunctionDef[] {
-    let ret: FunctionRef[] = [];
-    const src = program.getSrc();
-    const module = program.getModule();
-    const ast = parse(src, { range: true }); // Parse the source
-
-    // Traverse the AST to find function definitions
-    simpleTraverse(
-      ast,
-      {
-        enter: (node, parent) => {
-          // console.log("This is node, parent:", node, parent);
-
-          // vvvvv Do we want to support this? vvvvvvv
-          // if (
-          //   // Arrow Function Definition: const xyz = (): void => { ... }
-          //   node.type === AST_NODE_TYPES.VariableDeclarator &&
-          //   parent !== undefined &&
-          //   parent.type === AST_NODE_TYPES.VariableDeclaration &&
-          //   node.init &&
-          //   node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
-          //   node.id.type === AST_NODE_TYPES.Identifier &&
-          //   (!fnName || node.id.name === fnName) &&
-          //   (!offset || (node.range[0] <= offset && node.range[1] >= offset))
-          // ) {
-          //   ret.push({
-          //     name: node.id.name,
-          //     module: module,
-          //     src:
-          //       parent.kind + " " + src.substring(node.range[0], node.range[1]),
-          //     startOffset: node.range[0],
-          //     endOffset: node.range[1],
-          //     export: parent.parent
-          //       ? parent.parent.type === AST_NODE_TYPES.ExportNamedDeclaration
-          //       : false,
-          //   });
-          if (
-            // Standard Function Definition: function xyz(): void => { ... }
-
-            // Note: In order to be a potential validator function, the input and
-            // output types should both be FuzzTestResult
-            // For now, just include any valid functions
-            node.type === AST_NODE_TYPES.FunctionDeclaration &&
-            node.id !== null &&
-            (!fnName || node.id.name === fnName) &&
-            (!offset || (node.range[0] <= offset && node.range[1] >= offset))
-          ) {
-            ret.push({
-              name: node.id.name,
-              module: module,
-              src: src.substring(node.range[0], node.range[1]),
-              startOffset: node.range[0],
-              endOffset: node.range[1],
-              export: parent
-                ? parent.type === AST_NODE_TYPES.ExportNamedDeclaration
-                : false,
-            });
-          }
-          // TODO: Add support for class methods
-        }, // enter
-      },
-      true // set parent pointers
-    ); // traverse AST
-
-    // Filter out unsupported functions
-    ret = ret.filter((e) => {
-      try {
-        new FunctionDef(program, e, options);
-        return true;
-      } catch (err) {
-        console.debug(`FunctionDef.findValidators(): ${JSON.stringify(e)}`);
-        return false;
-      }
-    });
-
-    // If offset is provided and we have multiple matches,
-    // return the function that is closest to the offset
-    if (offset !== undefined && ret.length > 0) {
-      ret = [
-        ret.reduce((best, curr) =>
-          offset >= curr.startOffset &&
-          offset - curr.startOffset < offset - best.startOffset
-            ? curr
-            : best
-        ),
-      ];
-    }
-
-    return ret.map((e) => new FunctionDef(program, e, options));
-  } // fn: findValidators
 
   /**
    * Returns a flat array of all function arguments, including

@@ -43,15 +43,10 @@ export const setup = (
   // Find the function definitions in the source file
   const fnMatches = FunctionDef.find(program, fnName, offset);
 
-  // Analyze source code, find any potential validator functions in the module
-  let valMatches;
-  try {
-    valMatches = FunctionDef.findValidators(program).filter((e) =>
-      e.isExported()
-    ); // only exported functions
-  } catch {
-    console.error(`Error parsing typescript file`);
-  }
+  // Get the validator functions for this module
+  const validators = Object.values(program.getFunctions())
+    .filter((fn) => fn.isValidator())
+    .map((fn) => fn.getRef());
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
@@ -69,7 +64,7 @@ export const setup = (
     options: { ...options },
     function: fnMatches[0].getRef(),
     validator: "implicitOracle",
-    validators: valMatches?.map((e) => e.getRef()),
+    validators: validators,
   };
 }; // fn: setup()
 
