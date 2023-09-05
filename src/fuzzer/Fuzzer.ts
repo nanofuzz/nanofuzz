@@ -4,10 +4,11 @@ import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
 import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
-import { FunctionDef } from "./analysis/typescript/FunctionDef";
+import { FunctionDef, FunctionRef } from "./analysis/typescript/FunctionDef";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 import { error } from "console";
+import { ProgramDef } from "./analysis/typescript/ProgramDef";
 
 /**
  * WARNING: To embed this module into a VS Code web extension, at a minimu,
@@ -33,20 +34,20 @@ export const setup = (
 ): FuzzEnv => {
   module = require.resolve(module);
   const srcText = fs.readFileSync(module);
-
-  // Find the function definitions in the source file
-  const fnMatches = FunctionDef.find(
+  const program = new ProgramDef(
     srcText.toString(),
     module,
-    fnName,
-    offset
+    options.argDefaults
   );
+
+  // Find the function definitions in the source file
+  const fnMatches = FunctionDef.find(program, fnName, offset);
 
   // Analyze source code, find any potential validator functions in the module
   let valMatches;
   try {
-    valMatches = FunctionDef.findValidators(srcText.toString(), module).filter(
-      (e) => e.isExported()
+    valMatches = FunctionDef.findValidators(program).filter((e) =>
+      e.isExported()
     ); // only exported functions
   } catch {
     console.error(`Error parsing typescript file`);
@@ -66,9 +67,9 @@ export const setup = (
 
   return {
     options: { ...options },
-    function: fnMatches[0],
+    function: fnMatches[0].getRef(),
     validator: "implicitOracle",
-    validators: valMatches,
+    validators: valMatches?.map((e) => e.getRef()),
   };
 }; // fn: setup()
 
@@ -84,8 +85,20 @@ export const fuzz = async (
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = []
 ): Promise<FuzzTestResults> => {
+  const program = new ProgramDef(
+    fs.readFileSync(env.function.module).toString(),
+    env.function.module,
+    env.options.argDefaults
+  );
+
+  const fn = FunctionDef.find(
+    program,
+    env.function.name,
+    env.function.startOffset,
+    env.options.argDefaults
+  )[0];
   const prng = seedrandom(env.options.seed);
-  const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
+  const fqSrcFile = fs.realpathSync(env.function.module); // Help the module loader
   const results: FuzzTestResults = {
     env,
     results: [],
@@ -99,7 +112,7 @@ export const fuzz = async (
     );
 
   // Build a generator for each argument
-  const fuzzArgGen = env.function.getArgDefs().map((e) => {
+  const fuzzArgGen = fn.getArgDefs().map((e) => {
     return { arg: e, gen: GeneratorFactory(e, prng) };
   });
 
@@ -119,19 +132,19 @@ export const fuzz = async (
   compiler.deactivate(); // Deactivate the TypeScript compiler
 
   // Ensure what we found is a function
-  if (!(env.function.getName() in mod))
+  if (!(env.function.name in mod))
     throw new Error(
-      `Could not find exported function ${env.function.getName()} in ${env.function.getModule()} to fuzz`
+      `Could not find exported function ${env.function.name} in ${env.function.module} to fuzz`
     );
-  else if (typeof mod[env.function.getName()] !== "function")
+  else if (typeof mod[env.function.name] !== "function")
     throw new Error(
-      `Cannot fuzz exported member '${env.function.getName()} in ${env.function.getModule()} because it is not a function`
+      `Cannot fuzz exported member '${env.function.name} in ${env.function.module} because it is not a function`
     );
 
   // Build a wrapper around the function to be fuzzed that we can
   // easily call in the testing loop.
   const fnWrapper = functionTimeout((input: FuzzIoElement[]): any => {
-    return mod[env.function.getName()](...input.map((e) => e.value));
+    return mod[env.function.name](...input.map((e) => e.value));
   }, env.options.fnTimeout);
 
   // Main test loop
@@ -199,7 +212,7 @@ export const fuzz = async (
       dupeCount = 0; // reset the duplicate count
       // if the function accepts inputs, add test input
       // to the list so we don't test it again,
-      if (env.function.getArgDefs().length) {
+      if (fn.getArgDefs().length) {
         allInputs[inputHash] = true;
       }
     }
@@ -408,9 +421,9 @@ function actualEqualsExpectedOutput(
  */
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
-  function: FunctionDef; // the function to fuzz
+  function: FunctionRef; // the function to fuzz
   validator: string;
-  validators?: FunctionDef[];
+  validators?: FunctionRef[];
 };
 
 /**

@@ -2,6 +2,7 @@ import { FunctionDef } from "../analysis/typescript/FunctionDef";
 import { ArgDef, ArgOptions, ArgTag } from "../analysis/typescript/ArgDef";
 import { GeneratorFactory } from "./GeneratorFactory";
 import seedrandom from "seedrandom";
+import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
 
 /**
  * Provide a seed to ensure tests are deterministic.
@@ -15,6 +16,11 @@ const seed: string = "qwertyuiop";
 const tsFnWithStringInput = `function test(str: string):void {"";}`;
 const tsFnWithNumberInput = `function test(num: number):void {0;}`;
 const tsFnWithBoolInput = `function test(bool: boolean):void {true;}`;
+
+/**
+ * Dummy program definition needed for testing
+ */
+const dummyProgram = new ProgramDef("", "dummy.ts");
 
 /**
  * Test that the random generators generate values within the bounds.
@@ -113,6 +119,7 @@ describe("fuzzer/generator/GeneratorFactory", () => {
 const testRandomInt = (intMin: number, intMax: number): void => {
   const prng = seedrandom(seed);
   const arg = new FunctionDef(
+    dummyProgram.setSrc(tsFnWithNumberInput),
     {
       module: "dummy.ts",
       name: "test",
@@ -153,6 +160,7 @@ const testRandomIntException = (intMin: number, intMax: number): void => {
 const testRandomFloat = (floatMin: number, floatMax: number): void => {
   const prng = seedrandom(seed);
   const arg = new FunctionDef(
+    dummyProgram.setSrc(tsFnWithNumberInput),
     {
       module: "dummy.ts",
       name: "test",
@@ -196,6 +204,7 @@ const testRandomBool = (boolMin: boolean, boolMax: boolean): void => {
 
   // Analyze the function, set the intervals, and get the generator
   const arg = new FunctionDef(
+    dummyProgram.setSrc(tsFnWithBoolInput),
     {
       module: "dummy.ts",
       name: "test",
@@ -245,6 +254,7 @@ const testRandomString = (
 
   // Analyze the function, set the intervals, and get the generator
   const arg = new FunctionDef(
+    dummyProgram.setSrc(tsFnWithStringInput),
     {
       module: "dummy.ts",
       name: "test",

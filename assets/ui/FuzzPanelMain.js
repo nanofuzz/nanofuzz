@@ -103,7 +103,7 @@ function main() {
   // Add event listeners for the validator radio buttons
   validators.forEach((val) => {
     document
-      .getElementById(`validator-${val.ref.name}`)
+      .getElementById(`validator-${val.name}`)
       .addEventListener("click", (e) => handleToggleValidator(e));
   });
   document
