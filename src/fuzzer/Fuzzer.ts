@@ -33,12 +33,7 @@ export const setup = (
   offset?: number
 ): FuzzEnv => {
   module = require.resolve(module);
-  const srcText = fs.readFileSync(module);
-  const program = new ProgramDef(
-    srcText.toString(),
-    module,
-    options.argDefaults
-  );
+  const program = ProgramDef.fromModule(module, options.argDefaults);
 
   // Find the function definitions in the source file
   const fnMatches = FunctionDef.find(program, fnName, offset);
@@ -80,8 +75,7 @@ export const fuzz = async (
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = []
 ): Promise<FuzzTestResults> => {
-  const program = new ProgramDef(
-    fs.readFileSync(env.function.module).toString(),
+  const program = ProgramDef.fromModule(
     env.function.module,
     env.options.argDefaults
   );

@@ -12,7 +12,10 @@ const dummyRef: FunctionRef = {
   endOffset: 999,
   export: true,
 };
-const dummyProgram: ProgramDef = new ProgramDef("", dummyModule, argOptions);
+const dummyProgram: ProgramDef = ProgramDef.fromSource(
+  "",
+  argOptions
+).setModule(dummyModule);
 
 /**
  * Test that the TypeScript analyzer retrieves function parameters correctly in

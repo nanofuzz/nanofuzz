@@ -20,7 +20,7 @@ const tsFnWithBoolInput = `function test(bool: boolean):void {true;}`;
 /**
  * Dummy program definition needed for testing
  */
-const dummyProgram = new ProgramDef("", "dummy.ts");
+const dummyProgram = ProgramDef.fromSource("");
 
 /**
  * Test that the random generators generate values within the bounds.

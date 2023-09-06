@@ -494,8 +494,8 @@ export class FuzzPanel {
       args: Record<string, any>; // !!! Improve typing
     } = JSON5.parse(json);
     const module = this._fuzzEnv.function.module;
-    const srcText = fs.readFileSync(module); // re-read source
-    const program = new ProgramDef(srcText.toString(), module);
+    const program = ProgramDef.fromModule(module); // !!! missing options!
+    // !!!! Why not just query the program for the function?
     const fn = fuzzer.FunctionDef.find(
       program,
       this._fuzzEnv.function.name,
@@ -718,11 +718,11 @@ export class FuzzPanel {
     ]); // URI to client-side panel script
     const env = this._fuzzEnv; // Fuzzer environment
     const fnRef = env.function; // Reference to function under test
-    const program = new ProgramDef(
-      fs.readFileSync(fnRef.module).toString(),
+    const program = ProgramDef.fromModule(
       fnRef.module,
       env.options.argDefaults
     );
+    // Should we just get this from the program? !!!!
     const fn = fuzzer.FunctionDef.find(
       program,
       this._fuzzEnv.function.name,
@@ -1224,8 +1224,9 @@ export function provideCodeLenses(
   token: vscode.CancellationToken
 ): vscode.CodeLens[] {
   // Use the TypeScript analyzer to find all fn declarations in the module
+  // !!!! Why don't we just query the program instead?
   const matches: FunctionMatch[] = [];
-  const program = new ProgramDef(document.getText(), document.fileName);
+  const program = ProgramDef.fromModule(document.fileName);
   try {
     const functions = fuzzer.FunctionDef.find(program).filter(
       (e) => e.isExported() // only exported functions
