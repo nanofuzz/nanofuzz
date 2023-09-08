@@ -261,6 +261,16 @@ export class FuzzPanel {
   private _doTestPinnedCmd(json: string, pin: boolean) {
     const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
       this._getPinnedTests();
+
+    vscode.commands.executeCommand(
+      telemetry.commands.logTelemetry.name,
+      new telemetry.LoggerEntry(
+        "FuzzPanel._doTestPinnedCmd",
+        "Saving or unsaving: %s. Test case: %s.",
+        [pin ? "saving" : "unsaving", json]
+      )
+    );
+
     let changed = false; // Did we change anything?
 
     // Add or delete the test, as needed
