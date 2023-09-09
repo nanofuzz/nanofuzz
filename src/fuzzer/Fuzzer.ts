@@ -4,9 +4,10 @@ import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
 import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
-import { FunctionDef } from "./analysis/typescript/FunctionDef";
+import { FunctionDef, FunctionRef } from "./analysis/typescript/FunctionDef";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
+import { ProgramDef } from "./analysis/typescript/ProgramDef";
 
 /**
  * WARNING: To embed this module into a VS Code web extension, at a minimu,
@@ -31,15 +32,15 @@ export const setup = (
   offset?: number
 ): FuzzEnv => {
   module = require.resolve(module);
-  const srcText = fs.readFileSync(module);
+  const program = ProgramDef.fromModule(module, options.argDefaults);
+  const fnList = program.getFunctions();
 
   // Find the function definitions in the source file
-  const fnMatches = FunctionDef.find(
-    srcText.toString(),
-    module,
-    fnName,
-    offset
-  );
+  const fnMatches = fnName
+    ? fnName in fnList
+      ? [fnList[fnName]]
+      : []
+    : Object.values(fnList);
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
@@ -55,7 +56,7 @@ export const setup = (
 
   return {
     options: { ...options },
-    function: fnMatches[0],
+    function: fnMatches[0].getRef(),
   };
 }; // fn: setup()
 
@@ -71,8 +72,13 @@ export const fuzz = async (
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = []
 ): Promise<FuzzTestResults> => {
+  const program = ProgramDef.fromModule(
+    env.function.module,
+    env.options.argDefaults
+  );
+  const fn = program.getFunctions()[env.function.name];
   const prng = seedrandom(env.options.seed);
-  const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
+  const fqSrcFile = fs.realpathSync(env.function.module); // Help the module loader
   const results: FuzzTestResults = {
     env,
     results: [],
@@ -86,7 +92,7 @@ export const fuzz = async (
     );
 
   // Build a generator for each argument
-  const fuzzArgGen = env.function.getArgDefs().map((e) => {
+  const fuzzArgGen = fn.getArgDefs().map((e) => {
     return { arg: e, gen: GeneratorFactory(e, prng) };
   });
 
@@ -106,19 +112,19 @@ export const fuzz = async (
   compiler.deactivate(); // Deactivate the TypeScript compiler
 
   // Ensure what we found is a function
-  if (!(env.function.getName() in mod))
+  if (!(env.function.name in mod))
     throw new Error(
-      `Could not find exported function ${env.function.getName()} in ${env.function.getModule()} to fuzz`
+      `Could not find exported function ${env.function.name} in ${env.function.module} to fuzz`
     );
-  else if (typeof mod[env.function.getName()] !== "function")
+  else if (typeof mod[env.function.name] !== "function")
     throw new Error(
-      `Cannot fuzz exported member '${env.function.getName()} in ${env.function.getModule()} because it is not a function`
+      `Cannot fuzz exported member '${env.function.name} in ${env.function.module} because it is not a function`
     );
 
   // Build a wrapper around the function to be fuzzed that we can
   // easily call in the testing loop.
   const fnWrapper = functionTimeout((input: FuzzIoElement[]): any => {
-    return mod[env.function.getName()](...input.map((e) => e.value));
+    return mod[env.function.name](...input.map((e) => e.value));
   }, env.options.fnTimeout);
 
   // Main test loop
@@ -148,7 +154,8 @@ export const fuzz = async (
       output: [],
       exception: false,
       timeout: false,
-      passed: true,
+      passedImplicit: true,
+      elapsedTime: 0,
     };
 
     // Before searching, consume the pool of pinned tests
@@ -180,21 +187,25 @@ export const fuzz = async (
       dupeCount = 0; // reset the duplicate count
       // if the function accepts inputs, add test input
       // to the list so we don't test it again,
-      if (env.function.getArgDefs().length) {
+      if (fn.getArgDefs().length) {
         allInputs[inputHash] = true;
       }
     }
 
     // Call the function via the wrapper
     try {
+      const startElapsedTime = performance.now(); // start timer
+      result.elapsedTime = startElapsedTime;
       result.output.push({
         name: "0",
         offset: 0,
         value: fnWrapper(result.input), // <-- Wrapper
       });
+      result.elapsedTime = performance.now() - startElapsedTime; // stop timer
     } catch (e: any) {
       if (isTimeoutError(e)) {
         result.timeout = true;
+        result.elapsedTime = performance.now() - result.elapsedTime;
       } else {
         result.exception = true;
         result.exceptionMessage = e.message;
@@ -208,8 +219,9 @@ export const fuzz = async (
       result.exception ||
       result.timeout ||
       result.output.some((e) => !implicitOracle(e))
-    )
-      result.passed = false;
+    ) {
+      result.passedImplicit = false;
+    }
 
     // Store the result for this iteration
     results.results.push(result);
@@ -326,7 +338,7 @@ export function isTimeoutError(error: { code?: string }): boolean {
  */
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
-  function: FunctionDef; // the function to fuzz
+  function: FunctionRef; // the function to fuzz
 };
 
 /**
@@ -361,7 +373,11 @@ export type FuzzTestResult = {
   exceptionMessage?: string; // exception message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
-  passed: boolean; // true if output matches oracle; false, otherwise
+  passedImplicit: boolean; // true if output matches oracle; false, otherwise
+  //passedExplicit?: boolean; // true if actual output matches expected output
+  elapsedTime: number; // elapsed time of test
+  //correct: string; // check, error, question, or none
+  //expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
 };
 
 /**
@@ -369,6 +385,10 @@ export type FuzzTestResult = {
  */
 export type FuzzPinnedTest = {
   input: FuzzIoElement[]; // function input
+  //output: FuzzIoElement[]; // function output
+  //pinned: boolean; // is the test pinned?
+  //correct: string; // check, error, question, or none
+  //expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
 };
 
 /**

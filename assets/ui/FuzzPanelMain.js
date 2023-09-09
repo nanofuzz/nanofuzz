@@ -82,7 +82,7 @@ function main() {
       });
 
       // Toss each result into the appropriate grid
-      if (e.passed) {
+      if (e.passedImplicit) {
         data["passed"].push({ ...id, ...inputs, ...outputs, ...pinned });
       } else {
         if (e.exception) {

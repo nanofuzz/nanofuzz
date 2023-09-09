@@ -4,6 +4,7 @@ import {
   simpleTraverse,
 } from "@typescript-eslint/typescript-estree";
 import { ArgDef, ArgOptionOverrides, ArgOptions, ArgType } from "./ArgDef";
+import { ProgramDef } from "./ProgramDef";
 
 /**
  * The FunctionDef class represents a function definition in a Typescript source
@@ -21,6 +22,7 @@ import { ArgDef, ArgOptionOverrides, ArgOptions, ArgType } from "./ArgDef";
 export class FunctionDef {
   private argDefs: ArgDef<ArgType>[] = [];
   private ref: FunctionRef;
+  private program: ProgramDef;
 
   /**
    * Constructs a new FunctionDef instance using a FunctionRef object.
@@ -29,9 +31,10 @@ export class FunctionDef {
    * @param ref The function reference to be analyzed
    * @param options Options for the function analysis (optional)
    */
-  constructor(ref: FunctionRef, options?: ArgOptions) {
+  constructor(program: ProgramDef, ref: FunctionRef, options?: ArgOptions) {
     options = options ?? ArgDef.getDefaultOptions();
     this.ref = ref;
+    this.program = program;
 
     this.argDefs = [];
     const ast = parse(this.ref.src, { range: true }); // Parse the source
@@ -54,7 +57,7 @@ export class FunctionDef {
           const thisArg = fnInit.params[i];
           if (thisArg.type === AST_NODE_TYPES.Identifier) {
             this.argDefs.push(
-              ArgDef.fromAstNode(thisArg, parseInt(i), options)
+              ArgDef.fromAstNode(program, thisArg, parseInt(i), options)
             );
           } else {
             throw new Error(`Unsupported argument type: ${thisArg.type}`);
@@ -139,8 +142,21 @@ export class FunctionDef {
   } // fn: isExported()
 
   /**
-   * Applies option overrides to the function definition,
-   * including its arguments, that influence how the function
+   * Returns true if the function is a validator; false, otherwise.
+   *
+   * @returns true if the function is a validator; false, otherwise.
+   */
+  public isValidator(): boolean {
+    return (
+      this.isExported() &&
+      this.argDefs.length === 1 &&
+      this.argDefs[0].getTypeRef() === "FuzzTestResult"
+    );
+  } // fn: isValidator()
+
+  /**
+   * Applies option overrides to the function definition --
+   * including to its arguments -- that influence how the function
    * analysis is interpreted.
    *
    * @param overrides
@@ -166,13 +182,14 @@ export class FunctionDef {
    * Throws an exception if the function is not supported for analysis.
    */
   public static find(
-    src: string,
-    module: string,
+    program: ProgramDef,
     fnName?: string,
     offset?: number,
     options?: ArgOptions
   ): FunctionDef[] {
     let ret: FunctionRef[] = [];
+    const src = program.getSrc();
+    const module = program.getModule();
     const ast = parse(src, { range: true }); // Parse the source
 
     // Traverse the AST to find function definitions
@@ -226,6 +243,16 @@ export class FunctionDef {
       true // set parent pointers
     ); // traverse AST
 
+    // Filter out unsupported functions
+    ret = ret.filter((e) => {
+      try {
+        new FunctionDef(program, e, options);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    });
+
     // If offset is provided and we have multiple matches,
     // return the function that is closest to the offset
     if (offset !== undefined && ret.length > 0) {
@@ -239,7 +266,7 @@ export class FunctionDef {
       ];
     }
 
-    return ret.map((e) => new FunctionDef(e, options));
+    return ret.map((e) => new FunctionDef(program, e, options));
   } // fn: find
 
   /**
