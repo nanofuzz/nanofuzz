@@ -33,7 +33,7 @@ export const setup = (
 ): FuzzEnv => {
   module = require.resolve(module);
   const program = ProgramDef.fromModule(module, options.argDefaults);
-  const fnList = program.getFunctions();
+  const fnList = program.getExportedFunctions();
 
   // Find the function definitions in the source file
   const fnMatches = fnName
@@ -76,7 +76,7 @@ export const fuzz = async (
     env.function.module,
     env.options.argDefaults
   );
-  const fn = program.getFunctions()[env.function.name];
+  const fn = program.getExportedFunctions()[env.function.name];
   const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.function.module); // Help the module loader
   const results: FuzzTestResults = {

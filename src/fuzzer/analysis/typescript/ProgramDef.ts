@@ -17,10 +17,11 @@ import fs from "fs";
  * and TypeDef classes.
  *
  * Limitations of the current implementation
- * - Does not currently follow or resolve imports !!!!
+ * - Circular imports are not supported
  * - Only top-level functions and types are supported
  * - Requires type-annotated TypeScript program source
  * - Anonymous functions are not supported
+ * - Default exports/imports and standalone exports are not supported
  * - Analysis of classes and class methods are not supported
  */
 export class ProgramDef {
@@ -29,7 +30,10 @@ export class ProgramDef {
   private _options: ArgOptions; // Arg options for the program
 
   private _functions: Record<string, FunctionDef> = {}; // Functions defined in the program
+  private _exportedFunctions: Record<string, FunctionDef> = {}; // Functions exported by the program
   private _types: Record<string, ITypeDef> = {}; // Types defined in the program
+  private _exportedTypes: Record<string, ITypeDef> = {}; // Types exported by the program
+
   private _imports: Record<string, ProgramImport> = {}; // Imported modules
 
   // Instances of the program indexed by path and source hash
@@ -56,8 +60,8 @@ export class ProgramDef {
       // Also, what are the implications b/c the program is different !!!!
       const { program: importProgram, imported: importedName } =
         this._imports[localName];
-      const importProgramTypes = importProgram.getTypes();
-      const importProgramFunctions = importProgram.getFunctions();
+      const importProgramTypes = importProgram.getExportedTypes();
+      const importProgramFunctions = importProgram.getExportedFunctions();
 
       if (importedName in importProgramTypes) {
         this._types[localName] = importProgramTypes[importedName];
@@ -73,20 +77,26 @@ export class ProgramDef {
     // Retrieve the types defined in the program
     TypeDef.find(this, undefined, undefined, options).forEach((type) => {
       this._types[type.getName()] = type;
+      if (type.isExported()) {
+        this._exportedTypes[type.getName()] = type;
+      }
     });
 
     // Retrieve the functions defined in the program
     FunctionDef.find(this, undefined, undefined, options).forEach((fn) => {
       this._functions[fn.getName()] = fn;
+      if (fn.isExported()) {
+        this._exportedFunctions[fn.getName()] = fn;
+      }
     });
 
-    // Cache the instance)
+    // Cache the instance
     const hash = sha256(JSON.stringify(options ?? "") + src); // Hash the options + source code
     if (!(module in ProgramDef._instances)) {
       ProgramDef._instances[module] = {};
     }
     ProgramDef._instances[module][hash] = this;
-    console.debug(`Cached ProgramDef: ${module} (${hash})`); // !!!!
+    //console.debug(`Cached ProgramDef: ${module} (${hash})`); // !!!!
   } // end constructor
 
   /**
@@ -104,14 +114,34 @@ export class ProgramDef {
 
     if (
       module in ProgramDef._instances &&
-      hash in ProgramDef._instances[module]
+      hash in ProgramDef._instances[module] &&
+      !ProgramDef._instances[module][hash].isStale()
     ) {
-      // noop
+      //console.debug(`Retrieved from cache ${module} (${hash})`); // !!!!
+      return ProgramDef._instances[module][hash];
     } else {
-      console.debug(`Retrieved from cache ${module} (${hash})`); // !!!!
       return new ProgramDef(src, module, options);
     }
-    return ProgramDef._instances[module][hash];
+  }
+
+  /**
+   * Returns true if the program does not match the file system;
+   * false otherwise.
+   *
+   * @returns true if the program does not match the file system
+   */
+  public isStale(): boolean {
+    const src = fs.readFileSync(this._module).toString(); // Read the source code
+    if (src !== this._src) {
+      return true;
+    } else {
+      for (const importProgram in this._imports) {
+        if (this._imports[importProgram].program.isStale()) {
+          return true;
+        }
+      }
+      return false;
+    }
   }
 
   /**
@@ -202,6 +232,15 @@ export class ProgramDef {
   } // fn: getFunctions()
 
   /**
+   * Returns the functions exported by the program
+   *
+   * @returns the functions exported by the program
+   */
+  public getExportedFunctions(): Record<string, FunctionDef> {
+    return { ...this._exportedFunctions };
+  } // fn: getExportedFunctions()
+
+  /**
    * Returns the types defined in the program
    *
    * @returns the types defined in the program
@@ -209,6 +248,15 @@ export class ProgramDef {
   public getTypes(): Record<string, ITypeDef> {
     return { ...this._types };
   } // fn: getTypes()
+
+  /**
+   * Returns the types exported by the program
+   *
+   * @returns the types exported by the program
+   */
+  public getExportedTypes(): Record<string, ITypeDef> {
+    return { ...this._exportedTypes };
+  } // fn: getExportedTypes()
 
   /**
    * Returns the imports defined in the program
@@ -233,25 +281,54 @@ export class ProgramDef {
                   node.source.value + ".ts" // !!!!
                 );
 
+                // Make sure we're not importing ourselves b/c oops
+                if (this._module === importModule) {
+                  throw new Error(
+                    `Import failed: ${this._module} cannot import itself`
+                  );
+                }
+
                 // Create a new ProgramDef for the imported module
-                const program = ProgramDef.fromModule(importModule, options);
+                const importProgram = ProgramDef.fromModule(
+                  importModule,
+                  options
+                );
 
                 // Loop over all the imports specified
                 node.specifiers.forEach((specifier) => {
                   switch (specifier.type) {
+                    // import { foo } from "bar";
                     case AST_NODE_TYPES.ImportSpecifier: {
                       imports[specifier.local.name] = {
                         local: specifier.local.name,
                         imported: specifier.imported.name,
-                        program: program,
+                        program: importProgram,
                       };
                       break;
                     }
-                    case AST_NODE_TYPES.ImportDefaultSpecifier: {
-                      break; // !!!!
-                    }
+                    // import * as foo from "bar";
                     case AST_NODE_TYPES.ImportNamespaceSpecifier: {
-                      break; // !!!!
+                      // Import Types and Functions
+                      const exports: Record<string, FunctionDef | ITypeDef> = {
+                        ...importProgram.getExportedTypes(),
+                        ...importProgram.getExportedFunctions(),
+                      };
+                      for (const importedName in exports) {
+                        const localName = `${specifier.local.name}.${importedName}`;
+                        imports[localName] = {
+                          local: localName,
+                          imported: importedName,
+                          program: importProgram,
+                        };
+                      }
+                      break;
+                    }
+                    // import foo from "bar";
+                    case AST_NODE_TYPES.ImportDefaultSpecifier: {
+                      throw new Error(
+                        `Default imports not yet supported (${this._module})`
+                      ); // !!!!
+                      break;
                     }
                   }
                 });

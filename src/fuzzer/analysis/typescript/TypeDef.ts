@@ -18,6 +18,7 @@ export interface ITypeDef {
   getName(): string;
   getType(): [ArgTag, number];
   getArgDef(): ArgDef<ArgType>;
+  isExported(): boolean;
 }
 
 /**
@@ -28,6 +29,7 @@ export class TypeDef implements ITypeDef {
   private _name: string; // Name of the type
   private _type: [ArgTag, number]; // Type of the type
   private _argDef: ArgDef<ArgType>; // ArgDef object
+  private _isExported: boolean; // Is the type exported?
 
   /**
    * Constructs a new TypeDef instance
@@ -42,12 +44,14 @@ export class TypeDef implements ITypeDef {
     program: ProgramDef,
     name: string,
     type: [ArgTag, number],
-    argDef: ArgDef<ArgType>
+    argDef: ArgDef<ArgType>,
+    isExported: boolean
   ) {
     this._program = program;
     this._name = name;
     this._type = type;
     this._argDef = argDef;
+    this._isExported = isExported;
   } // end constructor
 
   /**
@@ -125,7 +129,9 @@ export class TypeDef implements ITypeDef {
     const ret: ITypeDef[] = [];
     for (const name in typeAliasNodes) {
       const node = typeAliasNodes[name];
-      ret.push(new TypeDefProxy(name, program, node, 0, options));
+      const isExported =
+        node.parent?.type === AST_NODE_TYPES.ExportNamedDeclaration;
+      ret.push(new TypeDefProxy(name, program, node, 0, options, isExported));
     }
 
     // Return the TypeDef objects
@@ -138,12 +144,13 @@ export class TypeDef implements ITypeDef {
    * @param arg ArgDef object
    * @returns TypeDef object
    */
-  public static fromArgDef(arg: ArgDef<ArgType>): TypeDef {
+  public static fromArgDef(arg: ArgDef<ArgType>, isExported: boolean): TypeDef {
     return new TypeDef(
       arg.getProgram(),
       arg.getName(),
       [arg.getType(), arg.getDim()],
-      arg
+      arg,
+      isExported
     );
   } // fn: fromArgDef()
 
@@ -211,6 +218,15 @@ export class TypeDef implements ITypeDef {
   public getArgDef(): ArgDef<ArgType> {
     return this._argDef;
   } // fn: getArgDef()
+
+  /**
+   * Returns true if the type is exported; false otherwise
+   *
+   * @returns true if the type is exported; false otherwise
+   */
+  public isExported(): boolean {
+    return this._isExported;
+  } // fn: isExported()
 } // class: TypeDef
 
 /**
@@ -225,6 +241,7 @@ class TypeDefProxy implements ITypeDef {
   private _node: Identifier | TSPropertySignature | TSTypeAliasDeclaration; // Node where the type is defined
   private _offset: number; // Offset of the type
   private _options: ArgOptions; // Options
+  private _isExported: boolean; // Is the type exported?
 
   /**
    * Constructs a new TypeDefProxy instance
@@ -240,13 +257,15 @@ class TypeDefProxy implements ITypeDef {
     program: ProgramDef,
     node: Identifier | TSPropertySignature | TSTypeAliasDeclaration,
     offset: number,
-    options: ArgOptions
+    options: ArgOptions,
+    isExported: boolean
   ) {
     this._name = name;
     this._program = program;
     this._node = node;
     this._offset = offset;
     this._options = options;
+    this._isExported = isExported;
   } // end constructor
 
   /**
@@ -262,7 +281,8 @@ class TypeDefProxy implements ITypeDef {
           this._node,
           this._offset,
           this._options
-        )
+        ),
+        this._isExported
       );
     } else {
       return this._typeDef;
@@ -294,4 +314,13 @@ class TypeDefProxy implements ITypeDef {
   public getArgDef(): ArgDef<ArgType> {
     return (this._typeDef ?? this.getTypeDef()).getArgDef();
   } // fn: getArgDef()
+
+  /**
+   * Returns true if the type is exported; false otherwise
+   *
+   * @returns true if the type is exported; false otherwise
+   */
+  public isExported(): boolean {
+    return (this._typeDef ?? this.getTypeDef()).isExported();
+  } // fn: isExported()
 }

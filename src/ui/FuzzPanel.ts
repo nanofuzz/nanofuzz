@@ -430,7 +430,7 @@ export class FuzzPanel {
       module,
       this._fuzzEnv.options.argDefaults
     );
-    const fn = program.getFunctions()[this._fuzzEnv.function.name];
+    const fn = program.getExportedFunctions()[this._fuzzEnv.function.name];
     const argsFlat = fn.getArgDefsFlat();
 
     // Apply numeric fuzzer option changes
@@ -644,7 +644,7 @@ export class FuzzPanel {
       fnRef.module,
       env.options.argDefaults
     );
-    const fn = program.getFunctions()[fnRef.name]; // Function under test
+    const fn = program.getExportedFunctions()[fnRef.name]; // Function under test
     const counter = { id: 0 }; // Unique counter for argument ids
     let argDefHtml = ""; // HTML representing argument definitions
 
@@ -825,10 +825,16 @@ export class FuzzPanel {
     const disabledFlag =
       this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
-    const typeString =
-      arg.getTypeRef() ??
-      (argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase()); // Text indicating arg type
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
+
+    let typeString: string; // Text indicating the type of argument
+    const argTypeRef = arg.getTypeRef();
+    if (argTypeRef !== undefined) {
+      typeString = argTypeRef.substring(argTypeRef.lastIndexOf(".") + 1);
+    } else {
+      typeString =
+        argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase();
+    }
 
     // prettier-ignore
     let html = /*html*/ `
@@ -1075,7 +1081,7 @@ export function provideCodeLenses(
   const matches: FunctionMatch[] = [];
   try {
     const program = ProgramDef.fromModule(document.fileName);
-    const functions = Object.values(program.getFunctions());
+    const functions = Object.values(program.getExportedFunctions());
 
     for (const fn of functions) {
       matches.push({

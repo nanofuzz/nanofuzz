@@ -51,6 +51,12 @@ export function GeneratorFactory<T extends ArgType>(
         const outObj = {};
         for (const child of arg.getChildren()) {
           outObj[child.getName()] = GeneratorFactory(child, prng)();
+
+          // Remove undefined object members, otherwise the
+          // implicit oracle flags them.
+          if (outObj[child.getName()] === undefined) {
+            delete outObj[child.getName()];
+          }
         }
         return outObj as T;
       };
