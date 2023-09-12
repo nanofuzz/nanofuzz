@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
+// Load the TypeScript compiler script
 const tsc = path.join(path.dirname(require.resolve("typescript")), "tsc.js");
 const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8"));
 
@@ -21,8 +22,17 @@ let options: CompilerOptions = {
   target: "ES2020", // default to ES2020
   moduleKind: "commonjs",
   emitOnError: false,
-  tmpDir: path.join(os.tmpdir(), "tsreq"), 
+  tmpDir: path.join(os.tmpdir(), "tsreq"),
   lib: ["DOM", "ScriptHost", "ES2020"], // default to ES2020
+  types: [],
+  typeRoots: ["./node_modules/@types"],
+  skipLibCheck: true,
+  moduleResolution: "node",
+  allowSyntheticDefaultImports: true,
+  esModuleInterop: true,
+  allowJs: true,
+  resolveJsonModule: true,
+  traceResolution: false,
 };
 
 /**
@@ -35,6 +45,15 @@ export type CompilerOptions = {
   emitOnError: boolean;
   tmpDir: string;
   lib: string[];
+  types: string[];
+  typeRoots: string[];
+  skipLibCheck: boolean;
+  moduleResolution: string;
+  allowSyntheticDefaultImports: boolean;
+  esModuleInterop: boolean;
+  allowJs: boolean;
+  resolveJsonModule: boolean;
+  traceResolution: boolean;
 };
 
 /**
@@ -101,11 +120,15 @@ function isModified(tsname: string, jsname: string) {
 function compileTS(module: any) {
   let exitCode = 0;
   const moduleDirName = path.dirname(module.filename);
-  const relativeFolder = "." + (moduleDirName.charAt(1) === ":" ? moduleDirName.substring(2) : moduleDirName);
+  const relativeFolder =
+    "." +
+    (moduleDirName.charAt(1) === ":"
+      ? moduleDirName.substring(2)
+      : moduleDirName);
   const jsname = path.join(
     options.tmpDir,
     relativeFolder,
-    path.basename(module.filename,".ts") + ".js"
+    path.basename(module.filename, ".ts") + ".js"
   );
   console.log(`Transpiling: '${module.filename}' to '${jsname}'`);
 
@@ -118,27 +141,62 @@ function compileTS(module: any) {
   const argv = [
     "node",
     "tsc.js",
+
     options.emitOnError ? "" : "--noEmitOnError",
+
     //"--rootDir",
-    //process.cwd(),
+    //"/Users/mcd2/git/cmumatt/nanofuzz-2", //!!!!! //process.cwd(),
+
     "--target",
     options.target ? options.target : "ES2020",
+
     options.moduleKind ? "--module" : "",
     options.moduleKind ? options.moduleKind : "",
+
     "--outDir",
-    path.join(options.tmpDir,relativeFolder),
+    path.join(options.tmpDir, relativeFolder),
+
     "--lib",
     Array.isArray(options.lib) ? options.lib.join(",") : options.lib,
+
+    options.types.length ? "--types" : "",
+    options.types.length ? options.types.join(",") : "",
+
+    "--skipLibCheck",
+    options.skipLibCheck.toString(),
+
+    "--moduleResolution",
+    options.moduleResolution,
+
+    "--allowSyntheticDefaultImports",
+    options.allowSyntheticDefaultImports.toString(),
+
+    "--esModuleInterop",
+    options.esModuleInterop.toString(),
+
+    "--allowJs",
+    options.allowJs.toString(),
+
+    "--resolveJsonModule",
+    options.resolveJsonModule.toString(),
+
+    options.typeRoots.length ? "--typeRoots" : "",
+    options.typeRoots.length ? options.typeRoots.join(",") : "",
+
     module.filename,
   ];
+
+  /*
+  console.debug(`outfile: ${path.join(options.tmpDir, relativeFolder)}`);
+  console.debug(`cwd: ${process.cwd()}`);
+  console.debug(`tsc call: ${compact(argv).join(" ")}`);
+  */
 
   const proc = merge(merge({}, process), {
     argv: compact(argv),
     exit: function (code: number) {
       if (code !== 0) {
-        console.error(
-          "Fatal Error. Unable to compile TypeScript file."
-        );
+        console.error("Fatal Error. Unable to compile TypeScript file.");
       }
       exitCode = code;
     },

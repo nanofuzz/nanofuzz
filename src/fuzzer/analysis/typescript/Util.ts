@@ -1,4 +1,4 @@
-import crypto from "crypto";
+import * as crypto from "crypto";
 
 /**
  * Replacer function for JSON.stringify that removes the parent property

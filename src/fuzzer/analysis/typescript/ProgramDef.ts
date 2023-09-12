@@ -11,7 +11,7 @@ import path from "path";
 import fs from "fs";
 
 /**
- * The ProgramDef class represents a program definition in a Typescript source
+ * The ProgramDef class represents a program definition in a TypeScript source
  * file. It provides methods for extracting information about the functions
  * and types defined by the program, which are represented by the FunctionDef
  * and TypeDef classes.
@@ -63,6 +63,7 @@ export class ProgramDef {
       const importProgramTypes = importProgram.getExportedTypes();
       const importProgramFunctions = importProgram.getExportedFunctions();
 
+      // Map the imports to their local names
       if (importedName in importProgramTypes) {
         this._types[localName] = importProgramTypes[importedName];
       } else if (importedName in importProgramFunctions) {
@@ -275,10 +276,9 @@ export class ProgramDef {
           switch (node.type) {
             case AST_NODE_TYPES.ImportDeclaration: {
               if (typeof node.source.value === "string") {
-                // Resolve the path of the imported module
-                const importModule = path.resolve(
-                  path.dirname(this._module),
-                  node.source.value + ".ts" // !!!!
+                // Resolve the import module
+                const importModule = this.resolveImportModule(
+                  node.source.value
                 );
 
                 // Make sure we're not importing ourselves b/c oops
@@ -289,10 +289,18 @@ export class ProgramDef {
                 }
 
                 // Create a new ProgramDef for the imported module
-                const importProgram = ProgramDef.fromModule(
-                  importModule,
-                  options
-                );
+                // If the import fails, just continue because there
+                // are several valid import types we are not yet able
+                // to follow
+                let importProgram: ProgramDef;
+                try {
+                  importProgram = ProgramDef.fromModule(importModule, options);
+                } catch (e) {
+                  console.debug(
+                    `Unable to follow import from: '${this._module}' to '${importModule}'.`
+                  );
+                  return;
+                }
 
                 // Loop over all the imports specified
                 node.specifiers.forEach((specifier) => {
@@ -343,6 +351,41 @@ export class ProgramDef {
 
     return imports;
   } // fn: findImports()
+
+  /**
+   * Resolves the given import module to a path relative to the
+   * current module.
+   *
+   * @param importModule The module to import
+   * @returns Path to the import module
+   */
+  private resolveImportModule(importModule: string): string {
+    const extensions = [".ts", ".d.ts"];
+
+    // Resolve imports relative to the current module
+    if (importModule.startsWith(".")) {
+      // Try to resolve each extension
+      for (const ext of extensions) {
+        try {
+          console.log(`trying to resolve: ${importModule + ext}`); // !!!!
+          return path.resolve(path.dirname(this._module), importModule + ext);
+        } catch (e) {
+          // Just eat the extension for now & retry
+        }
+      }
+
+      // Throw an exception if we did not resolve the import
+      throw new Error(
+        `Unable to resolve import: '${
+          this._module
+        }' cannot find '${importModule}'. Tried extensions: ${JSON.stringify(
+          extensions
+        )}.`
+      );
+    } else {
+      return require.resolve(importModule);
+    }
+  } // fn: resolveImportModule()
 } // class: ProgramDef
 
 /**

@@ -4,7 +4,7 @@ import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
 import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
-import { FunctionDef, FunctionRef } from "./analysis/typescript/FunctionDef";
+import { FunctionRef } from "./analysis/typescript/FunctionDef";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
