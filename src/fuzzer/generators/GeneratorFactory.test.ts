@@ -1,8 +1,8 @@
-import { FunctionDef } from "../analysis/typescript/FunctionDef";
-import { ArgDef, ArgOptions, ArgTag } from "../analysis/typescript/ArgDef";
+import { ArgDef } from "../analysis/typescript/ArgDef";
 import { GeneratorFactory } from "./GeneratorFactory";
 import seedrandom from "seedrandom";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
+import { ArgOptions } from "fuzzer/analysis/typescript/Types";
 
 /**
  * Provide a seed to ensure tests are deterministic.
@@ -20,7 +20,7 @@ const tsFnWithBoolInput = `function test(bool: boolean):void {true;}`;
 /**
  * Dummy program definition needed for testing
  */
-const dummyProgram = ProgramDef.fromSource("");
+const dummyProgram = ProgramDef.fromSource(() => "");
 
 /**
  * Test that the random generators generate values within the bounds.
@@ -118,18 +118,8 @@ describe("fuzzer/generator/GeneratorFactory", () => {
  */
 const testRandomInt = (intMin: number, intMax: number): void => {
   const prng = seedrandom(seed);
-  const arg = new FunctionDef(
-    dummyProgram.setSrc(tsFnWithNumberInput),
-    {
-      module: "dummy.ts",
-      name: "test",
-      src: tsFnWithNumberInput,
-      startOffset: 0,
-      endOffset: 999,
-      export: true,
-    },
-    ArgDef.getDefaultOptions()
-  ).getArgDefs();
+  const program = ProgramDef.fromSource(() => tsFnWithNumberInput);
+  const arg = program.getFunctions()["test"].getArgDefs();
   arg[0].setIntervals([{ min: intMin, max: intMax }]);
   const gen = GeneratorFactory(arg[0], prng);
   for (let i = 0; i < 1000; i++) {
@@ -159,18 +149,8 @@ const testRandomIntException = (intMin: number, intMax: number): void => {
  */
 const testRandomFloat = (floatMin: number, floatMax: number): void => {
   const prng = seedrandom(seed);
-  const arg = new FunctionDef(
-    dummyProgram.setSrc(tsFnWithNumberInput),
-    {
-      module: "dummy.ts",
-      name: "test",
-      src: tsFnWithNumberInput,
-      startOffset: 0,
-      endOffset: 999,
-      export: true,
-    },
-    ArgDef.getDefaultFloatOptions()
-  ).getArgDefs();
+  const program = ProgramDef.fromSource(() => tsFnWithNumberInput);
+  const arg = program.getFunctions()["test"].getArgDefs();
   arg[0].setIntervals([{ min: floatMin, max: floatMax }]);
   const gen = GeneratorFactory(arg[0], prng);
   for (let i = 0; i < 1000; i++) {
@@ -201,20 +181,8 @@ const testRandomFloatException = (floatMin: number, floatMax: number): void => {
  */
 const testRandomBool = (boolMin: boolean, boolMax: boolean): void => {
   const prng = seedrandom(seed);
-
-  // Analyze the function, set the intervals, and get the generator
-  const arg = new FunctionDef(
-    dummyProgram.setSrc(tsFnWithBoolInput),
-    {
-      module: "dummy.ts",
-      name: "test",
-      src: tsFnWithBoolInput,
-      startOffset: 0,
-      endOffset: 999,
-      export: true,
-    },
-    ArgDef.getDefaultFloatOptions()
-  ).getArgDefs();
+  const program = ProgramDef.fromSource(() => tsFnWithBoolInput);
+  const arg = program.getFunctions()["test"].getArgDefs();
   arg[0].setIntervals([{ min: boolMin, max: boolMax }]);
   const gen = GeneratorFactory(arg[0], prng);
 
@@ -252,19 +220,8 @@ const testRandomString = (
   strMin = strMin.padEnd(strLenMin, options.strCharset[0]);
   strMax = strMax.padEnd(strLenMin, options.strCharset[0]);
 
-  // Analyze the function, set the intervals, and get the generator
-  const arg = new FunctionDef(
-    dummyProgram.setSrc(tsFnWithStringInput),
-    {
-      module: "dummy.ts",
-      name: "test",
-      src: tsFnWithStringInput,
-      startOffset: 0,
-      endOffset: 999,
-      export: true,
-    },
-    options
-  ).getArgDefs();
+  const program = ProgramDef.fromSource(() => tsFnWithStringInput, options);
+  const arg = program.getFunctions()["test"].getArgDefs();
   arg[0].setIntervals([{ min: strMin, max: strMax }]);
   const gen = GeneratorFactory(arg[0], prng);
 

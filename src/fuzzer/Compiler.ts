@@ -145,7 +145,7 @@ function compileTS(module: any) {
     options.emitOnError ? "" : "--noEmitOnError",
 
     //"--rootDir",
-    //"/Users/mcd2/git/cmumatt/nanofuzz-2", //!!!!! //process.cwd(),
+    //process.cwd(),
 
     "--target",
     options.target ? options.target : "ES2020",

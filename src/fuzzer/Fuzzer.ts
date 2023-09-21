@@ -3,11 +3,12 @@ import * as vscode from "vscode";
 import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
-import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
-import { FunctionRef } from "./analysis/typescript/FunctionDef";
+import { ArgDef } from "./analysis/typescript/ArgDef";
+import { ArgOptions } from "./analysis/typescript/Types";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
+import { FunctionDef } from "./analysis/typescript/FunctionDef";
 
 /**
  * WARNING: To embed this module into a VS Code web extension, at a minimu,
@@ -28,19 +29,11 @@ import { ProgramDef } from "./analysis/typescript/ProgramDef";
 export const setup = (
   options: FuzzOptions,
   module: string,
-  fnName?: string,
-  offset?: number
+  fnName: string
 ): FuzzEnv => {
   module = require.resolve(module);
   const program = ProgramDef.fromModule(module, options.argDefaults);
   const fnList = program.getExportedFunctions();
-
-  // Find the function definitions in the source file
-  const fnMatches = fnName
-    ? fnName in fnList
-      ? [fnList[fnName]]
-      : []
-    : Object.values(fnList);
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
@@ -49,14 +42,12 @@ export const setup = (
     );
 
   // Ensure we found a function to fuzz
-  if (!fnMatches.length)
-    throw new Error(
-      `Could not find function ${fnName}@${offset} in: ${module})}`
-    );
+  if (!(fnName in fnList))
+    throw new Error(`Could not find function ${fnName} in: ${module})}`);
 
   return {
     options: { ...options },
-    function: fnMatches[0].getRef(),
+    function: fnList[fnName],
   };
 }; // fn: setup()
 
@@ -72,13 +63,8 @@ export const fuzz = async (
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = []
 ): Promise<FuzzTestResults> => {
-  const program = ProgramDef.fromModule(
-    env.function.module,
-    env.options.argDefaults
-  );
-  const fn = program.getExportedFunctions()[env.function.name];
   const prng = seedrandom(env.options.seed);
-  const fqSrcFile = fs.realpathSync(env.function.module); // Help the module loader
+  const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
     results: [],
@@ -92,7 +78,7 @@ export const fuzz = async (
     );
 
   // Build a generator for each argument
-  const fuzzArgGen = fn.getArgDefs().map((e) => {
+  const fuzzArgGen = env.function.getArgDefs().map((e) => {
     return { arg: e, gen: GeneratorFactory(e, prng) };
   });
 
@@ -112,19 +98,19 @@ export const fuzz = async (
   compiler.deactivate(); // Deactivate the TypeScript compiler
 
   // Ensure what we found is a function
-  if (!(env.function.name in mod))
+  if (!(env.function.getName() in mod))
     throw new Error(
-      `Could not find exported function ${env.function.name} in ${env.function.module} to fuzz`
+      `Could not find exported function ${env.function.getName()} in ${env.function.getModule()} to fuzz`
     );
-  else if (typeof mod[env.function.name] !== "function")
+  else if (typeof mod[env.function.getName()] !== "function")
     throw new Error(
-      `Cannot fuzz exported member '${env.function.name} in ${env.function.module} because it is not a function`
+      `Cannot fuzz exported member '${env.function.getName()} in ${env.function.getModule()} because it is not a function`
     );
 
   // Build a wrapper around the function to be fuzzed that we can
   // easily call in the testing loop.
   const fnWrapper = functionTimeout((input: FuzzIoElement[]): any => {
-    return mod[env.function.name](...input.map((e) => e.value));
+    return mod[env.function.getName()](...input.map((e) => e.value));
   }, env.options.fnTimeout);
 
   // Main test loop
@@ -187,7 +173,7 @@ export const fuzz = async (
       dupeCount = 0; // reset the duplicate count
       // if the function accepts inputs, add test input
       // to the list so we don't test it again,
-      if (fn.getArgDefs().length) {
+      if (env.function.getArgDefs().length) {
         allInputs[inputHash] = true;
       }
     }
@@ -338,7 +324,7 @@ export function isTimeoutError(error: { code?: string }): boolean {
  */
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
-  function: FunctionRef; // the function to fuzz
+  function: FunctionDef; // the function to fuzz
 };
 
 /**
@@ -400,5 +386,7 @@ export type FuzzIoElement = {
   value: any; // value of element
 };
 
+export * from "./analysis/typescript/ProgramDef";
 export * from "./analysis/typescript/FunctionDef";
 export * from "./analysis/typescript/ArgDef";
+export * from "./analysis/typescript/Types";
