@@ -3,10 +3,12 @@ import * as vscode from "vscode";
 import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
-import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
-import { FunctionDef } from "./analysis/typescript/FunctionDef";
+import { ArgDef } from "./analysis/typescript/ArgDef";
+import { ArgOptions } from "./analysis/typescript/Types";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
+import { ProgramDef } from "./analysis/typescript/ProgramDef";
+import { FunctionDef } from "./analysis/typescript/FunctionDef";
 
 /**
  * WARNING: To embed this module into a VS Code web extension, at a minimu,
@@ -27,19 +29,11 @@ import * as compiler from "./Compiler";
 export const setup = (
   options: FuzzOptions,
   module: string,
-  fnName?: string,
-  offset?: number
+  fnName: string
 ): FuzzEnv => {
   module = require.resolve(module);
-  const srcText = fs.readFileSync(module);
-
-  // Find the function definitions in the source file
-  const fnMatches = FunctionDef.find(
-    srcText.toString(),
-    module,
-    fnName,
-    offset
-  );
+  const program = ProgramDef.fromModule(module, options.argDefaults);
+  const fnList = program.getExportedFunctions();
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
@@ -48,14 +42,12 @@ export const setup = (
     );
 
   // Ensure we found a function to fuzz
-  if (!fnMatches.length)
-    throw new Error(
-      `Could not find function ${fnName}@${offset} in: ${module})}`
-    );
+  if (!(fnName in fnList))
+    throw new Error(`Could not find function ${fnName} in: ${module})}`);
 
   return {
     options: { ...options },
-    function: fnMatches[0],
+    function: fnList[fnName],
   };
 }; // fn: setup()
 
@@ -148,7 +140,8 @@ export const fuzz = async (
       output: [],
       exception: false,
       timeout: false,
-      passed: true,
+      passedImplicit: true,
+      elapsedTime: 0,
     };
 
     // Before searching, consume the pool of pinned tests
@@ -187,14 +180,18 @@ export const fuzz = async (
 
     // Call the function via the wrapper
     try {
+      const startElapsedTime = performance.now(); // start timer
+      result.elapsedTime = startElapsedTime;
       result.output.push({
         name: "0",
         offset: 0,
         value: fnWrapper(result.input), // <-- Wrapper
       });
+      result.elapsedTime = performance.now() - startElapsedTime; // stop timer
     } catch (e: any) {
       if (isTimeoutError(e)) {
         result.timeout = true;
+        result.elapsedTime = performance.now() - result.elapsedTime;
       } else {
         result.exception = true;
         result.exceptionMessage = e.message;
@@ -208,8 +205,9 @@ export const fuzz = async (
       result.exception ||
       result.timeout ||
       result.output.some((e) => !implicitOracle(e))
-    )
-      result.passed = false;
+    ) {
+      result.passedImplicit = false;
+    }
 
     // Store the result for this iteration
     results.results.push(result);
@@ -361,7 +359,11 @@ export type FuzzTestResult = {
   exceptionMessage?: string; // exception message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
-  passed: boolean; // true if output matches oracle; false, otherwise
+  passedImplicit: boolean; // true if output matches oracle; false, otherwise
+  //passedExplicit?: boolean; // true if actual output matches expected output
+  elapsedTime: number; // elapsed time of test
+  //correct: string; // check, error, question, or none
+  //expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
 };
 
 /**
@@ -369,6 +371,10 @@ export type FuzzTestResult = {
  */
 export type FuzzPinnedTest = {
   input: FuzzIoElement[]; // function input
+  //output: FuzzIoElement[]; // function output
+  //pinned: boolean; // is the test pinned?
+  //correct: string; // check, error, question, or none
+  //expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
 };
 
 /**
@@ -380,5 +386,7 @@ export type FuzzIoElement = {
   value: any; // value of element
 };
 
+export * from "./analysis/typescript/ProgramDef";
 export * from "./analysis/typescript/FunctionDef";
 export * from "./analysis/typescript/ArgDef";
+export * from "./analysis/typescript/Types";

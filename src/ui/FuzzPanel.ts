@@ -5,6 +5,7 @@ import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
+import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -46,7 +47,7 @@ export class FuzzPanel {
    * @param env FuzzEnv for which to display or create the FuzzPanel
    */
   public static render(extensionUri: vscode.Uri, env: fuzzer.FuzzEnv): void {
-    const fnRef = JSON5.stringify(env.function.getRef());
+    const fnRef = JSON5.stringify(env.function);
 
     // If we already have a panel for this fuzz env, show it.
     if (fnRef in FuzzPanel.currentPanels) {
@@ -92,8 +93,7 @@ export class FuzzPanel {
         const env = fuzzer.setup(
           state.options,
           state.fnRef.module,
-          state.fnRef.name,
-          state.fnRef.startOffset
+          state.fnRef.name
         );
         // Create the new FuzzPanel
         fuzzPanel = new FuzzPanel(panel, extensionUri, env);
@@ -219,7 +219,7 @@ export class FuzzPanel {
    * @returns A key string that represents the fuzz environment
    */
   public getFnRefKey(): string {
-    return JSON5.stringify(this._fuzzEnv.function.getRef());
+    return JSON5.stringify(this._fuzzEnv.function);
   }
 
   // ----------------------- Message Handling ----------------------- //
@@ -426,7 +426,8 @@ export class FuzzPanel {
       fuzzer: Record<string, any>; // !!! Improve typing
       args: Record<string, any>; // !!! Improve typing
     } = JSON5.parse(json);
-    const argsFlat = this._fuzzEnv.function.getArgDefsFlat();
+    const fn = this._fuzzEnv.function;
+    const argsFlat = fn.getArgDefsFlat();
 
     // Apply numeric fuzzer option changes
     ["suiteTimeout", "maxTests", "fnTimeout"].forEach((e) => {
@@ -441,7 +442,7 @@ export class FuzzPanel {
     // Apply argument option changes
     for (const i in panelInput.args) {
       const thisOverride = panelInput.args[i];
-      const thisArg: fuzzer.ArgDef<fuzzer.ArgType> = argsFlat[i];
+      const thisArg = argsFlat[i];
       if (Number(i) + 1 > argsFlat.length)
         throw new Error(
           `FuzzPanel input has ${panelInput.args.length} but the function has ${argsFlat.length}`
@@ -634,14 +635,14 @@ export class FuzzPanel {
       "FuzzPanelMain.css",
     ]); // URI to client-side panel script
     const env = this._fuzzEnv; // Fuzzer environment
-    const fnRef = env.function.getRef(); // Reference to function under test
+    const fn = env.function; // Reference to function under test
     const counter = { id: 0 }; // Unique counter for argument ids
     let argDefHtml = ""; // HTML representing argument definitions
 
     // If fuzzer results are available, calculate how many tests passed, failed, etc.
     if (this._state === FuzzPanelState.done && this._results !== undefined) {
       for (const result of this._results.results) {
-        if (result.passed) resultSummary.passed++;
+        if (result.passedImplicit) resultSummary.passed++;
         else {
           resultSummary.failed++;
           if (result.exception) resultSummary.exception++;
@@ -652,9 +653,9 @@ export class FuzzPanel {
     } // if: results are available
 
     // Render the HTML for each argument
-    env.function
-      .getArgDefs()
-      .forEach((arg) => (argDefHtml += this._argDefToHtmlForm(arg, counter)));
+    fn.getArgDefs().forEach(
+      (arg) => (argDefHtml += this._argDefToHtmlForm(arg, counter))
+    );
 
     // Prettier abhorrently butchers this HTML, so disable prettier here
     // prettier-ignore
@@ -673,7 +674,7 @@ export class FuzzPanel {
         </head>
         <body>
           <h2 style="margin-bottom:.5em;margin-top:.1em;">AutoTest ${htmlEscape(
-            fnRef.name
+            fn.getName()
           )}() w/inputs:</h2>
 
           <!-- Function Arguments -->
@@ -815,9 +816,16 @@ export class FuzzPanel {
     const disabledFlag =
       this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
-    const typeString =
-      argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase(); // Text indicating arg type
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
+
+    let typeString: string; // Text indicating the type of argument
+    const argTypeRef = arg.getTypeRef();
+    if (argTypeRef !== undefined) {
+      typeString = argTypeRef.substring(argTypeRef.lastIndexOf(".") + 1);
+    } else {
+      typeString =
+        argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase();
+    }
 
     // prettier-ignore
     let html = /*html*/ `
@@ -889,7 +897,7 @@ export class FuzzPanel {
         html +=
           /*html*/
           `<vscode-radio-group>
-            <label slot="label">Values</label>
+            <!--<label slot="label">Values</label>-->
             <vscode-radio ${disabledFlag} id="${idBase}-trueFalse" name="${idBase}-trueFalse" ${
             intervals[0].min !== intervals[0].max ? " checked " : ""
           }>True and false</vscode-radio>
@@ -1014,6 +1022,14 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
     return; // If there is no active editor, return.
   }
 
+  // Ensure we have a function name
+  if (!fnName) {
+    vscode.window.showErrorMessage(
+      "Please use the AutoTest button to test a function."
+    );
+    return;
+  }
+
   // Ensure the document is saved / not dirty
   if (document.isDirty) {
     vscode.window.showErrorMessage("Please save the file before autotesting.");
@@ -1023,16 +1039,11 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   // Get the current active editor filename
   const srcFile = document.uri.path; //full path of the file which the function is in.
 
-  // Get the current cursor offset
-  const pos = match
-    ? match.ref.startOffset
-    : document.offsetAt(editor.selection.active);
-
   // Call the fuzzer to analyze the function
   const fuzzOptions = fuzzer.getDefaultFuzzOptions();
   let fuzzSetup: fuzzer.FuzzEnv;
   try {
-    fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName, pos);
+    fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
   } catch (e: any) {
     vscode.window.showErrorMessage(
       `Could not find or does not support this function. Messge: "${e.message}"`
@@ -1062,10 +1073,10 @@ export function provideCodeLenses(
   // Use the TypeScript analyzer to find all fn declarations in the module
   const matches: FunctionMatch[] = [];
   try {
-    const functions = fuzzer.FunctionDef.find(
-      document.getText(),
-      document.fileName
-    ).filter((e) => e.isExported()); // only exported functions
+    const program = ProgramDef.fromModuleAndSource(document.fileName, () =>
+      document.getText()
+    );
+    const functions = Object.values(program.getExportedFunctions());
 
     for (const fn of functions) {
       matches.push({

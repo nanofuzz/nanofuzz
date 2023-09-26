@@ -1,11 +1,11 @@
 import seedrandom from "seedrandom";
+import { ArgDef } from "../analysis/typescript/ArgDef";
 import {
-  ArgDef,
-  ArgOptions,
   ArgTag,
   ArgType,
+  ArgOptions,
   Interval,
-} from "../analysis/typescript/ArgDef";
+} from "../analysis/typescript/Types";
 
 /**
  * Builds and returns a generator function that generates a pseudo-
@@ -51,6 +51,12 @@ export function GeneratorFactory<T extends ArgType>(
         const outObj = {};
         for (const child of arg.getChildren()) {
           outObj[child.getName()] = GeneratorFactory(child, prng)();
+
+          // Remove undefined object members, otherwise the
+          // implicit oracle flags them.
+          if (outObj[child.getName()] === undefined) {
+            delete outObj[child.getName()];
+          }
         }
         return outObj as T;
       };
