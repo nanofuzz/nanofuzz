@@ -34,11 +34,11 @@ import {
  * and TypeDef classes.
  *
  * Limitations of the current implementation
- * - Circular imports are not supported
  * - Only top-level functions and types are supported
  * - Requires type-annotated TypeScript program source
  * - Anonymous functions are not supported
- * - Default exports/imports and standalone exports are not supported
+ * - Re-exported functions are not supported
+ * - Default imports/exports are limited to named type definitions
  * - Analysis of classes and class methods are not supported
  */
 export class ProgramDef {
@@ -52,12 +52,16 @@ export class ProgramDef {
   private _children: Record<ProgramPath, ProgramDef> = {}; // Child programs
   private _allChildren: Record<ProgramPath, ProgramDef> = {}; // All children of children (if root)
 
-  private _functions: Record<string, FunctionRef> = {}; // Functions defined in the program
-  private _functionCache: Record<string, FunctionDef> = {}; // Cached FunctionDef objects
-  private _exportedFunctions: Record<string, FunctionRef> = {}; // Functions exported by the program
+  private _functions: Record<IdentifierName, FunctionRef> = {}; // Functions defined in the program
+  private _unsupportedFunctions: Record<
+    IdentifierName,
+    { reason: string; argument?: IdentifierName; function: FunctionRef }
+  > = {}; // Functions defined but not supported
+  private _functionCache: Record<IdentifierName, FunctionDef> = {}; // Cached FunctionDef objects
+  private _exportedFunctions: Record<IdentifierName, FunctionRef> = {}; // Functions exported by the program
   private _types: Record<IdentifierName, TypeRef> = {}; // Types defined in the program
   private _exportedTypes: Record<IdentifierName, TypeRef> = {}; // Types exported by the program
-
+  private _defaultExport: TypeRef | undefined; // Default type export, if any
   private _imports: ProgramImports = { programs: {}, identifiers: {} }; // Imported modules
 
   /**
@@ -117,15 +121,38 @@ export class ProgramDef {
       }
     }
 
+    // Retrieve the default type export, if it exists
+    // (we don't look for other default exports at this time)
+    this._defaultExport = this._findDefaultTypeExport(ast);
+
     // If this is the root program, resolve all the imports that we need
     if (this._root === this) {
       for (const fnRef of Object.values(this._functions)) {
-        if (fnRef.args) {
-          for (const fnArg of fnRef.args) {
-            if (fnArg.typeRefName && !fnArg.type) {
-              this._resolveTypeRef(fnArg);
+        let lastArgName: string | undefined;
+        try {
+          if (fnRef.args) {
+            for (const fnArg of fnRef.args) {
+              lastArgName = fnArg.name;
+              if (fnArg.typeRefName && !fnArg.type) {
+                this._resolveTypeRef(fnArg);
+              }
             }
           }
+        } catch (e: any) {
+          console.debug(
+            `Error resolving types for function '${fnRef.name}' argument '${
+              lastArgName ?? "(unknown)"
+            }'; marking fn as unsupported. Reason: ${e.message}`
+          );
+
+          // Remove functions that we couldn't resolve
+          this._unsupportedFunctions[fnRef.name] = {
+            reason: e.message,
+            argument: lastArgName,
+            function: fnRef,
+          };
+          delete this._functions[fnRef.name];
+          delete this._exportedFunctions[fnRef.name];
         }
       }
     }
@@ -431,9 +458,6 @@ export class ProgramDef {
                         default: true,
                       };
                       imports.programs[importModulePath] = "?";
-                      throw new Error(
-                        `Default imports not yet supported (${this._module})`
-                      ); // !!!!
                       break;
                     }
                   }
@@ -448,6 +472,92 @@ export class ProgramDef {
     ); // traverse AST
     return imports;
   } // fn: findImports()
+
+  /**
+   * Accepts a program AST and returns a default type export if defined
+   * in the program.
+   *
+   * We don't support literal or function exports here. Just types, and
+   * the usual limitations from elsewhere still apply (no OR types, etc).
+   *
+   * @param ast Program AST
+   * @returns A default export, if found
+   */
+  private _findDefaultTypeExport(
+    ast: AST<{
+      range: true;
+    }>
+  ): TypeRef | undefined {
+    const module = this._module;
+    let defaultExport: TypeRef | undefined;
+
+    // Traverse the AST and find top-level type alias declarations
+    simpleTraverse(
+      ast,
+      {
+        enter: (node) => {
+          switch (node.type) {
+            // Implicit defaults:
+            //   - export {x as default};
+            case AST_NODE_TYPES.ExportNamedDeclaration: {
+              node.specifiers.forEach((specifier) => {
+                if (specifier.exported.name === "default") {
+                  // build and return the type reference
+                  switch (specifier.local.type) {
+                    case AST_NODE_TYPES.Identifier: {
+                      defaultExport = {
+                        isExported: true,
+                        optional: false,
+                        dims: 0,
+                        module: module,
+                        name: "default",
+                        typeRefName: specifier.local.name,
+                      };
+                      return; // enter function
+                    }
+                    default: {
+                      console.debug(
+                        `Unsupported implicit default export specifier '${specifier.local.type}' in module '${module}'`
+                      );
+                    }
+                  }
+                }
+              });
+              break;
+            }
+
+            // Explicit default:
+            //   - export default x;
+            case AST_NODE_TYPES.ExportDefaultDeclaration: {
+              switch (node.declaration.type) {
+                case AST_NODE_TYPES.Identifier: {
+                  defaultExport = {
+                    isExported: true,
+                    optional: false,
+                    dims: 0,
+                    module: module,
+                    name: "default",
+                    typeRefName: node.declaration.name,
+                  };
+                  return; // enter function
+                }
+                default: {
+                  console.debug(
+                    `Unsupported explicit default export type '${node.declaration.type}' in module '${module}'`
+                  );
+                }
+              }
+              break;
+            }
+          }
+        }, // enter
+      },
+      true // set parent pointers
+    ); // traverse AST
+
+    // No default found: return undefined
+    return defaultExport;
+  } // fn: findDefaultTypeExport()
 
   /**
    * Accepts a program AST and returns a dictionary of type aliases defined
@@ -502,7 +612,7 @@ export class ProgramDef {
    * @returns A concrete, resolved TypeRef object
    */
   private _resolveTypeRef(typeRef: TypeRef): TypeRef {
-    // Handle any respolved or partially-resolved type references
+    // Handle any resolved or partially-resolved type references
     if (typeRef.type) {
       if (typeRef.type.resolved) {
         // Base case: We found a fully-resolved type reference
@@ -557,7 +667,16 @@ export class ProgramDef {
         if (importRef.default) {
           // Default import: create one default import
           importRef.resolved = true;
-          importRef.imported = Object.keys(importProgram._exportedTypes)[0]; // !!!! Default imports not working yet
+          if (
+            importProgram._defaultExport !== undefined &&
+            importProgram._defaultExport.name
+          ) {
+            importRef.imported = importProgram._defaultExport.name;
+          } else {
+            throw new Error(
+              `Unable to find default type export in module '${importProgram._module}' when processing imports for module '${this._module}'`
+            );
+          }
         } else {
           // Namespace import: create concrete imports for each of the imports
           for (const exported of Object.values(importProgram._exportedTypes)) {
@@ -574,15 +693,34 @@ export class ProgramDef {
         }
       }
 
-      // TODO: Need to handle other patterns here
+      // Find the imported type reference that corresponds with
+      // this type reference
+      //
+      // TODO: Need to handle other naming patterns here
       if (typeRef.typeRefName in this._imports.identifiers) {
         const importName =
           this._imports.identifiers[typeRef.typeRefName].imported;
-        // Resolve the imported type reference
-        const resolvedType = importProgram._resolveTypeRef(
-          importProgram._exportedTypes[importName]
-        );
-        typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+        const defaultImport =
+          this._imports.identifiers[typeRef.typeRefName].default;
+
+        if (defaultImport && importProgram._defaultExport) {
+          // Resolve default export
+          const resolvedType = importProgram._resolveTypeRef(
+            importProgram._defaultExport
+          );
+          typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+        } else if (importName in importProgram._exportedTypes) {
+          // Resolve named export
+          const resolvedType = importProgram._resolveTypeRef(
+            importProgram._exportedTypes[importName]
+          );
+          typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+        } else {
+          // Unable to find exported type
+          throw new Error(
+            `Unable to find exported type '${importName}' in module '${importProgram._module}' when processing imports for module '${this._module}`
+          );
+        }
       } else {
         throw new Error(
           `Internal error: ${this._module} did not find import: ${typeRef.typeRefName}`
@@ -601,30 +739,30 @@ export class ProgramDef {
    * @returns Path to the import module
    */
   private _resolveImportModule(importModule: string): ProgramPath {
-    const extensions = [".ts", ".d.ts"];
+    const extensions = [".ts", ".d.ts", ""];
 
     // Resolve imports relative to the current module
-    if (importModule.startsWith(".")) {
-      // Try to resolve each extension
-      for (const ext of extensions) {
-        try {
+    // Try to resolve each extension
+    for (const ext of extensions) {
+      try {
+        if (importModule.startsWith(".")) {
           return path.resolve(path.dirname(this._module), importModule + ext);
-        } catch (e) {
-          // Just eat the exception for now & retry
+        } else {
+          return require.resolve(importModule + ext);
         }
+      } catch (e) {
+        // Just eat the exception for now & retry
       }
-
-      // Throw an exception if we did not resolve the import
-      throw new Error(
-        `Unable to resolve import: '${
-          this._module
-        }' cannot find '${importModule}'. Tried extensions: ${JSON.stringify(
-          extensions
-        )}.`
-      );
-    } else {
-      return require.resolve(importModule);
     }
+
+    // Throw an exception if we did not resolve the import
+    throw new Error(
+      `Unable to resolve import: '${
+        this._module
+      }' cannot find '${importModule}'. Tried extensions: ${JSON.stringify(
+        extensions
+      )}.`
+    );
   } // fn: resolveImportModule()
 
   /**
