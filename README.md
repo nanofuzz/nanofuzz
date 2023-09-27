@@ -25,7 +25,7 @@ The following are not yet supported:
  - Deconstructed types, OR types, Tuples, Enums, Generics, or Function types
  - Non-finite numeric inputs (NaN, Infinity, null)
  - Class and object methods
- - Compiling to module formats other than CommonJS (see [VS Code issue #130367](https://github.com/microsoft/vscode/issues/130367))
+ - Compiling to module formats other than CommonJS (see [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
  - Support for stateful, flaky, or non-deterministic tests
  - Sandboxing external side-effects, mocks, or stubs
  - Custom generators, validators, and filters
