@@ -1,9 +1,9 @@
 # NaNofuzz
-NaNofuzz is a fast, easy-to-use automatic test suite generation tool for Typescript that integrates with a developer's VS Code workflow.  We like working code, and NaNofuzz is designed to be used during testing or development to more quickly reach working code nirvana. NaNofuzz is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
+NaNofuzz is a fast, easy-to-use automatic test suite generation tool for TypeScript that integrates with a developer's VS Code workflow.  We like working code, and NaNofuzz is designed to be used during testing or development to more quickly reach working code nirvana. NaNofuzz is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
 ![image](https://user-images.githubusercontent.com/22134678/198139136-20a7105b-29e1-435e-8ba6-2e1b92ff3bed.png)
 
-Unlike some past automatic test suite generation tools, NaNofuzz takes an approach similar to fuzzing and uses an implicit oracle to detect likely errors. Surprisingly, this approach can quickly find many errors. NaNofuzz draws your attention to a test if it:
+Unlike some past automatic test suite generation tools, NaNofuzz takes an approach similar to fuzzing and uses an implicit oracle to detect likely errors. Surprisingly, this approach can quickly find many errors and rapidly build a test suite. NaNofuzz draws your attention to a test if it:
  - throws a runtime exception
  - returns null, NaN, Infinity, or undefined
  - does not terminate within a configurable period of time
@@ -24,7 +24,7 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
 The following are not yet supported:
  - Deconstructed types, OR types, Tuples, Enums, Generics, or Function types
  - Non-finite numeric inputs (NaN, Infinity, null)
- - Object methods
+ - Class and object methods
  - Compiling to module formats other than CommonJS (see [VS Code issue #130367](https://github.com/microsoft/vscode/issues/130367))
  - Support for stateful, flaky, or non-deterministic tests
  - Sandboxing external side-effects, mocks, or stubs
