@@ -51,7 +51,7 @@ export const setup = (
   return {
     options: { ...options },
     function: fnList[fnName],
-    validator: "implicitOracle",
+    //validator: "implicitOracle", !!!! We need to load the validator from the file
     validators: validators,
   };
 }; // fn: setup()
@@ -229,11 +229,12 @@ export const fuzz = async (
     }
 
     // If the implicit oracle is not selected, call the validator function
-    if (env.validator !== "implicitOracle") {
+    if ("validator" in env && env.validator) {
+      const fnName = env.validator;
       // Build the validator function wrapper
       const validatorFnWrapper = functionTimeout(
         (input: FuzzTestResult): any => {
-          return mod[env.validator](input);
+          return mod[fnName](input);
         },
         env.options.fnTimeout
       );
@@ -393,8 +394,8 @@ function actualEqualsExpectedOutput(
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
-  validator: string; // !!!!
-  validators?: FunctionRef[]; // !!!!
+  validator?: string; // name of the current validator function (if any)
+  validators: FunctionRef[]; // list of the module's functions
 };
 
 /**

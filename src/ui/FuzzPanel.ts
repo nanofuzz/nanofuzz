@@ -269,9 +269,11 @@ export class FuzzPanel {
    * @param pin true=save test; false=unsave test
    */
   private _doTestPinnedCmd(json: string, pin: boolean) {
+    // Get the set of saved tests
     const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
       this._getPinnedTests();
 
+    // Log the telemetry event
     vscode.commands.executeCommand(
       telemetry.commands.logTelemetry.name,
       new telemetry.LoggerEntry(
@@ -482,7 +484,7 @@ export class FuzzPanel {
    */
   private _doToggleValidator(json: string) {
     const validatorName = JSON5.parse(json);
-    this._fuzzEnv.validator = validatorName;
+    this._fuzzEnv.validator = validatorName === "" ? undefined : validatorName;
   }
 
   /**
@@ -769,12 +771,14 @@ export class FuzzPanel {
           <div style="padding-top: .25em;">
               <vscode-radio-group id="validatorFunctions">
                 <label slot="label">Validator:</label>
-                  <vscode-radio id="validator-implicitOracle" name="implicitOracle" 
-                  ${this._fuzzEnv.validator === "implicitOracle" ? "checked" : ""} >Implicit oracle</vscode-radio>`;
+                  <vscode-radio id="validator-none" name="none" 
+                  ${this._fuzzEnv.validator ? "" : "checked" } >Implicit oracle</vscode-radio>`;
+
+    // Render the HTML for each validator
     if (this._fuzzEnv.validators) {
       for (let i = 0; i < this._fuzzEnv.validators.length; ++i) {
         const name = this._fuzzEnv.validators[i].name;
-        const idName = `validator-${name}`;
+        const idName = `validator--${name}`;
         html += /*html*/ `
                   <vscode-radio id=${idName} name=${name} 
                   ${this._fuzzEnv.validator === name ? "checked" : ""}

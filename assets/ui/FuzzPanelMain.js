@@ -28,6 +28,9 @@ const pinState = {
   classPin: "fuzzGridCellPin",
 };
 
+// Implicit Oracle Validator Name
+const implicitOracleValidatorName = "none";
+
 // Correct icon states
 const correctState = {
   htmlCheck: `<span class="codicon codicon-pass"></span>`, // check in circle
@@ -103,11 +106,11 @@ function main() {
   // Add event listeners for the validator radio buttons
   validators.forEach((val) => {
     document
-      .getElementById(`validator-${val.name}`)
+      .getElementById(`validator--${val.name}`)
       .addEventListener("click", (e) => handleToggleValidator(e));
   });
   document
-    .getElementById("validator-implicitOracle")
+    .getElementById(`validator-${implicitOracleValidatorName}`)
     .addEventListener("click", (e) => handleToggleValidator(e));
 
   // Load column sort orders from the HTML
@@ -1161,7 +1164,9 @@ function handleToggleValidator(e) {
 
   vscode.postMessage({
     command: "toggleValidator",
-    json: JSON5.stringify(validatorName),
+    json: JSON5.stringify(
+      validatorName === implicitOracleValidatorName ? "" : validatorName
+    ),
   });
 }
 
