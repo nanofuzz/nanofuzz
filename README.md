@@ -22,7 +22,7 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
  - Jest
 
 The following are not yet supported:
- - Type references, deconstructed types, OR types, Tuples, Enums, Generics, or Function types
+ - Deconstructed types, OR types, Tuples, Enums, Generics, or Function types
  - Non-finite numeric inputs (NaN, Infinity, null)
  - Object methods
  - Compiling to module formats other than CommonJS (see [VS Code issue #130367](https://github.com/microsoft/vscode/issues/130367))
@@ -37,6 +37,6 @@ The following are not yet supported:
 
 To reference NaNofuzz in your research, we request you to cite our upcoming ESEC/FSE'23 paper:
 
-> Matthew C. Davis, Sangheon Choi, Sam Estep, Brad A. Myers, and Joshua Sunshine. **Nanofuzz: a usable tool for automatic test generation**. In Proceedings of the 31st ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering, 2023. (accepted and pending publication; [pre-print](https://cmumatt.github.io/assets/NaNofuzz_2023.pdf))
+> Matthew C. Davis, Sangheon Choi, Sam Estep, Brad A. Myers, and Joshua Sunshine. **NaNofuzz: A Usable Tool for Automatic Test Generation**. In Proceedings of the 31st ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering, 2023. (accepted and pending publication; [pre-print](https://cmumatt.github.io/assets/NaNofuzz_2023.pdf))
 
 

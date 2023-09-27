@@ -1,16 +1,13 @@
 import * as JSON5 from "json5";
-import {
-  AST_NODE_TYPES,
-  Identifier,
-  TSTypeAnnotation,
-  TSPropertySignature,
-  TSTypeAliasDeclaration,
-  TypeNode,
-} from "@typescript-eslint/types/dist/ast-spec";
 import * as vscode from "vscode";
-import { ProgramDef } from "./ProgramDef";
-import { TypeDef } from "./TypeDef";
-import { removeParents } from "./Util";
+import {
+  ArgOptionOverride,
+  ArgOptions,
+  ArgTag,
+  ArgType,
+  Interval,
+  TypeRef,
+} from "./Types";
 
 /**
  * The ArgDef class describes a Typescript function argument using three input sources:
@@ -24,7 +21,7 @@ import { removeParents } from "./Util";
  * - Strings
  * - Homogeneous n-dimensional arrays of the above types
  * - Literal object types
- * - Top-level local type references that meet the above criteria !!!!
+ * - Top-level type references that meet the above criteria
  * - any, provided a mapping to one of the above types
  *
  * Argument types NOT currently supported (will throw an exception):
@@ -34,7 +31,6 @@ import { removeParents } from "./Util";
  * - Generics
  */
 export class ArgDef<T extends ArgType> {
-  private program: ProgramDef; // containing program (used for type resolution)
   private name: string; // name of the argument
   private offset: number; // offset of the argument in the function (0-based)
   private type: ArgTag; // type of the argument
@@ -56,8 +52,7 @@ export class ArgDef<T extends ArgType> {
    * @param optional Indicates whether the argument is optional
    * @param intervals Input intervals for the argument
    */
-  constructor(
-    program: ProgramDef,
+  private constructor(
     name: string,
     offset: number,
     type: ArgTag,
@@ -68,7 +63,6 @@ export class ArgDef<T extends ArgType> {
     children?: ArgDef<ArgType>[],
     typeRef?: string
   ) {
-    this.program = program;
     this.name = name;
     this.offset = offset;
     this.type = type;
@@ -131,6 +125,45 @@ export class ArgDef<T extends ArgType> {
   } // end: constructor
 
   /**
+   * Creates an ArgDef object from a given TypeRef object that includes addition details
+   * such as the argument name, offset, ranges, and option set.
+   *
+   * @param ref TypeRef object
+   * @param options Argument options
+   * @param offset Position of ArgDef object
+   * @returns ArgDef object for the given TypeRef and ArgOptions
+   */
+  public static fromTypeRef(
+    ref: TypeRef,
+    options: ArgOptions,
+    offset?: number
+  ): ArgDef<ArgType> {
+    offset = offset ?? 0;
+    let i = 0; // Child counter
+
+    // Ensure we have a resolved type
+    if (!ref.type)
+      throw new Error(
+        `Internal error: Creating ArgDef for unresolved TypeRef: ${JSON5.stringify(
+          ref
+        )}`
+      );
+
+    // Use the type reference to build the ArgDef
+    return new ArgDef<ArgType>(
+      ref.name ?? "unknown", // name
+      offset, // offset
+      ref.type.type, // type
+      options, // options
+      ref.dims, // dims
+      ref.optional, // optional
+      undefined, // intervals
+      ref.type.children.map((child) => ArgDef.fromTypeRef(child, options, i++)), // children
+      ref.typeRefName // type reference
+    );
+  } // fn: fromTypeRef()
+
+  /**
    * Gets default input intervals for a given type and option set.
    *
    * @param type The type of the argument
@@ -164,260 +197,6 @@ export class ArgDef<T extends ArgType> {
         throw new Error(`Unsupported type: ${type}`);
     }
   } // fn: getDefaultIntervals()
-
-  /**
-   * Constructs an ArgDef object from a function argument's AST node.
-   *
-   * @param node AST node of the function argument identifier.
-   * @param offset The offset of the argument in the function signature (0-based)
-   * @param options Default argument options
-   * @returns ArgDef object
-   *
-   * Throws an exception if the argument is missing a type annotation.
-   */
-  public static fromAstNode(
-    program: ProgramDef,
-    node: Identifier | TSPropertySignature | TSTypeAliasDeclaration,
-    offset: number,
-    options: ArgOptions
-  ): ArgDef<ArgType> {
-    let name: string;
-    let typeRef: string | undefined;
-
-    // Throw an error if type annotations are missing
-    if (node.typeAnnotation === undefined) {
-      throw new Error(
-        `Missing type annotation (already transpiled to JS?): ${JSON5.stringify(
-          node,
-          removeParents
-        )}`
-      );
-    }
-
-    // Determine the node name
-    switch (node.type) {
-      case AST_NODE_TYPES.TSPropertySignature: {
-        if (node.key.type === AST_NODE_TYPES.Identifier) {
-          name = node.key.name;
-        } else {
-          throw new Error(
-            `Unsupported property key type: ${JSON5.stringify(
-              node,
-              removeParents
-            )}`
-          );
-        }
-        break;
-      }
-      case AST_NODE_TYPES.Identifier: {
-        name = node.name;
-        break;
-      }
-      case AST_NODE_TYPES.TSTypeAliasDeclaration: {
-        name = node.id.name;
-        typeRef = node.id.name;
-        break;
-      }
-    }
-
-    // Determine whether the argument is optional (TSTypeAliasDeclarations don't have this)
-    const optional: boolean = "optional" in node && (node.optional ?? false);
-
-    // Get the node's type and dimensions
-    const [type, dims, typeRefNode] = ArgDef.getTypeFromNode(
-      program,
-      node.typeAnnotation,
-      options
-    );
-
-    // Create the argument definition
-    switch (type) {
-      case ArgTag.STRING:
-        return new ArgDef<string>(
-          program,
-          name,
-          offset,
-          type,
-          options,
-          dims,
-          optional
-        );
-      case ArgTag.BOOLEAN:
-        return new ArgDef<boolean>(
-          program,
-          name,
-          offset,
-          type,
-          options,
-          dims,
-          optional
-        );
-      case ArgTag.NUMBER:
-        return new ArgDef<number>(
-          program,
-          name,
-          offset,
-          type,
-          options,
-          dims,
-          optional
-        );
-      case ArgTag.OBJECT:
-        return new ArgDef<Record<string, unknown>>(
-          program,
-          name,
-          offset,
-          type,
-          options,
-          dims,
-          optional,
-          undefined,
-          ArgDef.getChildrenFromNode(program, node.typeAnnotation, options),
-          typeRef ?? typeRefNode
-        );
-    }
-  } // fn: fromAstNode()
-
-  /**
-   * Accepts a function argument's type annotation AST node and returns a tuple
-   * of the argument type and dimensions.
-   *
-   * @param node AST node of the function argument's type annotation.
-   * @param options Default argument options
-   * @returns A tuple containing the type and dimensions of the argument
-   *
-   * Throws an exception of the argument type is unsupported
-   */
-  public static getTypeFromNode(
-    // !!!! should be private!!
-    program: ProgramDef,
-    node: TSTypeAnnotation | TypeNode,
-    options: ArgOptions
-  ): [ArgTag, number, string?] {
-    switch (node.type) {
-      case AST_NODE_TYPES.TSAnyKeyword:
-        return [options.anyType, options.anyDims];
-      case AST_NODE_TYPES.TSStringKeyword:
-        return [ArgTag.STRING, 0];
-      case AST_NODE_TYPES.TSBooleanKeyword:
-        return [ArgTag.BOOLEAN, 0];
-      case AST_NODE_TYPES.TSNumberKeyword:
-        return [ArgTag.NUMBER, 0];
-      case AST_NODE_TYPES.TSTypeAnnotation:
-        return ArgDef.getTypeFromNode(program, node.typeAnnotation, options);
-      case AST_NODE_TYPES.TSTypeLiteral:
-        return [ArgTag.OBJECT, 0];
-      case AST_NODE_TYPES.TSArrayType: {
-        const [type, dims, typeName] = ArgDef.getTypeFromNode(
-          program,
-          node.elementType,
-          options
-        );
-        return [type, dims + 1, typeName];
-      }
-      case AST_NODE_TYPES.TSTypeReference: {
-        const typeAliases = program.getTypes();
-        const typeName = TypeDef.getIdentifierName(node.typeName);
-        if (typeName in typeAliases) {
-          return [...typeAliases[typeName].getType(), typeName];
-        } else {
-          throw new Error(
-            `Unable to find type reference '${typeName}' in program`
-          );
-        }
-      }
-      default:
-        throw new Error(
-          "Unsupported type annotation: " +
-            JSON5.stringify(node, removeParents, 2)
-        );
-    }
-  } // fn: getTypeFromNode()
-
-  /**
-   * Getts the children of an object using its argument node as input.
-   *
-   * @param node argument's type annotation AST node
-   * @param options Default argument options
-   * @returns array of ArgDef objects representing the argument's children
-   */
-  private static getChildrenFromNode(
-    program: ProgramDef,
-    node: TSTypeAnnotation | TypeNode,
-    options: ArgOptions
-  ): ArgDef<ArgType>[] {
-    switch (node.type) {
-      case AST_NODE_TYPES.TSAnyKeyword:
-      case AST_NODE_TYPES.TSStringKeyword:
-      case AST_NODE_TYPES.TSBooleanKeyword:
-      case AST_NODE_TYPES.TSNumberKeyword:
-        return [];
-      case AST_NODE_TYPES.TSArrayType:
-        return this.getChildrenFromNode(program, node.elementType, options);
-      case AST_NODE_TYPES.TSTypeReference:
-        throw new Error(
-          `Unresolved type reference found: ${JSON5.stringify(
-            node,
-            removeParents
-          )}`
-        );
-      case AST_NODE_TYPES.TSTypeLiteral: {
-        let i = 0;
-        return node.members.map((member) => {
-          if (member.type === AST_NODE_TYPES.TSPropertySignature)
-            return ArgDef.fromAstNode(program, member, i++, options);
-          else
-            throw new Error(
-              "Unsupported object property type annotation: " +
-                JSON5.stringify(member, removeParents, 2)
-            );
-        });
-      }
-      case AST_NODE_TYPES.TSTypeAnnotation: {
-        // Collapse array annotations -- we previously handled those
-        while (node.typeAnnotation.type === AST_NODE_TYPES.TSArrayType)
-          node.typeAnnotation = node.typeAnnotation.elementType;
-
-        switch (node.typeAnnotation.type) {
-          case AST_NODE_TYPES.TSTypeReference: {
-            const typeAliases = program.getTypes();
-            const typeName = TypeDef.getIdentifierName(
-              node.typeAnnotation.typeName
-            );
-            if (typeName in typeAliases) {
-              return typeAliases[typeName].getArgDef().getChildren();
-            } else {
-              throw new Error(
-                `Unable to find type reference '${typeName}' in program`
-              );
-            }
-          }
-          case AST_NODE_TYPES.TSTypeLiteral: {
-            let i = 0;
-            return node.typeAnnotation.members.map((member) => {
-              if (member.type === AST_NODE_TYPES.TSPropertySignature)
-                return ArgDef.fromAstNode(program, member, i++, options);
-              else
-                throw new Error(
-                  "Unsupported object property type annotation: " +
-                    JSON5.stringify(member, removeParents, 2)
-                );
-            });
-          }
-          default:
-            throw new Error(
-              "Unsupported object type annotation: " +
-                JSON5.stringify(node.typeAnnotation, removeParents, 2)
-            );
-        }
-      }
-      default:
-        throw new Error(
-          "Unsupported type annotation: " +
-            JSON5.stringify(node, removeParents, 2)
-        );
-    }
-  } // fn: getChildrenFromNode()
 
   /**
    * Sets the argument interval to be a constant value.
@@ -586,7 +365,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(newOptions))
       throw new Error(
-        `Invalid options provided.  Check intervals and length values: ${JSON5.stringify(
+        `Invalid options provided. Check intervals and length values: ${JSON5.stringify(
           newOptions,
           null,
           2
@@ -618,15 +397,6 @@ export class ArgDef<T extends ArgType> {
     }
     return ret;
   } // fn: getChildrenFlat()
-
-  /**
-   * Returns the program containing the argument.
-   *
-   * @returns the program containing the argument
-   */
-  public getProgram(): ProgramDef {
-    return this.program;
-  } // fn: getProgram()
 
   /**
    * Returns the default option set for signed integer values.
@@ -709,51 +479,6 @@ export class ArgDef<T extends ArgType> {
 } // class: ArgDef
 
 /**
- * The set of options for an argument.  This option set is used to "fill in" information
- * that is not provided by analyzing the function.  For instance, a function signature
- * may indicate an argument is numeric, but not whether it is a float or an integer.
- */
-export type ArgOptions = {
-  // For type string
-  strCharset: string; // string representing the characters allowed in the input
-  strLength: Interval<number>; // length of characters allowed in the input
-
-  // For type number
-  numInteger: boolean; // true if the numeric argument input is an integer
-  numSigned: boolean; // true if the numeric argument input is signed
-
-  // For type any
-  anyType: ArgTag; // the type to interpret for 'any' types
-  anyDims: number; // the dimensions to interpret for 'any' types
-
-  // For args with dimensions (when ArgDef.getDims() > 0)
-  dimLength: Interval<number>[]; // Fine-grained length of each dimension.  For example,
-  // for number[][]: dimLength[0] = length of 1st dimension
-  // and dimLength[1] = length of 2nd dimension.
-  dftDimLength: Interval<number>; // Length of any dimension not specified in dimLength.
-};
-
-/**
- * A set of option overrides for a set of arguments.
- */
-export type ArgOptionOverrides = {
-  [k: string]: ArgOptionOverride;
-};
-
-/**
- * Argument option overrides
- */
-export type ArgOptionOverride = {
-  numInteger?: boolean;
-  numSigned?: boolean;
-  numIntervals?: Interval<number>[];
-  dimLength?: Interval<number>[];
-  strLength?: Interval<number>;
-  strCharset?: string;
-  children?: ArgOptionOverrides;
-};
-
-/**
  * Default length of array dimensions
  */
 const DFT_DIMENSION_LENGTH: Interval<number> = { min: 0, max: 10 };
@@ -764,23 +489,3 @@ const DFT_DIMENSION_LENGTH: Interval<number> = { min: 0, max: 10 };
 const DFT_STR_CHARSET =
   " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 const DFT_STR_LENGTH: Interval<number> = { min: 0, max: 10 };
-
-/**
- * Indicates the primitive type of an argument
- */
-export enum ArgTag {
-  NUMBER = "number",
-  STRING = "string",
-  BOOLEAN = "boolean",
-  OBJECT = "object",
-}
-export type ArgType = number | string | boolean | Record<string, unknown>;
-
-/**
- * Represents a single closed interval of values for an argument.
- * TODO: Add support for open intervals
- */
-export type Interval<T> = {
-  min: T;
-  max: T;
-};

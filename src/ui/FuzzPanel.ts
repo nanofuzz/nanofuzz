@@ -58,7 +58,7 @@ export class FuzzPanel {
       // Otherwise, create a new panel.
       const panel = vscode.window.createWebviewPanel(
         FuzzPanel.viewType, // FuzzPanel view type
-        `AutoTest: ${env.function.name}()`, // webview title
+        `AutoTest: ${env.function.getName()}()`, // webview title
         vscode.ViewColumn.Beside, // open beside the editor
         FuzzPanel.getWebviewOptions(extensionUri) // options
       );
@@ -95,8 +95,7 @@ export class FuzzPanel {
         const env = fuzzer.setup(
           state.options,
           state.fnRef.module,
-          state.fnRef.name,
-          state.fnRef.startOffset
+          state.fnRef.name
         );
         // Create the new FuzzPanel
         fuzzPanel = new FuzzPanel(panel, extensionUri, env);
@@ -209,7 +208,7 @@ export class FuzzPanel {
   private getState(): FuzzPanelStateSerialized {
     return {
       tag: fuzzPanelStateVer,
-      fnRef: this._fuzzEnv.function,
+      fnRef: this._fuzzEnv.function.getRef(),
       options: this._fuzzEnv.options,
     };
   } // fn: getState()
@@ -272,6 +271,16 @@ export class FuzzPanel {
   private _doTestPinnedCmd(json: string, pin: boolean) {
     const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
       this._getPinnedTests();
+
+    vscode.commands.executeCommand(
+      telemetry.commands.logTelemetry.name,
+      new telemetry.LoggerEntry(
+        "FuzzPanel._doTestPinnedCmd",
+        "Saving or unsaving: %s. Test case: %s.",
+        [pin ? "saving" : "unsaving", json]
+      )
+    );
+
     // Update set of saved tests
     const changed = this._updatePinnedSet(json, pinnedSet, pin); // Did we change anything?
 
@@ -283,7 +292,9 @@ export class FuzzPanel {
       const testCount = this._putPinnedTests(pinnedSet);
 
       // Get the filename of the Jest file
-      const jestFile = jestadapter.getFilename(this._fuzzEnv.function.module);
+      const jestFile = jestadapter.getFilename(
+        this._fuzzEnv.function.getModule()
+      );
 
       if (testCount) {
         // Generate the Jest test data for CI
@@ -291,7 +302,7 @@ export class FuzzPanel {
         // icon does not count)
         const jestTests = jestadapter.toString(
           this._getAllPinnedTests(),
-          this._fuzzEnv.function.module,
+          this._fuzzEnv.function.getModule(),
           this._fuzzEnv.options.fnTimeout
         );
 
@@ -322,7 +333,7 @@ export class FuzzPanel {
    * @returns filename of pinned tests
    */
   private _getPinnedTestFilename(): string {
-    let module = this._fuzzEnv.function.module;
+    let module = this._fuzzEnv.function.getModule();
     module = module.split(".").slice(0, -1).join(".") || module;
     return module + ".nano.test.json";
   } // fn: _getPinnedTestFilename()
@@ -352,7 +363,7 @@ export class FuzzPanel {
    */
   private _getPinnedTests(): Record<string, fuzzer.FuzzPinnedTest> {
     const pinnedSet = this._getAllPinnedTests();
-    const fnName = this._fuzzEnv.function.name; // Name of the function being tested
+    const fnName = this._fuzzEnv.function.getName(); // Name of the function being tested
 
     // Return the pinned tests for the function, if any
     return fnName in pinnedSet ? pinnedSet[fnName] : {};
@@ -371,7 +382,7 @@ export class FuzzPanel {
     const fullSet = this._getAllPinnedTests();
 
     // Update the function in the dataset
-    fullSet[this._fuzzEnv.function.name] = pinnedSet;
+    fullSet[this._fuzzEnv.function.getName()] = pinnedSet;
 
     // Count the number of tests
     let testCount = 0;
@@ -441,18 +452,18 @@ export class FuzzPanel {
    */
   private _doCustomValidatorCmd() {
     const env = this._fuzzEnv; // Fuzzer environment
-    const fnRef = env.function; // Reference to function under test
+    const fn = env.function; // Function under test
 
     const skeleton = [];
     skeleton.push(``);
     skeleton.push(``);
     skeleton.push(
-      `export function ${fnRef.name}Validator(result: FuzzTestResult): FuzzTestResult {`
+      `export function ${fn.getName()}Validator(result: FuzzTestResult): FuzzTestResult {`
     );
     skeleton.push(`  return result;`);
     skeleton.push(`}`);
 
-    const module = this._fuzzEnv.function.module;
+    const module = this._fuzzEnv.function.getModule();
     try {
       const fd = fs.openSync(module, "as+");
       fs.writeFileSync(fd, skeleton.join(os.EOL));
@@ -493,15 +504,7 @@ export class FuzzPanel {
       fuzzer: Record<string, any>; // !!! Improve typing
       args: Record<string, any>; // !!! Improve typing
     } = JSON5.parse(json);
-    const module = this._fuzzEnv.function.module;
-    const program = ProgramDef.fromModule(module); // !!! missing options!
-    // !!!! Why not just query the program for the function?
-    const fn = fuzzer.FunctionDef.find(
-      program,
-      this._fuzzEnv.function.name,
-      this._fuzzEnv.function.startOffset,
-      this._fuzzEnv.options.argDefaults
-    )[0];
+    const fn = this._fuzzEnv.function;
     const argsFlat = fn.getArgDefsFlat();
 
     // Apply numeric fuzzer option changes
@@ -517,7 +520,7 @@ export class FuzzPanel {
     // Apply argument option changes
     for (const i in panelInput.args) {
       const thisOverride = panelInput.args[i];
-      const thisArg: fuzzer.ArgDef<fuzzer.ArgType> = argsFlat[i];
+      const thisArg = argsFlat[i];
       if (Number(i) + 1 > argsFlat.length)
         throw new Error(
           `FuzzPanel input has ${panelInput.args.length} but the function has ${argsFlat.length}`
@@ -592,11 +595,6 @@ export class FuzzPanel {
         });
       }
     } // for: each argument
-
-    // Get the validator functions for this module
-    this._fuzzEnv.validators = Object.values(program.getFunctions())
-      .filter((fn) => fn.isValidator())
-      .map((fn) => fn.getRef());
 
     // Update the UI
     this._results = undefined;
@@ -717,18 +715,7 @@ export class FuzzPanel {
       "FuzzPanelMain.css",
     ]); // URI to client-side panel script
     const env = this._fuzzEnv; // Fuzzer environment
-    const fnRef = env.function; // Reference to function under test
-    const program = ProgramDef.fromModule(
-      fnRef.module,
-      env.options.argDefaults
-    );
-    // Should we just get this from the program? !!!!
-    const fn = fuzzer.FunctionDef.find(
-      program,
-      this._fuzzEnv.function.name,
-      this._fuzzEnv.function.startOffset,
-      this._fuzzEnv.options.argDefaults
-    )[0];
+    const fn = env.function; // Function under test
     const counter = { id: 0 }; // Unique counter for argument ids
     let argDefHtml = ""; // HTML representing argument definitions
 
@@ -770,7 +757,7 @@ export class FuzzPanel {
         </head>
         <body>
           <h2 style="margin-bottom:.5em;margin-top:.1em;">AutoTest ${htmlEscape(
-            fnRef.name
+            fn.getName()
           )}() w/inputs:</h2>
 
           <!-- Function Arguments -->
@@ -978,10 +965,16 @@ export class FuzzPanel {
     const disabledFlag =
       this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
-    const typeString =
-      arg.getTypeRef() ??
-      (argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase()); // Text indicating arg type
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
+
+    let typeString: string; // Text indicating the type of argument
+    const argTypeRef = arg.getTypeRef();
+    if (argTypeRef !== undefined) {
+      typeString = argTypeRef.substring(argTypeRef.lastIndexOf(".") + 1);
+    } else {
+      typeString =
+        argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase();
+    }
 
     // prettier-ignore
     let html = /*html*/ `
@@ -1178,6 +1171,14 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
     return; // If there is no active editor, return.
   }
 
+  // Ensure we have a function name
+  if (!fnName) {
+    vscode.window.showErrorMessage(
+      "Please use the AutoTest button to test a function."
+    );
+    return;
+  }
+
   // Ensure the document is saved / not dirty
   if (document.isDirty) {
     vscode.window.showErrorMessage("Please save the file before autotesting.");
@@ -1187,16 +1188,11 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   // Get the current active editor filename
   const srcFile = document.uri.path; //full path of the file which the function is in.
 
-  // Get the current cursor offset
-  const pos = match
-    ? match.ref.startOffset
-    : document.offsetAt(editor.selection.active);
-
   // Call the fuzzer to analyze the function
   const fuzzOptions = fuzzer.getDefaultFuzzOptions();
   let fuzzSetup: fuzzer.FuzzEnv;
   try {
-    fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName, pos);
+    fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
   } catch (e: any) {
     vscode.window.showErrorMessage(
       `Could not find or does not support this function. Messge: "${e.message}"`
@@ -1224,13 +1220,12 @@ export function provideCodeLenses(
   token: vscode.CancellationToken
 ): vscode.CodeLens[] {
   // Use the TypeScript analyzer to find all fn declarations in the module
-  // !!!! Why don't we just query the program instead?
   const matches: FunctionMatch[] = [];
-  const program = ProgramDef.fromModule(document.fileName);
   try {
-    const functions = fuzzer.FunctionDef.find(program).filter(
-      (e) => e.isExported() // only exported functions
+    const program = ProgramDef.fromModuleAndSource(document.fileName, () =>
+      document.getText()
     );
+    const functions = Object.values(program.getExportedFunctions());
 
     for (const fn of functions) {
       matches.push({
