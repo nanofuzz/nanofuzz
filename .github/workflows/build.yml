@@ -24,8 +24,6 @@ jobs:
       - name: Install packages
         run: yarn
       - name: Check for matching version numbers
-        run: yarn checkver
-      - name: Run package pre-build
-        run: yarn prebuild
+        run: yarn run checkver
       - name: Build npm package
         run: yarn build
