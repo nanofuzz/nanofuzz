@@ -4,6 +4,11 @@
   "publisher": "penrose",
   "version": "0.1.15",
   "description": "Runtime support and types for NaNofuzz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nanofuzz/nanofuzz.git",
+    "directory": "packages/runtime"
+  },
   "main": "build/cjs/index.js",
   "module": "build/esm/index.js",
   "types": "build/cjs/index.d.ts",
