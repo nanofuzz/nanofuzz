@@ -1,0 +1,9 @@
+# Build artifacts
+build/
+
+# License file is included in the build
+LICENSE
+
+# Pre-build artifacts
+src/fuzzer/Types.ts
+src/build.json

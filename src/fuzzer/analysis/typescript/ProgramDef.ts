@@ -746,9 +746,37 @@ export class ProgramDef {
     for (const ext of extensions) {
       try {
         if (importModule.startsWith(".")) {
-          return path.resolve(path.dirname(this._module), importModule + ext);
+          // Resolve the module relative to the current module
+          const resolved = path.resolve(
+            path.dirname(this._module),
+            importModule + ext
+          );
+
+          // Only return if we find the module (if not, retry)
+          if (fs.existsSync(resolved)) {
+            return resolved;
+          }
         } else {
-          return require.resolve(importModule + ext);
+          // Resolve the module using node.
+          //
+          // TODO: There can be a difference, for instance in a monorepo,
+          //       between how node resolves an npm module and how VS Code
+          //       resolves it due to its cwd. We should probably use the
+          //       same approach as the VS Code resolver here.
+          const resolved = require.resolve(importModule + ext);
+          const extension = path.extname(resolved);
+
+          // If node resolves a Javascript file, look for a type defintion file
+          if (extension !== ".js") {
+            return resolved;
+          } else {
+            const typeDefFile = resolved.slice(0, -3) + ".d.ts";
+            if (fs.existsSync(typeDefFile)) {
+              return typeDefFile;
+            } else {
+              return resolved;
+            }
+          }
         }
       } catch (e) {
         // Just eat the exception for now & retry
@@ -757,9 +785,9 @@ export class ProgramDef {
 
     // Throw an exception if we did not resolve the import
     throw new Error(
-      `Unable to resolve import: '${
+      `Unable to resolve import from: '${
         this._module
-      }' cannot find '${importModule}'. Tried extensions: ${JSON.stringify(
+      }': cannot resolve '${importModule}'. Also tried extensions: ${JSON.stringify(
         extensions
       )}.`
     );
@@ -789,7 +817,9 @@ export class ProgramDef {
       module: this._module,
       dims: 0, // override later if needed
       optional: false, // override later if needed
-      isExported: node.parent?.type === AST_NODE_TYPES.ExportNamedDeclaration,
+      isExported:
+        node.parent?.type === AST_NODE_TYPES.ExportNamedDeclaration ||
+        node.parent?.type === AST_NODE_TYPES.TSModuleBlock,
     };
 
     // Determine the node name
