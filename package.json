@@ -202,7 +202,7 @@
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
     "@vscode/codicons": "^0.0.32",
-    "@vscode/webview-ui-toolkit": "^1.0.0",
+    "@vscode/webview-ui-toolkit": "^1.2.2",
     "eslint": "^7.3.2",
     "immutable": "^4.1.0",
     "json5": "^2.2.3",
