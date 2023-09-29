@@ -8,6 +8,7 @@ jobs:
   buildandtest:
     runs-on: ubuntu-latest
     steps:
+      # Visual Studio Code Extension
       - name: Checkout
         uses: actions/checkout@v2
       - name: Install packages
@@ -16,3 +17,14 @@ jobs:
         run: yarn build
       - name: Run all tests
         run: yarn test
+
+      # npm runtime package
+      - name: Install packages
+        working-directory: packages/runtime
+        run: yarn
+      - name: Check for matching version numbers
+        working-directory: packages/runtime
+        run: yarn run checkver
+      - name: Build npm package
+        working-directory: packages/runtime
+        run: yarn build
