@@ -250,11 +250,17 @@ export class FuzzPanel {
           case "columnSortOrders":
             this._saveColumnSortOrders(json);
             break;
-          case "customValidator":
-            this._doCustomValidatorCmd();
+          case "validator.add":
+            this._doAddValidatorCmd();
+            this._doGetValidators();
             break;
-          case "toggleValidator":
-            this._doToggleValidator(json);
+          case "validator.set":
+            this._doSetValidator(json);
+            this._doGetValidators();
+            break;
+          case "validator.getList":
+            this._doGetValidators();
+            break;
         }
       },
       undefined,
@@ -452,7 +458,7 @@ export class FuzzPanel {
   /**
    * Add code skeleton for a custom validator to the program source code.
    */
-  private _doCustomValidatorCmd() {
+  private _doAddValidatorCmd() {
     const env = this._fuzzEnv; // Fuzzer environment
     const fn = env.function; // Function under test
 
@@ -482,9 +488,52 @@ export class FuzzPanel {
    *
    * @param json name of validator function
    */
-  private _doToggleValidator(json: string) {
+  private _doSetValidator(json: string) {
     const validatorName = JSON5.parse(json);
     this._fuzzEnv.validator = validatorName === "" ? undefined : validatorName;
+  }
+
+  // !!!!
+  private _doGetValidators() {
+    const program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
+
+    const oldValidatorNames = JSON5.stringify(
+      this._fuzzEnv.validators.map((e) => e.name)
+    );
+    const newValidators = fuzzer.getValidators(program);
+    const newValidatorNames = JSON5.stringify(newValidators.map((e) => e.name));
+
+    console.debug(
+      `oldValidators: ${oldValidatorNames}; newValidators: ${newValidatorNames}`
+    ); // !!!!
+
+    // Only send the message if there has been a change
+    if (oldValidatorNames !== newValidatorNames) {
+      // Update the Fuzzer Environment
+      this._fuzzEnv.validators = fuzzer.getValidators(program);
+      if (
+        this._fuzzEnv.validator &&
+        !this._fuzzEnv.validators.some(
+          (e) => e.name === this._fuzzEnv.validator
+        )
+      ) {
+        // If no validator is selected, or the selected validator is not
+        // in the list of validators, clear the selected validator
+        delete this._fuzzEnv.validator;
+      }
+
+      // Notify the front-end about the change
+      console.debug(`Sending update: there is a change`); // !!!!
+      this._panel.webview.postMessage({
+        command: "validator.list",
+        json: JSON5.stringify({
+          validator: this._fuzzEnv.validator,
+          validators: newValidators.map((e) => e.name),
+        }),
+      });
+    } else {
+      console.debug(`Not sending update: no change`); // !!!!
+    }
   }
 
   /**
@@ -769,32 +818,32 @@ export class FuzzPanel {
     html += /*html*/ `
           <!-- Button Bar for Validator -->
           <div style="padding-top: .25em;">
-              <vscode-radio-group id="validatorFunctions">
-                <label slot="label">Validator:</label>
-                  <vscode-radio id="validator-none" name="none" 
-                  ${this._fuzzEnv.validator ? "" : "checked" } >Implicit oracle</vscode-radio>`;
-
+            <vscode-radio-group id="validatorFunctions">
+              <label slot="label">
+                Validator Functions:
+              </label>`;
+    /*
     // Render the HTML for each validator
-    if (this._fuzzEnv.validators) {
-      for (let i = 0; i < this._fuzzEnv.validators.length; ++i) {
-        const name = this._fuzzEnv.validators[i].name;
-        const idName = `validator--${name}`;
-        html += /*html*/ `
-                  <vscode-radio id=${idName} name=${name} 
-                  ${this._fuzzEnv.validator === name ? "checked" : ""}
-                  > ${name}()</vscode-radio>`;
-      }
+    for (let i = 0; i < this._fuzzEnv.validators.length; ++i) {
+      const name = this._fuzzEnv.validators[i].name;
+      const idName = `validator--${name}`;
+      html += /*html*/ /*`
+              <vscode-radio id=${idName} name=${name} 
+                ${this._fuzzEnv.validator === name ? "checked" : ""}
+                > ${name}()</vscode-radio>`;
     }
+*/
     // prettier-ignore
     html += /*html*/ `
-              <vscode-radio-group>
-              </div>
-              <div style="padding-bottom: .25em;">
-                <vscode-button ${disabledFlag} id="customValidator"  appearance="secondary">
-                  ${this._state === FuzzPanelState.busy ? "+ Custom" : "+ Custom"}
-                </vscode-button>
-              </div>
-              <vscode-divider></vscode-divider>
+              <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
+                <span class="codicon codicon-add"></span>
+              </vscode-button>
+              <vscode-button $disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
+                <span class="codicon codicon-refresh"></span>
+              </vscode-button>
+            </vscode-radio-group>
+          </div>
+          <vscode-divider></vscode-divider>
 
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" style="display:none">
@@ -817,8 +866,12 @@ export class FuzzPanel {
 
           <!-- Button Bar -->
           <div style="padding-top: .25em;">
-            <vscode-button ${disabledFlag} id="fuzz.start"  appearance="primary">${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}</vscode-button>
-            <vscode-button ${disabledFlag} id="fuzz.options" appearance="secondary">More options</vscode-button>
+            <vscode-button ${disabledFlag} id="fuzz.start">
+              ${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}
+            </vscode-button>
+            <vscode-button ${disabledFlag} id="fuzz.options" appearance="secondary">
+              More options
+            </vscode-button>
           </div>
 
           <!-- Fuzzer Errors -->
@@ -887,8 +940,6 @@ export class FuzzPanel {
               </vscode-panel-tab>`;
       }
     });
-    // <span class="codicon codicon-hubot"></span>
-    // <span class="codicon codicon-feedback"></span>
 
     tabs.forEach((e) => {
       if (resultSummary[e.id] > 0)
@@ -930,11 +981,12 @@ export class FuzzPanel {
           
           <!-- Validator Functions: for the client script to process -->
           <div id="validators" style="display:none">
-            ${
-              this._fuzzEnv.validators === undefined
-                ? "[]"
-                : htmlEscape(JSON5.stringify(this._fuzzEnv.validators))
-            }
+            ${htmlEscape(
+              JSON5.stringify({
+                validator: this._fuzzEnv.validator,
+                validators: this._fuzzEnv.validators.map((e) => e.name),
+              })
+            )}
           </div>
 
           <!-- Fuzzer State Payload: for the client script to persist -->

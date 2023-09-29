@@ -89,29 +89,23 @@ function main() {
     .getElementById("fuzz.options")
     .addEventListener("click", (e) => toggleFuzzOptions(e));
 
-  // Add event listener for the customValidator button
-  document
-    .getElementById("customValidator")
-    .addEventListener("click", (e) => handleCustomValidator(e));
-
-  // Load the data from the HTML
+  // Load the fuzzer results data from the HTML
   resultsData = JSON5.parse(
     htmlUnescape(document.getElementById("fuzzResultsData").innerHTML)
   );
 
-  // Load validator functions from the HTML
-  validators = JSON5.parse(
-    htmlUnescape(document.getElementById("validators").innerHTML)
-  );
-  // Add event listeners for the validator radio buttons
-  validators.forEach((val) => {
-    document
-      .getElementById(`validator--${val.name}`)
-      .addEventListener("click", (e) => handleToggleValidator(e));
-  });
+  // Add event listener for the validator buttons
   document
-    .getElementById(`validator-${implicitOracleValidatorName}`)
-    .addEventListener("click", (e) => handleToggleValidator(e));
+    .getElementById("validator.add")
+    .addEventListener("click", (e) => handleAddValidator(e));
+  document
+    .getElementById(`validator.getList`)
+    .addEventListener("click", (e) => handleGetListOfValidators(e));
+
+  // Load & display the validator functions from the HTML
+  refreshValidators(
+    JSON5.parse(htmlUnescape(document.getElementById("validators").innerHTML))
+  );
 
   // Load column sort orders from the HTML
   let message = JSON5.parse(
@@ -122,6 +116,19 @@ function main() {
   } else {
     columnSortOrders = JSON.parse(JSON.stringify(message));
   }
+
+  // Listen for messages from the extension
+  window.addEventListener("message", (event) => {
+    const { command, json } = event.data;
+    console.debug(
+      "Message received: " + JSON5.stringify(command) + ": " + json
+    );
+    switch (command) {
+      case "validator.list":
+        refreshValidators(JSON5.parse(json));
+        break;
+    }
+  });
 
   // Load and save the state back to the webview.  There does not seem to be
   // an 'official' way to directly persist state within the extension itself,
@@ -1140,15 +1147,77 @@ function handleFuzzStart(e) {
   });
 } // fn: handleFuzzStart
 
+// !!!!
+function refreshValidators(validatorList) {
+  // If no default validator is selected or the selected validator does not
+  // exist, then select the implicit validator
+  if (
+    "validator" in validatorList &&
+    validatorList.validator !== undefined &&
+    validatorList.validators.some((e) => e === validatorList.validator)
+  ) {
+    // noop; we have a valid validator
+  } else {
+    validatorList.validator = implicitOracleValidatorName;
+  }
+
+  // Clear the current list of validator radio buttons
+  const validatorFnGrp = document.getElementById("validatorFunctions");
+  const deleteList = [];
+  for (const child of validatorFnGrp.children) {
+    console.log(`${child.tagName}: ${child.getAttribute("id")}`);
+    if (child.tagName === "VSCODE-RADIO") {
+      deleteList.push(child);
+    }
+  }
+  deleteList.forEach((e) => validatorFnGrp.removeChild(e));
+
+  // Add buttons w/event listeners for each validator
+  [implicitOracleValidatorName, ...validatorList.validators]
+    .reverse() // because of pre-pending before add and refresh buttons
+    .forEach((name) => {
+      // The implicit oracle has a special display name
+      const displayName =
+        name === implicitOracleValidatorName ? "Implicit oracle" : `${name}()`;
+
+      // Create the radio button
+      const radio = document.createElement("vscode-radio");
+      radio.setAttribute("id", `validator-${name}`);
+      radio.setAttribute("name", name);
+      radio.setAttribute("value", name);
+      radio.innerHTML = displayName;
+      if (name === validatorList.validator) {
+        radio.setAttribute("checked", "true");
+        console.log(
+          `Setting ${name} to checked: it matches ${validatorList.validator}}`
+        );
+      } else {
+        console.log(
+          `Setting ${name} to UNchecked: it DOES NOT match ${validatorList.validator}}`
+        );
+      }
+
+      // Add the radio button to the radio group
+      validatorFnGrp.prepend(radio);
+
+      // Add the onClick event handler
+      radio.addEventListener("click", (e) => handleSetValidator(e));
+    });
+
+  // Set the radio group's value b/c this is necessary to maintain
+  // consistent button state when a selected radio is deleted
+  validatorFnGrp.setAttribute("value", validatorList.validator);
+} // fn: refreshValidators
+
 /**
  * Send message to back-end to add code skeleton to source code (because the
  * user clicked the customValidator button)
  *
  * @param e on-click event
  */
-function handleCustomValidator(e) {
+function handleAddValidator(e) {
   vscode.postMessage({
-    command: "customValidator",
+    command: "validator.add",
     json: JSON5.stringify(""),
   });
 }
@@ -1159,14 +1228,26 @@ function handleCustomValidator(e) {
  *
  * @param e on-click event
  */
-function handleToggleValidator(e) {
+function handleSetValidator(e) {
   const validatorName = e.currentTarget.getAttribute("name");
 
   vscode.postMessage({
-    command: "toggleValidator",
+    command: "validator.set",
     json: JSON5.stringify(
       validatorName === implicitOracleValidatorName ? "" : validatorName
     ),
+  });
+}
+
+/**
+ * Send message to back-end to refresh the validators
+ *
+ * @param e on-click event
+ */
+function handleGetListOfValidators(e) {
+  vscode.postMessage({
+    command: "validator.getList",
+    json: "{}",
   });
 }
 

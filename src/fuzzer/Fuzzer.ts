@@ -12,13 +12,6 @@ import { FunctionDef } from "./analysis/typescript/FunctionDef";
 import { FuzzIoElement, FuzzPinnedTest, FuzzTestResult } from "./Types";
 
 /**
- * WARNING: To embed this module into a VS Code web extension, at a minimu,
- * the following issues need to be resolved:
- *  1. Module `fs` requires direct fs access)
- *  2. Module `Compiler` uses `fs` and shells out to `tsc`
- */
-
-/**
  * Builds and returns the environment required by fuzz().
  *
  * @param options fuzzer option set
@@ -35,9 +28,6 @@ export const setup = (
   module = require.resolve(module);
   const program = ProgramDef.fromModule(module, options.argDefaults);
   const fnList = program.getExportedFunctions();
-  const validators = Object.values(program.getExportedFunctions())
-    .filter((fn) => fn.isValidator())
-    .map((fn) => fn.getRef());
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
@@ -53,7 +43,7 @@ export const setup = (
     options: { ...options },
     function: fnList[fnName],
     //validator: "implicitOracle", !!!! We need to load the validator from the file
-    validators: validators,
+    validators: getValidators(program),
   };
 }; // fn: setup()
 
@@ -352,6 +342,13 @@ export default function functionTimeout(function_: any, timeout: number): any {
 export function isTimeoutError(error: { code?: string }): boolean {
   return "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
 } // fn: isTimeoutError()
+
+// !!!!
+export function getValidators(program: ProgramDef): FunctionRef[] {
+  return Object.values(program.getExportedFunctions())
+    .filter((fn) => fn.isValidator())
+    .map((fn) => fn.getRef());
+}
 
 /**
  *
