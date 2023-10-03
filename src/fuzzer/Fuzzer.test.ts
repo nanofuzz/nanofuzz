@@ -1,17 +1,13 @@
-import {
-  ArgDef,
-  setup,
-  fuzz,
-  FuzzOptions,
-  getDefaultFuzzOptions,
-  implicitOracle,
-} from "./Fuzzer";
+import { ArgDef, setup, fuzz, FuzzOptions, implicitOracle } from "./Fuzzer";
 
 /**
  * Fuzzer option for integer arguments and a seed for deterministic test execution.
  */
 const intOptions: FuzzOptions = {
-  ...getDefaultFuzzOptions(),
+  argDefaults: ArgDef.getDefaultOptions(),
+  maxTests: 1000,
+  fnTimeout: 100,
+  suiteTimeout: 3000,
   seed: "qwertyuiop",
 };
 

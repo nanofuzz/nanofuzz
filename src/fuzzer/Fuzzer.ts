@@ -1,5 +1,4 @@
 import * as fs from "fs";
-import * as vscode from "vscode";
 import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
@@ -255,26 +254,6 @@ export const fuzz = async (
 const isOptionValid = (options: FuzzOptions): boolean => {
   return !(options.maxTests < 0 || !ArgDef.isOptionValid(options.argDefaults));
 }; // fn: isOptionValid()
-
-/**
- * Returns a default set of fuzzer options.
- *
- * @returns default set of fuzzer options
- */
-export const getDefaultFuzzOptions = (): FuzzOptions => {
-  return {
-    argDefaults: ArgDef.getDefaultOptions(),
-    maxTests: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("maxTests", 1000),
-    fnTimeout: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("fnTimeout", 100),
-    suiteTimeout: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("suiteTimeout", 3000),
-  };
-}; // fn: getDefaultFuzzOptions()
 
 /**
  * The implicit oracle returns true only if the value contains no nulls, undefineds, NaNs,

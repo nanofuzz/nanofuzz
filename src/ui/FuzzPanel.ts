@@ -1245,7 +1245,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   const srcFile = document.uri.path; //full path of the file which the function is in.
 
   // Call the fuzzer to analyze the function
-  const fuzzOptions = fuzzer.getDefaultFuzzOptions();
+  const fuzzOptions = getDefaultFuzzOptions();
   let fuzzSetup: fuzzer.FuzzEnv;
   try {
     fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
@@ -1311,6 +1311,26 @@ export function provideCodeLenses(
       )
   );
 } // fn: provideCodeLenses()
+
+/**
+ * Returns a default set of fuzzer options.
+ *
+ * @returns default set of fuzzer options
+ */
+export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
+  return {
+    argDefaults: fuzzer.ArgDef.getDefaultOptions(),
+    maxTests: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("maxTests", 1000),
+    fnTimeout: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("fnTimeout", 100),
+    suiteTimeout: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("suiteTimeout", 3000),
+  };
+}; // fn: getDefaultFuzzOptions()
 
 /**
  * Initializes the module
