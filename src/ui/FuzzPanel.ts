@@ -727,13 +727,11 @@ export class FuzzPanel {
     const disabledFlag =
       this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const resultSummary = {
-      passedImplicit: 0,
-      failedImplicit: 0,
       timeout: 0,
       exception: 0,
-      badOutput: 0,
-      passedExplicit: 0,
-      failedExplicit: 0,
+      badValue: 0,
+      ok: 0,
+      disagree: 0,
     }; // Summary of fuzzing results
     const toolkitUri = getUri(webview, extensionUri, [
       "node_modules",
@@ -772,18 +770,9 @@ export class FuzzPanel {
 
     // If fuzzer results are available, calculate how many tests passed, failed, etc.
     if (this._state === FuzzPanelState.done && this._results !== undefined) {
-      for (const result of this._results.results) {
-        if (result.passedImplicit) resultSummary.passedImplicit++;
-        else {
-          resultSummary.failedImplicit++;
-          if (result.exception) resultSummary.exception++;
-          else if (result.timeout) resultSummary.timeout++;
-          else resultSummary.badOutput++;
-        }
-        if (result.passedExplicit === true) ++resultSummary.passedExplicit;
-        else if (result.passedExplicit === false)
-          ++resultSummary.failedExplicit;
-      }
+      this._results.results.forEach((result) => {
+        resultSummary[result.category]++;
+      });
     } // if: results are available
 
     // Render the HTML for each argument
@@ -817,22 +806,13 @@ export class FuzzPanel {
     // prettier-ignore
     html += /*html*/ `
           <!-- Button Bar for Validator -->
-          <div style="padding-top: .25em;">
+          <vscode-divider></vscode-divider>
+          <div>
             <vscode-radio-group id="validatorFunctions">
-              <label slot="label">
-                Validator Functions:
+              <label slot="label" style="font-size: 1.25em;">
+                Choose an Output Validator: <span class="codicon codicon-hubot"></span>
               </label>`;
-    /*
-    // Render the HTML for each validator
-    for (let i = 0; i < this._fuzzEnv.validators.length; ++i) {
-      const name = this._fuzzEnv.validators[i].name;
-      const idName = `validator--${name}`;
-      html += /*html*/ /*`
-              <vscode-radio id=${idName} name=${name} 
-                ${this._fuzzEnv.validator === name ? "checked" : ""}
-                > ${name}()</vscode-radio>`;
-    }
-*/
+
     // prettier-ignore
     html += /*html*/ `
               <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
@@ -847,7 +827,6 @@ export class FuzzPanel {
 
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" style="display:none">
-            <vscode-divider></vscode-divider>
             <p>These settings control how long testing runs. Testing stops when either limit is reached.  Pinned tests count against the maximum runtime but do not count against the maximum number of tests.</p>
             <vscode-text-field ${disabledFlag} id="fuzz-suiteTimeout" name="fuzz-suiteTimeout" value="${this._fuzzEnv.options.suiteTimeout}">
               Max runtime (ms)
@@ -894,39 +873,31 @@ export class FuzzPanel {
 
     // If we have results, render the output tabs to display the results.
     const tabs = [
+      // !!!! Update & revisit these descriptions
       {
-        id: "failedExplicit",
-        name: "Failed",
-        oracleDesc: "(Labeled by human oracle)",
-        description: `These do not match the expected outputs from the correctness icons:`,
+        id: "disagree",
+        name: "Disagreements",
+        description: `For these inputs, the validator function (<span class="codicon codicon-hubot"></span>) and the human validation (<span class="codicon codicon-person"></span>) disagree about correctness. Either correct the validation function or the human annotation.`,
       },
       {
         id: "timeout",
         name: "Timeouts",
-        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms:`,
+        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator or human annotation marked them as correct:`,
       },
       {
         id: "exception",
         name: "Exceptions",
-        description: `These inputs resulted in a runtime exception:`,
+        description: `These inputs resulted in a runtime exception, and no validator or human annotation marked them as correct:`,
       },
       {
-        id: "badOutput",
-        name: "Likely Failed",
-        oracleDesc: "(Labeled by implicit oracle)",
-        description: `These outputs contain: null, NaN, Infinity, or undefined:`,
+        id: "badValue",
+        name: "Invalid outputs",
+        description: `These outputs contain: null, NaN, Infinity, undefined, and no validator or human annotation marked them as correct:`,
       },
       {
-        id: "passedImplicit",
-        name: "Not 'Likely Failed'",
-        oracleDesc: "(Labeled by implicit oracle)",
-        description: `These outputs do not contain: timeout, exception, null, NaN, Infinity, or undefined:`,
-      },
-      {
-        id: "passedExplicit",
+        id: "ok",
         name: "Passed",
-        oracleDesc: "(Labeled by human oracle)",
-        description: `These match the expected outputs from the correctness icons:`,
+        description: `These match the expected output values:`,
       },
     ];
     tabs.forEach((e) => {
@@ -946,8 +917,7 @@ export class FuzzPanel {
         html += /*html*/ `
               <vscode-panel-view id="view-${e.id}">
                 <section>
-                <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.oracleDesc}</h4>
-                <h4 style="margin-bottom:.25em;margin-top:.25em;">${e.description}</h4>
+                <div style="margin-bottom:.25em;margin-top:.25em;">${e.description}</div>
                 <div id="fuzzResultsGrid-${e.id}">
                     <table class="fuzzGrid">
                       <thead class="columnSortOrder" id="fuzzResultsGrid-${e.id}-thead" /> 

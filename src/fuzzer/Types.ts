@@ -10,10 +10,12 @@ export type FuzzTestResult = {
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
   passedImplicit: boolean; // true if output matches oracle; false, otherwise
-  passedExplicit?: boolean; // true if actual output matches expected output
+  passedHuman?: boolean; // true if actual output matches expected output
+  passedValidator?: boolean; // true if passed custom validator; false, otherwise
   elapsedTime: number; // elapsed time of test
   correct: string; // check, error, question, or none
   expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
+  category: string; // !!!! the category of the test result
 };
 
 /**
@@ -35,3 +37,12 @@ export type FuzzIoElement = {
   offset: number; // offset of element (0-based)
   value: any; // value of element
 };
+
+// !!!!
+export enum ResultType {
+  OK = "ok",
+  BADVALUE = "badValue",
+  TIMEOUT = "timeout",
+  EXCEPTION = "exception",
+  DISAGREE = "disagree",
+}

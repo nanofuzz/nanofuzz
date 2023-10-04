@@ -1,3 +1,9 @@
+/** Body Styles **/
+
+body {
+  padding-right: 0px;
+}
+
 /** Grid Styles **/
 
 .fuzzGrid {
@@ -11,6 +17,11 @@
 .fuzzGrid th {
   text-align: left;
   padding: 4px 6px;
+  border-bottom: 1px solid;
+}
+.fuzzGrid th.colorColumn {
+  padding: 4px 8px;
+  text-align: center;
 }
 td.fuzzGridCellPinned,
 td.fuzzGridCellPin {
@@ -31,31 +42,49 @@ td.fuzzGridCellPin:hover {
 
 /* Correct icons */
 td.classCheckOff {
-  opacity: 50%;
+  opacity: 25%;
   width: 1%;
+  padding-left: 1px;
+  padding-right: 1px;
+  text-align: center;
 }
 td.classErrorOff {
-  opacity: 50%;
+  opacity: 25%;
   width: 1%;
+  text-align: center;
+  padding-left: 0px;
+  padding-right: 0px;
 }
 td.classQuestionOff {
-  opacity: 50%;
+  opacity: 25%;
   width: 1%;
+  padding-left: 1px;
+  padding-right: 1px;
+  text-align: center;
 }
 td.classCheckOn {
   opacity: 100%;
   color: rgba(95, 250, 152, 0.665);
   width: 1%;
+  padding-left: 1px;
+  padding-right: 1px;
+  text-align: center;
 }
 td.classErrorOn {
   opacity: 100%;
   color: rgba(250, 65, 65, 0.665);
   width: 1%;
+  padding-left: 0px;
+  padding-right: 0px;
+  text-align: center;
 }
 td.classQuestionOn {
   opacity: 100%;
   color: rgb(230, 212, 108);
   width: 1%;
+  padding-left: 1px;
+  padding-right: 1px;
+  text-align: center;
 }
 
 /* Expected output */
@@ -148,8 +177,8 @@ tr.classErrorExpectedOutputRow {
 
 /* Sorting */
 .columnSortDesc::after {
-  content: "    ▼";
+  content: " ▼";
 }
 .columnSortAsc::after {
-  content: "    ▲";
+  content: " ▲";
 }

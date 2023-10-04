@@ -4,20 +4,14 @@ const vscode = acquireVsCodeApi();
 window.addEventListener("load", main);
 
 // List of output grids that store fuzzer results
-const gridTypes = [
-  "failedExplicit",
-  "passedExplicit",
-  "timeout",
-  "exception",
-  "badOutput",
-  "passedImplicit",
-];
+const gridTypes = ["disagree", "exception", "timeout", "badValue", "ok"];
 
 // Column name labels
 const pinnedLabel = "pinned";
 const idLabel = "id";
 const correctLabel = "correct output?";
 const expectedLabel = "expectedOutput";
+const validatorLabel = "validator";
 const elapsedTimeLabel = "running time (ms)";
 
 // Pin button states
@@ -61,10 +55,9 @@ function getDefaultColumnSortOrder() {
 const defaultColumnSortOrders = {
   timeout: getDefaultColumnSortOrder(),
   exception: getDefaultColumnSortOrder(),
-  badOutput: getDefaultColumnSortOrder(),
-  passedImplicit: getDefaultColumnSortOrder(),
-  passedExplicit: getDefaultColumnSortOrder(),
-  failedExplicit: getDefaultColumnSortOrder(),
+  badValue: getDefaultColumnSortOrder(),
+  ok: getDefaultColumnSortOrder(),
+  disagree: getDefaultColumnSortOrder(),
 };
 
 // Column sort orders (filled by main or handleColumnSort())
@@ -152,11 +145,12 @@ function main() {
       // Indicate which tests are pinned
       const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
       const id = { [idLabel]: idx++ };
-      let correct = { [correctLabel]: e.correct };
-      let expectedOutputs = {
+      const correct = { [correctLabel]: e.correct };
+      const validator = { [validatorLabel]: e.passedValidator };
+      const expectedOutputs = {
         [expectedLabel]: e.expectedOutput,
       };
-      let elapsedTimes = {
+      const elapsedTimes = {
         [elapsedTimeLabel]: e.elapsedTime.toFixed(3),
       };
 
@@ -177,79 +171,31 @@ function main() {
         outputs[`output`] =
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
+      if (e.exception) {
+        outputs[`exception`] = e.exceptionMessage;
+      }
+      if (e.timeout) {
+        outputs[`timeout`] = "timeout";
+      }
 
       // Toss each result into the appropriate grid
       // Explicit correctness:
-      if (e.passedExplicit === true) {
-        data["passedExplicit"].push({
-          ...id,
-          ...inputs,
-          ...outputs,
-          ...elapsedTimes,
-          ...pinned,
-          ...correct,
-          ...expectedOutputs,
-        });
-      } else if (e.passedExplicit === false) {
-        data["failedExplicit"].push({
-          ...id,
-          ...inputs,
-          ...outputs,
-          ...elapsedTimes,
-          ...pinned,
-          ...correct,
-          ...expectedOutputs,
-        });
-      }
-      // Implicit correctness:
-      if (e.passedImplicit) {
-        data["passedImplicit"].push({
-          ...id,
-          ...inputs,
-          ...outputs,
-          ...elapsedTimes,
-          ...pinned,
-          ...correct,
-          ...expectedOutputs,
-        });
-      } else {
-        if (e.exception) {
-          data["exception"].push({
-            ...id,
-            ...inputs,
-            exception: e.exceptionMessage,
-            ...elapsedTimes,
-            ...pinned,
-            ...correct,
-            ...expectedOutputs,
-          });
-        } else if (e.timeout) {
-          data["timeout"].push({
-            ...id,
-            ...inputs,
-            ...elapsedTimes,
-            ...pinned,
-            ...correct,
-            ...expectedOutputs,
-          });
-        } else {
-          data["badOutput"].push({
-            ...id,
-            ...inputs,
-            ...outputs,
-            ...elapsedTimes,
-            ...pinned,
-            ...correct,
-            ...expectedOutputs,
-          });
-        }
-      }
+      data[e.category].push({
+        ...id,
+        ...inputs,
+        ...outputs,
+        //...elapsedTimes,
+        ...validator,
+        ...correct,
+        ...pinned,
+        ...expectedOutputs,
+      });
     } // for: each result
 
     // Fill the grids with data
     gridTypes.forEach((type) => {
       if (data[type].length) {
-        //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type];
+        //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type]; !!!!
         const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
         const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
 
@@ -270,8 +216,16 @@ function main() {
             // noop
           } else if (k === correctLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
-            cell.innerHTML = `<big>correct output?</big>`;
+            cell.className = "colorColumn";
+            cell.innerHTML = `<big><span class="codicon codicon-person"></span></big>`;
             cell.colSpan = 3;
+            cell.addEventListener("click", () => {
+              handleColumnSort(cell, hRow, type, k, data, tbody, true);
+            });
+          } else if (k === validatorLabel) {
+            const cell = hRow.appendChild(document.createElement("th"));
+            cell.className = "colorColumn";
+            cell.innerHTML = `<big><span class="codicon codicon-hubot"></span></big>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -509,7 +463,7 @@ function handleCorrectToggle(
  *
  * @param cell cell of hRow
  * @param hRow header row
- * @param type (timeout, exception, badOutput, passed)
+ * @param type (timeout, exception, badValue, ok, etc.)
  * @param col (ex: input:a, output, pin)
  * @param data backend data structure
  * @param tbody table body
@@ -638,7 +592,7 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
  * the current column being sorted by. The 'pinned' column is a special case
  *
  * @param hRow header row
- * @param type (timeout, exception, badOutput, passed)
+ * @param type (timeout, exception, badValue, ok)
  * @param thisCol the current column being sorted by
  * @param data
  */
@@ -666,7 +620,7 @@ function resetOtherColumnArrows(hRow, type, thisCol, data) {
  * Displays column arrow in header row, and updates columnSortOrders
  *
  * @param cell cell of hRow
- * @param type (timeout, exception, badOutput, passed)
+ * @param type (timeout, exception, badValue, ok, etc.)
  * @param col (ex: input:a, output, pin)
  * @param isClicking bool determining if the initial sort is occurring, or if the function
  * is being called because the user clicked on a column
@@ -756,6 +710,19 @@ function drawTableBody(data, type, tbody, isClicking, button) {
         row.setAttribute("id", id);
       } else if (k === expectedLabel) {
         // noop
+      } else if (k === validatorLabel) {
+        const cell = row.appendChild(document.createElement("td"));
+        if (e[k] === undefined) {
+          cell.innerHTML = "";
+        } else if (e[k]) {
+          cell.className = "classCheckOn";
+          const span = cell.appendChild(document.createElement("span"));
+          span.className = "codicon codicon-pass";
+        } else {
+          cell.className = "classErrorOn";
+          const span = cell.appendChild(document.createElement("span"));
+          span.className = "codicon codicon-error";
+        }
       } else if (k === correctLabel) {
         // Add check mark icon
         const cell1 = row.appendChild(document.createElement("td"));
@@ -891,7 +858,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
       expectedRow.className = "classErrorExpectedOutputRow";
       cell.innerHTML = `Failed: expected not: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
     }
-  } else if (resultsData.results[id].passedExplicit === true) {
+  } else if (resultsData.results[id].passedHuman === true) {
     // If actual output does match expected output
     if (correctType === "error") {
       const expectedRow = tbody.appendChild(document.createElement("tr"));
@@ -1178,7 +1145,9 @@ function refreshValidators(validatorList) {
     .forEach((name) => {
       // The implicit oracle has a special display name
       const displayName =
-        name === implicitOracleValidatorName ? "Implicit oracle" : `${name}()`;
+        name === implicitOracleValidatorName
+          ? "(fail unlikely outputs)"
+          : `${name}()`;
 
       // Create the radio button
       const radio = document.createElement("vscode-radio");

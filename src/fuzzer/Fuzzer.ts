@@ -8,7 +8,12 @@ import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
-import { FuzzIoElement, FuzzPinnedTest, FuzzTestResult } from "./Types";
+import {
+  FuzzIoElement,
+  FuzzPinnedTest,
+  FuzzTestResult,
+  ResultType,
+} from "./Types";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -138,6 +143,7 @@ export const fuzz = async (
       passedImplicit: true,
       elapsedTime: 0,
       correct: "none",
+      category: ResultType.OK,
     };
 
     // Before searching, consume the pool of pinned tests
@@ -199,38 +205,58 @@ export const fuzz = async (
       }
     }
 
+    // IMPLICIT ORACLE --------------------------------------------
     // How can it fail ... let us count the ways...
     // TODO Add suppport for multiple validators !!!
     if (
       result.exception ||
       result.timeout ||
       result.output.some((e) => !implicitOracle(e))
-    )
+    ) {
       result.passedImplicit = false;
+    }
 
+    // HUMAN ORACLE -----------------------------------------------
+    // If a human correctness annotation exists, check it
     if (result.expectedOutput) {
       const actualOutput = JSON5.stringify(result.output[0].value);
 
-      result.passedExplicit = actualEqualsExpectedOutput(
+      result.passedHuman = actualEqualsExpectedOutput(
         actualOutput,
         result.expectedOutput,
         result.correct
       );
     }
 
-    // If the implicit oracle is not selected, call the validator function
+    // CUSTOM VALIDATOR ------------------------------------------
+    // If a custom validator is selected, call it to evaluate the result
     if ("validator" in env && env.validator) {
       const fnName = env.validator;
+
       // Build the validator function wrapper
       const validatorFnWrapper = functionTimeout(
-        (input: FuzzTestResult): any => {
-          return mod[fnName](input);
+        (input: FuzzTestResult): FuzzTestResult => {
+          const result: FuzzTestResult = mod[fnName](input);
+          return {
+            ...input,
+            passedValidator: result.passedValidator,
+          };
         },
         env.options.fnTimeout
       );
+
+      // Categorize the results (so it's not stale)
+      result.category = categorizeResult(result);
+
       // Call the validator function wrapper
-      validatorFnWrapper(result);
+      result.passedValidator = validatorFnWrapper(result).passedValidator;
     }
+
+    // Use the implicit result if no validator result is present
+    result.passedValidator = result.passedValidator ?? result.passedImplicit;
+
+    // (Re-)categorize the result
+    result.category = categorizeResult(result);
 
     // Store the result for this iteration
     results.results.push(result);
@@ -364,6 +390,61 @@ function actualEqualsExpectedOutput(
     throw new Error(`Invalid correctType: ${correctType}`);
   }
 }
+
+// !!!!
+export function categorizeResult(result: FuzzTestResult): ResultType {
+  const implicit = result.passedImplicit ? true : false;
+  const validator =
+    "passedValidator" in result
+      ? result.passedValidator
+        ? true
+        : false
+      : undefined;
+  const human =
+    "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
+
+  // Returns the type of bad value: execption, timeout, or badvalue
+  const getBadValueType = (result: FuzzTestResult): ResultType => {
+    if (result.exception) {
+      return ResultType.EXCEPTION;
+    } else if (result.timeout) {
+      return ResultType.TIMEOUT;
+    } else {
+      return ResultType.BADVALUE;
+    }
+  };
+
+  // Either the human oracle or the validator may take precedence
+  // over the implicit oracle if they exist. However, if both the
+  // validator and the human oracle are present, then they must
+  // agree. If the human and validator are present yet disagree,
+  // then the disagreement is another error.
+  if (human) {
+    if (validator === false) {
+      return ResultType.DISAGREE;
+    } else {
+      return ResultType.OK;
+    }
+  } else if (human === false) {
+    if (validator) {
+      return ResultType.DISAGREE;
+    } else {
+      return getBadValueType(result);
+    }
+  } else {
+    if (validator) {
+      return ResultType.OK;
+    } else if (validator === false) {
+      return getBadValueType(result);
+    } else {
+      if (implicit) {
+        return ResultType.OK;
+      } else {
+        return getBadValueType(result);
+      }
+    }
+  }
+} // fn: calcSusScore()
 
 /**
  * Fuzzer Environment required to fuzz a function.
