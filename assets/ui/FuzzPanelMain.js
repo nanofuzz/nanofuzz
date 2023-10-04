@@ -4,7 +4,14 @@ const vscode = acquireVsCodeApi();
 window.addEventListener("load", main);
 
 // List of output grids that store fuzzer results
-const gridTypes = ["disagree", "exception", "timeout", "badValue", "ok"];
+const gridTypes = [
+  "failure",
+  "disagree",
+  "exception",
+  "timeout",
+  "badValue",
+  "ok",
+];
 
 // Column name labels
 const pinnedLabel = "pinned";
@@ -53,6 +60,7 @@ function getDefaultColumnSortOrder() {
   return { pinned: "desc" };
 }
 const defaultColumnSortOrders = {
+  failure: {}, // no pinned column
   timeout: getDefaultColumnSortOrder(),
   exception: getDefaultColumnSortOrder(),
   badValue: getDefaultColumnSortOrder(),
@@ -171,7 +179,9 @@ function main() {
         outputs[`output`] =
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
-      if (e.exception) {
+      if (e.validatorException) {
+        outputs[`validator exception`] = e.validatorExceptionMessage;
+      } else if (e.exception) {
         outputs[`exception`] = e.exceptionMessage;
       }
       if (e.timeout) {
@@ -179,23 +189,29 @@ function main() {
       }
 
       // Toss each result into the appropriate grid
-      // Explicit correctness:
-      data[e.category].push({
-        ...id,
-        ...inputs,
-        ...outputs,
-        //...elapsedTimes,
-        ...validator,
-        ...correct,
-        ...pinned,
-        ...expectedOutputs,
-      });
+      if (e.category === "failure") {
+        data[e.category].push({
+          ...id,
+          ...inputs,
+          ...outputs, // Exception message contained in outputs
+        });
+      } else {
+        data[e.category].push({
+          ...id,
+          ...inputs,
+          ...outputs,
+          //...elapsedTimes,
+          ...validator,
+          ...correct,
+          ...pinned,
+          ...expectedOutputs,
+        });
+      }
     } // for: each result
 
     // Fill the grids with data
     gridTypes.forEach((type) => {
       if (data[type].length) {
-        //document.getElementById(`fuzzResultsGrid-${type}`).rowsData = data[type]; !!!!
         const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
         const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
 
@@ -483,11 +499,9 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
 
   // If we're toggling, sort based on column 'col'.
   // Otherwise, we also need to sort based on column 'correct output?' and 'pinned'.
-  let cols;
-  if (isClicking) {
-    cols = [column];
-  } else {
-    cols = [column, correctLabel, pinnedLabel];
+  const cols = [column];
+  if (!isClicking && type !== "failure") {
+    cols.push(correctLabel, pinnedLabel);
   }
   for (const col of cols) {
     data[type].sort((a, b) => {
@@ -521,8 +535,8 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
             b = correctVals[b[correctLabel]];
           } else {
             // Sort by length, break ties alphabetically
-            a = a[col].length;
-            b = b[col].length;
+            a = (a[col] ?? "").length;
+            b = (b[col] ?? "").length;
           }
           break;
         case "boolean":
@@ -581,7 +595,7 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
   // 'Test' again)
   if (isClicking) {
     vscode.postMessage({
-      command: "columnSortOrders",
+      command: "columns.sorted",
       json: JSON5.stringify(columnSortOrders),
     });
   }
@@ -1114,7 +1128,15 @@ function handleFuzzStart(e) {
   });
 } // fn: handleFuzzStart
 
-// !!!!
+/**
+ * Refreshes the displayed list of validtors based on a list of
+ * validators provided from the back-end.
+ *
+ * @param {*} object of type: {
+ *  validator?: string,   // selected custom validator
+ *  validators: string[], // list of available custom validators
+ * }
+ */
 function refreshValidators(validatorList) {
   // If no default validator is selected or the selected validator does not
   // exist, then select the implicit validator
@@ -1132,7 +1154,6 @@ function refreshValidators(validatorList) {
   const validatorFnGrp = document.getElementById("validatorFunctions");
   const deleteList = [];
   for (const child of validatorFnGrp.children) {
-    console.log(`${child.tagName}: ${child.getAttribute("id")}`);
     if (child.tagName === "VSCODE-RADIO") {
       deleteList.push(child);
     }
@@ -1145,9 +1166,7 @@ function refreshValidators(validatorList) {
     .forEach((name) => {
       // The implicit oracle has a special display name
       const displayName =
-        name === implicitOracleValidatorName
-          ? "(fail unlikely outputs)"
-          : `${name}()`;
+        name === implicitOracleValidatorName ? "(none)" : `${name}()`;
 
       // Create the radio button
       const radio = document.createElement("vscode-radio");
@@ -1157,13 +1176,6 @@ function refreshValidators(validatorList) {
       radio.innerHTML = displayName;
       if (name === validatorList.validator) {
         radio.setAttribute("checked", "true");
-        console.log(
-          `Setting ${name} to checked: it matches ${validatorList.validator}}`
-        );
-      } else {
-        console.log(
-          `Setting ${name} to UNchecked: it DOES NOT match ${validatorList.validator}}`
-        );
       }
 
       // Add the radio button to the radio group

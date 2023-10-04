@@ -12,10 +12,13 @@ export type FuzzTestResult = {
   passedImplicit: boolean; // true if output matches oracle; false, otherwise
   passedHuman?: boolean; // true if actual output matches expected output
   passedValidator?: boolean; // true if passed custom validator; false, otherwise
+  validatorException: boolean; // true if validator threw an exception
+  validatorExceptionMessage?: string; // validator exception message
+  validatorExceptionStack?: string; // validator stack trace if exception was thrown
   elapsedTime: number; // elapsed time of test
   correct: string; // check, error, question, or none
   expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
-  category: string; // !!!! the category of the test result
+  category: string; // the ResultCategory of the test result
 };
 
 /**
@@ -38,11 +41,14 @@ export type FuzzIoElement = {
   value: any; // value of element
 };
 
-// !!!!
-export enum ResultType {
+/**
+ * Category of a test result
+ */
+export enum ResultCategory {
   OK = "ok",
   BADVALUE = "badValue",
   TIMEOUT = "timeout",
   EXCEPTION = "exception",
   DISAGREE = "disagree",
+  FAILURE = "failure", // Validator failure (e.g., threw an exception)
 }

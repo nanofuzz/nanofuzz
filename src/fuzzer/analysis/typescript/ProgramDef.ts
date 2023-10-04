@@ -25,6 +25,7 @@ import {
   ProgramPath,
   TypeRef,
   ArgOptions,
+  ProgramImport,
 } from "./Types";
 
 /**
@@ -339,6 +340,15 @@ export class ProgramDef {
     }
     return new ProgramDef(this._getSource, this._module, options);
   } // fn: setOptions()
+
+  /**
+   * Returns this program's imports
+   *
+   * @returns the list of imports by identifier name
+   */
+  public getImports(): Record<IdentifierName, ProgramImport> {
+    return JSON5.parse(JSON5.stringify(this._imports));
+  } // fn: getImports()
 
   /**
    * Returns the functions defined in the program

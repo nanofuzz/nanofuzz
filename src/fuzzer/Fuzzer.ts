@@ -12,7 +12,7 @@ import {
   FuzzIoElement,
   FuzzPinnedTest,
   FuzzTestResult,
-  ResultType,
+  ResultCategory,
 } from "./Types";
 
 /**
@@ -139,11 +139,12 @@ export const fuzz = async (
       input: [],
       output: [],
       exception: false,
+      validatorException: false,
       timeout: false,
       passedImplicit: true,
       elapsedTime: 0,
       correct: "none",
-      category: ResultType.OK,
+      category: ResultCategory.OK,
     };
 
     // Before searching, consume the pool of pinned tests
@@ -236,11 +237,20 @@ export const fuzz = async (
       // Build the validator function wrapper
       const validatorFnWrapper = functionTimeout(
         (input: FuzzTestResult): FuzzTestResult => {
-          const result: FuzzTestResult = mod[fnName](input);
-          return {
-            ...input,
-            passedValidator: result.passedValidator,
-          };
+          try {
+            const result: FuzzTestResult = mod[fnName]({ ...input });
+            return {
+              ...input,
+              passedValidator: result.passedValidator,
+            };
+          } catch (e: any) {
+            return {
+              ...input,
+              validatorException: true,
+              validatorExceptionMessage: e.message,
+              validatorExceptionStack: e.stack,
+            };
+          }
         },
         env.options.fnTimeout
       );
@@ -249,11 +259,15 @@ export const fuzz = async (
       result.category = categorizeResult(result);
 
       // Call the validator function wrapper
-      result.passedValidator = validatorFnWrapper(result).passedValidator;
-    }
+      const validatorResult = validatorFnWrapper(result);
 
-    // Use the implicit result if no validator result is present
-    result.passedValidator = result.passedValidator ?? result.passedImplicit;
+      // Store the validator results
+      result.passedValidator = validatorResult.passedValidator;
+      result.validatorException = validatorResult.validatorException;
+      result.validatorExceptionMessage =
+        validatorResult.validatorExceptionMessage;
+      result.validatorExceptionStack = validatorResult.validatorExceptionStack;
+    }
 
     // (Re-)categorize the result
     result.category = categorizeResult(result);
@@ -348,19 +362,25 @@ export function isTimeoutError(error: { code?: string }): boolean {
   return "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
 } // fn: isTimeoutError()
 
-// !!!!
+/**
+ * Returns a list of validator FunctionRefs found within the program
+ *
+ * @param program the program to search
+ * @returns an array of validator FunctionRefs
+ */
 export function getValidators(program: ProgramDef): FunctionRef[] {
   return Object.values(program.getExportedFunctions())
     .filter((fn) => fn.isValidator())
     .map((fn) => fn.getRef());
-}
+} // fn: getValidators()
 
 /**
+ * Compares the actual output to the expected output.
  *
  * @param actualOut actual output
  * @param expectedOut expected output
  * @param correctType type of correct icon selected
- * @returns if actualOut equals expectedOut
+ * @returns true if actualOut equals expectedOut
  */
 function actualEqualsExpectedOutput(
   actualOut: string,
@@ -391,8 +411,17 @@ function actualEqualsExpectedOutput(
   }
 }
 
-// !!!!
-export function categorizeResult(result: FuzzTestResult): ResultType {
+/**
+ * Categorizes the result of a fuzz test according to the available
+ * categories defined in ResultType.
+ * @param result
+ * @returns
+ */
+export function categorizeResult(result: FuzzTestResult): ResultCategory {
+  if (result.validatorException) {
+    return ResultCategory.FAILURE; // Validator failed
+  }
+
   const implicit = result.passedImplicit ? true : false;
   const validator =
     "passedValidator" in result
@@ -404,13 +433,13 @@ export function categorizeResult(result: FuzzTestResult): ResultType {
     "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
 
   // Returns the type of bad value: execption, timeout, or badvalue
-  const getBadValueType = (result: FuzzTestResult): ResultType => {
+  const getBadValueType = (result: FuzzTestResult): ResultCategory => {
     if (result.exception) {
-      return ResultType.EXCEPTION;
+      return ResultCategory.EXCEPTION; // PUT threw exception
     } else if (result.timeout) {
-      return ResultType.TIMEOUT;
+      return ResultCategory.TIMEOUT; // PUT timedout
     } else {
-      return ResultType.BADVALUE;
+      return ResultCategory.BADVALUE; // PUT returned bad value
     }
   };
 
@@ -421,30 +450,30 @@ export function categorizeResult(result: FuzzTestResult): ResultType {
   // then the disagreement is another error.
   if (human) {
     if (validator === false) {
-      return ResultType.DISAGREE;
+      return ResultCategory.DISAGREE;
     } else {
-      return ResultType.OK;
+      return ResultCategory.OK;
     }
   } else if (human === false) {
     if (validator) {
-      return ResultType.DISAGREE;
+      return ResultCategory.DISAGREE;
     } else {
       return getBadValueType(result);
     }
   } else {
     if (validator) {
-      return ResultType.OK;
+      return ResultCategory.OK;
     } else if (validator === false) {
       return getBadValueType(result);
     } else {
       if (implicit) {
-        return ResultType.OK;
+        return ResultCategory.OK;
       } else {
         return getBadValueType(result);
       }
     }
   }
-} // fn: calcSusScore()
+} // fn: categorizeResult()
 
 /**
  * Fuzzer Environment required to fuzz a function.

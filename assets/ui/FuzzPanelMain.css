@@ -18,6 +18,7 @@ body {
   text-align: left;
   padding: 4px 6px;
   border-bottom: 1px solid;
+  vertical-align: bottom;
 }
 .fuzzGrid th.colorColumn {
   padding: 4px 8px;

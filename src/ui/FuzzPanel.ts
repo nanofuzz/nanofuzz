@@ -247,7 +247,7 @@ export class FuzzPanel {
           case "test.unpin":
             this._doTestPinnedCmd(json, false);
             break;
-          case "columnSortOrders":
+          case "columns.sorted":
             this._saveColumnSortOrders(json);
             break;
           case "validator.add":
@@ -449,7 +449,7 @@ export class FuzzPanel {
   }
 
   /**
-   * Message handler for the `columnSortOrders' command.
+   * Message handler for the `columns.sort' command.
    */
   private _saveColumnSortOrders(json: string) {
     this._sortColumns = JSON5.parse(json);
@@ -459,22 +459,78 @@ export class FuzzPanel {
    * Add code skeleton for a custom validator to the program source code.
    */
   private _doAddValidatorCmd() {
-    const env = this._fuzzEnv; // Fuzzer environment
-    const fn = env.function; // Function under test
-
-    const skeleton = [];
-    skeleton.push(``);
-    skeleton.push(``);
-    skeleton.push(
-      `export function ${fn.getName()}Validator(result: FuzzTestResult): FuzzTestResult {`
-    );
-    skeleton.push(`  return result;`);
-    skeleton.push(`}`);
-
+    const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
+    const program = ProgramDef.fromModule(module);
+    const validatorPrefix = fn.getName() + "Validator";
+    let fnCounter = 0;
+
+    // Determine the next available validator name
+    Object.keys(program.getFunctions())
+      .filter((e) => e.startsWith(validatorPrefix))
+      .forEach((e) => {
+        if (e.endsWith(validatorPrefix)) {
+          fnCounter++;
+        } else {
+          const suffix = e.substring(validatorPrefix.length);
+          if (suffix.match(/^[0-9]+$/)) {
+            fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
+          }
+        }
+      });
+
+    // Determine if we need to add an import
+    const hasImport = Object.keys(program.getImports().identifiers).some(
+      (e) => e === "FuzzTestResult"
+    );
+
+    // Skeleton code for the function
+    const npmInstruction = `
+ * 
+ * You will need to:
+ *  1. Add the nanofuzz/runtime package to your project using npm or yarn:
+ *     ${"`"}npm install nanofuzz/runtime -D${"`"}
+ *     ${"`"}yarn add nanofuzz/runtime -D${"`"}
+ *  1. Add an import to the top of the file:
+ *     ${"`"}import { FuzzTestResult } from "nanofuzz/runtime";${"`"}`;
+    // prettier-ignore
+    const skeleton = `
+
+/**
+ * TODO: Implement this custom validator for function ${"`"}${fn.getName()}${"`"}
+ *
+ * This custom validator has visibility to all inputs, outputs, and
+ * prior oracle results (e.g., NaNofuzz' implicit oracle ${"`"}passedImplicit${"`"}
+ * and any human correctness annotation ${"`"}passedHuman${"`"}) via the
+ * ${"`"}result${"`"} data structure of type ${"`"}FuzzTestResult${"`"} passed as input.
+ *
+ * Place the result of validation in ${"`"}result.passedValidator${"`"}, where:
+ *  - ${"`"}true${"`"} indicates the test passed the custom validation,
+ *  - ${"`"}false${"`"} indicates the test failed the custom validation, and
+ *  - ${"`"}undefined${"`"} indicates the custom validator could not decide.` 
+ + (hasImport ? "" : npmInstruction) + `
+ */
+export const ${validatorPrefix}${
+        fnCounter === 0 ? "" : fnCounter
+      } = (result: FuzzTestResult): FuzzTestResult => {
+  if(result.timeout) {
+    // Mark as passed any inputs where timeouts are expected
+    // result.passedValidator = true;
+  } else if(result.exception) {
+    // Flag any inputs as passed where exceptions are expected
+    // result.passedValidator = true;
+  } else {
+    // Evaluate the output relative to the input
+    // result.passedValidator = true;  // <-- As expected; passed
+    // result.passedValidator = false; // <-- Unexpected; failed
+  }
+  return result;
+}`;
+
+    // Append the code skeleton to the source file
     try {
       const fd = fs.openSync(module, "as+");
-      fs.writeFileSync(fd, skeleton.join(os.EOL));
+      fs.writeFileSync(fd, skeleton);
       fs.closeSync(fd);
     } catch {
       vscode.window.showErrorMessage(
@@ -493,7 +549,11 @@ export class FuzzPanel {
     this._fuzzEnv.validator = validatorName === "" ? undefined : validatorName;
   }
 
-  // !!!!
+  /**
+   * Message handler for the `validator.getList` command. Gets the list
+   * of validators from the program source code and sends it back to the
+   * front-end.
+   */
   private _doGetValidators() {
     const program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
 
@@ -502,10 +562,6 @@ export class FuzzPanel {
     );
     const newValidators = fuzzer.getValidators(program);
     const newValidatorNames = JSON5.stringify(newValidators.map((e) => e.name));
-
-    console.debug(
-      `oldValidators: ${oldValidatorNames}; newValidators: ${newValidatorNames}`
-    ); // !!!!
 
     // Only send the message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
@@ -523,7 +579,6 @@ export class FuzzPanel {
       }
 
       // Notify the front-end about the change
-      console.debug(`Sending update: there is a change`); // !!!!
       this._panel.webview.postMessage({
         command: "validator.list",
         json: JSON5.stringify({
@@ -531,10 +586,8 @@ export class FuzzPanel {
           validators: newValidators.map((e) => e.name),
         }),
       });
-    } else {
-      console.debug(`Not sending update: no change`); // !!!!
     }
-  }
+  } // fn: _doGetValidators()
 
   /**
    * Message handler for the `fuzz.start` command.
@@ -727,6 +780,7 @@ export class FuzzPanel {
     const disabledFlag =
       this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const resultSummary = {
+      failure: 0,
       timeout: 0,
       exception: 0,
       badValue: 0,
@@ -810,7 +864,7 @@ export class FuzzPanel {
           <div>
             <vscode-radio-group id="validatorFunctions">
               <label slot="label" style="font-size: 1.25em;">
-                Choose an Output Validator: <span class="codicon codicon-hubot"></span>
+                Choose a Custom Output Validator: <span class="codicon codicon-hubot"></span>
               </label>`;
 
     // prettier-ignore
@@ -874,6 +928,13 @@ export class FuzzPanel {
     // If we have results, render the output tabs to display the results.
     const tabs = [
       // !!!! Update & revisit these descriptions
+      {
+        id: "failure",
+        name: "Validator Failed",
+        description: `For these inputs, the validator function (${
+          this._fuzzEnv.validator ?? ""
+        }) threw an exception. You should fix the bug in the validator and start the fuzzer again.`,
+      },
       {
         id: "disagree",
         name: "Disagreements",
