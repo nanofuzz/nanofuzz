@@ -290,7 +290,7 @@ function toggleFuzzOptions(e) {
 } // fn: toggleFuzzOptions()
 
 /**
- * Toggles whether a test is pinned for CI and the next AutoTest.
+ * Toggles whether a test is pinned for CI and the next test run.
  *
  * @param id offset of test in resultsData
  * @param type grid type (e.g., passed, invalid)

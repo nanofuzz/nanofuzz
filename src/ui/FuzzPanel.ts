@@ -58,7 +58,7 @@ export class FuzzPanel {
       // Otherwise, create a new panel.
       const panel = vscode.window.createWebviewPanel(
         FuzzPanel.viewType, // FuzzPanel view type
-        `AutoTest: ${env.function.getName()}()`, // webview title
+        `Test: ${env.function.getName()}()`, // webview title
         vscode.ViewColumn.Beside, // open beside the editor
         FuzzPanel.getWebviewOptions(extensionUri) // options
       );
@@ -290,7 +290,7 @@ export class FuzzPanel {
     );
 
     // Update set of saved tests
-    const changed = this._updatePinnedSet(json, pinnedSet, pin); // Did we change anything?
+    const changed = this._updatePinnedSet(json, pinnedSet); // Did we change anything?
 
     // Persist changes
     if (changed) {
@@ -419,23 +419,21 @@ export class FuzzPanel {
    * Add and/or delete from the set of saved tests. Returns if changed.
    * @param json current test case
    * @param pinnedSet set of saved test cases
-   * @param saving are we saving or unsaving?
    * @returns if changed
    */
   private _updatePinnedSet(
     json: string,
-    pinnedSet: Record<string, fuzzer.FuzzPinnedTest>,
-    saving: boolean
+    pinnedSet: Record<string, fuzzer.FuzzPinnedTest>
   ): boolean {
     let changed = false;
-    const currTest = JSON5.parse(json);
+    const currTest: fuzzer.FuzzPinnedTest = JSON5.parse(json);
     let currInput = JSON5.parse(json).input[0];
     currInput = JSON5.stringify(currInput);
 
     // If input is already in pinnedSet and should be deleted, delete it
     if (
-      pinnedSet[currInput] &&
-      currTest.pinned === false &&
+      currInput in pinnedSet &&
+      !currTest.pinned &&
       currTest.correct === "none"
     ) {
       delete pinnedSet[currInput];
@@ -847,10 +845,10 @@ export const ${validatorPrefix}${
           <script type="module" src="${scriptUrl}"></script>
           <link rel="stylesheet" type="text/css" href="${cssUrl}">
           <link rel="stylesheet" type="text/css" href="${codiconsUri}">
-          <title>AutoTest Panel</title>
+          <title>NaNofuzz Panel</title>
         </head>
         <body>
-          <h2 style="margin-bottom:.5em;margin-top:.1em;">AutoTest ${htmlEscape(
+          <h2 style="margin-bottom:.5em;margin-top:.1em;">Test ${htmlEscape(
             fn.getName()
           )}() w/inputs:</h2>
 
@@ -1253,7 +1251,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
     : vscode.window.activeTextEditor?.document;
   if (!document || !editor) {
     vscode.window.showErrorMessage(
-      "Please select a function to autotest in the editor."
+      "Please select a function to test in the editor."
     );
     return; // If there is no active editor, return.
   }
@@ -1261,14 +1259,14 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   // Ensure we have a function name
   if (!fnName) {
     vscode.window.showErrorMessage(
-      "Please use the AutoTest button to test a function."
+      "Please use the NaNofuzz button to test a function."
     );
     return;
   }
 
   // Ensure the document is saved / not dirty
   if (document.isDirty) {
-    vscode.window.showErrorMessage("Please save the file before autotesting.");
+    vscode.window.showErrorMessage("Please save the file before testing.");
     return;
   }
 
@@ -1335,7 +1333,7 @@ export function provideCodeLenses(
           document.positionAt(match.ref.endOffset)
         ),
         {
-          title: "AutoTest...",
+          title: "NaNofuzz...",
           command: commands.fuzz.name,
           arguments: [match],
         }

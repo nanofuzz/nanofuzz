@@ -50,7 +50,7 @@
     "commands": [
       {
         "command": "nanofuzz.Fuzz",
-        "title": "AutoTest",
+        "title": "NaNofuzz",
         "category": "NaNofuzz"
       },
       {
@@ -67,22 +67,6 @@
         "command": "nanofuzz.telemetry.log",
         "title": "Log Telemetry Event (internal)",
         "category": "NaNofuzz"
-      }
-    ],
-    "menus": {
-      "editor/context": [
-        {
-          "command": "nanofuzz.Fuzz",
-          "group": "z_commands",
-          "when": "editorLangId == typescript && editorTextFocus"
-        }
-      ]
-    },
-    "keybindings": [
-      {
-        "command": "nanofuzz.Fuzz",
-        "key": "ctrl+alt+a",
-        "when": "editorLangId == typescript && editorTextFocus"
       }
     ],
     "configuration": {
