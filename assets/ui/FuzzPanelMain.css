@@ -89,7 +89,8 @@ td.classQuestionOn {
 }
 
 /* Expected output */
-td.classErrorCell {
+td.classErrorCell,
+vscode-text-field.classErrorCell {
   opacity: 100%;
   outline-style: solid;
   outline-width: 0.05cm;

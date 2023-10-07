@@ -54,50 +54,39 @@ export const toString = (
           inputStr += JSON5.stringify(e);
         });
 
-      x = 0;
-      let outputStr = "";
-      pinnedTests[fn][testId].output
-        .map((e) => e.value)
-        .forEach((e) => {
-          outputStr += x++ ? "," : "";
-          outputStr += JSON5.stringify(e);
-        });
-      // If there is a saved expected output, use that
-      if (pinnedTests[fn][testId].expectedOutput) {
-        console.log("outputStr before:", outputStr);
-        outputStr = pinnedTests[fn][testId].expectedOutput;
-        console.log("outputStr after:", outputStr);
-      }
+      // TODO Add logic to support custom validator functions !!!!
 
-      switch (pinnedTests[fn][testId].correct) {
-        case "check":
-          // to strict equal
+      // If we have an expected output, use that
+      const expectedOutput = pinnedTests[fn][testId].expectedOutput;
+      if (expectedOutput && expectedOutput.length) {
+        if (expectedOutput[0].isTimeout) {
+          // Expected timeouts
+          // TODO: Not currently supported !!!!
+          console.debug(`Expected timeouts not currently supported`);
+        } else if (expectedOutput[0].isException) {
+          // Expected exception
           jestData.push(
-            `test("${fn}.${i++}", () => {expect(themodule.${fn}(${inputStr})).toStrictEqual(${outputStr});});`,
+            `// Expecting thrown exception`,
+            `test("${fn}.${i++}", () => {expect( () => {themodule.${fn}(${inputStr})}).toThrow();},${timeout});`,
             ``
           );
-          break;
-        case "error":
-          // to not strict equal
+        } else {
+          // Expected output value
           jestData.push(
-            `test("${fn}.${i++}", () => {expect(themodule.${fn}(${inputStr})).not.toStrictEqual(${outputStr});});`,
+            `// Expecteding output value`,
+            `test("${fn}.${i++}", () => {expect(themodule.${fn}(${inputStr})).toStrictEqual(${JSON5.stringify(
+              expectedOutput[0].value
+            )});},${timeout});`,
             ``
           );
-          break;
-        case "question":
-          // implicit oracle
-          jestData.push(
-            `test("${fn}.${i++}", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);});`,
-            ``
-          );
-          break;
-        case "none":
-          // implicit oracle
-          jestData.push(
-            `test("${fn}.${i++}", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);});`,
-            ``
-          );
-          break;
+        }
+      } else {
+        // implicit oracle
+        jestData.push(
+          `// Expecting no timeout, exception, NaN, null, undefined, or infinity`,
+          `test("${fn}.${i++}", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);},${timeout});`,
+          ``
+        );
       }
     }
   }

@@ -16,8 +16,7 @@ export type FuzzTestResult = {
   validatorExceptionMessage?: string; // validator exception message
   validatorExceptionStack?: string; // validator stack trace if exception was thrown
   elapsedTime: number; // elapsed time of test
-  correct: string; // check, error, question, or none
-  expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
+  expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: string; // the ResultCategory of the test result
 };
 
@@ -28,8 +27,7 @@ export type FuzzPinnedTest = {
   input: FuzzIoElement[]; // function input
   output: FuzzIoElement[]; // function output
   pinned: boolean; // is the test pinned?
-  correct: string; // check, error, question, or none
-  expectedOutput?: any; // the correct output if correct icon; an incorrect output if error icon
+  expectedOutput?: FuzzIoElement[]; // the expected output, if any
 };
 
 /**
@@ -38,6 +36,8 @@ export type FuzzPinnedTest = {
 export type FuzzIoElement = {
   name: string; // name of element
   offset: number; // offset of element (0-based)
+  isException?: boolean; // true if element is an exception
+  isTimeout?: boolean; // true if element is a timeout
   value: any; // value of element
 };
 

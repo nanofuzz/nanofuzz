@@ -143,7 +143,6 @@ export const fuzz = async (
       timeout: false,
       passedImplicit: true,
       elapsedTime: 0,
-      correct: "none",
       category: ResultCategory.OK,
     };
 
@@ -153,7 +152,6 @@ export const fuzz = async (
     if (pinnedTest) {
       result.input = pinnedTest.input;
       result.pinned = pinnedTest.pinned;
-      result.correct = pinnedTest.correct;
       if (pinnedTest.expectedOutput) {
         result.expectedOutput = pinnedTest.expectedOutput;
       }
@@ -218,14 +216,11 @@ export const fuzz = async (
     }
 
     // HUMAN ORACLE -----------------------------------------------
-    // If a human correctness annotation exists, check it
+    // If a human annotated an expected output, then check it
     if (result.expectedOutput) {
-      const actualOutput = JSON5.stringify(result.output[0].value);
-
       result.passedHuman = actualEqualsExpectedOutput(
-        actualOutput,
-        result.expectedOutput,
-        result.correct
+        result,
+        result.expectedOutput
       );
     }
 
@@ -377,45 +372,28 @@ export function getValidators(program: ProgramDef): FunctionRef[] {
 /**
  * Compares the actual output to the expected output.
  *
- * @param actualOut actual output
- * @param expectedOut expected output
- * @param correctType type of correct icon selected
+ * @param fuzz testing result
+ * @param expected output
  * @returns true if actualOut equals expectedOut
  */
 function actualEqualsExpectedOutput(
-  actualOut: string,
-  expectedOut: string,
-  correctType: string
+  result: FuzzTestResult,
+  expectedOutput: FuzzIoElement[]
 ): boolean {
-  let actualType, expectedType;
-  try {
-    actualType = typeof JSON.parse(actualOut);
-    if (actualType !== "string") actualOut = JSON5.parse(actualOut);
-  } catch (error) {
-    actualType = "string";
-  }
-  try {
-    expectedType = typeof JSON.parse(expectedOut);
-    if (expectedType !== "string") expectedOut = JSON5.parse(expectedOut);
-  } catch (error) {
-    expectedType = "string";
-  }
-
-  // Compare actual and expected
-  if (correctType === "check") {
-    return actualOut === expectedOut && actualType === expectedType;
-  } else if (correctType === "error") {
-    return actualOut !== expectedOut || actualType !== expectedType;
+  if (result.timeout) {
+    return expectedOutput.length > 0 && expectedOutput[0].isTimeout === true;
+  } else if (result.exception) {
+    return expectedOutput.length > 0 && expectedOutput[0].isTimeout === true;
   } else {
-    throw new Error(`Invalid correctType: ${correctType}`);
+    return JSON5.stringify(result.output) === JSON5.stringify(expectedOutput);
   }
 }
 
 /**
  * Categorizes the result of a fuzz test according to the available
  * categories defined in ResultType.
- * @param result
- * @returns
+ * @param result of the test
+ * @returns the category of the result
  */
 export function categorizeResult(result: FuzzTestResult): ResultCategory {
   if (result.validatorException) {
@@ -448,7 +426,7 @@ export function categorizeResult(result: FuzzTestResult): ResultCategory {
   // validator and the human oracle are present, then they must
   // agree. If the human and validator are present yet disagree,
   // then the disagreement is another error.
-  if (human) {
+  if (human === true) {
     if (validator === false) {
       return ResultCategory.DISAGREE;
     } else {

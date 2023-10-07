@@ -36,21 +36,21 @@ const implicitOracleValidatorName = "none";
 const correctState = {
   htmlCheck: `<span class="codicon codicon-pass"></span>`, // check in circle
   htmlError: `<span class="codicon codicon-error"></span>`, // X in circle
-  htmlQuestion: `<span class="codicon codicon-question"></span>`, // ? in circle
+  //htmlQuestion: `<span class="codicon codicon-question"></span>`, // ? in circle
 
   classCheckOn: "classCheckOn",
-  classErrorOn: "classErrorOn",
-  classQuestionOn: "classQuestionOn",
   classCheckOff: "classCheckOff",
+  classErrorOn: "classErrorOn",
   classErrorOff: "classErrorOff",
-  classQuestionOff: "classQuestionOff",
+  //classQuestionOn: "classQuestionOn",
+  //classQuestionOff: "classQuestionOff",
 };
 
 // Correct icon sorting values
 const correctVals = {
   check: 0,
   error: 1,
-  question: 2,
+  //question: 2,
   none: 3,
 };
 
@@ -153,9 +153,9 @@ function main() {
       // Indicate which tests are pinned
       const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
       const id = { [idLabel]: idx++ };
-      const correct = { [correctLabel]: e.correct };
-      const validator = { [validatorLabel]: e.passedValidator };
-      const expectedOutputs = {
+      const passedHuman = { [correctLabel]: e.passedHuman };
+      const passedValidator = { [validatorLabel]: e.passedValidator };
+      const expectedOutput = {
         [expectedLabel]: e.expectedOutput,
       };
       const elapsedTimes = {
@@ -201,10 +201,10 @@ function main() {
           ...inputs,
           ...outputs,
           //...elapsedTimes,
-          ...validator,
-          ...correct,
+          ...passedValidator,
+          ...passedHuman,
           ...pinned,
-          ...expectedOutputs,
+          ...expectedOutput,
         });
       }
     } // for: each result
@@ -220,6 +220,7 @@ function main() {
         Object.keys(data[type][0]).forEach((k) => {
           if (k === pinnedLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
+            cell.style = "text-align: center";
             cell.className = "fuzzGridCellPinned";
             cell.innerHTML = `<big>pin</big>`;
             cell.setAttribute("class", "columnSortDesc");
@@ -234,7 +235,7 @@ function main() {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.className = "colorColumn";
             cell.innerHTML = `<big><span class="codicon codicon-person"></span></big>`;
-            cell.colSpan = 3;
+            cell.colSpan = 2;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -312,7 +313,7 @@ function handlePinToggle(id, type, data) {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: data[type][index][pinnedLabel],
-    correct: data[type][index][correctLabel],
+    //correct: data[type][index][correctLabel],
   };
   if (data[type][index][expectedLabel]) {
     testCase.expectedOutput = data[type][index][expectedLabel];
@@ -354,7 +355,6 @@ function handlePinToggle(id, type, data) {
  * @param tbody table body for 'type'
  * @param cell1 check icon
  * @param cell2 error icon
- * @param cell3 question icon
  */
 function handleCorrectToggle(
   button,
@@ -363,8 +363,8 @@ function handleCorrectToggle(
   type,
   tbody,
   cell1,
-  cell2,
-  cell3
+  cell2
+  //cell3
 ) {
   const id = row.getAttribute("id");
   const index = data[type].findIndex((element) => element.id == id);
@@ -377,56 +377,62 @@ function handleCorrectToggle(
     case correctState.classCheckOn:
       // clicking check off
       button.className = correctState.classCheckOff;
-      button.setAttribute("onOff", false);
-      data[type][index][correctLabel] = "none";
+      button.setAttribute("onOff", "false");
+      data[type][index][correctLabel] = undefined;
       // delete saved expected value
       delete data[type][index][expectedLabel];
+      console.debug("correctState.classCheckOn"); // !!!!!
       break;
 
     case correctState.classErrorOn:
       // clicking error off
       button.className = correctState.classErrorOff;
-      button.setAttribute("onOff", false);
-      data[type][index][correctLabel] = "none";
+      button.setAttribute("onOff", "false");
+      data[type][index][correctLabel] = undefined;
       // delete saved expected value
       delete data[type][index][expectedLabel];
+      console.debug("correctState.classErrorOn"); // !!!!!
       break;
-
+    /*
     case correctState.classQuestionOn:
       // clicking question off
       button.className = correctState.classQuestionOff;
       button.setAttribute("onOff", false);
       data[type][index][correctLabel] = "none";
       break;
+    */
 
     case correctState.classCheckOff:
       // clicking check on
       button.className = correctState.classCheckOn;
-      button.setAttribute("onOff", true);
-      data[type][index][correctLabel] = "check";
+      button.setAttribute("onOff", "true");
+      data[type][index][correctLabel] = "true";
       // turn others off
       cell2.className = correctState.classErrorOff;
-      cell2.setAttribute("onOff", false);
-      cell3.className = correctState.classQuestionOff;
-      cell3.setAttribute("onOff", false);
+      cell2.setAttribute("onOff", "false");
+      //cell3.className = correctState.classQuestionOff;
+      //cell3.setAttribute("onOff", false);
       //save expected output value
-      data[type][index][expectedLabel] = data[type][index]["output"];
+      data[type][index][expectedLabel] = resultsData.results[id].output;
+      console.debug("correctState.classCheckOff"); // !!!!!
+
       break;
 
     case correctState.classErrorOff:
       // clicking error on
       button.className = correctState.classErrorOn;
-      button.setAttribute("onOff", true);
-      data[type][index][correctLabel] = "error";
+      button.setAttribute("onOff", "true");
+      data[type][index][correctLabel] = "false";
       // turn others off
       cell1.className = correctState.classCheckOff;
-      cell1.setAttribute("onOff", false);
-      cell3.className = correctState.classQuestionOff;
-      cell3.setAttribute("onOff", false);
+      cell1.setAttribute("onOff", "false");
+      //cell3.className = correctState.classQuestionOff;
+      //cell3.setAttribute("onOff", false);
       //save expected output value
-      data[type][index][expectedLabel] = data[type][index]["output"]; //How am I doing this????????
+      // !!!!!data[type][index][expectedLabel] = data[type][index]["output"]; //How am I doing this????????
+      console.debug("correctState.classErrorOff"); // !!!!!
       break;
-
+    /*
     case correctState.classQuestionOff:
       // clicking question on
       button.className = correctState.classQuestionOn;
@@ -440,9 +446,10 @@ function handleCorrectToggle(
       // delete saved expected value
       delete data[type][index][expectedLabel];
       break;
+    */
   }
 
-  // Redraw table
+  // Redraw table !!!!! Do we need to do this?
   drawTableBody(data, type, tbody, true, button);
 
   const onOff = JSON.parse(button.getAttribute("onOff"));
@@ -454,9 +461,13 @@ function handleCorrectToggle(
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: isPinned,
-    correct: data[type][index][correctLabel],
+    //correct: data[type][index][correctLabel],
     expectedOutput: data[type][index][expectedLabel],
   };
+  console.debug("testCase: " + JSON5.stringify(testCase)); // !!!!
+
+  // !!!! If switching from ErrorOn state, we may not want to wait
+  // until we have an expected value prior to generating a test case
 
   // Disable the control while we wait for the response
   button.disabled = true;
@@ -741,7 +752,7 @@ function drawTableBody(data, type, tbody, isClicking, button) {
         // Add check mark icon
         const cell1 = row.appendChild(document.createElement("td"));
         cell1.innerHTML = correctState.htmlCheck;
-        cell1.setAttribute("correctType", "check");
+        cell1.setAttribute("correctType", "true");
         cell1.addEventListener("click", () =>
           handleCorrectToggle(
             cell1,
@@ -750,14 +761,14 @@ function drawTableBody(data, type, tbody, isClicking, button) {
             type,
             tbody,
             cell1,
-            cell2,
-            cell3
+            cell2
+            //cell3
           )
         );
         // Add X mark icon
         const cell2 = row.appendChild(document.createElement("td"));
         cell2.innerHTML = correctState.htmlError;
-        cell2.setAttribute("correctType", "error");
+        cell2.setAttribute("correctType", "false");
         cell2.addEventListener("click", () =>
           handleCorrectToggle(
             cell2,
@@ -766,11 +777,12 @@ function drawTableBody(data, type, tbody, isClicking, button) {
             type,
             tbody,
             cell1,
-            cell2,
-            cell3
+            cell2
+            //cell3
           )
         );
         // Add question mark icon
+        /*
         const cell3 = row.appendChild(document.createElement("td"));
         cell3.innerHTML = correctState.htmlQuestion;
         cell3.setAttribute("correctType", "question");
@@ -786,31 +798,37 @@ function drawTableBody(data, type, tbody, isClicking, button) {
             cell3
           )
         );
+        */
         // Determine if on or off (set to default initially)
         cell1.className = correctState.classCheckOff;
         cell1.setAttribute("onOff", false);
+
         cell2.className = correctState.classErrorOff;
         cell2.setAttribute("onOff", false);
-        cell3.className = correctState.classQuestionOff;
-        cell3.setAttribute("onOff", false);
-        // Check if any are on
-        switch (e[k]) {
-          case "none":
+        //cell3.className = correctState.classQuestionOff;
+        //cell3.setAttribute("onOff", false);
+
+        // Update the front-end buttons to match the back-end state
+        switch (e[k] + "") {
+          case undefined:
             break;
-          case "check":
+          case "true":
             cell1.className = correctState.classCheckOn;
-            cell1.setAttribute("onOff", true);
+            cell1.setAttribute("onOff", "true");
             handleExpectedOutput(data, type, row, tbody, isClicking, button);
             break;
-          case "error":
+          case "false":
             cell2.className = correctState.classErrorOn;
-            cell2.setAttribute("onOff", true);
+            cell2.setAttribute("onOff", "true");
             handleExpectedOutput(data, type, row, tbody, isClicking, button);
+            // !!!! We should unhide the expected value in the call above
             break;
+          /*
           case "question":
             cell3.className = correctState.classQuestionOn;
             cell3.setAttribute("onOff", true);
             break;
+          */
         }
       } else {
         const cell = row.appendChild(document.createElement("td"));
@@ -843,44 +861,61 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
   const numInputs = resultsData.results[id].input.length;
 
   // If actual output does not match expected output, show expected/actual output
-  if (!sameExpectedOutput(index, type, data, correctType)) {
+  if (correctType + "" === "false") {
     const expectedRow = tbody.appendChild(document.createElement("tr"));
     const cell = expectedRow.appendChild(document.createElement("td"));
     cell.colSpan = row.cells.length;
-    row.cells[numInputs].className = "classErrorCell"; // red box
-    if (correctType === "check") {
-      // If it's marked with a check, show expected/actual output
-      expectedRow.className = "classErrorExpectedOutputRow";
-      cell.innerHTML = `Failed: expected: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
-    } else if (correctType === "error" && isClicking && id === toggledId) {
-      // If it's marked X and it's the row currently being clicked on, ask for operator
-      // type, expected output
+
+    if (isClicking && id === toggledId) {
+      // If marked X and it's the row being clicked on, ask for expected output
       expectedRow.className = "classGetExpectedOutputRow";
       cell.innerHTML = expectedOutputHtml(id, index, data, type);
-      let textField = document.getElementById(`fuzz-expectedOutput${id}`);
-      let radioNotEqual = document.getElementById(`fuzz-radioNotEqual${id}`);
-      let radioEqual = document.getElementById(`fuzz-radioEqual${id}`);
+
+      const textField = document.getElementById(`fuzz-expectedOutput${id}`);
       textField.addEventListener("change", (e) =>
-        handleSaveExpectedOut(e, id, data, type, index)
+        handleSaveExpectedOutput(textField, id, data, type, index)
       );
-      radioNotEqual.addEventListener("change", () =>
-        handleSaveOperator(radioNotEqual, radioEqual, id, data, type, index)
+
+      const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
+      radioTimeout.addEventListener("change", () =>
+        handleSaveExpectedOutput(radioTimeout, id, data, type, index)
       );
-    } else if (correctType === "error") {
-      // If it's marked X but isn't the row currently being clicked on, show expected/
-      // actual output
+
+      const radioException = document.getElementById(
+        `fuzz-radioException${id}`
+      );
+      radioException.addEventListener("change", () =>
+        handleSaveExpectedOutput(radioException, id, data, type, index)
+      );
+
+      const radioValue = document.getElementById(`fuzz-radioValue${id}`);
+      radioValue.addEventListener("change", () =>
+        handleSaveExpectedOutput(radioValue, id, data, type, index)
+      );
+      if (radioValue.getAttribute("current-checked") === "true") {
+        textField.focus();
+      }
+    } else {
+      console.debug("handleExpectedOutput() else branch"); // !!!!!
+      // Marked X but not currently being edited; display expected output
+      row.cells[numInputs].className = "classErrorCell"; // red box
       expectedRow.className = "classErrorExpectedOutputRow";
-      cell.innerHTML = `Failed: expected not: ${data[type][index][expectedLabel]}, but received: ${data[type][index]["output"]}`;
-    }
-  } else if (resultsData.results[id].passedHuman === true) {
-    // If actual output does match expected output
-    if (correctType === "error") {
-      const expectedRow = tbody.appendChild(document.createElement("tr"));
-      const cell = expectedRow.appendChild(document.createElement("td"));
-      cell.colSpan = row.cells.length;
-      expectedRow.className = "classExpectedOutputRow";
-      cell.innerHTML = `Passed: expected not: ${data[type][index][expectedLabel]}, and received: ${data[type][index]["output"]}`;
-    } else if (correctType === "check") {
+      resultsData.results[id];
+
+      const expectedOutput = data[type][index][expectedLabel];
+      if (expectedOutput && expectedOutput.length) {
+        if (expectedOutput[0].isTimeout) {
+          cell.innerHTML = `Failed: expected timeout`;
+        } else if (expectedOutput[0].isException) {
+          cell.innerHTML = `Failed: expected exception`;
+        } else {
+          cell.innerHTML = `Failed: expected output: ${JSON5.stringify(
+            expectedOutput[0].value
+          )}`;
+        }
+      } else {
+        cell.innerHTML = `Failed: expected no output`;
+      }
     }
   }
 }
@@ -895,15 +930,25 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
  * @param type e.g. bad output, passed
  */
 function expectedOutputHtml(id, index, data, type) {
-  const defaultOutput = JSON5.stringify(data[type][index][expectedLabel]);
+  const expectedOutput = data[type][index][expectedLabel];
+  let defaultOutput;
+
+  if (expectedOutput && expectedOutput.length) {
+    defaultOutput = expectedOutput[0];
+  } else {
+    defaultOutput = { value: "" };
+  }
+
+  // prettier-ignore
   let html = /*html*/ `
-    expected to:
+    What is the expected output?
     <vscode-radio-group>
-      <vscode-radio id="fuzz-radioNotEqual${id}" checked >not equal</vscode-radio>
-      <vscode-radio id="fuzz-radioEqual${id}">equal</vscode-radio>
+    <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? "checked" : ""}>Exception thrown</vscode-radio>
+    <vscode-radio id="fuzz-radioTimeout${id}" ${defaultOutput.isTimeout ? "checked" : ""}>Timeout</vscode-radio>
+    <vscode-radio id="fuzz-radioValue${id}" ${!defaultOutput.isTimeout && !defaultOutput.isException ? "checked" : ""} >Literal value (JSON)</vscode-radio>
     </vscode-radio-group> 
 
-    <vscode-text-field id="fuzz-expectedOutput${id}" value=${defaultOutput}>
+    <vscode-text-field id="fuzz-expectedOutput${id}" value=${JSON5.stringify(defaultOutput.value)}>
     </vscode-text-field>
     `;
   return html;
@@ -919,6 +964,7 @@ function expectedOutputHtml(id, index, data, type) {
  * @returns
  */
 function sameExpectedOutput(index, type, data, correctType) {
+  // !!!!!
   const actualOut = data[type][index]["output"];
   const expectedOut = data[type][index][expectedLabel];
 
@@ -934,13 +980,13 @@ function sameExpectedOutput(index, type, data, correctType) {
     expectedType = "string";
   }
 
-  if (correctType === "check") {
+  if (correctType === "true") {
     return actualOut === expectedOut && actualType === expectedType;
-  } else if (correctType === "error") {
+  } else if (correctType === "false") {
     return actualOut !== expectedOut || actualType !== expectedType;
   } else {
   }
-}
+} // fn: sameExpectedOutput()
 
 /**
  * Saves the value of the expected output typed into the text field.
@@ -951,66 +997,57 @@ function sameExpectedOutput(index, type, data, correctType) {
  * @param type e.g. bad output, passed
  * @param index index in `data`
  */
-function handleSaveExpectedOut(e, id, data, type, index) {
-  data[type][index][expectedLabel] =
-    e.currentTarget.getAttribute("current-value");
+function handleSaveExpectedOutput(e, id, data, type, index) {
+  const textField = document.getElementById(`fuzz-expectedOutput${id}`);
+  const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
+  const radioException = document.getElementById(`fuzz-radioException${id}`);
 
-  const testCase = {
-    input: resultsData.results[id].input,
-    output: resultsData.results[id].output,
-    pinned: data[type][index][pinnedLabel],
-    correct: data[type][index][correctLabel],
-    expectedOutput: data[type][index][expectedLabel],
+  // Build the expected output object
+  const expectedOutput = {
+    name: "0",
+    offset: 0,
   };
-
-  // Send the request to the extension
-  window.setTimeout(() => {
-    vscode.postMessage({
-      command: "test.pin",
-      json: JSON5.stringify(testCase),
-    });
-  });
-}
-/**
- * Sends message to backend to save the operator (e.g. not equal, equal)
- * that was selected by the user with the radio buttons.
- *
- * @param radioNotEqual radio button for 'not equal' operator
- * @param radioEqual radio button for 'equal' operator
- * @param id id of row
- * @param data back-end data structure
- * @param type e.g. bad output, passed
- * @param index index in `data`
- */
-function handleSaveOperator(radioNotEqual, radioEqual, id, data, type, index) {
-  let correctType;
-  if (radioNotEqual.getAttribute("current-checked") === "true") {
-    correctType = "check";
-  } else if (radioNotEqual.getAttribute("current-checked") === "false") {
-    correctType = "error";
-  } else if (radioNotEqual.getAttribute("current-checked") === null) {
-    correctType = "error";
-  } else {
-    assert(false);
+  try {
+    textField.classList.add("classErrorCell");
+    const expectedValue = textField.getAttribute("current-value");
+    if (expectedValue === null || expectedValue === "undefined") {
+      expectedOutput["value"] = "undefined";
+    } else {
+      expectedOutput["value"] = JSON5.parse(expectedValue);
+    }
+    textField.classList.remove("classErrorCell");
+  } catch (e) {
+    console.debug(`Error processing user data: ${e.message}`); // !!!!!
+    // continue -- we turned the box red
   }
-  data[type][index][correctLabel] = correctType;
+  if (radioTimeout.checked) {
+    expectedOutput["isTimeout"] = true;
+    textField.classList.remove("classErrorCell");
+  } else if (radioException.checked) {
+    expectedOutput["isException"] = true;
+    textField.classList.remove("classErrorCell");
+  }
 
+  // Update the front-end data structure
+  data[type][index][expectedLabel] = [expectedOutput];
+
+  // Build the test case object
   const testCase = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: data[type][index][pinnedLabel],
-    correct: data[type][index][correctLabel],
+    //correct: data[type][index][correctLabel],
     expectedOutput: data[type][index][expectedLabel],
   };
 
-  // Send the request to the extension
+  // Send the test case to the extension
   window.setTimeout(() => {
     vscode.postMessage({
       command: "test.pin",
       json: JSON5.stringify(testCase),
     });
   });
-}
+} // fn: handleSaveExpectedOutput()
 
 /**
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options

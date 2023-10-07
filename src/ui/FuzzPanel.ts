@@ -275,10 +275,6 @@ export class FuzzPanel {
    * @param pin true=save test; false=unsave test
    */
   private _doTestPinnedCmd(json: string, pin: boolean) {
-    // Get the set of saved tests
-    const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
-      this._getPinnedTests();
-
     // Log the telemetry event
     vscode.commands.executeCommand(
       telemetry.commands.logTelemetry.name,
@@ -288,6 +284,10 @@ export class FuzzPanel {
         [pin ? "saving" : "unsaving", json]
       )
     );
+
+    // Get the set of saved tests
+    const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
+      this._getPinnedTests();
 
     // Update set of saved tests
     const changed = this._updatePinnedSet(json, pinnedSet); // Did we change anything?
@@ -427,20 +427,20 @@ export class FuzzPanel {
   ): boolean {
     let changed = false;
     const currTest: fuzzer.FuzzPinnedTest = JSON5.parse(json);
-    let currInput = JSON5.parse(json).input[0];
-    currInput = JSON5.stringify(currInput);
+    const currInputsJson = JSON5.stringify(currTest.input);
 
-    // If input is already in pinnedSet and should be deleted, delete it
+    // If input is already in pinnedSet, is not pinned, and does not have
+    // an expected value assigned, then delete it
     if (
-      currInput in pinnedSet &&
+      currInputsJson in pinnedSet &&
       !currTest.pinned &&
-      currTest.correct === "none"
+      !currTest.expectedOutput
     ) {
-      delete pinnedSet[currInput];
+      delete pinnedSet[currInputsJson];
       changed = true;
     } else {
       // Else, save to pinnedSet
-      pinnedSet[currInput] = currTest;
+      pinnedSet[currInputsJson] = currTest;
       changed = true;
     }
     return changed;
