@@ -903,12 +903,12 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         handleSaveExpectedOutput(radioValue, id, data, type, index)
       );
       if (radioValue.getAttribute("current-checked") === "true") {
-        textField.focus();
+        textField.focus(); // !!!! Focus is not working
       }
     } else {
       console.debug("handleExpectedOutput() else branch"); // !!!!!
       // Marked X but not currently being edited; display expected output
-      row.cells[numInputs].className = "classErrorCell"; // red box
+      row.cells[numInputs].className = "classErrorCell"; // red wavy underline
       expectedRow.className = "classErrorExpectedOutputRow";
       resultsData.results[id];
 
@@ -957,7 +957,7 @@ function expectedOutputHtml(id, index, data, type) {
     </vscode-radio-group> 
 
     <vscode-text-field id="fuzz-expectedOutput${id}" placeholder="Literal value (JSON)" value=${JSON5.stringify(defaultOutput.value)}>
-    </vscode-text-field>
+    </vscode-text-field> <span id="fuzz-expectedOutputMessage${id}"></span>
   `;
   return html;
 }
@@ -1009,6 +1009,9 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
   const textField = document.getElementById(`fuzz-expectedOutput${id}`);
   const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
   const radioException = document.getElementById(`fuzz-radioException${id}`);
+  const errorMessage = document.getElementById(
+    `fuzz-expectedOutputMessage${id}`
+  );
 
   // Build the expected output object
   const expectedOutput = {
@@ -1017,6 +1020,8 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
   };
   try {
     textField.classList.add("classErrorCell");
+    errorMessage.classList.add("expectedOutputErrorMessage");
+    errorMessage.innerHTML = "invalid; not saved";
     const expectedValue = textField.getAttribute("current-value");
     if (expectedValue === null || expectedValue === "undefined") {
       expectedOutput["value"] = "undefined";
@@ -1024,16 +1029,23 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
       expectedOutput["value"] = JSON5.parse(expectedValue);
     }
     textField.classList.remove("classErrorCell");
+    errorMessage.classList.remove("expectedOutputErrorMessage");
+    errorMessage.innerHTML = "";
   } catch (e) {
     console.debug(`Error processing user data: ${e.message}`); // !!!!!
     // continue -- we turned the box red
   }
+
   if (radioTimeout.checked) {
     expectedOutput["isTimeout"] = true;
     textField.classList.remove("classErrorCell");
+    errorMessage.classList.remove("expectedOutputErrorMessage");
+    errorMessage.innerHTML = "";
   } else if (radioException.checked) {
     expectedOutput["isException"] = true;
     textField.classList.remove("classErrorCell");
+    errorMessage.classList.remove("expectedOutputErrorMessage");
+    errorMessage.innerHTML = "";
   }
 
   // Update the front-end data structure

@@ -89,15 +89,14 @@ td.classQuestionOn {
 }
 
 /* Expected output */
-td.classErrorCell,
-vscode-text-field.classErrorCell {
+td.classErrorCell {
   text-decoration: red underline wavy;
-  /* !!!!
+}
+vscode-text-field.classErrorCell {
   opacity: 100%;
   outline-style: solid;
   outline-width: 0.05cm;
   outline-color: rgb(206, 39, 72);
-  */
 }
 td.classCorrectCell {
   opacity: 100%;
@@ -121,6 +120,11 @@ tr.classErrorExpectedOutputRow {
 tr.classErrorExpectedOutputRow td div {
   display: table-cell;
   vertical-align: middle;
+}
+.expectedOutputErrorMessage {
+  color: red;
+  margin-left: 1em;
+  font-weight: bold;
 }
 
 /** Tooltips: adapted from: https://www.w3schools.com/css/css_tooltip.asp **/
