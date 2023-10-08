@@ -104,9 +104,10 @@ function main() {
     .addEventListener("click", (e) => handleGetListOfValidators(e));
 
   // Load & display the validator functions from the HTML
-  refreshValidators(
-    JSON5.parse(htmlUnescape(document.getElementById("validators").innerHTML))
+  const validators = JSON5.parse(
+    htmlUnescape(document.getElementById("validators").innerHTML)
   );
+  refreshValidators(validators);
 
   // Load column sort orders from the HTML
   let message = JSON5.parse(
@@ -153,12 +154,21 @@ function main() {
       // Indicate which tests are pinned
       const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
       const id = { [idLabel]: idx++ };
+
+      // Human validation expectation and result
       const passedHuman = { [correctLabel]: e.passedHuman };
-      const passedValidator = { [validatorLabel]: e.passedValidator };
       const expectedOutput = {
         [expectedLabel]: e.expectedOutput,
       };
-      const elapsedTimes = {
+
+      // Customer validator result (if a customer validator was used)
+      const passedValidator =
+        validators.validator !== implicitOracleValidatorName
+          ? { [validatorLabel]: e.passedValidator }
+          : {};
+
+      // Test case runtime
+      const elapsedTime = {
         [elapsedTimeLabel]: e.elapsedTime.toFixed(3),
       };
 
