@@ -1088,13 +1088,13 @@ export const ${validatorPrefix}${
       // Number-specific Options
       case fuzzer.ArgTag.NUMBER: {
         // TODO: validate for ints and floats !!!
-        html += /*html*/ `<vscode-text-field ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
           Number(arg.getIntervals()[0].min).toString()
-        )}">Minimum value</vscode-text-field>`;
+        )}">Min value</vscode-text-field>`;
         html += " ";
-        html += /*html*/ `<vscode-text-field ${disabledFlag} id="${idBase}-max" name="${idBase}-max" value="${htmlEscape(
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-max" name="${idBase}-max" value="${htmlEscape(
           Number(arg.getIntervals()[0].max).toString()
-        )}">Maximum value</vscode-text-field>`;
+        )}">Max value</vscode-text-field>`;
         html += " ";
         html +=
           /*html*/
@@ -1112,13 +1112,13 @@ export const ${validatorPrefix}${
       // String-specific Options
       case fuzzer.ArgTag.STRING: {
         // TODO: validate for ints > 0 !!!
-        html += /*html*/ `<vscode-text-field ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().strLength.min.toString()
-        )}">Minimum string length</vscode-text-field>`;
+        )}">Min length</vscode-text-field>`;
         html += " ";
-        html += /*html*/ `<vscode-text-field ${disabledFlag} id="${idBase}-maxStrLen" name="${idBase}-max" value="${htmlEscape(
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxStrLen" name="${idBase}-max" value="${htmlEscape(
           arg.getOptions().strLength.max.toString()
-        )}">Maximum string length</vscode-text-field>`;
+        )}">Max length</vscode-text-field>`;
         break;
       }
 
@@ -1199,13 +1199,13 @@ export const ${validatorPrefix}${
       html +=
         /*html*/
         `<div>
-          <vscode-text-field ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
+          <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
           arg.getOptions().dimLength[dim].min.toString()
-        )}">Array${"[]".repeat(dim + 1)}: min length
+        )}">Array${"[]".repeat(dim + 1)}: Min length
           </vscode-text-field>
-          <vscode-text-field ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${htmlEscape(
+          <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${htmlEscape(
           arg.getOptions().dimLength[dim].max.toString()
-        )}">Array${"[]".repeat(dim + 1)}: max length
+        )}">Max length
           </vscode-text-field>
         </div>`;
     }

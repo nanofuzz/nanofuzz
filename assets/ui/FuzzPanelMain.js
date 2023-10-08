@@ -951,14 +951,14 @@ function expectedOutputHtml(id, index, data, type) {
 
   // prettier-ignore
   let html = /*html*/ `
-    What is the expected output?
+    What is the expected ouput?
     <vscode-radio-group>
-    <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? "checked" : ""}>Exception thrown</vscode-radio>
+    <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? "checked" : ""}>Exception</vscode-radio>
     <vscode-radio id="fuzz-radioTimeout${id}" ${defaultOutput.isTimeout ? "checked" : ""}>Timeout</vscode-radio>
-    <vscode-radio id="fuzz-radioValue${id}" ${!defaultOutput.isTimeout && !defaultOutput.isException ? "checked" : ""} >Literal value (JSON)</vscode-radio>
+    <vscode-radio id="fuzz-radioValue${id}" ${!defaultOutput.isTimeout && !defaultOutput.isException ? "checked" : ""} >Value:</vscode-radio>
     </vscode-radio-group> 
 
-    <vscode-text-field id="fuzz-expectedOutput${id}" value=${JSON5.stringify(defaultOutput.value)}>
+    <vscode-text-field id="fuzz-expectedOutput${id}" placeholder="Literal value (JSON)" value=${JSON5.stringify(defaultOutput.value)}>
     </vscode-text-field>
     `;
   return html;
