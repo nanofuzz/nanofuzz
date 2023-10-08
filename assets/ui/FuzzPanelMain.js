@@ -915,16 +915,14 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
       const expectedOutput = data[type][index][expectedLabel];
       if (expectedOutput && expectedOutput.length) {
         if (expectedOutput[0].isTimeout) {
-          cell.innerHTML = `Failed: expected timeout`;
+          cell.innerHTML = `<div><span class="codicon codicon-person"></span></div> <div>Failed: expected timeout`;
         } else if (expectedOutput[0].isException) {
-          cell.innerHTML = `Failed: expected exception`;
+          cell.innerHTML = `<div><span class="codicon codicon-person"></span></div> <div>Failed: expected exception`;
         } else {
-          cell.innerHTML = `Failed: expected output: ${JSON5.stringify(
+          cell.innerHTML = `<div><span class="codicon codicon-person"></span></div> <div>Failed: expected value: ${JSON5.stringify(
             expectedOutput[0].value
           )}`;
         }
-      } else {
-        cell.innerHTML = `Failed: expected no output`;
       }
     }
   }
@@ -953,14 +951,14 @@ function expectedOutputHtml(id, index, data, type) {
   let html = /*html*/ `
     What is the expected ouput?
     <vscode-radio-group>
-    <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? "checked" : ""}>Exception</vscode-radio>
-    <vscode-radio id="fuzz-radioTimeout${id}" ${defaultOutput.isTimeout ? "checked" : ""}>Timeout</vscode-radio>
-    <vscode-radio id="fuzz-radioValue${id}" ${!defaultOutput.isTimeout && !defaultOutput.isException ? "checked" : ""} >Value:</vscode-radio>
+      <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? "checked" : ""}>Exception</vscode-radio>
+      <vscode-radio id="fuzz-radioTimeout${id}" ${defaultOutput.isTimeout ? "checked" : ""}>Timeout</vscode-radio>
+      <vscode-radio id="fuzz-radioValue${id}" ${!defaultOutput.isTimeout && !defaultOutput.isException ? "checked" : ""} >Value:</vscode-radio>
     </vscode-radio-group> 
 
     <vscode-text-field id="fuzz-expectedOutput${id}" placeholder="Literal value (JSON)" value=${JSON5.stringify(defaultOutput.value)}>
     </vscode-text-field>
-    `;
+  `;
   return html;
 }
 
