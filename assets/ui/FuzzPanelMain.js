@@ -874,7 +874,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
   if (correctType + "" === "false") {
     const expectedRow = tbody.appendChild(document.createElement("tr"));
     const cell = expectedRow.appendChild(document.createElement("td"));
-    cell.colSpan = row.cells.length;
+    cell.colSpan = getColCountForTable(type);
 
     if (isClicking && id === toggledId) {
       // If marked X and it's the row being clicked on, ask for expected output
@@ -1287,6 +1287,23 @@ function handleGetListOfValidators(e) {
     command: "validator.getList",
     json: "{}",
   });
+}
+
+/**
+ * Returns the number of columns in a table
+ *
+ * @param type Table type key
+ * @returns sum of colspans for table header
+ */
+function getColCountForTable(type) {
+  // Get the table header row
+  const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
+  const theadRow = thead.rows[0];
+
+  // Return the sum of the cell colspans
+  return Array.from(theadRow.cells)
+    .map((cell) => cell.colSpan)
+    .reduce((a, b) => a + b, 0);
 }
 
 /**
