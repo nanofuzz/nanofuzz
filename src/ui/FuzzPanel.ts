@@ -31,11 +31,12 @@ export class FuzzPanel {
   private _disposables: vscode.Disposable[] = []; // List of disposables
   private _fuzzEnv: fuzzer.FuzzEnv; // The Fuzz environment this panel represents
   private _state: FuzzPanelState = FuzzPanelState.init; // The current state of the fuzzer.
+  private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
   private _errorMessage?: string; // error state: the error message
-  private _sortColumns?: FuzzSortColumns; // column sort orders
+  private _sortColumns?: fuzzer.FuzzSortColumns; // column sort orders
 
   // ------------------------ Static Methods ------------------------ //
 
@@ -193,6 +194,13 @@ export class FuzzPanel {
     // Handle messages from the webview
     this._setWebviewMessageListener(this._panel.webview);
 
+    // Load & apply any persisted fuzz settings previously persisted
+    const testSet = this._getFuzzTestsForThisFn();
+    this._fuzzEnv.validator = testSet.validator;
+    this._fuzzEnv.options = testSet.options;
+    this._argOverrides = testSet.argOverrides ?? [];
+    _applyArgOverrides(this._fuzzEnv.function, this._argOverrides);
+
     // Set the webview's initial html content
     this._updateHtml();
 
@@ -221,7 +229,10 @@ export class FuzzPanel {
    * @returns A key string that represents the fuzz environment
    */
   public getFnRefKey(): string {
-    return JSON5.stringify(this._fuzzEnv.function);
+    return JSON5.stringify({
+      module: this._fuzzEnv.function.getModule(),
+      fnName: this._fuzzEnv.function.getName(),
+    });
   }
 
   // ----------------------- Message Handling ----------------------- //
@@ -286,52 +297,15 @@ export class FuzzPanel {
     );
 
     // Get the set of saved tests
-    const pinnedSet: Record<string, fuzzer.FuzzPinnedTest> =
-      this._getPinnedTests();
+    const testSet = this._getFuzzTestsForThisFn();
 
     // Update set of saved tests
-    const changed = this._updatePinnedSet(json, pinnedSet); // Did we change anything?
+    const changed = this._updateFuzzTestsForThisFn(json, testSet); // Did we change anything?
 
     // Persist changes
     if (changed) {
-      // Update the pinned tests file
-      // The json file should contain all tests that are pinned and/or have a correct
-      // icon selected
-      const testCount = this._putPinnedTests(pinnedSet);
-
-      // Get the filename of the Jest file
-      const jestFile = jestadapter.getFilename(
-        this._fuzzEnv.function.getModule()
-      );
-
-      if (testCount) {
-        // Generate the Jest test data for CI
-        // The Jest file should contain all tests that are pinned (having only a correct
-        // icon does not count)
-        const jestTests = jestadapter.toString(
-          this._getAllPinnedTests(),
-          this._fuzzEnv.function.getModule(),
-          this._fuzzEnv.options.fnTimeout
-        );
-
-        // Persist the Jest tests for CI
-        try {
-          fs.writeFileSync(jestFile, jestTests);
-        } catch (e: any) {
-          vscode.window.showErrorMessage(
-            `Unable to update test file: ${jestFile} (${e.message})`
-          );
-        }
-      } else {
-        // Delete the test file: it will contain no tests
-        try {
-          fs.rmSync(jestFile);
-        } catch (e: any) {
-          vscode.window.showErrorMessage(
-            `Unable to remove test file: ${jestFile} (${e.message})`
-          );
-        }
-      }
+      // Persist the changes to the pinned tests file
+      this._putFuzzTestsForThisFn(testSet);
     }
   } // fn: _doTestPinnedCmd()
 
@@ -340,7 +314,7 @@ export class FuzzPanel {
    *
    * @returns filename of pinned tests
    */
-  private _getPinnedTestFilename(): string {
+  private _getFuzzTestsFilename(): string {
     let module = this._fuzzEnv.function.getModule();
     module = module.split(".").slice(0, -1).join(".") || module;
     return module + ".nano.test.json";
@@ -351,79 +325,154 @@ export class FuzzPanel {
    *
    * @returns all pinned tests for all functions in the current module
    */
-  private _getAllPinnedTests(): Record<
-    string,
-    Record<string, fuzzer.FuzzPinnedTest>
-  > {
-    const jsonFile = this._getPinnedTestFilename();
+  private _getFuzzTestsForModule(): fuzzer.FuzzTests {
+    const jsonFile = this._getFuzzTestsFilename();
+    let inputTests: fuzzer.FuzzTests;
 
+    // Read the file; if it doesn't exist, load default values
     try {
-      return JSON5.parse(fs.readFileSync(jsonFile).toString());
+      inputTests = JSON5.parse(fs.readFileSync(jsonFile).toString());
     } catch (e: any) {
-      return {};
+      return this._initFuzzTestsForThisFn();
     }
-  } // fn: _getAllPinnedTests()
+
+    // Handle any version conversions needed
+    if ("version" in inputTests) {
+      if (inputTests.version.startsWith("0.2.")) {
+        // v0.2.0 format
+        return inputTests;
+      } else {
+        // unknown format; stop to avoid losing data
+        throw new Error(
+          `Unknown version ${inputTests.version} in test file ${jsonFile}. Delete or rename it to continue.`
+        );
+      }
+    } else {
+      // v0.1.0 format -- convert to v0.2.0 format
+      const testSet = this._initFuzzTestsForThisFn();
+      const fnName = this._fuzzEnv.function.getName();
+      if (fnName in inputTests) {
+        testSet.functions[fnName].tests = inputTests[fnName];
+      }
+      console.info(
+        `Upgraded test set in file ${jsonFile} to ${testSet.version} to current version`
+      );
+      return testSet;
+    }
+  } // fn: _getFuzzTestsForModule()
+
+  /**
+   * Initializes and return a new FuzzTests structure for the current
+   * function under test.
+   *
+   * @returns a new FuzzTests structure for the current function
+   */
+  private _initFuzzTestsForThisFn(): fuzzer.FuzzTests {
+    return {
+      version: "0.2.0", // !!!!!
+      functions: {
+        [this._fuzzEnv.function.getName()]: {
+          options: this._fuzzEnv.options,
+          argOverrides: this._argOverrides,
+          validator: this._fuzzEnv.validator,
+          tests: {},
+        },
+      },
+    };
+  } // fn: _initFuzzTestsForThisFn()
 
   /**
    * Returns the pinned tests for just the current function.
    *
    * @returns pinned tests for the current function
    */
-  private _getPinnedTests(): Record<string, fuzzer.FuzzPinnedTest> {
-    const pinnedSet = this._getAllPinnedTests();
-    const fnName = this._fuzzEnv.function.getName(); // Name of the function being tested
+  private _getFuzzTestsForThisFn(): fuzzer.FuzzTestsFunction {
+    // Get the tests for the entire module
+    const moduleSet = this._getFuzzTestsForModule();
 
-    // Return the pinned tests for the function, if any
-    return fnName in pinnedSet ? pinnedSet[fnName] : {};
-  } // fn: _getPinnedTests()
+    // Return the pinned tests for the function, if it exists
+    const fnName = this._fuzzEnv.function.getName();
+    if (fnName in moduleSet.functions) {
+      return moduleSet.functions[fnName];
+    } else {
+      return this._initFuzzTestsForThisFn().functions[fnName];
+    }
+  } // fn: _getFuzzTestsForThisFn()
 
   /**
    * Persists the pinned tests for the current function.
    *
-   * @param pinnedSet the pinned tests for the current function
-   * @returns the number of pinned tests
+   * @param testSet the pinned tests for the current function
    */
-  private _putPinnedTests(
-    pinnedSet: Record<string, fuzzer.FuzzPinnedTest>
-  ): number {
-    const jsonFile = this._getPinnedTestFilename();
-    const fullSet = this._getAllPinnedTests();
+  private _putFuzzTestsForThisFn(testSet: fuzzer.FuzzTestsFunction): void {
+    const jsonFile = this._getFuzzTestsFilename();
+    const fullSet = this._getFuzzTestsForModule();
 
     // Update the function in the dataset
-    fullSet[this._fuzzEnv.function.getName()] = pinnedSet;
+    fullSet.functions[this._fuzzEnv.function.getName()] = testSet;
 
-    // Count the number of tests
-    let testCount = 0;
-    Object.values(fullSet).forEach((fnTests) => {
-      testCount += Object.keys(fnTests).length;
+    // Count the number of pinned tests for the module
+    let pinnedCount = 0;
+    Object.values(fullSet.functions).forEach((fn) => {
+      pinnedCount += Object.values(fn.tests).filter((e) => e.pinned).length;
     });
 
-    // Persist the pinned tests
+    // Persist the test set
     try {
-      if (testCount) {
-        fs.writeFileSync(jsonFile, JSON5.stringify(fullSet)); // Update the file
-      } else {
-        fs.rmSync(jsonFile); // Delete the file (no data)
-      }
+      fs.writeFileSync(jsonFile, JSON5.stringify(fullSet)); // Update the file
     } catch (e: any) {
       vscode.window.showErrorMessage(
         `Unable to update json file: ${jsonFile} (${e.message})`
       );
     }
 
-    // Return the number of tests persisted
-    return testCount;
-  } // fn: _putPinnedTests()
+    // Get the filename of the Jest file
+    const jestFile = jestadapter.getFilename(
+      this._fuzzEnv.function.getModule()
+    );
+
+    if (pinnedCount) {
+      // Generate the Jest test data for CI
+      // The Jest file should contain all tests that are pinned
+      const jestTests = jestadapter.toString(
+        this._getFuzzTestsForModule(),
+        this._fuzzEnv.function.getModule(),
+        this._fuzzEnv.options.fnTimeout
+      );
+
+      // Persist the Jest tests for CI
+      try {
+        fs.writeFileSync(jestFile, jestTests);
+      } catch (e: any) {
+        vscode.window.showErrorMessage(
+          `Unable to update Jest test file: ${jestFile} (${e.message})`
+        );
+      }
+    } else if (fs.existsSync(jestFile)) {
+      // Delete the test file: it would contain no tests
+      try {
+        fs.rmSync(jestFile);
+      } catch (e: any) {
+        vscode.window.showErrorMessage(
+          `Unable to remove Jest test file: ${jestFile} (${e.message})`
+        );
+      }
+    }
+
+    // Return
+    return;
+  } // fn: _putFuzzTestsForFn
 
   /**
    * Add and/or delete from the set of saved tests. Returns if changed.
+   *
    * @param json current test case
-   * @param pinnedSet set of saved test cases
+   * @param testSet set of saved test cases
    * @returns if changed
    */
-  private _updatePinnedSet(
+  private _updateFuzzTestsForThisFn(
     json: string,
-    pinnedSet: Record<string, fuzzer.FuzzPinnedTest>
+    testSet: fuzzer.FuzzTestsFunction
   ): boolean {
     let changed = false;
     const currTest: fuzzer.FuzzPinnedTest = JSON5.parse(json);
@@ -432,24 +481,25 @@ export class FuzzPanel {
     // If input is already in pinnedSet, is not pinned, and does not have
     // an expected value assigned, then delete it
     if (
-      currInputsJson in pinnedSet &&
+      currInputsJson in testSet.tests &&
       !currTest.pinned &&
       !currTest.expectedOutput
     ) {
-      delete pinnedSet[currInputsJson];
+      delete testSet.tests[currInputsJson];
       changed = true;
     } else {
       // Else, save to pinnedSet
-      pinnedSet[currInputsJson] = currTest;
+      testSet.tests[currInputsJson] = currTest;
       changed = true;
     }
     return changed;
-  }
+  } // fn: _updateFuzzTestsForThisFn()
 
   /**
    * Message handler for the `columns.sort' command.
    */
   private _saveColumnSortOrders(json: string) {
+    console.debug(`Saved column sort order: ${JSON5.stringify(json)}`); // !!!!!
     this._sortColumns = JSON5.parse(json);
   }
 
@@ -603,108 +653,32 @@ export const ${validatorPrefix}${
    */
   private async _doFuzzStartCmd(json: string): Promise<void> {
     const panelInput: {
-      fuzzer: Record<string, any>; // !!! Improve typing
-      args: Record<string, any>; // !!! Improve typing
+      fuzzer: Record<string, number>; // !!! Improve typing
+      args: fuzzer.FuzzArgOverride[]; // !!! Improve typing
     } = JSON5.parse(json);
     const fn = this._fuzzEnv.function;
-    const argsFlat = fn.getArgDefsFlat();
 
     // Apply numeric fuzzer option changes
     ["suiteTimeout", "maxTests", "fnTimeout"].forEach((e) => {
-      if (
-        panelInput.fuzzer[e] !== undefined &&
-        typeof panelInput.fuzzer[e] === "number"
-      ) {
+      if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "number") {
         this._fuzzEnv.options[e] = panelInput.fuzzer[e];
       }
     });
 
-    // Apply argument option changes
-    for (const i in panelInput.args) {
-      const thisOverride = panelInput.args[i];
-      const thisArg = argsFlat[i];
-      if (Number(i) + 1 > argsFlat.length)
-        throw new Error(
-          `FuzzPanel input has ${panelInput.args.length} but the function has ${argsFlat.length}`
-        );
-
-      // Min and max values
-      if (thisOverride.min !== undefined && thisOverride.max !== undefined) {
-        switch (thisArg.getType()) {
-          case fuzzer.ArgTag.NUMBER:
-            thisArg.setIntervals([
-              {
-                min: Number(thisOverride.min),
-                max: Number(thisOverride.max),
-              },
-            ]);
-            break;
-          case fuzzer.ArgTag.BOOLEAN:
-            thisArg.setIntervals([
-              {
-                min: !!thisOverride.min,
-                max: !!thisOverride.max,
-              },
-            ]);
-            break;
-          case fuzzer.ArgTag.STRING:
-            thisArg.setIntervals([
-              {
-                min: thisOverride.min.toString(),
-                max: thisOverride.max.toString(),
-              },
-            ]);
-            break;
-        }
-      }
-
-      // Number is integer
-      if (thisOverride.numInteger !== undefined) {
-        thisArg.setOptions({
-          numInteger: !!thisOverride.numInteger,
-        });
-      }
-
-      // String length min and max
-      if (
-        thisOverride.minStrLen !== undefined &&
-        thisOverride.maxStrLen !== undefined
-      ) {
-        thisArg.setOptions({
-          strLength: {
-            min: Number(thisOverride.minStrLen),
-            max: Number(thisOverride.maxStrLen),
-          },
-        });
-      } // !!! validation
-
-      // Array dimensions
-      if (
-        thisOverride.dimLength !== undefined &&
-        thisOverride.dimLength.length
-      ) {
-        thisOverride.dimLength.forEach((e: fuzzer.Interval<number>) => {
-          if (typeof e === "object" && "min" in e && "max" in e) {
-            e = { min: Number(e.min), max: Number(e.max) };
-          } else {
-            throw new Error(
-              `Invalid interval for array dimensions: ${JSON5.stringify(e)}`
-            );
-          }
-        });
-        thisArg.setOptions({
-          dimLength: thisOverride.dimLength,
-        });
-      }
-    } // for: each argument
+    // Apply the argument overrides from the front-end UI
+    _applyArgOverrides(fn, panelInput.args);
 
     // Update the UI
     this._results = undefined;
     this._state = FuzzPanelState.busy;
     this._updateHtml();
 
-    // Log start of Fuzzing
+    // Save the argument overrides
+    this._argOverrides = panelInput.args;
+
+    // Bounce off the stack and run the fuzzer
     setTimeout(async () => {
+      // Log the start of Fuzzing
       vscode.commands.executeCommand(
         telemetry.commands.logTelemetry.name,
         new telemetry.LoggerEntry(
@@ -716,13 +690,17 @@ export const ${validatorPrefix}${
 
       // Fuzz the function & store the results
       try {
+        // Run the fuzzer
         this._results = await fuzzer.fuzz(
           this._fuzzEnv,
-          Object.values(this._getPinnedTests())
+          Object.values(this._getFuzzTestsForThisFn().tests)
         );
 
+        // Transition to done state
         this._errorMessage = undefined;
         this._state = FuzzPanelState.done;
+
+        // Log the end of fuzzing
         vscode.commands.executeCommand(
           telemetry.commands.logTelemetry.name,
           new telemetry.LoggerEntry(
@@ -731,6 +709,13 @@ export const ${validatorPrefix}${
             [this.getFnRefKey(), JSON5.stringify(this._results)]
           )
         );
+
+        // Persist the fuzz test run settings
+        const testSet = this._getFuzzTestsForThisFn();
+        testSet.options = this._fuzzEnv.options;
+        testSet.validator = this._fuzzEnv.validator;
+        testSet.argOverrides = this._argOverrides;
+        this._putFuzzTestsForThisFn(testSet);
       } catch (e: any) {
         this._state = FuzzPanelState.error;
         this._errorMessage = e.message ?? "Unknown error";
@@ -925,7 +910,7 @@ export const ${validatorPrefix}${
 
     // If we have results, render the output tabs to display the results.
     const tabs = [
-      // !!!! Update & revisit these descriptions
+      // !!!!! Update & revisit these descriptions
       {
         id: "failure",
         name: "Validator Failed",
@@ -1343,6 +1328,90 @@ export function provideCodeLenses(
 } // fn: provideCodeLenses()
 
 /**
+ * Applies a set of argument overrides (e.g., from the UI) to a
+ * function's arguments. E.g., min, max, and so on.
+ *
+ * @param fn Function under test
+ * @param argOverrides Overrides for default argument options
+ */
+function _applyArgOverrides(
+  fn: fuzzer.FunctionDef,
+  argOverrides: fuzzer.FuzzArgOverride[]
+) {
+  // Get the flattened list of function arguments
+  const argsFlat = fn.getArgDefsFlat();
+
+  // Apply argument option changes
+  for (const i in argOverrides) {
+    const thisOverride = argOverrides[i];
+    const thisArg: fuzzer.ArgDef<fuzzer.ArgType> = argsFlat[i];
+    if (Number(i) + 1 > argsFlat.length)
+      throw new Error(
+        `FuzzPanel input has ${
+          Object.entries(argOverrides).length
+        } but the function has ${argsFlat.length}`
+      );
+
+    // Min and max values
+    switch (thisArg.getType()) {
+      case fuzzer.ArgTag.NUMBER:
+        if (thisOverride.number) {
+          // Min / Max
+          thisArg.setIntervals([
+            {
+              min: Number(thisOverride.number.min),
+              max: Number(thisOverride.number.max),
+            },
+          ]);
+          // Number is integer
+          thisArg.setOptions({
+            numInteger: !!thisOverride.number.numInteger,
+          });
+        }
+        break;
+      case fuzzer.ArgTag.BOOLEAN:
+        if (thisOverride.boolean) {
+          // Min / Max
+          thisArg.setIntervals([
+            {
+              min: !!thisOverride.boolean.min,
+              max: !!thisOverride.boolean.max,
+            },
+          ]);
+        }
+        break;
+      case fuzzer.ArgTag.STRING:
+        if (thisOverride.string) {
+          // String length
+          thisArg.setOptions({
+            strLength: {
+              min: Number(thisOverride.string.minStrLen),
+              max: Number(thisOverride.string.maxStrLen),
+            },
+          });
+        }
+        break;
+    }
+
+    // Array dimensions
+    if (thisOverride.array) {
+      thisOverride.array.dimLength.forEach((e: fuzzer.Interval<number>) => {
+        if (typeof e === "object" && "min" in e && "max" in e) {
+          e = { min: Number(e.min), max: Number(e.max) };
+        } else {
+          throw new Error(
+            `Invalid interval for array dimensions: ${JSON5.stringify(e)}`
+          );
+        }
+      });
+      thisArg.setOptions({
+        dimLength: thisOverride.array.dimLength,
+      });
+    }
+  } // for: each argument
+} // fn: _applyArgOverrides()
+
+/**
  * Returns a default set of fuzzer options.
  *
  * @returns default set of fuzzer options
@@ -1435,5 +1504,3 @@ export type FunctionMatch = {
   document: vscode.TextDocument;
   ref: fuzzer.FunctionRef;
 };
-
-export type FuzzSortColumns = Record<string, string>;

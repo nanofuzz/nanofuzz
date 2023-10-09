@@ -135,7 +135,7 @@
         "nanofuzz.argdef.dftDimLength.max": {
           "title": "Maximum array length",
           "type": "number",
-          "default": 10,
+          "default": 4,
           "minimum": 0,
           "description": "Minimum array length generate by default."
         },

@@ -3,7 +3,7 @@ import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
 import { ArgDef } from "./analysis/typescript/ArgDef";
-import { ArgOptions, FunctionRef } from "./analysis/typescript/Types";
+import { FunctionRef } from "./analysis/typescript/Types";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
@@ -12,8 +12,9 @@ import {
   FuzzIoElement,
   FuzzPinnedTest,
   FuzzTestResult,
-  ResultCategory,
+  FuzzResultCategory,
 } from "./Types";
+import { FuzzOptions } from "./Types";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -46,7 +47,7 @@ export const setup = (
   return {
     options: { ...options },
     function: fnList[fnName],
-    //validator: "implicitOracle", !!!! We need to load the validator from the file
+    //validator: ... FuzzPanel loads this and adds it to FuzzEnv later
     validators: getValidators(program),
   };
 }; // fn: setup()
@@ -143,7 +144,7 @@ export const fuzz = async (
       timeout: false,
       passedImplicit: true,
       elapsedTime: 0,
-      category: ResultCategory.OK,
+      category: FuzzResultCategory.OK,
     };
 
     // Before searching, consume the pool of pinned tests
@@ -395,9 +396,9 @@ function actualEqualsExpectedOutput(
  * @param result of the test
  * @returns the category of the result
  */
-export function categorizeResult(result: FuzzTestResult): ResultCategory {
+export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   if (result.validatorException) {
-    return ResultCategory.FAILURE; // Validator failed
+    return FuzzResultCategory.FAILURE; // Validator failed
   }
 
   const implicit = result.passedImplicit ? true : false;
@@ -411,13 +412,13 @@ export function categorizeResult(result: FuzzTestResult): ResultCategory {
     "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
 
   // Returns the type of bad value: execption, timeout, or badvalue
-  const getBadValueType = (result: FuzzTestResult): ResultCategory => {
+  const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
     if (result.exception) {
-      return ResultCategory.EXCEPTION; // PUT threw exception
+      return FuzzResultCategory.EXCEPTION; // PUT threw exception
     } else if (result.timeout) {
-      return ResultCategory.TIMEOUT; // PUT timedout
+      return FuzzResultCategory.TIMEOUT; // PUT timedout
     } else {
-      return ResultCategory.BADVALUE; // PUT returned bad value
+      return FuzzResultCategory.BADVALUE; // PUT returned bad value
     }
   };
 
@@ -428,24 +429,24 @@ export function categorizeResult(result: FuzzTestResult): ResultCategory {
   // then the disagreement is another error.
   if (human === true) {
     if (validator === false) {
-      return ResultCategory.DISAGREE;
+      return FuzzResultCategory.DISAGREE;
     } else {
-      return ResultCategory.OK;
+      return FuzzResultCategory.OK;
     }
   } else if (human === false) {
     if (validator) {
-      return ResultCategory.DISAGREE;
+      return FuzzResultCategory.DISAGREE;
     } else {
       return getBadValueType(result);
     }
   } else {
     if (validator) {
-      return ResultCategory.OK;
+      return FuzzResultCategory.OK;
     } else if (validator === false) {
       return getBadValueType(result);
     } else {
       if (implicit) {
-        return ResultCategory.OK;
+        return FuzzResultCategory.OK;
       } else {
         return getBadValueType(result);
       }
@@ -461,19 +462,6 @@ export type FuzzEnv = {
   function: FunctionDef; // the function to fuzz
   validator?: string; // name of the current validator function (if any)
   validators: FunctionRef[]; // list of the module's functions
-};
-
-/**
- * Fuzzer Options that specify the fuzzing behavior
- */
-export type FuzzOptions = {
-  outputFile?: string; // optional file to receive the fuzzing output (JSON format)
-  argDefaults: ArgOptions; // default options for arguments
-  seed?: string; // optional seed for pseudo-random number generator
-  maxTests: number; // number of fuzzing tests to execute (>= 0)
-  fnTimeout: number; // timeout threshold in ms per test
-  suiteTimeout: number; // timeout for the entire test suite
-  // !!! oracleFn: // TODO The oracle function
 };
 
 /**

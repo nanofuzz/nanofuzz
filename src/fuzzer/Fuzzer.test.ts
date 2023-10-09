@@ -1,4 +1,5 @@
-import { ArgDef, setup, fuzz, FuzzOptions, implicitOracle } from "./Fuzzer";
+import { ArgDef, setup, fuzz, implicitOracle } from "./Fuzzer";
+import { FuzzOptions } from "./Types";
 
 /**
  * Fuzzer option for integer arguments and a seed for deterministic test execution.

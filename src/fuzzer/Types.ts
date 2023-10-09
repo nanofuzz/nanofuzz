@@ -1,3 +1,5 @@
+import { ArgOptions } from "./analysis/typescript/Types";
+
 /**
  * Single Fuzzer Test Result
  */
@@ -18,6 +20,22 @@ export type FuzzTestResult = {
   elapsedTime: number; // elapsed time of test
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: string; // the ResultCategory of the test result
+};
+
+/**
+ * Fuzzer Tests - intended to be persisted a fuzzer configuration and
+ * its tests to the file system
+ */
+export type FuzzTests = {
+  version: string; // version of the fuzzer writing the file
+  functions: Record<string, FuzzTestsFunction>; // fuzzer functions{
+};
+export type FuzzTestsFunction = {
+  options: FuzzOptions; // fuzzer options
+  argOverrides?: FuzzArgOverride[]; // argument overrides
+  validator?: string; // validator function
+  tests: Record<string, FuzzPinnedTest>; // pinned tests
+  // !!!! column sort order
 };
 
 /**
@@ -44,7 +62,7 @@ export type FuzzIoElement = {
 /**
  * Category of a test result
  */
-export enum ResultCategory {
+export enum FuzzResultCategory {
   OK = "ok",
   BADVALUE = "badValue",
   TIMEOUT = "timeout",
@@ -52,3 +70,48 @@ export enum ResultCategory {
   DISAGREE = "disagree",
   FAILURE = "failure", // Validator failure (e.g., threw an exception)
 }
+/**
+ * Fuzzer Options that specify the fuzzing behavior
+ */
+
+export type FuzzOptions = {
+  outputFile?: string; // optional file to receive the fuzzing output (JSON format)
+  argDefaults: ArgOptions; // default options for arguments
+  seed?: string; // optional seed for pseudo-random number generator
+  maxTests: number; // number of fuzzing tests to execute (>= 0)
+  fnTimeout: number; // timeout threshold in ms per test
+  suiteTimeout: number; // timeout for the entire test suite
+};
+
+/**
+ * Column sort orders
+ */
+export type FuzzSortColumns = Record<string, FuzzSortOrder>;
+export enum FuzzSortOrder {
+  asc = "asc",
+  desc = "desc",
+  none = "none",
+}
+
+/**
+ * Fuzzer Argument Override - passed from front-end to back-end
+ * to override the default argument options (e.g., min, max, etc.)
+ */
+export type FuzzArgOverride = {
+  number?: {
+    min: number;
+    max: number;
+    numInteger: boolean;
+  };
+  boolean?: {
+    min: boolean;
+    max: boolean;
+  };
+  string?: {
+    minStrLen: number;
+    maxStrLen: number;
+  };
+  array?: {
+    dimLength: { min: number; max: number }[];
+  };
+};

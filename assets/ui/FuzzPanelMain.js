@@ -366,16 +366,7 @@ function handlePinToggle(id, type, data) {
  * @param cell1 check icon
  * @param cell2 error icon
  */
-function handleCorrectToggle(
-  button,
-  row,
-  data,
-  type,
-  tbody,
-  cell1,
-  cell2
-  //cell3
-) {
+function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
   const id = row.getAttribute("id");
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) throw e("invalid id");
@@ -391,7 +382,6 @@ function handleCorrectToggle(
       data[type][index][correctLabel] = undefined;
       // delete saved expected value
       delete data[type][index][expectedLabel];
-      console.debug("correctState.classCheckOn"); // !!!!!
       break;
 
     case correctState.classErrorOn:
@@ -401,16 +391,7 @@ function handleCorrectToggle(
       data[type][index][correctLabel] = undefined;
       // delete saved expected value
       delete data[type][index][expectedLabel];
-      console.debug("correctState.classErrorOn"); // !!!!!
       break;
-    /*
-    case correctState.classQuestionOn:
-      // clicking question off
-      button.className = correctState.classQuestionOff;
-      button.setAttribute("onOff", false);
-      data[type][index][correctLabel] = "none";
-      break;
-    */
 
     case correctState.classCheckOff:
       // clicking check on
@@ -420,11 +401,8 @@ function handleCorrectToggle(
       // turn others off
       cell2.className = correctState.classErrorOff;
       cell2.setAttribute("onOff", "false");
-      //cell3.className = correctState.classQuestionOff;
-      //cell3.setAttribute("onOff", false);
       //save expected output value
       data[type][index][expectedLabel] = resultsData.results[id].output;
-      console.debug("correctState.classCheckOff"); // !!!!!
 
       break;
 
@@ -436,27 +414,9 @@ function handleCorrectToggle(
       // turn others off
       cell1.className = correctState.classCheckOff;
       cell1.setAttribute("onOff", "false");
-      //cell3.className = correctState.classQuestionOff;
-      //cell3.setAttribute("onOff", false);
       //save expected output value
       // !!!!!data[type][index][expectedLabel] = data[type][index]["output"]; //How am I doing this????????
-      console.debug("correctState.classErrorOff"); // !!!!!
       break;
-    /*
-    case correctState.classQuestionOff:
-      // clicking question on
-      button.className = correctState.classQuestionOn;
-      button.setAttribute("onOff", true);
-      data[type][index][correctLabel] = "question";
-      // turn others off
-      cell1.className = correctState.classCheckOff;
-      cell1.setAttribute("onOff", false);
-      cell2.className = correctState.classErrorOff;
-      cell2.setAttribute("onOff", false);
-      // delete saved expected value
-      delete data[type][index][expectedLabel];
-      break;
-    */
   }
 
   // Redraw table !!!!! Do we need to do this?
@@ -474,10 +434,6 @@ function handleCorrectToggle(
     //correct: data[type][index][correctLabel],
     expectedOutput: data[type][index][expectedLabel],
   };
-  console.debug("testCase: " + JSON5.stringify(testCase)); // !!!!
-
-  // !!!! If switching from ErrorOn state, we may not want to wait
-  // until we have an expected value prior to generating a test case
 
   // Disable the control while we wait for the response
   button.disabled = true;
@@ -831,14 +787,7 @@ function drawTableBody(data, type, tbody, isClicking, button) {
             cell2.className = correctState.classErrorOn;
             cell2.setAttribute("onOff", "true");
             handleExpectedOutput(data, type, row, tbody, isClicking, button);
-            // !!!! We should unhide the expected value in the call above
             break;
-          /*
-          case "question":
-            cell3.className = correctState.classQuestionOn;
-            cell3.setAttribute("onOff", true);
-            break;
-          */
         }
       } else {
         const cell = row.appendChild(document.createElement("td"));
@@ -903,10 +852,9 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         handleSaveExpectedOutput(radioValue, id, data, type, index)
       );
       if (radioValue.getAttribute("current-checked") === "true") {
-        textField.focus(); // !!!! Focus is not working
+        textField.focus(); // !!!!! Focus is not working
       }
     } else {
-      console.debug("handleExpectedOutput() else branch"); // !!!!!
       // Marked X but not currently being edited; display expected output
       row.cells[numInputs].className = "classErrorCell"; // red wavy underline
       expectedRow.className = "classErrorExpectedOutputRow";
@@ -963,40 +911,6 @@ function expectedOutputHtml(id, index, data, type) {
 }
 
 /**
- * If the check mark icon is selected, verify that the actual output and expected output
- * are equal. If the X icon is selected, verify that the actual output and expected output
- * are not equal.
- * @param id
- * @param type
- * @param data
- * @returns
- */
-function sameExpectedOutput(index, type, data, correctType) {
-  // !!!!!
-  const actualOut = data[type][index]["output"];
-  const expectedOut = data[type][index][expectedLabel];
-
-  let actualType, expectedType;
-  try {
-    actualType = typeof JSON.parse(actualOut);
-  } catch (error) {
-    actualType = "string";
-  }
-  try {
-    expectedType = typeof JSON.parse(expectedOut);
-  } catch (error) {
-    expectedType = "string";
-  }
-
-  if (correctType === "true") {
-    return actualOut === expectedOut && actualType === expectedType;
-  } else if (correctType === "false") {
-    return actualOut !== expectedOut || actualType !== expectedType;
-  } else {
-  }
-} // fn: sameExpectedOutput()
-
-/**
  * Saves the value of the expected output typed into the text field.
  *
  * @param e on-change event
@@ -1032,7 +946,7 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
     errorMessage.classList.remove("expectedOutputErrorMessage");
     errorMessage.innerHTML = "";
   } catch (e) {
-    console.debug(`Error processing user data: ${e.message}`); // !!!!!
+    console.debug(`Error processing user data: ${e.message}`);
     // continue -- we turned the box red
   }
 
@@ -1095,60 +1009,61 @@ function handleFuzzStart(e) {
     const thisOverride = {};
     overrides.args.push(thisOverride);
 
-    // Get the min and max values
+    // Get all the possible controls for this argument
     const min = document.getElementById(idBase + "-min");
     const max = document.getElementById(idBase + "-max");
-    if (min !== null && max !== null) {
-      disableArr.push(min, max);
-      const minVal = min.getAttribute("current-value");
-      const maxVal = max.getAttribute("current-value");
-      if (minVal !== undefined && maxVal !== undefined) {
-        thisOverride["min"] = Math.min(Number(minVal), Number(maxVal));
-        thisOverride["max"] = Math.max(Number(minVal), Number(maxVal));
-      }
-    } // TODO: Validation !!!
-
-    // Get the number type
     const numInteger = document.getElementById(idBase + "-numInteger");
-    if (numInteger !== null) {
-      disableArr.push(numInteger);
-      thisOverride["numInteger"] =
-        numInteger.getAttribute("current-checked") === "true" ? true : false;
-    }
-
-    // Get boolean values
     const trueFalse = document.getElementById(idBase + "-trueFalse");
     const trueOnly = document.getElementById(idBase + "-trueOnly");
     const falseOnly = document.getElementById(idBase + "-falseOnly");
-    if (trueFalse !== null && trueOnly !== null && falseOnly !== null) {
-      disableArr.push(trueFalse, trueOnly, falseOnly);
-      thisOverride["min"] =
-        trueOnly.getAttribute("current-checked") === "true" ? true : false;
-      thisOverride["max"] =
-        falseOnly.getAttribute("current-checked") === "true" ? false : true;
-    }
-
-    // Get the string length min and max
     const minStrLen = document.getElementById(idBase + "-minStrLen");
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
+
+    // Process numeric overrides
+    if (numInteger !== null) {
+      disableArr.push(numInteger);
+      thisOverride["number"] = {
+        numInteger:
+          numInteger.getAttribute("current-checked") === "true" ? true : false,
+      };
+      if (min !== null && max !== null) {
+        disableArr.push(min, max);
+        const minVal = min.getAttribute("current-value");
+        const maxVal = max.getAttribute("current-value");
+        if (minVal !== undefined && maxVal !== undefined) {
+          thisOverride.number["min"] = Math.min(Number(minVal), Number(maxVal));
+          thisOverride.number["max"] = Math.max(Number(minVal), Number(maxVal));
+        }
+      }
+    } // TODO: Validation !!!
+
+    // Process boolean overrides
+    if (trueFalse !== null && trueOnly !== null && falseOnly !== null) {
+      disableArr.push(trueFalse, trueOnly, falseOnly);
+      thisOverride["boolean"] = {
+        min: trueOnly.getAttribute("current-checked") === "true" ? true : false,
+        max:
+          falseOnly.getAttribute("current-checked") === "true" ? false : true,
+      };
+    } // TODO: Validation !!!
+
+    // Process string overrides
     if (minStrLen !== null && maxStrLen !== null) {
       disableArr.push(minStrLen, maxStrLen);
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
       if (minStrLenVal !== undefined && maxStrLenVal !== undefined) {
-        thisOverride["minStrLen"] = Math.max(
-          0,
-          Math.min(Number(minStrLenVal), Number(maxStrLenVal))
-        );
-        thisOverride["maxStrLen"] = Math.max(
-          Number(minStrLenVal),
-          Number(maxStrLenVal),
-          0
-        );
+        thisOverride.string = {
+          minStrLen: Math.max(
+            0,
+            Math.min(Number(minStrLenVal), Number(maxStrLenVal))
+          ),
+          maxStrLen: Math.max(Number(minStrLenVal), Number(maxStrLenVal), 0),
+        };
       }
     } // TODO: Validation !!!
 
-    // Get the min and max for each array dimension
+    // Process array dimension overrides
     const dimLength = [];
     let dim = 0;
     let arrayBase = `${idBase}-array-${dim}`;
@@ -1169,7 +1084,9 @@ function handleFuzzStart(e) {
       arrayBase = `${idBase}-array-${++dim}`;
     }
     if (dimLength.length > 0) {
-      thisOverride["dimLength"] = dimLength;
+      thisOverride.array = {
+        dimLength: dimLength,
+      };
     }
   }
 
