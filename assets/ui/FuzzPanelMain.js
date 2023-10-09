@@ -952,7 +952,7 @@ function expectedOutputHtml(id, index, data, type) {
     What is the expected ouput?
     <vscode-radio-group>
       <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? "checked" : ""}>Exception</vscode-radio>
-      <vscode-radio id="fuzz-radioTimeout${id}" ${defaultOutput.isTimeout ? "checked" : ""}>Timeout</vscode-radio>
+      <vscode-radio style="display:none;" id="fuzz-radioTimeout${id}" ${defaultOutput.isTimeout ? "checked" : ""}>Timeout</vscode-radio>
       <vscode-radio id="fuzz-radioValue${id}" ${!defaultOutput.isTimeout && !defaultOutput.isException ? "checked" : ""} >Value:</vscode-radio>
     </vscode-radio-group> 
 
