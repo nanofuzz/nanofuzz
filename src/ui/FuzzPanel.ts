@@ -869,7 +869,7 @@ export const ${validatorPrefix}${
               <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
                 <span class="codicon codicon-add"></span>
               </vscode-button>
-              <vscode-button $disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
+              <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
                 <span class="codicon codicon-refresh"></span>
               </vscode-button>
             </vscode-radio-group>
@@ -1011,6 +1011,7 @@ export const ${validatorPrefix}${
           <div id="validators" style="display:none">
             ${htmlEscape(
               JSON5.stringify({
+                disabled: !!disabledFlag,
                 validator: this._fuzzEnv.validator,
                 validators: this._fuzzEnv.validators.map((e) => e.name),
               })

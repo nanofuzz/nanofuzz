@@ -1178,6 +1178,12 @@ function handleFuzzStart(e) {
     e.style.disabled = true;
   });
 
+  // Disable the validator controls while the Fuzzer runs.
+  const validatorFnGrp = document.getElementById("validatorFunctions");
+  for (const e of validatorFnGrp.children) {
+    e.style.disabled = true;
+  }
+
   // Send the fuzzer start command to the extension
   vscode.postMessage({
     command: "fuzz.start",
@@ -1230,6 +1236,9 @@ function refreshValidators(validatorList) {
       radio.setAttribute("id", `validator-${name}`);
       radio.setAttribute("name", name);
       radio.setAttribute("value", name);
+      if (validatorList.disabled) {
+        radio.setAttribute("disabled", "true");
+      }
       radio.innerHTML = displayName;
       if (name === validatorList.validator) {
         radio.setAttribute("checked", "true");
