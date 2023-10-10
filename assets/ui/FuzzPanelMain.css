@@ -131,7 +131,7 @@ tr.classErrorExpectedOutputRow td div {
 
 .tooltip {
   position: relative;
-  display: inline-block;
+  /*display: inline-block;*/
 }
 
 .tooltip-left .tooltiptext {
@@ -166,12 +166,12 @@ tr.classErrorExpectedOutputRow td div {
   color: #fff;
   text-align: center;
   border-radius: 6px;
-  padding: 5px 0;
+  padding: 5px;
   position: absolute;
   z-index: 1;
-  bottom: 150%;
+  bottom: 60%;
   left: 50%;
-  margin-left: -60px;
+  margin-left: -65px;
 }
 
 .tooltip-top .tooltiptext::after {
@@ -186,6 +186,8 @@ tr.classErrorExpectedOutputRow td div {
 }
 
 .tooltip:hover .tooltiptext {
+  font-weight: var(--vscode-font-weight);
+  font-size: var(--vscode-font-size);
   visibility: visible;
 }
 

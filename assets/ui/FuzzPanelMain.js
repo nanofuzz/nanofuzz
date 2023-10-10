@@ -233,8 +233,8 @@ function main() {
           } else if (k === correctLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
-            cell.className = "colorColumn";
-            cell.innerHTML = `<big><span class="codicon codicon-person"></span></big>`;
+            cell.classList.add("colorColumn", "tooltip-top", "tooltip");
+            cell.innerHTML = `<span class="codicon codicon-person"></span><span class="tooltiptext">Manually mark outputs as correct or incorrect</span>`;
             cell.colSpan = 2;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
@@ -242,8 +242,8 @@ function main() {
           } else if (k === validatorLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
-            cell.className = "colorColumn";
-            cell.innerHTML = `<big><span class="codicon codicon-hubot"></span></big>`;
+            cell.classList.add("colorColumn", "tooltip-top", "tooltip");
+            cell.innerHTML = `<span class="codicon codicon-hubot"></span></span><span class="tooltiptext">Automatic result of custom validator</span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -595,7 +595,8 @@ function resetOtherColumnArrows(hRow, type, thisCol, data) {
     }
     // Reset the column arrow to 'none'
     delete columnSortOrders[type][col];
-    cell.setAttribute("class", "columnSortNone");
+    cell.classList.remove("columnSortAsc");
+    cell.classList.remove("columnSortDesc");
     ++hRowIdx;
   }
 }
@@ -641,13 +642,16 @@ function updateColumnArrow(cell, type, col, isClicking) {
   // Set attribute to display appropriate arrow
   switch (currOrder) {
     case "asc":
-      cell.setAttribute("class", "columnSortAsc");
+      cell.classList.add("columnSortAsc");
+      cell.classList.remove("columnSortDesc");
       break;
     case "desc":
-      cell.setAttribute("class", "columnSortDesc");
+      cell.classList.add("columnSortDesc");
+      cell.classList.remove("columnSortAsc");
       break;
     case "none":
-      cell.setAttribute("class", "columnSortNone");
+      cell.classList.remove("columnSortDesc");
+      cell.classList.remove("columnSortAsc");
       break;
     default:
       assert(false); // shouldn't get here
