@@ -403,11 +403,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
 
   const implicit = result.passedImplicit ? true : false;
   const validator =
-    "passedValidator" in result
-      ? result.passedValidator
-        ? true
-        : false
-      : undefined;
+    "passedValidator" in result ? result.passedValidator : undefined;
   const human =
     "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
 
@@ -434,13 +430,13 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
       return FuzzResultCategory.OK;
     }
   } else if (human === false) {
-    if (validator) {
+    if (validator === true) {
       return FuzzResultCategory.DISAGREE;
     } else {
       return getBadValueType(result);
     }
   } else {
-    if (validator) {
+    if (validator === true) {
       return FuzzResultCategory.OK;
     } else if (validator === false) {
       return getBadValueType(result);

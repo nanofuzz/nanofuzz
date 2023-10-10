@@ -558,9 +558,9 @@ export class FuzzPanel {
  *  - ${"`"}undefined${"`"} indicates the custom validator could not decide.` 
  + (hasImport ? "" : npmInstruction) + `
  */
-export const ${validatorPrefix}${
+export function ${validatorPrefix}${
         fnCounter === 0 ? "" : fnCounter
-      } = (result: FuzzTestResult): FuzzTestResult => {
+      }(result: FuzzTestResult): FuzzTestResult {
   if(result.timeout) {
     // Mark as passed any inputs where timeouts are expected
     // result.passedValidator = true;
