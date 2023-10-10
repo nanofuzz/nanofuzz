@@ -11,11 +11,7 @@ import * as path from "path";
  * @param timeout timeout for each test in ms
  * @returns string containing the Jest test suite for this module
  */
-export const toString = (
-  testSet: FuzzTests,
-  module: string,
-  timeout: number // !!!!! Should be at the fn level, not the module level
-): string => {
+export const toString = (testSet: FuzzTests, module: string): string => {
   const jestData: string[] = [];
   const moduleFn = path.basename(module).split(".").slice(0, -1).join("."); // remove .ts/.tsx
   const result: FuzzTestResult = {
@@ -74,6 +70,7 @@ export const toString = (
   // Generate a Jest test for each saved test
   for (const fn in testSet.functions) {
     const thisFn = testSet.functions[fn];
+    const timeout = thisFn.options.fnTimeout;
     let i = -1;
     for (const testId in thisFn.tests) {
       const thisTest = thisFn.tests[testId];

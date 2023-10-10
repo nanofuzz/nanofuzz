@@ -436,8 +436,7 @@ export class FuzzPanel {
       // The Jest file should contain all tests that are pinned
       const jestTests = jestadapter.toString(
         this._getFuzzTestsForModule(),
-        this._fuzzEnv.function.getModule(),
-        this._fuzzEnv.options.fnTimeout
+        this._fuzzEnv.function.getModule()
       );
 
       // Persist the Jest tests for CI
