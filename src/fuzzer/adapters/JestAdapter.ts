@@ -87,8 +87,6 @@ export const toString = (testSet: FuzzTests, module: string): string => {
           inputStr += JSON5.stringify(e);
         });
 
-      // TODO Add logic to support custom validator functions !!!!!
-
       // Human-annotated expected output
       const expectedOutput = thisTest.expectedOutput;
       if (expectedOutput && expectedOutput.length) {

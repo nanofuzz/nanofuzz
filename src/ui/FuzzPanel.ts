@@ -199,6 +199,7 @@ export class FuzzPanel {
     this._fuzzEnv.validator = testSet.validator;
     this._fuzzEnv.options = testSet.options;
     this._argOverrides = testSet.argOverrides ?? [];
+    this._sortColumns = testSet.sortColumns;
     _applyArgOverrides(this._fuzzEnv.function, this._argOverrides);
 
     // Set the webview's initial html content
@@ -498,7 +499,6 @@ export class FuzzPanel {
    * Message handler for the `columns.sort' command.
    */
   private _saveColumnSortOrders(json: string) {
-    console.debug(`Saved column sort order: ${JSON5.stringify(json)}`); // !!!!!
     this._sortColumns = JSON5.parse(json);
   }
 
@@ -709,11 +709,12 @@ export function ${validatorPrefix}${
           )
         );
 
-        // Persist the fuzz test run settings
+        // Persist the fuzz test run settings (!!! validation)
         const testSet = this._getFuzzTestsForThisFn();
         testSet.options = this._fuzzEnv.options;
         testSet.validator = this._fuzzEnv.validator;
         testSet.argOverrides = this._argOverrides;
+        testSet.sortColumns = this._sortColumns;
         this._putFuzzTestsForThisFn(testSet);
       } catch (e: any) {
         this._state = FuzzPanelState.error;

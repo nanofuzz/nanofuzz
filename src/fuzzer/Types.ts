@@ -33,9 +33,9 @@ export type FuzzTests = {
 export type FuzzTestsFunction = {
   options: FuzzOptions; // fuzzer options
   argOverrides?: FuzzArgOverride[]; // argument overrides
+  sortColumns?: FuzzSortColumns; // column sort order
   validator?: string; // validator function
   tests: Record<string, FuzzPinnedTest>; // pinned tests
-  // !!!! column sort order
 };
 
 /**
@@ -84,9 +84,12 @@ export type FuzzOptions = {
 };
 
 /**
- * Column sort orders
+ * Column sort orders by FuzzResultCategory and column name
  */
-export type FuzzSortColumns = Record<string, FuzzSortOrder>;
+export type FuzzSortColumns = Record<
+  FuzzResultCategory,
+  Record<string, FuzzSortOrder>
+>;
 export enum FuzzSortOrder {
   asc = "asc",
   desc = "desc",
