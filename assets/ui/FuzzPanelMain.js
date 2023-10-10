@@ -36,28 +36,23 @@ const implicitOracleValidatorName = "none";
 const correctState = {
   htmlCheck: `<span class="codicon codicon-pass"></span>`, // check in circle
   htmlError: `<span class="codicon codicon-error"></span>`, // X in circle
-  //htmlQuestion: `<span class="codicon codicon-question"></span>`, // ? in circle
-
   classCheckOn: "classCheckOn",
   classCheckOff: "classCheckOff",
   classErrorOn: "classErrorOn",
   classErrorOff: "classErrorOff",
-  //classQuestionOn: "classQuestionOn",
-  //classQuestionOff: "classQuestionOff",
 };
 
-// Correct icon sorting values
-const correctVals = {
-  check: 0,
-  error: 1,
-  //question: 2,
-  none: 3,
+// Correct icon sorting validator results
+const validatorResult = {
+  true: 3,
+  false: 2,
+  undefined: 1,
 };
 
 // Sort order for each grid and column
 const sortOrder = ["asc", "desc", "none"];
 function getDefaultColumnSortOrder() {
-  return { pinned: "desc" };
+  return { [pinnedLabel]: "desc", [correctLabel]: "desc" };
 }
 const defaultColumnSortOrders = {
   failure: {}, // no pinned column
@@ -110,21 +105,16 @@ function main() {
   refreshValidators(validators);
 
   // Load column sort orders from the HTML
-  let message = JSON5.parse(
+  columnSortOrders = JSON5.parse(
     htmlUnescape(document.getElementById("fuzzSortColumns").innerHTML)
   );
-  if (Object.keys(message).length === 0) {
+  if (Object.keys(columnSortOrders).length === 0) {
     columnSortOrders = defaultColumnSortOrders;
-  } else {
-    columnSortOrders = JSON.parse(JSON.stringify(message));
   }
 
   // Listen for messages from the extension
   window.addEventListener("message", (event) => {
     const { command, json } = event.data;
-    console.debug(
-      "Message received: " + JSON5.stringify(command) + ": " + json
-    );
     switch (command) {
       case "validator.list":
         refreshValidators(JSON5.parse(json));
@@ -233,7 +223,6 @@ function main() {
             cell.style = "text-align: center";
             cell.className = "fuzzGridCellPinned";
             cell.innerHTML = `<big>pin</big>`;
-            cell.setAttribute("class", "columnSortDesc");
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -243,6 +232,7 @@ function main() {
             // noop
           } else if (k === correctLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
+            cell.style = "text-align: center";
             cell.className = "colorColumn";
             cell.innerHTML = `<big><span class="codicon codicon-person"></span></big>`;
             cell.colSpan = 2;
@@ -251,6 +241,7 @@ function main() {
             });
           } else if (k === validatorLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
+            cell.style = "text-align: center";
             cell.className = "colorColumn";
             cell.innerHTML = `<big><span class="codicon codicon-hubot"></span></big>`;
             cell.addEventListener("click", () => {
@@ -323,7 +314,6 @@ function handlePinToggle(id, type, data) {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: data[type][index][pinnedLabel],
-    //correct: data[type][index][correctLabel],
   };
   if (data[type][index][expectedLabel]) {
     testCase.expectedOutput = data[type][index][expectedLabel];
@@ -431,7 +421,6 @@ function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: isPinned,
-    //correct: data[type][index][correctLabel],
     expectedOutput: data[type][index][expectedLabel],
   };
 
@@ -471,112 +460,116 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
   // We are only explicitly sorting by one column at a time (with the pinned and correct
   // columns being special cases)
   // Reset the other column arrows to 'none'
-  if (isClicking) resetOtherColumnArrows(hRow, type, column, data);
+  if (isClicking) {
+    resetOtherColumnArrows(hRow, type, column, data);
+  }
+
+  // Update the sort arrow for this column
   updateColumnArrow(cell, type, column, isClicking);
 
-  // If we're toggling, sort based on column 'col'.
-  // Otherwise, we also need to sort based on column 'correct output?' and 'pinned'.
-  const cols = [column];
-  if (!isClicking && type !== "failure") {
-    cols.push(correctLabel, pinnedLabel);
-  }
-  for (const col of cols) {
-    data[type].sort((a, b) => {
-      // Ascending, descending, or none?
-      // If none, return; if descending, switch a and b
-      if (columnSortOrders[type][col] == "none") {
-        return;
-      } else if (columnSortOrders[type][col] == "desc") {
-        let temp = a;
-        a = b;
-        b = temp;
-      }
-      // Determine type of object
-      var aType;
-      try {
-        aType = typeof JSON.parse(a[col]);
-      } catch (error) {
-        aType = "string";
-      }
-      // Save original strings (to break ties alphabetically)
-      var aVal = a[col],
-        bVal = b[col];
+  // Sort the current column value based on the sort order
+  const sortFn = (a, b, thisCol) => {
+    // Ascending, descending, or none?
+    // If none, return; if descending, switch a and b
+    if (columnSortOrders[type][thisCol] == "none") {
+      return 0;
+    } else if (columnSortOrders[type][thisCol] == "desc") {
+      const temp = a;
+      a = b;
+      b = temp;
+    }
 
-      // How are we sorting?
+    // Determine type of object
+    let aType;
+    try {
+      aType = typeof JSON.parse(a[thisCol]);
+    } catch (error) {
+      aType = "string";
+    }
+
+    // Save original strings (to break ties alphabetically)
+    let aVal = (a[thisCol] ?? "undefined") + "";
+    let bVal = (b[thisCol] ?? "undefined") + "";
+
+    // How are we sorting?
+    if (thisCol === correctLabel || thisCol === validatorLabel) {
+      // Sort by numerical values in validatorResult map.
+      a = validatorResult[(a[thisCol] ?? "undefined") + ""];
+      b = validatorResult[(b[thisCol] ?? "undefined") + ""];
+    } else {
       switch (aType) {
-        case "string":
-          if (col === correctLabel) {
-            // Sort by numerical values
-            // "check": 0, "error": 1, "question": 2, "none": 3
-            a = correctVals[a[correctLabel]];
-            b = correctVals[b[correctLabel]];
-          } else {
-            // Sort by length, break ties alphabetically
-            a = (a[col] ?? "").length;
-            b = (b[col] ?? "").length;
-          }
-          break;
-        case "boolean":
-          // Sort alphabetically
-          a = a[col];
-          b = b[col];
-          break;
         case "number":
           // Sort numerically
-          a = Number(a[col]);
-          b = Number(b[col]);
+          a = Number(a[thisCol]);
+          b = Number(b[thisCol]);
           break;
         case "object":
           // Sort by length
-          if (a[col].length) {
-            a = a[col].length;
-            b = b[col].length;
+          if (a[thisCol].length) {
+            a = a[thisCol].length;
+            b = b[thisCol].length;
             // If numerical values, break ties based on number
             try {
-              aVal = JSON.parse(a[col]);
-              bVal = JSON.parse(b[col]);
+              aVal = JSON.parse(a[thisCol]);
+              bVal = JSON.parse(b[thisCol]);
             } catch (error) {
               // noop
               // If not numerical values, break ties alphabetically
             }
           } else {
-            a = Object.keys(a[col]).length;
-            b = Object.keys(b[col]).length;
-            break;
+            a = Object.keys(a[thisCol]).length;
+            b = Object.keys(b[thisCol]).length;
           }
+          break;
+        default:
+          // Sort as string by length, break ties alphabetically
+          a = (a[thisCol] ?? "").length;
+          b = (b[thisCol] ?? "").length;
+          break;
       }
+    }
 
-      // Compare values and sort
-      if (a === b) {
-        if (aVal === bVal) {
-          return 0; // a = b
-        } else if (aVal > bVal) {
-          // break tie
-          return 2;
-        } else {
-          // break tie
-          return -2;
-        }
-      } else if (a > b) {
-        return 2; // a > b
+    // Compare values and sort
+    if (a === b) {
+      if (aVal === bVal) {
+        return 0; // a = b
+      } else if (aVal > bVal) {
+        // break tie
+        return 2;
       } else {
-        return -2; // a < b
+        // break tie
+        return -2;
       }
-    });
-  }
+    } else if (a > b) {
+      return 2; // a > b
+    } else {
+      return -2; // a < b
+    }
+  }; // fn: sortFn()
+
+  // Sort the table data in order of the sort columns such
+  // that the next column is a tiebreaker for the current column
+  data[type].sort((a, b) => {
+    for (const thisCol of Object.keys(columnSortOrders[type])) {
+      const result = sortFn(a, b, thisCol);
+      if (result !== 0) {
+        return result;
+      }
+    }
+    return 0; // a = b for all columns
+  });
 
   // Sorting done, display table
   drawTableBody(data, type, tbody, false);
 
-  // Send message to extension (so that the sort order is retained if you click
-  // 'Test' again)
+  // Send message to extension to retain sort order
   if (isClicking) {
     vscode.postMessage({
       command: "columns.sorted",
       json: JSON5.stringify(columnSortOrders),
     });
   }
-} // fn: handleColumnSort`
+} // fn: handleColumnSort
 
 /**
  * For a given type, set columns arrows to 'none', unless the column is
@@ -601,7 +594,7 @@ function resetOtherColumnArrows(hRow, type, thisCol, data) {
       continue;
     }
     // Reset the column arrow to 'none'
-    columnSortOrders[type][col] = "none";
+    delete columnSortOrders[type][col];
     cell.setAttribute("class", "columnSortNone");
     ++hRowIdx;
   }
@@ -620,9 +613,9 @@ function resetOtherColumnArrows(hRow, type, thisCol, data) {
 function updateColumnArrow(cell, type, col, isClicking) {
   // Pinned column is a special case -- will always check at the end to see if it wants
   // the pinned column sorted in a certain way. That arrow should be displayed.
-
   let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
   let currIndex = -1;
+
   // Here, currIndex represents an index of sortOrder = ['asc','desc','none']
   if (!currOrder) {
     // If currOrder is undefined, either return or set currOrder to default value 'asc'
@@ -661,7 +654,11 @@ function updateColumnArrow(cell, type, col, isClicking) {
   }
 
   if (isClicking) {
-    columnSortOrders[type][col] = sortOrder[currIndex];
+    if (currOrder === "none") {
+      delete columnSortOrders[type][col];
+    } else {
+      columnSortOrders[type][col] = currOrder;
+    }
   }
 } //fn: updateColumnArrows
 
