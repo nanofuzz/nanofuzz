@@ -49,7 +49,11 @@ export class FuzzPanel {
    * @param env FuzzEnv for which to display or create the FuzzPanel
    */
   public static render(extensionUri: vscode.Uri, env: fuzzer.FuzzEnv): void {
-    const fnRef = JSON5.stringify(env.function);
+    // Differentiate panels by the module and function under test
+    const fnRef = JSON5.stringify({
+      module: env.function.getModule(),
+      fnName: env.function.getName(),
+    });
 
     // If we already have a panel for this fuzz env, show it.
     if (fnRef in FuzzPanel.currentPanels) {
@@ -1285,7 +1289,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
     fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
   } catch (e: any) {
     vscode.window.showErrorMessage(
-      `Could not find or does not support this function. Messge: "${e.message}"`
+      `NaNofuzz could not find or does not support this function. Messge: "${e.message}"`
     );
     return;
   }
