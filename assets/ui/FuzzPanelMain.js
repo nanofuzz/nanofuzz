@@ -430,8 +430,8 @@ function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
       // turn others off
       cell1.className = correctState.classCheckOff;
       cell1.setAttribute("onOff", "false");
-      //save expected output value
-      // !!!!!data[type][index][expectedLabel] = data[type][index]["output"]; //How am I doing this????????
+      // save expected output value
+      data[type][index][expectedLabel] = resultsData.results[id].output;
       break;
   }
 
@@ -821,7 +821,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
 
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) {
-    throw e("invalid id");
+    throw new Error("invalid id");
   }
   const correctType = data[type][index][correctLabel];
   const numInputs = resultsData.results[id].input.length;
@@ -837,16 +837,19 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
       expectedRow.className = "classGetExpectedOutputRow";
       cell.innerHTML = expectedOutputHtml(id, index, data, type);
 
+      // Event handler for text field
       const textField = document.getElementById(`fuzz-expectedOutput${id}`);
       textField.addEventListener("change", (e) =>
         handleSaveExpectedOutput(textField, id, data, type, index)
       );
 
+      // Event handler for timeout radio button
       const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
       radioTimeout.addEventListener("change", () =>
         handleSaveExpectedOutput(radioTimeout, id, data, type, index)
       );
 
+      // Event handler for exception radio button
       const radioException = document.getElementById(
         `fuzz-radioException${id}`
       );
@@ -854,13 +857,18 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         handleSaveExpectedOutput(radioException, id, data, type, index)
       );
 
+      // Event handler for value radio button
       const radioValue = document.getElementById(`fuzz-radioValue${id}`);
       radioValue.addEventListener("change", () =>
         handleSaveExpectedOutput(radioValue, id, data, type, index)
       );
-      if (radioValue.getAttribute("current-checked") === "true") {
-        textField.focus(); // !!!!! Focus is not working
-      }
+
+      // Bounce & give focus to the value field if the value radio is selected
+      window.setTimeout(() => {
+        if (radioValue.checked) {
+          textField.focus();
+        }
+      });
     } else {
       // Marked X but not currently being edited; display expected output
       row.cells[numInputs].className = "classErrorCell"; // red wavy underline
@@ -906,9 +914,9 @@ function expectedOutputHtml(id, index, data, type) {
   let html = /*html*/ `
     What is the expected ouput?
     <vscode-radio-group>
-      <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? "checked" : ""}>Exception</vscode-radio>
-      <vscode-radio style="display:none;" id="fuzz-radioTimeout${id}" ${defaultOutput.isTimeout ? "checked" : ""}>Timeout</vscode-radio>
-      <vscode-radio id="fuzz-radioValue${id}" ${!defaultOutput.isTimeout && !defaultOutput.isException ? "checked" : ""} >Value:</vscode-radio>
+      <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? " checked " : ""}>Exception</vscode-radio>
+      <vscode-radio class="hidden" id="fuzz-radioTimeout${id}" ${defaultOutput.isTimeout ? " checked " : ""}>Timeout</vscode-radio>
+      <vscode-radio id="fuzz-radioValue${id}" ${!defaultOutput.isTimeout && !defaultOutput.isException ? " checked " : ""} >Value:</vscode-radio>
     </vscode-radio-group> 
 
     <vscode-text-field id="fuzz-expectedOutput${id}" placeholder="Literal value (JSON)" value=${JSON5.stringify(defaultOutput.value)}>
@@ -944,7 +952,7 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
     errorMessage.classList.add("expectedOutputErrorMessage");
     errorMessage.innerHTML = "invalid; not saved";
     const expectedValue = textField.getAttribute("current-value");
-    if (expectedValue === null) {
+    if (expectedValue === null || expectedValue === "undefined") {
       expectedOutput["value"] = undefined;
     } else {
       expectedOutput["value"] = JSON5.parse(expectedValue);
