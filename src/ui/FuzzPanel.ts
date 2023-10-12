@@ -851,7 +851,7 @@ export function ${validatorPrefix}${
               <span class="codicon codicon-debug"></span>
               <span class="tooltiptext">
                 NaNofuzz will categorize the following as likely-incorrect outputs: timeout, exception, null, undefined, Infinity, NaN. 
-                This default may be overridden by either of the other two validators.
+                This judgement may be overridden by either of the other two validators.
               </span>
             </span>
             <span class="tooltip tooltip-top">
@@ -933,34 +933,34 @@ export function ${validatorPrefix}${
       {
         id: "failure",
         name: "Validator Failed",
-        description: `For these inputs, the validator function (${
+        description: `For these inputs, the custom validator function (${
           this._fuzzEnv.validator ?? ""
         }) threw an exception. You should fix the bug in the validator and start the fuzzer again.`,
       },
       {
         id: "disagree",
         name: "Disagreements",
-        description: `For these inputs, the validator function (<span class="codicon codicon-hubot"></span>) and the human validation (<span class="codicon codicon-person"></span>) disagree about correctness. Either correct the validation function or the human annotation.`,
+        description: `For these inputs, the validator function (<span class="codicon codicon-hubot"></span>) and the human validation (<span class="codicon codicon-person"></span>) disagree about correctness. Either correct the validation function or the human validation.`,
       },
       {
         id: "timeout",
         name: "Timeouts",
-        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator or human annotation marked them as correct:`,
+        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator categorized them as correct.`,
       },
       {
         id: "exception",
         name: "Exceptions",
-        description: `These inputs resulted in a runtime exception, and no validator or human annotation marked them as correct:`,
+        description: `These inputs resulted in a runtime exception, and no validator categorized them as correct.`,
       },
       {
         id: "badValue",
         name: "Invalid outputs",
-        description: `These outputs contain: null, NaN, Infinity, undefined, and no validator or human annotation marked them as correct:`,
+        description: `These inputs were categorized by a validator as likely being incorrect. NaNofuzz by default will categorize outputs as invalid that contain null, NaN, Infinity, or undefined if no other validator categorizes them as correct.`,
       },
       {
         id: "ok",
         name: "Passed",
-        description: `These match the expected output values:`,
+        description: `No validator categorized these outputs as incorrect, or a validator categorized them as correct.`,
       },
     ];
     tabs.forEach((e) => {

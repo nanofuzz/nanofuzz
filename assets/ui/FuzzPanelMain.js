@@ -180,7 +180,8 @@ function main() {
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
       if (e.validatorException) {
-        outputs[`output`] = e.validatorExceptionMessage;
+        outputs[`output`] =
+          "(validator exception) " + e.validatorExceptionMessage;
       } else if (e.exception) {
         outputs[`output`] = "(exception) " + e.exceptionMessage;
       }
