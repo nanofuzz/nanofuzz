@@ -233,8 +233,8 @@ function main() {
           } else if (k === correctLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
-            cell.classList.add("colorColumn", "tooltip-top", "tooltip");
-            cell.innerHTML = `<span class="codicon codicon-person"></span><span class="tooltiptext">Manually mark outputs as correct or incorrect</span>`;
+            cell.classList.add("colorColumn");
+            cell.innerHTML = `<span class="codicon codicon-person"></span>`;
             cell.colSpan = 2;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
@@ -242,8 +242,8 @@ function main() {
           } else if (k === validatorLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
-            cell.classList.add("colorColumn", "tooltip-top", "tooltip");
-            cell.innerHTML = `<span class="codicon codicon-hubot"></span></span><span class="tooltiptext">Automatic result of custom validator</span>`;
+            cell.classList.add("colorColumn");
+            cell.innerHTML = `<span class="codicon codicon-hubot"></span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
