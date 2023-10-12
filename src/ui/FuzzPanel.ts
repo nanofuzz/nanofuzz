@@ -954,7 +954,7 @@ export function ${validatorPrefix}${
       {
         id: "disagree",
         name: "Disagreements",
-        description: `For these inputs, the validator function (<span class="codicon codicon-hubot"></span>) and the human validation (<span class="codicon codicon-person"></span>) disagree about correctness. Either correct the validation function or the human validation.`,
+        description: `For these inputs, the validator function (<span class="codicon codicon-hubot"></span>) and the manual validation (<span class="codicon codicon-person"></span>) disagree about correctness. Either correct the validation function or correct the manual validation.`,
       },
       {
         id: "timeout",

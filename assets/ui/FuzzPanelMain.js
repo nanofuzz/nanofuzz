@@ -19,6 +19,7 @@ const idLabel = "id";
 const correctLabel = "correct output?";
 const expectedLabel = "expectedOutput";
 const validatorLabel = "validator";
+const implicitLabel = "implicit";
 const elapsedTimeLabel = "running time (ms)";
 
 // Pin button states
@@ -145,6 +146,9 @@ function main() {
       const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
       const id = { [idLabel]: idx++ };
 
+      // Implicit validation result
+      const passedImplicit = { [implicitLabel]: e.passedImplicit };
+
       // Human validation expectation and result
       const passedHuman = { [correctLabel]: e.passedHuman };
       const expectedOutput = {
@@ -202,6 +206,7 @@ function main() {
           ...inputs,
           ...outputs,
           //...elapsedTimes,
+          ...passedImplicit,
           ...passedValidator,
           ...passedHuman,
           ...pinned,
@@ -231,12 +236,11 @@ function main() {
             // noop
           } else if (k === expectedLabel) {
             // noop
-          } else if (k === correctLabel) {
+          } else if (k === implicitLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
             cell.classList.add("colorColumn");
-            cell.innerHTML = `<span class="codicon codicon-person"></span>`;
-            cell.colSpan = 2;
+            cell.innerHTML = `<span class="codicon codicon-debug"></span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -245,6 +249,15 @@ function main() {
             cell.style = "text-align: center";
             cell.classList.add("colorColumn");
             cell.innerHTML = `<span class="codicon codicon-hubot"></span>`;
+            cell.addEventListener("click", () => {
+              handleColumnSort(cell, hRow, type, k, data, tbody, true);
+            });
+          } else if (k === correctLabel) {
+            const cell = hRow.appendChild(document.createElement("th"));
+            cell.style = "text-align: center";
+            cell.classList.add("colorColumn");
+            cell.innerHTML = `<span class="codicon codicon-person"></span>`;
+            cell.colSpan = 2;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -715,6 +728,23 @@ function drawTableBody(data, type, tbody, isClicking, button) {
         row.setAttribute("id", id);
       } else if (k === expectedLabel) {
         // noop
+      } else if (k === implicitLabel) {
+        const cell = row.appendChild(document.createElement("td"));
+        // Fade the indicator if overridden by another validator
+        if (e[correctLabel] !== undefined || e[validatorLabel] !== undefined) {
+          cell.style.opacity = "25%";
+        }
+        if (e[k] === undefined) {
+          cell.innerHTML = "";
+        } else if (e[k]) {
+          cell.className = "classCheckOn";
+          const span = cell.appendChild(document.createElement("span"));
+          span.classList.add("codicon", "codicon-pass");
+        } else {
+          cell.className = "classErrorOn";
+          const span = cell.appendChild(document.createElement("span"));
+          span.classList.add("codicon", "codicon-error");
+        }
       } else if (k === validatorLabel) {
         const cell = row.appendChild(document.createElement("td"));
         if (e[k] === undefined) {
@@ -722,11 +752,11 @@ function drawTableBody(data, type, tbody, isClicking, button) {
         } else if (e[k]) {
           cell.className = "classCheckOn";
           const span = cell.appendChild(document.createElement("span"));
-          span.className = "codicon codicon-pass";
+          span.classList.add("codicon", "codicon-pass");
         } else {
           cell.className = "classErrorOn";
           const span = cell.appendChild(document.createElement("span"));
-          span.className = "codicon codicon-error";
+          span.classList.add("codicon", "codicon-error");
         }
       } else if (k === correctLabel) {
         // Add check mark icon
