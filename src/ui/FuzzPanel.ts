@@ -849,13 +849,13 @@ export function ${validatorPrefix}${
           <!-- Indicator Bar for Validator -->
           <vscode-divider></vscode-divider>
           <div id="validatorFunctions-view" />
-            <span>Output validators:&nbsp;</span>
+            <span>Output validation:&nbsp;</span>
 
             <span class="tooltip tooltip-top">
               <span class="codicon codicon-debug"></span>
               <span class="tooltiptext">
-                NaNofuzz will categorize the following as likely-incorrect outputs: timeout, exception, null, undefined, Infinity, NaN. 
-                This judgement may be overridden by either of the other two validators.
+                By default, NaNofuzz categorizes timeout, exception, null, undefined, Infinity, &amp; NaN outputs as incorrect. 
+                You may override this manually or automatically using a custom validator function.
               </span>
             </span>
             <span class="tooltip tooltip-top">
@@ -867,7 +867,7 @@ export function ${validatorPrefix}${
             <span class="tooltip tooltip-top">
               <span class="codicon codicon-hubot" id="validatorIndicator"></span>
               <span class="tooltiptext">
-                Use a custom function to automatically categorize outputs as correct (✔︎) or incorrect (X). Click "More options" below for details.
+                You may write a custom validator function that automatically categorizes outputs as correct (✔︎) or incorrect (X). Click <strong>More options</strong> for details.
               </span>
             </span>
             
@@ -876,15 +876,25 @@ export function ${validatorPrefix}${
 
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" class="hidden">
-            <p>You can create and then choose a validator function to programatically evaluate outputs for correctness. Click the (+) button to create a new validator function.</p>
+            <p>You may use a <strong>custom validator function</strong> to automatically categorize outputs as corect (✔︎) or incorrect (X). Click the (+) button to create a new custom validator function.</p>
             <div id="validatorFunctions-edit">
               <vscode-radio-group id="validatorFunctions-radios">
                 <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
-                  <span class="codicon codicon-add"></span>
+                  <span class="tooltip tooltip-top">
+                    <span class="codicon codicon-add"></span>
+                    <span class="tooltiptext tooltiptext-small">
+                      Add new function
+                    </span>
+                  </span>
                 </vscode-button>
                 <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
-                  <span class="codicon codicon-refresh"></span>
-                </vscode-button>
+                  <span class="tooltip tooltip-top">
+                    <span class="codicon codicon-refresh"></span>
+                    <span class="tooltiptext tooltiptext-small">
+                      Refresh list
+                  </span>
+                </span>
+            </vscode-button>
               </vscode-radio-group>
             </div>
           
@@ -959,7 +969,7 @@ export function ${validatorPrefix}${
       {
         id: "badValue",
         name: "Invalid outputs",
-        description: `These inputs were categorized by a validator as likely being incorrect. NaNofuzz by default will categorize outputs as invalid that contain null, NaN, Infinity, or undefined if no other validator categorizes them as correct.`,
+        description: `These inputs were categorized by a validator as likely being incorrect. NaNofuzz by default categorizes outputs as invalid that contain null, NaN, Infinity, or undefined if no other validator categorizes them as correct.`,
       },
       {
         id: "ok",

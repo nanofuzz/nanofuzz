@@ -185,6 +185,11 @@ tr.classErrorExpectedOutputRow td div {
   margin-bottom: 6px;
 }
 
+.tooltiptext-small {
+  width: 120px !important;
+  margin-left: -65px !important;
+}
+
 .tooltip-top .tooltiptext::after {
   content: "";
   position: absolute;
