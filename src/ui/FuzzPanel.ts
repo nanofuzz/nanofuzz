@@ -943,7 +943,6 @@ export function ${validatorPrefix}${
 
     // If we have results, render the output tabs to display the results.
     const tabs = [
-      // !!!!! Update & revisit these descriptions
       {
         id: "failure",
         name: "Validator Failed",
