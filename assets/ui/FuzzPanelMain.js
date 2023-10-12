@@ -282,13 +282,16 @@ function main() {
  */
 function toggleFuzzOptions(e) {
   const fuzzOptions = document.getElementById("fuzzOptions");
-  if (fuzzOptions.style.display === "none") {
-    fuzzOptions.style.display = "block";
+  if (isHidden(fuzzOptions)) {
+    toggleHidden(fuzzOptions);
     e.currentTarget.innerHTML = "Fewer options";
   } else {
-    fuzzOptions.style.display = "none";
+    toggleHidden(fuzzOptions);
     e.currentTarget.innerHTML = "More options";
   }
+
+  // Refresh the list of validators
+  handleGetListOfValidators();
 } // fn: toggleFuzzOptions()
 
 /**
@@ -721,59 +724,22 @@ function drawTableBody(data, type, tbody, isClicking, button) {
         cell1.innerHTML = correctState.htmlCheck;
         cell1.setAttribute("correctType", "true");
         cell1.addEventListener("click", () =>
-          handleCorrectToggle(
-            cell1,
-            row,
-            data,
-            type,
-            tbody,
-            cell1,
-            cell2
-            //cell3
-          )
+          handleCorrectToggle(cell1, row, data, type, tbody, cell1, cell2)
         );
         // Add X mark icon
         const cell2 = row.appendChild(document.createElement("td"));
         cell2.innerHTML = correctState.htmlError;
         cell2.setAttribute("correctType", "false");
         cell2.addEventListener("click", () =>
-          handleCorrectToggle(
-            cell2,
-            row,
-            data,
-            type,
-            tbody,
-            cell1,
-            cell2
-            //cell3
-          )
+          handleCorrectToggle(cell2, row, data, type, tbody, cell1, cell2)
         );
-        // Add question mark icon
-        /*
-        const cell3 = row.appendChild(document.createElement("td"));
-        cell3.innerHTML = correctState.htmlQuestion;
-        cell3.setAttribute("correctType", "question");
-        cell3.addEventListener("click", () =>
-          handleCorrectToggle(
-            cell3,
-            row,
-            data,
-            type,
-            tbody,
-            cell1,
-            cell2,
-            cell3
-          )
-        );
-        */
+
         // Determine if on or off (set to default initially)
         cell1.className = correctState.classCheckOff;
         cell1.setAttribute("onOff", false);
 
         cell2.className = correctState.classErrorOff;
         cell2.setAttribute("onOff", false);
-        //cell3.className = correctState.classQuestionOff;
-        //cell3.setAttribute("onOff", false);
 
         // Update the front-end buttons to match the back-end state
         switch (e[k] + "") {
@@ -938,8 +904,8 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
     errorMessage.classList.add("expectedOutputErrorMessage");
     errorMessage.innerHTML = "invalid; not saved";
     const expectedValue = textField.getAttribute("current-value");
-    if (expectedValue === null || expectedValue === "undefined") {
-      expectedOutput["value"] = "undefined";
+    if (expectedValue === null) {
+      expectedOutput["value"] = undefined;
     } else {
       expectedOutput["value"] = JSON5.parse(expectedValue);
     }
@@ -1097,7 +1063,7 @@ function handleFuzzStart(e) {
   });
 
   // Disable the validator controls while the Fuzzer runs.
-  const validatorFnGrp = document.getElementById("validatorFunctions");
+  const validatorFnGrp = document.getElementById("validatorFunctions-radios");
   for (const e of validatorFnGrp.children) {
     e.style.disabled = true;
   }
@@ -1131,17 +1097,19 @@ function refreshValidators(validatorList) {
     validatorList.validator = implicitOracleValidatorName;
   }
 
-  // Clear the current list of validator radio buttons
-  const validatorFnGrp = document.getElementById("validatorFunctions");
+  // Get the current list of validator controls
+  const validatorFnGrp = document.getElementById("validatorFunctions-radios");
+
+  // Add the validator function buttons to the delete list & delete them
   const deleteList = [];
   for (const child of validatorFnGrp.children) {
     if (child.tagName === "VSCODE-RADIO") {
       deleteList.push(child);
     }
   }
-  deleteList.forEach((e) => validatorFnGrp.removeChild(e));
+  deleteList.forEach((e) => validatorFnGrp.removeChild(e)); // buh bye
 
-  // Add buttons w/event listeners for each validator
+  // Add buttons w/event listeners for each validator option
   [implicitOracleValidatorName, ...validatorList.validators]
     .reverse() // because of pre-pending before add and refresh buttons
     .forEach((name) => {
@@ -1172,7 +1140,30 @@ function refreshValidators(validatorList) {
   // Set the radio group's value b/c this is necessary to maintain
   // consistent button state when a selected radio is deleted
   validatorFnGrp.setAttribute("value", validatorList.validator);
+
+  // Update the validator indicators
+  updateValidatorIndicators(
+    validatorList.validator ?? implicitOracleValidatorName
+  );
 } // fn: refreshValidators
+
+/**
+ * Updates the validator indicators based on the validator
+ * configuration.
+ *
+ * @param validatorName The list of validators
+ */
+function updateValidatorIndicators(validatorName) {
+  // The validator function on/off indicator
+  const validatorIndicator = document.getElementById("validatorIndicator");
+
+  // Fade the validator icon if no validator is selected
+  if (validatorName !== implicitOracleValidatorName) {
+    validatorIndicator.style.opacity = "100%";
+  } else {
+    validatorIndicator.style.opacity = "25%";
+  }
+} // fn: updateValidatorButtons()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the
@@ -1185,7 +1176,7 @@ function handleAddValidator(e) {
     command: "validator.add",
     json: JSON5.stringify(""),
   });
-}
+} // fn: handleAddValidator()
 
 /**
  * Send message to back-end to save the validator that the user selected
@@ -1193,28 +1184,54 @@ function handleAddValidator(e) {
  *
  * @param e on-click event
  */
-function handleSetValidator(e) {
-  const validatorName = e.currentTarget.getAttribute("name");
+function handleSetValidator(validatorList) {
+  const validatorName = validatorList.currentTarget.getAttribute("name");
 
+  // Update the validator indicators
+  updateValidatorIndicators(validatorName);
+
+  // Update the back-end with the newly-selected validator function
   vscode.postMessage({
     command: "validator.set",
     json: JSON5.stringify(
       validatorName === implicitOracleValidatorName ? "" : validatorName
     ),
   });
-}
+} // fn: handleSetValidator()
 
 /**
  * Send message to back-end to refresh the validators
  *
  * @param e on-click event
  */
-function handleGetListOfValidators(e) {
+function handleGetListOfValidators() {
   vscode.postMessage({
     command: "validator.getList",
     json: "{}",
   });
-}
+} // fn: handleGetListOfValidators()
+
+/**
+ * Returns true if the DOM node is hidden using the 'hidden' class.
+ *
+ * @param e The DOM node to check for the 'hidden' class
+ * @returns true if the DOM node is hidden; false otherwise
+ */
+function isHidden(e) {
+  return e.classList.contains("hidden");
+} // fn: isHidden()
+/**
+ * Toggles whether an element is hidden or not
+ *
+ * @param e DOM element to toggle
+ */
+function toggleHidden(e) {
+  if (e.classList.contains("hidden")) {
+    e.classList.remove("hidden");
+  } else {
+    e.classList.add("hidden");
+  }
+} // fn: toggleHidden()
 
 /**
  * Returns the number of columns in a table
@@ -1231,7 +1248,7 @@ function getColCountForTable(type) {
   return Array.from(theadRow.cells)
     .map((cell) => cell.colSpan)
     .reduce((a, b) => a + b, 0);
-}
+} // fn: getColCountForTable()
 
 /**
  * Returns a base id name for a particular argument input.

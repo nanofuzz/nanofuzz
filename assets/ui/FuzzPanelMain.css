@@ -126,6 +126,16 @@ tr.classErrorExpectedOutputRow td div {
   margin-left: 1em;
   font-weight: bold;
 }
+.hidden {
+  display: none !important;
+}
+
+/** Validator styles **/
+
+#validatorFunctions-view > span {
+  display: table-cell;
+  vertical-align: middle;
+}
 
 /** Tooltips: adapted from: https://www.w3schools.com/css/css_tooltip.asp **/
 
@@ -136,7 +146,7 @@ tr.classErrorExpectedOutputRow td div {
 
 .tooltip-left .tooltiptext {
   visibility: hidden;
-  width: 120px;
+  width: 160px;
   background-color: black;
   color: #fff;
   text-align: center;
@@ -161,7 +171,7 @@ tr.classErrorExpectedOutputRow td div {
 
 .tooltip-top .tooltiptext {
   visibility: hidden;
-  width: 120px;
+  width: 160px;
   background-color: black;
   color: #fff;
   text-align: center;
@@ -169,9 +179,10 @@ tr.classErrorExpectedOutputRow td div {
   padding: 5px;
   position: absolute;
   z-index: 1;
-  bottom: 60%;
+  bottom: 100%;
   left: 50%;
-  margin-left: -65px;
+  margin-left: -85px;
+  margin-bottom: 6px;
 }
 
 .tooltip-top .tooltiptext::after {

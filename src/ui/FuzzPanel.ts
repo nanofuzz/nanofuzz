@@ -842,28 +842,48 @@ export function ${validatorPrefix}${
 
     // prettier-ignore
     html += /*html*/ `
-          <!-- Button Bar for Validator -->
+          <!-- Indicator Bar for Validator -->
           <vscode-divider></vscode-divider>
-          <div>
-            <vscode-radio-group id="validatorFunctions">
-              <label slot="label" style="font-size: 1.25em;">
-                Choose a Custom Output Validator: <span class="codicon codicon-hubot"></span>
-              </label>`;
+          <div id="validatorFunctions-view" />
+            <span>Output validators:&nbsp;</span>
 
-    // prettier-ignore
-    html += /*html*/ `
-              <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
-                <span class="codicon codicon-add"></span>
-              </vscode-button>
-              <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
-                <span class="codicon codicon-refresh"></span>
-              </vscode-button>
-            </vscode-radio-group>
+            <span class="tooltip tooltip-top">
+              <span class="codicon codicon-debug"></span>
+              <span class="tooltiptext">
+                NaNofuzz will categorize the following as likely-incorrect outputs: timeout, exception, null, undefined, Infinity, NaN. 
+                This default may be overridden by either of the other two validators.
+              </span>
+            </span>
+            <span class="tooltip tooltip-top">
+              <span class="codicon codicon-person"></span>
+              <span class="tooltiptext">
+                Manually categorize outputs as correct (✔︎) or incorrect (X) in the results pane below.
+              </span>
+            </span>
+            <span class="tooltip tooltip-top">
+              <span class="codicon codicon-hubot" id="validatorIndicator"></span>
+              <span class="tooltiptext">
+                Use a custom function to automatically categorize outputs as correct (✔︎) or incorrect (X). Click "More options" below for details.
+              </span>
+            </span>
+            
           </div>
           <vscode-divider></vscode-divider>
 
           <!-- Fuzzer Options -->
-          <div id="fuzzOptions" style="display:none">
+          <div id="fuzzOptions" class="hidden">
+            <p>You can create and then choose a validator function to programatically evaluate outputs for correctness. Click the (+) button to create a new validator function.</p>
+            <div id="validatorFunctions-edit">
+              <vscode-radio-group id="validatorFunctions-radios">
+                <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
+                  <span class="codicon codicon-add"></span>
+                </vscode-button>
+                <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
+                  <span class="codicon codicon-refresh"></span>
+                </vscode-button>
+              </vscode-radio-group>
+            </div>
+          
             <p>These settings control how long testing runs. Testing stops when either limit is reached.  Pinned tests count against the maximum runtime but do not count against the maximum number of tests.</p>
             <vscode-text-field ${disabledFlag} id="fuzz-suiteTimeout" name="fuzz-suiteTimeout" value="${this._fuzzEnv.options.suiteTimeout}">
               Max runtime (ms)
@@ -872,7 +892,6 @@ export function ${validatorPrefix}${
               Max number of tests
             </vscode-text-field>
 
-            <vscode-divider></vscode-divider>
             <p>To ensure testing completes, stop long-running function calls and mark them as timeouts.</p>
             <vscode-text-field ${disabledFlag} id="fuzz-fnTimeout" name="fuzz-fnTimeout" value="${this._fuzzEnv.options.fnTimeout}">
               Stop function call after (ms)
