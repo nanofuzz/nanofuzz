@@ -180,12 +180,12 @@ function main() {
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
       if (e.validatorException) {
-        outputs[`validator exception`] = e.validatorExceptionMessage;
+        outputs[`output`] = e.validatorExceptionMessage;
       } else if (e.exception) {
-        outputs[`exception`] = e.exceptionMessage;
+        outputs[`output`] = "(exception) " + e.exceptionMessage;
       }
       if (e.timeout) {
-        outputs[`timeout`] = "timeout";
+        outputs[`output`] = "(timeout)";
       }
 
       // Toss each result into the appropriate grid
@@ -395,8 +395,17 @@ function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
       cell2.className = correctState.classErrorOff;
       cell2.setAttribute("onOff", "false");
       //save expected output value
-      data[type][index][expectedLabel] = resultsData.results[id].output;
-
+      if (resultsData.results[id].timeout === true) {
+        data[type][index][expectedLabel] = [
+          { name: "0", offset: 0, isTimeout: true },
+        ];
+      } else if (resultsData.results[id].exception === true) {
+        data[type][index][expectedLabel] = [
+          { name: "0", offset: 0, isException: true },
+        ];
+      } else {
+        data[type][index][expectedLabel] = resultsData.results[id].output;
+      }
       break;
 
     case correctState.classErrorOff:
@@ -937,7 +946,6 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: data[type][index][pinnedLabel],
-    //correct: data[type][index][correctLabel],
     expectedOutput: data[type][index][expectedLabel],
   };
 

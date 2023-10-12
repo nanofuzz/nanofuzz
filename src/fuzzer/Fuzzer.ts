@@ -384,7 +384,7 @@ function actualEqualsExpectedOutput(
   if (result.timeout) {
     return expectedOutput.length > 0 && expectedOutput[0].isTimeout === true;
   } else if (result.exception) {
-    return expectedOutput.length > 0 && expectedOutput[0].isTimeout === true;
+    return expectedOutput.length > 0 && expectedOutput[0].isException === true;
   } else {
     return JSON5.stringify(result.output) === JSON5.stringify(expectedOutput);
   }
