@@ -854,8 +854,8 @@ export function ${validatorPrefix}${
             <span class="tooltip tooltip-top">
               <span class="codicon codicon-debug"></span>
               <span class="tooltiptext">
-                By default, NaNofuzz categorizes timeout, exception, null, undefined, Infinity, &amp; NaN outputs as incorrect. 
-                You may override this manually or automatically using a custom validator function.
+                NaNofuzz categorizes timeout, exception, null, undefined, Infinity, &amp; NaN outputs as incorrect. 
+                You may override this default categorization with one of the other two validators.
               </span>
             </span>
             <span class="tooltip tooltip-top">
