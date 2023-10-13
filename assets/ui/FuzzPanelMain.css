@@ -108,7 +108,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 }
 .expectedOutputErrorMessage {
   color: red;
-  margin-left: 1em;
+  margin-left: 0.5em;
   font-weight: bold;
 }
 .hidden {

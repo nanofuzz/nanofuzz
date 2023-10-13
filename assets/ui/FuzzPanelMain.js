@@ -870,6 +870,13 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         handleSaveExpectedOutput(radioValue, id, data, type, index)
       );
 
+      // Event handler for ok button
+      const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
+      okButton.addEventListener("click", (e) => {
+        handleExpectedOutput(data, type, row, tbody, false, button);
+        expectedRow.remove();
+      });
+
       // Bounce & give focus to the value field if the value radio is selected
       window.setTimeout(() => {
         if (radioValue.checked) {
@@ -952,9 +959,11 @@ function expectedOutputHtml(id, index, data, type) {
       <vscode-radio class="hidden" id="fuzz-radioTimeout${id}" ${defaultOutput.isTimeout ? " checked " : ""}>Timeout</vscode-radio>
       <vscode-radio id="fuzz-radioValue${id}" ${!defaultOutput.isTimeout && !defaultOutput.isException ? " checked " : ""} >Value:</vscode-radio>
     </vscode-radio-group> 
-
-    <vscode-text-field id="fuzz-expectedOutput${id}" placeholder="Literal value (JSON)" value=${JSON5.stringify(defaultOutput.value)}>
-    </vscode-text-field> <span id="fuzz-expectedOutputMessage${id}"></span>
+    <div>
+      <vscode-text-field id="fuzz-expectedOutput${id}" placeholder="Literal value (JSON)" value=${JSON5.stringify(defaultOutput.value)}></vscode-text-field>
+      <span><vscode-button id="fuzz-expectedOutputOk${id}" aria-label="ok" style="display: table-cell; vertical-align: top;">ok</vscode-button></span>
+      <span id="fuzz-expectedOutputMessage${id}"></span>
+    </div>
   `;
   return html;
 }
@@ -975,6 +984,7 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
   const errorMessage = document.getElementById(
     `fuzz-expectedOutputMessage${id}`
   );
+  const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
 
   // Build the expected output object
   const expectedOutput = {
@@ -982,9 +992,6 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
     offset: 0,
   };
   try {
-    textField.classList.add("classErrorCell");
-    errorMessage.classList.add("expectedOutputErrorMessage");
-    errorMessage.innerHTML = "invalid; not saved";
     const expectedValue = textField.getAttribute("current-value");
     if (expectedValue === null || expectedValue === "undefined") {
       expectedOutput["value"] = undefined;
@@ -994,9 +1001,12 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
     textField.classList.remove("classErrorCell");
     errorMessage.classList.remove("expectedOutputErrorMessage");
     errorMessage.innerHTML = "";
+    show(okButton);
   } catch (e) {
-    console.debug(`Error processing user data: ${e.message}`);
-    // continue -- we turned the box red
+    textField.classList.add("classErrorCell");
+    errorMessage.classList.add("expectedOutputErrorMessage");
+    errorMessage.innerHTML = "invalid; not saved";
+    hide(okButton);
   }
 
   if (radioTimeout.checked) {
@@ -1301,6 +1311,7 @@ function handleGetListOfValidators() {
 function isHidden(e) {
   return e.classList.contains("hidden");
 } // fn: isHidden()
+
 /**
  * Toggles whether an element is hidden or not
  *
@@ -1313,6 +1324,24 @@ function toggleHidden(e) {
     e.classList.add("hidden");
   }
 } // fn: toggleHidden()
+
+/**
+ * Hides a DOM element
+ *
+ * @param e DOM element to hide
+ */
+function hide(e) {
+  e.classList.add("hidden");
+} // fn: hide()
+
+/**
+ * Shows a DOM element
+ *
+ * @param e DOM element to hide
+ */
+function show(e) {
+  e.classList.remove("hidden");
+} // fn: hide()
 
 /**
  * Returns the number of columns in a table
