@@ -56,13 +56,6 @@ td.classErrorOff {
   padding-left: 0px;
   padding-right: 0px;
 }
-td.classQuestionOff {
-  opacity: 25%;
-  width: 1%;
-  padding-left: 1px;
-  padding-right: 1px;
-  text-align: center;
-}
 td.classCheckOn {
   opacity: 100%;
   color: rgba(95, 250, 152, 0.665);
@@ -77,14 +70,6 @@ td.classErrorOn {
   width: 1%;
   padding-left: 0px;
   padding-right: 0px;
-  text-align: center;
-}
-td.classQuestionOn {
-  opacity: 100%;
-  color: rgb(230, 212, 108);
-  width: 1%;
-  padding-left: 1px;
-  padding-right: 1px;
   text-align: center;
 }
 
@@ -111,15 +96,15 @@ tr.classGetExpectedOutputRow {
 }
 tr.classErrorExpectedOutputRow {
   margin-left: 3em;
-  opacity: 60%;
   color: white;
   background-color: rgb(49, 47, 47);
-  /* opacity: 100%;
-  background-color: rgb(90, 47, 47); */
 }
 tr.classErrorExpectedOutputRow td div {
   display: table-cell;
   vertical-align: middle;
+}
+tr.classErrorExpectedOutputRow td div.slightFade {
+  opacity: 60%;
 }
 .expectedOutputErrorMessage {
   color: red;

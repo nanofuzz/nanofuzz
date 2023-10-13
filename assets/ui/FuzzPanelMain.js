@@ -817,7 +817,11 @@ function drawTableBody(data, type, tbody, isClicking, button) {
 function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
   const id = row.getAttribute("id");
   let toggledId;
-  if (isClicking) toggledId = button.parentElement.getAttribute("id");
+  if (isClicking) {
+    toggledId =
+      button.parentElement.getAttribute("id") ?? // human validation X button
+      button.getAttribute("rowId"); // expected value edit button
+  }
 
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) {
@@ -828,7 +832,10 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
 
   // If actual output does not match expected output, show expected/actual output
   if (correctType + "" === "false") {
-    const expectedRow = tbody.appendChild(document.createElement("tr"));
+    const expectedRow = row.insertAdjacentElement(
+      "afterend",
+      document.createElement("tr")
+    );
     const cell = expectedRow.appendChild(document.createElement("td"));
     cell.colSpan = getColCountForTable(type);
 
@@ -873,20 +880,47 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
       // Marked X but not currently being edited; display expected output
       row.cells[numInputs].className = "classErrorCell"; // red wavy underline
       expectedRow.className = "classErrorExpectedOutputRow";
-      resultsData.results[id];
 
+      // Display the expected outout
       const expectedOutput = data[type][index][expectedLabel];
+      let expectedText;
       if (expectedOutput && expectedOutput.length) {
         if (expectedOutput[0].isTimeout) {
-          cell.innerHTML = `<div><span class="codicon codicon-person"></span></div> <div>Failed: expected timeout`;
+          expectedText = "timeout";
         } else if (expectedOutput[0].isException) {
-          cell.innerHTML = `<div><span class="codicon codicon-person"></span></div> <div>Failed: expected exception`;
+          expectedText = "exception";
         } else {
-          cell.innerHTML = `<div><span class="codicon codicon-person"></span></div> <div>Failed: expected value: ${JSON5.stringify(
-            expectedOutput[0].value
-          )}`;
+          expectedText = `value: ${JSON5.stringify(expectedOutput[0].value)}`;
         }
+      } else {
+        expectedText = "value: undefined";
       }
+      cell.innerHTML = /* html */ `
+        <div class="slightFade">
+          <span class="codicon codicon-person"></span>
+        </div>
+        <div class="slightFade">
+          Failed: expected ${expectedText}&nbsp;
+        </div>
+        <div class="alignAsMidCell">
+          <vscode-button id="fuzz-editExpectedOutput${id}" rowId="${row.id}" appearance="icon" aria-label="Edit">
+            <span class="tooltip tooltip-top">
+              <span class="codicon codicon-edit"></span>
+              <span class="tooltiptext tooltiptext-small">
+                Edit
+              </span>
+            </span>
+          </vscode-button>
+        </div>`;
+
+      // Create event handler for edit click
+      const editButton = document.getElementById(
+        `fuzz-editExpectedOutput${id}`
+      );
+      editButton.addEventListener("click", (e) => {
+        toggleHidden(expectedRow);
+        handleExpectedOutput(data, type, row, tbody, true, editButton);
+      });
     }
   }
 }

@@ -892,9 +892,9 @@ export function ${validatorPrefix}${
                     <span class="codicon codicon-refresh"></span>
                     <span class="tooltiptext tooltiptext-small">
                       Refresh list
+                    </span>
                   </span>
-                </span>
-            </vscode-button>
+                </vscode-button>
               </vscode-radio-group>
             </div>
           
