@@ -847,13 +847,13 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
       // Event handler for text field
       const textField = document.getElementById(`fuzz-expectedOutput${id}`);
       textField.addEventListener("change", (e) =>
-        handleSaveExpectedOutput(textField, id, data, type, index)
+        buildExpectedTestCase(textField, id, data, type, index)
       );
 
       // Event handler for timeout radio button
       const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
       radioTimeout.addEventListener("change", () =>
-        handleSaveExpectedOutput(radioTimeout, id, data, type, index)
+        buildExpectedTestCase(radioTimeout, id, data, type, index)
       );
 
       // Event handler for exception radio button
@@ -861,20 +861,46 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         `fuzz-radioException${id}`
       );
       radioException.addEventListener("change", () =>
-        handleSaveExpectedOutput(radioException, id, data, type, index)
+        buildExpectedTestCase(radioException, id, data, type, index)
       );
 
       // Event handler for value radio button
       const radioValue = document.getElementById(`fuzz-radioValue${id}`);
       radioValue.addEventListener("change", () =>
-        handleSaveExpectedOutput(radioValue, id, data, type, index)
+        buildExpectedTestCase(radioValue, id, data, type, index)
       );
 
       // Event handler for ok button
       const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
       okButton.addEventListener("click", (e) => {
-        handleExpectedOutput(data, type, row, tbody, false, button);
-        expectedRow.remove();
+        // Build the test case from the expected output panel
+        const testCase = buildExpectedTestCase(
+          radioValue,
+          id,
+          data,
+          type,
+          index
+        );
+
+        // If the test case is valid, save it & exit the screen
+        if (testCase) {
+          // Update the front-end data structure
+          data[type][index][expectedLabel] = testCase.expectedOutput;
+
+          // Send the test case to the back-end
+          window.setTimeout(() => {
+            vscode.postMessage({
+              command: "test.pin",
+              json: JSON5.stringify(testCase),
+            });
+          });
+
+          // Re-draw the expected output row again
+          handleExpectedOutput(data, type, row, tbody, false, button);
+
+          // Hide this panel that is collecting the expected output
+          expectedRow.remove();
+        }
       });
 
       // Bounce & give focus to the value field if the value radio is selected
@@ -897,7 +923,9 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         } else if (expectedOutput[0].isException) {
           expectedText = "exception";
         } else {
-          expectedText = `value: ${JSON5.stringify(expectedOutput[0].value)}`;
+          expectedText = `output value: ${JSON5.stringify(
+            expectedOutput[0].value
+          )}`;
         }
       } else {
         expectedText = "value: undefined";
@@ -907,7 +935,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
           <span class="codicon codicon-person"></span>
         </div>
         <div class="slightFade">
-          Failed: expected ${expectedText}&nbsp;
+          expected ${expectedText}&nbsp;
         </div>
         <div class="alignAsMidCell">
           <vscode-button id="fuzz-editExpectedOutput${id}" rowId="${row.id}" appearance="icon" aria-label="Edit">
@@ -969,15 +997,17 @@ function expectedOutputHtml(id, index, data, type) {
 }
 
 /**
- * Saves the value of the expected output typed into the text field.
+ * Builds a test case from the expected output panel
  *
  * @param e on-change event
  * @param id id of row
  * @param data back-end data structure
  * @param type e.g. bad output, passed
  * @param index index in `data`
+ *
+ * @returns test case object or undefined if the expected value is invalid
  */
-function handleSaveExpectedOutput(e, id, data, type, index) {
+function buildExpectedTestCase(e, id, data, type, index) {
   const textField = document.getElementById(`fuzz-expectedOutput${id}`);
   const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
   const radioException = document.getElementById(`fuzz-radioException${id}`);
@@ -986,60 +1016,53 @@ function handleSaveExpectedOutput(e, id, data, type, index) {
   );
   const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
 
+  // Check if the expected value is valid JSON
+  const expectedValue = textField.getAttribute("current-value");
+  let parsedExpectedValue;
+  try {
+    // Attempt to parse the expected value
+    parsedExpectedValue =
+      expectedValue === null || expectedValue === "undefined"
+        ? undefined
+        : JSON5.parse(expectedValue);
+  } catch (e) {
+    // Indicate to the user that there is an error
+    textField.classList.add("classErrorCell");
+    errorMessage.classList.add("expectedOutputErrorMessage");
+    errorMessage.innerHTML = "invalid; not saved";
+    hide(okButton);
+
+    // Return w/o saving
+    return undefined;
+  }
+
+  // Update the UI -- everything looks fine
+  textField.classList.remove("classErrorCell");
+  errorMessage.classList.remove("expectedOutputErrorMessage");
+  errorMessage.innerHTML = "";
+  show(okButton);
+
   // Build the expected output object
   const expectedOutput = {
     name: "0",
     offset: 0,
   };
-  try {
-    const expectedValue = textField.getAttribute("current-value");
-    if (expectedValue === null || expectedValue === "undefined") {
-      expectedOutput["value"] = undefined;
-    } else {
-      expectedOutput["value"] = JSON5.parse(expectedValue);
-    }
-    textField.classList.remove("classErrorCell");
-    errorMessage.classList.remove("expectedOutputErrorMessage");
-    errorMessage.innerHTML = "";
-    show(okButton);
-  } catch (e) {
-    textField.classList.add("classErrorCell");
-    errorMessage.classList.add("expectedOutputErrorMessage");
-    errorMessage.innerHTML = "invalid; not saved";
-    hide(okButton);
-  }
-
   if (radioTimeout.checked) {
     expectedOutput["isTimeout"] = true;
-    textField.classList.remove("classErrorCell");
-    errorMessage.classList.remove("expectedOutputErrorMessage");
-    errorMessage.innerHTML = "";
   } else if (radioException.checked) {
     expectedOutput["isException"] = true;
-    textField.classList.remove("classErrorCell");
-    errorMessage.classList.remove("expectedOutputErrorMessage");
-    errorMessage.innerHTML = "";
+  } else {
+    expectedOutput["value"] = parsedExpectedValue;
   }
 
-  // Update the front-end data structure
-  data[type][index][expectedLabel] = [expectedOutput];
-
-  // Build the test case object
-  const testCase = {
+  // Build & return the test case object
+  return {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: data[type][index][pinnedLabel],
-    expectedOutput: data[type][index][expectedLabel],
+    expectedOutput: [expectedOutput],
   };
-
-  // Send the test case to the extension
-  window.setTimeout(() => {
-    vscode.postMessage({
-      command: "test.pin",
-      json: JSON5.stringify(testCase),
-    });
-  });
-} // fn: handleSaveExpectedOutput()
+} // fn: buildExpectedTestCase()
 
 /**
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
