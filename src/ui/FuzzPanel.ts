@@ -967,8 +967,8 @@ export function ${validatorPrefix}${
       },
       {
         id: "badValue",
-        name: "Invalid outputs",
-        description: `These inputs were categorized by a validator as likely being incorrect. NaNofuzz by default categorizes outputs as invalid that contain null, NaN, Infinity, or undefined if no other validator categorizes them as correct.`,
+        name: "Incorrect outputs",
+        description: `These inputs were categorized by a validator as likely being incorrect. NaNofuzz by default categorizes outputs as incorrect that contain null, NaN, Infinity, or undefined if no other validator categorizes them as correct.`,
       },
       {
         id: "ok",
