@@ -607,17 +607,18 @@ export function ${validatorPrefix}${
    */
   private _doGetValidators() {
     const program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
+    const fn = this._fuzzEnv.function; // Function under test
 
     const oldValidatorNames = JSON5.stringify(
       this._fuzzEnv.validators.map((e) => e.name)
     );
-    const newValidators = fuzzer.getValidators(program);
+    const newValidators = fuzzer.getValidators(program, fn);
     const newValidatorNames = JSON5.stringify(newValidators.map((e) => e.name));
 
     // Only send the message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
       // Update the Fuzzer Environment
-      this._fuzzEnv.validators = fuzzer.getValidators(program);
+      this._fuzzEnv.validators = fuzzer.getValidators(program, fn);
       if (
         this._fuzzEnv.validator &&
         !this._fuzzEnv.validators.some(

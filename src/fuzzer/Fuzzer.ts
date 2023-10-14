@@ -48,7 +48,7 @@ export const setup = (
     options: { ...options },
     function: fnList[fnName],
     //validator: ... FuzzPanel loads this and adds it to FuzzEnv later
-    validators: getValidators(program),
+    validators: getValidators(program, fnList[fnName]),
   };
 }; // fn: setup()
 
@@ -364,9 +364,14 @@ export function isTimeoutError(error: { code?: string }): boolean {
  * @param program the program to search
  * @returns an array of validator FunctionRefs
  */
-export function getValidators(program: ProgramDef): FunctionRef[] {
+export function getValidators(
+  program: ProgramDef,
+  fnUnderTest: FunctionDef
+): FunctionRef[] {
   return Object.values(program.getExportedFunctions())
-    .filter((fn) => fn.isValidator())
+    .filter(
+      (fn) => fn.isValidator() && fn.getName().startsWith(fnUnderTest.getName())
+    )
     .map((fn) => fn.getRef());
 } // fn: getValidators()
 
