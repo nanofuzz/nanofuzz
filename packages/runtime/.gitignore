@@ -6,4 +6,5 @@ LICENSE
 
 # Pre-build artifacts
 src/fuzzer/Types.ts
+src/fuzzer/analysis/typescript/Types.ts
 src/build.json
