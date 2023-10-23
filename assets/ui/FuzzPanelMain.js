@@ -381,58 +381,50 @@ function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
   // Change the state of the correct icon that was clicked
   // Only one icon should be selected at a time; if an icon is turned on, all
   // others should be turned off
-  switch (button.className) {
-    case correctState.classCheckOn:
-      // clicking check off
-      button.className = correctState.classCheckOff;
-      button.setAttribute("onOff", "false");
-      data[type][index][correctLabel] = undefined;
-      // delete saved expected value
-      delete data[type][index][expectedLabel];
-      break;
-
-    case correctState.classErrorOn:
-      // clicking error off
-      button.className = correctState.classErrorOff;
-      button.setAttribute("onOff", "false");
-      data[type][index][correctLabel] = undefined;
-      // delete saved expected value
-      delete data[type][index][expectedLabel];
-      break;
-
-    case correctState.classCheckOff:
-      // clicking check on
-      button.className = correctState.classCheckOn;
-      button.setAttribute("onOff", "true");
-      data[type][index][correctLabel] = "true";
-      // turn others off
-      cell2.className = correctState.classErrorOff;
-      cell2.setAttribute("onOff", "false");
-      //save expected output value
-      if (resultsData.results[id].timeout === true) {
-        data[type][index][expectedLabel] = [
-          { name: "0", offset: 0, isTimeout: true },
-        ];
-      } else if (resultsData.results[id].exception === true) {
-        data[type][index][expectedLabel] = [
-          { name: "0", offset: 0, isException: true },
-        ];
-      } else {
-        data[type][index][expectedLabel] = resultsData.results[id].output;
-      }
-      break;
-
-    case correctState.classErrorOff:
-      // clicking error on
-      button.className = correctState.classErrorOn;
-      button.setAttribute("onOff", "true");
-      data[type][index][correctLabel] = "false";
-      // turn others off
-      cell1.className = correctState.classCheckOff;
-      cell1.setAttribute("onOff", "false");
-      // save expected output value
+  if (button.classList.contains(correctState.classCheckOn)) {
+    // clicking check off
+    button.className = correctState.classCheckOff;
+    button.setAttribute("onOff", "false");
+    data[type][index][correctLabel] = undefined;
+    // delete saved expected value
+    delete data[type][index][expectedLabel];
+  } else if (button.classList.contains(correctState.classErrorOn)) {
+    // clicking error off
+    button.className = correctState.classErrorOff;
+    button.setAttribute("onOff", "false");
+    data[type][index][correctLabel] = undefined;
+    // delete saved expected value
+    delete data[type][index][expectedLabel];
+  } else if (button.classList.contains(correctState.classCheckOff)) {
+    // clicking check on
+    button.className = correctState.classCheckOn;
+    button.setAttribute("onOff", "true");
+    data[type][index][correctLabel] = "true";
+    // turn others off
+    cell2.className = correctState.classErrorOff;
+    cell2.setAttribute("onOff", "false");
+    //save expected output value
+    if (resultsData.results[id].timeout === true) {
+      data[type][index][expectedLabel] = [
+        { name: "0", offset: 0, isTimeout: true },
+      ];
+    } else if (resultsData.results[id].exception === true) {
+      data[type][index][expectedLabel] = [
+        { name: "0", offset: 0, isException: true },
+      ];
+    } else {
       data[type][index][expectedLabel] = resultsData.results[id].output;
-      break;
+    }
+  } else if (button.classList.contains(correctState.classErrorOff)) {
+    // clicking error on
+    button.className = correctState.classErrorOn;
+    button.setAttribute("onOff", "true");
+    data[type][index][correctLabel] = "false";
+    // turn others off
+    cell1.className = correctState.classCheckOff;
+    cell1.setAttribute("onOff", "false");
+    // save expected output value
+    data[type][index][expectedLabel] = resultsData.results[id].output;
   }
 
   // Redraw table !!!!! Do we need to do this?
@@ -732,16 +724,16 @@ function drawTableBody(data, type, tbody, isClicking, button) {
         const cell = row.appendChild(document.createElement("td"));
         // Fade the indicator if overridden by another validator
         if (e[correctLabel] !== undefined || e[validatorLabel] !== undefined) {
-          cell.style.opacity = "25%";
+          cell.style.opacity = "35%";
         }
         if (e[k] === undefined) {
           cell.innerHTML = "";
         } else if (e[k]) {
-          cell.className = "classCheckOn";
+          cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
           const span = cell.appendChild(document.createElement("span"));
           span.classList.add("codicon", "codicon-pass");
         } else {
-          cell.className = "classErrorOn";
+          cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
           const span = cell.appendChild(document.createElement("span"));
           span.classList.add("codicon", "codicon-error");
         }
@@ -750,11 +742,11 @@ function drawTableBody(data, type, tbody, isClicking, button) {
         if (e[k] === undefined) {
           cell.innerHTML = "";
         } else if (e[k]) {
-          cell.className = "classCheckOn";
+          cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
           const span = cell.appendChild(document.createElement("span"));
           span.classList.add("codicon", "codicon-pass");
         } else {
-          cell.className = "classErrorOn";
+          cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
           const span = cell.appendChild(document.createElement("span"));
           span.classList.add("codicon", "codicon-error");
         }
@@ -774,12 +766,11 @@ function drawTableBody(data, type, tbody, isClicking, button) {
           handleCorrectToggle(cell2, row, data, type, tbody, cell1, cell2)
         );
 
-        // Determine if on or off (set to default initially)
+        // Defaults here; override in the switch below
         cell1.className = correctState.classCheckOff;
-        cell1.setAttribute("onOff", false);
-
+        cell1.setAttribute("onOff", "false");
         cell2.className = correctState.classErrorOff;
-        cell2.setAttribute("onOff", false);
+        cell2.setAttribute("onOff", "false");
 
         // Update the front-end buttons to match the back-end state
         switch (e[k] + "") {
@@ -796,6 +787,8 @@ function drawTableBody(data, type, tbody, isClicking, button) {
             handleExpectedOutput(data, type, row, tbody, isClicking, button);
             break;
         }
+        cell1.classList.add("colGroupStart");
+        cell2.classList.add("colGroupEnd");
       } else {
         const cell = row.appendChild(document.createElement("td"));
         cell.innerHTML = htmlEscape(e[k]);
@@ -1275,7 +1268,7 @@ function updateValidatorIndicators(validatorName) {
   if (validatorName !== implicitOracleValidatorName) {
     validatorIndicator.style.opacity = "100%";
   } else {
-    validatorIndicator.style.opacity = "25%";
+    validatorIndicator.style.opacity = "35%";
   }
 } // fn: updateValidatorButtons()
 

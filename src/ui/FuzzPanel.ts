@@ -877,7 +877,7 @@ export function ${validatorPrefix}${
 
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" class="hidden">
-            <p>You may use a <strong>custom validator function</strong> to automatically categorize outputs as corect (✔︎) or incorrect (X). Click the (+) button to create a new custom validator function.</p>
+            <p>You may write a <strong>custom validator function</strong> to automatically categorize outputs as corect (✔︎) or incorrect (X). Click the (+) button to create a new custom validator function.</p>
             <div id="validatorFunctions-edit">
               <vscode-radio-group id="validatorFunctions-radios">
                 <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
@@ -946,35 +946,35 @@ export function ${validatorPrefix}${
     const tabs = [
       {
         id: "failure",
-        name: "Validator Failed",
+        name: "Validator Error",
         description: `For these inputs, the custom validator function (${
           this._fuzzEnv.validator ?? ""
         }) threw an exception. You should fix the bug in the validator and start the fuzzer again.`,
       },
       {
         id: "disagree",
-        name: "Disagreements",
-        description: `For these inputs, the validator function (<span class="codicon codicon-hubot"></span>) and the manual validation (<span class="codicon codicon-person"></span>) disagree about correctness. Either correct the validation function or correct the manual validation.`,
+        name: "Disagree",
+        description: `For these inputs, the validator function (<span class="codicon codicon-hubot"></span>) and the manual validation (<span class="codicon codicon-person"></span>) disagree about whether the output passes. Either correct the validation function or correct the manual validation.`,
       },
       {
         id: "timeout",
         name: "Timeouts",
-        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator categorized them as correct.`,
+        description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator categorized them as passed.`,
       },
       {
         id: "exception",
         name: "Exceptions",
-        description: `These inputs resulted in a runtime exception, and no validator categorized them as correct.`,
+        description: `These inputs resulted in a runtime exception, and no validator categorized them as passed.`,
       },
       {
         id: "badValue",
-        name: "Incorrect outputs",
-        description: `These inputs were categorized by a validator as likely being incorrect. NaNofuzz by default categorizes outputs as incorrect that contain null, NaN, Infinity, or undefined if no other validator categorizes them as correct.`,
+        name: "Failed",
+        description: `These inputs were categorized by a validator as failed. NaNofuzz by default categorizes outputs as incorrect that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
       },
       {
         id: "ok",
         name: "Passed",
-        description: `No validator categorized these outputs as incorrect, or a validator categorized them as correct.`,
+        description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
       },
     ];
     tabs.forEach((e) => {
