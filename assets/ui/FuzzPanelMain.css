@@ -94,6 +94,7 @@ tr.classErrorExpectedOutputRow td {
   margin-left: 3em;
   padding-top: 1px;
   padding-bottom: 1px;
+  background-color: var(--vscode-list-inactiveSelectionBackground);
 }
 tr.classErrorExpectedOutputRow td div {
   display: table-cell;
