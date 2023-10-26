@@ -2,7 +2,7 @@
   "name": "nanofuzz",
   "displayName": "NaNofuzz",
   "publisher": "penrose",
-  "version": "0.1.18",
+  "version": "0.2.0",
   "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript that runs inside VS Code",
   "repository": "https://github.com/nanofuzz/nanofuzz.git",
   "author": "The NaNofuzz Team @ Carnegie Mellon University",
@@ -55,7 +55,7 @@
     "commands": [
       {
         "command": "nanofuzz.Fuzz",
-        "title": "AutoTest",
+        "title": "NaNofuzz",
         "category": "NaNofuzz"
       },
       {
@@ -72,22 +72,6 @@
         "command": "nanofuzz.telemetry.log",
         "title": "Log Telemetry Event (internal)",
         "category": "NaNofuzz"
-      }
-    ],
-    "menus": {
-      "editor/context": [
-        {
-          "command": "nanofuzz.Fuzz",
-          "group": "z_commands",
-          "when": "editorLangId == typescript && editorTextFocus"
-        }
-      ]
-    },
-    "keybindings": [
-      {
-        "command": "nanofuzz.Fuzz",
-        "key": "ctrl+alt+a",
-        "when": "editorLangId == typescript && editorTextFocus"
       }
     ],
     "configuration": {
@@ -156,7 +140,7 @@
         "nanofuzz.argdef.dftDimLength.max": {
           "title": "Maximum array length",
           "type": "number",
-          "default": 10,
+          "default": 4,
           "minimum": 0,
           "description": "Minimum array length generate by default."
         },
@@ -207,7 +191,7 @@
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
     "@vscode/codicons": "^0.0.32",
-    "@vscode/webview-ui-toolkit": "^1.0.0",
+    "@vscode/webview-ui-toolkit": "^1.2.2",
     "eslint": "^7.3.2",
     "immutable": "^4.1.0",
     "json5": "^2.2.3",
@@ -223,6 +207,7 @@
     "@typescript-eslint/eslint-plugin-tslint": "^4.5.0",
     "@typescript-eslint/parser": "^4.5.0",
     "@vscode/test-electron": "^2.1.5",
+    "@vscode/vsce": "^2.15.0",
     "esbuild": "^0.14.48",
     "escape-goat": "^4.0.0",
     "eslint-config-prettier": "^6.13.0",
@@ -238,7 +223,6 @@
     "tsc-alias": "^1.6.7",
     "tslib": "^2.1.0",
     "typedoc": "^0.22.11",
-    "typedoc-plugin-markdown": "^3.11.13",
-    "@vscode/vsce": "^2.15.0"
+    "typedoc-plugin-markdown": "^3.11.13"
   }
 }

@@ -28,7 +28,7 @@ The following are not yet supported:
  - Compiling to module formats other than CommonJS (see [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
  - Support for stateful, flaky, or non-deterministic tests
  - Sandboxing external side-effects, mocks, or stubs
- - Custom generators, validators, and filters
+ - Custom generators and filters
  - Test case minimization
 
  NaNofuzz is a research project not presently intended for production use. Contributions are welcome to address the limitations above.

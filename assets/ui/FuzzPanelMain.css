@@ -1,8 +1,17 @@
-/** Grid Styles **/
+/** Body Styles **/
 
+body {
+  padding-right: 0px;
+}
+
+/** Grid Styles **/
+vscode-panel-view.fuzzGridPanel {
+  padding-top: 5px;
+}
 .fuzzGrid {
   width: 100%;
   padding-left: 4px;
+  border-spacing: 0;
 }
 .fuzzGrid td {
   word-break: break-word;
@@ -11,16 +20,22 @@
 .fuzzGrid th {
   text-align: left;
   padding: 4px 6px;
+  border-bottom: 1px solid;
+  vertical-align: bottom;
+}
+.fuzzGrid th.colorColumn {
+  padding: 2px 8px;
+  text-align: center;
 }
 td.fuzzGridCellPinned,
 td.fuzzGridCellPin {
   text-align: center;
+  width: 1%;
 }
 th.fuzzGridCellPinned,
 th.fuzzGridCellPin {
   text-align: center;
 }
-
 td.fuzzGridCellPin {
   opacity: 0%;
 }
@@ -29,64 +44,136 @@ td.fuzzGridCellPin:hover {
   opacity: 100%;
 }
 
-/** Tooltips: adapted from: https://www.w3schools.com/css/css_tooltip.asp **/
+/* Validator icons */
+td.classCheckOff,
+td.classErrorOff,
+td.classCheckOn,
+td.classErrorOn {
+  text-align: center;
+  width: 1%;
+  padding-right: 1px;
+  padding-left: 1px;
+}
+td.classCheckOff,
+td.classCheckOn,
+td.classErrorOff,
+td.classErrorOn {
+  padding-right: 1px;
+  padding-left: 1px;
+}
+td.classCheckOff.colGroupStart,
+td.classCheckOn.colGroupStart,
+td.classErrorOff.colGroupStart,
+td.classErrorOn.colGroupStart {
+  padding-left: 4px;
+}
+td.classCheckOff.colGroupEnd,
+td.classCheckOn.colGroupEnd,
+td.classErrorOff.colGroupEnd,
+td.classErrorOn.colGroupEnd {
+  padding-right: 4px;
+}
+td.classCheckOff,
+td.classErrorOff {
+  opacity: 35%;
+}
+td.classCheckOn,
+td.classErrorOn {
+  opacity: 100%;
+}
 
+/* Expected output panel */
+td.classErrorCell {
+  text-decoration: red underline wavy;
+}
+vscode-text-field.classErrorCell {
+  opacity: 100%;
+  outline-style: solid;
+  outline-width: 0.05cm;
+  outline-color: red;
+}
+tr.classGetExpectedOutputRow td,
+tr.classErrorExpectedOutputRow td {
+  margin-left: 3em;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+tr.classErrorExpectedOutputRow td div {
+  display: table-cell;
+  vertical-align: middle;
+}
+tr.classErrorExpectedOutputRow td div.slightFade {
+  opacity: 80%;
+}
+.expectedOutputErrorMessage {
+  color: red;
+  margin-left: 0.5em;
+  font-weight: bold;
+}
+.hidden {
+  display: none !important;
+}
+
+/** Validator styles **/
+#validatorFunctions-view > span {
+  display: table-cell;
+  vertical-align: middle;
+}
+
+/** Tooltips: adapted from: https://www.w3schools.com/css/css_tooltip.asp **/
 .tooltip {
   position: relative;
-  display: inline-block;
 }
-
-.tooltip-left .tooltiptext {
-  visibility: hidden;
-  width: 120px;
-  background-color: black;
-  color: #fff;
-  text-align: center;
-  border-radius: 6px;
-  padding: 5px 0;
-  position: absolute;
-  z-index: 1;
-  top: -5px;
-  right: 110%;
-}
-
-.tooltip-left .tooltiptext::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 100%;
-  margin-top: -5px;
-  border-width: 5px;
-  border-style: solid;
-  border-color: transparent transparent transparent black;
-}
-
 .tooltip-top .tooltiptext {
   visibility: hidden;
-  width: 120px;
-  background-color: black;
-  color: #fff;
+  width: 160px;
+  background-color: var(--vscode-panel-background);
   text-align: center;
+  border-width: 1px;
+  border-style: solid;
   border-radius: 6px;
-  padding: 5px 0;
+  border-color: var(--vscode-focus-border);
+  padding: 5px;
   position: absolute;
   z-index: 1;
-  bottom: 150%;
+  bottom: 100%;
   left: 50%;
-  margin-left: -60px;
+  margin-left: -85px;
+  margin-bottom: 6px;
 }
-
+.tooltiptext-small {
+  width: 120px !important;
+  margin-left: -65px !important;
+}
 .tooltip-top .tooltiptext::after {
   content: "";
   position: absolute;
   top: 100%;
   left: 50%;
   margin-left: -5px;
-  border-width: 5px;
-  border-style: solid;
-  border-color: black transparent transparent transparent;
+  border-color: var(--vscode-focus-border);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid;
+  border-bottom: 0px;
+}
+.tooltip:hover .tooltiptext {
+  font-weight: var(--vscode-font-weight);
+  font-size: var(--vscode-font-size);
+  visibility: visible;
 }
 
-.tooltip:hover .tooltiptext {
-  visibility: visible;
+/* Sorting */
+.columnSortDesc::after {
+  content: "▼";
+  display: inline-block;
+  padding-left: 0.25ch;
+  position: absolute;
+}
+.columnSortAsc::after {
+  content: "▲";
+  display: inline-block;
+  padding-left: 0.25ch;
+  position: absolute;
 }

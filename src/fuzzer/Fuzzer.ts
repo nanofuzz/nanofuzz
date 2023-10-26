@@ -1,22 +1,20 @@
 import * as fs from "fs";
-import * as vscode from "vscode";
 import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
 import { ArgDef } from "./analysis/typescript/ArgDef";
-import { ArgOptions } from "./analysis/typescript/Types";
+import { FunctionRef } from "./analysis/typescript/Types";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
-import { FuzzIoElement, FuzzPinnedTest, FuzzTestResult } from "./Types";
-
-/**
- * WARNING: To embed this module into a VS Code web extension, at a minimu,
- * the following issues need to be resolved:
- *  1. Module `fs` requires direct fs access)
- *  2. Module `Compiler` uses `fs` and shells out to `tsc`
- */
+import {
+  FuzzIoElement,
+  FuzzPinnedTest,
+  FuzzTestResult,
+  FuzzResultCategory,
+} from "./Types";
+import { FuzzOptions } from "./Types";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -49,6 +47,8 @@ export const setup = (
   return {
     options: { ...options },
     function: fnList[fnName],
+    //validator: ... FuzzPanel loads this and adds it to FuzzEnv later
+    validators: getValidators(program, fnList[fnName]),
   };
 }; // fn: setup()
 
@@ -140,9 +140,11 @@ export const fuzz = async (
       input: [],
       output: [],
       exception: false,
+      validatorException: false,
       timeout: false,
       passedImplicit: true,
       elapsedTime: 0,
+      category: FuzzResultCategory.OK,
     };
 
     // Before searching, consume the pool of pinned tests
@@ -150,8 +152,11 @@ export const fuzz = async (
     const pinnedTest = pinnedTests.pop();
     if (pinnedTest) {
       result.input = pinnedTest.input;
-      result.pinned = true;
-      i--; // don't count pinned tests
+      result.pinned = pinnedTest.pinned;
+      if (pinnedTest.expectedOutput) {
+        result.expectedOutput = pinnedTest.expectedOutput;
+      }
+      --i; // don't count pinned tests
     } else {
       // Generate and store the inputs
       // TODO: We should provide a way to filter inputs
@@ -200,6 +205,7 @@ export const fuzz = async (
       }
     }
 
+    // IMPLICIT ORACLE --------------------------------------------
     // How can it fail ... let us count the ways...
     // TODO Add suppport for multiple validators !!!
     if (
@@ -209,6 +215,58 @@ export const fuzz = async (
     ) {
       result.passedImplicit = false;
     }
+
+    // HUMAN ORACLE -----------------------------------------------
+    // If a human annotated an expected output, then check it
+    if (result.expectedOutput) {
+      result.passedHuman = actualEqualsExpectedOutput(
+        result,
+        result.expectedOutput
+      );
+    }
+
+    // CUSTOM VALIDATOR ------------------------------------------
+    // If a custom validator is selected, call it to evaluate the result
+    if ("validator" in env && env.validator) {
+      const fnName = env.validator;
+
+      // Build the validator function wrapper
+      const validatorFnWrapper = functionTimeout(
+        (input: FuzzTestResult): FuzzTestResult => {
+          try {
+            const result: FuzzTestResult = mod[fnName]({ ...input });
+            return {
+              ...input,
+              passedValidator: result.passedValidator,
+            };
+          } catch (e: any) {
+            return {
+              ...input,
+              validatorException: true,
+              validatorExceptionMessage: e.message,
+              validatorExceptionStack: e.stack,
+            };
+          }
+        },
+        env.options.fnTimeout
+      );
+
+      // Categorize the results (so it's not stale)
+      result.category = categorizeResult(result);
+
+      // Call the validator function wrapper
+      const validatorResult = validatorFnWrapper(result);
+
+      // Store the validator results
+      result.passedValidator = validatorResult.passedValidator;
+      result.validatorException = validatorResult.validatorException;
+      result.validatorExceptionMessage =
+        validatorResult.validatorExceptionMessage;
+      result.validatorExceptionStack = validatorResult.validatorExceptionStack;
+    }
+
+    // (Re-)categorize the result
+    result.category = categorizeResult(result);
 
     // Store the result for this iteration
     results.results.push(result);
@@ -232,26 +290,6 @@ export const fuzz = async (
 const isOptionValid = (options: FuzzOptions): boolean => {
   return !(options.maxTests < 0 || !ArgDef.isOptionValid(options.argDefaults));
 }; // fn: isOptionValid()
-
-/**
- * Returns a default set of fuzzer options.
- *
- * @returns default set of fuzzer options
- */
-export const getDefaultFuzzOptions = (): FuzzOptions => {
-  return {
-    argDefaults: ArgDef.getDefaultOptions(),
-    maxTests: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("maxTests", 1000),
-    fnTimeout: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("fnTimeout", 100),
-    suiteTimeout: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("suiteTimeout", 3000),
-  };
-}; // fn: getDefaultFuzzOptions()
 
 /**
  * The implicit oracle returns true only if the value contains no nulls, undefineds, NaNs,
@@ -321,24 +359,110 @@ export function isTimeoutError(error: { code?: string }): boolean {
 } // fn: isTimeoutError()
 
 /**
+ * Returns a list of validator FunctionRefs found within the program
+ *
+ * @param program the program to search
+ * @returns an array of validator FunctionRefs
+ */
+export function getValidators(
+  program: ProgramDef,
+  fnUnderTest: FunctionDef
+): FunctionRef[] {
+  return Object.values(program.getExportedFunctions())
+    .filter(
+      (fn) => fn.isValidator() && fn.getName().startsWith(fnUnderTest.getName())
+    )
+    .map((fn) => fn.getRef());
+} // fn: getValidators()
+
+/**
+ * Compares the actual output to the expected output.
+ *
+ * @param fuzz testing result
+ * @param expected output
+ * @returns true if actualOut equals expectedOut
+ */
+function actualEqualsExpectedOutput(
+  result: FuzzTestResult,
+  expectedOutput: FuzzIoElement[]
+): boolean {
+  if (result.timeout) {
+    return expectedOutput.length > 0 && expectedOutput[0].isTimeout === true;
+  } else if (result.exception) {
+    return expectedOutput.length > 0 && expectedOutput[0].isException === true;
+  } else {
+    return JSON5.stringify(result.output) === JSON5.stringify(expectedOutput);
+  }
+}
+
+/**
+ * Categorizes the result of a fuzz test according to the available
+ * categories defined in ResultType.
+ * @param result of the test
+ * @returns the category of the result
+ */
+export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
+  if (result.validatorException) {
+    return FuzzResultCategory.FAILURE; // Validator failed
+  }
+
+  const implicit = result.passedImplicit ? true : false;
+  const validator =
+    "passedValidator" in result ? result.passedValidator : undefined;
+  const human =
+    "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
+
+  // Returns the type of bad value: execption, timeout, or badvalue
+  const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
+    if (result.exception) {
+      return FuzzResultCategory.EXCEPTION; // PUT threw exception
+    } else if (result.timeout) {
+      return FuzzResultCategory.TIMEOUT; // PUT timedout
+    } else {
+      return FuzzResultCategory.BADVALUE; // PUT returned bad value
+    }
+  };
+
+  // Either the human oracle or the validator may take precedence
+  // over the implicit oracle if they exist. However, if both the
+  // validator and the human oracle are present, then they must
+  // agree. If the human and validator are present yet disagree,
+  // then the disagreement is another error.
+  if (human === true) {
+    if (validator === false) {
+      return FuzzResultCategory.DISAGREE;
+    } else {
+      return FuzzResultCategory.OK;
+    }
+  } else if (human === false) {
+    if (validator === true) {
+      return FuzzResultCategory.DISAGREE;
+    } else {
+      return getBadValueType(result);
+    }
+  } else {
+    if (validator === true) {
+      return FuzzResultCategory.OK;
+    } else if (validator === false) {
+      return getBadValueType(result);
+    } else {
+      if (implicit) {
+        return FuzzResultCategory.OK;
+      } else {
+        return getBadValueType(result);
+      }
+    }
+  }
+} // fn: categorizeResult()
+
+/**
  * Fuzzer Environment required to fuzz a function.
  */
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
-};
-
-/**
- * Fuzzer Options that specify the fuzzing behavior
- */
-export type FuzzOptions = {
-  outputFile?: string; // optional file to receive the fuzzing output (JSON format)
-  argDefaults: ArgOptions; // default options for arguments
-  seed?: string; // optional seed for pseudo-random number generator
-  maxTests: number; // number of fuzzing tests to execute (>= 0)
-  fnTimeout: number; // timeout threshold in ms per test
-  suiteTimeout: number; // timeout for the entire test suite
-  // !!! oracleFn: // TODO The oracle function
+  validator?: string; // name of the current validator function (if any)
+  validators: FunctionRef[]; // list of the module's functions
 };
 
 /**
