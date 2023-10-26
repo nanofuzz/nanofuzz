@@ -691,6 +691,7 @@ function updateColumnArrow(cell, type, col, isClicking) {
  * @param data backend data structure
  * @param type e.g. bad output, passed, etc
  * @param tbody table body
+ * @param isClicking bool true if the function is being called because the user is clicking
  */
 function drawTableBody(data, type, tbody, isClicking, button) {
   // Clear table
