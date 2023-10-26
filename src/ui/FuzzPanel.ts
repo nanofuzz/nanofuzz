@@ -992,7 +992,7 @@ export function ${validatorPrefix}${
     tabs.forEach((e) => {
       if (resultSummary[e.id] > 0)
         html += /*html*/ `
-              <vscode-panel-view id="view-${e.id}">
+              <vscode-panel-view class="fuzzGridPanel" id="view-${e.id}">
                 <section>
                 <div style="margin-bottom:.25em;margin-top:.25em;">${e.description}</div>
                 <div id="fuzzResultsGrid-${e.id}">

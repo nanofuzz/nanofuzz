@@ -5,6 +5,9 @@ body {
 }
 
 /** Grid Styles **/
+vscode-panel-view.fuzzGridPanel {
+  padding-top: 5px;
+}
 .fuzzGrid {
   width: 100%;
   padding-left: 4px;
