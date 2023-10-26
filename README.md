@@ -41,7 +41,7 @@ To reference NaNofuzz in your research, we request you to cite our upcoming ESEC
 
 ### Who is the NaNofuzz mascot?
 
-A very important question! Anteaters are wonderfully-adapted fuzzy creatures known to quickly and efficiently find and eliminate lare quantities of bugs. Therefore, the NaNofuzz mascot is Nancy the Anteater (or, NaNcy the NaNteater, if you prefer).
+A very important question! Silky anteaters are wonderfully-adapted fuzzy creatures known to efficiently find and eliminate large quantities of bugs. Therefore, the NaNofuzz mascot is Nancy the Silky Anteater (or, NaNcy, if you prefer).
 
 ![image](https://avatars.githubusercontent.com/u/136026223?s=200&v=4)
 
