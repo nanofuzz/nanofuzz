@@ -6,6 +6,11 @@
   "description": "Automatic test suite generator for TypeScript",
   "repository": "https://github.com/nanofuzz/nanofuzz.git",
   "author": "The NaNofuzz Team @ Carnegie Mellon University",
+  "icon": ".vscode/logo.png",
+  "galleryBanner": {
+    "color": "#FF8700",
+    "theme": "dark"
+  },
   "license": "MIT",
   "main": "build/extension/extension.js",
   "module": "build/dist/index.esm.js",
