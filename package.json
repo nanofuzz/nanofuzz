@@ -3,7 +3,7 @@
   "displayName": "NaNofuzz",
   "publisher": "penrose",
   "version": "0.1.18",
-  "description": "Automatic test suite generator for TypeScript",
+  "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript that runs inside VS Code",
   "repository": "https://github.com/nanofuzz/nanofuzz.git",
   "author": "The NaNofuzz Team @ Carnegie Mellon University",
   "license": "MIT",
