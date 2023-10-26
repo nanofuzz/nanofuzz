@@ -1117,7 +1117,7 @@ export function ${validatorPrefix}${
         html += " ";
         html +=
           /*html*/
-          `<vscode-radio-group>
+          `<vscode-radio-group style="display: inline-block;">
             <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
             arg.getOptions().numInteger ? " checked " : ""
           }>Integer</vscode-radio>
