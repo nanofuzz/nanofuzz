@@ -3,7 +3,7 @@ NaNofuzz is a fast, easy-to-use automatic test suite generation tool for TypeScr
 
 ![image](https://github.com/nanofuzz/nanofuzz/assets/22134678/41953c73-891c-4cd1-95c9-66f8c7c0afef)
 
-Unlike some past automatic test suite generation tools, NaNofuzz takes an approach similar to fuzzing and uses an implicit oracle to detect likely errors. Surprisingly, this approach can quickly find many errors and rapidly build a test suite. NaNofuzz draws your attention to a test if it:
+Unlike some past automatic test suite generation tools, NaNofuzz combines multiple approaches to help you generate a test suite. You can define properties of the program similar to QuickCheck or Hypothesis, manually annotate the correctness or incorrectness of a program's output, or use an approach similar to fuzzing and automatically detect likely errors. Combining multiple approaches can help you quickly find errors and rapidly build a test suite. For example, without any guidance form you, NaNofuzz automatically draws your attention to a test if it:
  - throws a runtime exception
  - returns null, NaN, Infinity, or undefined
  - does not terminate within a configurable period of time
