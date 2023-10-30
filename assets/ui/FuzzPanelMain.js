@@ -1069,12 +1069,21 @@ function handleFuzzStart(e) {
   const disableArr = [e.currentTarget]; // List of controls to disable while fuzzer is busy
   const fuzzBase = "fuzz"; // Base html id name
 
-  // Process fuzzer options
-  ["suiteTimeout", "maxTests", "fnTimeout"].forEach((e) => {
+  // Process integer fuzzer options
+  ["suiteTimeout", "maxTests", "fnTimeout", "maxFailures"].forEach((e) => {
     const item = document.getElementById(fuzzBase + "-" + e);
     if (item !== null) {
       disableArr.push(item);
       overrides.fuzzer[e] = parseInt(item.getAttribute("current-value"));
+    }
+  });
+
+  // Process boolean fuzzer options
+  ["onlyFailures"].forEach((e) => {
+    const item = document.getElementById(fuzzBase + "-" + e);
+    if (item !== null) {
+      disableArr.push(item);
+      overrides.fuzzer[e] = item.getAttribute("value") === "true";
     }
   });
 

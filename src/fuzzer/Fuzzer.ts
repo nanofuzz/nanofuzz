@@ -71,6 +71,7 @@ export const fuzz = async (
     results: [],
   };
   let dupeCount = 0; // Number of duplicated tests since the last non-duplicated test
+  let failureCount = 0; // Number of failed tests encountered so far
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(env.options))
@@ -126,6 +127,7 @@ export const fuzz = async (
   for (
     let i = 0;
     i < env.options.maxTests &&
+    (env.options.maxFailures === 0 || failureCount < env.options.maxFailures) &&
     dupeCount < Math.max(env.options.maxTests, 1000);
     i++
   ) {
@@ -268,8 +270,18 @@ export const fuzz = async (
     // (Re-)categorize the result
     result.category = categorizeResult(result);
 
+    // Increment the failure counter if this test had a failing result
+    if (result.category !== FuzzResultCategory.OK) {
+      failureCount++;
+    }
+
     // Store the result for this iteration
-    results.results.push(result);
+    if (
+      !env.options.onlyFailures ||
+      result.category !== FuzzResultCategory.OK
+    ) {
+      results.results.push(result);
+    }
   } // for: Main test loop
 
   // Persist to outfile, if requested
@@ -288,7 +300,11 @@ export const fuzz = async (
  * @returns true if the options are valid, false otherwise
  */
 const isOptionValid = (options: FuzzOptions): boolean => {
-  return !(options.maxTests < 0 || !ArgDef.isOptionValid(options.argDefaults));
+  return !(
+    options.maxTests < 0 ||
+    options.maxFailures < 0 ||
+    !ArgDef.isOptionValid(options.argDefaults)
+  );
 }; // fn: isOptionValid()
 
 /**
