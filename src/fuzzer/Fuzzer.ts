@@ -13,6 +13,7 @@ import {
   FuzzPinnedTest,
   FuzzTestResult,
   FuzzResultCategory,
+  FuzzStopReason,
 } from "./Types";
 import { FuzzOptions } from "./Types";
 
@@ -68,6 +69,7 @@ export const fuzz = async (
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
+    stopReason: FuzzStopReason.CRASH, // updated later
     results: [],
   };
   let dupeCount = 0; // Number of duplicated tests since the last non-duplicated test
@@ -121,18 +123,21 @@ export const fuzz = async (
   //  (2) We have reached the maximum number of duplicate tests
   //      since the last non-duplicated test
   //  (3) We have reached the time limit for the test suite to run
+  //  (4) We have reached the maximum number of failed tests
   // Note: Pinned tests are not counted against the maxTests limit
   const startTime = new Date().getTime();
   const allInputs: Record<string, boolean> = {};
-  for (
-    let i = 0;
-    i < env.options.maxTests &&
-    (env.options.maxFailures === 0 || failureCount < env.options.maxFailures) &&
-    dupeCount < Math.max(env.options.maxTests, 1000);
-    i++
-  ) {
-    // End testing if we exceed the suite timeout
-    if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
+  for (let i = 0; ; i++) {
+    // Stop fuzzing if we encounter a stop condition
+    const stopCondition = _checkStopCondition(
+      env,
+      i,
+      dupeCount,
+      failureCount,
+      startTime
+    );
+    if (stopCondition !== undefined) {
+      results.stopReason = stopCondition;
       break;
     }
 
@@ -292,6 +297,50 @@ export const fuzz = async (
   // Return the result of the fuzzing activity
   return results;
 }; // fn: fuzz()
+
+/**
+ * Checks whether the fuzzer should stop fuzzing. If so, return the reason.
+ *
+ * @param env fuzz environment
+ * @param i current iteration
+ * @param dupeCount number of duplicate tests since the last non-duplicated test
+ * @param failureCount number of failed tests encountered so far
+ * @param startTime time the fuzzer started
+ * @returns the reason the fuzzer stopped, if any
+ */
+const _checkStopCondition = (
+  env: FuzzEnv,
+  i: number,
+  dupeCount: number,
+  failureCount: number,
+  startTime: number
+): FuzzStopReason | undefined => {
+  // End testing if we exceed the suite timeout
+  if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
+    return FuzzStopReason.MAXTIME;
+  }
+
+  // End testing if we exceed the maximum number of tests
+  if (i > env.options.maxTests) {
+    return FuzzStopReason.MAXTESTS;
+  }
+
+  // End testing if we exceed the maximum number of failures
+  if (
+    env.options.maxFailures !== 0 &&
+    failureCount >= env.options.maxFailures
+  ) {
+    return FuzzStopReason.MAXFAILURES;
+  }
+
+  // End testing if we exceed the maximum number of duplicates generated
+  if (dupeCount >= Math.max(env.options.maxTests, 1000)) {
+    return FuzzStopReason.MAXDUPES;
+  }
+
+  // No stop condition found
+  return undefined;
+}; // fn: _checkStopCondition()
 
 /**
  * Checks whether the given option set is valid.
@@ -486,6 +535,7 @@ export type FuzzEnv = {
  */
 export type FuzzTestResults = {
   env: FuzzEnv; // fuzzer environment
+  stopReason: FuzzStopReason; // why the fuzzer stopped
   results: FuzzTestResult[]; // fuzzing test results
 };
 

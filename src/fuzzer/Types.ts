@@ -70,6 +70,7 @@ export enum FuzzResultCategory {
   DISAGREE = "disagree",
   FAILURE = "failure", // Validator failure (e.g., threw an exception)
 }
+
 /**
  * Fuzzer Options that specify the fuzzing behavior
  */
@@ -120,3 +121,14 @@ export type FuzzArgOverride = {
     dimLength: { min: number; max: number }[];
   };
 };
+
+/**
+ * Reason the fuzzer stopped
+ */
+export enum FuzzStopReason {
+  CRASH = "crash",
+  MAXTESTS = "maxTests",
+  MAXFAILURES = "maxFailures",
+  MAXTIME = "maxTime",
+  MAXDUPES = "maxDupes",
+}

@@ -177,3 +177,8 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   padding-left: 0.25ch;
   position: absolute;
 }
+
+/* Stop conditions */
+.fuzzStopReason {
+  opacity: 50%;
+}

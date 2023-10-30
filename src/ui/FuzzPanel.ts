@@ -926,7 +926,7 @@ export function ${validatorPrefix}${
           
             <p>These settings control how long testing runs. Testing stops when any limit is reached.  Pinned tests count against the maximum runtime and failures but do not count against the maximum number of tests.</p>
             <vscode-text-field ${disabledFlag} size="3" id="fuzz-suiteTimeout" name="fuzz-suiteTimeout" value="${this._fuzzEnv.options.suiteTimeout}">
-              Max total runtime (ms)
+              Max runtime (ms)
             </vscode-text-field>
             <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxTests" name="fuzz-maxTests" value="${this._fuzzEnv.options.maxTests}">
               Max number of tests
@@ -1035,8 +1035,29 @@ export function ${validatorPrefix}${
     });
     html += /*html*/ `
             </vscode-panels>
-          </div>
+          </div>`;
 
+    if (this._results) {
+      const textReason = {
+        [fuzzer.FuzzStopReason.CRASH]: `because it crashed`,
+        [fuzzer.FuzzStopReason
+          .MAXTIME]: `when it ran for the maximum time you configured (${this._results.env.options.suiteTimeout} ms)`,
+        [fuzzer.FuzzStopReason
+          .MAXFAILURES]: `when it found ${this._results.env.options.maxFailures} failing test(s), the maximum you configured`,
+        [fuzzer.FuzzStopReason
+          .MAXTESTS]: `when it ran ${this._results.env.options.maxTests} test(s), the maximum you configured`,
+        [fuzzer.FuzzStopReason
+          .MAXDUPES]: `because it was unlikely to generate more unique test inputs. Often this means the function's input space is small`,
+        "": `of an unknown reason`,
+      };
+      // prettier-ignore
+      html += /*html*/ `
+          <!-- Fuzzer Stop Criteria -->
+          <vscode-divider></vscode-divider>
+          <div class="fuzzStopReason">NaNofuzz stopped ${this._results.stopReason in textReason ? textReason[this._results.stopReason] : textReason[""]}.</span>`;
+    }
+
+    html += /*html*/ `
           <!-- Fuzzer Result Payload: for the client script to process -->
           <div id="fuzzResultsData" style="display:none">
             ${
