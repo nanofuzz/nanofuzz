@@ -343,13 +343,24 @@ export class FuzzPanel {
 
     // Handle any version conversions needed
     if ("version" in inputTests) {
-      if (inputTests.version.startsWith("0.2.")) {
-        // v0.2.0 format
+      if (inputTests.version === CURR_FILE_FMT_VER) {
+        // current format -- no changes needed
         return inputTests;
+      } else if (inputTests.version === "0.2.0") {
+        // v0.2.0 format -- add maxFailures and onlyFailure options
+        const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
+        for (const fn in testSet.functions) {
+          testSet.functions[fn].options.maxFailures = 0;
+          testSet.functions[fn].options.onlyFailures = false;
+        }
+        console.info(
+          `Upgraded test set in file ${jsonFile} to ${testSet.version} to current version`
+        );
+        return testSet;
       } else {
         // unknown format; stop to avoid losing data
         throw new Error(
-          `Unknown version ${inputTests.version} in test file ${jsonFile}. Delete or rename it to continue.`
+          `Unknown version ${inputTests.version} in test file ${jsonFile}. Update your NaNofuzz extension or delete/rename the file to continue.`
         );
       }
     } else {
@@ -374,7 +385,7 @@ export class FuzzPanel {
    */
   private _initFuzzTestsForThisFn(): fuzzer.FuzzTests {
     return {
-      version: "0.2.0", // !!!!!
+      version: CURR_FILE_FMT_VER,
       functions: {
         [this._fuzzEnv.function.getName()]: {
           options: this._fuzzEnv.options,
@@ -663,8 +674,15 @@ export function ${validatorPrefix}${
     const fn = this._fuzzEnv.function;
 
     // Apply numeric fuzzer option changes
-    ["suiteTimeout", "maxTests", "fnTimeout"].forEach((e) => {
+    ["suiteTimeout", "maxTests", "maxFailures", "fnTimeout"].forEach((e) => {
       if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "number") {
+        this._fuzzEnv.options[e] = panelInput.fuzzer[e];
+      }
+    });
+
+    // Apply boolean fuzzer option changes
+    ["onlyFailures"].forEach((e) => {
+      if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "boolean") {
         this._fuzzEnv.options[e] = panelInput.fuzzer[e];
       }
     });
@@ -871,7 +889,6 @@ export function ${validatorPrefix}${
                 You may write a custom validator function that automatically categorizes outputs as correct (✔︎) or incorrect (X). Click <strong>More options</strong> for details.
               </span>
             </span>
-            
           </div>
           <vscode-divider></vscode-divider>
 
@@ -898,19 +915,31 @@ export function ${validatorPrefix}${
                 </vscode-button>
               </vscode-radio-group>
             </div>
+
+            <p>Choose to return all test results or only the failed ones.</p>
+            <vscode-radio-group id="fuzz-onlyFailures">
+              <vscode-radio ${disabledFlag} id="onlyFailures.false" name="onlyFailures.false" value="false" ${
+                !this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Return all test results</vscode-radio>
+              <vscode-radio ${disabledFlag} id="onlyFailures.true" name="onlyFailures.true" value="true" ${
+                this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Return only failed test results</vscode-radio>
+            </vscode-radio-group>
           
-            <p>These settings control how long testing runs. Testing stops when either limit is reached.  Pinned tests count against the maximum runtime but do not count against the maximum number of tests.</p>
-            <vscode-text-field ${disabledFlag} id="fuzz-suiteTimeout" name="fuzz-suiteTimeout" value="${this._fuzzEnv.options.suiteTimeout}">
-              Max runtime (ms)
+            <p>These settings control how long testing runs. Testing stops when any limit is reached.  Pinned tests count against the maximum runtime and failures but do not count against the maximum number of tests.</p>
+            <vscode-text-field ${disabledFlag} size="3" id="fuzz-suiteTimeout" name="fuzz-suiteTimeout" value="${this._fuzzEnv.options.suiteTimeout}">
+              Max total runtime (ms)
             </vscode-text-field>
-            <vscode-text-field ${disabledFlag} id="fuzz-maxTests" name="fuzz-maxTests" value="${this._fuzzEnv.options.maxTests}">
+            <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxTests" name="fuzz-maxTests" value="${this._fuzzEnv.options.maxTests}">
               Max number of tests
+            </vscode-text-field>
+            <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxFailures" name="fuzz-maxFailures" value="${this._fuzzEnv.options.maxFailures}">
+              Max failed tests
             </vscode-text-field>
 
             <p>To ensure testing completes, stop long-running function calls and mark them as timeouts.</p>
-            <vscode-text-field ${disabledFlag} id="fuzz-fnTimeout" name="fuzz-fnTimeout" value="${this._fuzzEnv.options.fnTimeout}">
-              Stop function call after (ms)
+            <vscode-text-field ${disabledFlag} size="3" id="fuzz-fnTimeout" name="fuzz-fnTimeout" value="${this._fuzzEnv.options.fnTimeout}">
+              Timeout test function after (ms)
             </vscode-text-field>
+
             <vscode-divider></vscode-divider>
           </div>
 
@@ -1290,7 +1319,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   }
 
   // Get the current active editor filename
-  const srcFile = document.uri.path; //full path of the file which the function is in.
+  const srcFile = document.uri.path; // full path of the file which contains the function
 
   // Call the fuzzer to analyze the function
   const fuzzOptions = getDefaultFuzzOptions();
@@ -1461,6 +1490,12 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     suiteTimeout: vscode.workspace
       .getConfiguration("nanofuzz.fuzzer")
       .get("suiteTimeout", 3000),
+    maxFailures: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("maxFailures", 0),
+    onlyFailures: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("onlyFailures", false),
   };
 }; // fn: getDefaultFuzzOptions()
 
@@ -1537,3 +1572,8 @@ export type FunctionMatch = {
   document: vscode.TextDocument;
   ref: fuzzer.FunctionRef;
 };
+
+/**
+ * Current file format version for persisting test sets / pinned test cases
+ */
+const CURR_FILE_FMT_VER = "0.2.1"; // !!!! Increment if file format changes

@@ -84,6 +84,13 @@
           "minimum": 1,
           "description": "Maximum number of tests the fuzzer should run before stopping."
         },
+        "nanofuzz.fuzzer.maxFailures": {
+          "title": "Maximum number of failures (0=no limit)",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Maximum number of failed tests the fuzzer should run before stopping."
+        },
         "nanofuzz.fuzzer.suiteTimeout": {
           "title": "Maximum time to run the fuzzer (ms)",
           "type": "integer",
@@ -97,6 +104,12 @@
           "default": 100,
           "minimum": 0,
           "description": "Maximum time (in ms) to allow a test function to run before making it as a timeout."
+        },
+        "nanofuzz.fuzzer.onlyFailures": {
+          "title": "Report only test failures?",
+          "type": "boolean",
+          "default": false,
+          "description": "Report only failing tests?"
         },
         "nanofuzz.argdef.strCharset": {
           "title": "String character set",
