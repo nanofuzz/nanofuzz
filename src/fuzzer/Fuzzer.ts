@@ -70,9 +70,16 @@ export const fuzz = async (
   const results: FuzzTestResults = {
     env,
     stopReason: FuzzStopReason.CRASH, // updated later
+    elapsedTime: 0, // updated later
+    inputsGenerated: 0, // updated later
+    dupesGenerated: 0, // updated later
+    inputsSaved: 0, // updated later
     results: [],
   };
+  let savedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
   let dupeCount = 0; // Number of duplicated tests since the last non-duplicated test
+  let totalDupes = 0; // Total number of duplicates generated in the fuzzing session
+  let inputsGenerated = 0; // Number of inputs generated so far
   let failureCount = 0; // Number of failed tests encountered so far
 
   // Ensure we have a valid set of Fuzz options
@@ -127,17 +134,23 @@ export const fuzz = async (
   // Note: Pinned tests are not counted against the maxTests limit
   const startTime = new Date().getTime();
   const allInputs: Record<string, boolean> = {};
-  for (let i = 0; ; i++) {
-    // Stop fuzzing if we encounter a stop condition
+
+  // eslint-disable-next-line no-constant-condition, @typescript-eslint/no-unnecessary-condition
+  while (true) {
+    // Stop fuzzing when we encounter a stop condition
     const stopCondition = _checkStopCondition(
       env,
-      i,
-      dupeCount,
+      inputsGenerated,
+      totalDupes,
       failureCount,
       startTime
     );
     if (stopCondition !== undefined) {
       results.stopReason = stopCondition;
+      results.elapsedTime = new Date().getTime() - startTime;
+      results.inputsGenerated = inputsGenerated;
+      results.dupesGenerated = totalDupes;
+      results.inputsSaved = savedCount;
       break;
     }
 
@@ -158,12 +171,12 @@ export const fuzz = async (
     // Note: Do not count pinned tests against the maxTests limit
     const pinnedTest = pinnedTests.pop();
     if (pinnedTest) {
+      savedCount++;
       result.input = pinnedTest.input;
       result.pinned = pinnedTest.pinned;
       if (pinnedTest.expectedOutput) {
         result.expectedOutput = pinnedTest.expectedOutput;
       }
-      --i; // don't count pinned tests
     } else {
       // Generate and store the inputs
       // TODO: We should provide a way to filter inputs
@@ -174,13 +187,15 @@ export const fuzz = async (
           value: e.gen(),
         });
       });
+      // Increment the number of inputs generated
+      inputsGenerated++;
     }
 
     // Skip tests if we previously processed the input
     const inputHash = JSON5.stringify(result.input);
     if (inputHash in allInputs) {
-      i--; // don't count this test
-      dupeCount++; // but count the duplicate
+      dupeCount++; // increment the dupe coynter
+      totalDupes++; // incremement the total run dupe counter
       continue; // skip this test
     } else {
       dupeCount = 0; // reset the duplicate count
@@ -302,7 +317,7 @@ export const fuzz = async (
  * Checks whether the fuzzer should stop fuzzing. If so, return the reason.
  *
  * @param env fuzz environment
- * @param i current iteration
+ * @param inputsGenerated number of inputs generated so far
  * @param dupeCount number of duplicate tests since the last non-duplicated test
  * @param failureCount number of failed tests encountered so far
  * @param startTime time the fuzzer started
@@ -310,7 +325,7 @@ export const fuzz = async (
  */
 const _checkStopCondition = (
   env: FuzzEnv,
-  i: number,
+  inputsGenerated: number,
   dupeCount: number,
   failureCount: number,
   startTime: number
@@ -321,7 +336,7 @@ const _checkStopCondition = (
   }
 
   // End testing if we exceed the maximum number of tests
-  if (i > env.options.maxTests) {
+  if (inputsGenerated - dupeCount >= env.options.maxTests) {
     return FuzzStopReason.MAXTESTS;
   }
 
@@ -536,6 +551,10 @@ export type FuzzEnv = {
 export type FuzzTestResults = {
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped
+  elapsedTime: number; // elapsed time the fuzzer ran
+  inputsGenerated: number; // number of inputs generated
+  dupesGenerated: number; // number of duplicate inputs generated
+  inputsSaved: number; // number of inputs saved
   results: FuzzTestResult[]; // fuzzing test results
 };
 

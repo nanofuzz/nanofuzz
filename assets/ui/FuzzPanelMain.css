@@ -127,7 +127,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 }
 .tooltip-top .tooltiptext {
   visibility: hidden;
-  width: 160px;
+  width: 190px;
   background-color: var(--vscode-panel-background);
   text-align: center;
   border-width: 1px;
@@ -139,7 +139,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   z-index: 1;
   bottom: 100%;
   left: 50%;
-  margin-left: -85px;
+  margin-left: -100px;
   margin-bottom: 6px;
 }
 .tooltiptext-small {
@@ -181,4 +181,9 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 /* Stop conditions */
 .fuzzStopReason {
   opacity: 50%;
+}
+
+/* Narrow tab strip column gaps */
+div.fuzzResults > vscode-panels::part(tablist) {
+  column-gap: calc(var(--design-unit) * 4px);
 }
