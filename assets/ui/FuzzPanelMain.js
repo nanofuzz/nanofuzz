@@ -1079,11 +1079,13 @@ function handleFuzzStart(e) {
   });
 
   // Process boolean fuzzer options
-  ["onlyFailures"].forEach((e) => {
+  ["onlyFailures", "useHuman", "useImplicit"].forEach((e) => {
     const item = document.getElementById(fuzzBase + "-" + e);
     if (item !== null) {
       disableArr.push(item);
-      overrides.fuzzer[e] = item.getAttribute("value") === "true";
+      overrides.fuzzer[e] =
+        item.getAttribute("value") ??
+        item.getAttribute("current-checked") === "true";
     }
   });
 

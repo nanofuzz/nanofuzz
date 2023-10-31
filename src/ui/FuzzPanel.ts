@@ -352,6 +352,8 @@ export class FuzzPanel {
         for (const fn in testSet.functions) {
           testSet.functions[fn].options.maxFailures = 0;
           testSet.functions[fn].options.onlyFailures = false;
+          testSet.functions[fn].options.useHuman = true;
+          testSet.functions[fn].options.useImplicit = true;
         }
         console.info(
           `Upgraded test set in file ${jsonFile} to ${testSet.version} to current version`
@@ -681,7 +683,7 @@ export function ${validatorPrefix}${
     });
 
     // Apply boolean fuzzer option changes
-    ["onlyFailures"].forEach((e) => {
+    ["onlyFailures", "useImplicit", "useHuman"].forEach((e) => {
       if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "boolean") {
         this._fuzzEnv.options[e] = panelInput.fuzzer[e];
       }
@@ -871,22 +873,22 @@ export function ${validatorPrefix}${
             <span>Output validation:&nbsp;</span>
 
             <span class="tooltip tooltip-top">
-              <span class="codicon codicon-debug"></span>
+              <span class="codicon codicon-debug" id="implicitIndicator"></span>
               <span class="tooltiptext">
-                NaNofuzz categorizes timeout, exception, null, undefined, Infinity, &amp; NaN outputs as incorrect. 
+                NaNofuzz categorizes timeout, exception, null, undefined, Infinity, &amp; NaN outputs as failed. 
                 You may override this default categorization with one of the other two validators.
               </span>
             </span>
             <span class="tooltip tooltip-top">
-              <span class="codicon codicon-person"></span>
+              <span class="codicon codicon-person" id="humanIndicator"></span>
               <span class="tooltiptext">
-                Manually categorize outputs as correct (✔︎) or incorrect (X) in the results pane below.
+                Manually re-categorize outputs as passed (✔︎) or failed (X) in the results pane below.
               </span>
             </span>
             <span class="tooltip tooltip-top">
               <span class="codicon codicon-hubot" id="validatorIndicator"></span>
               <span class="tooltiptext">
-                You may write a custom validator function that automatically categorizes outputs as correct (✔︎) or incorrect (X). Click <strong>More options</strong> for details.
+                You may write a custom validator function that automatically categorizes outputs as passed (✔︎) or failed (X). Click <strong>More options</strong> for details.
               </span>
             </span>
           </div>
@@ -894,7 +896,11 @@ export function ${validatorPrefix}${
 
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" class="hidden">
-            <p>You may write a <strong>custom validator function</strong> to automatically categorize outputs as corect (✔︎) or incorrect (X). Click the (+) button to create a new custom validator function.</p>
+            <p>Validators categorize outputs as passed (✔︎) or failed (X).</p>
+            <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Manually categorize tests as passed or failed</vscode-checkbox>
+            <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Auto-fail tests outputting: undefined, NaN, null, Infinity, timeout, exception</vscode-checkbox>
+
+            <p>You may write a <strong>custom validator function</strong> to automatically categorize outputs as passed (✔︎) or failed (X). Click the (+) button to create a new custom validator function.</p>
             <div id="validatorFunctions-edit">
               <vscode-radio-group id="validatorFunctions-radios">
                 <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
@@ -924,6 +930,11 @@ export function ${validatorPrefix}${
                 this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Report only failed test results</vscode-radio>
             </vscode-radio-group>
           
+            <p>To ensure testing completes, stop long-running function calls and categorize them as timeouts.</p>
+            <vscode-text-field ${disabledFlag} size="3" id="fuzz-fnTimeout" name="fuzz-fnTimeout" value="${this._fuzzEnv.options.fnTimeout}">
+              Timeout test function after (ms)
+            </vscode-text-field>
+
             <p>These settings control how long testing runs. Testing stops when any limit is reached.  Pinned tests count against the maximum runtime and failures but do not count against the maximum number of tests.</p>
             <vscode-text-field ${disabledFlag} size="3" id="fuzz-suiteTimeout" name="fuzz-suiteTimeout" value="${this._fuzzEnv.options.suiteTimeout}">
               Max runtime (ms)
@@ -933,11 +944,6 @@ export function ${validatorPrefix}${
             </vscode-text-field>
             <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxFailures" name="fuzz-maxFailures" value="${this._fuzzEnv.options.maxFailures}">
               Max failed tests
-            </vscode-text-field>
-
-            <p>To ensure testing completes, stop long-running function calls and mark them as timeouts.</p>
-            <vscode-text-field ${disabledFlag} size="3" id="fuzz-fnTimeout" name="fuzz-fnTimeout" value="${this._fuzzEnv.options.fnTimeout}">
-              Timeout test function after (ms)
             </vscode-text-field>
 
             <vscode-divider></vscode-divider>
@@ -1002,7 +1008,7 @@ export function ${validatorPrefix}${
       {
         id: "badValue",
         name: "Failed",
-        description: `These inputs were categorized by a validator as failed. NaNofuzz by default categorizes outputs as incorrect that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
+        description: `These inputs were categorized by a validator as failed. NaNofuzz by default categorizes outputs as failed that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
         hasGrid: true,
       },
       {
@@ -1554,6 +1560,8 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     onlyFailures: vscode.workspace
       .getConfiguration("nanofuzz.fuzzer")
       .get("onlyFailures", false),
+    useHuman: true,
+    useImplicit: true,
   };
 }; // fn: getDefaultFuzzOptions()
 

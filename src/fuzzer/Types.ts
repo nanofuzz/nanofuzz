@@ -84,6 +84,8 @@ export type FuzzOptions = {
   onlyFailures: boolean; // only report tests that do not pass
   fnTimeout: number; // timeout threshold in ms per test
   suiteTimeout: number; // timeout for the entire test suite
+  useImplicit: boolean; // use implicit oracle
+  useHuman: boolean; // use human oracle
 };
 
 /**
