@@ -916,17 +916,17 @@ export function ${validatorPrefix}${
               </vscode-radio-group>
             </div>
 
-            <p>Choose to return all test results or only the failed ones.</p>
+            <p>Choose to report all test results or only the failed ones.</p>
             <vscode-radio-group id="fuzz-onlyFailures">
               <vscode-radio ${disabledFlag} id="onlyFailures.false" name="onlyFailures.false" value="false" ${
-                !this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Return all test results</vscode-radio>
+                !this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Report all test results</vscode-radio>
               <vscode-radio ${disabledFlag} id="onlyFailures.true" name="onlyFailures.true" value="true" ${
-                this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Return only failed test results</vscode-radio>
+                this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Report only failed test results</vscode-radio>
             </vscode-radio-group>
           
             <p>These settings control how long testing runs. Testing stops when any limit is reached.  Pinned tests count against the maximum runtime and failures but do not count against the maximum number of tests.</p>
             <vscode-text-field ${disabledFlag} size="3" id="fuzz-suiteTimeout" name="fuzz-suiteTimeout" value="${this._fuzzEnv.options.suiteTimeout}">
-              Max total runtime (ms)
+              Max runtime (ms)
             </vscode-text-field>
             <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxTests" name="fuzz-maxTests" value="${this._fuzzEnv.options.maxTests}">
               Max number of tests
@@ -945,10 +945,10 @@ export function ${validatorPrefix}${
 
           <!-- Button Bar -->
           <div style="padding-top: .25em;">
-            <vscode-button ${disabledFlag} id="fuzz.start">
+            <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
               ${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}
             </vscode-button>
-            <vscode-button ${disabledFlag} id="fuzz.options" appearance="secondary">
+            <vscode-button ${disabledFlag} id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
               More options
             </vscode-button>
           </div>
@@ -969,7 +969,7 @@ export function ${validatorPrefix}${
               ? ""
               : /*html*/ `style="display:none;"`
           }>
-            <vscode-panels>`;
+            <vscode-panels class="fuzzTabStrip">`;
 
     // If we have results, render the output tabs to display the results.
     const tabs = [
@@ -979,64 +979,122 @@ export function ${validatorPrefix}${
         description: `For these inputs, the custom validator function (${
           this._fuzzEnv.validator ?? ""
         }) threw an exception. You should fix the bug in the validator and start the fuzzer again.`,
+        hasGrid: true,
       },
       {
         id: "disagree",
         name: "Disagree",
         description: `For these inputs, the validator function (<span class="codicon codicon-hubot"></span>) and the manual validation (<span class="codicon codicon-person"></span>) disagree about whether the output passes. Either correct the validation function or correct the manual validation.`,
+        hasGrid: true,
       },
       {
         id: "timeout",
         name: "Timeouts",
         description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator categorized them as passed.`,
+        hasGrid: true,
       },
       {
         id: "exception",
         name: "Exceptions",
         description: `These inputs resulted in a runtime exception, and no validator categorized them as passed.`,
+        hasGrid: true,
       },
       {
         id: "badValue",
         name: "Failed",
         description: `These inputs were categorized by a validator as failed. NaNofuzz by default categorizes outputs as incorrect that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
+        hasGrid: true,
       },
       {
         id: "ok",
         name: "Passed",
         description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
+        hasGrid: true,
       },
     ];
+    if (this._results) {
+      const textReason = {
+        [fuzzer.FuzzStopReason.CRASH]: `because it crashed`,
+        [fuzzer.FuzzStopReason
+          .MAXTIME]: `when it exceeded the maximum time you configured (${this._results.env.options.suiteTimeout} ms) for it to run`,
+        [fuzzer.FuzzStopReason
+          .MAXFAILURES]: `when it found ${this._results.env.options.maxFailures} failing test(s), which is the maximum you configured`,
+        [fuzzer.FuzzStopReason
+          .MAXTESTS]: `when it ran ${this._results.env.options.maxTests} new test(s) (plus ${this._results.inputsSaved} saved test(s)), the maximum you configured`,
+        [fuzzer.FuzzStopReason
+          .MAXDUPES]: `because it was unlikely to generate more unique test inputs. Often this means the function's input space is small`,
+        "": `of an unknown reason`,
+      };
+      tabs.push({
+        id: "runInfo",
+        name: `<div class="codicon codicon-info"></div>`,
+        description: `NaNofuzz stopped testing ${
+          this._results.stopReason in textReason
+            ? textReason[this._results.stopReason]
+            : textReason[""]
+        }.<p>NaNofuzz ran for ${this._results.elapsedTime} ms, re-tested ${
+          this._results.inputsSaved
+        } saved input(s), generated ${
+          this._results.inputsGenerated
+        } new input(s) (${
+          this._results.dupesGenerated
+        } of which were duplicates NaNofuzz previously tested), and reported ${
+          this._results.results.length
+        } test result(s) before stopping.</p><p>NaNofuzz is configured to return ${
+          this._results.env.options.onlyFailures ? "only failed" : "all"
+        } test results.</p>`,
+        hasGrid: false,
+      });
+    }
     tabs.forEach((e) => {
-      if (resultSummary[e.id] > 0) {
+      if (!e.hasGrid || resultSummary[e.id] > 0) {
         // prettier-ignore
         html += /*html*/ `
               <vscode-panel-tab id="tab-${e.id}">
-                ${e.name}<vscode-badge appearance="secondary">${
+                ${e.name}`;
+        if (e.hasGrid) {
+          // prettier-ignore
+          html += /*html*/ `
+                <vscode-badge appearance="secondary">${
                   resultSummary[e.id]
-                }</vscode-badge>
+                }</vscode-badge>`;
+        }
+        // prettier-ignore
+        html += /*html*/ `
               </vscode-panel-tab>`;
       }
     });
 
     tabs.forEach((e) => {
-      if (resultSummary[e.id] > 0)
+      if (!e.hasGrid || resultSummary[e.id] > 0) {
         html += /*html*/ `
               <vscode-panel-view class="fuzzGridPanel" id="view-${e.id}">
                 <section>
-                <div style="margin-bottom:.25em;margin-top:.25em;">${e.description}</div>
-                <div id="fuzzResultsGrid-${e.id}">
+                  <div style="margin-bottom:.25em;margin-top:.25em;">${e.description}</div>`;
+        if (e.hasGrid) {
+          // prettier-ignore
+          html += /*html*/ `
+                  <div id="fuzzResultsGrid-${e.id}">
                     <table class="fuzzGrid">
                       <thead class="columnSortOrder" id="fuzzResultsGrid-${e.id}-thead" /> 
                       <tbody id="fuzzResultsGrid-${e.id}-tbody" />
                     </table>
-                  </div>
+                  </div>`;
+        }
+        // prettier-ignore
+        html += /*html*/ `
                 </section>
               </vscode-panel-view>`;
+      }
     });
+
+    // prettier-ignore
     html += /*html*/ `
             </vscode-panels>
-          </div>
+          </div>`;
 
+    // Hidden data for the client script to process
+    html += /*html*/ `
           <!-- Fuzzer Result Payload: for the client script to process -->
           <div id="fuzzResultsData" style="display:none">
             ${
