@@ -996,7 +996,14 @@ export function ${validatorPrefix}${
             <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
               ${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}
             </vscode-button>
-            <vscode-button ${disabledFlag} id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
+            <vscode-button ${disabledFlag} ${ 
+              // vscode's type info is inaccurate here             
+              vscode.workspace
+                .getConfiguration("nanofuzz.ui")
+                .get("hideMoreOptionsButton", false)
+                  ? `class="hidden" ` 
+                  : ``
+              } id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
               More options
             </vscode-button>
           </div>
@@ -1684,7 +1691,12 @@ export const languages = ["typescript", "typescriptreact"];
 /**
  * The Fuzzer State Version we currently support.
  */
-const fuzzPanelStateVer = "FuzzPanelStateSerialized-1.0.0";
+const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.2.1";
+
+/**
+ * Current file format version for persisting test sets / pinned test cases
+ */
+const CURR_FILE_FMT_VER = "0.2.1"; // !!!! Increment if file format changes
 
 // ----------------------------- Types ----------------------------- //
 
@@ -1722,8 +1734,3 @@ export type FunctionMatch = {
   document: vscode.TextDocument;
   ref: fuzzer.FunctionRef;
 };
-
-/**
- * Current file format version for persisting test sets / pinned test cases
- */
-const CURR_FILE_FMT_VER = "0.2.1"; // !!!! Increment if file format changes

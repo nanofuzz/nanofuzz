@@ -111,6 +111,12 @@
           "default": false,
           "description": "Report only failing tests?"
         },
+        "nanofuzz.ui.hideMoreOptionsButton": {
+          "title": "Hide the 'More options' button?",
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the 'More options' button?"
+        },
         "nanofuzz.argdef.strCharset": {
           "title": "String character set",
           "type": "string",
