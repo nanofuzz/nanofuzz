@@ -77,8 +77,8 @@ export const fuzz = async (
     results: [],
   };
   let savedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
-  let dupeCount = 0; // Number of duplicated tests since the last non-duplicated test
-  let totalDupes = 0; // Total number of duplicates generated in the fuzzing session
+  let currentDupeCount = 0; // Number of duplicated tests since the last non-duplicated test
+  let totalDupeCount = 0; // Total number of duplicates generated in the fuzzing session
   let inputsGenerated = 0; // Number of inputs generated so far
   let failureCount = 0; // Number of failed tests encountered so far
 
@@ -141,7 +141,8 @@ export const fuzz = async (
     const stopCondition = _checkStopCondition(
       env,
       inputsGenerated,
-      totalDupes,
+      currentDupeCount,
+      totalDupeCount,
       failureCount,
       startTime
     );
@@ -149,7 +150,7 @@ export const fuzz = async (
       results.stopReason = stopCondition;
       results.elapsedTime = new Date().getTime() - startTime;
       results.inputsGenerated = inputsGenerated;
-      results.dupesGenerated = totalDupes;
+      results.dupesGenerated = totalDupeCount;
       results.inputsSaved = savedCount;
       break;
     }
@@ -171,7 +172,7 @@ export const fuzz = async (
     // Note: Do not count pinned tests against the maxTests limit
     const pinnedTest = pinnedTests.pop();
     if (pinnedTest) {
-      savedCount++;
+      savedCount++; // increment the number of saved tests processed
       result.input = pinnedTest.input;
       result.pinned = pinnedTest.pinned;
       if (pinnedTest.expectedOutput) {
@@ -194,11 +195,11 @@ export const fuzz = async (
     // Skip tests if we previously processed the input
     const inputHash = JSON5.stringify(result.input);
     if (inputHash in allInputs) {
-      dupeCount++; // increment the dupe coynter
-      totalDupes++; // incremement the total run dupe counter
+      currentDupeCount++; // increment the dupe coynter
+      totalDupeCount++; // incremement the total run dupe counter
       continue; // skip this test
     } else {
-      dupeCount = 0; // reset the duplicate count
+      currentDupeCount = 0; // reset the duplicate count
       // if the function accepts inputs, add test input
       // to the list so we don't test it again,
       if (env.function.getArgDefs().length) {
@@ -231,16 +232,17 @@ export const fuzz = async (
     // How can it fail ... let us count the ways...
     // TODO Add suppport for multiple validators !!!
     if (
-      result.exception ||
-      result.timeout ||
-      result.output.some((e) => !implicitOracle(e))
+      env.options.useImplicit &&
+      (result.exception ||
+        result.timeout ||
+        result.output.some((e) => !implicitOracle(e)))
     ) {
       result.passedImplicit = false;
     }
 
     // HUMAN ORACLE -----------------------------------------------
     // If a human annotated an expected output, then check it
-    if (result.expectedOutput) {
+    if (env.options.useHuman && result.expectedOutput) {
       result.passedHuman = actualEqualsExpectedOutput(
         result,
         result.expectedOutput
@@ -318,7 +320,8 @@ export const fuzz = async (
  *
  * @param env fuzz environment
  * @param inputsGenerated number of inputs generated so far
- * @param dupeCount number of duplicate tests since the last non-duplicated test
+ * @param currentDupeCount number of duplicate tests since the last non-duplicated test
+ * @param totalDupeCount number of duplicate tests since the last non-duplicated test
  * @param failureCount number of failed tests encountered so far
  * @param startTime time the fuzzer started
  * @returns the reason the fuzzer stopped, if any
@@ -326,7 +329,8 @@ export const fuzz = async (
 const _checkStopCondition = (
   env: FuzzEnv,
   inputsGenerated: number,
-  dupeCount: number,
+  currentDupeCount: number,
+  totalDupeCount: number,
   failureCount: number,
   startTime: number
 ): FuzzStopReason | undefined => {
@@ -336,7 +340,7 @@ const _checkStopCondition = (
   }
 
   // End testing if we exceed the maximum number of tests
-  if (inputsGenerated - dupeCount >= env.options.maxTests) {
+  if (inputsGenerated - totalDupeCount >= env.options.maxTests) {
     return FuzzStopReason.MAXTESTS;
   }
 
@@ -349,7 +353,7 @@ const _checkStopCondition = (
   }
 
   // End testing if we exceed the maximum number of duplicates generated
-  if (dupeCount >= Math.max(env.options.maxTests, 1000)) {
+  if (currentDupeCount >= Math.max(env.options.maxTests, 1000)) {
     return FuzzStopReason.MAXDUPES;
   }
 

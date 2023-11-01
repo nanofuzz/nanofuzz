@@ -86,6 +86,11 @@ function main() {
     .getElementById("fuzz.options")
     .addEventListener("click", (e) => toggleFuzzOptions(e));
 
+  // Add event listener for the fuzz.options close button
+  document
+    .getElementById("fuzzOptions-close")
+    .addEventListener("click", (e) => toggleFuzzOptions(e));
+
   // Load the fuzzer results data from the HTML
   resultsData = JSON5.parse(
     htmlUnescape(document.getElementById("fuzzResultsData").innerHTML)
@@ -296,12 +301,13 @@ function main() {
  */
 function toggleFuzzOptions(e) {
   const fuzzOptions = document.getElementById("fuzzOptions");
+  const fuzzOptionsButton = document.getElementById("fuzz.options");
   if (isHidden(fuzzOptions)) {
     toggleHidden(fuzzOptions);
-    e.currentTarget.innerHTML = "Fewer options";
+    fuzzOptionsButton.innerHTML = "Fewer options";
   } else {
     toggleHidden(fuzzOptions);
-    e.currentTarget.innerHTML = "More options";
+    fuzzOptionsButton.innerHTML = "More options";
   }
 
   // Refresh the list of validators

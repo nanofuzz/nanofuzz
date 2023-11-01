@@ -858,7 +858,7 @@ export function ${validatorPrefix}${
           <title>NaNofuzz Panel</title>
         </head>
         <body>
-          <h2 style="margin-bottom:.5em;margin-top:.1em;">Test ${htmlEscape(
+          <h2>Test ${htmlEscape(
             fn.getName()
           )}() w/inputs:</h2>
 
@@ -896,55 +896,97 @@ export function ${validatorPrefix}${
 
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" class="hidden">
-            <p>Validators categorize outputs as passed (✔︎) or failed (X).</p>
-            <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Manually categorize tests as passed or failed</vscode-checkbox>
-            <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Auto-fail tests outputting: undefined, NaN, null, Infinity, timeout, exception</vscode-checkbox>
-
-            <p>You may write a <strong>custom validator function</strong> to automatically categorize outputs as passed (✔︎) or failed (X). Click the (+) button to create a new custom validator function.</p>
-            <div id="validatorFunctions-edit">
-              <vscode-radio-group id="validatorFunctions-radios">
-                <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
-                  <span class="tooltip tooltip-top">
-                    <span class="codicon codicon-add"></span>
-                    <span class="tooltiptext tooltiptext-small">
-                      Add new function
-                    </span>
-                  </span>
-                </vscode-button>
-                <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
-                  <span class="tooltip tooltip-top">
-                    <span class="codicon codicon-refresh"></span>
-                    <span class="tooltiptext tooltiptext-small">
-                      Refresh list
-                    </span>
-                  </span>
-                </vscode-button>
-              </vscode-radio-group>
+            <div class="panelButton">
+              <span class="codicon codicon-close" id="fuzzOptions-close"></span>
             </div>
+            <h2>More options</h2>
 
-            <p>Choose to report all test results or only the failed ones.</p>
-            <vscode-radio-group id="fuzz-onlyFailures">
-              <vscode-radio ${disabledFlag} id="onlyFailures.false" name="onlyFailures.false" value="false" ${
-                !this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Report all test results</vscode-radio>
-              <vscode-radio ${disabledFlag} id="onlyFailures.true" name="onlyFailures.true" value="true" ${
-                this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Report only failed test results</vscode-radio>
-            </vscode-radio-group>
-          
-            <p>To ensure testing completes, stop long-running function calls and categorize them as timeouts.</p>
-            <vscode-text-field ${disabledFlag} size="3" id="fuzz-fnTimeout" name="fuzz-fnTimeout" value="${this._fuzzEnv.options.fnTimeout}">
-              Timeout test function after (ms)
-            </vscode-text-field>
+            <vscode-panels aria-label="Options tabs" class="fuzzTabStrip">
+              <vscode-panel-tab aria-label="Validating options tab">Validating</vscode-panel-tab>
+              <vscode-panel-tab aria-label="Reporting options tab">Reporting</vscode-panel-tab>
+              <vscode-panel-tab aria-label="Stopping options tab">Stopping</vscode-panel-tab>
 
-            <p>These settings control how long testing runs. Testing stops when any limit is reached.  Pinned tests count against the maximum runtime and failures but do not count against the maximum number of tests.</p>
-            <vscode-text-field ${disabledFlag} size="3" id="fuzz-suiteTimeout" name="fuzz-suiteTimeout" value="${this._fuzzEnv.options.suiteTimeout}">
-              Max runtime (ms)
-            </vscode-text-field>
-            <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxTests" name="fuzz-maxTests" value="${this._fuzzEnv.options.maxTests}">
-              Max number of tests
-            </vscode-text-field>
-            <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxFailures" name="fuzz-maxFailures" value="${this._fuzzEnv.options.maxFailures}">
-              Max failed tests
-            </vscode-text-field>
+              <vscode-panel-view>
+                <p>
+                  NaNofuzz uses validators to categorize outputs as passed (✔︎) or failed (X). 
+                  NaNofuzz' heuristic validator automatically categorizes the following outputs as failed: 
+                  undefined, null, NaN, Infinity, exception, timeout.
+                </p>
+                <div class="fuzzInputControlGroup">
+                  <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use NaNofuzz' heuristic validator</vscode-checkbox>
+                  <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Use manual human validation</vscode-checkbox>
+                </div>
+
+                <div>
+                  <p>
+                    Use a <strong>custom validator function</strong> to automatically categorize outputs as passed (✔︎) or failed (X). 
+                    Click the (+) button to create a new custom validator function.
+                  </p>
+                  <div id="validatorFunctions-edit">
+                    <vscode-radio-group id="validatorFunctions-radios">
+                      <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
+                        <span class="tooltip tooltip-top">
+                          <span class="codicon codicon-add"></span>
+                          <span class="tooltiptext tooltiptext-small">
+                            Add new function
+                          </span>
+                        </span>
+                      </vscode-button>
+                      <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
+                        <span class="tooltip tooltip-top">
+                          <span class="codicon codicon-refresh"></span>
+                          <span class="tooltiptext tooltiptext-small">
+                            Refresh list
+                          </span>
+                        </span>
+                      </vscode-button>
+                    </vscode-radio-group>
+                  </div>
+                </div>
+              </vscode-panel-view>
+
+              <vscode-panel-view>
+                <p>
+                  Choose to report all test results or only the failed ones.
+                </p>
+                <div class="fuzzInputControlGroup">
+                  <vscode-radio-group id="fuzz-onlyFailures">
+                    <vscode-radio ${disabledFlag} id="onlyFailures.false" name="onlyFailures.false" value="false" ${
+                      !this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Report all test results</vscode-radio>
+                    <vscode-radio ${disabledFlag} id="onlyFailures.true" name="onlyFailures.true" value="true" ${
+                      this._fuzzEnv.options.onlyFailures ? "checked" : ""}>Report only failed test results</vscode-radio>
+                  </vscode-radio-group>
+                </div>
+              </vscode-panel-view>
+
+              <vscode-panel-view>
+                <p>
+                  These settings control how long testing runs. Testing stops when any limit is reached.  
+                  Saved or pinned tests count against the maximum runtime and number of failures but do not count against the maximum number of tests. 
+                  For max runtime and number of failed tests, 0 indicates no limit.
+                </p>
+                <div class="fuzzInputControlGroup">
+                  <vscode-text-field ${disabledFlag} size="3" id="fuzz-suiteTimeout" name="fuzz-suiteTimeout" value="${this._fuzzEnv.options.suiteTimeout}">
+                    Max runtime (ms)
+                  </vscode-text-field>
+                  <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxTests" name="fuzz-maxTests" value="${this._fuzzEnv.options.maxTests}">
+                    Max number of tests
+                  </vscode-text-field>
+                  <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxFailures" name="fuzz-maxFailures" value="${this._fuzzEnv.options.maxFailures}">
+                    Max failed tests
+                  </vscode-text-field>
+                </div>
+  
+                <p>
+                  To ensure testing completes, stop long-running function calls and categorize them as timeouts.
+                </p>
+                <div class="fuzzInputControlGroup">
+                  <vscode-text-field ${disabledFlag} size="3" id="fuzz-fnTimeout" name="fuzz-fnTimeout" value="${this._fuzzEnv.options.fnTimeout}">
+                    Test function timeout (ms)
+                  </vscode-text-field>
+                </div>
+              </vscode-panel-view>
+            </vscode-panels>
 
             <vscode-divider></vscode-divider>
           </div>
@@ -975,7 +1017,7 @@ export function ${validatorPrefix}${
               ? ""
               : /*html*/ `style="display:none;"`
           }>
-            <vscode-panels class="fuzzTabStrip">`;
+            <vscode-panels aria-label="Test result tabs" class="fuzzTabStrip">`;
 
     // If we have results, render the output tabs to display the results.
     const tabs = [
@@ -1076,7 +1118,7 @@ export function ${validatorPrefix}${
         html += /*html*/ `
               <vscode-panel-view class="fuzzGridPanel" id="view-${e.id}">
                 <section>
-                  <div style="margin-bottom:.25em;margin-top:.25em;">${e.description}</div>`;
+                  <p class="fuzzPanelDescription">${e.description}</p>`;
         if (e.hasGrid) {
           // prettier-ignore
           html += /*html*/ `

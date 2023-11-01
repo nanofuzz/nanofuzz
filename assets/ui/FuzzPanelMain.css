@@ -183,7 +183,43 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   opacity: 50%;
 }
 
+/* Spacing overrides */
 /* Narrow tab strip column gaps */
-div.fuzzResults > vscode-panels::part(tablist) {
+vscode-panels::part(tablist) {
   column-gap: calc(var(--design-unit) * 4px);
+}
+/* Narrow the margins for <h2> elements */
+h2 {
+  margin-bottom: 0.5em;
+  margin-top: 0.1em;
+}
+#fuzzOptions > h2 {
+  margin-bottom: 0.1em;
+}
+/* Required to clear the float of the panel buttons */
+#fuzzOptions > vscode-panels {
+  clear: right;
+}
+/* Float panel buttons to the upper-right */
+.panelButton {
+  float: right;
+  padding-top: 0.25em;
+  padding-right: 0.5em;
+}
+/* Make the panel buttons larger */
+.panelButton > .codicon[class*="codicon-"] {
+  font-size: 1.5em;
+}
+vscode-panel-view {
+  flex-direction: column;
+}
+vscode-panel-view > p:nth-of-type(1) {
+  margin-top: 0.25em;
+}
+.fuzzPanelDescription {
+  margin-bottom: 0.25em;
+  margin-top: 0.25em;
+}
+div.fuzzInputControlGroup {
+  flex-direction: row;
 }
