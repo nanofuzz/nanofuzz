@@ -947,7 +947,7 @@ export function ${validatorPrefix}${
 
               <vscode-panel-view>
                 <p>
-                  Choose whether to report all test results or only the failed ones.
+                  Choose what test results to report.
                 </p>
                 <div class="fuzzInputControlGroup">
                   <vscode-radio-group id="fuzz-onlyFailures">
@@ -997,10 +997,9 @@ export function ${validatorPrefix}${
               ${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}
             </vscode-button>
             <vscode-button ${disabledFlag} ${ 
-              // vscode's type info is inaccurate here             
               vscode.workspace
                 .getConfiguration("nanofuzz.ui")
-                .get("hideMoreOptionsButton", false)
+                .get("hideMoreOptionsButton")
                   ? `class="hidden" ` 
                   : ``
               } id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
@@ -1033,13 +1032,13 @@ export function ${validatorPrefix}${
         name: "Validator Error",
         description: `For these inputs, the custom validator function (${
           this._fuzzEnv.validator ?? ""
-        }) threw an exception. You should fix the bug in the validator and start the fuzzer again.`,
+        }) threw an exception. You should fix the bug in the validator and re-test.`,
         hasGrid: true,
       },
       {
         id: "disagree",
         name: "Disagree",
-        description: `For these inputs, the validator function (<span class="codicon codicon-hubot"></span>) and the manual validation (<span class="codicon codicon-person"></span>) disagree about whether the output passes. Either correct the validation function or correct the manual validation.`,
+        description: `For these inputs, the validator function and the manual human validation disagree about whether the output passes. Either correct the validator function or correct the human validation. Then re-test.`,
         hasGrid: true,
       },
       {
@@ -1068,41 +1067,54 @@ export function ${validatorPrefix}${
       },
     ];
     if (this._results) {
+      // prettier-ignore
       const textReason = {
-        [fuzzer.FuzzStopReason.CRASH]: `because it crashed`,
-        [fuzzer.FuzzStopReason
-          .MAXTIME]: `when it exceeded the maximum time you configured (${this._results.env.options.suiteTimeout} ms) for it to run`,
-        [fuzzer.FuzzStopReason
-          .MAXFAILURES]: `when it found ${this._results.env.options.maxFailures} failing test(s), which is the maximum you configured`,
-        [fuzzer.FuzzStopReason
-          .MAXTESTS]: `when it ran ${this._results.env.options.maxTests} new test(s) (plus ${this._results.inputsSaved} saved test(s)), the maximum you configured`,
-        [fuzzer.FuzzStopReason
-          .MAXDUPES]: `because it was unlikely to generate more unique test inputs. Often this means the function's input space is small`,
-        "": `of an unknown reason`,
+        [fuzzer.FuzzStopReason.CRASH]: `because it crashed.`,
+        [fuzzer.FuzzStopReason.MAXTIME]: `because it exceeded the maximum time configured (${
+            this._results.env.options.suiteTimeout
+          } ms) for it to run.`,
+        [fuzzer.FuzzStopReason.MAXFAILURES]: `because it found ${
+            this._results.env.options.maxFailures
+          } failing test${
+            this._results.env.options.maxFailures !== 1 ? "s" : ""
+          }. This is the maximum number configured.`,
+        [fuzzer.FuzzStopReason.MAXTESTS]: `because it reached the maximum number of new tests configured (${
+            this._results.env.options.maxTests
+          }). This is in addition to the ${this._results.inputsSaved} saved test${
+            this._results.inputsSaved !== 1 ? "s" : ""
+          } NaNofuzz also executed.`,
+        [fuzzer.FuzzStopReason.MAXDUPES]: `because it was unlikely to generate more unique test inputs. Often this means the function's input space is small.`,
+        "": `because of an unknown reason.`,
       };
 
       // Build the list of validators used/not used
       const validatorsUsed: string[] = [];
       const validatorsNotUsed: string[] = [];
       (env.options.useImplicit ? validatorsUsed : validatorsNotUsed).push(
-        "heuristic"
+        "<strong>heuristic</strong>"
       );
-      (env.options.useHuman ? validatorsUsed : validatorsNotUsed).push("human");
+      (env.options.useHuman ? validatorsUsed : validatorsNotUsed).push(
+        "<strong>human</strong>"
+      );
       if ("validator" in env && env.validator) {
-        validatorsUsed.push(`custom function (${env.validator})`);
+        validatorsUsed.push(
+          `<strong>custom function (${env.validator})</strong>`
+        );
       } else {
-        validatorsNotUsed.push(`custom function`);
+        validatorsNotUsed.push(`<strong>custom function</strong>`);
       }
       let validatorsUsedText: string;
       if (validatorsUsed.length) {
         validatorsUsedText = `
-          NaNofuzz validated outputs using the ${validatorsUsed.join(
-            ", "
+          NaNofuzz categorized outputs using the ${toPrettyList(
+            validatorsUsed
           )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
         if (validatorsNotUsed.length) {
-          validatorsUsedText += `The following validator${
-            validatorsNotUsed.length > 1 ? "s" : ""
-          } were not configured: ${validatorsNotUsed.join(", ")}.`;
+          validatorsUsedText += `The ${toPrettyList(
+            validatorsNotUsed
+          )} validator${
+            validatorsNotUsed.length > 1 ? "s were" : " was"
+          } not configured.`;
         }
       } else {
         validatorsUsedText = `NaNofuzz did not use any validators in this test. This means that all tests were categorized as passed.`;
@@ -1113,31 +1125,47 @@ export function ${validatorPrefix}${
         id: "runInfo",
         name: `<div class="codicon codicon-info"></div>`,
         description: /*html*/ `
+          <big>Why did testing stop?</big><br />
           NaNofuzz stopped testing ${
             this._results.stopReason in textReason
               ? textReason[this._results.stopReason]
               : textReason[""]
-          }.
+          }
         <p>
+          <big>What did NaNofuzz do?</big><br />
           NaNofuzz ran for ${this._results.elapsedTime} ms, re-tested ${
           this._results.inputsSaved
-        } saved input(s), generated ${
+        } saved input${this._results.inputsSaved !== 1 ? "s" : ""}, generated ${
           this._results.inputsGenerated
-        } new input(s) (${
+        } new input${this._results.inputsGenerated !== 1 ? "s" : ""} (${
           this._results.dupesGenerated
-        } of which were duplicates NaNofuzz previously tested), and reported ${
+        } of which ${
+          this._results.dupesGenerated !== 1
+            ? "were duplicates"
+            : "was a duplicate"
+        } NaNofuzz previously tested), and reported ${
           this._results.results.length
-        } test result(s) before stopping.
+        } test result${
+          this._results.results.length !== 1 ? "s" : ""
+        } before stopping.
         </p>
         <p>
-          NaNofuzz is configured to return ${
+          <big>What was returned?</big><br />
+          NaNofuzz is configured to return <strong>${
             this._results.env.options.onlyFailures ? "only failed" : "all"
-          } test results.
+          }</strong> test results. You can view the returned results in the other tabs.
         </p>
         <p>
+          <big>How were outputs categorized?</big><br />
           ${validatorsUsedText}
         </p>
-        <p>
+        <p ${
+          vscode.workspace
+            .getConfiguration("nanofuzz.ui")
+            .get("hideMoreOptionsButton")
+            ? `class="hidden" `
+            : ``
+        }>
           You may change these settings using the <strong>More options</strong> button.
         </p>`,
         hasGrid: false,
@@ -1655,6 +1683,21 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     useImplicit: true,
   };
 }; // fn: getDefaultFuzzOptions()
+
+/**
+ * Accepts an array of strings and returns a prettier list including
+ * commas and 'and'. Adapted from https://stackoverflow.com/a/53888018
+ *
+ * @param inList Array of strings to turn into a list
+ * @returns string The list in string form including 'and'
+ */
+function toPrettyList(inList: string[]): string {
+  return inList.length === 2
+    ? inList.join(" and ")
+    : inList.reduce(
+        (a, b, i, array) => a + (i < array.length - 1 ? ", " : ", and ") + b
+      );
+} // fn: toPrettyList()
 
 /**
  * Initializes the module
