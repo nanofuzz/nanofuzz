@@ -869,7 +869,7 @@ export function ${validatorPrefix}${
     html += /*html*/ `
           <!-- Indicator Bar for Validator -->
           <vscode-divider></vscode-divider>
-          <div id="validatorFunctions-view" />
+          <div class="hidden" id="validatorFunctions-view">
             <span>Output validation:&nbsp;</span>
 
             <span class="tooltip tooltip-top">
@@ -892,7 +892,7 @@ export function ${validatorPrefix}${
               </span>
             </span>
           </div>
-          <vscode-divider></vscode-divider>
+          <vscode-divider class="hidden"></vscode-divider>
 
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" class="hidden">
