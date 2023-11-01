@@ -947,7 +947,7 @@ export function ${validatorPrefix}${
 
               <vscode-panel-view>
                 <p>
-                  Choose to report all test results or only the failed ones.
+                  Choose whether to report all test results or only the failed ones.
                 </p>
                 <div class="fuzzInputControlGroup">
                   <vscode-radio-group id="fuzz-onlyFailures">
@@ -1073,14 +1073,46 @@ export function ${validatorPrefix}${
           .MAXDUPES]: `because it was unlikely to generate more unique test inputs. Often this means the function's input space is small`,
         "": `of an unknown reason`,
       };
+
+      // Build the list of validators used/not used
+      const validatorsUsed: string[] = [];
+      const validatorsNotUsed: string[] = [];
+      (env.options.useImplicit ? validatorsUsed : validatorsNotUsed).push(
+        "heuristic"
+      );
+      (env.options.useHuman ? validatorsUsed : validatorsNotUsed).push("human");
+      if ("validator" in env && env.validator) {
+        validatorsUsed.push(`custom function (${env.validator})`);
+      } else {
+        validatorsNotUsed.push(`custom function`);
+      }
+      let validatorsUsedText: string;
+      if (validatorsUsed.length) {
+        validatorsUsedText = `
+          NaNofuzz validated outputs using the ${validatorsUsed.join(
+            ", "
+          )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
+        if (validatorsNotUsed.length) {
+          validatorsUsedText += `The following validator${
+            validatorsNotUsed.length > 1 ? "s" : ""
+          } were not configured: ${validatorsNotUsed.join(", ")}.`;
+        }
+      } else {
+        validatorsUsedText = `NaNofuzz did not use any validators in this test. This means that all tests were categorized as passed.`;
+      }
+
+      // Add the run info tab to the panel
       tabs.push({
         id: "runInfo",
         name: `<div class="codicon codicon-info"></div>`,
-        description: `NaNofuzz stopped testing ${
-          this._results.stopReason in textReason
-            ? textReason[this._results.stopReason]
-            : textReason[""]
-        }.<p>NaNofuzz ran for ${this._results.elapsedTime} ms, re-tested ${
+        description: /*html*/ `
+          NaNofuzz stopped testing ${
+            this._results.stopReason in textReason
+              ? textReason[this._results.stopReason]
+              : textReason[""]
+          }.
+        <p>
+          NaNofuzz ran for ${this._results.elapsedTime} ms, re-tested ${
           this._results.inputsSaved
         } saved input(s), generated ${
           this._results.inputsGenerated
@@ -1088,9 +1120,19 @@ export function ${validatorPrefix}${
           this._results.dupesGenerated
         } of which were duplicates NaNofuzz previously tested), and reported ${
           this._results.results.length
-        } test result(s) before stopping.</p><p>NaNofuzz is configured to return ${
-          this._results.env.options.onlyFailures ? "only failed" : "all"
-        } test results.</p>`,
+        } test result(s) before stopping.
+        </p>
+        <p>
+          NaNofuzz is configured to return ${
+            this._results.env.options.onlyFailures ? "only failed" : "all"
+          } test results.
+        </p>
+        <p>
+          ${validatorsUsedText}
+        </p>
+        <p>
+          You may change these settings using the <strong>More options</strong> button.
+        </p>`,
         hasGrid: false,
       });
     }
@@ -1118,7 +1160,7 @@ export function ${validatorPrefix}${
         html += /*html*/ `
               <vscode-panel-view class="fuzzGridPanel" id="view-${e.id}">
                 <section>
-                  <p class="fuzzPanelDescription">${e.description}</p>`;
+                  <div class="fuzzPanelDescription">${e.description}</div>`;
         if (e.hasGrid) {
           // prettier-ignore
           html += /*html*/ `
