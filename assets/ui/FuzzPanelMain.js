@@ -152,15 +152,19 @@ function main() {
       const id = { [idLabel]: idx++ };
 
       // Implicit validation result
-      const passedImplicit = { [implicitLabel]: e.passedImplicit };
+      const passedImplicit = resultsData.env.options.useImplicit
+        ? { [implicitLabel]: e.passedImplicit }
+        : {};
 
       // Human validation expectation and result
-      const passedHuman = { [correctLabel]: e.passedHuman };
-      const expectedOutput = {
-        [expectedLabel]: e.expectedOutput,
-      };
+      const passedHuman = resultsData.env.options.useHuman
+        ? { [correctLabel]: e.passedHuman }
+        : {};
+      const expectedOutput = resultsData.env.options.useHuman
+        ? { [expectedLabel]: e.expectedOutput }
+        : {};
 
-      // Customer validator result (if a customer validator was used)
+      // Custom validator result (if a customer validator was used)
       const passedValidator =
         validators.validator !== implicitOracleValidatorName
           ? { [validatorLabel]: e.passedValidator }
@@ -1090,8 +1094,8 @@ function handleFuzzStart(e) {
     if (item !== null) {
       disableArr.push(item);
       overrides.fuzzer[e] =
-        item.getAttribute("value") ??
-        item.getAttribute("current-checked") === "true";
+        (item.getAttribute("value") ?? item.getAttribute("current-checked")) ===
+        "true";
     }
   });
 
