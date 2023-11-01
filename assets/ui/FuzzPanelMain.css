@@ -223,3 +223,10 @@ vscode-panel-view > p:nth-of-type(1) {
 div.fuzzInputControlGroup {
   flex-direction: row;
 }
+.fuzzResultHeading {
+  font-size: 1.25em;
+  margin-bottom: 0.7em;
+}
+.fuzzResultHeading + p {
+  margin-top: 0.7em;
+}

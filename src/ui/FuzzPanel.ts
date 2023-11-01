@@ -1125,14 +1125,17 @@ export function ${validatorPrefix}${
         id: "runInfo",
         name: `<div class="codicon codicon-info"></div>`,
         description: /*html*/ `
-          <big>Why did testing stop?</big><br />
+        <div class="fuzzResultHeading">Why did testing stop?</div>
+        <p>
           NaNofuzz stopped testing ${
             this._results.stopReason in textReason
               ? textReason[this._results.stopReason]
               : textReason[""]
           }
+        </p>
+        
+        <div class="fuzzResultHeading">What did NaNofuzz do?</div>
         <p>
-          <big>What did NaNofuzz do?</big><br />
           NaNofuzz ran for ${this._results.elapsedTime} ms, re-tested ${
           this._results.inputsSaved
         } saved input${this._results.inputsSaved !== 1 ? "s" : ""}, generated ${
@@ -1149,14 +1152,16 @@ export function ${validatorPrefix}${
           this._results.results.length !== 1 ? "s" : ""
         } before stopping.
         </p>
+
+        <div class="fuzzResultHeading">What was returned?</div>
         <p>
-          <big>What was returned?</big><br />
           NaNofuzz is configured to return <strong>${
             this._results.env.options.onlyFailures ? "only failed" : "all"
           }</strong> test results. You can view the returned results in the other tabs.
         </p>
+
+        <div class="fuzzResultHeading">How were outputs categorized?</div>
         <p>
-          <big>How were outputs categorized?</big><br />
           ${validatorsUsedText}
         </p>
         <p ${
@@ -1166,7 +1171,7 @@ export function ${validatorPrefix}${
             ? `class="hidden" `
             : ``
         }>
-          You may change these settings using the <strong>More options</strong> button.
+          You may change the configuration using the <strong>More options</strong> button.
         </p>`,
         hasGrid: false,
       });
