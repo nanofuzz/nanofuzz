@@ -86,6 +86,11 @@ function main() {
     .getElementById("fuzz.options")
     .addEventListener("click", (e) => toggleFuzzOptions(e));
 
+  // Add event listener for the fuzz.options close button
+  document
+    .getElementById("fuzzOptions-close")
+    .addEventListener("click", (e) => toggleFuzzOptions(e));
+
   // Load the fuzzer results data from the HTML
   resultsData = JSON5.parse(
     htmlUnescape(document.getElementById("fuzzResultsData").innerHTML)
@@ -147,15 +152,19 @@ function main() {
       const id = { [idLabel]: idx++ };
 
       // Implicit validation result
-      const passedImplicit = { [implicitLabel]: e.passedImplicit };
+      const passedImplicit = resultsData.env.options.useImplicit
+        ? { [implicitLabel]: e.passedImplicit }
+        : {};
 
       // Human validation expectation and result
-      const passedHuman = { [correctLabel]: e.passedHuman };
-      const expectedOutput = {
-        [expectedLabel]: e.expectedOutput,
-      };
+      const passedHuman = resultsData.env.options.useHuman
+        ? { [correctLabel]: e.passedHuman }
+        : {};
+      const expectedOutput = resultsData.env.options.useHuman
+        ? { [expectedLabel]: e.expectedOutput }
+        : {};
 
-      // Customer validator result (if a customer validator was used)
+      // Custom validator result (if a customer validator was used)
       const passedValidator =
         validators.validator !== implicitOracleValidatorName
           ? { [validatorLabel]: e.passedValidator }
@@ -228,7 +237,10 @@ function main() {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
             cell.className = "fuzzGridCellPinned";
-            cell.innerHTML = `<big>pin</big>`;
+            cell.innerHTML = /* html */ `
+              <span class="tooltipped tooltipped-nw" aria-label="Include in Jest test suite">
+                <big>pin</big>
+              </span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -240,7 +252,10 @@ function main() {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
             cell.classList.add("colorColumn");
-            cell.innerHTML = `<span class="codicon codicon-debug"></span>`;
+            cell.innerHTML = /* html */ `
+              <span class="tooltipped tooltipped-nw" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, &amp; NaN">
+                <span class="codicon codicon-debug"></span>
+              </span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -248,7 +263,10 @@ function main() {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
             cell.classList.add("colorColumn");
-            cell.innerHTML = `<span class="codicon codicon-hubot"></span>`;
+            cell.innerHTML = /* html */ `
+              <span class="tooltipped tooltipped-nw" aria-label="Custom function validator">
+                <span class="codicon codicon-hubot"></span>
+              </span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -256,7 +274,10 @@ function main() {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
             cell.classList.add("colorColumn");
-            cell.innerHTML = `<span class="codicon codicon-person"></span>`;
+            cell.innerHTML = /* html */ `
+              <span class="tooltipped tooltipped-nw" aria-label="Human (manual) validation">
+                <span class="codicon codicon-person" id="humanIndicator"></span>
+              </span>`;
             cell.colSpan = 2;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
@@ -296,12 +317,13 @@ function main() {
  */
 function toggleFuzzOptions(e) {
   const fuzzOptions = document.getElementById("fuzzOptions");
+  const fuzzOptionsButton = document.getElementById("fuzz.options");
   if (isHidden(fuzzOptions)) {
     toggleHidden(fuzzOptions);
-    e.currentTarget.innerHTML = "Fewer options";
+    fuzzOptionsButton.innerHTML = "Fewer options";
   } else {
     toggleHidden(fuzzOptions);
-    e.currentTarget.innerHTML = "More options";
+    fuzzOptionsButton.innerHTML = "More options";
   }
 
   // Refresh the list of validators
@@ -933,11 +955,8 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         </div>
         <div class="alignAsMidCell">
           <vscode-button id="fuzz-editExpectedOutput${id}" rowId="${row.id}" appearance="icon" aria-label="Edit">
-            <span class="tooltip tooltip-top">
+            <span class="tooltipped tooltipped-n" aria-label="Edit">
               <span class="codicon codicon-edit"></span>
-              <span class="tooltiptext tooltiptext-small">
-                Edit
-              </span>
             </span>
           </vscode-button>
         </div>`;
@@ -1079,11 +1098,13 @@ function handleFuzzStart(e) {
   });
 
   // Process boolean fuzzer options
-  ["onlyFailures"].forEach((e) => {
+  ["onlyFailures", "useHuman", "useImplicit"].forEach((e) => {
     const item = document.getElementById(fuzzBase + "-" + e);
     if (item !== null) {
       disableArr.push(item);
-      overrides.fuzzer[e] = item.getAttribute("value") === "true";
+      overrides.fuzzer[e] =
+        (item.getAttribute("value") ?? item.getAttribute("current-checked")) ===
+        "true";
     }
   });
 
@@ -1257,30 +1278,7 @@ function refreshValidators(validatorList) {
   // Set the radio group's value b/c this is necessary to maintain
   // consistent button state when a selected radio is deleted
   validatorFnGrp.setAttribute("value", validatorList.validator);
-
-  // Update the validator indicators
-  updateValidatorIndicators(
-    validatorList.validator ?? implicitOracleValidatorName
-  );
 } // fn: refreshValidators
-
-/**
- * Updates the validator indicators based on the validator
- * configuration.
- *
- * @param validatorName The list of validators
- */
-function updateValidatorIndicators(validatorName) {
-  // The validator function on/off indicator
-  const validatorIndicator = document.getElementById("validatorIndicator");
-
-  // Fade the validator icon if no validator is selected
-  if (validatorName !== implicitOracleValidatorName) {
-    validatorIndicator.style.opacity = "100%";
-  } else {
-    validatorIndicator.style.opacity = "35%";
-  }
-} // fn: updateValidatorButtons()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the
@@ -1303,9 +1301,6 @@ function handleAddValidator(e) {
  */
 function handleSetValidator(validatorList) {
   const validatorName = validatorList.currentTarget.getAttribute("name");
-
-  // Update the validator indicators
-  updateValidatorIndicators(validatorName);
 
   // Update the back-end with the newly-selected validator function
   vscode.postMessage({

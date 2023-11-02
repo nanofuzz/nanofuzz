@@ -12,6 +12,8 @@ const intOptions: FuzzOptions = {
   seed: "qwertyuiop",
   maxFailures: 0,
   onlyFailures: false,
+  useImplicit: true,
+  useHuman: true,
 };
 
 /**

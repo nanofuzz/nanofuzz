@@ -11,8 +11,8 @@ export type FuzzTestResult = {
   exceptionMessage?: string; // exception message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
-  passedImplicit: boolean; // true if output matches oracle; false, otherwise
-  passedHuman?: boolean; // true if actual output matches expected output
+  passedImplicit: boolean; // true if output matches implicit oracle; false, otherwise
+  passedHuman?: boolean; // true if actual output matches human-expected output
   passedValidator?: boolean; // true if passed custom validator; false, otherwise
   validatorException: boolean; // true if validator threw an exception
   validatorExceptionMessage?: string; // validator exception message
@@ -84,6 +84,8 @@ export type FuzzOptions = {
   onlyFailures: boolean; // only report tests that do not pass
   fnTimeout: number; // timeout threshold in ms per test
   suiteTimeout: number; // timeout for the entire test suite
+  useImplicit: boolean; // use implicit oracle
+  useHuman: boolean; // use human oracle
 };
 
 /**

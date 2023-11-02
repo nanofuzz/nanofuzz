@@ -39,13 +39,13 @@ export const toString = (testSet: FuzzTests, module: string): string => {
   // Import the module under test
   jestData.push(`import * as themodule from './${moduleFn}';`, ``);
 
-  // Generate the implicit oracle
+  // Emit the implicit oracle and custom validator wrappers
   jestData.push(
     `// @ts-ignore`,
     `const implicitOracle = ${implicitOracle.toString()};`,
     ``,
     `// @ts-ignore`,
-    `const runCustomValidator = (input,testFn,validFn,timeout) => {`,
+    `const runCustomValidator = (input,testFn,validFn,timeout,useImplicit) => {`,
     `  const testResult = ${JSON5.stringify(result)};`,
     `  testResult.input = input;`,
     `  const startElapsedTime = performance.now(); // start timer`,
@@ -56,7 +56,9 @@ export const toString = (testSet: FuzzTests, module: string): string => {
     `    testResult["exceptionMessage"] = e.message;`,
     `  }`,
     `  testResult.elapsedTime = performance.now() - startElapsedTime; // stop timer`,
-    `  testResult.passedImplicit = implicitOracle(testResult.output[0]["value"]);`,
+    `  testResult.passedImplicit = useImplicit`,
+    `   ? implicitOracle(testResult.output[0]["value"])`,
+    `   : true;`,
     `  testResult["passedValidator"] = validFn({...testResult})["passedValidator"];`,
     `  testResult.timeout = testResult.elapsedTime > timeout;`,
     `  return testResult;`,
@@ -67,7 +69,7 @@ export const toString = (testSet: FuzzTests, module: string): string => {
   // Specify the timeout
   jestData.push(`describe("${moduleFn}", () => {`, ``);
 
-  // Generate a Jest test for each saved test
+  // Emit a Jest test for each saved test
   for (const fn in testSet.functions) {
     const thisFn = testSet.functions[fn];
     const timeout = thisFn.options.fnTimeout;
@@ -87,9 +89,9 @@ export const toString = (testSet: FuzzTests, module: string): string => {
           inputStr += JSON5.stringify(e);
         });
 
-      // Human-annotated expected output
+      // Human-annotated expected output - if human validation is turned on
       const expectedOutput = thisTest.expectedOutput;
-      if (expectedOutput && expectedOutput.length) {
+      if (thisFn.options.useHuman && expectedOutput && expectedOutput.length) {
         if (expectedOutput[0].isTimeout) {
           // Expected timeouts -- not currently supported in Jest format!
           console.error(
@@ -119,9 +121,9 @@ export const toString = (testSet: FuzzTests, module: string): string => {
         // prettier-ignore
         jestData.push(
           `  // Expect custom validator to not return false`,
-          `  // If no validator decision, fallback to implicit oracle`,
-          `  test("${fn}.${i}.validator", () => {`,
-          `    const testResult = runCustomValidator( ${JSON5.stringify(thisTest.input)}, () => themodule.${fn}(${inputStr}), themodule.${thisFn.validator}, ${timeout});`,
+          `  // If no validator decision, fallback to heuristic oracle`,
+          `  test("${fn}.${i}.custom", () => {`,
+          `    const testResult = runCustomValidator( ${JSON5.stringify(thisTest.input)}, () => themodule.${fn}(${inputStr}), themodule.${thisFn.validator}, ${timeout}, ${thisFn.options.useImplicit});`,
           `    expect(testResult.timeout).toBeFalsy();`,
           `    if(testResult["passedValidator"]!==undefined) {`,
           `      expect(testResult["passedValidator"]).not.toBeFalsy();`,
@@ -133,11 +135,15 @@ export const toString = (testSet: FuzzTests, module: string): string => {
         );
       }
 
-      // Implicit oracle (last resort)
-      if (!thisFn.validator && !expectedOutput) {
+      // Heuristic oracle - run only if it is turned on AND no other oracle is present
+      if (
+        thisFn.options.useImplicit &&
+        !thisFn.validator &&
+        !(thisFn.options.useHuman && expectedOutput)
+      ) {
         jestData.push(
           `  // Expect no timeout, exception, NaN, null, undefined, or infinity`,
-          `  test("${fn}.${i}.implicit", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);},${timeout});`,
+          `  test("${fn}.${i}.heuristic", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);},${timeout});`,
           ``
         );
       }
