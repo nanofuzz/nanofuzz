@@ -981,15 +981,24 @@ export function ${validatorPrefix}${
           </div>
 
           <!-- Fuzzer Errors -->
-          <div class="fuzzErrors" ${
+          <div class="fuzzErrors${
             this._state === FuzzPanelState.error
               ? ""
-              : /*html*/ `style="display:none;"`
-          }>
+              : " hidden"
+          }">
             <h3>The fuzzer stopped with this error:</h3>
             <p>${this._errorMessage ?? "Unknown error"}</p>
           </div>
 
+          <!-- Fuzzer Warnings -->
+          <div class="fuzzWarnings${
+            this._state === FuzzPanelState.done && !this._fuzzEnv.options.useHuman && !this._fuzzEnv.options.useImplicit && !("validator" in this._fuzzEnv && this._fuzzEnv.validator)
+              ? ""
+              : " hidden"
+          }">
+            <p>No validators were selected, so all tests below will pass. You can change this in <strong>More options</strong>.</p>
+          </div>
+          
           <!-- Fuzzer Output -->
           <div class="fuzzResults" ${
             this._state === FuzzPanelState.done

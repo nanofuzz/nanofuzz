@@ -1,5 +1,4 @@
 /** Body Styles **/
-
 body {
   padding-right: 0px;
 }
@@ -327,4 +326,8 @@ div.fuzzInputControlGroup {
 }
 .fuzzResultHeading + p {
   margin-top: 0.7em;
+}
+.fuzzWarnings > p {
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
 }
