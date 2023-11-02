@@ -66,6 +66,12 @@ export class FuzzPanel {
         vscode.ViewColumn.Beside, // open beside the editor
         FuzzPanel.getWebviewOptions(extensionUri) // options
       );
+      panel.iconPath = vscode.Uri.joinPath(
+        extensionUri,
+        "assets",
+        "ui",
+        "icon.svg"
+      );
 
       // Create the new FuzzPanel
       new FuzzPanel(panel, extensionUri, env);
