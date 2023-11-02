@@ -1014,7 +1014,7 @@ export function ${validatorPrefix}${
         name: "Validator Error",
         description: `For these inputs, the custom validator function (${
           this._fuzzEnv.validator ?? ""
-        }) threw an exception. You should fix the bug in the validator and re-test.`,
+        }) threw an exception. You should fix the bug in the custom validator function and re-test.`,
         hasGrid: true,
       },
       {

@@ -238,7 +238,7 @@ function main() {
             cell.style = "text-align: center";
             cell.className = "fuzzGridCellPinned";
             cell.innerHTML = /* html */ `
-              <span class="tooltipped tooltipped-nw" aria-label="Export as Jest test case">
+              <span class="tooltipped tooltipped-nw" aria-label="Include in Jest test suite">
                 <big>pin</big>
               </span>`;
             cell.addEventListener("click", () => {
