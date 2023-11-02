@@ -121,47 +121,144 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   vertical-align: middle;
 }
 
-/** Tooltips: adapted from: https://www.w3schools.com/css/css_tooltip.asp **/
-.tooltip {
+/** Tooltips: adapted from: https://github.com/primer/css/tree/main */
+.tooltipped {
   position: relative;
 }
-.tooltip-top .tooltiptext {
-  visibility: hidden;
-  width: 190px;
-  background-color: var(--vscode-panel-background);
-  text-align: center;
-  border-width: 1px;
-  border-style: solid;
-  border-radius: 6px;
-  border-color: var(--vscode-focus-border);
-  padding: 5px;
+.tooltipped::after {
   position: absolute;
-  z-index: 1;
-  bottom: 100%;
-  left: 50%;
-  margin-left: -100px;
-  margin-bottom: 6px;
-}
-.tooltiptext-small {
-  width: 120px !important;
-  margin-left: -65px !important;
-}
-.tooltip-top .tooltiptext::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  margin-left: -5px;
-  border-color: var(--vscode-focus-border);
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 5px solid;
-  border-bottom: 0px;
-}
-.tooltip:hover .tooltiptext {
+  z-index: 1000001;
+  display: none;
+  padding: 0.5em 0.75em;
   font-weight: var(--vscode-font-weight);
   font-size: var(--vscode-font-size);
-  visibility: visible;
+  -webkit-font-smoothing: subpixel-antialiased;
+  text-align: center;
+  text-decoration: none;
+  text-shadow: none;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: break-word;
+  white-space: pre-line;
+  pointer-events: none;
+  content: attr(aria-label);
+  background: var(--vscode-panel-background);
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--vscode-focus-border);
+  border-radius: 6px;
+  opacity: 0;
+  width: max-content;
+  max-width: 250px;
+  border-collapse: separate;
+}
+.tooltipped::before {
+  position: absolute;
+  z-index: 1000000;
+  display: none;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  content: "";
+  border: 6px solid transparent;
+  opacity: 0;
+}
+.tooltipped:hover::before,
+.tooltipped:hover::after,
+.tooltipped:active::before,
+.tooltipped:active::after,
+.tooltipped:focus::before,
+.tooltipped:focus::after {
+  display: inline-block;
+  text-decoration: none;
+  opacity: 1;
+}
+.tooltipped-multiline:hover::after,
+.tooltipped-multiline:active::after,
+.tooltipped-multiline:focus::after {
+  display: table-cell;
+}
+.tooltipped-s::after,
+.tooltipped-se::after,
+.tooltipped-sw::after {
+  top: 100%;
+  right: 50%;
+  margin-top: 6px;
+}
+.tooltipped-s::before,
+.tooltipped-se::before,
+.tooltipped-sw::before {
+  top: auto;
+  right: 50%;
+  bottom: -7px;
+  margin-right: -6px;
+  border-bottom-color: var(--vscode-focus-border);
+}
+.tooltipped-se::after {
+  right: auto;
+  left: 50%;
+  margin-left: -16px;
+}
+.tooltipped-sw::after {
+  margin-right: -16px;
+}
+.tooltipped-n::after,
+.tooltipped-ne::after,
+.tooltipped-nw::after {
+  right: 50%;
+  bottom: 100%;
+  margin-bottom: 6px;
+}
+.tooltipped-n::before,
+.tooltipped-ne::before,
+.tooltipped-nw::before {
+  top: -7px;
+  right: 50%;
+  bottom: auto;
+  margin-right: -6px;
+  border-top-color: var(--vscode-focus-border);
+}
+.tooltipped-ne::after {
+  right: auto;
+  left: 50%;
+  margin-left: -16px;
+}
+.tooltipped-nw::after {
+  margin-right: -16px;
+}
+.tooltipped-s::after,
+.tooltipped-n::after {
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.tooltipped-w::after {
+  right: 100%;
+  bottom: 50%;
+  margin-right: 6px;
+  transform: translateY(50%);
+  right: 100%;
+}
+.tooltipped-w::before {
+  top: 50%;
+  bottom: 50%;
+  left: -7px;
+  margin-top: -6px;
+  border-left-color: var(--vscode-focus-border);
+}
+.tooltipped-e::after {
+  bottom: 50%;
+  left: 100%;
+  margin-left: 6px;
+  transform: translateY(50%);
+  right: 100%;
+}
+.tooltipped-e::before {
+  top: 50%;
+  right: -7px;
+  bottom: 50%;
+  margin-top: -6px;
+  border-right-color: var(--vscode-focus-border);
 }
 
 /* Sorting */
@@ -184,6 +281,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 }
 
 /* Spacing overrides */
+
 /* Narrow tab strip column gaps */
 vscode-panels::part(tablist) {
   column-gap: calc(var(--design-unit) * 4px);

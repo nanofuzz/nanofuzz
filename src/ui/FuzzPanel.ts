@@ -863,36 +863,9 @@ export function ${validatorPrefix}${
           )}() w/inputs:</h2>
 
           <!-- Function Arguments -->
-          <div id="argDefs">${argDefHtml}</div>`;
+          <div id="argDefs">${argDefHtml}</div>
 
-    // prettier-ignore
-    html += /*html*/ `
-          <!-- Indicator Bar for Validator -->
           <vscode-divider></vscode-divider>
-          <div class="hidden" id="validatorFunctions-view">
-            <span>Output validation:&nbsp;</span>
-
-            <span class="tooltip tooltip-top">
-              <span class="codicon codicon-debug" id="implicitIndicator"></span>
-              <span class="tooltiptext">
-                NaNofuzz categorizes timeout, exception, null, undefined, Infinity, &amp; NaN outputs as failed. 
-                You may override this default categorization with one of the other two validators.
-              </span>
-            </span>
-            <span class="tooltip tooltip-top">
-              <span class="codicon codicon-person" id="humanIndicator"></span>
-              <span class="tooltiptext">
-                Manually re-categorize outputs as passed (✔︎) or failed (X) in the results pane below.
-              </span>
-            </span>
-            <span class="tooltip tooltip-top">
-              <span class="codicon codicon-hubot" id="validatorIndicator"></span>
-              <span class="tooltiptext">
-                You may write a custom validator function that automatically categorizes outputs as passed (✔︎) or failed (X). Click <strong>More options</strong> for details.
-              </span>
-            </span>
-          </div>
-          <vscode-divider class="hidden"></vscode-divider>
 
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" class="hidden">
@@ -925,19 +898,13 @@ export function ${validatorPrefix}${
                   <div id="validatorFunctions-edit">
                     <vscode-radio-group id="validatorFunctions-radios">
                       <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
-                        <span class="tooltip tooltip-top">
+                        <span class="tooltipped tooltipped-n" aria-label="Add new function">
                           <span class="codicon codicon-add"></span>
-                          <span class="tooltiptext tooltiptext-small">
-                            Add new function
-                          </span>
                         </span>
                       </vscode-button>
                       <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
-                        <span class="tooltip tooltip-top">
+                        <span class="tooltipped tooltipped-n" aria-label="Refresh list">
                           <span class="codicon codicon-refresh"></span>
-                          <span class="tooltiptext tooltiptext-small">
-                            Refresh list
-                          </span>
                         </span>
                       </vscode-button>
                     </vscode-radio-group>

@@ -237,7 +237,10 @@ function main() {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
             cell.className = "fuzzGridCellPinned";
-            cell.innerHTML = `<big>pin</big>`;
+            cell.innerHTML = /* html */ `
+              <span class="tooltipped tooltipped-nw" aria-label="Export as Jest test case">
+                <big>pin</big>
+              </span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -249,7 +252,10 @@ function main() {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
             cell.classList.add("colorColumn");
-            cell.innerHTML = `<span class="codicon codicon-debug"></span>`;
+            cell.innerHTML = /* html */ `
+              <span class="tooltipped tooltipped-nw" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, &amp; NaN">
+                <span class="codicon codicon-debug"></span>
+              </span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -257,7 +263,10 @@ function main() {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
             cell.classList.add("colorColumn");
-            cell.innerHTML = `<span class="codicon codicon-hubot"></span>`;
+            cell.innerHTML = /* html */ `
+              <span class="tooltipped tooltipped-nw" aria-label="Custom function validator">
+                <span class="codicon codicon-hubot"></span>
+              </span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
             });
@@ -265,7 +274,10 @@ function main() {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.style = "text-align: center";
             cell.classList.add("colorColumn");
-            cell.innerHTML = `<span class="codicon codicon-person"></span>`;
+            cell.innerHTML = /* html */ `
+              <span class="tooltipped tooltipped-nw" aria-label="Human (manual) validation">
+                <span class="codicon codicon-person" id="humanIndicator"></span>
+              </span>`;
             cell.colSpan = 2;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, data, tbody, true);
@@ -943,11 +955,8 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         </div>
         <div class="alignAsMidCell">
           <vscode-button id="fuzz-editExpectedOutput${id}" rowId="${row.id}" appearance="icon" aria-label="Edit">
-            <span class="tooltip tooltip-top">
+            <span class="tooltipped tooltipped-n" aria-label="Edit">
               <span class="codicon codicon-edit"></span>
-              <span class="tooltiptext tooltiptext-small">
-                Edit
-              </span>
             </span>
           </vscode-button>
         </div>`;
@@ -1269,30 +1278,7 @@ function refreshValidators(validatorList) {
   // Set the radio group's value b/c this is necessary to maintain
   // consistent button state when a selected radio is deleted
   validatorFnGrp.setAttribute("value", validatorList.validator);
-
-  // Update the validator indicators
-  updateValidatorIndicators(
-    validatorList.validator ?? implicitOracleValidatorName
-  );
 } // fn: refreshValidators
-
-/**
- * Updates the validator indicators based on the validator
- * configuration.
- *
- * @param validatorName The list of validators
- */
-function updateValidatorIndicators(validatorName) {
-  // The validator function on/off indicator
-  const validatorIndicator = document.getElementById("validatorIndicator");
-
-  // Fade the validator icon if no validator is selected
-  if (validatorName !== implicitOracleValidatorName) {
-    validatorIndicator.style.opacity = "100%";
-  } else {
-    validatorIndicator.style.opacity = "35%";
-  }
-} // fn: updateValidatorButtons()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the
@@ -1315,9 +1301,6 @@ function handleAddValidator(e) {
  */
 function handleSetValidator(validatorList) {
   const validatorName = validatorList.currentTarget.getAttribute("name");
-
-  // Update the validator indicators
-  updateValidatorIndicators(validatorName);
 
   // Update the back-end with the newly-selected validator function
   vscode.postMessage({
