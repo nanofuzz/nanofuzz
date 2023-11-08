@@ -904,7 +904,7 @@ export function ${validatorPrefix}${
                   <div id="validatorFunctions-edit">
                     <vscode-radio-group id="validatorFunctions-radios">
                       <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
-                        <span class="tooltipped tooltipped-n" aria-label="Add new function">
+                        <span class="tooltipped tooltipped-n" aria-label="New validator function">
                           <span class="codicon codicon-add"></span>
                         </span>
                       </vscode-button>
@@ -1419,7 +1419,7 @@ export function ${validatorPrefix}${
         `<div>
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
           arg.getOptions().dimLength[dim].min.toString()
-        )}">Array${"[]".repeat(dim + 1)}: Min length
+        )}">Array${"[]".repeat(dim + 1)}: Min 
           </vscode-text-field>
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${htmlEscape(
           arg.getOptions().dimLength[dim].max.toString()
