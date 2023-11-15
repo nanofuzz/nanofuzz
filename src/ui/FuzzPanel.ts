@@ -1139,7 +1139,18 @@ export function ${validatorPrefix}${
         <p>
           NaNofuzz is configured to return <strong>${
             this._results.env.options.onlyFailures ? "only failed" : "all"
-          }</strong> test results. You can view the returned results in the other tabs.
+          }</strong> test results, and it found ${
+          this._results.results.length
+        } of these to return. ${
+          this._results.results.length
+            ? "You can view these returned results in the other tabs."
+            : ""
+        }${
+          this._results.results.length === 0 &&
+          this._results.env.options.onlyFailures
+            ? "In other words, all tests passed."
+            : ""
+        }
         </p>
 
         <div class="fuzzResultHeading">How were outputs categorized?</div>
