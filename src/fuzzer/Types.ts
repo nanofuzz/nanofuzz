@@ -11,8 +11,8 @@ export type FuzzTestResult = {
   exceptionMessage?: string; // exception message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
-  passedImplicit: boolean; // true if output matches oracle; false, otherwise
-  passedHuman?: boolean; // true if actual output matches expected output
+  passedImplicit: boolean; // true if output matches implicit oracle; false, otherwise
+  passedHuman?: boolean; // true if actual output matches human-expected output
   passedValidator?: boolean; // true if passed custom validator; false, otherwise
   validatorException: boolean; // true if validator threw an exception
   validatorExceptionMessage?: string; // validator exception message
@@ -70,6 +70,7 @@ export enum FuzzResultCategory {
   DISAGREE = "disagree",
   FAILURE = "failure", // Validator failure (e.g., threw an exception)
 }
+
 /**
  * Fuzzer Options that specify the fuzzing behavior
  */
@@ -79,8 +80,12 @@ export type FuzzOptions = {
   argDefaults: ArgOptions; // default options for arguments
   seed?: string; // optional seed for pseudo-random number generator
   maxTests: number; // number of fuzzing tests to execute (>= 0)
+  maxFailures: number; // maximum number of failures to report (>=0)
+  onlyFailures: boolean; // only report tests that do not pass
   fnTimeout: number; // timeout threshold in ms per test
   suiteTimeout: number; // timeout for the entire test suite
+  useImplicit: boolean; // use implicit oracle
+  useHuman: boolean; // use human oracle
 };
 
 /**
@@ -118,3 +123,14 @@ export type FuzzArgOverride = {
     dimLength: { min: number; max: number }[];
   };
 };
+
+/**
+ * Reason the fuzzer stopped
+ */
+export enum FuzzStopReason {
+  CRASH = "crash",
+  MAXTESTS = "maxTests",
+  MAXFAILURES = "maxFailures",
+  MAXTIME = "maxTime",
+  MAXDUPES = "maxDupes",
+}
