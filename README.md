@@ -43,7 +43,7 @@ To reference NaNofuzz in your research, we request you to cite our upcoming ESEC
 
 ### The NaNofuzz mascot
 
-Meet Nancy, the Silky Anteater! Silky anteaters are wonderfully-adapted, small, fuzzy creatures known to find and consume large quantities of bugs on a daily basis. Therefore, Nancy (or, NaNcy, if you prefer) is NaNofuzz' beloved mascot.
+Meet Nancy, the Silky Anteater! Silky anteaters are wonderfully-adapted, small, fuzzy creatures known to find and consume large quantities of bugs on a daily basis. Therefore, Nancy (or, NaNcy, if you prefer) is NaNofuzz' beloved mascot on your journey to find bugs.
 
 ![image](https://avatars.githubusercontent.com/u/136026223?s=200&v=4)
 
