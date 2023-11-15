@@ -327,7 +327,8 @@ div.fuzzInputControlGroup {
 .fuzzResultHeading + p {
   margin-top: 0.7em;
 }
-.fuzzWarnings > p {
+.fuzzWarnings > p,
+.fuzzInfo > p {
   margin-top: 0.5em;
   margin-bottom: 0.25em;
 }

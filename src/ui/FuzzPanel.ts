@@ -887,13 +887,14 @@ export function ${validatorPrefix}${
 
               <vscode-panel-view>
                 <p>
-                  NaNofuzz uses validators to categorize outputs as passed (✔︎) or failed (X). 
-                  NaNofuzz' heuristic validator automatically categorizes the following outputs as failed: 
+                  Validators categorize outputs as passed (✔︎) or failed (X). 
+                  The <strong>heuristic validator</strong> automatically categorizes these outputs as failed: 
                   undefined, null, NaN, Infinity, exception, timeout.
+                  The <strong>human validator</strong> allows manual categorization of outputs as passed or failed.
                 </p>
                 <div class="fuzzInputControlGroup">
-                  <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use NaNofuzz' heuristic validator</vscode-checkbox>
-                  <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Use manual human validation</vscode-checkbox>
+                  <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use heuristic validator</vscode-checkbox>
+                  <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Use human validation</vscode-checkbox>
                 </div>
 
                 <div>
@@ -904,7 +905,7 @@ export function ${validatorPrefix}${
                   <div id="validatorFunctions-edit">
                     <vscode-radio-group id="validatorFunctions-radios">
                       <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
-                        <span class="tooltipped tooltipped-n" aria-label="Add new function">
+                        <span class="tooltipped tooltipped-n" aria-label="New validator function">
                           <span class="codicon codicon-add"></span>
                         </span>
                       </vscode-button>
@@ -998,6 +999,16 @@ export function ${validatorPrefix}${
           }">
             <p>No validators were selected, so all tests below will pass. You can change this in <strong>More options</strong>.</p>
           </div>
+
+          <!-- Fuzzer Info -->
+          <div class="fuzzInfo${
+            this._state === FuzzPanelState.done && this._fuzzEnv.options.onlyFailures && this._results?.results.length === 0 
+              ? ""
+              : " hidden"
+          }">
+            <p>All tests passed.</p>
+          </div>
+          
           
           <!-- Fuzzer Output -->
           <div class="fuzzResults" ${
@@ -1139,7 +1150,18 @@ export function ${validatorPrefix}${
         <p>
           NaNofuzz is configured to return <strong>${
             this._results.env.options.onlyFailures ? "only failed" : "all"
-          }</strong> test results. You can view the returned results in the other tabs.
+          }</strong> test results, and it found ${
+          this._results.results.length
+        } of these to return. ${
+          this._results.results.length
+            ? "You can view these returned results in the other tabs."
+            : ""
+        }${
+          this._results.results.length === 0 &&
+          this._results.env.options.onlyFailures
+            ? "In other words, all tests passed."
+            : ""
+        }
         </p>
 
         <div class="fuzzResultHeading">How were outputs categorized?</div>
@@ -1419,7 +1441,7 @@ export function ${validatorPrefix}${
         `<div>
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
           arg.getOptions().dimLength[dim].min.toString()
-        )}">Array${"[]".repeat(dim + 1)}: Min length
+        )}">Array${"[]".repeat(dim + 1)}: Min 
           </vscode-text-field>
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${htmlEscape(
           arg.getOptions().dimLength[dim].max.toString()
