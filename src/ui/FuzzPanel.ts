@@ -998,6 +998,16 @@ export function ${validatorPrefix}${
           }">
             <p>No validators were selected, so all tests below will pass. You can change this in <strong>More options</strong>.</p>
           </div>
+
+          <!-- Fuzzer Info -->
+          <div class="fuzzInfo${
+            this._state === FuzzPanelState.done && this._fuzzEnv.options.onlyFailures && this._results?.results.length === 0 
+              ? ""
+              : " hidden"
+          }">
+            <p>All tests passed.</p>
+          </div>
+          
           
           <!-- Fuzzer Output -->
           <div class="fuzzResults" ${
