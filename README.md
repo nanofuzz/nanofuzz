@@ -3,12 +3,14 @@ NaNofuzz is a fast, easy-to-use automatic test suite generation tool for TypeScr
 
 ![NaNofuzz Screenshot](https://github.com/nanofuzz/nanofuzz/assets/22134678/0bb9ed51-1b07-46e4-8986-ae377055dfe7)
 
-Unlike some past automatic test suite generation tools, NaNofuzz combines multiple approaches to help you generate a test suite. You can define properties of the program similar to QuickCheck or Hypothesis, manually annotate the correctness or incorrectness of a program's output, or use an approach similar to fuzzing and let NaNofuzz automatically detect likely errors. Combining multiple approaches can help you quickly find errors and rapidly build a test suite. For example, without any guidance form you, NaNofuzz automatically draws your attention to a test if it:
+Unlike many automatic test suite generation tools, NaNofuzz combines multiple approaches to help you generate a test suite. You can define properties of the program similar to QuickCheck or Hypothesis, manually annotate the correctness or incorrectness of a program's output similar to Jest, or use an approach similar to fuzzing and let NaNofuzz automatically draw your attention to likely errors. 
+
+Combining multiple approaches can help you quickly find errors and rapidly build a test suite. For example, without any guidance from you, NaNofuzz automatically draws your attention to a test if it:
  - throws a runtime exception
  - returns null, NaN, Infinity, or undefined
  - does not terminate within a configurable period of time
 
-These design choices allow NaNofuzz to be fast, lightweight, easy to integrate into an everyday workflow, and help developers quickly find important edge cases more quickly.
+These design choices allow NaNofuzz to be fast, lightweight, flexible, easy to integrate into an everyday workflow, and help developers quickly find important edge cases more quickly.
 
 NaNofuzz supports standard and arrow functions with any mixture of the following parameter types:
  - Numbers (integers and floats, signed and unsigne)
@@ -39,9 +41,9 @@ To reference NaNofuzz in your research, we request you to cite our upcoming ESEC
 
 > Matthew C. Davis, Sangheon Choi, Sam Estep, Brad A. Myers, and Joshua Sunshine. **NaNofuzz: A Usable Tool for Automatic Test Generation**. In Proceedings of the 31st ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering, 2023. (accepted and pending publication; [pre-print](https://cmumatt.github.io/assets/NaNofuzz_2023.pdf))
 
-### Who is the NaNofuzz mascot?
+### The NaNofuzz mascot
 
-A very important question! Silky anteaters are wonderfully-adapted, small, fuzzy creatures known to find and consume large quantities of bugs. Therefore, the NaNofuzz mascot is Nancy the Silky Anteater (or, NaNcy, if you prefer).
+Meet Nancy, the Silky Anteater! Silky anteaters are wonderfully-adapted, small, fuzzy creatures known to find and consume large quantities of bugs on a daily basis. Therefore, Nancy (or, NaNcy, if you prefer) is NaNofuzz' beloved mascot on your journey to find bugs.
 
 ![image](https://avatars.githubusercontent.com/u/136026223?s=200&v=4)
 
