@@ -888,11 +888,11 @@ export function ${validatorPrefix}${
               <vscode-panel-view>
                 <p>
                   NaNofuzz uses validators to categorize outputs as passed (✔︎) or failed (X). 
-                  NaNofuzz' heuristic validator automatically categorizes the following outputs as failed: 
+                  The heuristic validator automatically categorizes the following outputs as failed: 
                   undefined, null, NaN, Infinity, exception, timeout.
                 </p>
                 <div class="fuzzInputControlGroup">
-                  <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use NaNofuzz' heuristic validator</vscode-checkbox>
+                  <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use heuristic validator</vscode-checkbox>
                   <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Use manual human validation</vscode-checkbox>
                 </div>
 
