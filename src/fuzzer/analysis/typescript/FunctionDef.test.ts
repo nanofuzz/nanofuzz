@@ -11,6 +11,7 @@ const dummyRef: FunctionRef = {
   startOffset: 0,
   endOffset: 999,
   isExported: true,
+  isVoid: false,
 };
 const dummyProgram: ProgramDef = ProgramDef.fromSource(
   () => "",

@@ -37,6 +37,7 @@ export type FunctionRef = {
   startOffset: number; // Starting offset of the function in the source file
   endOffset: number; // Ending offset of the function in the source file
   isExported: boolean; // True if the function is exported; false, otherwise
+  isVoid: boolean; // True if the function is void; false, otherwise
   args?: TypeRef[]; // Array of argument types
 };
 
