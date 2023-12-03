@@ -1,19 +1,21 @@
 import * as fs from "fs";
-import * as vscode from "vscode";
 import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
-import { ArgDef, ArgOptions } from "./analysis/typescript/ArgDef";
-import { FunctionDef } from "./analysis/typescript/FunctionDef";
+import { ArgDef } from "./analysis/typescript/ArgDef";
+import { FunctionRef } from "./analysis/typescript/Types";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
-
-/**
- * WARNING: To embed this module into a VS Code web extension, at a minimu,
- * the following issues need to be resolved:
- *  1. Module `fs` requires direct fs access)
- *  2. Module `Compiler` uses `fs` and shells out to `tsc`
- */
+import { ProgramDef } from "./analysis/typescript/ProgramDef";
+import { FunctionDef } from "./analysis/typescript/FunctionDef";
+import {
+  FuzzIoElement,
+  FuzzPinnedTest,
+  FuzzTestResult,
+  FuzzResultCategory,
+  FuzzStopReason,
+} from "./Types";
+import { FuzzOptions } from "./Types";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -27,19 +29,11 @@ import * as compiler from "./Compiler";
 export const setup = (
   options: FuzzOptions,
   module: string,
-  fnName?: string,
-  offset?: number
+  fnName: string
 ): FuzzEnv => {
   module = require.resolve(module);
-  const srcText = fs.readFileSync(module);
-
-  // Find the function definitions in the source file
-  const fnMatches = FunctionDef.find(
-    srcText.toString(),
-    module,
-    fnName,
-    offset
-  );
+  const program = ProgramDef.fromModule(module, options.argDefaults);
+  const fnList = program.getExportedFunctions();
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
@@ -48,14 +42,14 @@ export const setup = (
     );
 
   // Ensure we found a function to fuzz
-  if (!fnMatches.length)
-    throw new Error(
-      `Could not find function ${fnName}@${offset} in: ${module})}`
-    );
+  if (!(fnName in fnList))
+    throw new Error(`Could not find function ${fnName} in: ${module})}`);
 
   return {
     options: { ...options },
-    function: fnMatches[0],
+    function: fnList[fnName],
+    //validator: ... FuzzPanel loads this and adds it to FuzzEnv later
+    validators: getValidators(program, fnList[fnName]),
   };
 }; // fn: setup()
 
@@ -75,9 +69,18 @@ export const fuzz = async (
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
+    stopReason: FuzzStopReason.CRASH, // updated later
+    elapsedTime: 0, // updated later
+    inputsGenerated: 0, // updated later
+    dupesGenerated: 0, // updated later
+    inputsSaved: 0, // updated later
     results: [],
   };
-  let dupeCount = 0; // Number of duplicated tests since the last non-duplicated test
+  let savedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
+  let currentDupeCount = 0; // Number of duplicated tests since the last non-duplicated test
+  let totalDupeCount = 0; // Total number of duplicates generated in the fuzzing session
+  let inputsGenerated = 0; // Number of inputs generated so far
+  let failureCount = 0; // Number of failed tests encountered so far
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(env.options))
@@ -127,17 +130,28 @@ export const fuzz = async (
   //  (2) We have reached the maximum number of duplicate tests
   //      since the last non-duplicated test
   //  (3) We have reached the time limit for the test suite to run
+  //  (4) We have reached the maximum number of failed tests
   // Note: Pinned tests are not counted against the maxTests limit
   const startTime = new Date().getTime();
   const allInputs: Record<string, boolean> = {};
-  for (
-    let i = 0;
-    i < env.options.maxTests &&
-    dupeCount < Math.max(env.options.maxTests, 1000);
-    i++
-  ) {
-    // End testing if we exceed the suite timeout
-    if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
+
+  // eslint-disable-next-line no-constant-condition, @typescript-eslint/no-unnecessary-condition
+  while (true) {
+    // Stop fuzzing when we encounter a stop condition
+    const stopCondition = _checkStopCondition(
+      env,
+      inputsGenerated,
+      currentDupeCount,
+      totalDupeCount,
+      failureCount,
+      startTime
+    );
+    if (stopCondition !== undefined) {
+      results.stopReason = stopCondition;
+      results.elapsedTime = new Date().getTime() - startTime;
+      results.inputsGenerated = inputsGenerated;
+      results.dupesGenerated = totalDupeCount;
+      results.inputsSaved = savedCount;
       break;
     }
 
@@ -147,17 +161,23 @@ export const fuzz = async (
       input: [],
       output: [],
       exception: false,
+      validatorException: false,
       timeout: false,
-      passed: true,
+      passedImplicit: true,
+      elapsedTime: 0,
+      category: FuzzResultCategory.OK,
     };
 
     // Before searching, consume the pool of pinned tests
     // Note: Do not count pinned tests against the maxTests limit
     const pinnedTest = pinnedTests.pop();
     if (pinnedTest) {
+      savedCount++; // increment the number of saved tests processed
       result.input = pinnedTest.input;
-      result.pinned = true;
-      i--; // don't count pinned tests
+      result.pinned = pinnedTest.pinned;
+      if (pinnedTest.expectedOutput) {
+        result.expectedOutput = pinnedTest.expectedOutput;
+      }
     } else {
       // Generate and store the inputs
       // TODO: We should provide a way to filter inputs
@@ -168,16 +188,18 @@ export const fuzz = async (
           value: e.gen(),
         });
       });
+      // Increment the number of inputs generated
+      inputsGenerated++;
     }
 
     // Skip tests if we previously processed the input
     const inputHash = JSON5.stringify(result.input);
     if (inputHash in allInputs) {
-      i--; // don't count this test
-      dupeCount++; // but count the duplicate
+      currentDupeCount++; // increment the dupe coynter
+      totalDupeCount++; // incremement the total run dupe counter
       continue; // skip this test
     } else {
-      dupeCount = 0; // reset the duplicate count
+      currentDupeCount = 0; // reset the duplicate count
       // if the function accepts inputs, add test input
       // to the list so we don't test it again,
       if (env.function.getArgDefs().length) {
@@ -187,14 +209,18 @@ export const fuzz = async (
 
     // Call the function via the wrapper
     try {
+      const startElapsedTime = performance.now(); // start timer
+      result.elapsedTime = startElapsedTime;
       result.output.push({
         name: "0",
         offset: 0,
         value: fnWrapper(result.input), // <-- Wrapper
       });
+      result.elapsedTime = performance.now() - startElapsedTime; // stop timer
     } catch (e: any) {
       if (isTimeoutError(e)) {
         result.timeout = true;
+        result.elapsedTime = performance.now() - result.elapsedTime;
       } else {
         result.exception = true;
         result.exceptionMessage = e.message;
@@ -202,17 +228,82 @@ export const fuzz = async (
       }
     }
 
+    // IMPLICIT ORACLE --------------------------------------------
     // How can it fail ... let us count the ways...
     // TODO Add suppport for multiple validators !!!
     if (
-      result.exception ||
-      result.timeout ||
-      result.output.some((e) => !implicitOracle(e))
-    )
-      result.passed = false;
+      env.options.useImplicit &&
+      (result.exception ||
+        result.timeout ||
+        result.output.some((e) => !implicitOracle(e)))
+    ) {
+      result.passedImplicit = false;
+    }
+
+    // HUMAN ORACLE -----------------------------------------------
+    // If a human annotated an expected output, then check it
+    if (env.options.useHuman && result.expectedOutput) {
+      result.passedHuman = actualEqualsExpectedOutput(
+        result,
+        result.expectedOutput
+      );
+    }
+
+    // CUSTOM VALIDATOR ------------------------------------------
+    // If a custom validator is selected, call it to evaluate the result
+    if ("validator" in env && env.validator) {
+      const fnName = env.validator;
+
+      // Build the validator function wrapper
+      const validatorFnWrapper = functionTimeout(
+        (input: FuzzTestResult): FuzzTestResult => {
+          try {
+            const result: FuzzTestResult = mod[fnName]({ ...input });
+            return {
+              ...input,
+              passedValidator: result.passedValidator,
+            };
+          } catch (e: any) {
+            return {
+              ...input,
+              validatorException: true,
+              validatorExceptionMessage: e.message,
+              validatorExceptionStack: e.stack,
+            };
+          }
+        },
+        env.options.fnTimeout
+      );
+
+      // Categorize the results (so it's not stale)
+      result.category = categorizeResult(result);
+
+      // Call the validator function wrapper
+      const validatorResult = validatorFnWrapper(result);
+
+      // Store the validator results
+      result.passedValidator = validatorResult.passedValidator;
+      result.validatorException = validatorResult.validatorException;
+      result.validatorExceptionMessage =
+        validatorResult.validatorExceptionMessage;
+      result.validatorExceptionStack = validatorResult.validatorExceptionStack;
+    }
+
+    // (Re-)categorize the result
+    result.category = categorizeResult(result);
+
+    // Increment the failure counter if this test had a failing result
+    if (result.category !== FuzzResultCategory.OK) {
+      failureCount++;
+    }
 
     // Store the result for this iteration
-    results.results.push(result);
+    if (
+      !env.options.onlyFailures ||
+      result.category !== FuzzResultCategory.OK
+    ) {
+      results.results.push(result);
+    }
   } // for: Main test loop
 
   // Persist to outfile, if requested
@@ -225,34 +316,64 @@ export const fuzz = async (
 }; // fn: fuzz()
 
 /**
+ * Checks whether the fuzzer should stop fuzzing. If so, return the reason.
+ *
+ * @param env fuzz environment
+ * @param inputsGenerated number of inputs generated so far
+ * @param currentDupeCount number of duplicate tests since the last non-duplicated test
+ * @param totalDupeCount number of duplicate tests since the last non-duplicated test
+ * @param failureCount number of failed tests encountered so far
+ * @param startTime time the fuzzer started
+ * @returns the reason the fuzzer stopped, if any
+ */
+const _checkStopCondition = (
+  env: FuzzEnv,
+  inputsGenerated: number,
+  currentDupeCount: number,
+  totalDupeCount: number,
+  failureCount: number,
+  startTime: number
+): FuzzStopReason | undefined => {
+  // End testing if we exceed the suite timeout
+  if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
+    return FuzzStopReason.MAXTIME;
+  }
+
+  // End testing if we exceed the maximum number of tests
+  if (inputsGenerated - totalDupeCount >= env.options.maxTests) {
+    return FuzzStopReason.MAXTESTS;
+  }
+
+  // End testing if we exceed the maximum number of failures
+  if (
+    env.options.maxFailures !== 0 &&
+    failureCount >= env.options.maxFailures
+  ) {
+    return FuzzStopReason.MAXFAILURES;
+  }
+
+  // End testing if we exceed the maximum number of duplicates generated
+  if (currentDupeCount >= Math.max(env.options.maxTests, 1000)) {
+    return FuzzStopReason.MAXDUPES;
+  }
+
+  // No stop condition found
+  return undefined;
+}; // fn: _checkStopCondition()
+
+/**
  * Checks whether the given option set is valid.
  *
  * @param options fuzzer option set
  * @returns true if the options are valid, false otherwise
  */
 const isOptionValid = (options: FuzzOptions): boolean => {
-  return !(options.maxTests < 0 || !ArgDef.isOptionValid(options.argDefaults));
+  return !(
+    options.maxTests < 0 ||
+    options.maxFailures < 0 ||
+    !ArgDef.isOptionValid(options.argDefaults)
+  );
 }; // fn: isOptionValid()
-
-/**
- * Returns a default set of fuzzer options.
- *
- * @returns default set of fuzzer options
- */
-export const getDefaultFuzzOptions = (): FuzzOptions => {
-  return {
-    argDefaults: ArgDef.getDefaultOptions(),
-    maxTests: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("maxTests", 1000),
-    fnTimeout: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("fnTimeout", 100),
-    suiteTimeout: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("suiteTimeout", 3000),
-  };
-}; // fn: getDefaultFuzzOptions()
 
 /**
  * The implicit oracle returns true only if the value contains no nulls, undefineds, NaNs,
@@ -322,24 +443,110 @@ export function isTimeoutError(error: { code?: string }): boolean {
 } // fn: isTimeoutError()
 
 /**
+ * Returns a list of validator FunctionRefs found within the program
+ *
+ * @param program the program to search
+ * @returns an array of validator FunctionRefs
+ */
+export function getValidators(
+  program: ProgramDef,
+  fnUnderTest: FunctionDef
+): FunctionRef[] {
+  return Object.values(program.getExportedFunctions())
+    .filter(
+      (fn) => fn.isValidator() && fn.getName().startsWith(fnUnderTest.getName())
+    )
+    .map((fn) => fn.getRef());
+} // fn: getValidators()
+
+/**
+ * Compares the actual output to the expected output.
+ *
+ * @param fuzz testing result
+ * @param expected output
+ * @returns true if actualOut equals expectedOut
+ */
+function actualEqualsExpectedOutput(
+  result: FuzzTestResult,
+  expectedOutput: FuzzIoElement[]
+): boolean {
+  if (result.timeout) {
+    return expectedOutput.length > 0 && expectedOutput[0].isTimeout === true;
+  } else if (result.exception) {
+    return expectedOutput.length > 0 && expectedOutput[0].isException === true;
+  } else {
+    return JSON5.stringify(result.output) === JSON5.stringify(expectedOutput);
+  }
+}
+
+/**
+ * Categorizes the result of a fuzz test according to the available
+ * categories defined in ResultType.
+ * @param result of the test
+ * @returns the category of the result
+ */
+export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
+  if (result.validatorException) {
+    return FuzzResultCategory.FAILURE; // Validator failed
+  }
+
+  const implicit = result.passedImplicit ? true : false;
+  const validator =
+    "passedValidator" in result ? result.passedValidator : undefined;
+  const human =
+    "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
+
+  // Returns the type of bad value: execption, timeout, or badvalue
+  const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
+    if (result.exception) {
+      return FuzzResultCategory.EXCEPTION; // PUT threw exception
+    } else if (result.timeout) {
+      return FuzzResultCategory.TIMEOUT; // PUT timedout
+    } else {
+      return FuzzResultCategory.BADVALUE; // PUT returned bad value
+    }
+  };
+
+  // Either the human oracle or the validator may take precedence
+  // over the implicit oracle if they exist. However, if both the
+  // validator and the human oracle are present, then they must
+  // agree. If the human and validator are present yet disagree,
+  // then the disagreement is another error.
+  if (human === true) {
+    if (validator === false) {
+      return FuzzResultCategory.DISAGREE;
+    } else {
+      return FuzzResultCategory.OK;
+    }
+  } else if (human === false) {
+    if (validator === true) {
+      return FuzzResultCategory.DISAGREE;
+    } else {
+      return getBadValueType(result);
+    }
+  } else {
+    if (validator === true) {
+      return FuzzResultCategory.OK;
+    } else if (validator === false) {
+      return getBadValueType(result);
+    } else {
+      if (implicit) {
+        return FuzzResultCategory.OK;
+      } else {
+        return getBadValueType(result);
+      }
+    }
+  }
+} // fn: categorizeResult()
+
+/**
  * Fuzzer Environment required to fuzz a function.
  */
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
-};
-
-/**
- * Fuzzer Options that specify the fuzzing behavior
- */
-export type FuzzOptions = {
-  outputFile?: string; // optional file to receive the fuzzing output (JSON format)
-  argDefaults: ArgOptions; // default options for arguments
-  seed?: string; // optional seed for pseudo-random number generator
-  maxTests: number; // number of fuzzing tests to execute (>= 0)
-  fnTimeout: number; // timeout threshold in ms per test
-  suiteTimeout: number; // timeout for the entire test suite
-  // !!! oracleFn: // TODO The oracle function
+  validator?: string; // name of the current validator function (if any)
+  validators: FunctionRef[]; // list of the module's functions
 };
 
 /**
@@ -347,38 +554,16 @@ export type FuzzOptions = {
  */
 export type FuzzTestResults = {
   env: FuzzEnv; // fuzzer environment
+  stopReason: FuzzStopReason; // why the fuzzer stopped
+  elapsedTime: number; // elapsed time the fuzzer ran
+  inputsGenerated: number; // number of inputs generated
+  dupesGenerated: number; // number of duplicate inputs generated
+  inputsSaved: number; // number of inputs saved
   results: FuzzTestResult[]; // fuzzing test results
 };
 
-/**
- * Single Fuzzer Test Result
- */
-export type FuzzTestResult = {
-  pinned: boolean; // true if the test was pinned (not randomly generated)
-  input: FuzzIoElement[]; // function input
-  output: FuzzIoElement[]; // function output
-  exception: boolean; // true if an exception was thrown
-  exceptionMessage?: string; // exception message if an exception was thrown
-  stack?: string; // stack trace if an exception was thrown
-  timeout: boolean; // true if the fn call timed out
-  passed: boolean; // true if output matches oracle; false, otherwise
-};
-
-/**
- * Pinned Fuzzer Tests
- */
-export type FuzzPinnedTest = {
-  input: FuzzIoElement[]; // function input
-};
-
-/**
- * Fuzzer Input/Output Element; i.e., a concrete input or output value
- */
-export type FuzzIoElement = {
-  name: string; // name of element
-  offset: number; // offset of element (0-based)
-  value: any; // value of element
-};
-
+export * from "./analysis/typescript/ProgramDef";
 export * from "./analysis/typescript/FunctionDef";
 export * from "./analysis/typescript/ArgDef";
+export * from "./analysis/typescript/Types";
+export * from "./Types";

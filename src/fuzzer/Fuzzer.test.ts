@@ -1,18 +1,19 @@
-import {
-  ArgDef,
-  setup,
-  fuzz,
-  FuzzOptions,
-  getDefaultFuzzOptions,
-  implicitOracle,
-} from "./Fuzzer";
+import { ArgDef, setup, fuzz, implicitOracle } from "./Fuzzer";
+import { FuzzOptions } from "./Types";
 
 /**
  * Fuzzer option for integer arguments and a seed for deterministic test execution.
  */
 const intOptions: FuzzOptions = {
-  ...getDefaultFuzzOptions(),
+  argDefaults: ArgDef.getDefaultOptions(),
+  maxTests: 1000,
+  fnTimeout: 100,
+  suiteTimeout: 3000,
   seed: "qwertyuiop",
+  maxFailures: 0,
+  onlyFailures: false,
+  useImplicit: true,
+  useHuman: true,
 };
 
 /**
@@ -21,6 +22,15 @@ const intOptions: FuzzOptions = {
 const floatOptions: FuzzOptions = {
   ...intOptions,
   argDefaults: ArgDef.getDefaultFloatOptions(),
+};
+
+/**
+ * Fuzzer options for counter-example mode
+ */
+const counterExampleOptions: FuzzOptions = {
+  ...intOptions,
+  maxFailures: 1,
+  onlyFailures: true,
 };
 
 /**
@@ -300,5 +310,15 @@ describe("Fuzzer", () => {
       await fuzz(setup(intOptions, "nanofuzz-study/examples/14.ts", "modInv"))
     ).results;
     expect(results.length).not.toStrictEqual(0);
+  });
+
+  test("Counter-example mode 01", async () => {
+    const results = (
+      await fuzz(
+        setup(counterExampleOptions, "nanofuzz-study/examples/14.ts", "modInv")
+      )
+    ).results;
+    expect(results.length).toStrictEqual(1);
+    expect(results[0].category).not.toStrictEqual("ok");
   });
 });

@@ -5,31 +5,32 @@ import * as JSON5 from "json5";
 /**
  * Lightweight storage for event data prior to de-staging.
  *
- * This is a singleton.  Use getLogger() to get the instance.
+ * This is a singleton. Use getLogger() to get the instance.
  */
 export class Logger {
-  public static getLogger(extensionUri: vscode.Uri): Logger {
-    if (Logger.theInstance === undefined)
-      Logger.theInstance = new Logger(extensionUri);
+  private static theInstance?: Logger; // Singleton instance
+  private log: LoggerEntry[] = []; // In-memory log data
+  private chunkPrefix = `LoggerChunk`; // Prefix for log chunk filenames
+  private active = false; // Whether logging is active
+
+  /**
+   * Get the logger singleton
+   *
+   * @returns the singleton instance of Logger
+   */
+  public static getLogger(): Logger {
+    if (Logger.theInstance === undefined) Logger.theInstance = new Logger();
     return Logger.theInstance;
   }
-  private constructor(private extensionUri: vscode.Uri) {
-    this.calcPersist();
-  }
-  private static theInstance?: Logger;
-  private log: LoggerEntry[] = [];
-  private interval = 30000; // 30 seconds
-  private chunkPrefix = `LoggerChunk`;
-  private lastPersist: Date = new Date();
-  private nextPersist: Date = new Date(
-    this.lastPersist.getTime() + this.interval
-  );
-  private calcPersist() {
-    this.lastPersist = new Date();
-    this.nextPersist = new Date(this.lastPersist.getTime() + this.interval);
-  }
-  private persistChunk() {
+
+  /**
+   * Persist the in-memory log to storage
+   * @returns
+   */
+  private persistChunk(): void {
     const { workspaceFolders } = vscode.workspace;
+
+    // We only persist if there is one workspace folder
     if (workspaceFolders === undefined) {
       console.debug(`No workspace folders, not persisting log chunk`);
       return;
@@ -41,15 +42,15 @@ export class Logger {
       return;
     }
 
-    const chunkName = `${this.chunkPrefix}-${this.lastPersist.toISOString()}`;
+    // Determine the persisted log chunk filename
+    const chunkName = `${this.chunkPrefix}-${new Date().toISOString()}`;
     const chunkUri = vscode.Uri.joinPath(
       workspaceFolders[0].uri,
       "telemetry",
       chunkName + ".json"
     );
 
-    this.calcPersist(); // Reset the persistence stamps
-
+    // Persist the log chunk if data is present
     if (this.log.length) {
       const logCopy = this.log;
       this.log = []; // Clear the persisted data
@@ -58,74 +59,79 @@ export class Logger {
         Buffer.from(JSON5.stringify(logCopy))
       );
     } else {
-      console.debug("No log data to persist");
+      console.debug("No telemetry log data to persist");
     }
-  }
+  } // persistChunk()
+
+  /**
+   * Clear the in-memory log
+   */
   public clear(): void {
     this.log = [];
-    /*
-    const keys: readonly string[] = this.memory.keys();
-    for (const keyidx in keys) {
-      const key: string = keys[keyidx];
-      if (key.startsWith(this.chunkPrefix)) {
-        this.memory.delete(key);
-        console.debug(`Deleted chunk: ${key}`);
-      }
-    }
-    */
     console.debug(`Cleared in-memory log data (any persisted chunks remain)`);
-  }
+  } // clear()
+
+  /**
+   * Flush the in-memory log to storage
+   */
   public flush(): void {
     this.persistChunk();
-  }
+  } // flush()
+
+  /**
+   * Push the log entry to the in-memory log
+   *
+   * @param logEntry
+   */
   public push(logEntry: LoggerEntry): void {
-    this.log.push(logEntry);
+    if (this.active) this.log.push(logEntry);
+  } // push()
 
-    if (new Date() > this.nextPersist) {
-      this.persistChunk(); // Persist if needed
-    }
-  }
-  /*
-  public toJSON(): string {
-    // Flush any pending chunks to storage - so we get them in the next step.
-    if (this.log.length) {
-      this.persistChunk();
-    }
+  /**
+   * Sets whether logging is active
+   *
+   * @param active Whether logging is active
+   */
+  public setActive(active: boolean): void {
+    this.active = active;
+  } // setActive()
 
-    // Get each chunk from storage and re-construct the log
-    const fullLog: LoggerEntry[] = [];
-    const keys: readonly string[] = this.memory.keys();
-    for (const keyidx in keys) {
-      const key: string = keys[keyidx];
-      console.debug(`Evaluating key: ${key}`);
-      if (key.startsWith(this.chunkPrefix)) {
-        const chunk: LoggerEntry[] | undefined = this.memory.get(key);
-        if (chunk !== undefined) {
-          for (const chunkidx in chunk) {
-            fullLog.push(chunk[chunkidx]);
-          }
-          console.debug(`Loaded chunk: ${key}`);
-        }
-      }
-    }
-
-    return JSON5.stringify(fullLog);
-  }
-  */
+  /**
+   * Returns whether logging is active
+   *
+   * @returns whether logging is active
+   */
+  public isActive(): boolean {
+    return this.active;
+  } // isActive()
 }
 
 /**
  * An entry in the log
  */
 export class LoggerEntry {
+  private time: string; // Log timestamp
+
+  /**
+   * Build a log entry object
+   *
+   * @param src Source of the log entry
+   * @param msg Parameterized message to log (e.g., %s)
+   * @param prm Parameters for the message
+   */
   constructor(
-    private src: string,
-    private msg?: string,
-    private prm?: string[]
+    private src: string, // Source of the log entry
+    private msg?: string, // Parameterized message to log
+    private prm?: string[] // Parameters for the message
   ) {
     this.time = new Date().toISOString();
   }
-  private time: string;
+
+  /**
+   * Returns a string representation of the log entry
+   *
+   * @returns a string representation of the log entry
+   */
   public toString(): string {
     const logStart = `${this.time}:${this.src}`;
     if (this.msg === undefined) {
@@ -135,5 +141,5 @@ export class LoggerEntry {
     } else {
       return `${logStart}: ${util.format(this.msg, ...this.prm)}`;
     }
-  }
+  } // toString()
 }

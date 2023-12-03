@@ -2,14 +2,19 @@
   "name": "nanofuzz",
   "displayName": "NaNofuzz",
   "publisher": "penrose",
-  "version": "0.1.12",
-  "description": "Automatic test suite generator for Typescript",
-  "repository": "https://github.com/penrose/nanofuzz.git",
-  "author": "Penrose Team (https://penrose.cs.cmu.edu/)",
+  "version": "0.2.1",
+  "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript that runs inside VS Code",
+  "repository": "https://github.com/nanofuzz/nanofuzz.git",
+  "author": "The NaNofuzz Team @ Carnegie Mellon University",
+  "icon": "assets/ui/logo.png",
+  "galleryBanner": {
+    "color": "#050d3a",
+    "theme": "dark"
+  },
   "license": "MIT",
   "main": "build/extension/extension.js",
   "module": "build/dist/index.esm.js",
-  "unpkg": "build/dist/penrose.min.js",
+  "unpkg": "build/dist/index.min.js",
   "types": "build/dist/index.d.ts",
   "type": "commonjs",
   "files": [
@@ -40,7 +45,7 @@
     "onStartupFinished",
     "onCommand:nanofuzz.Fuzz",
     "onCommand:nanofuzz.telemetry.log",
-    "onCommand:nanofuzz.telemetry.DumpLog",
+    "onCommand:nanofuzz.telemetry.FlushLog",
     "onCommand:nanofuzz.telemetry.ClearLog",
     "onLanguage:typescript",
     "onLanguage:typescriptreact",
@@ -50,12 +55,12 @@
     "commands": [
       {
         "command": "nanofuzz.Fuzz",
-        "title": "AutoTest",
+        "title": "NaNofuzz",
         "category": "NaNofuzz"
       },
       {
-        "command": "nanofuzz.telemetry.DumpLog",
-        "title": "Dump Telemetry Log",
+        "command": "nanofuzz.telemetry.FlushLog",
+        "title": "Flush Telemetry Log to storage",
         "category": "NaNofuzz"
       },
       {
@@ -69,22 +74,6 @@
         "category": "NaNofuzz"
       }
     ],
-    "menus": {
-      "editor/context": [
-        {
-          "command": "nanofuzz.Fuzz",
-          "group": "z_commands",
-          "when": "editorLangId == typescript && editorTextFocus"
-        }
-      ]
-    },
-    "keybindings": [
-      {
-        "command": "nanofuzz.Fuzz",
-        "key": "ctrl+alt+a",
-        "when": "editorLangId == typescript && editorTextFocus"
-      }
-    ],
     "configuration": {
       "title": "NaNofuzz",
       "properties": {
@@ -94,6 +83,13 @@
           "default": 1000,
           "minimum": 1,
           "description": "Maximum number of tests the fuzzer should run before stopping."
+        },
+        "nanofuzz.fuzzer.maxFailures": {
+          "title": "Maximum number of failures (0=no limit)",
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Maximum number of failed tests the fuzzer should run before stopping."
         },
         "nanofuzz.fuzzer.suiteTimeout": {
           "title": "Maximum time to run the fuzzer (ms)",
@@ -108,6 +104,18 @@
           "default": 100,
           "minimum": 0,
           "description": "Maximum time (in ms) to allow a test function to run before making it as a timeout."
+        },
+        "nanofuzz.fuzzer.onlyFailures": {
+          "title": "Report only test failures?",
+          "type": "boolean",
+          "default": false,
+          "description": "Report only failing tests?"
+        },
+        "nanofuzz.ui.hideMoreOptionsButton": {
+          "title": "Hide the 'More options' button?",
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the 'More options' button?"
         },
         "nanofuzz.argdef.strCharset": {
           "title": "String character set",
@@ -151,7 +159,7 @@
         "nanofuzz.argdef.dftDimLength.max": {
           "title": "Maximum array length",
           "type": "number",
-          "default": 10,
+          "default": 4,
           "minimum": 0,
           "description": "Minimum array length generate by default."
         },
@@ -178,7 +186,7 @@
           "type": "boolean",
           "default": false,
           "minimum": 0,
-          "description": "Activate telemetry? (requires restart)"
+          "description": "Activate telemetry?"
         }
       }
     }
@@ -202,12 +210,12 @@
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
     "@vscode/codicons": "^0.0.32",
-    "@vscode/webview-ui-toolkit": "^1.0.0",
+    "@vscode/webview-ui-toolkit": "^1.2.2",
     "eslint": "^7.3.2",
     "immutable": "^4.1.0",
-    "json5": "^2.2.1",
+    "json5": "^2.2.3",
     "seedrandom": "^3.0.5",
-    "typescript": "^4.1.3"
+    "typescript": "^4.9.5"
   },
   "devDependencies": {
     "@types/jest": "^27.4.1",
@@ -218,6 +226,7 @@
     "@typescript-eslint/eslint-plugin-tslint": "^4.5.0",
     "@typescript-eslint/parser": "^4.5.0",
     "@vscode/test-electron": "^2.1.5",
+    "@vscode/vsce": "^2.15.0",
     "esbuild": "^0.14.48",
     "escape-goat": "^4.0.0",
     "eslint-config-prettier": "^6.13.0",
@@ -228,12 +237,11 @@
     "estrella": "^1.4.1",
     "jest": "^27.5.1",
     "jest-junit": "^12.0.0",
-    "nanofuzz-study": "penrose/nanofuzz-study#main",
+    "nanofuzz-study": "nanofuzz/nanofuzz-study#main",
     "ts-jest": "^27.1.3",
     "tsc-alias": "^1.6.7",
     "tslib": "^2.1.0",
     "typedoc": "^0.22.11",
-    "typedoc-plugin-markdown": "^3.11.13",
-    "vsce": "^2.11.0"
+    "typedoc-plugin-markdown": "^3.11.13"
   }
 }
