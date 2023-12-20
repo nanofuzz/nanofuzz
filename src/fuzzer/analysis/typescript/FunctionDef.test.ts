@@ -202,6 +202,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         startOffset: 7,
         endOffset: 58,
         isExported: true,
+        isVoid: false,
         args: [
           {
             dims: 1,
@@ -224,6 +225,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         startOffset: 99,
         endOffset: 170,
         isExported: true,
+        isVoid: true,
         args: [],
       },
       /*
@@ -261,6 +263,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       startOffset: 7,
       endOffset: 58,
       isExported: true,
+      isVoid: false,
       args: [
         {
           dims: 1,
@@ -286,6 +289,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       startOffset: 7,
       endOffset: 58,
       isExported: true,
+      isVoid: false,
       args: [
         {
           dims: 1,
@@ -301,5 +305,59 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         },
       ],
     });
+  });
+
+  // Checking whether functions are void
+  const srcVoid = `export function noReturnF3() {return () => {return 1;}}
+  export const noReturnA3 = () => {return () => {return 1;}}
+  export function noReturnF1() {const z2 = [1,2,3].map((z) => {return z*z;});}
+  export function f1() {return 1;}`;
+  const thisProgramVoid = dummyProgram.setSrc(() => srcVoid);
+
+  test("findFnInSource: check void", () => {
+    expect(
+      Object.values(thisProgramVoid.getFunctions()).map((e) => e.getRef())
+    ).toStrictEqual([
+      {
+        name: "noReturnF3",
+        module: "dummy.ts",
+        src: "function noReturnF3() {return () => {return 1;}}",
+        startOffset: 7,
+        endOffset: 55,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+      {
+        name: "noReturnA3",
+        module: "dummy.ts",
+        src: "const noReturnA3 = () => {return () => {return 1;}}",
+        startOffset: 71,
+        endOffset: 116,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+      {
+        name: "noReturnF1",
+        module: "dummy.ts",
+        src: "function noReturnF1() {const z2 = [1,2,3].map((z) => {return z*z;});}",
+        startOffset: 126,
+        endOffset: 195,
+        isExported: true,
+        isVoid: true,
+        args: [],
+      },
+      {
+        name: "f1",
+        module: "dummy.ts",
+        src: "function f1() {return 1;}",
+        startOffset: 205,
+        endOffset: 230,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+    ]);
   });
 });

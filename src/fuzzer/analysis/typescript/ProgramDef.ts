@@ -27,6 +27,7 @@ import {
   ArgOptions,
   ProgramImport,
 } from "./Types";
+import { createNoSubstitutionTemplateLiteral } from "typescript";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
@@ -1029,20 +1030,12 @@ export class ProgramDef {
     }>
   ): Record<IdentifierName, FunctionRef> {
     const ret: Record<IdentifierName, FunctionRef> = {};
-    let currFnName = "";
 
     // Traverse the AST to find function definitions
     simpleTraverse(
       ast,
       {
         enter: (node, parent) => {
-          if (
-            // Return statement: return ...
-            node.type === AST_NODE_TYPES.ReturnStatement &&
-            currFnName !== ""
-          ) {
-            ret[currFnName].isVoid = false;
-          }
           if (
             // Arrow Function Definition: const xyz = (): void => { ... }
             node.type === AST_NODE_TYPES.VariableDeclarator &&
@@ -1053,7 +1046,12 @@ export class ProgramDef {
             node.id.type === AST_NODE_TYPES.Identifier &&
             !isBlockScoped(node)
           ) {
-            currFnName = node.id.name;
+            let numReturns = 0;
+            if (node.init.body.type === AST_NODE_TYPES.BlockStatement) {
+              for (const x of node.init.body.body) {
+                if (x.type === AST_NODE_TYPES.ReturnStatement) ++numReturns;
+              }
+            }
             ret[node.id.name] = {
               name: node.id.name,
               module: this._module,
@@ -1066,7 +1064,7 @@ export class ProgramDef {
               isExported: parent.parent
                 ? parent.parent.type === AST_NODE_TYPES.ExportNamedDeclaration
                 : false,
-              isVoid: true,
+              isVoid: numReturns === 0,
               args: node.init.params
                 .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
                 .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
@@ -1077,7 +1075,10 @@ export class ProgramDef {
             node.id !== null &&
             !isBlockScoped(node)
           ) {
-            currFnName = node.id.name;
+            let numReturns = 0;
+            for (const x of node.body.body) {
+              if (x.type === AST_NODE_TYPES.ReturnStatement) ++numReturns;
+            }
             ret[node.id.name] = {
               name: node.id.name,
               module: this._module,
@@ -1087,7 +1088,7 @@ export class ProgramDef {
               isExported: parent
                 ? parent.type === AST_NODE_TYPES.ExportNamedDeclaration
                 : false,
-              isVoid: true,
+              isVoid: numReturns === 0,
               args: node.params
                 .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
                 .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
