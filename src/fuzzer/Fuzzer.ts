@@ -214,7 +214,7 @@ export const fuzz = async (
       result.output.push({
         name: "0",
         offset: 0,
-        value: fnWrapper(result.input), // <-- Wrapper
+        value: fnWrapper(JSON5.parse(JSON.stringify(result.input))), // <-- Wrapper (protect the input)
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
     } catch (e: any) {
