@@ -27,7 +27,6 @@ import {
   ArgOptions,
   ProgramImport,
 } from "./Types";
-import { createNoSubstitutionTemplateLiteral } from "typescript";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
@@ -1046,12 +1045,8 @@ export class ProgramDef {
             node.id.type === AST_NODE_TYPES.Identifier &&
             !isBlockScoped(node)
           ) {
-            let numReturns = 0;
-            if (node.init.body.type === AST_NODE_TYPES.BlockStatement) {
-              for (const x of node.init.body.body) {
-                if (x.type === AST_NODE_TYPES.ReturnStatement) ++numReturns;
-              }
-            }
+            const returns = this._findReturns(node.init.body, false);
+
             ret[node.id.name] = {
               name: node.id.name,
               module: this._module,
@@ -1064,7 +1059,7 @@ export class ProgramDef {
               isExported: parent.parent
                 ? parent.parent.type === AST_NODE_TYPES.ExportNamedDeclaration
                 : false,
-              isVoid: numReturns === 0,
+              isVoid: !returns,
               args: node.init.params
                 .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
                 .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
@@ -1075,10 +1070,8 @@ export class ProgramDef {
             node.id !== null &&
             !isBlockScoped(node)
           ) {
-            let numReturns = 0;
-            for (const x of node.body.body) {
-              if (x.type === AST_NODE_TYPES.ReturnStatement) ++numReturns;
-            }
+            const returns = this._findReturns(node.body, false);
+
             ret[node.id.name] = {
               name: node.id.name,
               module: this._module,
@@ -1088,7 +1081,7 @@ export class ProgramDef {
               isExported: parent
                 ? parent.type === AST_NODE_TYPES.ExportNamedDeclaration
                 : false,
-              isVoid: numReturns === 0,
+              isVoid: !returns,
               args: node.params
                 .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
                 .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
@@ -1102,4 +1095,37 @@ export class ProgramDef {
 
     return ret;
   } // fn: findFunctions()
+
+  /**
+   * Returns true if any return statements are defined in block statement
+   */
+  private _findReturns(node: any, returns: boolean): boolean {
+    if (returns) return true;
+    if (node.body) {
+      for (const n of node.body) {
+        switch (n.type) {
+          case AST_NODE_TYPES.ReturnStatement:
+            return true;
+          case AST_NODE_TYPES.BlockStatement:
+            returns = this._findReturns(n, returns);
+            break;
+          case AST_NODE_TYPES.IfStatement:
+            if (n.alternate) returns = this._findReturns(n.alternate, returns);
+            if (n.consequent)
+              returns = this._findReturns(n.consequent, returns);
+            break;
+          case AST_NODE_TYPES.SwitchStatement:
+            for (const c of n.cases) {
+              if (c.consequent) {
+                for (const conseq of c.consequent) {
+                  if (conseq.type === AST_NODE_TYPES.ReturnStatement)
+                    returns = true;
+                }
+              }
+            }
+        } // switch
+      }
+    }
+    return returns;
+  }
 } // class: ProgramDef
