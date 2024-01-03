@@ -1097,11 +1097,15 @@ export class ProgramDef {
   } // fn: findFunctions()
 
   /**
-   * Returns true if any return statements are defined in block statement
+   * Returns true if any return statements are defined in a given block statement
    */
   private _findReturns(node: any, returns: boolean): boolean {
     if (returns) return true;
     if (node.body) {
+      // Implicit return for arrow function
+      if (node.body.type === AST_NODE_TYPES.Identifier) return true;
+
+      // Inner block statements and nested controls
       for (const n of node.body) {
         switch (n.type) {
           case AST_NODE_TYPES.ReturnStatement:
