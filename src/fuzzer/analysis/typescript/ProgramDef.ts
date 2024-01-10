@@ -14,6 +14,7 @@ import {
   Identifier,
   TSPropertySignature,
   TypeNode,
+  Statement,
 } from "@typescript-eslint/types/dist/ast-spec";
 import path from "path";
 import fs from "fs";
@@ -27,6 +28,7 @@ import {
   ArgOptions,
   ProgramImport,
 } from "./Types";
+import { Breakpoint } from "vscode";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
@@ -1045,7 +1047,13 @@ export class ProgramDef {
             node.id.type === AST_NODE_TYPES.Identifier &&
             !isBlockScoped(node)
           ) {
-            const returns = this._findReturns(node.init.body, false);
+            // const implicitReturn =
+            //   node.init.body.type === AST_NODE_TYPES.ArrowFunctionExpression &&
+            //   node.init.body.body.type === AST_NODE_TYPES.Identifier;
+            const returns =
+              // implicitReturn ||
+              node.init.body.type !== AST_NODE_TYPES.BlockStatement ||
+              this._findReturns(node.init.body);
 
             ret[node.id.name] = {
               name: node.id.name,
@@ -1070,7 +1078,7 @@ export class ProgramDef {
             node.id !== null &&
             !isBlockScoped(node)
           ) {
-            const returns = this._findReturns(node.body, false);
+            const returns = this._findReturns(node.body);
 
             ret[node.id.name] = {
               name: node.id.name,
@@ -1099,37 +1107,51 @@ export class ProgramDef {
   /**
    * Returns true if any return statements are defined in a given block statement
    */
-  private _findReturns(node: any, returns: boolean): boolean {
-    if (returns) return true;
-    if (node.body) {
-      // Implicit return for arrow function
-      if (node.body.type === AST_NODE_TYPES.Identifier) return true;
+  private _findReturns(node: Statement): boolean {
+    switch (node.type) {
+      case AST_NODE_TYPES.ReturnStatement:
+        return true;
+      case AST_NODE_TYPES.BlockStatement:
+        for (const stmt of node.body) {
+          if (this._findReturns(stmt)) return true;
+        }
+        return false;
+      case AST_NODE_TYPES.IfStatement:
+        return (
+          (node.alternate && this._findReturns(node.alternate)) ||
+          this._findReturns(node.consequent)
+        );
+      case AST_NODE_TYPES.SwitchStatement:
+        for (const cons of node.cases) {
+          for (const stmt of cons.consequent) {
+            if (this._findReturns(stmt)) return true;
+          }
+        }
+        return false;
+      case AST_NODE_TYPES.DoWhileStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.ForInStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.ForOfStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.ForStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.LabeledStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.ThrowStatement:
+        return false;
+      case AST_NODE_TYPES.TryStatement:
+        return (
+          this._findReturns(node.block) ||
+          (node.handler !== null && this._findReturns(node.handler.body))
+        );
+      case AST_NODE_TYPES.WhileStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.WithStatement:
+        return this._findReturns(node.body);
 
-      // Inner block statements and nested controls
-      for (const n of node.body) {
-        switch (n.type) {
-          case AST_NODE_TYPES.ReturnStatement:
-            return true;
-          case AST_NODE_TYPES.BlockStatement:
-            returns = this._findReturns(n, returns);
-            break;
-          case AST_NODE_TYPES.IfStatement:
-            if (n.alternate) returns = this._findReturns(n.alternate, returns);
-            if (n.consequent)
-              returns = this._findReturns(n.consequent, returns);
-            break;
-          case AST_NODE_TYPES.SwitchStatement:
-            for (const c of n.cases) {
-              if (c.consequent) {
-                for (const conseq of c.consequent) {
-                  if (conseq.type === AST_NODE_TYPES.ReturnStatement)
-                    returns = true;
-                }
-              }
-            }
-        } // switch
-      }
-    }
-    return returns;
+      default:
+        return false;
+    } // switch
   }
 } // class: ProgramDef
