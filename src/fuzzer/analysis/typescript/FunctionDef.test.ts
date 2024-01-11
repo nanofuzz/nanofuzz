@@ -458,4 +458,134 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       },
     ]);
   });
+
+  test("findFnInSource: void, loops", () => {
+    const src = `
+    export const returnWhile = () => {let x: number = 0; while (x < 10) {return Infinity;}}
+    export const returnForIn = () => {const arr: number[] = [1,2,3]; for (var idx in arr) {if (arr[idx] === 2) {return undefined;}} return 0;}
+    export const returnFor = () => {const z = undefined; for (let x =0; x<10; ++x) {if (x === 9) {return z;}} return 0;}
+    export const returnForOf = () => {const arr: number[] = [1,2,3]; for (const x of arr) {return NaN;}}
+    export const returnDoWhile = () => {const x = undefined; do {const y = 1; return x;} while (1 == 1)}
+    `;
+    const thisProgram = dummyProgram.setSrc(() => src);
+    expect(
+      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
+    ).toStrictEqual([
+      {
+        name: "returnWhile",
+        module: "dummy.ts",
+        src: "const returnWhile = () => {let x: number = 0; while (x < 10) {return Infinity;}}",
+        startOffset: 18,
+        endOffset: 92,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+      {
+        name: "returnForIn",
+        module: "dummy.ts",
+        src: "const returnForIn = () => {const arr: number[] = [1,2,3]; for (var idx in arr) {if (arr[idx] === 2) {return undefined;}} return 0;}",
+        startOffset: 110,
+        endOffset: 235,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+      {
+        name: "returnFor",
+        module: "dummy.ts",
+        src: "const returnFor = () => {const z = undefined; for (let x =0; x<10; ++x) {if (x === 9) {return z;}} return 0;}",
+        startOffset: 253,
+        endOffset: 356,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+      {
+        name: "returnForOf",
+        module: "dummy.ts",
+        src: "const returnForOf = () => {const arr: number[] = [1,2,3]; for (const x of arr) {return NaN;}}",
+        startOffset: 374,
+        endOffset: 461,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+      {
+        name: "returnDoWhile",
+        module: "dummy.ts",
+        src: "const returnDoWhile = () => {const x = undefined; do {const y = 1; return x;} while (1 == 1)}",
+        startOffset: 479,
+        endOffset: 566,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+    ]);
+  });
+
+  test("findFnInSource: void, other cases", () => {
+    const src = `
+    export const returnIf = () => {const x = undefined; if (x) {return x} else {return Infinity;}}
+    export const returnSwitch = () => {switch(1) {case 1: {return undefined;} default: {return undefined;}}}
+    export const returnTry = () => {try {return Infinity;} catch {return NaN;}}
+    export const returnThrow = () => {const x = undefined; if (!x) {throw Error();} else {throw Error();}}
+    export const returnLabeled = () => {const arr: number[] = []; loop1: for (let x=0; x<5; ++x) {if (x === 1) {continue loop1;} arr.push(x); if (x === 4) {return undefined;}} return 0;}
+    `;
+    const thisProgram = dummyProgram.setSrc(() => src);
+    expect(
+      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
+    ).toStrictEqual([
+      {
+        name: "returnIf",
+        module: "dummy.ts",
+        src: "const returnIf = () => {const x = undefined; if (x) {return x} else {return Infinity;}}",
+        startOffset: 18,
+        endOffset: 99,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+      {
+        name: "returnSwitch",
+        module: "dummy.ts",
+        src: "const returnSwitch = () => {switch(1) {case 1: {return undefined;} default: {return undefined;}}}",
+        startOffset: 117,
+        endOffset: 208,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+      {
+        name: "returnTry",
+        module: "dummy.ts",
+        src: "const returnTry = () => {try {return Infinity;} catch {return NaN;}}",
+        startOffset: 226,
+        endOffset: 288,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+      {
+        name: "returnThrow",
+        module: "dummy.ts",
+        src: "const returnThrow = () => {const x = undefined; if (!x) {throw Error();} else {throw Error();}}",
+        startOffset: 306,
+        endOffset: 395,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+      {
+        name: "returnLabeled",
+        module: "dummy.ts",
+        src: "const returnLabeled = () => {const arr: number[] = []; loop1: for (let x=0; x<5; ++x) {if (x === 1) {continue loop1;} arr.push(x); if (x === 4) {return undefined;}} return 0;}",
+        startOffset: 413,
+        endOffset: 582,
+        isExported: true,
+        isVoid: false,
+        args: [],
+      },
+    ]);
+  });
 });

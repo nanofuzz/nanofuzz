@@ -1139,7 +1139,7 @@ export class ProgramDef {
       case AST_NODE_TYPES.LabeledStatement:
         return this._findReturns(node.body);
       case AST_NODE_TYPES.ThrowStatement:
-        return false;
+        return true;
       case AST_NODE_TYPES.TryStatement:
         return (
           this._findReturns(node.block) ||
