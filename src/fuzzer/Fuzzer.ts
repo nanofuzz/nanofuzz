@@ -232,10 +232,17 @@ export const fuzz = async (
     // How can it fail ... let us count the ways...
     // TODO Add suppport for multiple validators !!!
     if (
+      // Check for exceptions and timeouts
       env.options.useImplicit &&
-      (result.exception ||
-        result.timeout ||
-        result.output.some((e) => !implicitOracle(e)))
+      (result.exception || result.timeout)
+    ) {
+      result.passedImplicit = false;
+    }
+    if (
+      // Check implicit oracle if function is not void
+      env.options.useImplicit &&
+      !env.function.isVoid() &&
+      result.output.some((e) => !implicitOracle(e))
     ) {
       result.passedImplicit = false;
     }

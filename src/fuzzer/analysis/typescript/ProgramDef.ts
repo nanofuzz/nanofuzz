@@ -14,6 +14,7 @@ import {
   Identifier,
   TSPropertySignature,
   TypeNode,
+  Statement,
 } from "@typescript-eslint/types/dist/ast-spec";
 import path from "path";
 import fs from "fs";
@@ -27,6 +28,7 @@ import {
   ArgOptions,
   ProgramImport,
 } from "./Types";
+import { Breakpoint } from "vscode";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
@@ -1045,6 +1047,14 @@ export class ProgramDef {
             node.id.type === AST_NODE_TYPES.Identifier &&
             !isBlockScoped(node)
           ) {
+            // const implicitReturn =
+            //   node.init.body.type === AST_NODE_TYPES.ArrowFunctionExpression &&
+            //   node.init.body.body.type === AST_NODE_TYPES.Identifier;
+            const returns =
+              // implicitReturn ||
+              node.init.body.type !== AST_NODE_TYPES.BlockStatement ||
+              this._findReturns(node.init.body);
+
             ret[node.id.name] = {
               name: node.id.name,
               module: this._module,
@@ -1057,6 +1067,7 @@ export class ProgramDef {
               isExported: parent.parent
                 ? parent.parent.type === AST_NODE_TYPES.ExportNamedDeclaration
                 : false,
+              isVoid: !returns,
               args: node.init.params
                 .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
                 .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
@@ -1067,6 +1078,8 @@ export class ProgramDef {
             node.id !== null &&
             !isBlockScoped(node)
           ) {
+            const returns = this._findReturns(node.body);
+
             ret[node.id.name] = {
               name: node.id.name,
               module: this._module,
@@ -1076,6 +1089,7 @@ export class ProgramDef {
               isExported: parent
                 ? parent.type === AST_NODE_TYPES.ExportNamedDeclaration
                 : false,
+              isVoid: !returns,
               args: node.params
                 .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
                 .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
@@ -1089,4 +1103,55 @@ export class ProgramDef {
 
     return ret;
   } // fn: findFunctions()
+
+  /**
+   * Returns true if any return statements are defined in a given block statement
+   */
+  private _findReturns(node: Statement): boolean {
+    switch (node.type) {
+      case AST_NODE_TYPES.ReturnStatement:
+        return true;
+      case AST_NODE_TYPES.BlockStatement:
+        for (const stmt of node.body) {
+          if (this._findReturns(stmt)) return true;
+        }
+        return false;
+      case AST_NODE_TYPES.IfStatement:
+        return (
+          (node.alternate && this._findReturns(node.alternate)) ||
+          this._findReturns(node.consequent)
+        );
+      case AST_NODE_TYPES.SwitchStatement:
+        for (const cons of node.cases) {
+          for (const stmt of cons.consequent) {
+            if (this._findReturns(stmt)) return true;
+          }
+        }
+        return false;
+      case AST_NODE_TYPES.DoWhileStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.ForInStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.ForOfStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.ForStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.LabeledStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.ThrowStatement:
+        return true;
+      case AST_NODE_TYPES.TryStatement:
+        return (
+          this._findReturns(node.block) ||
+          (node.handler !== null && this._findReturns(node.handler.body))
+        );
+      case AST_NODE_TYPES.WhileStatement:
+        return this._findReturns(node.body);
+      case AST_NODE_TYPES.WithStatement:
+        return this._findReturns(node.body);
+
+      default:
+        return false;
+    } // switch
+  }
 } // class: ProgramDef
