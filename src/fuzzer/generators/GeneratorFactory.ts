@@ -38,6 +38,24 @@ export function GeneratorFactory<T extends ArgType>(
     case "string":
       randFn = getRandomString;
       break;
+    case "tuple":
+      // We generate this here using arg
+      randFn = <T extends ArgType>(
+        prng: seedrandom.prng,
+        min: T,
+        max: T,
+        options: ArgOptions
+      ): T => {
+        // !!!!! Not sure this is right
+        //if (typeof min !== "object" || typeof max !== "object")
+        //  throw new Error("Min and max must be objects");
+        const outObj: ArgType[] = [];
+        for (const child of arg.getChildren()) {
+          outObj.push(GeneratorFactory(child, prng)());
+        }
+        return outObj as T;
+      };
+      break;
     case "object":
       // We generate this here using arg
       randFn = <T extends ArgType>(
@@ -48,7 +66,7 @@ export function GeneratorFactory<T extends ArgType>(
       ): T => {
         if (typeof min !== "object" || typeof max !== "object")
           throw new Error("Min and max must be objects");
-        const outObj = {};
+        const outObj: ArgType = {};
         for (const child of arg.getChildren()) {
           outObj[child.getName()] = GeneratorFactory(child, prng)();
 
@@ -62,7 +80,7 @@ export function GeneratorFactory<T extends ArgType>(
       };
       break;
     default:
-      throw new Error(`Unsupported argument type: ${arg.getType()[0]}`);
+      throw new Error(`Unsupported argument type: ${arg.getType()}`);
   }
 
   // Setup environment for callback
@@ -74,7 +92,8 @@ export function GeneratorFactory<T extends ArgType>(
 
   // Callback fn to generate random value
   const randFnWrapper = () => {
-    if (type === ArgTag.OBJECT) return randFn(prng, {}, {}, options);
+    if (type === ArgTag.OBJECT || type === ArgTag.TUPLE)
+      return randFn(prng, {}, {}, options);
 
     // TODO: weight interval selection based on the size of the interval !!!
     const interval =

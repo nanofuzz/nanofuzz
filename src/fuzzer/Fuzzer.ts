@@ -14,6 +14,7 @@ import {
   FuzzTestResult,
   FuzzResultCategory,
   FuzzStopReason,
+  FuzzValidatorInput,
 } from "./Types";
 import { FuzzOptions } from "./Types";
 
@@ -230,7 +231,7 @@ export const fuzz = async (
 
     // IMPLICIT ORACLE --------------------------------------------
     // How can it fail ... let us count the ways...
-    // TODO Add suppport for multiple validators !!!
+    // timeout, exception, undefined, null, NaN, Infinity
     if (
       env.options.useImplicit &&
       (result.exception ||
@@ -254,32 +255,50 @@ export const fuzz = async (
     if ("validator" in env && env.validator) {
       const fnName = env.validator;
 
+      // Create the (simplified) validator input
+      const validatorInput: FuzzValidatorInput = {
+        input: result.input.reduce(
+          (obj, curr) => ({ ...obj, [curr.name]: curr }),
+          {}
+        ), // convert array to object w/input name as key (we do this to make life easier for the user)
+        output: result.output[0],
+        exception: result.exception,
+        exceptionMessage: result.exceptionMessage,
+        timeout: result.timeout,
+        elapsedTime: result.elapsedTime,
+      };
+
       // Build the validator function wrapper
       const validatorFnWrapper = functionTimeout(
-        (input: FuzzTestResult): FuzzTestResult => {
+        (input: FuzzValidatorInput): FuzzTestResult => {
           try {
-            const result: FuzzTestResult = mod[fnName]({ ...input });
-            return {
+            const validatorResult: boolean | undefined = mod[fnName]({
               ...input,
-              passedValidator: result.passedValidator,
+            });
+            return {
+              ...result,
+              passedValidator:
+                validatorResult === undefined
+                  ? validatorResult
+                  : !!validatorResult,
             };
           } catch (e: any) {
             return {
-              ...input,
+              ...result,
               validatorException: true,
               validatorExceptionMessage: e.message,
               validatorExceptionStack: e.stack,
             };
           }
         },
-        env.options.fnTimeout
+        Math.max(env.options.fnTimeout, 500) // TODO: Make this configurable
       );
 
       // Categorize the results (so it's not stale)
       result.category = categorizeResult(result);
 
       // Call the validator function wrapper
-      const validatorResult = validatorFnWrapper(result);
+      const validatorResult = validatorFnWrapper(validatorInput); // TODO: Handle validator timeouts
 
       // Store the validator results
       result.passedValidator = validatorResult.passedValidator;

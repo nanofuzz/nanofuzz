@@ -9,10 +9,14 @@ import {
   simpleTraverse,
 } from "@typescript-eslint/typescript-estree";
 import {
-  TSTypeAliasDeclaration,
+  TSTypeAliasDeclaration, // !!!!!!
   TSTypeAnnotation,
+  TSIndexSignature,
+  TypeElement,
   Identifier,
   TSPropertySignature,
+  BaseNode,
+  Node,
   TypeNode,
 } from "@typescript-eslint/types/dist/ast-spec";
 import path from "path";
@@ -27,6 +31,7 @@ import {
   ArgOptions,
   ProgramImport,
 } from "./Types";
+import { remove } from "immutable";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
@@ -129,22 +134,26 @@ export class ProgramDef {
     // If this is the root program, resolve all the imports that we need
     if (this._root === this) {
       for (const fnRef of Object.values(this._functions)) {
+        console.debug(`Resolving types for function '${fnRef.name}'`);
         let lastArgName: string | undefined;
         try {
           if (fnRef.args) {
             for (const fnArg of fnRef.args) {
+              console.debug(
+                `Resolving types for function arg '${JSON5.stringify(fnArg)}'`
+              );
               lastArgName = fnArg.name;
-              if (fnArg.typeRefName && !fnArg.type) {
-                this._resolveTypeRef(fnArg);
-              }
+              this._resolveTypeRef(fnArg);
             }
           }
         } catch (e: any) {
           console.debug(
             `Error resolving types for function '${fnRef.name}' argument '${
               lastArgName ?? "(unknown)"
-            }'; marking fn as unsupported. Reason: ${e.message}`
-          );
+            }'; marking fn as unsupported. Reason: ${e.message}; stack: ${
+              e.stack
+            }`
+          ); // !!!!!
 
           // Remove functions that we couldn't resolve
           this._unsupportedFunctions[fnRef.name] = {
@@ -622,6 +631,9 @@ export class ProgramDef {
    * @returns A concrete, resolved TypeRef object
    */
   private _resolveTypeRef(typeRef: TypeRef): TypeRef {
+    console.debug(
+      `Resolving type ref: ${JSON5.stringify(typeRef, removeParents, 2)}`
+    ); // !!!!!
     // Handle any resolved or partially-resolved type references
     if (typeRef.type) {
       if (typeRef.type.resolved) {
@@ -659,6 +671,7 @@ export class ProgramDef {
 
       // Lookup the import reference
       if (!(localNameParts[0] in this._imports.identifiers)) {
+        console.debug(`${typeRef.typeRefName} not found in ${this._module}`); // !!!!!
         throw new Error(
           `Internal error: ${this._module} did not find local import ${localNameParts[0]}`
         );
@@ -674,13 +687,16 @@ export class ProgramDef {
 
       // Resolve unresolved imports
       if (!importRef.resolved) {
+        console.debug(`${typeRef.typeRefName} !importRef.resolved`); // !!!!!
         if (importRef.default) {
+          console.debug(`${typeRef.typeRefName} importRef.default`); // !!!!!
           // Default import: create one default import
           importRef.resolved = true;
           if (
             importProgram._defaultExport !== undefined &&
             importProgram._defaultExport.name
           ) {
+            console.debug(`${typeRef.typeRefName} 5`); // !!!!!
             importRef.imported = importProgram._defaultExport.name;
           } else {
             throw new Error(
@@ -688,6 +704,7 @@ export class ProgramDef {
             );
           }
         } else {
+          console.debug(`${typeRef.typeRefName} 6`); // !!!!!
           // Namespace import: create concrete imports for each of the imports
           for (const exported of Object.values(importProgram._exportedTypes)) {
             const localName = localNameParts[0] + "." + exported.name;
@@ -699,7 +716,7 @@ export class ProgramDef {
           }
 
           // Remove the original unresolved import reference
-          //delete this._imports.identifiers[localNameParts[0]];
+          //delete this._imports.identifiers[localNameParts[0]]; !!!!!
         }
       }
 
@@ -708,6 +725,7 @@ export class ProgramDef {
       //
       // TODO: Need to handle other naming patterns here
       if (typeRef.typeRefName in this._imports.identifiers) {
+        console.debug(`${typeRef.typeRefName} 7`); // !!!!!
         const importName =
           this._imports.identifiers[typeRef.typeRefName].imported;
         const defaultImport =
@@ -715,29 +733,51 @@ export class ProgramDef {
 
         if (defaultImport && importProgram._defaultExport) {
           // Resolve default export
-          const resolvedType = importProgram._resolveTypeRef(
-            importProgram._defaultExport
+          const resolvedType = JSON5.parse(
+            JSON5.stringify(
+              importProgram._resolveTypeRef(importProgram._defaultExport)
+            )
           );
-          typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+          typeRef.type = resolvedType.type;
+          console.debug(
+            `${typeRef.typeRefName} 8 ${JSON5.stringify(
+              typeRef.type,
+              undefined,
+              2
+            )}`
+          ); // !!!!!
+          return resolvedType;
         } else if (importName in importProgram._exportedTypes) {
           // Resolve named export
-          const resolvedType = importProgram._resolveTypeRef(
-            importProgram._exportedTypes[importName]
+          const resolvedType = JSON5.parse(
+            JSON5.stringify(
+              importProgram._resolveTypeRef(
+                importProgram._exportedTypes[importName]
+              )
+            )
           );
-          typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+          typeRef.type = resolvedType.type;
+          console.debug(
+            `${typeRef.typeRefName} 9 ${JSON5.stringify(
+              typeRef.type,
+              undefined,
+              2
+            )}`
+          ); // !!!!!
+          return resolvedType;
         } else {
+          console.debug(`${typeRef.typeRefName} 10`); // !!!!!
           // Unable to find exported type
           throw new Error(
             `Unable to find exported type '${importName}' in module '${importProgram._module}' when processing imports for module '${this._module}`
           );
         }
       } else {
+        console.debug(`${typeRef.typeRefName} 11`); // !!!!!
         throw new Error(
           `Internal error: ${this._module} did not find import: ${typeRef.typeRefName}`
         );
       }
-
-      return typeRef;
     }
   } // fn: _resolveTypeRef()
 
@@ -809,18 +849,23 @@ export class ProgramDef {
    * @param node An identifier, property, or type alias AST node
    * @returns The TypeRef object for the given AST node
    */
+  // !!!!! Split this into two routines: getNamedTypeRefFromAstNode
+  // !!!!! and just get TypeRefFromAstNode
   private _getTypeRefFromAstNode(
-    node: Identifier | TSPropertySignature | TSTypeAliasDeclaration
+    node: Node // !!!!! Identifier | TSPropertySignature | TSTypeAliasDeclaration
   ): TypeRef {
     // Throw an error if type annotations are missing
-    if (node.typeAnnotation === undefined) {
+    /* !!!!!!
+    if (!("typeAnnotation" in node) || node.typeAnnotation === undefined) {
       throw new Error(
         `Missing type annotation (already transpiled to JS?): ${JSON5.stringify(
           node,
-          removeParents
+          removeParents,
+          2
         )}`
       );
     }
+    */
 
     // Add the type alias to the running list
     const thisType: TypeRef = {
@@ -858,21 +903,39 @@ export class ProgramDef {
     }
 
     // Determine whether the argument is optional (TSTypeAliasDeclarations don't have this)
-    thisType.optional = "optional" in node && (node.optional ?? false);
+    thisType.optional = "optional" in node && node.optional === false;
 
     // Handle type references, which we will resolve later
     //
     // Note: this does not catch arrays of type references;
     // we handle those below)
-    if (node.typeAnnotation.type === AST_NODE_TYPES.TSTypeReference) {
-      thisType.typeRefName = getIdentifierName(node.typeAnnotation.typeName);
+    // !!!!!!
+    const thisTypeNode =
+      "typeAnnotation" in node &&
+      node.typeAnnotation !== null &&
+      node.typeAnnotation !== undefined
+        ? node.typeAnnotation
+        : node;
+
+    if (thisTypeNode.type === AST_NODE_TYPES.TSTypeReference) {
+      thisType.typeRefName = getIdentifierName(thisTypeNode.typeName);
     } else {
+      console.log(`/ node.type: ${node.type}`); // !!!!!
+      console.log(`| node: ${JSON5.stringify(node, removeParents, 2)}`); // !!!!!
       // Get the node's type and dimensions
       const [type, dims, typeRefNode] = this._getTypeFromAstNode(
-        node.typeAnnotation,
+        thisTypeNode,
         this._options
       );
       thisType.dims = dims;
+
+      console.log(
+        `| ArgType: ${JSON5.stringify(
+          [type, dims, typeRefNode],
+          removeParents,
+          2
+        )}`
+      ); // !!!!!
 
       // Create the TypeRef data structure
       switch (type) {
@@ -889,8 +952,21 @@ export class ProgramDef {
         case ArgTag.OBJECT: {
           thisType.type = {
             type: type,
-            children: this._getChildrenFromNode(node.typeAnnotation),
+            children: this._getChildrenFromNode(thisTypeNode),
           };
+          console.debug(
+            `Object children: ${JSON5.stringify(thisType, removeParents, 2)}`
+          ); // !!!!!
+          break;
+        }
+        case ArgTag.TUPLE: {
+          thisType.type = {
+            type: type,
+            children: this._getChildrenFromNode(thisTypeNode),
+          };
+          console.debug(
+            `Tuple children: ${JSON5.stringify(thisType, removeParents, 2)}`
+          ); // !!!!!
           break;
         }
         case ArgTag.UNRESOLVED: {
@@ -900,6 +976,7 @@ export class ProgramDef {
       }
     }
 
+    console.debug(`\\ result: ${JSON5.stringify(thisType, removeParents, 2)}`); // !!!!!
     return thisType;
   } // fn: _getTypeRefFromAstNode()
 
@@ -912,7 +989,7 @@ export class ProgramDef {
    * @returns The type tag, number of dimensions, and type reference name
    */
   private _getTypeFromAstNode(
-    node: TSTypeAnnotation | TypeNode,
+    node: Node,
     options: ArgOptions
   ): [ArgTag, number, string?] {
     switch (node.type) {
@@ -928,6 +1005,8 @@ export class ProgramDef {
         return this._getTypeFromAstNode(node.typeAnnotation, options);
       case AST_NODE_TYPES.TSTypeLiteral:
         return [ArgTag.OBJECT, 0];
+      case AST_NODE_TYPES.TSTupleType:
+        return [ArgTag.TUPLE, 0];
       case AST_NODE_TYPES.TSArrayType: {
         const [type, dims, typeName] = this._getTypeFromAstNode(
           node.elementType,
@@ -936,6 +1015,9 @@ export class ProgramDef {
         return [type, dims + 1, typeName];
       }
       case AST_NODE_TYPES.TSTypeReference: {
+        console.debug(
+          `Unresolved type returned: ${JSON.stringify(node, removeParents, 2)}`
+        ); // !!!!!
         return [ArgTag.UNRESOLVED, 0, getIdentifierName(node.typeName)];
       }
       default:
@@ -952,7 +1034,7 @@ export class ProgramDef {
    * @param node The AST type node or type annotation
    * @returns An array of child TypeRef objects
    */
-  private _getChildrenFromNode(node: TSTypeAnnotation | TypeNode): TypeRef[] {
+  private _getChildrenFromNode(node: Node): TypeRef[] {
     switch (node.type) {
       case AST_NODE_TYPES.TSAnyKeyword:
       case AST_NODE_TYPES.TSStringKeyword:
@@ -965,20 +1047,29 @@ export class ProgramDef {
         throw new Error(
           `Internal Error: Unresolved type reference found: ${JSON5.stringify(
             node,
-            removeParents
+            removeParents,
+            2
           )}`
         );
-      case AST_NODE_TYPES.TSTypeLiteral: {
-        return node.members.map((member) => {
-          if (member.type === AST_NODE_TYPES.TSPropertySignature)
-            return this._getTypeRefFromAstNode(member);
-          else
-            throw new Error(
-              "Unsupported object property type annotation: " +
-                JSON5.stringify(member, removeParents, 2)
-            );
-        });
+      case AST_NODE_TYPES.TSTupleType: {
+        let position = 0;
+        return (
+          node.elementTypes
+            // Get the type information
+            .map((a) => this._getTypeRefFromAstNode(a))
+            // Sequentially number the tuple positions
+            .map((a) => {
+              if (a.name === undefined) {
+                a.name = (position++).toString();
+              }
+              return a;
+            })
+        );
       }
+
+      case AST_NODE_TYPES.TSTypeLiteral:
+        return node.members.map((a) => this._astTypeElementToTypeRef(a));
+
       case AST_NODE_TYPES.TSTypeAnnotation: {
         // Collapse array annotations -- we previously handled those
         while (node.typeAnnotation.type === AST_NODE_TYPES.TSArrayType)
@@ -992,15 +1083,13 @@ export class ProgramDef {
             );
           }
           case AST_NODE_TYPES.TSTypeLiteral: {
-            return node.typeAnnotation.members.map((member) => {
-              if (member.type === AST_NODE_TYPES.TSPropertySignature)
-                return this._getTypeRefFromAstNode(member);
-              else
-                throw new Error(
-                  "Unsupported object property type annotation: " +
-                    JSON5.stringify(member, removeParents, 2)
-                );
-            });
+            return node.typeAnnotation.members.map((a) =>
+              this._astTypeElementToTypeRef(a)
+            );
+          }
+          case AST_NODE_TYPES.TSTupleType: {
+            console.debug("_getChildrenFromNode(): TSTupleType found"); // !!!!!
+            return this._getChildrenFromNode(node.typeAnnotation);
           }
           default:
             throw new Error(
@@ -1016,6 +1105,67 @@ export class ProgramDef {
         );
     }
   } // fn: _getChildrenFromNode()
+
+  /**
+   * Translates a TypeElement AST subtree into a TypeRef
+   *
+   * @param member TypeElement
+   * @returns TypeRef
+   */
+  private _astTypeElementToTypeRef(member: TypeElement): TypeRef {
+    console.debug("In _astTypeElementToTypeRef()"); // !!!!!!
+    switch (member.type) {
+      case AST_NODE_TYPES.TSPropertySignature: {
+        return this._getTypeRefFromAstNode(member);
+      }
+      // !!!!! What the heck is this for????
+      case AST_NODE_TYPES.TSIndexSignature: {
+        console.debug(
+          "In _astTypeElementToTypeRef() w/AST_NODE_TYPES.TSIndexSignature"
+        ); // !!!!!!
+        if (
+          member.parameters.length > 0 &&
+          member.parameters[0].type === AST_NODE_TYPES.Identifier &&
+          member.typeAnnotation?.type === AST_NODE_TYPES.TSTypeAnnotation
+        ) {
+          // Build and return a tuple, which contains two children
+          const key: TypeRef = this._getTypeRefFromAstNode(
+            member.parameters[0]
+          );
+          const [valueArgTag, valueDims, valueName] = this._getTypeFromAstNode(
+            member.typeAnnotation,
+            this._options
+          );
+          const value: TypeRef = {
+            module: this._module,
+            name: valueName ?? "value",
+            optional: false,
+            dims: valueDims,
+            isExported: false,
+            type: {
+              type: valueArgTag,
+              children: [], // !!!!!
+            },
+          };
+          return {
+            module: this._module,
+            name: "record", // !!!!!
+            optional: false,
+            dims: 0,
+            isExported: false,
+            type: {
+              type: ArgTag.TUPLE,
+              children: [key, value],
+            },
+          };
+        }
+      }
+    }
+    throw new Error(
+      "Unsupported type element / type annotation: " +
+        JSON5.stringify(member, removeParents, 2)
+    );
+  } // fn: _astTypeElementToTypeRef()
 
   /**
    * Returns a dictionary of top-level named functions defined in the program

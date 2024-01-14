@@ -23,6 +23,18 @@ export type FuzzTestResult = {
 };
 
 /**
+ * Fuzzer Custom Validator Input
+ */
+export type FuzzValidatorInput = {
+  input: { [k: string]: FuzzIoElement };
+  output: FuzzIoElement;
+  exception: boolean;
+  exceptionMessage?: string; // exception message if an exception was thrown
+  timeout: boolean; // true if the fn call timed out
+  elapsedTime: number; // elapsed time of test
+};
+
+/**
  * Fuzzer Tests - intended to be persisted a fuzzer configuration and
  * its tests to the file system
  */

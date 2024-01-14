@@ -1290,7 +1290,7 @@ export function ${validatorPrefix}${
         )}</strong>${optionalString}: ${typeString}${dimString} =
         ${argType === fuzzer.ArgTag.OBJECT
           ? ' {'
-          : ''
+          : argType === fuzzer.ArgTag.TUPLE ? '[' : ''
         }
       </div>`;
 
@@ -1363,6 +1363,16 @@ export function ${validatorPrefix}${
         break;
       }
 
+      // Tuple-specific Options
+      case fuzzer.ArgTag.TUPLE: {
+        html += `<div>`;
+        arg
+          .getChildren()
+          .forEach((child) => (html += this._argDefToHtmlForm(child, counter)));
+        html += `</div>`;
+        break;
+      }
+
       // Object-specific Options
       case fuzzer.ArgTag.OBJECT: {
         // Only for objects: output the array form prior to the child arguments.
@@ -1386,6 +1396,10 @@ export function ${validatorPrefix}${
     // For objects: output the end of object character ("}") here
     if (argType === fuzzer.ArgTag.OBJECT) {
       html += /*html*/ `<span style="font-size:1.25em;">}</span>`;
+    }
+    // For tuples: output the end of array character ("]") here
+    else if (argType === fuzzer.ArgTag.TUPLE) {
+      html += /*html*/ `<span style="font-size:1.25em;">]</span>`;
     }
     html += `</div>`;
 
@@ -1538,7 +1552,7 @@ export function provideCodeLenses(
     }
   } catch (e: any) {
     console.error(
-      `Error parsing typescript file: ${document.fileName} error: ${e.message}`
+      `Error parsing typescript file: ${document.fileName}; error: ${e.message}; stack: ${e.stack}` // !!!!!
     );
   }
 

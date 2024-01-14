@@ -65,9 +65,15 @@ export enum ArgTag {
   STRING = "string",
   BOOLEAN = "boolean",
   OBJECT = "object",
+  TUPLE = "tuple",
   UNRESOLVED = "unresolved", // unresolved type reference
 }
-export type ArgType = number | string | boolean | Record<string, unknown>;
+export type ArgType =
+  | number
+  | string
+  | boolean
+  | { [k: string]: ArgType }
+  | ArgType[];
 
 /**
  * The set of options for an argument.  This option set is used to "fill in" information
@@ -92,6 +98,10 @@ export type ArgOptions = {
   // for number[][]: dimLength[0] = length of 1st dimension
   // and dimLength[1] = length of 2nd dimension.
   dftDimLength: Interval<number>; // Length of any dimension not specified in dimLength.
+
+  // Currently only used for tuples inside of objects to represent the number
+  // of dictionary entries to generate
+  repeat: Interval<number>; // the number of times to repeat the argument
 };
 
 /**
@@ -111,6 +121,7 @@ export type ArgOptionOverride = {
   dimLength?: Interval<number>[];
   strLength?: Interval<number>;
   strCharset?: string;
+  repeat?: Interval<number>;
   children?: ArgOptionOverrides;
 };
 

@@ -20,12 +20,12 @@ import {
  * - Booleans
  * - Strings
  * - Homogeneous n-dimensional arrays of the above types
- * - Literal object types
+ * - Literal object types and dictionaries of supported types
  * - Top-level type references that meet the above criteria
  * - any, provided a mapping to one of the above types
  *
  * Argument types NOT currently supported (will throw an exception):
- * - Tuples
+ * - Tuples (except as dictionary key/value pairs)
  * - OR types
  * - Deconstructed types
  * - Generics
@@ -68,7 +68,8 @@ export class ArgDef<T extends ArgType> {
     this.type = type;
     this.dims = dims ?? 0;
     this.optional = optional ?? false;
-    this.children = type === ArgTag.OBJECT ? children ?? [] : [];
+    this.children =
+      type === ArgTag.OBJECT || type === ArgTag.TUPLE ? children ?? [] : [];
     this.typeRef = typeRef;
 
     // Ensure the options are valid before ingesting them
@@ -114,7 +115,8 @@ export class ArgDef<T extends ArgType> {
     this.intervals =
       intervals === undefined ||
       intervals.length === 0 ||
-      type === ArgTag.OBJECT
+      type === ArgTag.OBJECT ||
+      type === ArgTag.TUPLE
         ? (ArgDef.getDefaultIntervals(this.type, this.options) as Interval<T>[])
         : intervals;
 
@@ -191,6 +193,8 @@ export class ArgDef<T extends ArgType> {
         ];
       case ArgTag.BOOLEAN:
         return [{ min: false, max: true }];
+      case ArgTag.UNRESOLVED:
+      case ArgTag.TUPLE:
       case ArgTag.OBJECT:
         return [];
       default:
@@ -444,6 +448,16 @@ export class ArgDef<T extends ArgType> {
           .get("max", DFT_DIMENSION_LENGTH.max),
       },
       dimLength: [],
+
+      // Repetitions
+      repeat: {
+        min: vscode.workspace
+          .getConfiguration("nanofuzz.argdef.repeat")
+          .get("min", DFT_REPEAT_LENGTH.min),
+        max: vscode.workspace
+          .getConfiguration("nanofuzz.argdef.repeat")
+          .get("max", DFT_REPEAT_LENGTH.max),
+      },
     };
   } // fn: getDefaultOptions()
 
@@ -473,7 +487,8 @@ export class ArgDef<T extends ArgType> {
       options.anyDims < 0 ||
       options.dimLength.some((dim) => dim.min < 0 || dim.min > dim.max) ||
       options.dftDimLength.min < 0 ||
-      options.dftDimLength.min > options.dftDimLength.max
+      options.dftDimLength.min > options.dftDimLength.max ||
+      options.repeat.min > options.repeat.max
     );
   } // fn: isOptionValid
 } // class: ArgDef
@@ -481,7 +496,12 @@ export class ArgDef<T extends ArgType> {
 /**
  * Default length of array dimensions
  */
-const DFT_DIMENSION_LENGTH: Interval<number> = { min: 0, max: 10 };
+const DFT_DIMENSION_LENGTH: Interval<number> = { min: 0, max: 4 };
+
+/**
+ * Default number of repetitions
+ */
+const DFT_REPEAT_LENGTH: Interval<number> = { min: 0, max: 4 };
 
 /**
  * Default characters allowed in string input

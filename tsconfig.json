@@ -8,7 +8,7 @@
     "sourceMap": true,
     "allowJs": true,
     "moduleResolution": "node",
-    "rootDirs": ["src", "packages/runtime/src"],
+    "rootDirs": ["src"],
     "forceConsistentCasingInFileNames": true,
     "noImplicitThis": true,
     "noImplicitAny": true,
@@ -53,11 +53,7 @@
     "placeOpenBraceOnNewLineForFunctions": false,
     "placeOpenBraceOnNewLineForControlBlocks": false
   },
-  "include": [
-    "src",
-    "assets/FuzzPanelMain.js",
-    "packages/runtime/src/index.ts"
-  ],
+  "include": ["src", "assets/FuzzPanelMain.js"],
   "exclude": [
     "node_modules",
     "build",
