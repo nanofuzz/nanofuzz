@@ -76,6 +76,10 @@ td.classCheckOff,
 td.classErrorOff {
   opacity: 35%;
 }
+td.classCheckOff:hover,
+td.classErrorOff:hover {
+  opacity: 100%;
+}
 td.classCheckOn,
 td.classErrorOn {
   opacity: 100%;
