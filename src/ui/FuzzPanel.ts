@@ -1032,7 +1032,7 @@ export function ${validatorPrefix}${
           <!-- Function Arguments -->
           <div id="argDefs">${argDefHtml}</div>
 
-          
+          <vscode-divider></vscode-divider>
 
           <!-- Fuzzer Options -->
           <div id="fuzzOptions" class="hidden">
