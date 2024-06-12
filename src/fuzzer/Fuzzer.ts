@@ -276,7 +276,6 @@ export const fuzz = async (
                   ? "timeout or exception"
                   : input.output[0].value,
             };
-            // console.log("simplified valIn: Result = ", validatorIn);
             try {
               const validatorOut: boolean = mod[valFnName](validatorIn);
               return {
@@ -284,12 +283,6 @@ export const fuzz = async (
                 passedValidator: validatorOut,
                 passedValidators: [],
               };
-              // const result: FuzzTestResult = mod[valFnName]({ ...input });
-              // return {
-              //   ...input,
-              //   passedValidator: result.passedValidator,
-              //   passedValidators: [],
-              // };
             } catch (e: any) {
               return {
                 ...input,
@@ -303,13 +296,13 @@ export const fuzz = async (
         );
 
         // Categorize the results (so it's not stale)
-        result.category = categorizeResult(result);
+        result.category = categorizeResult(result, env);
 
         // Call the validator function wrapper
         const validatorResult = validatorFnWrapper(result);
 
         // Store the validator results
-        result.passedValidator = validatorResult.passedValidator;
+        // result.passedValidator = validatorResult.passedValidator;
         result.passedValidators.push(validatorResult.passedValidator);
         result.validatorException = validatorResult.validatorException;
         result.validatorExceptionMessage =
@@ -360,7 +353,7 @@ export const fuzz = async (
     } // if validator
 
     // (Re-)categorize the result
-    result.category = categorizeResult(result);
+    result.category = categorizeResult(result, env);
 
     // Increment the failure counter if this test had a failing result
     if (result.category !== FuzzResultCategory.OK) {
@@ -555,31 +548,26 @@ function actualEqualsExpectedOutput(
  * @param result of the test
  * @returns the category of the result
  */
-export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
+export function categorizeResult(
+  result: FuzzTestResult,
+  env: FuzzEnv
+): FuzzResultCategory {
   if (result.validatorException) {
     return FuzzResultCategory.FAILURE; // Validator failed
   }
 
-  // Only pass/fail for validator functions?
-  if (result.passedValidators && result.passedValidators.length !== 0) {
-    return result.passedValidator
-      ? FuzzResultCategory.OK
-      : FuzzResultCategory.BADVALUE;
-  }
+  // // Only pass/fail for validator functions?
+  // if (result.passedValidators && result.passedValidators.length !== 0) {
+  //   return result.passedValidator
+  //     ? FuzzResultCategory.OK
+  //     : FuzzResultCategory.BADVALUE;
+  // }
 
   const implicit = result.passedImplicit ? true : false;
   const human =
     "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
   const validator =
     "passedValidator" in result ? result.passedValidator : undefined;
-
-  // let validator = undefined;
-  // if ("passedValidators" in result) {
-  //   validator = true;
-  //   for (const i in result.passedValidators) {
-  //     validator = validator && result.passedValidators[i];
-  //   }
-  // }
 
   // Returns the type of bad value: execption, timeout, or badvalue
   const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
@@ -590,6 +578,13 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
     } else {
       return FuzzResultCategory.BADVALUE; // PUT returned bad value
     }
+  };
+  const getBadValueTypeValidator = (
+    result: FuzzTestResult
+  ): FuzzResultCategory => {
+    return result.passedValidator
+      ? FuzzResultCategory.OK
+      : FuzzResultCategory.BADVALUE; // PUT returned bad value
   };
 
   // Either the human oracle or the validator may take precedence
@@ -607,13 +602,13 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
     if (validator === true) {
       return FuzzResultCategory.DISAGREE;
     } else {
-      return getBadValueType(result);
+      return getBadValueTypeValidator(result);
     }
   } else {
     if (validator === true) {
       return FuzzResultCategory.OK;
     } else if (validator === false) {
-      return getBadValueType(result);
+      return getBadValueTypeValidator(result);
     } else {
       if (implicit) {
         return FuzzResultCategory.OK;

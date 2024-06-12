@@ -210,6 +210,7 @@ export class FuzzPanel {
     this._fuzzEnv.options = testSet.options;
     this._argOverrides = testSet.argOverrides ?? [];
     this._sortColumns = testSet.sortColumns;
+    console.log("this._sortColumns:", this._sortColumns);
     _applyArgOverrides(this._fuzzEnv.function, this._argOverrides);
 
     // Set the webview's initial html content
@@ -689,7 +690,7 @@ export function ${validatorPrefix}${
         this._fuzzEnv.options.useHuman = true;
         this._fuzzEnv.options.mode = "Example Test";
         break;
-      case "mode.validator":
+      case "mode.property":
         this._fuzzEnv.options.useImplicit = false;
         this._fuzzEnv.options.useHuman = true;
         this._fuzzEnv.options.mode = "Property Test";
@@ -967,6 +968,7 @@ export function ${validatorPrefix}${
     */
 
     // Note: the stuff in the NaNofuzz pane should technically all be indented
+    console.log("env:", env);
 
     // Prettier abhorrently butchers this HTML, so disable prettier here
     // prettier-ignore
@@ -1012,8 +1014,8 @@ export function ${validatorPrefix}${
                 </vscode-button>
               </div>
               <div style="padding-top: 1.5em;">
-                <vscode-button ${disabledFlag} id="mode.validator" appearance="primary" style="width: 95%;">
-                  <p id="mode.validator"> <strong> Property Test: </strong> ${this._state === FuzzPanelState.busy ? "Testing..." : " Use a function to classify outputs as correct or incorrect"} </p>
+                <vscode-button ${disabledFlag} id="mode.property" appearance="primary" style="width: 95%;">
+                  <p id="mode.property"> <strong> Property Test: </strong> ${this._state === FuzzPanelState.busy ? "Testing..." : " Use a function to classify outputs as correct or incorrect"} </p>
                 </vscode-button>
               </div>
                 <p style="padding-top: .5em; text-align: center;">
@@ -1026,11 +1028,68 @@ export function ${validatorPrefix}${
 
         <!-- NaNofuzz pane -->
         <div id="pane-nanofuzz" class=${this._state === FuzzPanelState.init ? "hidden" : ""}> 
-          <h2 style="font-size:1.9em; padding-top: .25em;"> ${this._state === FuzzPanelState.busy ? "Testing..." : this._fuzzEnv.options.mode+": "+htmlEscape(
+          <h2 style="font-size:1.75em; padding-top:.2em;"> ${this._state === FuzzPanelState.busy ? "Testing..." : "Test: "+htmlEscape(
             fn.getName())+"()"} </h2>
 
           <!-- Function Arguments -->
           <div id="argDefs">${argDefHtml}</div>
+
+          <!-- THIS IS ME!!!!!!!!!! -->
+          <!-- Change validators options -->
+          <!-- radios (probably not) -->
+          <div class="hidden">
+          <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"> <strong> Change validators: </strong> </p>
+          <vscode-radio-group orientation="vertical" style="padding-left: .75em;"> 
+            <vscode-radio ${disabledFlag} id="" name="onlyFailures.false" value="value-1" ${
+              !this._fuzzEnv.options.onlyFailures ? "checked" : ""}>
+              <strong> Fuzz: </strong> quickly check for likely bugs &nbsp;
+              <span class="codicon codicon-debug" style="font-size:1em"></span>
+              <span class="codicon codicon-person" style="font-size:1.15em"></span>
+            </vscode-radio>
+            <vscode-radio ${disabledFlag} id="" name="onlyFailures.true" value="value-2" ${
+              this._fuzzEnv.options.onlyFailures ? "checked" : ""}><strong> Example Test: </strong> classify outputs manually
+              <span class="codicon codicon-person" style="font-size:1.15em"></span>
+            </vscode-radio>
+            <vscode-radio ${disabledFlag} id="" name="onlyFailures.false" value="value-3" ${
+              !this._fuzzEnv.options.onlyFailures ? "checked" : ""}><strong> Property Test: </strong> classify outputs using a function
+              <span class="codicon codicon-hubot" style="font-size:1.15em"></span>
+              <span class="codicon codicon-person" style="font-size:1.15em"></span>
+            </vscode-radio>
+            <vscode-radio ${disabledFlag} id="" name="onlyFailures.true" value="value-4" ${
+              this._fuzzEnv.options.onlyFailures ? "checked" : ""}><strong> Custom... </strong> </vscode-radio>
+          </vscode-radio-group>
+          </div>
+
+          <!-- THISISME -->
+          <!-- Basic dropdown -->
+          <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.3em;"> <strong> Select validators</strong>:</p>
+          <div style="padding-left: .76em; padding-bottom: .5em;">
+            <vscode-dropdown id="validator-dropdown" style="width: 26em;">
+              <vscode-option id="dropdown.fuzz" ${env.options.mode === "Fuzz" ? "selected" : ""}> <!--  style="font-size:1.1em;" -->
+                Fuzz: quickly check for likely bugs &nbsp;
+                <span class="codicon codicon-debug" style="font-size:1.1em; align-content: center;"></span>
+                <span class="codicon codicon-person" style="font-size:; align-self: baseline;"></span>
+              </vscode-option>
+              <vscode-option id="dropdown.example" ${env.options.mode === "Example Test" ? "selected" : ""}>
+                Example test: classify outputs manually
+                <span class="codicon codicon-person" style="font-size:; align-content: end;"></span>
+              </vscode-option>
+              <vscode-option id="dropdown.property" ${env.options.mode === "Property Test" ? "selected" : ""}>
+                Property test: classify outputs using a function
+                <span class="codicon codicon-hubot" style="font-size:; align-self: end;"></span>
+                <span class="codicon codicon-person" style="font-size:; align-self: self-end;"></span>
+              </vscode-option>
+              <!-- <vscode-option id="dropdown.custom"> Custom...</vscode-option> -->
+            </vscode-dropdown>
+            
+            <!-- checkboxes Currently not functional... -->
+            <!--
+            <div class="fuzzInputControlGroup">
+                  <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use heuristic validator</vscode-checkbox>
+                  <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Use human validation</vscode-checkbox>
+                </div>
+                -->
+          </div>
 
           <vscode-divider></vscode-divider>
 
@@ -1047,6 +1106,7 @@ export function ${validatorPrefix}${
               <vscode-panel-tab aria-label="Stopping options tab">Stopping</vscode-panel-tab>
 
               <vscode-panel-view>
+              <!--
                 <p>
                   Validators categorize outputs as passed (✔︎) or failed (X). 
                   The <strong>heuristic validator</strong> automatically categorizes these outputs as failed: 
@@ -1057,8 +1117,9 @@ export function ${validatorPrefix}${
                   <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use heuristic validator</vscode-checkbox>
                   <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Use human validation</vscode-checkbox>
                 </div>
+                -->
 
-                <div class=${this._fuzzEnv.options.mode === "Property Test" ? "" : ""}>
+                <!-- <div class=${this._fuzzEnv.options.mode === "Property Test" ? "" : ""}> -->
                   <p>
                     Use a <strong>custom validator function</strong> to automatically categorize outputs as passed (✔︎) or failed (X). 
                     Click the (+) button to create a new custom validator function.
@@ -1080,20 +1141,23 @@ export function ${validatorPrefix}${
                     </div> <!-- hiding validator function radios -->
 
                     <!-- THISISME -->
-                    <ul id="validatorFunctions-bullets"> 
-                    <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
+                    <ul id="validatorFunctions-bullets" style="margin-top:.1em;"> 
+                    </ul>
+                    <div style="padding-left:1em;">
+                      <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
                         <span class="tooltipped tooltipped-ne" aria-label="New validator function">
-                          <span class="codicon codicon-add"></span>
+                          <span class="codicon codicon-add" style="font-size:1.5em;"></span>
                         </span>
                       </vscode-button>
-                      <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
+                      <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh" style="margin-left:1.5em;">
                         <span class="tooltipped tooltipped-ne" aria-label="Refresh list">
-                          <span class="codicon codicon-refresh"></span>
+                          <span class="codicon codicon-refresh" style="font-size:1.5em;"></span>
                         </span>
-                    </ul>
+                      </vscode-button>
+                    </div>
                     <!-- THISISME -->
                   </div>
-                </div>
+                <!-- </div> -->
               </vscode-panel-view>
 
               <!-- HIDDENFORNOW -->
@@ -1156,7 +1220,7 @@ export function ${validatorPrefix}${
                   </vscode-text-field>
                 </div>
               </vscode-panel-view>
-            </vscode-panels>
+              </vscode-panels>
 
             <vscode-divider></vscode-divider>
           </div>
@@ -1164,7 +1228,7 @@ export function ${validatorPrefix}${
           <!-- Button Bar -->
           <div style="padding-top: .25em;">
             <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
-              ${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}
+              ${this._state === FuzzPanelState.busy ? "Testing..." : "Retest"}
             </vscode-button>
             <vscode-button  ${disabledFlag} id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
               Change Mode
@@ -1209,7 +1273,28 @@ export function ${validatorPrefix}${
             <p>All tests passed.</p>
           </div>
           
-          
+          <!-- THISISME -->
+          <!--
+          <vscode-panels aria-label="Mode tabs" class="fuzzTabStrip">
+            <vscode-panel-tab aria-label="Fuzz tab" style="font-size:1.15em;">Fuzz &nbsp;
+              <span class="codicon codicon-debug" style="font-size:1em"></span>
+              <span class="codicon codicon-person" style="font-size:1.15em"></span>
+            </vscode-panel-tab>
+            <vscode-panel-tab aria-label="Example tab" style="font-size:1.15em;">Example Test&nbsp;
+              <span class="codicon codicon-person" style="font-size:1.15em"></span>
+            </vscode-panel-tab>
+            <vscode-panel-tab aria-label="Property tab" style="font-size:1.15em;">Property Test&nbsp;
+              <span class="codicon codicon-hubot" style="font-size:1.15em"></span>
+              <span class="codicon codicon-person" style="font-size:1.15em"></span>
+            </vscode-panel-tab>
+            <vscode-panel-tab aria-label="Custom tab" style="font-size:1.15em;">Custom&nbsp;
+              <span class="codicon codicon-debug" style="font-size:1em"></span>
+              <span class="codicon codicon-hubot" style="font-size:1.15em"></span>
+              <span class="codicon codicon-person" style="font-size:1.15em"></span>
+            </vscode-panel-tab>
+            <vscode-panel-view>
+          -->
+
           <!-- Fuzzer Output -->
           <div class="fuzzResults" ${
             this._state === FuzzPanelState.done
@@ -1430,6 +1515,11 @@ export function ${validatorPrefix}${
     html += /*html*/ `
             </vscode-panels>
           </div>`;
+
+    // THISISME
+    // html += `<vscode-panel-view>`;
+    // html += /*html*/ `
+    // </vscode-panels>`;
 
     // Hidden data for the client script to process
     html += /*html*/ `
