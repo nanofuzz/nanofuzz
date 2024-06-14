@@ -36,7 +36,7 @@ th.fuzzGridCellPin {
   text-align: center;
 }
 td.fuzzGridCellPin {
-  opacity: 20%;
+  opacity: 0%;
 }
 td.fuzzGridCellPinned,
 td.fuzzGridCellPin:hover {

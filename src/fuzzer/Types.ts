@@ -97,6 +97,7 @@ export type FuzzOptions = {
   suiteTimeout: number; // timeout for the entire test suite
   useImplicit: boolean; // use implicit oracle
   useHuman: boolean; // use human oracle
+  useProperty: boolean; // use custom validator function oracle
   mode: string; // current mode of NaNoguide
 };
 

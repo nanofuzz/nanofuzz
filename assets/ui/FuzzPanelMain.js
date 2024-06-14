@@ -332,7 +332,10 @@ function main() {
           } else if (hiddenColumns.indexOf(k) !== -1) {
             // noop (hidden)
           } else if (k === implicitLabel) {
-            if (mode === fuzzLabel) {
+            // THISISME
+            // checkboxes
+            if (resultsData.env.options.useImplicit) {
+              // if mode === fuzz
               const cell = hRow.appendChild(document.createElement("th"));
               cell.style = "text-align: center";
               cell.classList.add("colorColumn");
@@ -345,7 +348,8 @@ function main() {
               });
             }
           } else if (validators.validators.indexOf(k) !== -1) {
-            if (mode === propertyLabel) {
+            if (resultsData.env.options.useProperty) {
+              // if mode === property
               const cell = hRow.appendChild(document.createElement("th"));
               cell.style = "text-align: center";
               cell.classList.add("colorColumn");
@@ -397,14 +401,16 @@ function main() {
             // hidden column (id, expected, allValidators)
             continue;
           }
+          // THISISME checkboxes
           if (
             // hidden depending on mode
-            (col === implicitLabel && mode !== fuzzLabel) ||
+            (col === implicitLabel && !resultsData.env.options.useImplicit) ||
             (validators.validators.indexOf(col) !== -1 &&
-              mode !== propertyLabel) ||
+              !resultsData.env.options.useProperty) ||
             (col === correctLabel &&
               mode !== (fuzzLabel || exampleLabel || propertyLabel))
           ) {
+            // if mode === fuzz, or mode === property
             continue;
           }
           handleColumnSort(cell, hRow, type, col, data, tbody, false);
@@ -844,6 +850,7 @@ function updateColumnArrow(cell, type, col, isClicking) {
  * @param isClicking bool true if the function is being called because the user is clicking
  */
 function drawTableBody(data, type, tbody, isClicking, button) {
+  // console.log("resultsData.env.options:", resultsData.env.options);
   // Clear table
   while (tbody.rows.length > 0) tbody.deleteRow(0);
 
@@ -872,7 +879,10 @@ function drawTableBody(data, type, tbody, isClicking, button) {
       } else if (hiddenColumns.indexOf(k) !== -1) {
         // noop (hidden)
       } else if (k === implicitLabel) {
-        if (mode === "Fuzz") {
+        // THISISME
+        // checkboxes instead of mode
+        if (resultsData.env.options.useImplicit) {
+          // if mode === fuzz
           const cell = row.appendChild(document.createElement("td"));
           // Fade the indicator if overridden by another validator
           if (
@@ -894,7 +904,9 @@ function drawTableBody(data, type, tbody, isClicking, button) {
           }
         }
       } else if (validators.validators.indexOf(k) !== -1) {
-        if (mode === propertyLabel) {
+        // THISISME checkboxes
+        if (resultsData.env.options.useProperty) {
+          // if mode === property
           const cell = row.appendChild(document.createElement("td"));
           if (e[k] === undefined) {
             cell.innerHTML = "";
@@ -906,7 +918,8 @@ function drawTableBody(data, type, tbody, isClicking, button) {
 
             if (!e[validatorLabel]) {
               // if check mark and not on passed tab (passed everything)
-              cell.style.opacity = "35%";
+              span.classList.add("codicon", "codicon-pass-filled");
+              cell.style.opacity = "25%";
             }
           } else {
             cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
@@ -1377,7 +1390,7 @@ function handleFuzzStart(eCurrTarget) {
 
   // Process boolean fuzzer options
   // THISISME - where they're using the checkboxes
-  ["onlyFailures", "useHuman", "useImplicit"].forEach((e) => {
+  ["onlyFailures", "useHuman", "useImplicit", "useProperty"].forEach((e) => {
     const item = document.getElementById(fuzzBase + "-" + e);
     if (item !== null) {
       disableArr.push(item);
@@ -1485,12 +1498,28 @@ function handleFuzzStart(eCurrTarget) {
     e.style.disabled = true;
   }
 
+  console.log("fuzzpanelmain.js overrides:", overrides);
+
   // Send the fuzzer start command to the extension
   vscode.postMessage({
     command: "fuzz.start",
     json: JSON5.stringify(overrides),
   });
 } // fn: handleFuzzStart
+
+function listForValidatorFnTooltip() {
+  let list = "";
+  if ([...validators.validators].length === 0) {
+    list += "(none)";
+  }
+  for (const idx in validators.validators) {
+    list += validators.validators[idx];
+    if (idx !== validators.validators.length) {
+      list += "\n";
+    }
+  }
+  return list;
+}
 
 /**
  * Refreshes the displayed list of validtors based on a list of
@@ -1502,6 +1531,7 @@ function handleFuzzStart(eCurrTarget) {
  * }
  */
 function refreshValidators(validatorList) {
+  console.log("validatorLIst:", validatorList);
   // If no default validator is selected or the selected validator does not
   // exist, then select the implicit validator
   if (
@@ -1513,6 +1543,24 @@ function refreshValidators(validatorList) {
   } else {
     validatorList.validator = implicitOracleValidatorName;
   }
+
+  // THISISME
+  const validatorFnListWithTooltipOther = document.getElementById(
+    "validator-functionList-icon"
+  );
+  validatorFnListWithTooltipOther.setAttribute(
+    "aria-label",
+    listForValidatorFnTooltip()
+  );
+  const validatorFnListWithTooltip = document.getElementById(
+    "validator-functionList"
+  );
+  validatorFnListWithTooltip.setAttribute(
+    "aria-label",
+    listForValidatorFnTooltip()
+  );
+
+  // THISISME
 
   // Get the current list of validator controls
   const validatorFnGrp = document.getElementById("validatorFunctions-radios");

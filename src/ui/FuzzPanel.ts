@@ -748,7 +748,7 @@ export function ${validatorPrefix}${
     });
 
     // Apply boolean fuzzer option changes
-    ["onlyFailures", "useImplicit", "useHuman"].forEach((e) => {
+    ["onlyFailures", "useImplicit", "useHuman", "useProperty"].forEach((e) => {
       if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "boolean") {
         this._fuzzEnv.options[e] = panelInput.fuzzer[e];
       }
@@ -1062,8 +1062,9 @@ export function ${validatorPrefix}${
 
           <!-- THISISME -->
           <!-- Basic dropdown -->
-          <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.3em;"> <strong> Select validators</strong>:</p>
-          <div style="padding-left: .76em; padding-bottom: .5em;">
+          <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"> <strong> Select validators</strong>:</p>
+          <div style="padding-left: .76em;">
+            <div class="hidden">
             <vscode-dropdown id="validator-dropdown" style="width: 26em;">
               <vscode-option id="dropdown.fuzz" ${env.options.mode === "Fuzz" ? "selected" : ""}> <!--  style="font-size:1.1em;" -->
                 Fuzz: quickly check for likely bugs &nbsp;
@@ -1081,14 +1082,41 @@ export function ${validatorPrefix}${
               </vscode-option>
               <!-- <vscode-option id="dropdown.custom"> Custom...</vscode-option> -->
             </vscode-dropdown>
+            <p></p>
+            </div>
             
-            <!-- checkboxes Currently not functional... -->
-            <!--
+            <!-- Checkboxes to select validator -->
             <div class="fuzzInputControlGroup">
-                  <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use heuristic validator</vscode-checkbox>
-                  <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Use human validation</vscode-checkbox>
-                </div>
-                -->
+              <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use heuristic validator</vscode-checkbox>
+              
+              <span style="padding-left:1.2em;"> </span>
+              <span>
+                <vscode-checkbox id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>Use custom functions 
+                  <span id="validator-functionList" class="tooltipped tooltipped-n" aria-label=""> (see list)
+                  </span>
+                </vscode-checkbox>
+
+                <span id="validator-functionList-icon" class="tooltipped tooltipped-n" aria-label="">
+                  <span class="codicon codicon-list-unordered"></span>
+                </span>
+                <span style="display:inline-block;">
+                  <span id="validator.add" class="tooltipped tooltipped-n" aria-label="Add new custom function">
+                    <span class="codicon codicon-add"></span>
+                  </span>
+                  <!-- <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add" style="padding-bottom:5em;"> 
+                    <span class="tooltipped tooltipped-n" aria-label="New custom function">
+                      <span class="codicon codicon-add"></span>
+                    </span>
+                  </vscode-button>
+                  -->
+                  <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh" style="">
+                    <span class="tooltipped tooltipped-n" aria-label="Refresh list">
+                      <span class="codicon codicon-refresh"></span>
+                    </span>
+                  </vscode-button>
+                </span>
+              </span>
+            </div>
           </div>
 
           <vscode-divider></vscode-divider>
@@ -1228,7 +1256,7 @@ export function ${validatorPrefix}${
           <!-- Button Bar -->
           <div style="padding-top: .25em;">
             <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
-              ${this._state === FuzzPanelState.busy ? "Testing..." : "Retest"}
+              ${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}
             </vscode-button>
             <vscode-button  ${disabledFlag} id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
               Change Mode
@@ -1374,11 +1402,9 @@ export function ${validatorPrefix}${
       (env.options.useHuman ? validatorsUsed : validatorsNotUsed).push(
         "<strong>human</strong>"
       );
-      if (
-        "validator" in env &&
-        env.validator &&
-        env.options.mode === "Property Test"
-      ) {
+      // THISISME
+      // checkboxes
+      if ("validator" in env && env.validator && env.options.useProperty) {
         env.validators.forEach((e) => {
           validatorsUsed.push(`<strong>custom function (${e.name})</strong>`);
         });
@@ -1989,6 +2015,7 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
       .get("onlyFailures", false),
     useHuman: true,
     useImplicit: true,
+    useProperty: false,
     mode: "Fuzz",
   };
 }; // fn: getDefaultFuzzOptions()

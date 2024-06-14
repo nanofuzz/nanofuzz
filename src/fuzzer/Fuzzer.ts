@@ -252,10 +252,12 @@ export const fuzz = async (
 
     // CUSTOM VALIDATOR ------------------------------------------
     // If a custom validator is selected, call it to evaluate the result
+    // THISISME
+    // checkboxes
     if (
       "validator" in env &&
       env.validators.length &&
-      env.options.mode === "Property Test"
+      env.options.useProperty
     ) {
       // const fnName = env.validator;
       result.passedValidators = [];
