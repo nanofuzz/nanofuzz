@@ -27,8 +27,8 @@ const elapsedTimeLabel = "running time (ms)";
 const hiddenColumns = [
   idLabel,
   expectedLabel,
-  allValidatorsLabel,
   validatorLabel,
+  allValidatorsLabel,
 ];
 
 // Mode labels
@@ -235,16 +235,14 @@ function main() {
         : {};
 
       // Custom validator (bool, true if passed all custom validators)
-      const passedValidator =
-        validators.validator !== implicitOracleValidatorName
-          ? { [validatorLabel]: e.passedValidator }
-          : {};
+      const passedValidator = resultsData.env.options.useProperty
+        ? { [validatorLabel]: e.passedValidator }
+        : {};
 
       // Custom validator (array of bools for all custom validators, true if passed)
-      const allValidators =
-        validators.validator !== implicitOracleValidatorName
-          ? { [allValidatorsLabel]: e.passedValidators }
-          : {};
+      const allValidators = resultsData.env.options.useProperty
+        ? { [allValidatorsLabel]: e.passedValidators }
+        : {};
 
       // Custom validator result
       const validatorFns = {};
@@ -307,7 +305,6 @@ function main() {
         });
       }
     } // for: each result
-    console.log("data:", data);
 
     // Fill the grids with data
     gridTypes.forEach((type) => {
@@ -332,8 +329,6 @@ function main() {
           } else if (hiddenColumns.indexOf(k) !== -1) {
             // noop (hidden)
           } else if (k === implicitLabel) {
-            // THISISME
-            // checkboxes
             if (resultsData.env.options.useImplicit) {
               // if mode === fuzz
               const cell = hRow.appendChild(document.createElement("th"));
@@ -351,6 +346,7 @@ function main() {
             if (resultsData.env.options.useProperty) {
               // if mode === property
               const cell = hRow.appendChild(document.createElement("th"));
+              // cell.classList.add("hidden"); // Make hidden (collapsible columns)
               cell.style = "text-align: center";
               cell.classList.add("colorColumn");
               cell.innerHTML = /* html */ `
@@ -904,7 +900,6 @@ function drawTableBody(data, type, tbody, isClicking, button) {
           }
         }
       } else if (validators.validators.indexOf(k) !== -1) {
-        // THISISME checkboxes
         if (resultsData.env.options.useProperty) {
           // if mode === property
           const cell = row.appendChild(document.createElement("td"));
@@ -1507,14 +1502,14 @@ function handleFuzzStart(eCurrTarget) {
   });
 } // fn: handleFuzzStart
 
-function listForValidatorFnTooltip() {
+function listForValidatorFnTooltip(validatorList) {
   let list = "";
-  if ([...validators.validators].length === 0) {
+  if (validatorList.validators.length === 0) {
     list += "(none)";
   }
-  for (const idx in validators.validators) {
-    list += validators.validators[idx];
-    if (idx !== validators.validators.length) {
+  for (const idx in validatorList.validators) {
+    list += validatorList.validators[idx];
+    if (idx !== validatorList.validators.length) {
       list += "\n";
     }
   }
@@ -1531,7 +1526,6 @@ function listForValidatorFnTooltip() {
  * }
  */
 function refreshValidators(validatorList) {
-  console.log("validatorLIst:", validatorList);
   // If no default validator is selected or the selected validator does not
   // exist, then select the implicit validator
   if (
@@ -1545,19 +1539,12 @@ function refreshValidators(validatorList) {
   }
 
   // THISISME
-  const validatorFnListWithTooltipOther = document.getElementById(
-    "validator-functionList-icon"
-  );
-  validatorFnListWithTooltipOther.setAttribute(
-    "aria-label",
-    listForValidatorFnTooltip()
-  );
   const validatorFnListWithTooltip = document.getElementById(
     "validator-functionList"
   );
   validatorFnListWithTooltip.setAttribute(
     "aria-label",
-    listForValidatorFnTooltip()
+    listForValidatorFnTooltip(validatorList)
   );
 
   // THISISME

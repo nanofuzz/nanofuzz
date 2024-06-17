@@ -262,6 +262,7 @@ export class FuzzPanel {
 
         switch (command) {
           case "fuzz.start":
+            this._doGetValidators();
             this._doFuzzStartCmd(json);
             break;
           case "test.pin":
@@ -573,32 +574,25 @@ export class FuzzPanel {
 /**
  * TODO: Implement this custom validator for function ${"`"}${fn.getName()}${"`"}
  *
- * This custom validator has visibility to all inputs, outputs, and
- * prior oracle results (e.g., NaNofuzz' implicit oracle ${"`"}passedImplicit${"`"}
- * and any human correctness annotation ${"`"}passedHuman${"`"}) via the
- * ${"`"}result${"`"} data structure of type ${"`"}FuzzTestResult${"`"} passed as input.
- *
- * Place the result of validation in ${"`"}result.passedValidator${"`"}, where:
- *  - ${"`"}true${"`"} indicates the test passed the custom validation,
- *  - ${"`"}false${"`"} indicates the test failed the custom validation, and
- *  - ${"`"}undefined${"`"} indicates the custom validator could not decide.` 
+ * Return true or false, where:
+ *  - ${"`"}true${"`"} indicates the test passed the custom validation
+ *  - ${"`"}false${"`"} indicates the test failed the custom validation` 
  + (hasImport ? "" : npmInstruction) + `
  */
 export function ${validatorPrefix}${
         fnCounter === 0 ? "" : fnCounter
-      }(result: FuzzTestResult): FuzzTestResult {
-  if(result.timeout) {
-    // Mark as passed any inputs where timeouts are expected
-    // result.passedValidator = true;
-  } else if(result.exception) {
-    // Flag any inputs as passed where exceptions are expected
-    // result.passedValidator = true;
+      }(r: Result): boolean {
+  if(r.timeout) {
+    return false;
+  } else if(r.exception) {
+    return false;
   } else {
     // Evaluate the output relative to the input
-    // result.passedValidator = true;  // <-- As expected; passed
-    // result.passedValidator = false; // <-- Unexpected; failed
+    // Array of inputs: r.in   Output: r.out
+    // return true;  // <-- As expected; passed
+    // return false; // <-- Unexpected; failed
   }
-  return result;
+  return true;
 }`;
 
     // Append the code skeleton to the source file
@@ -638,8 +632,7 @@ export function ${validatorPrefix}${
     const newValidators = fuzzer.getValidators(program, fn);
     const newValidatorNames = JSON5.stringify(newValidators.map((e) => e.name));
 
-    console.log("newValidators:", newValidators);
-    console.log("newValidatorNames:", newValidatorNames);
+    console.log("doGetValidators():", newValidatorNames);
 
     // Only send the message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
@@ -1034,9 +1027,8 @@ export function ${validatorPrefix}${
           <!-- Function Arguments -->
           <div id="argDefs">${argDefHtml}</div>
 
-          <!-- THIS IS ME!!!!!!!!!! -->
           <!-- Change validators options -->
-          <!-- radios (probably not) -->
+          <!-- Radios (probably not; hidden) -->
           <div class="hidden">
           <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"> <strong> Change validators: </strong> </p>
           <vscode-radio-group orientation="vertical" style="padding-left: .75em;"> 
@@ -1060,9 +1052,8 @@ export function ${validatorPrefix}${
           </vscode-radio-group>
           </div>
 
-          <!-- THISISME -->
-          <!-- Basic dropdown -->
-          <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"> <strong> Select validators</strong>:</p>
+          <!-- Basic dropdown (probably not; hidden) -->
+          <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"> <strong> How to categorize output</strong>?</p>
           <div style="padding-left: .76em;">
             <div class="hidden">
             <vscode-dropdown id="validator-dropdown" style="width: 26em;">
@@ -1087,33 +1078,19 @@ export function ${validatorPrefix}${
             
             <!-- Checkboxes to select validator -->
             <div class="fuzzInputControlGroup">
-              <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use heuristic validator</vscode-checkbox>
-              
-              <span style="padding-left:1.2em;"> </span>
-              <span>
-                <vscode-checkbox id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>Use custom functions 
-                  <span id="validator-functionList" class="tooltipped tooltipped-n" aria-label=""> (see list)
-                  </span>
+              <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>
+                Use heuristic validator
+              </vscode-checkbox>
+              <span style="padding-left:1.3em;"> </span>
+              <span style="display:inline-block;">
+                <vscode-checkbox id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>
+                  Use custom functions <span id="validator-functionList" class="tooltipped tooltipped-n" aria-label=""> (see list) </span>
                 </vscode-checkbox>
-
-                <span id="validator-functionList-icon" class="tooltipped tooltipped-n" aria-label="">
-                  <span class="codicon codicon-list-unordered"></span>
+                <span id="validator.add" class="tooltipped tooltipped-n" aria-label="Add new custom function">
+                  <span class="codicon codicon-add"></span>
                 </span>
-                <span style="display:inline-block;">
-                  <span id="validator.add" class="tooltipped tooltipped-n" aria-label="Add new custom function">
-                    <span class="codicon codicon-add"></span>
-                  </span>
-                  <!-- <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add" style="padding-bottom:5em;"> 
-                    <span class="tooltipped tooltipped-n" aria-label="New custom function">
-                      <span class="codicon codicon-add"></span>
-                    </span>
-                  </vscode-button>
-                  -->
-                  <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh" style="">
-                    <span class="tooltipped tooltipped-n" aria-label="Refresh list">
-                      <span class="codicon codicon-refresh"></span>
-                    </span>
-                  </vscode-button>
+                <span id="validator.getList" class="tooltipped tooltipped-n" aria-label="Refresh list">
+                  <span class="codicon codicon-refresh"></span>
                 </span>
               </span>
             </div>
