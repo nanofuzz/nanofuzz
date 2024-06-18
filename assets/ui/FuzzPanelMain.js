@@ -357,13 +357,13 @@ function main() {
           } else if (k === validatorLabel) {
             if (resultsData.env.options.useProperty) {
               const cell = hRow.appendChild(document.createElement("th"));
-              cell.style = "text-align: center;";
               cell.classList.add("colorColumn");
               cell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-nw" aria-label="Custom validators (summary)">
                   <span class="codicon codicon-hubot" style="font-size:1.4em;"></span>
                 </span>`;
-              cell.setAttribute("id", k);
+              cell.id = k;
+              cell.style = "padding-left:3px; padding-right:0px;";
               cell.addEventListener("click", () => {
                 handleColumnSort(cell, hRow, type, k, tbody, true);
               });
@@ -373,7 +373,9 @@ function main() {
                   ? expandColumnState.htmlHidden
                   : expandColumnState.htmlOpen;
 
-              expandCell.setAttribute("id", type + "-" + expandColumnLabel);
+              expandCell.id = type + "-" + expandColumnLabel;
+              expandCell.style =
+                "padding-left:0px; padding-right:0px; padding-bottom:0px;";
               expandCell.addEventListener("click", () => {
                 toggleExpandColumn(cell, expandCell, type);
               });
@@ -382,13 +384,20 @@ function main() {
             if (resultsData.env.options.useProperty) {
               // if mode === property
               const cell = hRow.appendChild(document.createElement("th"));
-              cell.style = "text-align: center";
               cell.classList.add("colorColumn");
               cell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-nw" aria-label="${k}">
                   <span class="codicon codicon-hubot" style="font-size: 1em;"></span> <!-- small -->
                 </span>`;
-              cell.setAttribute("id", type + "-" + k);
+              cell.id = type + "-" + k;
+              cell.style = "padding-left:0px; padding-right:0px;";
+              if (
+                validators.validators.indexOf(k) ===
+                validators.validators.length - 1
+              ) {
+                // Add padding to last custom validator header cell
+                cell.style = "padding-left:6px; padding-right:15px;";
+              }
               // if (columnSortOrders[type][expandColumnLabel] === "asc") {
               const expandCell = document.getElementById(
                 type + "-" + expandColumnLabel
@@ -411,7 +420,7 @@ function main() {
               cell.classList.add("colorColumn");
               cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Human (manual) validation">
-                <span class="codicon codicon-person" id="humanIndicator"></span>
+                <span class="codicon codicon-person" id="humanIndicator" style="font-size:1.4em;"></span>
               </span>`;
               cell.colSpan = 2;
               cell.addEventListener("click", () => {
@@ -957,6 +966,7 @@ function drawTableBody(type, tbody, isClicking, button) {
       } else if (k === validatorLabel) {
         if (resultsData.env.options.useProperty) {
           const cell = row.appendChild(document.createElement("td"));
+          cell.setAttribute("style", "padding-right:0px;");
           if (e[k] === undefined) {
             cell.innerHTML = "";
           } else if (e[k]) {
@@ -974,6 +984,7 @@ function drawTableBody(type, tbody, isClicking, button) {
         if (resultsData.env.options.useProperty) {
           // if mode === property
           const cell = row.appendChild(document.createElement("td"));
+          cell.style = "text-align: left;";
           if (e[k] === undefined) {
             cell.innerHTML = "";
           } else if (e[k]) {

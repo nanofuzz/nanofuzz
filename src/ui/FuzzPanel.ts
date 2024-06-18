@@ -1085,10 +1085,10 @@ export function ${validatorPrefix}${
                 <vscode-checkbox id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>
                   Use custom functions <span id="validator-functionList" class="tooltipped tooltipped-n" aria-label=""> (see list) </span>
                 </vscode-checkbox>
-                <span id="validator.add" class="tooltipped tooltipped-n" aria-label="Add new custom function">
+                <span id="validator.add" class="tooltipped tooltipped-nw" aria-label="Add new custom function">
                   <span class="codicon codicon-add"></span>
                 </span>
-                <span id="validator.getList" class="tooltipped tooltipped-n" aria-label="Refresh list">
+                <span id="validator.getList" class="tooltipped tooltipped-nw" aria-label="Refresh list">
                   <span class="codicon codicon-refresh"></span>
                 </span>
               </span>
