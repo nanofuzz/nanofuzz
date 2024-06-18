@@ -252,8 +252,6 @@ export const fuzz = async (
 
     // CUSTOM VALIDATOR ------------------------------------------
     // If a custom validator is selected, call it to evaluate the result
-    // THISISME
-    // checkboxes
     if (
       "validator" in env &&
       env.validators.length &&

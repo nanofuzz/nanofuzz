@@ -726,7 +726,6 @@ export function ${validatorPrefix}${
     const panelInput: {
       fuzzer: Record<string, number>; // !!! Improve typing
       args: fuzzer.FuzzArgOverride[]; // !!! Improve typing
-      // changeMode: boolean; // THISISME is this totally useless?
     } = JSON5.parse(json);
     const fn = this._fuzzEnv.function;
 

@@ -22,14 +22,10 @@ const validatorLabel = "validator";
 const allValidatorsLabel = "allValidators";
 const implicitLabel = "implicit";
 const elapsedTimeLabel = "running time (ms)";
+const expandColumnLabel = "expandColumn";
 
 // List of hidden columns
-const hiddenColumns = [
-  idLabel,
-  expectedLabel,
-  validatorLabel,
-  allValidatorsLabel,
-];
+const hiddenColumns = [idLabel, expectedLabel, allValidatorsLabel];
 
 // Mode labels
 const exploreLabel = "Explore";
@@ -64,6 +60,15 @@ const correctState = {
   classErrorOff: "classErrorOff",
 };
 
+const expandColumnState = {
+  htmlHidden: `<span class="tooltipped tooltipped-nw" aria-label="Expand custom validator column">
+                  <span class="codicon codicon-chevron-right" style=""></span>
+                </span>`,
+  htmlOpen: `<span class="tooltipped tooltipped-nw" aria-label="Collapse custom validator columns">
+              <span class="codicon codicon-chevron-left" style=""></span>
+            </span>`,
+};
+
 // Correct icon sorting validator results
 const validatorResult = {
   true: 3,
@@ -74,7 +79,11 @@ const validatorResult = {
 // Sort order for each grid and column
 const sortOrder = ["asc", "desc", "none"];
 function getDefaultColumnSortOrder() {
-  return { [pinnedLabel]: "desc", [correctLabel]: "desc" };
+  return {
+    [pinnedLabel]: "desc",
+    [correctLabel]: "desc",
+    [expandColumnLabel]: "asc", // THISISME
+  };
 }
 const defaultColumnSortOrders = {
   failure: {}, // no pinned column
@@ -89,6 +98,8 @@ const defaultColumnSortOrders = {
 let columnSortOrders;
 // Fuzzer Results (filled by main during load event)
 let resultsData;
+// Results grouped by type (filled by main during load event)
+let data = {};
 // Validator functions (filled by main during load event)
 let validators;
 // Mode (filled by main during load event)
@@ -209,7 +220,6 @@ function main() {
 
   // Fill the result grids
   if (Object.keys(resultsData).length) {
-    const data = {};
     gridTypes.forEach((type) => {
       data[type] = [];
     });
@@ -306,6 +316,8 @@ function main() {
       }
     } // for: each result
 
+    console.log("data:", data);
+
     // Fill the grids with data
     gridTypes.forEach((type) => {
       if (data[type].length) {
@@ -324,7 +336,7 @@ function main() {
                 <big>pin</big>
               </span>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, data, tbody, true);
+              handleColumnSort(cell, hRow, type, k, tbody, true);
             });
           } else if (hiddenColumns.indexOf(k) !== -1) {
             // noop (hidden)
@@ -339,23 +351,53 @@ function main() {
                 <span class="codicon codicon-debug"></span>
               </span>`;
               cell.addEventListener("click", () => {
-                handleColumnSort(cell, hRow, type, k, data, tbody, true);
+                handleColumnSort(cell, hRow, type, k, tbody, true);
+              });
+            }
+          } else if (k === validatorLabel) {
+            if (resultsData.env.options.useProperty) {
+              const cell = hRow.appendChild(document.createElement("th"));
+              cell.style = "text-align: center;";
+              cell.classList.add("colorColumn");
+              cell.innerHTML = /* html */ `
+                <span class="tooltipped tooltipped-nw" aria-label="Custom validators (summary)">
+                  <span class="codicon codicon-hubot" style="font-size:1.4em;"></span>
+                </span>`;
+              cell.setAttribute("id", k);
+              cell.addEventListener("click", () => {
+                handleColumnSort(cell, hRow, type, k, tbody, true);
+              });
+              const expandCell = hRow.appendChild(document.createElement("th")); // twistie col
+              expandCell.innerHTML =
+                columnSortOrders[type][expandColumnLabel] === "asc"
+                  ? expandColumnState.htmlHidden
+                  : expandColumnState.htmlOpen;
+
+              expandCell.setAttribute("id", type + "-" + expandColumnLabel);
+              expandCell.addEventListener("click", () => {
+                toggleExpandColumn(cell, expandCell, type);
               });
             }
           } else if (validators.validators.indexOf(k) !== -1) {
             if (resultsData.env.options.useProperty) {
               // if mode === property
               const cell = hRow.appendChild(document.createElement("th"));
-              // cell.classList.add("hidden"); // Make hidden (collapsible columns)
               cell.style = "text-align: center";
               cell.classList.add("colorColumn");
               cell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-nw" aria-label="${k}">
-                  <span class="codicon codicon-hubot"></span>
+                  <span class="codicon codicon-hubot" style="font-size: 1em;"></span> <!-- small -->
                 </span>`;
-              cell.setAttribute("id", k);
+              cell.setAttribute("id", type + "-" + k);
+              // if (columnSortOrders[type][expandColumnLabel] === "asc") {
+              const expandCell = document.getElementById(
+                type + "-" + expandColumnLabel
+              );
+              if (expandCell.innerHTML === expandColumnState.htmlHidden) {
+                cell.classList.add("hidden"); // Make hidden (collapsible columns)
+              }
               cell.addEventListener("click", () => {
-                handleColumnSort(cell, hRow, type, k, data, tbody, true);
+                handleColumnSort(cell, hRow, type, k, tbody, true);
               });
             }
           } else if (k === correctLabel) {
@@ -373,46 +415,45 @@ function main() {
               </span>`;
               cell.colSpan = 2;
               cell.addEventListener("click", () => {
-                handleColumnSort(cell, hRow, type, k, data, tbody, true);
+                handleColumnSort(cell, hRow, type, k, tbody, true);
               });
             }
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.innerHTML = `<big>${htmlEscape(k)}</big>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, data, tbody, true);
+              handleColumnSort(cell, hRow, type, k, tbody, true);
             });
           }
         }); // for each column k
 
         // Render the data rows, set up event listeners
-        drawTableBody(data, type, tbody, false);
+        drawTableBody(type, tbody, false);
 
         // Initial sort, according to columnSortOrders
         let hRowIdx = 0;
-        for (let k = 0; k < Object.keys(data[type][0]).length; ++k) {
-          let col = Object.keys(data[type][0])[k];
+        for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
+          const col = Object.keys(data[type][0])[i];
           let cell = hRow.cells[hRowIdx];
           if (hiddenColumns.indexOf(col) !== -1) {
-            // hidden column (id, expected, allValidators)
-            continue;
+            continue; // hidden column (id, expected, allValidators)
           }
-          // THISISME checkboxes
+          if (cell.id === type + "-" + expandColumnLabel) {
+            cell = hRow.cells[++hRowIdx]; // displayed but blank column; not in data[type]
+          }
           if (
-            // hidden depending on mode
             (col === implicitLabel && !resultsData.env.options.useImplicit) ||
             (validators.validators.indexOf(col) !== -1 &&
-              !resultsData.env.options.useProperty) ||
-            (col === correctLabel &&
-              mode !== (fuzzLabel || exampleLabel || propertyLabel))
+              !resultsData.env.options.useProperty)
           ) {
             // if mode === fuzz, or mode === property
-            continue;
+            continue; // hidden depending on mode
           }
-          handleColumnSort(cell, hRow, type, col, data, tbody, false);
+          // Otherwise, sort column
+          handleColumnSort(cell, hRow, type, col, tbody, false);
           ++hRowIdx;
-        }
-      } // if (data[type].length)
+        } // for i
+      } // if data[type].length
     }); // for each type (e.g. bad output, passed)
   }
 } // fn: main()
@@ -465,7 +506,7 @@ function toggleChangeModePanel(e) {
  * @param type grid type (e.g., passed, invalid)
  * @param data the back-end data structure
  */
-function handlePinToggle(id, type, data) {
+function handlePinToggle(id, type) {
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) throw e("invalid id");
 
@@ -517,13 +558,12 @@ function handlePinToggle(id, type, data) {
  *
  * @param button icon that was clicked
  * @param row current row
- * @param data backend data structure
  * @param type e.g. bad output, passed
  * @param tbody table body for 'type'
  * @param cell1 check icon
  * @param cell2 error icon
  */
-function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
+function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
   const id = row.getAttribute("id");
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) throw e("invalid id");
@@ -578,7 +618,7 @@ function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
   }
 
   // Redraw table !!!!! Do we need to do this?
-  drawTableBody(data, type, tbody, true, button);
+  drawTableBody(type, tbody, true, button);
 
   const onOff = JSON.parse(button.getAttribute("onOff"));
   const pinCell = document.getElementById(`fuzzSaveToggle-${id}`);
@@ -606,47 +646,77 @@ function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
   });
 }
 
+function toggleExpandColumn(cell, expandCell, type) {
+  const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
+  const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
+
+  const valIdx = getIdxInTableHeader(
+    type + "-" + validators.validators[0],
+    thead.rows[0]
+  );
+
+  // Show or hide custom validator fn header
+  for (const valName of validators.validators) {
+    toggleHidden(document.getElementById(type + "-" + valName));
+  }
+  // Show or hide custom validator table cells
+  for (const row of tbody.rows) {
+    if (row.getAttribute("class") === "classErrorExpectedOutputRow") continue;
+    for (let i = valIdx; i < valIdx + validators.validators.length; ++i)
+      toggleHidden(row.cells[i]);
+  }
+
+  // Update frontend
+  if (expandCell.innerHTML === expandColumnState.htmlHidden) {
+    expandCell.innerHTML = expandColumnState.htmlOpen;
+    // cell.classList.remove("hidden"); /// What do we want to do with the summary column????
+  } else {
+    expandCell.innerHTML = expandColumnState.htmlHidden;
+  }
+
+  // Send message to extension to retain whether columns are expanded or hidden
+  columnSortOrders[type][expandColumnLabel] =
+    expandCell.innerHTML === expandColumnState.htmlHidden ? "asc" : "desc";
+  vscode.postMessage({
+    command: "columns.sorted",
+    json: JSON5.stringify(columnSortOrders),
+  });
+}
+
 /**
- * Sorts table based on a column. Each column can be toggled between 'asc', 'desc', and
- * 'none'. The most recent column that the user clicks has the highest precedence.
+ * Sorts table based on a column (each column toggles between asc, desc, none).
+ * The most recent column clicked has the highest precedence.
  * Uses stable sort, so previously sorted rows will not change unless they have to.
  *
  * @param cell cell of hRow
  * @param hRow header row
  * @param type (timeout, exception, badValue, ok, etc.)
  * @param col (ex: input:a, output, pin)
- * @param data backend data structure
  * @param tbody table body
- * @param isClicking bool determining if the function is being called because the user
- * clicked on a column, or if an initial sort is occurring
+ * @param isClicking true if user clicked a column; false if an 'initial sort'
  *
  * 'Initial sort' could be:
  *  - Making sure the pinned/correct columns are sorted at the beginning
  *  - Making sure we retain previous sort settings if you click 'Test' again
  */
-function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
+function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
   // We are only explicitly sorting by one column at a time (with the pinned and correct
   // columns being special cases)
   // Reset the other column arrows to 'none'
-  if (isClicking) {
-    resetOtherColumnArrows(hRow, type, column, data);
-  }
+  resetOtherColumnArrows(hRow, type, column, isClicking);
 
-  // Update the sort arrow for this column
+  // Update the sort arrow for this column (asc->desc etc, and frontend)
   updateColumnArrow(cell, type, column, isClicking);
 
-  // Sorting function: Sort current column value based on sort order
+  // Define sorting function:
+  // Sort current column value based on sort order
   const sortFn = (a, b, thisCol) => {
-    // Ascending, descending, or none?
-    // If none, return; if descending, switch a and b
     if (columnSortOrders[type][thisCol] == "none") {
-      return 0;
+      return 0; // no need to sort
     } else if (columnSortOrders[type][thisCol] == "desc") {
       const temp = a;
-      a = b;
-      b = temp;
+      (a = b), (b = temp); // swap a and b
     }
-
     // Determine type of object
     let aType;
     try {
@@ -654,7 +724,6 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
     } catch (error) {
       aType = "string";
     }
-
     // Save original strings (to break ties alphabetically)
     let aVal = (a[thisCol] ?? "undefined") + "";
     let bVal = (b[thisCol] ?? "undefined") + "";
@@ -668,21 +737,17 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
       switch (aType) {
         case "number":
           // Sort numerically
-          a = Number(a[thisCol]);
-          b = Number(b[thisCol]);
+          (a = Number(a[thisCol])), (b = Number(b[thisCol]));
           break;
         case "object":
           // Sort by length
           if (a[thisCol].length) {
-            a = a[thisCol].length;
-            b = b[thisCol].length;
+            (a = a[thisCol].length), (b = b[thisCol].length);
             // If numerical values, break ties based on number
             try {
-              aVal = JSON.parse(a[thisCol]);
-              bVal = JSON.parse(b[thisCol]);
+              (aVal = JSON.parse(a[thisCol])), (bVal = JSON.parse(b[thisCol]));
             } catch (error) {
-              // noop
-              // If not numerical values, break ties alphabetically
+              // noop; if not numerical, break ties alphabetically
             }
           } else {
             a = Object.keys(a[thisCol]).length;
@@ -691,22 +756,18 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
           break;
         default:
           // Sort as string by length, break ties alphabetically
-          a = (a[thisCol] ?? "").length;
-          b = (b[thisCol] ?? "").length;
+          (a = (a[thisCol] ?? "").length), (b = (b[thisCol] ?? "").length);
           break;
-      }
+      } // switch
     }
-
     // Compare values and sort
     if (a === b) {
       if (aVal === bVal) {
         return 0; // a = b
       } else if (aVal > bVal) {
-        // break tie
-        return 2;
+        return 2; // break tie
       } else {
-        // break tie
-        return -2;
+        return -2; // break tie
       }
     } else if (a > b) {
       return 2; // a > b
@@ -715,20 +776,18 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
     }
   }; // fn: sortFn()
 
-  // Sort the table data in order of the sort columns such
-  // that the next column is a tiebreaker for the current column
+  // Call sorting function:
+  // Sort data in order of sort columns (next col is tiebreaker for current col)
   data[type].sort((a, b) => {
-    for (const thisCol of Object.keys(columnSortOrders[type])) {
-      const result = sortFn(a, b, thisCol);
-      if (result !== 0) {
-        return result;
-      }
+    for (const col of Object.keys(columnSortOrders[type])) {
+      const result = sortFn(a, b, col);
+      if (result !== 0) return result;
     }
     return 0; // a = b for all columns
   });
 
   // Sorting done, display table
-  drawTableBody(data, type, tbody, false);
+  drawTableBody(type, tbody, false);
 
   // Send message to extension to retain sort order
   if (isClicking) {
@@ -746,28 +805,41 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
  * @param hRow header row
  * @param type (timeout, exception, badValue, ok)
  * @param thisCol the current column being sorted by
- * @param data
+ * @param isClicking
  */
-function resetOtherColumnArrows(hRow, type, thisCol, data) {
+function resetOtherColumnArrows(hRow, type, thisCol, isClicking) {
+  if (!isClicking) return;
   // For a given type, iterate over the columns (ex: input a, output, pin)
   let hRowIdx = 0;
-  for (let k = 0; k < Object.keys(data[type][0]).length; ++k) {
-    let col = Object.keys(data[type][0])[k];
+  for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
+    const col = Object.keys(data[type][0])[i];
     let cell = hRow.cells[hRowIdx];
+    console.log("col,cell:", col, cell);
+
     if (hiddenColumns.indexOf(col) !== -1) {
-      // hidden column (id, expected, allValidators)
-      continue;
+      continue; // hidden column (id, expected, allValidators)
+    }
+    if (cell.id === type + "-" + expandColumnLabel) {
+      cell = hRow.cells[++hRowIdx]; // displayed but blank column; not in data[type]
+    }
+    if (
+      (col === implicitLabel && !resultsData.env.options.useImplicit) ||
+      (validators.validators.indexOf(col) !== -1 &&
+        !resultsData.env.options.useProperty)
+    ) {
+      continue; // hidden depending on checkboxes
     }
     if (col === thisCol || col === "pinned" || thisCol == "pinned") {
       ++hRowIdx;
-      continue;
+      continue; // no need to reset
     }
+
     // Reset the column arrow to 'none'
     delete columnSortOrders[type][col];
     cell.classList.remove("columnSortAsc");
     cell.classList.remove("columnSortDesc");
     ++hRowIdx;
-  } // for: k
+  } // for i
 }
 
 /**
@@ -781,35 +853,29 @@ function resetOtherColumnArrows(hRow, type, thisCol, data) {
  * @returns
  */
 function updateColumnArrow(cell, type, col, isClicking) {
-  // console.log("updateColumnArrow(): ", cell, type, col, isClicking);
   // Pinned column is a special case -- will always check at the end to see if it wants
   // the pinned column sorted in a certain way. That arrow should be displayed.
   let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
-  let currIndex = -1;
+  let currIndex = -1; // index in sortOrder array
 
-  // Here, currIndex represents an index of sortOrder = ['asc','desc','none']
-  if (!currOrder) {
-    // If currOrder is undefined, either return or set currOrder to default value 'asc'
-    if (!isClicking) {
-      return;
-    } else {
+  if (isClicking) {
+    if (!currOrder) {
+      // Set default if undefined
       currOrder = "asc";
       currIndex = 0; // index in [asc, desc, none]
-    }
-  } else {
-    // If currOrder is already defined and the user clicked on a column,
-    // change the sorting direction to the next value in the cycle
-    // (asc -> desc, desc -> none, none -> asc)
-    if (isClicking) {
-      for (let i = 0; i < sortOrder.length; ++i) {
-        if (currOrder === sortOrder[i]) currIndex = i;
-      }
-      currIndex = (currIndex + 1) % sortOrder.length;
+    } else {
+      // Update sorting direction (asc -> desc, desc -> none, none -> asc)
+      const idx = sortOrder.indexOf(currOrder);
+      currIndex = (idx + 1) % sortOrder.length;
       currOrder = sortOrder[currIndex];
     }
+    // Update columnSortOrders
+    columnSortOrders[type][col] = currOrder;
+    if (currOrder === "none") delete columnSortOrders[type][col];
   }
 
-  // Set attribute to display appropriate arrow
+  if (!isClicking && !currOrder) return;
+  // Update frontend with appropriate arrow
   switch (currOrder) {
     case "asc":
       cell.classList.add("columnSortAsc");
@@ -826,14 +892,6 @@ function updateColumnArrow(cell, type, col, isClicking) {
     default:
       assert(false); // shouldn't get here
   }
-
-  if (isClicking) {
-    if (currOrder === "none") {
-      delete columnSortOrders[type][col];
-    } else {
-      columnSortOrders[type][col] = currOrder;
-    }
-  }
 } //fn: updateColumnArrows
 
 /**
@@ -843,9 +901,9 @@ function updateColumnArrow(cell, type, col, isClicking) {
  * @param data backend data structure
  * @param type e.g. bad output, passed, etc
  * @param tbody table body
- * @param isClicking bool true if the function is being called because the user is clicking
+ * @param isClicking bool true if user is clicking
  */
-function drawTableBody(data, type, tbody, isClicking, button) {
+function drawTableBody(type, tbody, isClicking, button) {
   // console.log("resultsData.env.options:", resultsData.env.options);
   // Clear table
   while (tbody.rows.length > 0) tbody.deleteRow(0);
@@ -865,8 +923,7 @@ function drawTableBody(data, type, tbody, isClicking, button) {
         cell.addEventListener("click", (e) =>
           handlePinToggle(
             e.currentTarget.parentElement.getAttribute("id"),
-            type,
-            data
+            type
           )
         );
       } else if (k === idLabel) {
@@ -875,8 +932,6 @@ function drawTableBody(data, type, tbody, isClicking, button) {
       } else if (hiddenColumns.indexOf(k) !== -1) {
         // noop (hidden)
       } else if (k === implicitLabel) {
-        // THISISME
-        // checkboxes instead of mode
         if (resultsData.env.options.useImplicit) {
           // if mode === fuzz
           const cell = row.appendChild(document.createElement("td"));
@@ -899,6 +954,22 @@ function drawTableBody(data, type, tbody, isClicking, button) {
             span.classList.add("codicon", "codicon-error");
           }
         }
+      } else if (k === validatorLabel) {
+        if (resultsData.env.options.useProperty) {
+          const cell = row.appendChild(document.createElement("td"));
+          if (e[k] === undefined) {
+            cell.innerHTML = "";
+          } else if (e[k]) {
+            cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-pass");
+          } else {
+            cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-error");
+          }
+          row.appendChild(document.createElement("td")); // empty (for expanded column)
+        }
       } else if (validators.validators.indexOf(k) !== -1) {
         if (resultsData.env.options.useProperty) {
           // if mode === property
@@ -913,8 +984,8 @@ function drawTableBody(data, type, tbody, isClicking, button) {
 
             if (!e[validatorLabel]) {
               // if check mark and not on passed tab (passed everything)
-              span.classList.add("codicon", "codicon-pass-filled");
-              cell.style.opacity = "25%";
+              // span.classList.add("codicon", "codicon-pass-filled");
+              cell.style.opacity = "35%";
             }
           } else {
             cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
@@ -922,52 +993,55 @@ function drawTableBody(data, type, tbody, isClicking, button) {
             span.classList.add("codicon", "codicon-error");
             // drawValidatorRow(data, type, row);
           }
+          const expandCol = document.getElementById(
+            type + "-" + expandColumnLabel
+          );
+          if (expandCol.innerHTML === expandColumnState.htmlHidden) {
+            cell.classList.add("hidden"); // Make hidden (collapsible columns)
+          } else {
+            cell.classList.remove("hidden");
+          }
         }
       } else if (k === correctLabel) {
-        if (
-          mode === fuzzLabel ||
-          mode === exampleLabel ||
-          mode === propertyLabel
-        ) {
-          // Add check mark icon
-          const cell1 = row.appendChild(document.createElement("td"));
-          cell1.innerHTML = correctState.htmlCheck;
-          cell1.setAttribute("correctType", "true");
-          cell1.addEventListener("click", () =>
-            handleCorrectToggle(cell1, row, data, type, tbody, cell1, cell2)
-          );
-          // Add X mark icon
-          const cell2 = row.appendChild(document.createElement("td"));
-          cell2.innerHTML = correctState.htmlError;
-          cell2.setAttribute("correctType", "false");
-          cell2.addEventListener("click", () =>
-            handleCorrectToggle(cell2, row, data, type, tbody, cell1, cell2)
-          );
+        //if mode === fuzzLabel or exampleLabel or propertyLabel
+        // Add check mark icon
+        const cell1 = row.appendChild(document.createElement("td"));
+        cell1.innerHTML = correctState.htmlCheck;
+        cell1.setAttribute("correctType", "true");
+        cell1.addEventListener("click", () =>
+          handleCorrectToggle(cell1, row, type, tbody, cell1, cell2)
+        );
+        // Add X mark icon
+        const cell2 = row.appendChild(document.createElement("td"));
+        cell2.innerHTML = correctState.htmlError;
+        cell2.setAttribute("correctType", "false");
+        cell2.addEventListener("click", () =>
+          handleCorrectToggle(cell2, row, type, tbody, cell1, cell2)
+        );
 
-          // Defaults here; override in the switch below
-          cell1.className = correctState.classCheckOff;
-          cell1.setAttribute("onOff", "false");
-          cell2.className = correctState.classErrorOff;
-          cell2.setAttribute("onOff", "false");
+        // Defaults here; override in the switch below
+        cell1.className = correctState.classCheckOff;
+        cell1.setAttribute("onOff", "false");
+        cell2.className = correctState.classErrorOff;
+        cell2.setAttribute("onOff", "false");
 
-          // Update the front-end buttons to match the back-end state
-          switch (e[k] + "") {
-            case undefined:
-              break;
-            case "true":
-              cell1.className = correctState.classCheckOn;
-              cell1.setAttribute("onOff", "true");
-              handleExpectedOutput(data, type, row, tbody, isClicking, button);
-              break;
-            case "false":
-              cell2.className = correctState.classErrorOn;
-              cell2.setAttribute("onOff", "true");
-              handleExpectedOutput(data, type, row, tbody, isClicking, button);
-              break;
-          }
-          cell1.classList.add("colGroupStart");
-          cell2.classList.add("colGroupEnd");
+        // Update the front-end buttons to match the back-end state
+        switch (e[k] + "") {
+          case undefined:
+            break;
+          case "true":
+            cell1.className = correctState.classCheckOn;
+            cell1.setAttribute("onOff", "true");
+            handleExpectedOutput(type, row, tbody, isClicking, button);
+            break;
+          case "false":
+            cell2.className = correctState.classErrorOn;
+            cell2.setAttribute("onOff", "true");
+            handleExpectedOutput(type, row, tbody, isClicking, button);
+            break;
         }
+        cell1.classList.add("colGroupStart");
+        cell2.classList.add("colGroupEnd");
       } else {
         const cell = row.appendChild(document.createElement("td"));
         cell.innerHTML = htmlEscape(e[k]);
@@ -983,7 +1057,7 @@ function drawTableBody(data, type, tbody, isClicking, button) {
  * @param type e.g. bad output, passed, disagree
  * @param row row of tbody
  */
-function addValidatorColumn(data, type, row) {
+function addValidatorColumn(type, row) {
   const id = row.getAttribute("id");
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) {
@@ -1039,7 +1113,7 @@ function addValidatorColumn(data, type, row) {
  * @param type e.g. bad output, passed, disagree
  * @param row row of tbody
  */
-function drawValidatorRow(data, type, row) {
+function drawValidatorRow(type, row) {
   const id = row.getAttribute("id");
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) {
@@ -1093,12 +1167,11 @@ function drawValidatorRow(data, type, row) {
  * If not, shows error message.
  * Assumes that either the check or error icon is selected.
  *
- * @param data backend data structure
  * @param type e.g. bad output, passed
  * @param row row of tbody
  * @param tbody table body for 'type'
  */
-function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
+function handleExpectedOutput(type, row, tbody, isClicking, button) {
   const id = row.getAttribute("id");
   let toggledId;
   if (isClicking) {
@@ -1126,18 +1199,18 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
     if (isClicking && id === toggledId) {
       // If marked X and it's the row being clicked on, ask for expected output
       expectedRow.className = "classGetExpectedOutputRow";
-      cell.innerHTML = expectedOutputHtml(id, index, data, type);
+      cell.innerHTML = expectedOutputHtml(id, index, type);
 
       // Event handler for text field
       const textField = document.getElementById(`fuzz-expectedOutput${id}`);
       textField.addEventListener("change", (e) =>
-        buildExpectedTestCase(textField, id, data, type, index)
+        buildExpectedTestCase(textField, id, type, index)
       );
 
       // Event handler for timeout radio button
       const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
       radioTimeout.addEventListener("change", () =>
-        buildExpectedTestCase(radioTimeout, id, data, type, index)
+        buildExpectedTestCase(radioTimeout, id, type, index)
       );
 
       // Event handler for exception radio button
@@ -1145,26 +1218,20 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         `fuzz-radioException${id}`
       );
       radioException.addEventListener("change", () =>
-        buildExpectedTestCase(radioException, id, data, type, index)
+        buildExpectedTestCase(radioException, id, type, index)
       );
 
       // Event handler for value radio button
       const radioValue = document.getElementById(`fuzz-radioValue${id}`);
       radioValue.addEventListener("change", () =>
-        buildExpectedTestCase(radioValue, id, data, type, index)
+        buildExpectedTestCase(radioValue, id, type, index)
       );
 
       // Event handler for ok button
       const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
       okButton.addEventListener("click", (e) => {
         // Build the test case from the expected output panel
-        const testCase = buildExpectedTestCase(
-          radioValue,
-          id,
-          data,
-          type,
-          index
-        );
+        const testCase = buildExpectedTestCase(radioValue, id, type, index);
 
         // If the test case is valid, save it & exit the screen
         if (testCase) {
@@ -1180,7 +1247,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
           });
 
           // Re-draw the expected output row again
-          handleExpectedOutput(data, type, row, tbody, false, button);
+          handleExpectedOutput(type, row, tbody, false, button);
 
           // Hide this panel that is collecting the expected output
           expectedRow.remove();
@@ -1235,7 +1302,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
       );
       editButton.addEventListener("click", (e) => {
         toggleHidden(expectedRow);
-        handleExpectedOutput(data, type, row, tbody, true, editButton);
+        handleExpectedOutput(type, row, tbody, true, editButton);
       });
     }
   }
@@ -1250,7 +1317,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
  * @param data back-end data structure
  * @param type e.g. bad output, passed
  */
-function expectedOutputHtml(id, index, data, type) {
+function expectedOutputHtml(id, index, type) {
   const expectedOutput = data[type][index][expectedLabel];
   let defaultOutput;
 
@@ -1288,7 +1355,7 @@ function expectedOutputHtml(id, index, data, type) {
  *
  * @returns test case object or undefined if the expected value is invalid
  */
-function buildExpectedTestCase(e, id, data, type, index) {
+function buildExpectedTestCase(e, id, type, index) {
   const textField = document.getElementById(`fuzz-expectedOutput${id}`);
   const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
   const radioException = document.getElementById(`fuzz-radioException${id}`);
@@ -1384,7 +1451,6 @@ function handleFuzzStart(eCurrTarget) {
   });
 
   // Process boolean fuzzer options
-  // THISISME - where they're using the checkboxes
   ["onlyFailures", "useHuman", "useImplicit", "useProperty"].forEach((e) => {
     const item = document.getElementById(fuzzBase + "-" + e);
     if (item !== null) {
@@ -1595,8 +1661,6 @@ function refreshValidators(validatorList) {
   // consistent button state when a selected radio is deleted
   validatorFnGrp.setAttribute("value", validatorList.validator);
 
-  // THISISME
-  // THISISME
   // THISISME vvv
   const validatorFnBullets = document.getElementById(
     "validatorFunctions-bullets"
@@ -1732,6 +1796,25 @@ function getColCountForTable(type) {
     .map((cell) => cell.colSpan)
     .reduce((a, b) => a + b, 0);
 } // fn: getColCountForTable()
+
+/**
+ * Return index of a column in table header
+ * @param {*} id
+ * @param {*} hRow
+ * @returns
+ */
+function getIdxInTableHeader(id, hRow) {
+  // Get idx of first custom validator col
+  let idx = 0;
+  for (const hCell of hRow.cells) {
+    console.log("hcell.id:", hCell.id);
+    if (hCell.id === id) {
+      break;
+    }
+    ++idx;
+  }
+  return idx;
+}
 
 /**
  * Returns string for list separated with \n
