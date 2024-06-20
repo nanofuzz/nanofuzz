@@ -22,7 +22,8 @@ const validatorLabel = "validator";
 const allValidatorsLabel = "allValidators";
 const implicitLabel = "implicit";
 const elapsedTimeLabel = "running time (ms)";
-const expandColumnLabel = "expandColumn";
+const expandLabel = "expandColumn";
+const collapseLabel = "collapseColumn";
 
 // List of hidden columns
 const hiddenColumns = [idLabel, expectedLabel, allValidatorsLabel];
@@ -60,15 +61,6 @@ const correctState = {
   classErrorOff: "classErrorOff",
 };
 
-const expandColumnState = {
-  htmlHidden: `<span class="tooltipped tooltipped-nw" aria-label="Expand custom validator column">
-                  <span class="codicon codicon-chevron-right" style=""></span>
-                </span>`,
-  htmlOpen: `<span class="tooltipped tooltipped-nw" aria-label="Collapse custom validator columns">
-              <span class="codicon codicon-chevron-left" style=""></span>
-            </span>`,
-};
-
 // Correct icon sorting validator results
 const validatorResult = {
   true: 3,
@@ -82,7 +74,7 @@ function getDefaultColumnSortOrder() {
   return {
     [pinnedLabel]: "desc",
     [correctLabel]: "desc",
-    [expandColumnLabel]: "asc", // THISISME
+    [expandLabel]: "asc", // THISISME
   };
 }
 const defaultColumnSortOrders = {
@@ -367,13 +359,18 @@ function main() {
               cell.addEventListener("click", () => {
                 handleColumnSort(cell, hRow, type, k, tbody, true);
               });
-              const expandCell = hRow.appendChild(document.createElement("th")); // twistie col
-              expandCell.innerHTML =
-                columnSortOrders[type][expandColumnLabel] === "asc"
-                  ? expandColumnState.htmlHidden
-                  : expandColumnState.htmlOpen;
-
-              expandCell.id = type + "-" + expandColumnLabel;
+              // Twistie column with right arrow (to expand columns)
+              const expandCell = hRow.appendChild(document.createElement("th"));
+              expandCell.innerHTML = /* html */ `
+                <span class="tooltipped tooltipped-nw" aria-label="Expand">
+                  <span class="codicon codicon-chevron-right" style=""></span>
+                </span>`;
+              console.log("colsortorders:", columnSortOrders);
+              if (columnSortOrders[type][expandLabel] === "desc") {
+                // asc = columns currently hidden; desc = columns currently expanded
+                expandCell.classList.add("hidden");
+              }
+              expandCell.id = type + "-" + expandLabel;
               expandCell.style =
                 "padding-left:0px; padding-right:0px; padding-bottom:0px;";
               expandCell.addEventListener("click", () => {
@@ -391,18 +388,36 @@ function main() {
                 </span>`;
               cell.id = type + "-" + k;
               cell.style = "padding-left:0px; padding-right:0px;";
+              if (validators.validators.indexOf(k) === 0) {
+                // Add padding to first custom validator header cell
+                cell.style = "padding-left:18px; padding-right:6px;";
+              }
               if (
                 validators.validators.indexOf(k) ===
                 validators.validators.length - 1
               ) {
-                // Add padding to last custom validator header cell
-                cell.style = "padding-left:6px; padding-right:15px;";
-              }
-              // if (columnSortOrders[type][expandColumnLabel] === "asc") {
-              const expandCell = document.getElementById(
-                type + "-" + expandColumnLabel
-              );
-              if (expandCell.innerHTML === expandColumnState.htmlHidden) {
+                // Twistie column with left arrow (to collapse columns)
+                const collapseCell = hRow.appendChild(
+                  document.createElement("th")
+                );
+                collapseCell.innerHTML = /* html */ `
+                <span class="tooltipped tooltipped-nw" aria-label="Collapse">
+                  <span class="codicon codicon-chevron-left" style=""></span>
+                </span>`;
+                // asc = columns currently hidden; desc = columns currently expanded
+                if (columnSortOrders[type][expandLabel] === "asc") {
+                  collapseCell.classList.add("hidden");
+                } else {
+                  // collapseCell.classList.remove("hidden");
+                }
+                collapseCell.id = type + "-" + collapseLabel;
+                collapseCell.style =
+                  "padding-left:0px; padding-right:0px; padding-bottom:0px;";
+                collapseCell.addEventListener("click", () => {
+                  toggleExpandColumn(cell, collapseCell, type);
+                });
+              } // if last custom validator col
+              if (columnSortOrders[type][expandLabel] === "asc") {
                 cell.classList.add("hidden"); // Make hidden (collapsible columns)
               }
               cell.addEventListener("click", () => {
@@ -445,10 +460,13 @@ function main() {
           const col = Object.keys(data[type][0])[i];
           let cell = hRow.cells[hRowIdx];
           if (hiddenColumns.indexOf(col) !== -1) {
-            continue; // hidden column (id, expected, allValidators)
+            continue; // hidden column (not displayed, e.g. id, expected, allValidators)
           }
-          if (cell.id === type + "-" + expandColumnLabel) {
-            cell = hRow.cells[++hRowIdx]; // displayed but blank column; not in data[type]
+          if (
+            cell.id === type + "-" + expandLabel ||
+            cell.id === type + "-" + collapseLabel
+          ) {
+            cell = hRow.cells[++hRowIdx]; // empty column (displayed but blank, e.g. expand, collapse)
           }
           if (
             (col === implicitLabel && !resultsData.env.options.useImplicit) ||
@@ -458,6 +476,7 @@ function main() {
             // if mode === fuzz, or mode === property
             continue; // hidden depending on mode
           }
+          console.log("params:", cell, hRow, type, col, tbody, false);
           // Otherwise, sort column
           handleColumnSort(cell, hRow, type, col, tbody, false);
           ++hRowIdx;
@@ -662,7 +681,7 @@ function toggleExpandColumn(cell, expandCell, type) {
   const valIdx = getIdxInTableHeader(
     type + "-" + validators.validators[0],
     thead.rows[0]
-  );
+  ); // idx of first custom validator in table header
 
   // Show or hide custom validator fn header
   for (const valName of validators.validators) {
@@ -671,21 +690,20 @@ function toggleExpandColumn(cell, expandCell, type) {
   // Show or hide custom validator table cells
   for (const row of tbody.rows) {
     if (row.getAttribute("class") === "classErrorExpectedOutputRow") continue;
-    for (let i = valIdx; i < valIdx + validators.validators.length; ++i)
-      toggleHidden(row.cells[i]);
+    for (let i = valIdx; i < valIdx + validators.validators.length; ++i) {
+      toggleHidden(row.cells[i]); // custom validator cell
+    }
+    toggleHidden(row.cells[valIdx - 1]); // expand column cell
+    toggleHidden(row.cells[valIdx + validators.validators.length]); // collapse column cell
   }
 
-  // Update frontend
-  if (expandCell.innerHTML === expandColumnState.htmlHidden) {
-    expandCell.innerHTML = expandColumnState.htmlOpen;
-    // cell.classList.remove("hidden"); /// What do we want to do with the summary column????
-  } else {
-    expandCell.innerHTML = expandColumnState.htmlHidden;
-  }
+  // Show or hide twistie column headers (expand, collapse)
+  toggleHidden(document.getElementById(type + "-" + expandLabel));
+  toggleHidden(document.getElementById(type + "-" + collapseLabel));
 
   // Send message to extension to retain whether columns are expanded or hidden
-  columnSortOrders[type][expandColumnLabel] =
-    expandCell.innerHTML === expandColumnState.htmlHidden ? "asc" : "desc";
+  columnSortOrders[type][expandLabel] =
+    columnSortOrders[type][expandLabel] === "desc" ? "asc" : "desc";
   vscode.postMessage({
     command: "columns.sorted",
     json: JSON5.stringify(columnSortOrders),
@@ -823,13 +841,14 @@ function resetOtherColumnArrows(hRow, type, thisCol, isClicking) {
   for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
     const col = Object.keys(data[type][0])[i];
     let cell = hRow.cells[hRowIdx];
-    console.log("col,cell:", col, cell);
-
     if (hiddenColumns.indexOf(col) !== -1) {
-      continue; // hidden column (id, expected, allValidators)
+      continue; // hidden column (not displayed, e.g. id, expected, allValidators)
     }
-    if (cell.id === type + "-" + expandColumnLabel) {
-      cell = hRow.cells[++hRowIdx]; // displayed but blank column; not in data[type]
+    if (
+      cell.id === type + "-" + expandLabel ||
+      cell.id === type + "-" + collapseLabel
+    ) {
+      cell = hRow.cells[++hRowIdx]; // empty column (displayed but blank, e.g. expand, collapse)
     }
     if (
       (col === implicitLabel && !resultsData.env.options.useImplicit) ||
@@ -838,15 +857,17 @@ function resetOtherColumnArrows(hRow, type, thisCol, isClicking) {
     ) {
       continue; // hidden depending on checkboxes
     }
-    if (col === thisCol || col === "pinned" || thisCol == "pinned") {
+    if (col === thisCol || col === pinnedLabel || col === correctLabel) {
       ++hRowIdx;
-      continue; // no need to reset
+      continue; // special cols; no need to reset
     }
 
     // Reset the column arrow to 'none'
     delete columnSortOrders[type][col];
     cell.classList.remove("columnSortAsc");
     cell.classList.remove("columnSortDesc");
+    cell.classList.remove("columnSortAscSmall");
+    cell.classList.remove("columnSortDescSmall");
     ++hRowIdx;
   } // for i
 }
@@ -862,8 +883,7 @@ function resetOtherColumnArrows(hRow, type, thisCol, isClicking) {
  * @returns
  */
 function updateColumnArrow(cell, type, col, isClicking) {
-  // Pinned column is a special case -- will always check at the end to see if it wants
-  // the pinned column sorted in a certain way. That arrow should be displayed.
+  // Pinned and correct columns are special -- can be sorted by them, plus one addtional column
   let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
   let currIndex = -1; // index in sortOrder array
 
@@ -887,19 +907,31 @@ function updateColumnArrow(cell, type, col, isClicking) {
   // Update frontend with appropriate arrow
   switch (currOrder) {
     case "asc":
-      cell.classList.add("columnSortAsc");
-      cell.classList.remove("columnSortDesc");
+      if (validators.validators.indexOf(col) === -1) {
+        cell.classList.add("columnSortAsc");
+        cell.classList.remove("columnSortDesc");
+      } else {
+        cell.classList.add("columnSortAscSmall");
+        cell.classList.remove("columnSortDescSmall");
+      }
       break;
     case "desc":
-      cell.classList.add("columnSortDesc");
-      cell.classList.remove("columnSortAsc");
+      if (validators.validators.indexOf(col) === -1) {
+        cell.classList.add("columnSortDesc");
+        cell.classList.remove("columnSortAsc");
+      } else {
+        cell.classList.add("columnSortDescSmall");
+        cell.classList.remove("columnSortAscSmall");
+      }
       break;
     case "none":
       cell.classList.remove("columnSortDesc");
       cell.classList.remove("columnSortAsc");
+      cell.classList.remove("columnSortDescSmall");
+      cell.classList.remove("columnSortAscSmall");
       break;
     default:
-      assert(false); // shouldn't get here
+      assert(false);
   }
 } //fn: updateColumnArrows
 
@@ -907,13 +939,11 @@ function updateColumnArrow(cell, type, col, isClicking) {
  * Draw table body and fill in with values from data[type]. Add event listeners
  * for pinning, toggling correct icons
  *
- * @param data backend data structure
  * @param type e.g. bad output, passed, etc
  * @param tbody table body
  * @param isClicking bool true if user is clicking
  */
 function drawTableBody(type, tbody, isClicking, button) {
-  // console.log("resultsData.env.options:", resultsData.env.options);
   // Clear table
   while (tbody.rows.length > 0) tbody.deleteRow(0);
 
@@ -949,7 +979,9 @@ function drawTableBody(type, tbody, isClicking, button) {
             e[correctLabel] !== undefined ||
             e[validatorLabel] !== undefined
           ) {
-            cell.style.opacity = "35%";
+            // cell.style.opacity = "35%";
+            cell.style.opacity = "50%";
+            // THISISME
           }
           if (e[k] === undefined) {
             cell.innerHTML = "";
@@ -966,7 +998,7 @@ function drawTableBody(type, tbody, isClicking, button) {
       } else if (k === validatorLabel) {
         if (resultsData.env.options.useProperty) {
           const cell = row.appendChild(document.createElement("td"));
-          cell.setAttribute("style", "padding-right:0px;");
+          cell.style = "padding-right:0px;";
           if (e[k] === undefined) {
             cell.innerHTML = "";
           } else if (e[k]) {
@@ -978,40 +1010,50 @@ function drawTableBody(type, tbody, isClicking, button) {
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-error");
           }
-          row.appendChild(document.createElement("td")); // empty (for expanded column)
+          const emptyCell = row.appendChild(document.createElement("td")); // empty (for expand column)
+          if (columnSortOrders[type][expandLabel] === "desc") {
+            emptyCell.classList.add("hidden");
+          }
         }
       } else if (validators.validators.indexOf(k) !== -1) {
         if (resultsData.env.options.useProperty) {
           // if mode === property
           const cell = row.appendChild(document.createElement("td"));
-          cell.style = "text-align: left;";
+          cell.style = "text-align: right;";
           if (e[k] === undefined) {
             cell.innerHTML = "";
           } else if (e[k]) {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-pass");
-            // drawValidatorRow(data, type, row);
 
-            if (!e[validatorLabel]) {
-              // if check mark and not on passed tab (passed everything)
+            // if (!e[validatorLabel]) {
+            if (!e[validatorLabel] || e[validatorLabel]) {
+              // For now, make it faded for all tabs, including passed tab
+              // (if check mark and not on passed tab (passed everything))
               // span.classList.add("codicon", "codicon-pass-filled");
-              cell.style.opacity = "35%";
+              // cell.style.opacity = "35%";
+              cell.style.opacity = "50%"; // THISISME
             }
           } else {
             cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-error");
-            // drawValidatorRow(data, type, row);
           }
-          const expandCol = document.getElementById(
-            type + "-" + expandColumnLabel
-          );
-          if (expandCol.innerHTML === expandColumnState.htmlHidden) {
+          if (columnSortOrders[type][expandLabel] === "asc") {
             cell.classList.add("hidden"); // Make hidden (collapsible columns)
           } else {
             cell.classList.remove("hidden");
           }
+          if (
+            validators.validators.indexOf(k) ===
+            validators.validators.length - 1
+          ) {
+            const emptyCell = row.appendChild(document.createElement("td")); // empty (for collapse column)
+            if (columnSortOrders[type][expandLabel] === "asc") {
+              emptyCell.classList.add("hidden");
+            }
+          } // if last custom validator col
         }
       } else if (k === correctLabel) {
         //if mode === fuzzLabel or exampleLabel or propertyLabel
@@ -1818,7 +1860,6 @@ function getIdxInTableHeader(id, hRow) {
   // Get idx of first custom validator col
   let idx = 0;
   for (const hCell of hRow.cells) {
-    console.log("hcell.id:", hCell.id);
     if (hCell.id === id) {
       break;
     }

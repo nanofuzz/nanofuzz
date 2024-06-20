@@ -74,11 +74,18 @@ td.classErrorOn.colGroupEnd {
 }
 td.classCheckOff,
 td.classErrorOff {
-  opacity: 35%;
-}
+  opacity: 25%;
+  /* border-width: 1px;
+  border-style: solid;
+  border-color: var(--vscode-focus-border);
+  border-radius: 6px; */
+  /* background-color: var(--vscode-list-inactiveSelectionBackground); */
+} /* THISISME!!!!! used to be: opacity 35% */
+
 td.classCheckOff:hover,
 td.classErrorOff:hover {
   opacity: 100%;
+  /* background-color: var(--vscode-list-inactiveSelectionBackground); */
 }
 td.classCheckOn,
 td.classErrorOn {
@@ -267,14 +274,31 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 /* Sorting */
 .columnSortDesc::after {
   content: "▼";
+  font-size: 0.9em;
   display: inline-block;
   padding-left: 0.25ch;
   position: absolute;
 }
 .columnSortAsc::after {
   content: "▲";
+  font-size: 0.9em;
   display: inline-block;
   padding-left: 0.25ch;
+  position: absolute;
+}
+.columnSortDescSmall::after {
+  content: "▼";
+  font-size: 0.75em;
+  display: inline-block;
+  padding-left: 0.2ch;
+  padding-bottom: 0em;
+  position: absolute;
+}
+.columnSortAscSmall::after {
+  content: "▲";
+  font-size: 0.75em;
+  display: inline-block;
+  padding-left: 0.2ch;
   position: absolute;
 }
 
