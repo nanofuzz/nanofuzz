@@ -74,13 +74,8 @@ td.classErrorOn.colGroupEnd {
 }
 td.classCheckOff,
 td.classErrorOff {
-  opacity: 25%;
-  /* border-width: 1px;
-  border-style: solid;
-  border-color: var(--vscode-focus-border);
-  border-radius: 6px; */
-  /* background-color: var(--vscode-list-inactiveSelectionBackground); */
-} /* THISISME!!!!! used to be: opacity 35% */
+  opacity: 35%;
+}
 
 td.classCheckOff:hover,
 td.classErrorOff:hover {

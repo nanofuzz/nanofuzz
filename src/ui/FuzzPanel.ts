@@ -210,7 +210,6 @@ export class FuzzPanel {
     this._fuzzEnv.options = testSet.options;
     this._argOverrides = testSet.argOverrides ?? [];
     this._sortColumns = testSet.sortColumns;
-    console.log("this._sortColumns:", this._sortColumns);
     _applyArgOverrides(this._fuzzEnv.function, this._argOverrides);
 
     // Set the webview's initial html content
@@ -284,9 +283,6 @@ export class FuzzPanel {
             break;
           case "validator.getList":
             this._doGetValidators();
-            break;
-          case "mode.change":
-            this._doChangeMode(json);
             break;
         }
       },
@@ -571,27 +567,11 @@ export class FuzzPanel {
     // prettier-ignore
     const skeleton = `
 
-/**
- * TODO: Implement this custom validator for function ${"`"}${fn.getName()}${"`"}
- *
- * Return true or false, where:
- *  - ${"`"}true${"`"} indicates the test passed the custom validation
- *  - ${"`"}false${"`"} indicates the test failed the custom validation` 
- + (hasImport ? "" : npmInstruction) + `
- */
 export function ${validatorPrefix}${
         fnCounter === 0 ? "" : fnCounter
       }(r: Result): boolean {
-  if(r.timeout) {
-    return false;
-  } else if(r.exception) {
-    return false;
-  } else {
-    // Evaluate the output relative to the input
-    // Array of inputs: r.in   Output: r.out
-    // return true;  // <-- As expected; passed
-    // return false; // <-- Unexpected; failed
-  }
+  // Array of inputs: r.in   Output: r.out
+  // return false; // <-- Unexpected; failed
   return true;
 }`;
 
@@ -632,8 +612,6 @@ export function ${validatorPrefix}${
     const newValidators = fuzzer.getValidators(program, fn);
     const newValidatorNames = JSON5.stringify(newValidators.map((e) => e.name));
 
-    console.log("doGetValidators():", newValidatorNames);
-
     // Only send the message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
       // Update the Fuzzer Environment
@@ -661,52 +639,6 @@ export function ${validatorPrefix}${
   } // fn: _doGetValidators()
 
   /**
-   * Message handler for `mode.change` command. Enables or disables heuristic and human
-   * validators and runs test automatically
-   *
-   * @param json
-   */
-  private _doChangeMode(json: string) {
-    switch (JSON5.parse(json)) {
-      case "mode.explore":
-        this._fuzzEnv.options.useImplicit = false;
-        this._fuzzEnv.options.useHuman = false;
-        this._fuzzEnv.options.mode = "Explore";
-        break;
-      case "mode.fuzz":
-        this._fuzzEnv.options.useImplicit = true;
-        this._fuzzEnv.options.useHuman = true;
-        this._fuzzEnv.options.mode = "Fuzz";
-        break;
-      case "mode.example":
-        this._fuzzEnv.options.useImplicit = false;
-        this._fuzzEnv.options.useHuman = true;
-        this._fuzzEnv.options.mode = "Example Test";
-        break;
-      case "mode.property":
-        this._fuzzEnv.options.useImplicit = false;
-        this._fuzzEnv.options.useHuman = true;
-        this._fuzzEnv.options.mode = "Property Test";
-        break;
-    }
-    console.log(
-      "After _doChangeMode():\n useImplicit = ",
-      this._fuzzEnv.options.useImplicit,
-      "\n useHuman = ",
-      this._fuzzEnv.options.useHuman
-    );
-
-    this._updateHtml();
-
-    console.log("Posting Message: mode.retest\n json:", json);
-    // Notify the front-end that mode has been changed
-    this._panel.webview.postMessage({
-      command: "mode.retest",
-      json: json,
-    });
-  } // this._doChangeMode();
-
-  /**
    * Message handler for the `fuzz.start` command.
    *
    * This handler:
@@ -721,8 +653,6 @@ export function ${validatorPrefix}${
    * @param json JSON input
    */
   private async _doFuzzStartCmd(json: string): Promise<void> {
-    console.log("CALLING: doFuzzStartCmd()");
-
     const panelInput: {
       fuzzer: Record<string, number>; // !!! Improve typing
       args: fuzzer.FuzzArgOverride[]; // !!! Improve typing
@@ -899,9 +829,6 @@ export function ${validatorPrefix}${
       (arg) => (argDefHtml += this._argDefToHtmlForm(arg, counter))
     );
 
-    // Note: the stuff in the NaNofuzz pane should technically all be indented
-    console.log("env:", env);
-
     // Prettier abhorrently butchers this HTML, so disable prettier here
     // prettier-ignore
     let html = /*html*/ `
@@ -918,112 +845,30 @@ export function ${validatorPrefix}${
           <title>NaNofuzz Panel</title>
         </head>
         <body>
-          <!-- NaNoguide pane -->
-          <div id="pane-nanoguide" class=${this._state === FuzzPanelState.init ? "" : "hidden"}> 
-            <!-- Change Mode Options -->
-            <div id="changeMode"> 
-              <div class="panelButton">
-                <span class="codicon codicon-close" id="changeMode-close"></span>
-              </div>
-              <h2 style="font-size:2em; padding-top: .25em;">Change Mode:</h2>
-              <p style="font-size:1.3em;">
-                How would you like to test <strong>${this._fuzzEnv.function.getName()}()</strong>?
-              </p>
-              <div id="modeOptions-edit">
-              <div style="padding-top: .5em;">
-                <vscode-button ${disabledFlag} id="mode.explore" appearance="primary" style="width: 95%;">
-                  <p id="mode.explore"> <strong> Explore: </strong> ${this._state === FuzzPanelState.busy ? "Testing..." : " Show me lots of example outputs"} </p>
-                </vscode-button>
-              </div>
-              <div style="padding-top: 1.5em;">
-                <vscode-button ${disabledFlag} id="mode.fuzz" appearance="primary" style="width: 95%;">
-                  <p id="mode.fuzz"> <strong> Fuzz: </strong> ${this._state === FuzzPanelState.busy ? "Testing..." : " Quickly check for likely bugs"} </p>
-                </vscode-button>
-              </div>
-              <div style="padding-top: 1.5em;">
-                <vscode-button ${disabledFlag} id="mode.example" appearance="primary" style="width: 95%;">
-                  <p id="mode.example"> <strong>Example Test:</strong> Manually classify outputs as correct or incorrect </p>
-                </vscode-button>
-              </div>
-              <div style="padding-top: 1.5em;">
-                <vscode-button ${disabledFlag} id="mode.property" appearance="primary" style="width: 95%;">
-                  <p id="mode.property"> <strong> Property Test: </strong> ${this._state === FuzzPanelState.busy ? "Testing..." : " Use a function to classify outputs as correct or incorrect"} </p>
-                </vscode-button>
-              </div>
-                <p style="padding-top: .5em; text-align: center;">
-                  Use the <strong>Change Mode</strong> button to return to this screen at any time
-                </p>
-              </div>
-            </div>
-          </div>
-
-
+          
         <!-- NaNofuzz pane -->
-        <div id="pane-nanofuzz" class=${this._state === FuzzPanelState.init ? "hidden" : ""}> 
+        <div id="pane-nanofuzz"> 
           <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;"> ${this._state === FuzzPanelState.busy ? "Testing..." : "Test: "+htmlEscape(
             fn.getName())+"()"} </h2>
 
           <!-- Function Arguments -->
           <div id="argDefs">${argDefHtml}</div>
 
-          <!-- Change validators options -->
-          <!-- Radios (probably not; hidden) -->
-          <div class="hidden">
-          <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"> <strong> Change validators: </strong> </p>
-          <vscode-radio-group orientation="vertical" style="padding-left: .75em;"> 
-            <vscode-radio ${disabledFlag} id="" name="onlyFailures.false" value="value-1" ${
-              !this._fuzzEnv.options.onlyFailures ? "checked" : ""}>
-              <strong> Fuzz: </strong> quickly check for likely bugs &nbsp;
-              <span class="codicon codicon-debug" style="font-size:1em"></span>
-              <span class="codicon codicon-person" style="font-size:1.15em"></span>
-            </vscode-radio>
-            <vscode-radio ${disabledFlag} id="" name="onlyFailures.true" value="value-2" ${
-              this._fuzzEnv.options.onlyFailures ? "checked" : ""}><strong> Example Test: </strong> classify outputs manually
-              <span class="codicon codicon-person" style="font-size:1.15em"></span>
-            </vscode-radio>
-            <vscode-radio ${disabledFlag} id="" name="onlyFailures.false" value="value-3" ${
-              !this._fuzzEnv.options.onlyFailures ? "checked" : ""}><strong> Property Test: </strong> classify outputs using a function
-              <span class="codicon codicon-hubot" style="font-size:1.15em"></span>
-              <span class="codicon codicon-person" style="font-size:1.15em"></span>
-            </vscode-radio>
-            <vscode-radio ${disabledFlag} id="" name="onlyFailures.true" value="value-4" ${
-              this._fuzzEnv.options.onlyFailures ? "checked" : ""}><strong> Custom... </strong> </vscode-radio>
-          </vscode-radio-group>
-          </div>
-
-          <!-- Basic dropdown (probably not; hidden) -->
+          <!-- Change Validators Options -->
           <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"> <strong> How to categorize output</strong>?</p>
           <div style="padding-left: .76em;">
-            <div class="hidden">
-            <vscode-dropdown id="validator-dropdown" style="width: 26em;">
-              <vscode-option id="dropdown.fuzz" ${env.options.mode === "Fuzz" ? "selected" : ""}> <!--  style="font-size:1.1em;" -->
-                Fuzz: quickly check for likely bugs &nbsp;
-                <span class="codicon codicon-debug" style="font-size:1.1em; align-content: center;"></span>
-                <span class="codicon codicon-person" style="font-size:; align-self: baseline;"></span>
-              </vscode-option>
-              <vscode-option id="dropdown.example" ${env.options.mode === "Example Test" ? "selected" : ""}>
-                Example test: classify outputs manually
-                <span class="codicon codicon-person" style="font-size:; align-content: end;"></span>
-              </vscode-option>
-              <vscode-option id="dropdown.property" ${env.options.mode === "Property Test" ? "selected" : ""}>
-                Property test: classify outputs using a function
-                <span class="codicon codicon-hubot" style="font-size:; align-self: end;"></span>
-                <span class="codicon codicon-person" style="font-size:; align-self: self-end;"></span>
-              </vscode-option>
-              <!-- <vscode-option id="dropdown.custom"> Custom...</vscode-option> -->
-            </vscode-dropdown>
-            <p></p>
-            </div>
-            
-            <!-- Checkboxes to select validator -->
+            <!-- Checkboxes -->
             <div class="fuzzInputControlGroup">
               <vscode-checkbox ${disabledFlag} id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>
-                Use heuristic validator
+                <span class="tooltipped tooltipped-ne" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, &amp; NaN"> 
+                Use heuristic validator 
+                </span>
               </vscode-checkbox>
               <span style="padding-left:1.3em;"> </span>
               <span style="display:inline-block;">
                 <vscode-checkbox ${disabledFlag} id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>
-                  Use custom functions <span id="validator-functionList" class="tooltipped tooltipped-n" aria-label=""> (see list) </span>
+                  <span id="validator-functionList" class="tooltipped tooltipped-ne" aria-label="Custom validator functions:\n"> 
+                  Use custom functions </span>
                 </vscode-checkbox>
                 <span id="validator.add" class="tooltipped tooltipped-nw" aria-label="Add new custom function">
                   <span class="codicon codicon-add"></span>
@@ -1045,31 +890,17 @@ export function ${validatorPrefix}${
             <h2>More options</h2>
 
             <vscode-panels aria-label="Options tabs" class="fuzzTabStrip">
-              <vscode-panel-tab aria-label="Validating options tab">Validating</vscode-panel-tab>
+              <!-- <vscode-panel-tab aria-label="Validating options tab">Validating</vscode-panel-tab> -->
               <vscode-panel-tab aria-label="Reporting options tab">Reporting</vscode-panel-tab>
               <vscode-panel-tab aria-label="Stopping options tab">Stopping</vscode-panel-tab>
 
-              <vscode-panel-view>
-              <!--
-                <p>
-                  Validators categorize outputs as passed (✔︎) or failed (X). 
-                  The <strong>heuristic validator</strong> automatically categorizes these outputs as failed: 
-                  undefined, null, NaN, Infinity, exception, timeout.
-                  The <strong>human validator</strong> allows manual categorization of outputs as passed or failed.
-                </p>
-                <div class="fuzzInputControlGroup">
-                  <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use heuristic validator</vscode-checkbox>
-                  <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Use human validation</vscode-checkbox>
-                </div>
-                -->
-
-                <!-- <div class=${this._fuzzEnv.options.mode === "Property Test" ? "" : ""}> -->
+              <!-- <vscode-panel-view class="hidden">
                   <p>
                     Use a <strong>custom validator function</strong> to automatically categorize outputs as passed (✔︎) or failed (X). 
                     Click the (+) button to create a new custom validator function.
                   </p>
                   <div id="validatorFunctions-edit">
-                    <div class="hidden"> <!-- hiding validator function radios -->
+                    <div> 
                     <vscode-radio-group id="validatorFunctions-radios">
                       <vscode-button ${disabledFlag} id="validator.addHIDDEN" appearance="icon" aria-label="Add">
                         <span class="tooltipped tooltipped-n" aria-label="New validator function">
@@ -1082,46 +913,10 @@ export function ${validatorPrefix}${
                         </span>
                       </vscode-button>
                     </vscode-radio-group>
-                    </div> <!-- hiding validator function radios -->
-
-                    <!-- THISISME -->
-                    <ul id="validatorFunctions-bullets" style="margin-top:.1em;"> 
-                    </ul>
-                    <div style="padding-left:1em;">
-                      <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
-                        <span class="tooltipped tooltipped-ne" aria-label="New validator function">
-                          <span class="codicon codicon-add" style="font-size:1.5em;"></span>
-                        </span>
-                      </vscode-button>
-                      <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh" style="margin-left:1.5em;">
-                        <span class="tooltipped tooltipped-ne" aria-label="Refresh list">
-                          <span class="codicon codicon-refresh" style="font-size:1.5em;"></span>
-                        </span>
-                      </vscode-button>
-                    </div>
-                    <!-- THISISME -->
+                    </div> 
                   </div>
-                <!-- </div> -->
-              </vscode-panel-view>
-
-              <!-- HIDDENFORNOW -->
-              <div class="hidden">
-              <vscode-panel-view>
-                <div>
-                  <p>
-                    Use a <strong>custom validator function</strong> to automatically categorize outputs as passed (✔︎) or failed (X). 
-                    Click the (+) button to create a new custom validator function.
-                  </p>
-                  <div id="validatorFunctions-editHIDDENFORNOW">
-                    <vscode-button ${disabledFlag} id="validator.add-HIDDENFORNOW" appearance="icon" aria-label="Add">
-                      <span class="tooltipped tooltipped-n" aria-label="New validator function">
-                        <span class="codicon codicon-add"></span>
-                      </span>
-                    </vscode-button>
-                  </div>
-                </div>
-              </vscode-panel-view>
-              </div>
+              </vscode-panel-view> 
+              -->
 
               <vscode-panel-view>
                 <p>
@@ -1174,7 +969,7 @@ export function ${validatorPrefix}${
             <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
               ${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}
             </vscode-button>
-            <vscode-button  ${disabledFlag} id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
+            <vscode-button  ${disabledFlag} class="hidden" id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
               Change Mode
             </vscode-button>
             <vscode-button ${disabledFlag} ${ 
@@ -1184,8 +979,7 @@ export function ${validatorPrefix}${
                   ? `class="hidden" ` 
                   : ``
               } id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
-              More Options
-              <!-- <span class="codicon codicon-gear"></span> -->
+              More options...
               </vscode-button>
           </div>
 
@@ -1208,6 +1002,14 @@ export function ${validatorPrefix}${
             <p>No validators were selected, so all tests below will pass. You can change this in <strong>More options</strong>.</p>
           </div>
 
+          <div class="fuzzWarnings${
+            this._state === FuzzPanelState.done && this._fuzzEnv.options.useProperty && !(this._fuzzEnv.validators.length)
+              ? ""
+              : " hidden"
+          }">
+            <p>No custom functions, so the custom validator column is blank. You can add a custom function with (+).</p>
+          </div>
+
           <!-- Fuzzer Info -->
           <div class="fuzzInfo${
             this._state === FuzzPanelState.done && this._fuzzEnv.options.onlyFailures && this._results?.results.length === 0 
@@ -1217,28 +1019,6 @@ export function ${validatorPrefix}${
             <p>All tests passed.</p>
           </div>
           
-          <!-- THISISME -->
-          <!--
-          <vscode-panels aria-label="Mode tabs" class="fuzzTabStrip">
-            <vscode-panel-tab aria-label="Fuzz tab" style="font-size:1.15em;">Fuzz &nbsp;
-              <span class="codicon codicon-debug" style="font-size:1em"></span>
-              <span class="codicon codicon-person" style="font-size:1.15em"></span>
-            </vscode-panel-tab>
-            <vscode-panel-tab aria-label="Example tab" style="font-size:1.15em;">Example Test&nbsp;
-              <span class="codicon codicon-person" style="font-size:1.15em"></span>
-            </vscode-panel-tab>
-            <vscode-panel-tab aria-label="Property tab" style="font-size:1.15em;">Property Test&nbsp;
-              <span class="codicon codicon-hubot" style="font-size:1.15em"></span>
-              <span class="codicon codicon-person" style="font-size:1.15em"></span>
-            </vscode-panel-tab>
-            <vscode-panel-tab aria-label="Custom tab" style="font-size:1.15em;">Custom&nbsp;
-              <span class="codicon codicon-debug" style="font-size:1em"></span>
-              <span class="codicon codicon-hubot" style="font-size:1.15em"></span>
-              <span class="codicon codicon-person" style="font-size:1.15em"></span>
-            </vscode-panel-tab>
-            <vscode-panel-view>
-          -->
-
           <!-- Fuzzer Output -->
           <div class="fuzzResults" ${
             this._state === FuzzPanelState.done
@@ -1318,8 +1098,6 @@ export function ${validatorPrefix}${
       (env.options.useHuman ? validatorsUsed : validatorsNotUsed).push(
         "<strong>human</strong>"
       );
-      // THISISME
-      // checkboxes
       if ("validator" in env && env.validator && env.options.useProperty) {
         env.validators.forEach((e) => {
           validatorsUsed.push(`<strong>custom function (${e.name})</strong>`);
@@ -1458,11 +1236,6 @@ export function ${validatorPrefix}${
             </vscode-panels>
           </div>`;
 
-    // THISISME
-    // html += `<vscode-panel-view>`;
-    // html += /*html*/ `
-    // </vscode-panels>`;
-
     // Hidden data for the client script to process
     html += /*html*/ `
           <!-- Fuzzer Result Payload: for the client script to process -->
@@ -1492,11 +1265,6 @@ export function ${validatorPrefix}${
                 validators: this._fuzzEnv.validators.map((e) => e.name),
               })
             )}
-          </div>
-
-          <!-- Fuzzer Mode: for the client script to process -->
-          <div id="fuzzMode" style="display:none">
-            ${htmlEscape(JSON5.stringify(this._fuzzEnv.options.mode))}
           </div>
 
           <!-- Fuzzer State Payload: for the client script to persist -->
@@ -1932,7 +1700,6 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     useHuman: true,
     useImplicit: true,
     useProperty: false,
-    mode: "Fuzz",
   };
 }; // fn: getDefaultFuzzOptions()
 

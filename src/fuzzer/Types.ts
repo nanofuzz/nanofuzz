@@ -98,7 +98,6 @@ export type FuzzOptions = {
   useImplicit: boolean; // use implicit oracle
   useHuman: boolean; // use human oracle
   useProperty: boolean; // use custom validator function oracle
-  mode: string; // current mode of NaNoguide
 };
 
 /**
