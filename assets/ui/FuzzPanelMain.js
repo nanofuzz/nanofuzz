@@ -175,17 +175,17 @@ function main() {
         ? { [expectedLabel]: e.expectedOutput }
         : {};
 
-      // Custom validator (bool, true if passed all custom validators)
+      // Property validator summary (true if passed all validator functions)
       const passedValidator = resultsData.env.options.useProperty
         ? { [validatorLabel]: e.passedValidator }
         : {};
 
-      // Custom validator (array of bools for all custom validators, true if passed)
-      const allValidators = resultsData.env.options.useProperty
-        ? { [allValidatorsLabel]: e.passedValidators }
-        : {};
+      // Array of all property validator results (array of bools, each is true if passed)
+      // const allValidators = resultsData.env.options.useProperty
+      //   ? { [allValidatorsLabel]: e.passedValidators }
+      //   : {};
 
-      // Custom validator result
+      // Result for each property validator (true if passed)
       const validatorFns = {};
       for (const v in e.passedValidators) {
         validatorFns[validators.validators[v]] = e.passedValidators[v];
@@ -238,7 +238,7 @@ function main() {
           //...elapsedTimes,
           ...passedImplicit,
           ...passedValidator,
-          ...allValidators,
+          // ...allValidators,
           ...validatorFns,
           ...passedHuman,
           ...pinned,
@@ -246,7 +246,7 @@ function main() {
         });
       }
     } // for: each result
-
+    console.log("data:", data);
     // Fill the grids with data
     gridTypes.forEach((type) => {
       if (data[type].length) {
@@ -275,7 +275,7 @@ function main() {
               cell.style = "text-align: center";
               cell.classList.add("colorColumn");
               cell.innerHTML = /* html */ `
-              <span class="tooltipped tooltipped-nw" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, &amp; NaN">
+              <span class="tooltipped tooltipped-nw" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN">
                 <span class="codicon codicon-debug"></span>
               </span>`;
               cell.addEventListener("click", () => {
@@ -287,7 +287,7 @@ function main() {
               const cell = hRow.appendChild(document.createElement("th"));
               cell.classList.add("colorColumn");
               cell.innerHTML = /* html */ `
-                <span class="tooltipped tooltipped-nw" aria-label="Custom validators (summary)">
+                <span class="tooltipped tooltipped-nw" aria-label="Property validators summary">
                   <span class="codicon codicon-hubot" style="font-size:1.4em;"></span>
                 </span>`;
               cell.id = k;
@@ -295,7 +295,7 @@ function main() {
               cell.addEventListener("click", () => {
                 handleColumnSort(cell, hRow, type, k, tbody, true);
               });
-              // Twistie column with right arrow (to expand columns)
+              // Twistie column with right arrow (to expand validator columns)
               const expandCell = hRow.appendChild(document.createElement("th"));
               expandCell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-nw" aria-label="Expand">
@@ -330,7 +330,7 @@ function main() {
                 validators.validators.indexOf(k) ===
                 validators.validators.length - 1
               ) {
-                // Twistie column with left arrow (to collapse columns)
+                // Twistie column with left arrow (to collapse validator columns)
                 const collapseCell = hRow.appendChild(
                   document.createElement("th")
                 );
@@ -341,8 +341,6 @@ function main() {
                 // asc = columns currently hidden; desc = columns currently expanded
                 if (columnSortOrders[type][expandLabel] === "asc") {
                   collapseCell.classList.add("hidden");
-                } else {
-                  // collapseCell.classList.remove("hidden");
                 }
                 collapseCell.id = type + "-" + collapseLabel;
                 collapseCell.style =
@@ -352,7 +350,7 @@ function main() {
                 });
               } // if last custom validator col
               if (columnSortOrders[type][expandLabel] === "asc") {
-                cell.classList.add("hidden"); // Make hidden (collapsible columns)
+                cell.classList.add("hidden");
               }
               cell.addEventListener("click", () => {
                 handleColumnSort(cell, hRow, type, k, tbody, true);
@@ -363,7 +361,7 @@ function main() {
             cell.style = "text-align: center";
             cell.classList.add("colorColumn");
             cell.innerHTML = /* html */ `
-              <span class="tooltipped tooltipped-nw" aria-label="Human (manual) validation">
+              <span class="tooltipped tooltipped-nw" aria-label="Human validator">
                 <span class="codicon codicon-person" id="humanIndicator" style="font-size:1.4em;"></span>
               </span>`;
             cell.colSpan = 2;
@@ -1383,22 +1381,8 @@ function handleFuzzStart(eCurrTarget) {
   });
 } // fn: handleFuzzStart
 
-function listForValidatorFnTooltip(validatorList) {
-  let list = "Custom functions:\n";
-  if (validatorList.validators.length === 0) {
-    list += "(none)";
-  }
-  for (const idx in validatorList.validators) {
-    list += validatorList.validators[idx];
-    if (idx !== validatorList.validators.length) {
-      list += "\n";
-    }
-  }
-  return list;
-}
-
 /**
- * Refreshes the displayed list of validtors based on a list of
+ * Refreshes the displayed list of validators based on a list of
  * validators provided from the back-end.
  *
  * @param {*} object of type: {
@@ -1589,6 +1573,26 @@ function getIdxInTableHeader(id, hRow) {
     ++idx;
   }
   return idx;
+}
+
+/**
+ * Returns string of validator function names
+ *
+ * @param {*} validatorList list of validator fn names
+ * @returns
+ */
+function listForValidatorFnTooltip(validatorList) {
+  let list = "Property validators:\n";
+  if (validatorList.validators.length === 0) {
+    list += "(none)";
+  }
+  for (const idx in validatorList.validators) {
+    list += validatorList.validators[idx];
+    if (idx !== validatorList.validators.length) {
+      list += "\n";
+    }
+  }
+  return list;
 }
 
 /**
