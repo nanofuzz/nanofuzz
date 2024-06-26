@@ -1068,8 +1068,8 @@ export function ${validatorPrefix}${
       {
         id: "ok",
         name: "Passed",
-        description: `Passed. No validator categorized these outputs as failed.`,
-        // description: `A validator categorized these outputs as passed, or no validator categorized them as failed.`,
+        description: `Passed. A validator categorized these outputs as passed, or no validator categorized them as failed.`,
+        // description: `Passed. No validator categorized these outputs as failed.`,
         // description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
         hasGrid: true,
       },
