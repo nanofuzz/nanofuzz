@@ -1538,7 +1538,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
     fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
   } catch (e: any) {
     vscode.window.showErrorMessage(
-      `NaNofuzz could not find or does not support this function. Messge: "${e.message}"`
+      `NaNofuzz could not find or does not support this function. Message: "${e.message}"`
     );
     return;
   }

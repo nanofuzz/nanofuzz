@@ -135,10 +135,10 @@ export class FunctionDef {
    */
   public isValidator(): boolean {
     return (
-      (this.isExported() &&
-        this._argDefs.length === 1 &&
-        this._argDefs[0].getTypeRef() === "FuzzTestResult") ||
-      this._argDefs[0].getTypeRef() === "Result"
+      this.isExported() &&
+      this._argDefs.length === 1 &&
+      (this._argDefs[0].getTypeRef() === "FuzzTestResult" ||
+        this._argDefs[0].getTypeRef() === "Result")
     );
   } // fn: isValidator()
 
