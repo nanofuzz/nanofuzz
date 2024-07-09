@@ -7,6 +7,11 @@ import * as build from "./build.json";
 export const versions = build.versions;
 
 /**
+ * Simplified single Fuzzer Test Result
+ */
+export type Result = fuzzer.Result;
+
+/**
  * Single Fuzzer Test Result
  */
 export type FuzzTestResult = fuzzer.FuzzTestResult;
