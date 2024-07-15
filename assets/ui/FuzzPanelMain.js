@@ -246,7 +246,6 @@ function main() {
         });
       }
     } // for: each result
-    console.log("data:", data);
     // Fill the grids with data
     gridTypes.forEach((type) => {
       if (data[type].length) {

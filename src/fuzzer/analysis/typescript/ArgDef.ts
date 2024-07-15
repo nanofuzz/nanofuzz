@@ -290,6 +290,25 @@ export class ArgDef<T extends ArgType> {
   } // fn: setIntervals()
 
   /**
+   * Sets the input intervals for the argument.
+   *
+   * @param intervals The input intervals to set
+   *
+   * Throws an exception if any interval's min>max.
+   */
+  public setDefaultIntervals(options: ArgOptions): void {
+    const intervals = ArgDef.getDefaultIntervals(
+      this.type,
+      options
+    ) as Interval<T>[];
+    if (intervals.some((e) => e.min > e.max))
+      throw new Error(
+        `Invalid interval provided (max>min): ${JSON5.stringify(intervals)}`
+      );
+    this.intervals = intervals;
+  } // fn: setIntervals()
+
+  /**
    * Indicates whether the argument has a constant input interval.
    *
    * @returns true if the input interval represents a constant input; false otherwise

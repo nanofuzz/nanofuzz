@@ -211,6 +211,10 @@ export class FuzzPanel {
     this._argOverrides = testSet.argOverrides ?? [];
     this._sortColumns = testSet.sortColumns;
     _applyArgOverrides(this._fuzzEnv.function, this._argOverrides);
+    // TODO: There is likely a bug somewhere related to initializing the arg options !!!
+    // Options configured in the json file are correct in `this._fuzzEnv.options`, but are not carried over
+    // in `this._fuzzEnv.function._argDefs`
+    this._fuzzEnv.function.applyOptions(testSet.options.argDefaults);
 
     // Set the webview's initial html content
     this._updateHtml();

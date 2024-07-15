@@ -158,6 +158,20 @@ export class FunctionDef {
   } // fn: applyOverrides()
 
   /**
+   * Applies options to the argument definitions for the function
+   * definition that influence how the function analysis is
+   * interpreted.
+   *
+   * @param options
+   */
+  public applyOptions(options: ArgOptions): void {
+    this._argDefs.forEach((argdef) => {
+      argdef.setOptions(options);
+      argdef.setDefaultIntervals(options);
+    });
+  } // fn: applyOverrides()
+
+  /**
    * Returns a flat array of all function arguments, including
    * the children of arguments.  The selection is depth-first.
    *
