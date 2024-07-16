@@ -166,7 +166,7 @@ export class FunctionDef {
    */
   public applyOptions(options: ArgOptions): void {
     this._argDefs.forEach((argdef) => {
-      argdef.setOptions(options);
+      argdef.setStrCharSet(options.strCharset);
       argdef.setDefaultIntervals(options);
     });
   } // fn: applyOverrides()

@@ -394,6 +394,14 @@ export class ArgDef<T extends ArgType> {
   } // fn: setOptions()
 
   /**
+   * Sets the argument's strcharset (alphabet of chars for strings).
+   * @param strcharset
+   */
+  public setStrCharSet(strcharset: string) {
+    this.options.strCharset = strcharset;
+  }
+
+  /**
    * Returns the argument's children.
    *
    * @returns the argument's children (if it is an object)
