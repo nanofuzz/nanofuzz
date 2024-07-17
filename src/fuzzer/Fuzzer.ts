@@ -215,7 +215,7 @@ export const fuzz = async (
       result.output.push({
         name: "0",
         offset: 0,
-        value: fnWrapper(JSON5.parse(JSON.stringify(result.input))), // <-- Wrapper (protect the input)
+        value: fnWrapper(JSON5.parse(JSON5.stringify(result.input))), // <-- Wrapper (protect the input)
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
     } catch (e: any) {
@@ -264,28 +264,32 @@ export const fuzz = async (
         const valFnName = env.validators[valFn].name;
         // Build the validator function wrapper
         const validatorFnWrapper = functionTimeout(
-          (input: FuzzTestResult): FuzzTestResult => {
-            const inParams: any[] = [];
-            input.input.forEach((e) => inParams.push(e.value));
+          (result: FuzzTestResult): FuzzTestResult => {
+            const inParams: any[] = []; // array of input parameters
+            result.input.forEach((e) => {
+              const param = e.value;
+              inParams.push(param);
+            });
             // Simplified data structure for validator function input
             const validatorIn: Result = {
-              ...input,
               in: inParams,
               out:
-                input.output.length === 0
+                result.output.length === 0
                   ? "timeout or exception"
-                  : input.output[0].value,
+                  : result.output[0].value,
+              exception: result.exception,
+              timeout: result.timeout,
             };
             try {
-              const validatorOut: boolean = mod[valFnName](validatorIn);
+              const validatorOut: boolean = mod[valFnName](validatorIn); // this is where it goes wrong -- the array just turns into []
               return {
-                ...input,
+                ...result,
                 passedValidator: validatorOut,
                 passedValidators: [],
               };
             } catch (e: any) {
               return {
-                ...input,
+                ...result,
                 validatorException: true,
                 validatorExceptionMessage: e.message,
                 validatorExceptionStack: e.stack,
@@ -299,7 +303,9 @@ export const fuzz = async (
         result.category = categorizeResult(result, env);
 
         // Call the validator function wrapper
-        const validatorResult = validatorFnWrapper(result);
+        const validatorResult = validatorFnWrapper(
+          JSON5.parse(JSON5.stringify(result))
+        ); // <-- Wrapper (protect the input)
 
         // Store the validator results
         result.passedValidators.push(validatorResult.passedValidator);
