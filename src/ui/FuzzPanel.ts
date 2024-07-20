@@ -871,11 +871,15 @@ export function ${validatorPrefix}${
                   <span id="validator-functionList" class="tooltipped tooltipped-ne" aria-label=""> 
                   Use property validators </span>
                 </vscode-checkbox>
-                <span id="validator.add" class="tooltipped tooltipped-nw" aria-label="Add new property validator">
-                  <span class="codicon codicon-add"></span>
+                <span class="classAddRefreshValidator">
+                  <span id="validator.add" class="tooltipped tooltipped-nw" aria-label="Add new property validator">
+                    <span class="codicon codicon-add" style="padding-left:.2em; padding-right:-.1em;"></span>
+                  </span>
                 </span>
-                <span id="validator.getList" class="tooltipped tooltipped-nw" aria-label="Refresh list">
-                  <span class="codicon codicon-refresh"></span>
+                <span class="classAddRefreshValidator">
+                  <span id="validator.getList" class="tooltipped tooltipped-nw" aria-label="Refresh list">
+                    <span class="codicon codicon-refresh" style="padding-left:.1em;"></span>
+                  </span>
                 </span>
               </span>
             </div>

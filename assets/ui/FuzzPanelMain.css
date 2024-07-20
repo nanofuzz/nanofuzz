@@ -87,6 +87,10 @@ td.classErrorOn {
   opacity: 100%;
 }
 
+.classAddRefreshValidator:active {
+  background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+
 /* Expected output panel */
 td.classErrorCell {
   text-decoration: red underline wavy;
