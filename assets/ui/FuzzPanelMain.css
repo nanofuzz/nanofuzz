@@ -82,13 +82,22 @@ td.classErrorOff:hover {
   opacity: 100%;
   /* background-color: var(--vscode-list-inactiveSelectionBackground); */
 }
+td.classCheckOff:active,
+td.classErrorOff:active {
+  opacity: 80%;
+}
 td.classCheckOn,
 td.classErrorOn {
   opacity: 100%;
 }
+td.classCheckOn:active,
+td.classErrorOn:active {
+  opacity: 80%;
+}
 
 .classAddRefreshValidator:active {
-  background-color: var(--vscode-list-inactiveSelectionBackground);
+  /* background-color: var(--vscode-list-inactiveSelectionBackground); */
+  opacity: 50%;
 }
 
 /* Expected output panel */
