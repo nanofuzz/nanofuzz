@@ -257,7 +257,6 @@ function main() {
         Object.keys(data[type][0]).forEach((k) => {
           if (k === pinnedLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
-            cell.style = "text-align: center";
             cell.className = "fuzzGridCellPinned";
             cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Include in Jest test suite">
@@ -271,7 +270,6 @@ function main() {
           } else if (k === implicitLabel) {
             if (resultsData.env.options.useImplicit) {
               const cell = hRow.appendChild(document.createElement("th"));
-              cell.style = "text-align: center";
               cell.classList.add("colorColumn");
               cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN">
@@ -283,36 +281,51 @@ function main() {
             }
           } else if (k === validatorLabel) {
             if (resultsData.env.options.useProperty) {
+              // Property validator column (summary)
               const cell = hRow.appendChild(document.createElement("th"));
               cell.classList.add("colorColumn");
+              if (validators.validators.length > 1) {
+                cell.style = "padding-right:3px"; // close to twistie column
+              }
               cell.innerHTML = /* html */ `
-                <span class="tooltipped tooltipped-nw" aria-label="Property validators summary">
+                <span class="tooltipped tooltipped-nw" aria-label="${
+                  validators.validators.length < 2
+                    ? "Property validator"
+                    : "Property validator summary"
+                }">
                   <span class="codicon codicon-hubot" style="font-size:1.4em;"></span>
                 </span>`;
               cell.id = k;
-              cell.style = "padding-left:3px; padding-right:0px;";
               cell.addEventListener("click", () => {
                 handleColumnSort(cell, hRow, type, k, tbody, true);
               });
-              // Twistie column with right arrow (to expand validator columns)
-              const expandCell = hRow.appendChild(document.createElement("th"));
-              expandCell.innerHTML = /* html */ `
+            } // if useProperty
+          } else if (validators.validators.indexOf(k) !== -1) {
+            // Individual property validator columns and twistie columns
+            if (
+              resultsData.env.options.useProperty &&
+              validators.validators.length > 1
+            ) {
+              if (validators.validators.indexOf(k) === 0) {
+                // Twistie column with right arrow (to expand validator columns)
+                const expandCell = hRow.appendChild(
+                  document.createElement("th")
+                );
+                expandCell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-nw" aria-label="Expand">
                   <span class="codicon codicon-chevron-right" style=""></span>
                 </span>`;
-              if (columnSortOrders[type][expandLabel] === "desc") {
-                // asc = columns currently hidden; desc = columns currently expanded
-                expandCell.classList.add("hidden");
+                expandCell.id = type + "-" + expandLabel;
+                expandCell.classList.add("expandCollapseColumn");
+                if (columnSortOrders[type][expandLabel] === "desc") {
+                  // asc = columns currently hidden; desc = columns currently expanded
+                  expandCell.classList.add("hidden"); // hide if currently expanded
+                }
+                expandCell.addEventListener("click", () => {
+                  toggleExpandColumn(cell, expandCell, type);
+                });
               }
-              expandCell.id = type + "-" + expandLabel;
-              expandCell.style =
-                "padding-left:0px; padding-right:0px; padding-bottom:0px;";
-              expandCell.addEventListener("click", () => {
-                toggleExpandColumn(cell, expandCell, type);
-              });
-            }
-          } else if (validators.validators.indexOf(k) !== -1) {
-            if (resultsData.env.options.useProperty) {
+              // Individual property validator column
               const cell = hRow.appendChild(document.createElement("th"));
               cell.classList.add("colorColumn");
               cell.innerHTML = /* html */ `
@@ -322,9 +335,14 @@ function main() {
               cell.id = type + "-" + k;
               cell.style = "padding-left:0px; padding-right:0px;";
               if (validators.validators.indexOf(k) === 0) {
-                // Add padding to first custom validator header cell
-                cell.style = "padding-left:16px; padding-right:6px;";
+                cell.style = "padding-left:16px; padding-right:6px"; // add padding to first custom validator header cell
               }
+              if (columnSortOrders[type][expandLabel] === "asc") {
+                cell.classList.add("hidden"); // hide individual validators if currently collapsed
+              }
+              cell.addEventListener("click", () => {
+                handleColumnSort(cell, hRow, type, k, tbody, true);
+              });
               if (
                 validators.validators.indexOf(k) ===
                 validators.validators.length - 1
@@ -337,27 +355,18 @@ function main() {
                 <span class="tooltipped tooltipped-nw" aria-label="Collapse">
                   <span class="codicon codicon-chevron-left" style=""></span>
                 </span>`;
-                // asc = columns currently hidden; desc = columns currently expanded
                 if (columnSortOrders[type][expandLabel] === "asc") {
                   collapseCell.classList.add("hidden");
                 }
                 collapseCell.id = type + "-" + collapseLabel;
-                collapseCell.style =
-                  "padding-left:0px; padding-right:0px; padding-bottom:0px;";
+                collapseCell.classList.add("expandCollapseColumn");
                 collapseCell.addEventListener("click", () => {
                   toggleExpandColumn(cell, collapseCell, type);
                 });
-              } // if last custom validator col
-              if (columnSortOrders[type][expandLabel] === "asc") {
-                cell.classList.add("hidden");
               }
-              cell.addEventListener("click", () => {
-                handleColumnSort(cell, hRow, type, k, tbody, true);
-              });
-            }
+            } // if useProperty and multiple validators
           } else if (k === correctLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
-            cell.style = "text-align: center";
             cell.classList.add("colorColumn");
             cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Human validator">
@@ -896,8 +905,11 @@ function drawTableBody(type, tbody, isClicking, button) {
         }
       } else if (k === validatorLabel) {
         if (resultsData.env.options.useProperty) {
+          // Property validator column (summary)
           const cell = row.appendChild(document.createElement("td"));
-          cell.style = "padding-right:0px;";
+          if (validators.validators.length > 1) {
+            cell.style = "padding-right:0px;"; // close to twistie column if multiple validators
+          }
           if (e[k] === undefined) {
             cell.innerHTML = "";
           } else if (e[k]) {
@@ -909,13 +921,22 @@ function drawTableBody(type, tbody, isClicking, button) {
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-error");
           }
-          const emptyCell = row.appendChild(document.createElement("td")); // empty (for expand column)
-          if (columnSortOrders[type][expandLabel] === "desc") {
-            emptyCell.classList.add("hidden");
-          }
-        }
+        } // if useProperty
       } else if (validators.validators.indexOf(k) !== -1) {
-        if (resultsData.env.options.useProperty) {
+        // Individual validator columns and twistie columns
+        if (
+          resultsData.env.options.useProperty &&
+          validators.validators.length > 1
+        ) {
+          if (validators.validators.indexOf(k) === 0) {
+            // Empty cell for twistie column (expand)
+            const emptyCell = row.appendChild(document.createElement("td"));
+            emptyCell.classList.add("expandCollapseColumn");
+            if (columnSortOrders[type][expandLabel] === "desc") {
+              emptyCell.classList.add("hidden"); // hide if currently expanded
+            }
+          }
+          // Individual property validator column
           const cell = row.appendChild(document.createElement("td"));
           cell.style = "text-align: right;";
           if (e[k] === undefined) {
@@ -932,20 +953,21 @@ function drawTableBody(type, tbody, isClicking, button) {
             span.classList.add("codicon", "codicon-error");
           }
           if (columnSortOrders[type][expandLabel] === "asc") {
-            cell.classList.add("hidden"); // Make hidden (collapsible columns)
+            cell.classList.add("hidden"); // hide individual validator columns if currently collapsed
           } else {
-            cell.classList.remove("hidden");
+            cell.classList.remove("hidden"); // show individual validator columns if currently expanded
           }
           if (
             validators.validators.indexOf(k) ===
             validators.validators.length - 1
           ) {
-            const emptyCell = row.appendChild(document.createElement("td")); // empty (for collapse column)
+            // Empty cell for twistie column (collapse)
+            const emptyCell = row.appendChild(document.createElement("td"));
             if (columnSortOrders[type][expandLabel] === "asc") {
-              emptyCell.classList.add("hidden");
+              emptyCell.classList.add("hidden"); // hide if currently collapsed
             }
-          } // if last custom validator col
-        }
+          }
+        } // if useProperty and multiple validators
       } else if (k === correctLabel) {
         // Add check mark icon
         const cell1 = row.appendChild(document.createElement("td"));

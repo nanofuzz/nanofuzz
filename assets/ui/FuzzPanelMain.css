@@ -42,6 +42,12 @@ td.fuzzGridCellPinned,
 td.fuzzGridCellPin:hover {
   opacity: 100%;
 }
+/* Expand or collapse twistie column (›) */
+th.expandCollapseColumn {
+  padding-left: 0px;
+  padding-right: 0px;
+  padding-bottom: 0px;
+}
 
 /* Validator icons */
 td.classCheckOff,
