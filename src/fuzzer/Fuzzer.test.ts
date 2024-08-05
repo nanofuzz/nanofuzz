@@ -14,6 +14,7 @@ const intOptions: FuzzOptions = {
   onlyFailures: false,
   useImplicit: true,
   useHuman: true,
+  useProperty: false,
 };
 
 /**

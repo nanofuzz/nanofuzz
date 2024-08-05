@@ -12,6 +12,7 @@ import {
   FuzzIoElement,
   FuzzPinnedTest,
   FuzzTestResult,
+  Result,
   FuzzResultCategory,
   FuzzStopReason,
 } from "./Types";
@@ -214,7 +215,7 @@ export const fuzz = async (
       result.output.push({
         name: "0",
         offset: 0,
-        value: fnWrapper(JSON5.parse(JSON.stringify(result.input))), // <-- Wrapper (protect the input)
+        value: fnWrapper(JSON5.parse(JSON5.stringify(result.input))), // <-- Wrapper (protect the input)
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
     } catch (e: any) {
@@ -251,46 +252,79 @@ export const fuzz = async (
 
     // CUSTOM VALIDATOR ------------------------------------------
     // If a custom validator is selected, call it to evaluate the result
-    if ("validator" in env && env.validator) {
-      const fnName = env.validator;
+    if (
+      "validator" in env &&
+      env.validators.length &&
+      env.options.useProperty
+    ) {
+      // const fnName = env.validator;
+      result.passedValidators = [];
 
-      // Build the validator function wrapper
-      const validatorFnWrapper = functionTimeout(
-        (input: FuzzTestResult): FuzzTestResult => {
-          try {
-            const result: FuzzTestResult = mod[fnName]({ ...input });
-            return {
-              ...input,
-              passedValidator: result.passedValidator,
+      for (const valFn in env.validators) {
+        const valFnName = env.validators[valFn].name;
+        // Build the validator function wrapper
+        const validatorFnWrapper = functionTimeout(
+          (result: FuzzTestResult): FuzzTestResult => {
+            const inParams: any[] = []; // array of input parameters
+            result.input.forEach((e) => {
+              const param = e.value;
+              inParams.push(param);
+            });
+            // Simplified data structure for validator function input
+            const validatorIn: Result = {
+              in: inParams,
+              out:
+                result.output.length === 0
+                  ? "timeout or exception"
+                  : result.output[0].value,
+              exception: result.exception,
+              timeout: result.timeout,
             };
-          } catch (e: any) {
-            return {
-              ...input,
-              validatorException: true,
-              validatorExceptionMessage: e.message,
-              validatorExceptionStack: e.stack,
-            };
-          }
-        },
-        env.options.fnTimeout
-      );
+            try {
+              const validatorOut: boolean = mod[valFnName](validatorIn); // this is where it goes wrong -- the array just turns into []
+              return {
+                ...result,
+                passedValidator: validatorOut,
+                passedValidators: [],
+              };
+            } catch (e: any) {
+              return {
+                ...result,
+                validatorException: true,
+                validatorExceptionMessage: e.message,
+                validatorExceptionStack: e.stack,
+              };
+            }
+          },
+          env.options.fnTimeout
+        );
 
-      // Categorize the results (so it's not stale)
-      result.category = categorizeResult(result);
+        // Categorize the results (so it's not stale)
+        result.category = categorizeResult(result, env);
 
-      // Call the validator function wrapper
-      const validatorResult = validatorFnWrapper(result);
+        // Call the validator function wrapper
+        const validatorResult = validatorFnWrapper(
+          JSON5.parse(JSON5.stringify(result))
+        ); // <-- Wrapper (protect the input)
 
-      // Store the validator results
-      result.passedValidator = validatorResult.passedValidator;
-      result.validatorException = validatorResult.validatorException;
-      result.validatorExceptionMessage =
-        validatorResult.validatorExceptionMessage;
-      result.validatorExceptionStack = validatorResult.validatorExceptionStack;
-    }
+        // Store the validator results
+        result.passedValidators.push(validatorResult.passedValidator);
+        result.validatorException = validatorResult.validatorException;
+        result.validatorExceptionMessage =
+          validatorResult.validatorExceptionMessage;
+        result.validatorExceptionStack =
+          validatorResult.validatorExceptionStack;
+      } // for: valFn in env.validators
+
+      result.passedValidator = true; // initialize
+      for (const i in result.passedValidators) {
+        result.passedValidator =
+          result.passedValidator && result.passedValidators[i];
+      }
+    } // if validator
 
     // (Re-)categorize the result
-    result.category = categorizeResult(result);
+    result.category = categorizeResult(result, env);
 
     // Increment the failure counter if this test had a failing result
     if (result.category !== FuzzResultCategory.OK) {
@@ -485,16 +519,19 @@ function actualEqualsExpectedOutput(
  * @param result of the test
  * @returns the category of the result
  */
-export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
+export function categorizeResult(
+  result: FuzzTestResult,
+  env: FuzzEnv
+): FuzzResultCategory {
   if (result.validatorException) {
     return FuzzResultCategory.FAILURE; // Validator failed
   }
 
   const implicit = result.passedImplicit ? true : false;
-  const validator =
-    "passedValidator" in result ? result.passedValidator : undefined;
   const human =
     "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
+  const property =
+    "passedValidator" in result ? result.passedValidator : undefined;
 
   // Returns the type of bad value: execption, timeout, or badvalue
   const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
@@ -506,6 +543,13 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
       return FuzzResultCategory.BADVALUE; // PUT returned bad value
     }
   };
+  const getBadValueTypeProperty = (
+    result: FuzzTestResult
+  ): FuzzResultCategory => {
+    return result.passedValidator
+      ? FuzzResultCategory.OK
+      : FuzzResultCategory.BADVALUE; // PUT returned bad value
+  };
 
   // Either the human oracle or the validator may take precedence
   // over the implicit oracle if they exist. However, if both the
@@ -513,22 +557,22 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   // agree. If the human and validator are present yet disagree,
   // then the disagreement is another error.
   if (human === true) {
-    if (validator === false) {
+    if (property === false) {
       return FuzzResultCategory.DISAGREE;
     } else {
       return FuzzResultCategory.OK;
     }
   } else if (human === false) {
-    if (validator === true) {
+    if (property === true) {
       return FuzzResultCategory.DISAGREE;
     } else {
       return getBadValueType(result);
     }
   } else {
-    if (validator === true) {
+    if (property === true) {
       return FuzzResultCategory.OK;
-    } else if (validator === false) {
-      return getBadValueType(result);
+    } else if (property === false) {
+      return getBadValueTypeProperty(result);
     } else {
       if (implicit) {
         return FuzzResultCategory.OK;

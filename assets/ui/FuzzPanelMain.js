@@ -19,8 +19,14 @@ const idLabel = "id";
 const correctLabel = "correct output?";
 const expectedLabel = "expectedOutput";
 const validatorLabel = "validator";
+const allValidatorsLabel = "allValidators";
 const implicitLabel = "implicit";
 const elapsedTimeLabel = "running time (ms)";
+const expandLabel = "expandColumn";
+const collapseLabel = "collapseColumn";
+
+// List of hidden columns
+const hiddenColumns = [idLabel, expectedLabel, allValidatorsLabel];
 
 // Pin button states
 const pinState = {
@@ -53,7 +59,11 @@ const validatorResult = {
 // Sort order for each grid and column
 const sortOrder = ["asc", "desc", "none"];
 function getDefaultColumnSortOrder() {
-  return { [pinnedLabel]: "desc", [correctLabel]: "desc" };
+  return {
+    [pinnedLabel]: "desc",
+    [correctLabel]: "desc",
+    [expandLabel]: "asc",
+  };
 }
 const defaultColumnSortOrders = {
   failure: {}, // no pinned column
@@ -68,6 +78,8 @@ const defaultColumnSortOrders = {
 let columnSortOrders;
 // Fuzzer Results (filled by main during load event)
 let resultsData;
+// Results grouped by type (filled by main during load event)
+let data = {};
 // Validator functions (filled by main during load event)
 let validators;
 
@@ -79,7 +91,7 @@ function main() {
   // Add event listener for the fuzz.start button
   document
     .getElementById("fuzz.start")
-    .addEventListener("click", (e) => handleFuzzStart(e));
+    .addEventListener("click", (e) => handleFuzzStart(e.currentTarget));
 
   // Add event listener for the fuzz.options button
   document
@@ -105,7 +117,7 @@ function main() {
     .addEventListener("click", (e) => handleGetListOfValidators(e));
 
   // Load & display the validator functions from the HTML
-  const validators = JSON5.parse(
+  validators = JSON5.parse(
     htmlUnescape(document.getElementById("validators").innerHTML)
   );
   refreshValidators(validators);
@@ -139,7 +151,6 @@ function main() {
 
   // Fill the result grids
   if (Object.keys(resultsData).length) {
-    const data = {};
     gridTypes.forEach((type) => {
       data[type] = [];
     });
@@ -164,11 +175,21 @@ function main() {
         ? { [expectedLabel]: e.expectedOutput }
         : {};
 
-      // Custom validator result (if a customer validator was used)
-      const passedValidator =
-        validators.validator !== implicitOracleValidatorName
-          ? { [validatorLabel]: e.passedValidator }
-          : {};
+      // Property validator summary (true if passed all validator functions)
+      const passedValidator = resultsData.env.options.useProperty
+        ? { [validatorLabel]: e.passedValidator }
+        : {};
+
+      // Array of all property validator results (array of bools, each is true if passed)
+      // const allValidators = resultsData.env.options.useProperty
+      //   ? { [allValidatorsLabel]: e.passedValidators }
+      //   : {};
+
+      // Result for each property validator (true if passed)
+      const validatorFns = {};
+      for (const v in e.passedValidators) {
+        validatorFns[validators.validators[v]] = e.passedValidators[v];
+      }
 
       // Test case runtime
       const elapsedTime = {
@@ -217,13 +238,14 @@ function main() {
           //...elapsedTimes,
           ...passedImplicit,
           ...passedValidator,
+          // ...allValidators,
+          ...validatorFns,
           ...passedHuman,
           ...pinned,
           ...expectedOutput,
         });
       }
     } // for: each result
-
     // Fill the grids with data
     gridTypes.forEach((type) => {
       if (data[type].length) {
@@ -235,77 +257,163 @@ function main() {
         Object.keys(data[type][0]).forEach((k) => {
           if (k === pinnedLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
-            cell.style = "text-align: center";
             cell.className = "fuzzGridCellPinned";
             cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Include in Jest test suite">
                 <big>pin</big>
               </span>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, data, tbody, true);
+              handleColumnSort(cell, hRow, type, k, tbody, true);
             });
-          } else if (k === idLabel) {
-            // noop
-          } else if (k === expectedLabel) {
-            // noop
+          } else if (hiddenColumns.indexOf(k) !== -1) {
+            // noop (hidden)
           } else if (k === implicitLabel) {
-            const cell = hRow.appendChild(document.createElement("th"));
-            cell.style = "text-align: center";
-            cell.classList.add("colorColumn");
-            cell.innerHTML = /* html */ `
-              <span class="tooltipped tooltipped-nw" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, &amp; NaN">
+            if (resultsData.env.options.useImplicit) {
+              const cell = hRow.appendChild(document.createElement("th"));
+              cell.classList.add("colorColumn");
+              cell.innerHTML = /* html */ `
+              <span class="tooltipped tooltipped-nw" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN">
                 <span class="codicon codicon-debug"></span>
               </span>`;
-            cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, data, tbody, true);
-            });
+              cell.addEventListener("click", () => {
+                handleColumnSort(cell, hRow, type, k, tbody, true);
+              });
+            }
           } else if (k === validatorLabel) {
-            const cell = hRow.appendChild(document.createElement("th"));
-            cell.style = "text-align: center";
-            cell.classList.add("colorColumn");
-            cell.innerHTML = /* html */ `
-              <span class="tooltipped tooltipped-nw" aria-label="Custom function validator">
-                <span class="codicon codicon-hubot"></span>
-              </span>`;
-            cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, data, tbody, true);
-            });
+            if (resultsData.env.options.useProperty) {
+              // Property validator column (summary)
+              const cell = hRow.appendChild(document.createElement("th"));
+              cell.classList.add("colorColumn");
+              if (validators.validators.length > 1) {
+                cell.style = "padding-right:3px"; // close to twistie column
+              }
+              cell.innerHTML = /* html */ `
+                <span class="tooltipped tooltipped-nw" aria-label="${
+                  validators.validators.length < 2
+                    ? "Property validator"
+                    : "Property validator summary"
+                }">
+                  <span class="codicon codicon-hubot" style="font-size:1.4em;"></span>
+                </span>`;
+              cell.id = k;
+              cell.addEventListener("click", () => {
+                handleColumnSort(cell, hRow, type, k, tbody, true);
+              });
+            } // if useProperty
+          } else if (validators.validators.indexOf(k) !== -1) {
+            // Individual property validator columns and twistie columns
+            if (
+              resultsData.env.options.useProperty &&
+              validators.validators.length > 1
+            ) {
+              if (validators.validators.indexOf(k) === 0) {
+                // Twistie column with right arrow (to expand validator columns)
+                const expandCell = hRow.appendChild(
+                  document.createElement("th")
+                );
+                expandCell.innerHTML = /* html */ `
+                <span class="tooltipped tooltipped-nw" aria-label="Expand">
+                  <span class="codicon codicon-chevron-right" style=""></span>
+                </span>`;
+                expandCell.id = type + "-" + expandLabel;
+                expandCell.classList.add("expandCollapseColumn");
+                if (columnSortOrders[type][expandLabel] === "desc") {
+                  // asc = columns currently hidden; desc = columns currently expanded
+                  expandCell.classList.add("hidden"); // hide if currently expanded
+                }
+                expandCell.addEventListener("click", () => {
+                  toggleExpandColumn(cell, expandCell, type);
+                });
+              }
+              // Individual property validator column
+              const cell = hRow.appendChild(document.createElement("th"));
+              cell.classList.add("colorColumn");
+              cell.innerHTML = /* html */ `
+                <span class="tooltipped tooltipped-nw" aria-label="${k}">
+                  <span class="codicon codicon-hubot" style="font-size: 1em;"></span> <!-- small -->
+                </span>`;
+              cell.id = type + "-" + k;
+              cell.style = "padding-left:0px; padding-right:0px;";
+              if (validators.validators.indexOf(k) === 0) {
+                cell.style = "padding-left:16px; padding-right:6px"; // add padding to first custom validator header cell
+              }
+              if (columnSortOrders[type][expandLabel] === "asc") {
+                cell.classList.add("hidden"); // hide individual validators if currently collapsed
+              }
+              cell.addEventListener("click", () => {
+                handleColumnSort(cell, hRow, type, k, tbody, true);
+              });
+              if (
+                validators.validators.indexOf(k) ===
+                validators.validators.length - 1
+              ) {
+                // Twistie column with left arrow (to collapse validator columns)
+                const collapseCell = hRow.appendChild(
+                  document.createElement("th")
+                );
+                collapseCell.innerHTML = /* html */ `
+                <span class="tooltipped tooltipped-nw" aria-label="Collapse">
+                  <span class="codicon codicon-chevron-left" style=""></span>
+                </span>`;
+                if (columnSortOrders[type][expandLabel] === "asc") {
+                  collapseCell.classList.add("hidden");
+                }
+                collapseCell.id = type + "-" + collapseLabel;
+                collapseCell.classList.add("expandCollapseColumn");
+                collapseCell.addEventListener("click", () => {
+                  toggleExpandColumn(cell, collapseCell, type);
+                });
+              }
+            } // if useProperty and multiple validators
           } else if (k === correctLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
-            cell.style = "text-align: center";
             cell.classList.add("colorColumn");
             cell.innerHTML = /* html */ `
-              <span class="tooltipped tooltipped-nw" aria-label="Human (manual) validation">
-                <span class="codicon codicon-person" id="humanIndicator"></span>
+              <span class="tooltipped tooltipped-nw" aria-label="Human validator">
+                <span class="codicon codicon-person" id="humanIndicator" style="font-size:1.4em;"></span>
               </span>`;
             cell.colSpan = 2;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, data, tbody, true);
+              handleColumnSort(cell, hRow, type, k, tbody, true);
             });
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.innerHTML = `<big>${htmlEscape(k)}</big>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, data, tbody, true);
+              handleColumnSort(cell, hRow, type, k, tbody, true);
             });
           }
         }); // for each column k
 
         // Render the data rows, set up event listeners
-        drawTableBody(data, type, tbody, false);
+        drawTableBody(type, tbody, false);
 
         // Initial sort, according to columnSortOrders
         let hRowIdx = 0;
-        for (let k = 0; k < Object.keys(data[type][0]).length; ++k) {
-          let col = Object.keys(data[type][0])[k];
+        for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
+          const col = Object.keys(data[type][0])[i];
           let cell = hRow.cells[hRowIdx];
-          if (col === idLabel || col === expectedLabel) {
-            continue;
+          if (hiddenColumns.indexOf(col) !== -1) {
+            continue; // hidden column (not displayed, e.g. id, expected, allValidators)
           }
-          handleColumnSort(cell, hRow, type, col, data, tbody, false);
+          if (
+            cell.id === type + "-" + expandLabel ||
+            cell.id === type + "-" + collapseLabel
+          ) {
+            cell = hRow.cells[++hRowIdx]; // empty column (displayed but blank, e.g. expand, collapse)
+          }
+          if (
+            (col === implicitLabel && !resultsData.env.options.useImplicit) ||
+            (validators.validators.indexOf(col) !== -1 &&
+              !resultsData.env.options.useProperty)
+          ) {
+            continue; // hidden depending on checkboxes
+          }
+          // Otherwise, sort column
+          handleColumnSort(cell, hRow, type, col, tbody, false);
           ++hRowIdx;
-        }
-      } // if (data[type].length)
+        } // for i
+      } // if data[type].length
     }); // for each type (e.g. bad output, passed)
   }
 } // fn: main()
@@ -320,10 +428,10 @@ function toggleFuzzOptions(e) {
   const fuzzOptionsButton = document.getElementById("fuzz.options");
   if (isHidden(fuzzOptions)) {
     toggleHidden(fuzzOptions);
-    fuzzOptionsButton.innerHTML = "Fewer options";
+    // fuzzOptionsButton.innerHTML = "Fewer options";
   } else {
     toggleHidden(fuzzOptions);
-    fuzzOptionsButton.innerHTML = "More options";
+    // fuzzOptionsButton.innerHTML = "More options";
   }
 
   // Refresh the list of validators
@@ -337,7 +445,7 @@ function toggleFuzzOptions(e) {
  * @param type grid type (e.g., passed, invalid)
  * @param data the back-end data structure
  */
-function handlePinToggle(id, type, data) {
+function handlePinToggle(id, type) {
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) throw e("invalid id");
 
@@ -389,13 +497,12 @@ function handlePinToggle(id, type, data) {
  *
  * @param button icon that was clicked
  * @param row current row
- * @param data backend data structure
  * @param type e.g. bad output, passed
  * @param tbody table body for 'type'
  * @param cell1 check icon
  * @param cell2 error icon
  */
-function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
+function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
   const id = row.getAttribute("id");
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) throw e("invalid id");
@@ -450,7 +557,7 @@ function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
   }
 
   // Redraw table !!!!! Do we need to do this?
-  drawTableBody(data, type, tbody, true, button);
+  drawTableBody(type, tbody, true, button);
 
   const onOff = JSON.parse(button.getAttribute("onOff"));
   const pinCell = document.getElementById(`fuzzSaveToggle-${id}`);
@@ -478,47 +585,76 @@ function handleCorrectToggle(button, row, data, type, tbody, cell1, cell2) {
   });
 }
 
+function toggleExpandColumn(cell, expandCell, type) {
+  const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
+  const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
+
+  const valIdx = getIdxInTableHeader(
+    type + "-" + validators.validators[0],
+    thead.rows[0]
+  ); // idx of first custom validator in table header
+
+  // Show or hide custom validator fn header
+  for (const valName of validators.validators) {
+    toggleHidden(document.getElementById(type + "-" + valName));
+  }
+  // Show or hide custom validator table cells
+  for (const row of tbody.rows) {
+    if (row.getAttribute("class") === "classErrorExpectedOutputRow") continue;
+    for (let i = valIdx; i < valIdx + validators.validators.length; ++i) {
+      toggleHidden(row.cells[i]); // custom validator cell
+    }
+    toggleHidden(row.cells[valIdx - 1]); // expand column cell
+    toggleHidden(row.cells[valIdx + validators.validators.length]); // collapse column cell
+  }
+
+  // Show or hide twistie column headers (expand, collapse)
+  toggleHidden(document.getElementById(type + "-" + expandLabel));
+  toggleHidden(document.getElementById(type + "-" + collapseLabel));
+
+  // Send message to extension to retain whether columns are expanded or hidden
+  columnSortOrders[type][expandLabel] =
+    columnSortOrders[type][expandLabel] === "desc" ? "asc" : "desc";
+  vscode.postMessage({
+    command: "columns.sorted",
+    json: JSON5.stringify(columnSortOrders),
+  });
+}
+
 /**
- * Sorts table based on a column. Each column can be toggled between 'asc', 'desc', and
- * 'none'. The most recent column that the user clicks has the highest precedence.
+ * Sorts table based on a column (each column toggles between asc, desc, none).
+ * The most recent column clicked has the highest precedence.
  * Uses stable sort, so previously sorted rows will not change unless they have to.
  *
  * @param cell cell of hRow
  * @param hRow header row
  * @param type (timeout, exception, badValue, ok, etc.)
  * @param col (ex: input:a, output, pin)
- * @param data backend data structure
  * @param tbody table body
- * @param isClicking bool determining if the function is being called because the user
- * clicked on a column, or if an initial sort is occurring
+ * @param isClicking true if user clicked a column; false if an 'initial sort'
  *
  * 'Initial sort' could be:
  *  - Making sure the pinned/correct columns are sorted at the beginning
  *  - Making sure we retain previous sort settings if you click 'Test' again
  */
-function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
+function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
   // We are only explicitly sorting by one column at a time (with the pinned and correct
   // columns being special cases)
   // Reset the other column arrows to 'none'
-  if (isClicking) {
-    resetOtherColumnArrows(hRow, type, column, data);
-  }
+  resetOtherColumnArrows(hRow, type, column, isClicking);
 
-  // Update the sort arrow for this column
+  // Update the sort arrow for this column (asc->desc etc, and frontend)
   updateColumnArrow(cell, type, column, isClicking);
 
-  // Sort the current column value based on the sort order
+  // Define sorting function:
+  // Sort current column value based on sort order
   const sortFn = (a, b, thisCol) => {
-    // Ascending, descending, or none?
-    // If none, return; if descending, switch a and b
     if (columnSortOrders[type][thisCol] == "none") {
-      return 0;
+      return 0; // no need to sort
     } else if (columnSortOrders[type][thisCol] == "desc") {
       const temp = a;
-      a = b;
-      b = temp;
+      (a = b), (b = temp); // swap a and b
     }
-
     // Determine type of object
     let aType;
     try {
@@ -526,7 +662,6 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
     } catch (error) {
       aType = "string";
     }
-
     // Save original strings (to break ties alphabetically)
     let aVal = (a[thisCol] ?? "undefined") + "";
     let bVal = (b[thisCol] ?? "undefined") + "";
@@ -540,21 +675,17 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
       switch (aType) {
         case "number":
           // Sort numerically
-          a = Number(a[thisCol]);
-          b = Number(b[thisCol]);
+          (a = Number(a[thisCol])), (b = Number(b[thisCol]));
           break;
         case "object":
           // Sort by length
           if (a[thisCol].length) {
-            a = a[thisCol].length;
-            b = b[thisCol].length;
+            (a = a[thisCol].length), (b = b[thisCol].length);
             // If numerical values, break ties based on number
             try {
-              aVal = JSON.parse(a[thisCol]);
-              bVal = JSON.parse(b[thisCol]);
+              (aVal = JSON.parse(a[thisCol])), (bVal = JSON.parse(b[thisCol]));
             } catch (error) {
-              // noop
-              // If not numerical values, break ties alphabetically
+              // noop; if not numerical, break ties alphabetically
             }
           } else {
             a = Object.keys(a[thisCol]).length;
@@ -563,22 +694,18 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
           break;
         default:
           // Sort as string by length, break ties alphabetically
-          a = (a[thisCol] ?? "").length;
-          b = (b[thisCol] ?? "").length;
+          (a = (a[thisCol] ?? "").length), (b = (b[thisCol] ?? "").length);
           break;
-      }
+      } // switch
     }
-
     // Compare values and sort
     if (a === b) {
       if (aVal === bVal) {
         return 0; // a = b
       } else if (aVal > bVal) {
-        // break tie
-        return 2;
+        return 2; // break tie
       } else {
-        // break tie
-        return -2;
+        return -2; // break tie
       }
     } else if (a > b) {
       return 2; // a > b
@@ -587,20 +714,18 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
     }
   }; // fn: sortFn()
 
-  // Sort the table data in order of the sort columns such
-  // that the next column is a tiebreaker for the current column
+  // Call sorting function:
+  // Sort data in order of sort columns (next col is tiebreaker for current col)
   data[type].sort((a, b) => {
-    for (const thisCol of Object.keys(columnSortOrders[type])) {
-      const result = sortFn(a, b, thisCol);
-      if (result !== 0) {
-        return result;
-      }
+    for (const col of Object.keys(columnSortOrders[type])) {
+      const result = sortFn(a, b, col);
+      if (result !== 0) return result;
     }
     return 0; // a = b for all columns
   });
 
   // Sorting done, display table
-  drawTableBody(data, type, tbody, false);
+  drawTableBody(type, tbody, false);
 
   // Send message to extension to retain sort order
   if (isClicking) {
@@ -618,27 +743,44 @@ function handleColumnSort(cell, hRow, type, column, data, tbody, isClicking) {
  * @param hRow header row
  * @param type (timeout, exception, badValue, ok)
  * @param thisCol the current column being sorted by
- * @param data
+ * @param isClicking
  */
-function resetOtherColumnArrows(hRow, type, thisCol, data) {
+function resetOtherColumnArrows(hRow, type, thisCol, isClicking) {
+  if (!isClicking) return;
   // For a given type, iterate over the columns (ex: input a, output, pin)
   let hRowIdx = 0;
-  for (let k = 0; k < Object.keys(data[type][0]).length; ++k) {
-    let col = Object.keys(data[type][0])[k];
+  for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
+    const col = Object.keys(data[type][0])[i];
     let cell = hRow.cells[hRowIdx];
-    if (col === "id" || col === expectedLabel) {
-      continue; // hidden
+    if (hiddenColumns.indexOf(col) !== -1) {
+      continue; // hidden column (not displayed, e.g. id, expected, allValidators)
     }
-    if (col === thisCol || col === "pinned" || thisCol == "pinned") {
+    if (
+      cell.id === type + "-" + expandLabel ||
+      cell.id === type + "-" + collapseLabel
+    ) {
+      cell = hRow.cells[++hRowIdx]; // empty column (displayed but blank, e.g. expand, collapse)
+    }
+    if (
+      (col === implicitLabel && !resultsData.env.options.useImplicit) ||
+      (validators.validators.indexOf(col) !== -1 &&
+        !resultsData.env.options.useProperty)
+    ) {
+      continue; // hidden depending on checkboxes
+    }
+    if (col === thisCol || col === pinnedLabel || col === correctLabel) {
       ++hRowIdx;
-      continue;
+      continue; // special cols; no need to reset
     }
+
     // Reset the column arrow to 'none'
     delete columnSortOrders[type][col];
     cell.classList.remove("columnSortAsc");
     cell.classList.remove("columnSortDesc");
+    cell.classList.remove("columnSortAscSmall");
+    cell.classList.remove("columnSortDescSmall");
     ++hRowIdx;
-  }
+  } // for i
 }
 
 /**
@@ -652,57 +794,55 @@ function resetOtherColumnArrows(hRow, type, thisCol, data) {
  * @returns
  */
 function updateColumnArrow(cell, type, col, isClicking) {
-  // Pinned column is a special case -- will always check at the end to see if it wants
-  // the pinned column sorted in a certain way. That arrow should be displayed.
+  // Pinned and correct columns are special -- can be sorted by them, plus one addtional column
   let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
-  let currIndex = -1;
+  let currIndex = -1; // index in sortOrder array
 
-  // Here, currIndex represents an index of sortOrder = ['asc','desc','none']
-  if (!currOrder) {
-    // If currOrder is undefined, either return or set currOrder to default value 'asc'
-    if (!isClicking) {
-      return;
-    } else {
+  if (isClicking) {
+    if (!currOrder) {
+      // Set default if undefined
       currOrder = "asc";
       currIndex = 0; // index in [asc, desc, none]
-    }
-  } else {
-    // If currOrder is already defined and the user clicked on a column,
-    // change the sorting direction to the next value in the cycle
-    // (asc -> desc, desc -> none, none -> asc)
-    if (isClicking) {
-      for (let i = 0; i < sortOrder.length; ++i) {
-        if (currOrder === sortOrder[i]) currIndex = i;
-      }
-      currIndex = (currIndex + 1) % sortOrder.length;
+    } else {
+      // Update sorting direction (asc -> desc, desc -> none, none -> asc)
+      const idx = sortOrder.indexOf(currOrder);
+      currIndex = (idx + 1) % sortOrder.length;
       currOrder = sortOrder[currIndex];
     }
+    // Update columnSortOrders
+    columnSortOrders[type][col] = currOrder;
+    if (currOrder === "none") delete columnSortOrders[type][col];
   }
 
-  // Set attribute to display appropriate arrow
+  if (!isClicking && !currOrder) return;
+  // Update frontend with appropriate arrow
   switch (currOrder) {
     case "asc":
-      cell.classList.add("columnSortAsc");
-      cell.classList.remove("columnSortDesc");
+      if (validators.validators.indexOf(col) === -1) {
+        cell.classList.add("columnSortAsc");
+        cell.classList.remove("columnSortDesc");
+      } else {
+        cell.classList.add("columnSortAscSmall");
+        cell.classList.remove("columnSortDescSmall");
+      }
       break;
     case "desc":
-      cell.classList.add("columnSortDesc");
-      cell.classList.remove("columnSortAsc");
+      if (validators.validators.indexOf(col) === -1) {
+        cell.classList.add("columnSortDesc");
+        cell.classList.remove("columnSortAsc");
+      } else {
+        cell.classList.add("columnSortDescSmall");
+        cell.classList.remove("columnSortAscSmall");
+      }
       break;
     case "none":
       cell.classList.remove("columnSortDesc");
       cell.classList.remove("columnSortAsc");
+      cell.classList.remove("columnSortDescSmall");
+      cell.classList.remove("columnSortAscSmall");
       break;
     default:
-      assert(false); // shouldn't get here
-  }
-
-  if (isClicking) {
-    if (currOrder === "none") {
-      delete columnSortOrders[type][col];
-    } else {
-      columnSortOrders[type][col] = currOrder;
-    }
+      assert(false);
   }
 } //fn: updateColumnArrows
 
@@ -710,12 +850,11 @@ function updateColumnArrow(cell, type, col, isClicking) {
  * Draw table body and fill in with values from data[type]. Add event listeners
  * for pinning, toggling correct icons
  *
- * @param data backend data structure
  * @param type e.g. bad output, passed, etc
  * @param tbody table body
- * @param isClicking bool true if the function is being called because the user is clicking
+ * @param isClicking bool true if user is clicking
  */
-function drawTableBody(data, type, tbody, isClicking, button) {
+function drawTableBody(type, tbody, isClicking, button) {
   // Clear table
   while (tbody.rows.length > 0) tbody.deleteRow(0);
 
@@ -734,59 +873,115 @@ function drawTableBody(data, type, tbody, isClicking, button) {
         cell.addEventListener("click", (e) =>
           handlePinToggle(
             e.currentTarget.parentElement.getAttribute("id"),
-            type,
-            data
+            type
           )
         );
       } else if (k === idLabel) {
         id = parseInt(e[k]);
         row.setAttribute("id", id);
-      } else if (k === expectedLabel) {
-        // noop
+      } else if (hiddenColumns.indexOf(k) !== -1) {
+        // noop (hidden)
       } else if (k === implicitLabel) {
-        const cell = row.appendChild(document.createElement("td"));
-        // Fade the indicator if overridden by another validator
-        if (e[correctLabel] !== undefined || e[validatorLabel] !== undefined) {
-          cell.style.opacity = "35%";
-        }
-        if (e[k] === undefined) {
-          cell.innerHTML = "";
-        } else if (e[k]) {
-          cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
-          const span = cell.appendChild(document.createElement("span"));
-          span.classList.add("codicon", "codicon-pass");
-        } else {
-          cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
-          const span = cell.appendChild(document.createElement("span"));
-          span.classList.add("codicon", "codicon-error");
+        if (resultsData.env.options.useImplicit) {
+          const cell = row.appendChild(document.createElement("td"));
+          // Fade the indicator if overridden by another validator
+          if (
+            e[correctLabel] !== undefined ||
+            e[validatorLabel] !== undefined
+          ) {
+            cell.style.opacity = "35%";
+          }
+          if (e[k] === undefined) {
+            cell.innerHTML = "";
+          } else if (e[k]) {
+            cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-pass");
+          } else {
+            cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-error");
+          }
         }
       } else if (k === validatorLabel) {
-        const cell = row.appendChild(document.createElement("td"));
-        if (e[k] === undefined) {
-          cell.innerHTML = "";
-        } else if (e[k]) {
-          cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
-          const span = cell.appendChild(document.createElement("span"));
-          span.classList.add("codicon", "codicon-pass");
-        } else {
-          cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
-          const span = cell.appendChild(document.createElement("span"));
-          span.classList.add("codicon", "codicon-error");
-        }
+        if (resultsData.env.options.useProperty) {
+          // Property validator column (summary)
+          const cell = row.appendChild(document.createElement("td"));
+          if (validators.validators.length > 1) {
+            cell.style = "padding-right:0px;"; // close to twistie column if multiple validators
+          }
+          if (e[k] === undefined) {
+            cell.innerHTML = "";
+          } else if (e[k]) {
+            cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-pass");
+          } else {
+            cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-error");
+          }
+        } // if useProperty
+      } else if (validators.validators.indexOf(k) !== -1) {
+        // Individual validator columns and twistie columns
+        if (
+          resultsData.env.options.useProperty &&
+          validators.validators.length > 1
+        ) {
+          if (validators.validators.indexOf(k) === 0) {
+            // Empty cell for twistie column (expand)
+            const emptyCell = row.appendChild(document.createElement("td"));
+            emptyCell.classList.add("expandCollapseColumn");
+            if (columnSortOrders[type][expandLabel] === "desc") {
+              emptyCell.classList.add("hidden"); // hide if currently expanded
+            }
+          }
+          // Individual property validator column
+          const cell = row.appendChild(document.createElement("td"));
+          cell.style = "text-align: right;";
+          if (e[k] === undefined) {
+            cell.innerHTML = "";
+          } else if (e[k]) {
+            cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-pass");
+            // Fade check mark for passed tests
+            cell.style.opacity = "35%";
+          } else {
+            cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-error");
+          }
+          if (columnSortOrders[type][expandLabel] === "asc") {
+            cell.classList.add("hidden"); // hide individual validator columns if currently collapsed
+          } else {
+            cell.classList.remove("hidden"); // show individual validator columns if currently expanded
+          }
+          if (
+            validators.validators.indexOf(k) ===
+            validators.validators.length - 1
+          ) {
+            // Empty cell for twistie column (collapse)
+            const emptyCell = row.appendChild(document.createElement("td"));
+            if (columnSortOrders[type][expandLabel] === "asc") {
+              emptyCell.classList.add("hidden"); // hide if currently collapsed
+            }
+          }
+        } // if useProperty and multiple validators
       } else if (k === correctLabel) {
         // Add check mark icon
         const cell1 = row.appendChild(document.createElement("td"));
         cell1.innerHTML = correctState.htmlCheck;
         cell1.setAttribute("correctType", "true");
         cell1.addEventListener("click", () =>
-          handleCorrectToggle(cell1, row, data, type, tbody, cell1, cell2)
+          handleCorrectToggle(cell1, row, type, tbody, cell1, cell2)
         );
         // Add X mark icon
         const cell2 = row.appendChild(document.createElement("td"));
         cell2.innerHTML = correctState.htmlError;
         cell2.setAttribute("correctType", "false");
         cell2.addEventListener("click", () =>
-          handleCorrectToggle(cell2, row, data, type, tbody, cell1, cell2)
+          handleCorrectToggle(cell2, row, type, tbody, cell1, cell2)
         );
 
         // Defaults here; override in the switch below
@@ -802,12 +997,12 @@ function drawTableBody(data, type, tbody, isClicking, button) {
           case "true":
             cell1.className = correctState.classCheckOn;
             cell1.setAttribute("onOff", "true");
-            handleExpectedOutput(data, type, row, tbody, isClicking, button);
+            handleExpectedOutput(type, row, tbody, isClicking, button);
             break;
           case "false":
             cell2.className = correctState.classErrorOn;
             cell2.setAttribute("onOff", "true");
-            handleExpectedOutput(data, type, row, tbody, isClicking, button);
+            handleExpectedOutput(type, row, tbody, isClicking, button);
             break;
         }
         cell1.classList.add("colGroupStart");
@@ -825,12 +1020,11 @@ function drawTableBody(data, type, tbody, isClicking, button) {
  * If not, shows error message.
  * Assumes that either the check or error icon is selected.
  *
- * @param data backend data structure
  * @param type e.g. bad output, passed
  * @param row row of tbody
  * @param tbody table body for 'type'
  */
-function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
+function handleExpectedOutput(type, row, tbody, isClicking, button) {
   const id = row.getAttribute("id");
   let toggledId;
   if (isClicking) {
@@ -858,18 +1052,18 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
     if (isClicking && id === toggledId) {
       // If marked X and it's the row being clicked on, ask for expected output
       expectedRow.className = "classGetExpectedOutputRow";
-      cell.innerHTML = expectedOutputHtml(id, index, data, type);
+      cell.innerHTML = expectedOutputHtml(id, index, type);
 
       // Event handler for text field
       const textField = document.getElementById(`fuzz-expectedOutput${id}`);
       textField.addEventListener("change", (e) =>
-        buildExpectedTestCase(textField, id, data, type, index)
+        buildExpectedTestCase(textField, id, type, index)
       );
 
       // Event handler for timeout radio button
       const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
       radioTimeout.addEventListener("change", () =>
-        buildExpectedTestCase(radioTimeout, id, data, type, index)
+        buildExpectedTestCase(radioTimeout, id, type, index)
       );
 
       // Event handler for exception radio button
@@ -877,26 +1071,20 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         `fuzz-radioException${id}`
       );
       radioException.addEventListener("change", () =>
-        buildExpectedTestCase(radioException, id, data, type, index)
+        buildExpectedTestCase(radioException, id, type, index)
       );
 
       // Event handler for value radio button
       const radioValue = document.getElementById(`fuzz-radioValue${id}`);
       radioValue.addEventListener("change", () =>
-        buildExpectedTestCase(radioValue, id, data, type, index)
+        buildExpectedTestCase(radioValue, id, type, index)
       );
 
       // Event handler for ok button
       const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
       okButton.addEventListener("click", (e) => {
         // Build the test case from the expected output panel
-        const testCase = buildExpectedTestCase(
-          radioValue,
-          id,
-          data,
-          type,
-          index
-        );
+        const testCase = buildExpectedTestCase(radioValue, id, type, index);
 
         // If the test case is valid, save it & exit the screen
         if (testCase) {
@@ -912,7 +1100,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
           });
 
           // Re-draw the expected output row again
-          handleExpectedOutput(data, type, row, tbody, false, button);
+          handleExpectedOutput(type, row, tbody, false, button);
 
           // Hide this panel that is collecting the expected output
           expectedRow.remove();
@@ -939,9 +1127,8 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
         } else if (expectedOutput[0].isException) {
           expectedText = "exception";
         } else {
-          expectedText = `output value: ${JSON5.stringify(
-            expectedOutput[0].value
-          )}`;
+          // expectedText = `output value: ${JSON5.stringify(expectedOutput[0].value)}`;
+          expectedText = `output: ${JSON5.stringify(expectedOutput[0].value)}`;
         }
       } else {
         expectedText = "value: undefined";
@@ -951,7 +1138,8 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
           <span class="codicon codicon-person"></span>
         </div>
         <div class="slightFade">
-          expected ${expectedText}&nbsp;
+          <!-- expected ${expectedText}&nbsp; -->
+          &nbsp; expected ${expectedText}&nbsp;
         </div>
         <div class="alignAsMidCell">
           <vscode-button id="fuzz-editExpectedOutput${id}" rowId="${row.id}" appearance="icon" aria-label="Edit">
@@ -967,7 +1155,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
       );
       editButton.addEventListener("click", (e) => {
         toggleHidden(expectedRow);
-        handleExpectedOutput(data, type, row, tbody, true, editButton);
+        handleExpectedOutput(type, row, tbody, true, editButton);
       });
     }
   }
@@ -982,7 +1170,7 @@ function handleExpectedOutput(data, type, row, tbody, isClicking, button) {
  * @param data back-end data structure
  * @param type e.g. bad output, passed
  */
-function expectedOutputHtml(id, index, data, type) {
+function expectedOutputHtml(id, index, type) {
   const expectedOutput = data[type][index][expectedLabel];
   let defaultOutput;
 
@@ -1020,7 +1208,7 @@ function expectedOutputHtml(id, index, data, type) {
  *
  * @returns test case object or undefined if the expected value is invalid
  */
-function buildExpectedTestCase(e, id, data, type, index) {
+function buildExpectedTestCase(e, id, type, index) {
   const textField = document.getElementById(`fuzz-expectedOutput${id}`);
   const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
   const radioException = document.getElementById(`fuzz-radioException${id}`);
@@ -1081,11 +1269,12 @@ function buildExpectedTestCase(e, id, data, type, index) {
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
  * from the UI and sends them to the extension to start the fuzzer.
  *
- * @param e onClick() event
+ * // e onClick() event
+ * @param eCurrTarget current target of onClick() event
  */
-function handleFuzzStart(e) {
+function handleFuzzStart(eCurrTarget) {
   const overrides = { fuzzer: {}, args: [] }; // Fuzzer option overrides (from UI)
-  const disableArr = [e.currentTarget]; // List of controls to disable while fuzzer is busy
+  const disableArr = [eCurrTarget]; // List of controls to disable while fuzzer is busy
   const fuzzBase = "fuzz"; // Base html id name
 
   // Process integer fuzzer options
@@ -1098,7 +1287,7 @@ function handleFuzzStart(e) {
   });
 
   // Process boolean fuzzer options
-  ["onlyFailures", "useHuman", "useImplicit"].forEach((e) => {
+  ["onlyFailures", "useHuman", "useImplicit", "useProperty"].forEach((e) => {
     const item = document.getElementById(fuzzBase + "-" + e);
     if (item !== null) {
       disableArr.push(item);
@@ -1200,11 +1389,11 @@ function handleFuzzStart(e) {
     e.style.disabled = true;
   });
 
-  // Disable the validator controls while the Fuzzer runs.
-  const validatorFnGrp = document.getElementById("validatorFunctions-radios");
-  for (const e of validatorFnGrp.children) {
-    e.style.disabled = true;
-  }
+  // // Disable the validator controls while the Fuzzer runs.
+  // const validatorFnGrp = document.getElementById("validatorFunctions-radios");
+  // for (const e of validatorFnGrp.children) {
+  //   e.style.disabled = true;
+  // }
 
   // Send the fuzzer start command to the extension
   vscode.postMessage({
@@ -1214,7 +1403,7 @@ function handleFuzzStart(e) {
 } // fn: handleFuzzStart
 
 /**
- * Refreshes the displayed list of validtors based on a list of
+ * Refreshes the displayed list of validators based on a list of
  * validators provided from the back-end.
  *
  * @param {*} object of type: {
@@ -1235,49 +1424,57 @@ function refreshValidators(validatorList) {
     validatorList.validator = implicitOracleValidatorName;
   }
 
-  // Get the current list of validator controls
-  const validatorFnGrp = document.getElementById("validatorFunctions-radios");
+  const validatorFnList = document.getElementById("validator-functionList");
+  validatorFnList.setAttribute(
+    "aria-label",
+    listForValidatorFnTooltip(validatorList)
+  );
 
-  // Add the validator function buttons to the delete list & delete them
-  const deleteList = [];
-  for (const child of validatorFnGrp.children) {
-    if (child.tagName === "VSCODE-RADIO") {
-      deleteList.push(child);
-    }
-  }
-  deleteList.forEach((e) => validatorFnGrp.removeChild(e)); // buh bye
+  // // Get the current list of validator controls
+  // const validatorFnGrp = document.getElementById("validatorFunctions-radios");
 
-  // Add buttons w/event listeners for each validator option
-  [implicitOracleValidatorName, ...validatorList.validators]
-    .reverse() // because of pre-pending before add and refresh buttons
-    .forEach((name) => {
-      // The implicit oracle has a special display name
-      const displayName =
-        name === implicitOracleValidatorName ? "(none)" : `${name}()`;
+  // // Add the validator function buttons to the delete list & delete them
+  // const deleteList = [];
+  // for (const child of validatorFnGrp.children) {
+  //   if (child.tagName === "VSCODE-RADIO") {
+  //     deleteList.push(child);
+  //   }
+  // }
+  // deleteList.forEach((e) => validatorFnGrp.removeChild(e)); // buh bye
 
-      // Create the radio button
-      const radio = document.createElement("vscode-radio");
-      radio.setAttribute("id", `validator-${name}`);
-      radio.setAttribute("name", name);
-      radio.setAttribute("value", name);
-      if (validatorList.disabled) {
-        radio.setAttribute("disabled", "true");
-      }
-      radio.innerHTML = displayName;
-      if (name === validatorList.validator) {
-        radio.setAttribute("checked", "true");
-      }
+  // // Add buttons w/event listeners for each validator option
+  // [implicitOracleValidatorName, ...validatorList.validators]
+  //   .reverse() // because of pre-pending before add and refresh buttons
+  //   .forEach((name) => {
+  //     // The implicit oracle has a special display name
+  //     const displayName =
+  //       name === implicitOracleValidatorName ? "(none)" : `${name}()`;
 
-      // Add the radio button to the radio group
-      validatorFnGrp.prepend(radio);
+  //     // Create the radio button
+  //     const radio = document.createElement("vscode-radio");
+  //     radio.setAttribute("id", `validator-${name}`);
+  //     radio.setAttribute("name", name);
+  //     radio.setAttribute("value", name);
+  //     if (validatorList.disabled) {
+  //       radio.setAttribute("disabled", "true");
+  //     }
+  //     radio.innerHTML = displayName;
+  //     if (name === validatorList.validator) {
+  //       radio.setAttribute("checked", "true");
+  //     }
 
-      // Add the onClick event handler
-      radio.addEventListener("click", (e) => handleSetValidator(e));
-    });
+  //     // Add the radio button to the radio group
+  //     validatorFnGrp.prepend(radio);
 
-  // Set the radio group's value b/c this is necessary to maintain
-  // consistent button state when a selected radio is deleted
-  validatorFnGrp.setAttribute("value", validatorList.validator);
+  //     // Add the onClick event handler
+  //     radio.addEventListener("click", (e) => {
+  //       handleSetValidator(e);
+  //     });
+  //   });
+
+  // // Set the radio group's value b/c this is necessary to maintain
+  // // consistent button state when a selected radio is deleted
+  // validatorFnGrp.setAttribute("value", validatorList.validator);
 } // fn: refreshValidators
 
 /**
@@ -1380,6 +1577,72 @@ function getColCountForTable(type) {
     .map((cell) => cell.colSpan)
     .reduce((a, b) => a + b, 0);
 } // fn: getColCountForTable()
+
+/**
+ * Return index of a column in table header
+ * @param {*} id
+ * @param {*} hRow
+ * @returns
+ */
+function getIdxInTableHeader(id, hRow) {
+  // Get idx of first custom validator col
+  let idx = 0;
+  for (const hCell of hRow.cells) {
+    if (hCell.id === id) {
+      break;
+    }
+    ++idx;
+  }
+  return idx;
+}
+
+/**
+ * Returns string of validator function names
+ *
+ * @param {*} validatorList list of validator fn names
+ * @returns
+ */
+function listForValidatorFnTooltip(validatorList) {
+  let list = "Property validators:\n";
+  if (validatorList.validators.length === 0) {
+    list += "(none)";
+  }
+  for (const idx in validatorList.validators) {
+    list += validatorList.validators[idx];
+    if (idx !== validatorList.validators.length) {
+      list += "\n";
+    }
+  }
+  return list;
+}
+
+/**
+ * Returns string for list separated with \n
+ *
+ * @param list list of strings
+ * @returns string for list
+ */
+function toNewLineList(list) {
+  let str = list.length === 0 ? `none` : ``;
+  list.forEach((e) => {
+    str += `${e}\n`;
+  });
+  return str;
+}
+
+/**
+ * Returns HTML for a bulleted list
+ *
+ * @param list list of strings
+ * @returns HTML for bulleted list
+ */
+function toBulletListHTML(list) {
+  let html = `<ul>`;
+  list.forEach((e) => {
+    html += `<li> ${e} </li>`;
+  });
+  return (html += `</ul>`);
+}
 
 /**
  * Returns a base id name for a particular argument input.
