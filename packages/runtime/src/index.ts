@@ -9,12 +9,7 @@ export const versions = build.versions;
 /**
  * Simplified single Fuzzer Test Result
  */
-export type Result = fuzzer.Result;
-
-/**
- * Single Fuzzer Test Result
- */
-export type FuzzTestResult = fuzzer.FuzzTestResult;
+export type FuzzTestResult = fuzzer.Result;
 
 /**
  * Fuzzer Input/Output Element; i.e., a concrete input or output value
