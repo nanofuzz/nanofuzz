@@ -258,6 +258,7 @@ function main() {
           if (k === pinnedLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.className = "fuzzGridCellPinned";
+            cell.id = type + "-" + pinnedLabel;
             cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Include in Jest test suite">
                 <big>pin</big>
@@ -270,6 +271,7 @@ function main() {
           } else if (k === implicitLabel) {
             if (resultsData.env.options.useImplicit) {
               const cell = hRow.appendChild(document.createElement("th"));
+              cell.id = type + "-" + implicitLabel;
               cell.classList.add("colorColumn");
               cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN">
@@ -283,6 +285,7 @@ function main() {
             if (resultsData.env.options.useProperty) {
               // Property validator column (summary)
               const cell = hRow.appendChild(document.createElement("th"));
+              cell.id = type + "-" + validatorLabel;
               cell.classList.add("colorColumn");
               if (validators.validators.length > 1) {
                 cell.style = "padding-right:3px"; // close to twistie column
@@ -295,7 +298,7 @@ function main() {
                 }">
                   <span class="codicon codicon-hubot" style="font-size:1.4em;"></span>
                 </span>`;
-              cell.id = k;
+              cell.id = type + "-" + k;
               cell.addEventListener("click", () => {
                 handleColumnSort(cell, hRow, type, k, tbody, true);
               });
@@ -368,6 +371,7 @@ function main() {
           } else if (k === correctLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.classList.add("colorColumn");
+            cell.id = type + "-" + correctLabel;
             cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Human validator">
                 <span class="codicon codicon-person" id="humanIndicator" style="font-size:1.4em;"></span>
@@ -378,6 +382,7 @@ function main() {
             });
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
+            cell.id = type + "-" + k;
             cell.innerHTML = `<big>${htmlEscape(k)}</big>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, tbody, true);
@@ -389,29 +394,12 @@ function main() {
         drawTableBody(type, tbody, false);
 
         // Initial sort, according to columnSortOrders
-        let hRowIdx = 0;
         for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
-          const col = Object.keys(data[type][0])[i];
-          let cell = hRow.cells[hRowIdx];
-          if (hiddenColumns.indexOf(col) !== -1) {
-            continue; // hidden column (not displayed, e.g. id, expected, allValidators)
+          const col = Object.keys(data[type][0])[i]; // back-end column
+          const cell = document.getElementById(type + "-" + col); // front-end column
+          if (!(col in hiddenColumns) && cell !== null) {
+            handleColumnSort(cell, hRow, type, col, tbody, false);
           }
-          if (
-            cell.id === type + "-" + expandLabel ||
-            cell.id === type + "-" + collapseLabel
-          ) {
-            cell = hRow.cells[++hRowIdx]; // empty column (displayed but blank, e.g. expand, collapse)
-          }
-          if (
-            (col === implicitLabel && !resultsData.env.options.useImplicit) ||
-            (validators.validators.indexOf(col) !== -1 &&
-              !resultsData.env.options.useProperty)
-          ) {
-            continue; // hidden depending on checkboxes
-          }
-          // Otherwise, sort column
-          handleColumnSort(cell, hRow, type, col, tbody, false);
-          ++hRowIdx;
         } // for i
       } // if data[type].length
     }); // for each type (e.g. bad output, passed)
@@ -638,10 +626,14 @@ function toggleExpandColumn(cell, expandCell, type) {
  *  - Making sure we retain previous sort settings if you click 'Test' again
  */
 function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
+  // console.debug(`Sorting type:'${type}' col:'${column}' cell:'${cell.id}'`);
+
   // We are only explicitly sorting by one column at a time (with the pinned and correct
   // columns being special cases)
   // Reset the other column arrows to 'none'
-  resetOtherColumnArrows(hRow, type, column, isClicking);
+  if (isClicking) {
+    resetOtherColumnArrows(hRow, type, column);
+  }
 
   // Update the sort arrow for this column (asc->desc etc, and frontend)
   updateColumnArrow(cell, type, column, isClicking);
@@ -743,43 +735,28 @@ function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
  * @param hRow header row
  * @param type (timeout, exception, badValue, ok)
  * @param thisCol the current column being sorted by
- * @param isClicking
  */
-function resetOtherColumnArrows(hRow, type, thisCol, isClicking) {
-  if (!isClicking) return;
-  // For a given type, iterate over the columns (ex: input a, output, pin)
-  let hRowIdx = 0;
+function resetOtherColumnArrows(hRow, type, thisCol) {
   for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
-    const col = Object.keys(data[type][0])[i];
-    let cell = hRow.cells[hRowIdx];
-    if (hiddenColumns.indexOf(col) !== -1) {
-      continue; // hidden column (not displayed, e.g. id, expected, allValidators)
-    }
+    // For a given type, iterate over the columns (ex: input a, output, pin)
+    const col = Object.keys(data[type][0])[i]; // back-end column
+    const cell = document.getElementById(type + "-" + col); // front-end column
+
     if (
-      cell.id === type + "-" + expandLabel ||
-      cell.id === type + "-" + collapseLabel
+      col === thisCol ||
+      col === type + "-" + pinnedLabel ||
+      col === type + "-" + correctLabel
     ) {
-      cell = hRow.cells[++hRowIdx]; // empty column (displayed but blank, e.g. expand, collapse)
-    }
-    if (
-      (col === implicitLabel && !resultsData.env.options.useImplicit) ||
-      (validators.validators.indexOf(col) !== -1 &&
-        !resultsData.env.options.useProperty)
-    ) {
-      continue; // hidden depending on checkboxes
-    }
-    if (col === thisCol || col === pinnedLabel || col === correctLabel) {
-      ++hRowIdx;
-      continue; // special cols; no need to reset
+      continue;
     }
 
-    // Reset the column arrow to 'none'
-    delete columnSortOrders[type][col];
-    cell.classList.remove("columnSortAsc");
-    cell.classList.remove("columnSortDesc");
-    cell.classList.remove("columnSortAscSmall");
-    cell.classList.remove("columnSortDescSmall");
-    ++hRowIdx;
+    if (cell !== null) {
+      delete columnSortOrders[type][col];
+      cell.classList.remove("columnSortAsc");
+      cell.classList.remove("columnSortDesc");
+      cell.classList.remove("columnSortAscSmall");
+      cell.classList.remove("columnSortDescSmall");
+    } // if
   } // for i
 }
 
