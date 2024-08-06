@@ -1112,12 +1112,12 @@ export function ${validatorPrefix}${
       (env.options.useHuman ? validatorsUsed : validatorsNotUsed).push(
         "<strong> <u> human</u> </strong>"
       );
-      if ("validator" in env && env.validator && env.options.useProperty) {
+      if (env.validators.length && env.options.useProperty) {
         env.validators.forEach((e) => {
-          validatorsUsed.push(`<strong> <u> property(${e.name})</u> </strong>`);
+          validatorsUsed.push(`<strong><u>property(${e.name})</u></strong>`);
         });
       } else {
-        validatorsNotUsed.push(`<strong> <u> property</u> </strong>`);
+        validatorsNotUsed.push(`<strong><u>property</u></strong>`);
       }
       let validatorsUsedText: string;
       if (validatorsUsed.length) {
