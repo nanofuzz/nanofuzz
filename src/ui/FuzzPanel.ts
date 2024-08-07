@@ -357,6 +357,17 @@ export class FuzzPanel {
       if (inputTests.version === CURR_FILE_FMT_VER) {
         // current format -- no changes needed
         return inputTests;
+      } else if (inputTests.version === "0.2.1") {
+        // v0.2.1 format -- add useProperty option
+        const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
+        for (const fn in testSet.functions) {
+          testSet.functions[fn].options.useProperty =
+            "validator" in testSet.functions[fn];
+        }
+        console.info(
+          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+        );
+        return testSet;
       } else if (inputTests.version === "0.2.0") {
         // v0.2.0 format -- add maxFailures and onlyFailure options
         const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
@@ -367,7 +378,7 @@ export class FuzzPanel {
           testSet.functions[fn].options.useImplicit = true;
         }
         console.info(
-          `Upgraded test set in file ${jsonFile} to ${testSet.version} to current version`
+          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
         );
         return testSet;
       } else {
@@ -856,20 +867,20 @@ export function ${validatorPrefix}${
           <div id="argDefs">${argDefHtml}</div>
 
           <!-- Change Validators Options -->
-          <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"> <strong> How to categorize output</strong>?</p>
+          <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"><strong>Categorize output using:</strong></p>
           <div style="padding-left: .76em;">
             <!-- Checkboxes -->
             <div class="fuzzInputControlGroup">
               <vscode-checkbox ${disabledFlag} id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>
                 <span class="tooltipped tooltipped-ne" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN"> 
-                Use heuristic validator 
+                Heuristic validator 
                 </span>
               </vscode-checkbox>
               <span style="padding-left:1.3em;"> </span>
               <span style="display:inline-block;">
                 <vscode-checkbox ${disabledFlag} id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>
                   <span id="validator-functionList" class="tooltipped tooltipped-ne" aria-label=""> 
-                  Use property validators </span>
+                  Property validator(s) </span>
                 </vscode-checkbox>
                 <span id="validator.add" class="tooltipped tooltipped-nw" aria-label="Add new property validator">
                   <span class="classAddRefreshValidator">
@@ -1065,9 +1076,9 @@ export function ${validatorPrefix}${
         name: "Failed",
         description: `${
           this._fuzzEnv.options.useProperty // if using property validator
-            ? `The property validator or human validator categorized these outputs as failed.`
+            ? `The property or human validator categorized these outputs as failed.`
             : this._fuzzEnv.options.useImplicit // if using heuristic validator
-            ? `The heuristic validator or human validator categorized these outputs as failed.`
+            ? `The heuristic or human validator categorized these outputs as failed.`
             : `The human validator categorized these outputs as failed.`
         }`,
         // description: `A validator categorized these outputs as failed. The heuristic validator by default fails outputs that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
@@ -1775,7 +1786,7 @@ const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.2.1";
 /**
  * Current file format version for persisting test sets / pinned test cases
  */
-const CURR_FILE_FMT_VER = "0.2.1"; // !!!! Increment if file format changes
+const CURR_FILE_FMT_VER = "0.3.0"; // !!!! Increment if file format changes
 
 // ----------------------------- Types ----------------------------- //
 
