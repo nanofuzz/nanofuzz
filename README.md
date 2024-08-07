@@ -2,9 +2,9 @@
 
 NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for TypeScript that implements a Gradual Oracle, which uses human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
-![NaNofuzz Screenshot](https://github.com/nanofuzz/nanofuzz/assets/22134678/0bb9ed51-1b07-46e4-8986-ae377055dfe7)
+![NaNofuzz Screenshot](https://github.com/user-attachments/assets/7655c0c7-96ee-4251-b383-77023c68f3da)
 
-Unlike many Automatic Test sUite Generators, NaNofuzz' Gradual Oracle helps you: test properties of the program similar to Quickcheck, Hypothesis, or Fast-check; manually annotate the correctness or incorrectness of example outputs similar to Jest; or use an approach similar to heuristic fuzzing that draws attention to likely errors. NaNofuzz' Gradual Oracle lets you use one or many of these approaches to help you generate a test suite.
+Unlike many Automatic Test sUite Generators, NaNofuzz' Gradual Oracle helps you: test properties of the program similar to Quickcheck, Hypothesis, or Fast-check; manually annotate the correctness or incorrectness of example outputs similar to Jest; or use an approach similar to heuristic fuzzing that draws attention to likely errors. NaNofuzz' Gradual Oracle lets you use one or multiple approaches to efficiently generate an effective test suite.
 
 ### The Details
 
