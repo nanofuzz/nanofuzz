@@ -358,11 +358,13 @@ export class FuzzPanel {
         // current format -- no changes needed
         return inputTests;
       } else if (inputTests.version === "0.2.1") {
-        // v0.2.1 format -- add useProperty option
+        // v0.2.1 format -- infer useProperty option & turn on useHuman (the latter
+        // is req'd b/c we eliminated the UI button that controls this)
         const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
         for (const fn in testSet.functions) {
           testSet.functions[fn].options.useProperty =
             "validator" in testSet.functions[fn];
+          testSet.functions[fn].options.useHuman = true;
         }
         console.info(
           `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
@@ -584,7 +586,7 @@ export class FuzzPanel {
 
 export function ${validatorPrefix}${
         fnCounter === 0 ? "" : fnCounter
-      }(r: Result): boolean {
+      }(r: FuzzTestResult): boolean {
   // Array of inputs: r.in   Output: r.out
   // return false; // <-- Unexpected; failed
   return true;
@@ -1005,7 +1007,7 @@ export function ${validatorPrefix}${
               ? ""
               : " hidden"
           }">
-            <h3>The fuzzer stopped with this error:</h3>
+            <h3>Testing stopped with this error:</h3>
             <p>${this._errorMessage ?? "Unknown error"}</p>
           </div>
 
@@ -1015,7 +1017,7 @@ export function ${validatorPrefix}${
               ? ""
               : " hidden"
           }">
-            <p>No validators were selected, so all tests below will pass. You can change this in <strong>More options</strong>.</p>
+            <p>No validators were selected, so all tests below will pass. You can change this by turning on one or more validators.</p>
           </div>
 
           <div class="fuzzWarnings${
@@ -1023,7 +1025,7 @@ export function ${validatorPrefix}${
               ? ""
               : " hidden"
           }">
-            <p>No property validators, so the property validator column is blank. You can add a property validator with (+).</p>
+            <p>No property validators were found, so the property validator column is blank. Click (+) to add a property validator.</p>
           </div>
 
           <!-- Fuzzer Info -->
@@ -1056,7 +1058,7 @@ export function ${validatorPrefix}${
       {
         id: "disagree",
         name: "Disagree",
-        description: `The property validator and human validator disagree whether these outputs pass. Correct the property validator or the human validator, then re-test.`,
+        description: `The property and human validators disagreed about how to categorize these outputs. Correct one of the validators and re-test.`,
         hasGrid: true,
       },
       {
@@ -1117,20 +1119,24 @@ export function ${validatorPrefix}${
       // Build the list of validators used/not used
       const validatorsUsed: string[] = [];
       const validatorsNotUsed: string[] = [];
+      let validatorsUsedText: string;
+      let validatorsUsedText2 = "";
       (env.options.useImplicit ? validatorsUsed : validatorsNotUsed).push(
-        "<strong> <u> heuristic</u> </strong>"
+        "<strong><u>heuristic</u></strong>"
       );
       (env.options.useHuman ? validatorsUsed : validatorsNotUsed).push(
-        "<strong> <u> human</u> </strong>"
+        "<strong><u>human</u></strong>"
       );
       if (env.validators.length && env.options.useProperty) {
         env.validators.forEach((e) => {
-          validatorsUsed.push(`<strong><u>property(${e.name})</u></strong>`);
+          validatorsUsed.push(`<strong><u>property:${e.name}</u></strong>`);
         });
-      } else {
+      } else if (!env.options.useProperty) {
         validatorsNotUsed.push(`<strong><u>property</u></strong>`);
+      } else {
+        validatorsUsedText2 =
+          "The <strong><u>property</u></strong> validator was active, but no property validators were found, so NaNofuzz raised an on-screen warning.";
       }
-      let validatorsUsedText: string;
       if (validatorsUsed.length) {
         validatorsUsedText = `
           NaNofuzz categorized outputs using the ${toPrettyList(
@@ -1174,7 +1180,7 @@ export function ${validatorPrefix}${
 
         <div class="fuzzResultHeading">How were outputs categorized?</div>
         <p>
-          ${validatorsUsedText}
+          ${validatorsUsedText} ${validatorsUsedText2}
         </p>
         
         <div class="fuzzResultHeading">Why did testing stop?</div>
