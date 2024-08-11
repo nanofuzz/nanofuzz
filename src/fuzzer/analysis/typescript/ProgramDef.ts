@@ -767,13 +767,9 @@ export class ProgramDef {
             return resolved;
           }
         } else {
-          // Resolve the module using node.
-          //
-          // TODO: There can be a difference, for instance in a monorepo,
-          //       between how node resolves an npm module and how VS Code
-          //       resolves it due to its cwd. We should probably use the
-          //       same approach as the VS Code resolver here.
-          const resolved = require.resolve(importModule + ext);
+          const resolved = require.resolve(importModule + ext, {
+            paths: [path.dirname(this._module)], // Resolve from the importing module's path
+          });
           const extension = path.extname(resolved);
 
           // If node resolves a Javascript file, look for a type defintion file
@@ -789,9 +785,9 @@ export class ProgramDef {
           }
         }
       } catch (e) {
-        // Just eat the exception for now & retry
+        // Eat the exception & retry
       }
-    }
+    } // for: each extension
 
     // Throw an exception if we did not resolve the import
     throw new Error(
