@@ -416,10 +416,10 @@ function toggleFuzzOptions(e) {
   const fuzzOptionsButton = document.getElementById("fuzz.options");
   if (isHidden(fuzzOptions)) {
     toggleHidden(fuzzOptions);
-    // fuzzOptionsButton.innerHTML = "Fewer options";
+    fuzzOptionsButton.innerHTML = "Fewer options";
   } else {
     toggleHidden(fuzzOptions);
-    // fuzzOptionsButton.innerHTML = "More options";
+    fuzzOptionsButton.innerHTML = "More options";
   }
 
   // Refresh the list of validators
