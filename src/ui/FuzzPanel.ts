@@ -1089,7 +1089,7 @@ export function ${validatorPrefix}${
       {
         id: "ok",
         name: "Passed",
-        description: `Passed. A validator categorized these outputs as passed, or no validator categorized them as failed.`,
+        description: `A validator categorized these outputs as passed, or no validator categorized them as failed.`,
         // description: `Passed. No validator categorized these outputs as failed.`,
         // description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
         hasGrid: true,
@@ -1593,7 +1593,14 @@ export function provideCodeLenses(
     const program = ProgramDef.fromModuleAndSource(document.fileName, () =>
       document.getText()
     );
-    const functions = Object.values(program.getExportedFunctions());
+    const fuzzValidators: boolean = vscode.workspace
+      .getConfiguration("nanofuzz.ui.codeLens")
+      .get("includeValidators", true);
+    const functions = fuzzValidators
+      ? Object.values(program.getExportedFunctions())
+      : Object.values(program.getExportedFunctions()).filter(
+          (fn) => !fn.isValidator()
+        );
 
     for (const fn of functions) {
       matches.push({

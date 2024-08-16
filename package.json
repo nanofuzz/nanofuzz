@@ -117,6 +117,12 @@
           "default": false,
           "description": "Hide the 'More options' button?"
         },
+        "nanofuzz.ui.codeLens.includeValidators": {
+          "title": "Show 'NaNofuzz' button for property validator functions?",
+          "type": "boolean",
+          "default": true,
+          "description": "Show 'NaNofuzz' button for property validator functions?"
+        },
         "nanofuzz.argdef.strCharset": {
           "title": "String character set",
           "type": "string",
