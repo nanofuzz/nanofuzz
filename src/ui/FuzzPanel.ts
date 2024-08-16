@@ -1593,7 +1593,14 @@ export function provideCodeLenses(
     const program = ProgramDef.fromModuleAndSource(document.fileName, () =>
       document.getText()
     );
-    const functions = Object.values(program.getExportedFunctions());
+    const fuzzValidators: boolean = vscode.workspace
+      .getConfiguration("nanofuzz.ui.codeLens")
+      .get("includeValidators", true);
+    const functions = fuzzValidators
+      ? Object.values(program.getExportedFunctions())
+      : Object.values(program.getExportedFunctions()).filter(
+          (fn) => !fn.isValidator()
+        );
 
     for (const fn of functions) {
       matches.push({
