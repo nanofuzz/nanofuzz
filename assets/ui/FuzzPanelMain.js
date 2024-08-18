@@ -1289,6 +1289,7 @@ function handleFuzzStart(eCurrTarget) {
     const falseOnly = document.getElementById(idBase + "-falseOnly");
     const minStrLen = document.getElementById(idBase + "-minStrLen");
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
+    const strCharset = document.getElementById(idBase + "-strCharset");
 
     // Process numeric overrides
     if (numInteger !== null) {
@@ -1323,6 +1324,7 @@ function handleFuzzStart(eCurrTarget) {
       disableArr.push(minStrLen, maxStrLen);
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
+      const strCharsetVal = strCharset.getAttribute("current-value");
       if (minStrLenVal !== undefined && maxStrLenVal !== undefined) {
         thisOverride.string = {
           minStrLen: Math.max(
@@ -1330,6 +1332,7 @@ function handleFuzzStart(eCurrTarget) {
             Math.min(Number(minStrLenVal), Number(maxStrLenVal))
           ),
           maxStrLen: Math.max(Number(minStrLenVal), Number(maxStrLenVal), 0),
+          strCharset: strCharsetVal,
         };
       }
     } // TODO: Validation !!!
