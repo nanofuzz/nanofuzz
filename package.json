@@ -123,6 +123,12 @@
           "default": true,
           "description": "Show 'NaNofuzz' button for property validator functions?"
         },
+        "nanofuzz.ui.codeLens.ignoreFilePattern": {
+          "title": "Regex of files for NaNofuzz to ignore",
+          "type": "string",
+          "default": "",
+          "description": "Regex of files for NaNofuzz to ignore"
+        },
         "nanofuzz.argdef.strCharset": {
           "title": "String character set",
           "type": "string",

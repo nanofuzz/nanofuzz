@@ -1614,6 +1614,15 @@ export function provideCodeLenses(
     const program = ProgramDef.fromModuleAndSource(document.fileName, () =>
       document.getText()
     );
+    // Skip analyzing files that we are configured to ignore
+    const fuzzIgnore: string = vscode.workspace
+      .getConfiguration("nanofuzz.ui.codeLens")
+      .get("ignoreFilePattern", "");
+    if (fuzzIgnore !== "" && document.fileName.match(fuzzIgnore)) {
+      return [];
+    }
+
+    // Skip decorating validators if configured to skip them
     const fuzzValidators: boolean = vscode.workspace
       .getConfiguration("nanofuzz.ui.codeLens")
       .get("includeValidators", true);
