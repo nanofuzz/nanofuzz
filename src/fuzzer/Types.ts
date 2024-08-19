@@ -130,6 +130,7 @@ export type FuzzArgOverride = {
   string?: {
     minStrLen: number;
     maxStrLen: number;
+    strCharset: string;
   };
   array?: {
     dimLength: { min: number; max: number }[];

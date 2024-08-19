@@ -2,7 +2,7 @@
   "name": "nanofuzz",
   "displayName": "NaNofuzz",
   "publisher": "penrose",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript that runs inside VS Code",
   "repository": "https://github.com/nanofuzz/nanofuzz.git",
   "author": "The NaNofuzz Team @ Carnegie Mellon University",
@@ -122,6 +122,12 @@
           "type": "boolean",
           "default": true,
           "description": "Show 'NaNofuzz' button for property validator functions?"
+        },
+        "nanofuzz.ui.codeLens.ignoreFilePattern": {
+          "title": "Regex of files for NaNofuzz to ignore",
+          "type": "string",
+          "default": "",
+          "description": "Regex of files for NaNofuzz to ignore"
         },
         "nanofuzz.argdef.strCharset": {
           "title": "String character set",

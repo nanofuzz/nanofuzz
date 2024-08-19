@@ -210,11 +210,9 @@ export class FuzzPanel {
     this._fuzzEnv.options = testSet.options;
     this._argOverrides = testSet.argOverrides ?? [];
     this._sortColumns = testSet.sortColumns;
+
+    // Apply argument ranges, etc. over the defaults
     _applyArgOverrides(this._fuzzEnv.function, this._argOverrides);
-    // TODO: There is likely a bug somewhere related to initializing the arg options !!!
-    // Options configured in the json file are correct in `this._fuzzEnv.options`, but are not carried over
-    // in `this._fuzzEnv.function._argDefs`
-    this._fuzzEnv.function.applyOptions(testSet.options.argDefaults);
 
     // Set the webview's initial html content
     this._updateHtml();
@@ -357,6 +355,25 @@ export class FuzzPanel {
       if (inputTests.version === CURR_FILE_FMT_VER) {
         // current format -- no changes needed
         return inputTests;
+      } else if (inputTests.version === "0.3.0") {
+        // v0.3.0 format -- infer arg strCharset override from function default
+        const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
+        for (const fn in testSet.functions) {
+          const thisFn = testSet.functions[fn];
+          if (thisFn.argOverrides) {
+            for (const i in thisFn.argOverrides) {
+              const arg = thisFn.argOverrides[i];
+              // strings overrides only
+              if (arg.string && !arg.string.strCharset) {
+                arg.string.strCharset = thisFn.options.argDefaults.strCharset;
+              }
+            }
+          }
+        }
+        console.info(
+          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+        );
+        return testSet;
       } else if (inputTests.version === "0.2.1") {
         // v0.2.1 format -- infer useProperty option & turn on useHuman (the latter
         // is req'd b/c we eliminated the UI button that controls this)
@@ -1402,6 +1419,10 @@ export function ${validatorPrefix}${
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxStrLen" name="${idBase}-max" value="${htmlEscape(
           arg.getOptions().strLength.max.toString()
         )}">Max length</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
+          arg.getOptions().strCharset
+        )}">Characters</vscode-text-field>`;
         break;
       }
 
@@ -1593,6 +1614,15 @@ export function provideCodeLenses(
     const program = ProgramDef.fromModuleAndSource(document.fileName, () =>
       document.getText()
     );
+    // Skip analyzing files that we are configured to ignore
+    const fuzzIgnore: string = vscode.workspace
+      .getConfiguration("nanofuzz.ui.codeLens")
+      .get("ignoreFilePattern", "");
+    if (fuzzIgnore !== "" && document.fileName.match(fuzzIgnore)) {
+      return [];
+    }
+
+    // Skip decorating validators if configured to skip them
     const fuzzValidators: boolean = vscode.workspace
       .getConfiguration("nanofuzz.ui.codeLens")
       .get("includeValidators", true);
@@ -1692,6 +1722,7 @@ function _applyArgOverrides(
               min: Number(thisOverride.string.minStrLen),
               max: Number(thisOverride.string.maxStrLen),
             },
+            strCharset: thisOverride.string.strCharset,
           });
         }
         break;
@@ -1799,7 +1830,7 @@ const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.2.1";
 /**
  * Current file format version for persisting test sets / pinned test cases
  */
-const CURR_FILE_FMT_VER = "0.3.0"; // !!!! Increment if file format changes
+const CURR_FILE_FMT_VER = "0.3.3"; // !!!! Increment if file format changes
 
 // ----------------------------- Types ----------------------------- //
 
