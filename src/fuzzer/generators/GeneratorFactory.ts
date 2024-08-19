@@ -187,6 +187,9 @@ const getRandomString = <T extends ArgType>(
   const charSet = options.strCharset;
   const intOptions = ArgDef.getDefaultOptions(); // use default for integer selection
 
+  // TODO: Add Support for strMin & strMax such that strMin <= output strMax
+  //       See pre-v0.3.3 code for a partially working example !!!!!!
+
   // This generator does not currently support min and max, but we don't make
   // that option available in the UI anyway. Find the old code in v0.3.2 and fix
   // intervals for string types when it's time to implement this.
