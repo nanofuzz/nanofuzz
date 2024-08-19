@@ -419,7 +419,7 @@ function toggleFuzzOptions(e) {
     fuzzOptionsButton.innerHTML = "Fewer options";
   } else {
     toggleHidden(fuzzOptions);
-    fuzzOptionsButton.innerHTML = "More options";
+    fuzzOptionsButton.innerHTML = "More options...";
   }
 
   // Refresh the list of validators
