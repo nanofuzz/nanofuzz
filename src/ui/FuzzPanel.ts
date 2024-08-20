@@ -1422,7 +1422,7 @@ export function ${validatorPrefix}${
         html += " ";
         html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
           arg.getOptions().strCharset
-        )}">Characters</vscode-text-field>`;
+        )}">Character set</vscode-text-field>`;
         break;
       }
 
@@ -1722,7 +1722,11 @@ function _applyArgOverrides(
               min: Number(thisOverride.string.minStrLen),
               max: Number(thisOverride.string.maxStrLen),
             },
-            strCharset: thisOverride.string.strCharset,
+            // Character set: note: empty sets are invalid
+            strCharset:
+              thisOverride.string.strCharset === ""
+                ? " "
+                : thisOverride.string.strCharset,
           });
         }
         break;
