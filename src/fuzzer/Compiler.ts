@@ -216,7 +216,9 @@ function compileTS(module: any) {
   // Execute the module script
   tscScript.runInNewContext(sandbox);
   if (exitCode !== 0) {
-    throw new Error("Unable to compile TypeScript file.");
+    throw new Error(
+      `Unable to compile TypeScript file. Please check it for errors.<br /><br />File: ${module.filename}`
+    );
   }
 
   return jsname;
