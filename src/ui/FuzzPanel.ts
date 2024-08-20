@@ -212,7 +212,11 @@ export class FuzzPanel {
     this._sortColumns = testSet.sortColumns;
 
     // Apply argument ranges, etc. over the defaults
-    _applyArgOverrides(this._fuzzEnv.function, this._argOverrides);
+    _applyArgOverrides(
+      this._fuzzEnv.function,
+      this._argOverrides,
+      this._fuzzEnv.options.argDefaults
+    );
 
     // Set the webview's initial html content
     this._updateHtml();
@@ -708,7 +712,7 @@ export function ${validatorPrefix}${
     });
 
     // Apply the argument overrides from the front-end UI
-    _applyArgOverrides(fn, panelInput.args);
+    _applyArgOverrides(fn, panelInput.args, this._fuzzEnv.options.argDefaults);
 
     // Update the UI
     this._results = undefined;
@@ -1670,7 +1674,8 @@ export function provideCodeLenses(
  */
 function _applyArgOverrides(
   fn: fuzzer.FunctionDef,
-  argOverrides: fuzzer.FuzzArgOverride[]
+  argOverrides: fuzzer.FuzzArgOverride[],
+  argDefaults: fuzzer.ArgOptions
 ) {
   // Get the flattened list of function arguments
   const argsFlat = fn.getArgDefsFlat();
@@ -1722,10 +1727,10 @@ function _applyArgOverrides(
               min: Number(thisOverride.string.minStrLen),
               max: Number(thisOverride.string.maxStrLen),
             },
-            // Character set: note: empty sets are invalid
+            // Character set. Note: empty sets are invalid
             strCharset:
               thisOverride.string.strCharset === ""
-                ? " "
+                ? argDefaults.strCharset
                 : thisOverride.string.strCharset,
           });
         }
