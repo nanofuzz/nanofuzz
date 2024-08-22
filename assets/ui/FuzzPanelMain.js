@@ -1392,69 +1392,11 @@ function handleFuzzStart(eCurrTarget) {
  * }
  */
 function refreshValidators(validatorList) {
-  // If no default validator is selected or the selected validator does not
-  // exist, then select the implicit validator
-  if (
-    "validator" in validatorList &&
-    validatorList.validator !== undefined &&
-    validatorList.validators.some((e) => e === validatorList.validator)
-  ) {
-    // noop; we have a valid validator
-  } else {
-    validatorList.validator = implicitOracleValidatorName;
-  }
-
   const validatorFnList = document.getElementById("validator-functionList");
   validatorFnList.setAttribute(
     "aria-label",
     listForValidatorFnTooltip(validatorList)
   );
-
-  // // Get the current list of validator controls
-  // const validatorFnGrp = document.getElementById("validatorFunctions-radios");
-
-  // // Add the validator function buttons to the delete list & delete them
-  // const deleteList = [];
-  // for (const child of validatorFnGrp.children) {
-  //   if (child.tagName === "VSCODE-RADIO") {
-  //     deleteList.push(child);
-  //   }
-  // }
-  // deleteList.forEach((e) => validatorFnGrp.removeChild(e)); // buh bye
-
-  // // Add buttons w/event listeners for each validator option
-  // [implicitOracleValidatorName, ...validatorList.validators]
-  //   .reverse() // because of pre-pending before add and refresh buttons
-  //   .forEach((name) => {
-  //     // The implicit oracle has a special display name
-  //     const displayName =
-  //       name === implicitOracleValidatorName ? "(none)" : `${name}()`;
-
-  //     // Create the radio button
-  //     const radio = document.createElement("vscode-radio");
-  //     radio.setAttribute("id", `validator-${name}`);
-  //     radio.setAttribute("name", name);
-  //     radio.setAttribute("value", name);
-  //     if (validatorList.disabled) {
-  //       radio.setAttribute("disabled", "true");
-  //     }
-  //     radio.innerHTML = displayName;
-  //     if (name === validatorList.validator) {
-  //       radio.setAttribute("checked", "true");
-  //     }
-
-  //     // Add the radio button to the radio group
-  //     validatorFnGrp.prepend(radio);
-
-  //     // Add the onClick event handler
-  //     radio.addEventListener("click", (e) => {
-  //       handleSetValidator(e);
-  //     });
-  //   });
-
-  // // Set the radio group's value b/c this is necessary to maintain
-  // // consistent button state when a selected radio is deleted
-  // validatorFnGrp.setAttribute("value", validatorList.validator);
 } // fn: refreshValidators
 
 /**
@@ -1469,24 +1411,6 @@ function handleAddValidator(e) {
     json: JSON5.stringify(""),
   });
 } // fn: handleAddValidator()
-
-/**
- * Send message to back-end to save the validator that the user selected
- * using the radio buttons
- *
- * @param e on-click event
- */
-function handleSetValidator(validatorList) {
-  const validatorName = validatorList.currentTarget.getAttribute("name");
-
-  // Update the back-end with the newly-selected validator function
-  vscode.postMessage({
-    command: "validator.set",
-    json: JSON5.stringify(
-      validatorName === implicitOracleValidatorName ? "" : validatorName
-    ),
-  });
-} // fn: handleSetValidator()
 
 /**
  * Send message to back-end to refresh the validators
