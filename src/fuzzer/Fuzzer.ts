@@ -252,11 +252,7 @@ export const fuzz = async (
 
     // CUSTOM VALIDATOR ------------------------------------------
     // If a custom validator is selected, call it to evaluate the result
-    if (
-      "validator" in env &&
-      env.validators.length &&
-      env.options.useProperty
-    ) {
+    if (env.validators.length && env.options.useProperty) {
       // const fnName = env.validator;
       result.passedValidators = [];
 
@@ -589,7 +585,6 @@ export function categorizeResult(
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
-  validator?: string; // name of the current validator function (if any)
   validators: FunctionRef[]; // list of the module's functions
 };
 

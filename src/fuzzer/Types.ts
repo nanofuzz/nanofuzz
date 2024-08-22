@@ -45,7 +45,7 @@ export type FuzzTestsFunction = {
   options: FuzzOptions; // fuzzer options
   argOverrides?: FuzzArgOverride[]; // argument overrides
   sortColumns?: FuzzSortColumns; // column sort order
-  validator?: string; // validator function
+  validators: string[]; // validator functions
   tests: Record<string, FuzzPinnedTest>; // pinned tests
 };
 

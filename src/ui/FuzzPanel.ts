@@ -206,7 +206,6 @@ export class FuzzPanel {
 
     // Load & apply any persisted fuzz settings previously persisted
     const testSet = this._getFuzzTestsForThisFn();
-    this._fuzzEnv.validator = testSet.validator;
     this._fuzzEnv.options = testSet.options;
     this._argOverrides = testSet.argOverrides ?? [];
     this._sortColumns = testSet.sortColumns;
@@ -281,10 +280,6 @@ export class FuzzPanel {
             break;
           case "validator.add":
             this._doAddValidatorCmd();
-            this._doGetValidators();
-            break;
-          case "validator.set":
-            this._doSetValidator(json);
             this._doGetValidators();
             break;
           case "validator.getList":
@@ -437,7 +432,7 @@ export class FuzzPanel {
         [this._fuzzEnv.function.getName()]: {
           options: this._fuzzEnv.options,
           argOverrides: this._argOverrides,
-          validator: this._fuzzEnv.validator,
+          validators: this._fuzzEnv.validators.map((ref) => ref.name),
           tests: {},
         },
       },
@@ -626,16 +621,6 @@ export function ${validatorPrefix}${
   }
 
   /**
-   * Saves the name of the toggled validator function into this._fuzzEnv
-   *
-   * @param json name of validator function
-   */
-  private _doSetValidator(json: string) {
-    const validatorName = JSON5.parse(json);
-    this._fuzzEnv.validator = validatorName === "" ? undefined : validatorName;
-  }
-
-  /**
    * Message handler for the `validator.getList` command. Gets the list
    * of validators from the program source code and sends it back to the
    * front-end.
@@ -654,22 +639,11 @@ export function ${validatorPrefix}${
     if (oldValidatorNames !== newValidatorNames) {
       // Update the Fuzzer Environment
       this._fuzzEnv.validators = fuzzer.getValidators(program, fn);
-      if (
-        this._fuzzEnv.validator &&
-        !this._fuzzEnv.validators.some(
-          (e) => e.name === this._fuzzEnv.validator
-        )
-      ) {
-        // If no validator is selected, or the selected validator is not
-        // in the list of validators, clear the selected validator
-        delete this._fuzzEnv.validator;
-      }
 
       // Notify the front-end about the change
       this._panel.webview.postMessage({
         command: "validator.list",
         json: JSON5.stringify({
-          validator: this._fuzzEnv.validator,
           validators: newValidators.map((e) => e.name),
         }),
       });
@@ -759,7 +733,7 @@ export function ${validatorPrefix}${
         // Persist the fuzz test run settings (!!! validation)
         const testSet = this._getFuzzTestsForThisFn();
         testSet.options = this._fuzzEnv.options;
-        testSet.validator = this._fuzzEnv.validator;
+        testSet.validators = this._fuzzEnv.validators.map((ref) => ref.name);
         testSet.argOverrides = this._argOverrides;
         testSet.sortColumns = this._sortColumns;
         this._putFuzzTestsForThisFn(testSet);
@@ -1034,7 +1008,7 @@ export function ${validatorPrefix}${
 
           <!-- Fuzzer Warnings -->
           <div class="fuzzWarnings${
-            this._state === FuzzPanelState.done && !this._fuzzEnv.options.useHuman && !this._fuzzEnv.options.useImplicit && !("validator" in this._fuzzEnv && this._fuzzEnv.validator)
+            this._state === FuzzPanelState.done && !this._fuzzEnv.options.useHuman && !this._fuzzEnv.options.useImplicit && (!this._fuzzEnv.options.useProperty || !this._fuzzEnv.validators.length )
               ? ""
               : " hidden"
           }">
@@ -1071,9 +1045,7 @@ export function ${validatorPrefix}${
       {
         id: "failure",
         name: "Validator Error",
-        description: `The property validator ${
-          this._fuzzEnv.validator ?? ""
-        } threw an exception for these inputs. Fix the bug in the property validator and re-test.`,
+        description: `A property validator threw an exception for these inputs. Fix the bug in the property validator and re-test.`,
         hasGrid: true,
       },
       {
@@ -1316,7 +1288,6 @@ export function ${validatorPrefix}${
             ${htmlEscape(
               JSON5.stringify({
                 disabled: !!disabledFlag,
-                validator: this._fuzzEnv.validator,
                 validators: this._fuzzEnv.validators.map((e) => e.name),
               })
             )}
