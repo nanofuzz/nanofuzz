@@ -1053,9 +1053,14 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
 
       // Event handler for value radio button
       const radioValue = document.getElementById(`fuzz-radioValue${id}`);
-      radioValue.addEventListener("change", () =>
-        buildExpectedTestCase(radioValue, id, type, index)
-      );
+      radioValue.addEventListener("change", () => {
+        if (radioValue.checked) {
+          show(textField);
+        } else {
+          hide(textField);
+        }
+        buildExpectedTestCase(radioValue, id, type, index);
+      });
 
       // Event handler for ok button
       const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
@@ -1157,16 +1162,19 @@ function expectedOutputHtml(id, index, type) {
     defaultOutput = { value: "" };
   }
 
+  const isValueAnnotation =
+    !defaultOutput.isTimeout && !defaultOutput.isException;
+
   // prettier-ignore
   let html = /*html*/ `
     What is the expected ouput?
     <vscode-radio-group>
       <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? " checked " : ""}>Exception</vscode-radio>
       <vscode-radio class="hidden" id="fuzz-radioTimeout${id}" ${defaultOutput.isTimeout ? " checked " : ""}>Timeout</vscode-radio>
-      <vscode-radio id="fuzz-radioValue${id}" ${!defaultOutput.isTimeout && !defaultOutput.isException ? " checked " : ""} >Value:</vscode-radio>
+      <vscode-radio id="fuzz-radioValue${id}" ${isValueAnnotation ? " checked " : ""}>Value:</vscode-radio>
     </vscode-radio-group> 
     <div>
-      <vscode-text-field id="fuzz-expectedOutput${id}" placeholder="Literal value (JSON)" value=${JSON5.stringify(defaultOutput.value)}></vscode-text-field>
+      <vscode-text-field id="fuzz-expectedOutput${id}" class="${isValueAnnotation ? "" : "hidden"}" placeholder="Literal value (JSON)" value=${JSON5.stringify(defaultOutput.value)}></vscode-text-field>
       <span><vscode-button id="fuzz-expectedOutputOk${id}" aria-label="ok" style="display: table-cell; vertical-align: top;">ok</vscode-button></span>
       <span id="fuzz-expectedOutputMessage${id}"></span>
     </div>
@@ -1189,6 +1197,7 @@ function buildExpectedTestCase(e, id, type, index) {
   const textField = document.getElementById(`fuzz-expectedOutput${id}`);
   const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
   const radioException = document.getElementById(`fuzz-radioException${id}`);
+  const radioValue = document.getElementById(`fuzz-radioValue${id}`);
   const errorMessage = document.getElementById(
     `fuzz-expectedOutputMessage${id}`
   );
@@ -1204,14 +1213,17 @@ function buildExpectedTestCase(e, id, type, index) {
         ? undefined
         : JSON5.parse(expectedValue);
   } catch (e) {
-    // Indicate to the user that there is an error
-    textField.classList.add("classErrorCell");
-    errorMessage.classList.add("expectedOutputErrorMessage");
-    errorMessage.innerHTML = "invalid; not saved";
-    hide(okButton);
+    // Only validate the value if we are doing a value check
+    if (radioValue.checked) {
+      // Indicate to the user that there is an error
+      textField.classList.add("classErrorCell");
+      errorMessage.classList.add("expectedOutputErrorMessage");
+      errorMessage.innerHTML = "invalid; not saved";
+      hide(okButton);
 
-    // Return w/o saving
-    return undefined;
+      // Return w/o saving
+      return undefined;
+    }
   }
 
   // Update the UI -- everything looks fine
