@@ -285,7 +285,10 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   border-right-color: var(--vscode-focus-border);
 }
 
-/* Sorting */
+/* Clickable columns (e.g., sorting) */
+th.clickable {
+  cursor: pointer;
+}
 .columnSortDesc::after {
   content: "▼";
   font-size: 0.9em;

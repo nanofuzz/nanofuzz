@@ -257,7 +257,7 @@ function main() {
         Object.keys(data[type][0]).forEach((k) => {
           if (k === pinnedLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
-            cell.className = "fuzzGridCellPinned";
+            cell.classList.add("fuzzGridCellPinned", "clickable");
             cell.id = type + "-" + pinnedLabel;
             cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Include in Jest test suite">
@@ -272,7 +272,7 @@ function main() {
             if (resultsData.env.options.useImplicit) {
               const cell = hRow.appendChild(document.createElement("th"));
               cell.id = type + "-" + implicitLabel;
-              cell.classList.add("colorColumn");
+              cell.classList.add("colorColumn", "clickable");
               cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN">
                 <span class="codicon codicon-debug"></span>
@@ -286,7 +286,7 @@ function main() {
               // Property validator column (summary)
               const cell = hRow.appendChild(document.createElement("th"));
               cell.id = type + "-" + validatorLabel;
-              cell.classList.add("colorColumn");
+              cell.classList.add("colorColumn", "clickable");
               if (validators.validators.length > 1) {
                 cell.style = "padding-right:3px"; // close to twistie column
               }
@@ -319,7 +319,7 @@ function main() {
                   <span class="codicon codicon-chevron-right" style=""></span>
                 </span>`;
                 expandCell.id = type + "-" + expandLabel;
-                expandCell.classList.add("expandCollapseColumn");
+                expandCell.classList.add("expandCollapseColumn", "clickable");
                 if (columnSortOrders[type][expandLabel] === "desc") {
                   // asc = columns currently hidden; desc = columns currently expanded
                   expandCell.classList.add("hidden"); // hide if currently expanded
@@ -330,7 +330,7 @@ function main() {
               }
               // Individual property validator column
               const cell = hRow.appendChild(document.createElement("th"));
-              cell.classList.add("colorColumn");
+              cell.classList.add("colorColumn", "clickable");
               cell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-nw" aria-label="${k}">
                   <span class="codicon codicon-hubot" style="font-size: 1em;"></span> <!-- small -->
@@ -362,7 +362,7 @@ function main() {
                   collapseCell.classList.add("hidden");
                 }
                 collapseCell.id = type + "-" + collapseLabel;
-                collapseCell.classList.add("expandCollapseColumn");
+                collapseCell.classList.add("expandCollapseColumn", "clickable");
                 collapseCell.addEventListener("click", () => {
                   toggleExpandColumn(cell, collapseCell, type);
                 });
@@ -370,7 +370,7 @@ function main() {
             } // if useProperty and multiple validators
           } else if (k === correctLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
-            cell.classList.add("colorColumn");
+            cell.classList.add("colorColumn", "clickable");
             cell.id = type + "-" + correctLabel;
             cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Human validator">
@@ -383,6 +383,7 @@ function main() {
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.id = type + "-" + k;
+            cell.classList.add("clickable");
             cell.innerHTML = `<big>${htmlEscape(k)}</big>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, tbody, true);
