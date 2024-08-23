@@ -4,7 +4,7 @@ NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for Typ
 
 ![NaNofuzz Screenshot](https://github.com/user-attachments/assets/7655c0c7-96ee-4251-b383-77023c68f3da)
 
-NaNofuzz' unique Gradual Oracle proposes an initial test suite with a single button click. You interactively improve this this initial test suite by manually annotating the correctness of specific examples and by adding property validator functions that evaluate correctness at scale. NaNofuzz coherently organizes and prioritizes all test results on a single screen so that you can see at a glance what your suite is testing---as well as what it may be missing.
+NaNofuzz' unique Gradual Oracle proposes an initial test suite with a single button click. You then improve this test suite by manually annotating the correctness of specific examples and by adding property validator functions that evaluate correctness at scale. NaNofuzz coherently organizes and prioritizes all test results on a single screen so that you can see at a glance what your suite is testing---as well as what it may be missing.
 
 ### The Details
 
