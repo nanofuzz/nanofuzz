@@ -402,7 +402,7 @@ export class FuzzPanel {
       } else {
         // unknown format; stop to avoid losing data
         throw new Error(
-          `Unknown version ${inputTests.version} in test file ${jsonFile}. Update your NaNofuzz extension or delete/rename the file to continue.`
+          `Unknown version ${inputTests.version} in test file ${jsonFile}. Update your ${toolName} extension or delete/rename the file to continue.`
         );
       }
     } else {
@@ -851,11 +851,11 @@ export function ${validatorPrefix}${
           <script type="module" src="${scriptUrl}"></script>
           <link rel="stylesheet" type="text/css" href="${cssUrl}">
           <link rel="stylesheet" type="text/css" href="${codiconsUri}">
-          <title>NaNofuzz Panel</title>
+          <title>${toolName} Panel</title>
         </head>
         <body>
           
-        <!-- NaNofuzz pane -->
+        <!-- ${toolName} pane -->
         <div id="pane-nanofuzz"> 
           <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;"> ${this._state === FuzzPanelState.busy ? "Testing..." : "Test: "+htmlEscape(
             fn.getName())+"()"} </h2>
@@ -1104,7 +1104,7 @@ export function ${validatorPrefix}${
             this._results.env.options.maxTests
           }). This is in addition to the ${this._results.inputsSaved} saved test${
             this._results.inputsSaved !== 1 ? "s" : ""
-          } NaNofuzz also executed.`,
+          } ${toolName} also executed.`,
         [fuzzer.FuzzStopReason.MAXDUPES]: `because it was unlikely to generate more unique test inputs. Often this means the function's input space is small.`,
         "": `because of an unknown reason.`,
       };
@@ -1127,14 +1127,13 @@ export function ${validatorPrefix}${
       } else if (!env.options.useProperty) {
         validatorsNotUsed.push(`<strong><u>property</u></strong>`);
       } else {
-        validatorsUsedText2 =
-          "The <strong><u>property</u></strong> validator was active, but no property validators were found, so NaNofuzz raised an on-screen warning.";
+        validatorsUsedText2 = `The <strong><u>property</u></strong> validator was active, but no property validators were found, so ${toolName} raised an on-screen warning.`;
       }
       if (validatorsUsed.length) {
         validatorsUsedText = `
-          NaNofuzz categorized outputs using the ${toPrettyList(
-            validatorsUsed
-          )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
+          ${toolName} categorized outputs using the ${toPrettyList(
+          validatorsUsed
+        )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
         if (validatorsNotUsed.length) {
           validatorsUsedText += `The ${toPrettyList(
             validatorsNotUsed
@@ -1143,7 +1142,7 @@ export function ${validatorPrefix}${
           } not configured.`;
         }
       } else {
-        validatorsUsedText = `NaNofuzz did not use any validators in this test. This means that all tests were categorized as passed.`;
+        validatorsUsedText = `${toolName} did not use any validators in this test. This means that all tests were categorized as passed.`;
       }
 
       // Add the run info tab to the panel
@@ -1152,9 +1151,9 @@ export function ${validatorPrefix}${
         name: `<div class="codicon codicon-info"></div>`,
         description: /*html*/ `
 
-        <div class="fuzzResultHeading">What did NaNofuzz do?</div>
+        <div class="fuzzResultHeading">What did ${toolName} do?</div>
         <p>
-          NaNofuzz ran for ${this._results.elapsedTime} ms, re-tested ${
+          ${toolName} ran for ${this._results.elapsedTime} ms, re-tested ${
           this._results.inputsSaved
         } saved input${this._results.inputsSaved !== 1 ? "s" : ""}, generated ${
           this._results.inputsGenerated
@@ -1164,7 +1163,7 @@ export function ${validatorPrefix}${
           this._results.dupesGenerated !== 1
             ? "were duplicates"
             : "was a duplicate"
-        } NaNofuzz previously tested), and reported ${
+        } ${toolName} previously tested), and reported ${
           this._results.results.length
         } test result${
           this._results.results.length !== 1 ? "s" : ""
@@ -1178,18 +1177,18 @@ export function ${validatorPrefix}${
         
         <div class="fuzzResultHeading">Why did testing stop?</div>
         <p>
-          NaNofuzz stopped testing ${
-            this._results.stopReason in textReason
-              ? textReason[this._results.stopReason]
-              : textReason[""]
-          }
+          ${toolName} stopped testing ${
+          this._results.stopReason in textReason
+            ? textReason[this._results.stopReason]
+            : textReason[""]
+        }
         </p>
         
         <div class="fuzzResultHeading">What was returned?</div>
         <p>
-          NaNofuzz is configured to return <strong>${
-            this._results.env.options.onlyFailures ? "only failed" : "all"
-          }</strong> test results, and it found ${
+          ${toolName} is configured to return <strong>${
+          this._results.env.options.onlyFailures ? "only failed" : "all"
+        }</strong> test results, and it found ${
           this._results.results.length
         } of these to return. ${
           this._results.results.length
@@ -1538,7 +1537,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   // Ensure we have a function name
   if (!fnName) {
     vscode.window.showErrorMessage(
-      "Please use the NaNofuzz button to test a function."
+      "Please use the " + toolName + " button to test a function."
     );
     return;
   }
@@ -1559,7 +1558,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
     fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
   } catch (e: any) {
     vscode.window.showErrorMessage(
-      `NaNofuzz could not find or does not support this function. Message: "${e.message}"`
+      `${toolName} could not find or does not support this function. Message: "${e.message}"`
     );
     return;
   }
@@ -1628,7 +1627,7 @@ export function provideCodeLenses(
           document.positionAt(match.ref.endOffset)
         ),
         {
-          title: "NaNofuzz...",
+          title: `${toolName}...`,
           command: commands.fuzz.name,
           arguments: [match],
         }
@@ -1796,6 +1795,13 @@ export function deinit(): void {
 export const commands = {
   fuzz: { name: "nanofuzz.Fuzz", fn: handleFuzzCommand },
 };
+
+/**
+ * The tool's current name (used for studies)
+ */
+export const toolName = vscode.workspace
+  .getConfiguration("nanofuzz")
+  .get("name");
 
 /**
  * Languages supported by this module
