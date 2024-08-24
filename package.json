@@ -77,6 +77,12 @@
     "configuration": {
       "title": "NaNofuzz",
       "properties": {
+        "nanofuzz.name": {
+          "title": "Change NaNofuzz' name (for studies)",
+          "type": "string",
+          "default": "NaNofuzz",
+          "description": "Change NaNofuzz' name (for studies)"
+        },
         "nanofuzz.fuzzer.maxTests": {
           "title": "Maximum number of tests",
           "type": "integer",
