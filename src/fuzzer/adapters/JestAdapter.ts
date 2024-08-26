@@ -42,7 +42,7 @@ export const toString = (testSet: FuzzTests, module: string): string => {
     `const implicitOracle = ${implicitOracle.toString()};`,
     ``,
     `// @ts-ignore`,
-    `const runCustomValidator = (input,testFn,validFn,timeout) => {`,
+    `const runPropertyValidator = (input,testFn,validFn,timeout) => {`,
     `  const result = {...${JSON5.stringify(result)},out:undefined};`,
     `  result.in = input;`,
     `  const startElapsedTime = performance.now(); // start timer`,
@@ -112,9 +112,9 @@ export const toString = (testSet: FuzzTests, module: string): string => {
         for (const validator of thisFn.validators) {
           // prettier-ignore
           jestData.push(
-          `  // Expect custom validator to not return false`,
+          `  // Expect property validator to not return false`,
           `  test("${fn}.${i}.${validator}", () => {`,
-          `    expect(runCustomValidator( ${JSON5.stringify(thisTest.input)}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toBeFalsy();`,
+          `    expect(runPropertyValidator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toBeFalsy();`,
           `  });`,
           ``,
         );
