@@ -6,9 +6,33 @@ NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for Typ
 
 NaNofuzz proposes an initial set of tests with a single button click. You then improve these tests by manually annotating the correctness of specific examples and/or by adding property validator functions that evaluate correctness at scale. NaNofuzz coherently organizes and prioritizes all test results on a single screen so that you can see at a glance what your suite is testing---as well as what it may be missing. 
 
-### The Details
+### Tutorial and Playground
 
-NaNofuzz supports standard and arrow functions with any mixture of the following parameter types:
+Our [NaNofuzz examples](https://github.com/nanofuzz/nanofuzz-examples/) repositority, provides a 10-minute NaNofuzz tutorial and several example buggy programs that you can use to get familiar with NaNofuzz. Within the `nanofuzz-examples` repo on GitHub, click Code->Codespaces->Create to immediately get started start!
+
+### Getting started
+
+To use NaNofuzz in your own projects: 
+
+- **Step 1**: Add the NaNofuzz dev dependency
+    - **npm**: `npm i @nanofuzz/runtime -D`
+    - **yarn**: `yarn add @nanofuzz/runtime -D`
+- **Step 2**: Add the NaNofuzz extension to your repo's `./.vscode/settings.json` recommendations:
+    ```
+    {
+        "recommendations": [
+            "penrose.nanofuzz"
+        ]
+    }
+    ```
+
+> **Note:** To run NaNofuzz tests in CI, click the pin button. NaNofuzz exports pinned tests to Jest format for execution in CI.
+
+### Scope and Limitations
+
+NaNofuzz is an **experimental** testing platform developed by the Accelerated Testing Research Program at Carnegie Mellon University's School of Computer Science. Therefore, NaNofuzz is **not** intended for production use; however, contributions are welcome to address the limitations below. 
+
+NaNofuzz supports exported standard and arrow functions with any mixture of the following parameter types:
  - Numbers (integers and floats, signed and unsigne)
  - Strings
  - Booleans
@@ -20,8 +44,8 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
  - Jest
 
 The following are not yet supported:
- - Deconstructed types, OR types, Tuples, Enums, Generics, or Function types
- - Non-finite numeric inputs (NaN, Infinity, null)
+ - Deconstructed types, OR types, Tuples, Enums, Generics, Function, and built-in (e.g., Record) types
+ - Non-finite numeric inputs (`NaN`, `Infinity`), the `bigint` type, and `null`)
  - Class and object methods
  - Compiling to module formats other than CommonJS (see [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
  - Support for stateful, flaky, or non-deterministic tests
@@ -29,7 +53,7 @@ The following are not yet supported:
  - Custom generators and filters
  - Test case minimization
 
-NaNofuzz is a experimental testing platform developed by the Accelerated Testing Research program at Carnegie Mellon University's School of Computer Science. As an experimental tool, NaNofuzz is not intended for production use; however, contributions are welcome to address the limitations above.
+If the NaNofuzz button does not appear above your function, that usually indicates that the function is not exported or one of its inputs is comprised of types that are not yet supported (see above).
 
 ### NaNofuzz Research Paper
 
