@@ -845,6 +845,7 @@ function drawTableBody(type, tbody, isClicking, button) {
         const cell = row.appendChild(document.createElement("td"));
         // Add pin icon
         cell.className = e[k] ? pinState.classPinned : pinState.classPin;
+        cell.classList.add("clickable");
         cell.id = `fuzzSaveToggle-${id}`;
         cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
         cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
@@ -983,8 +984,8 @@ function drawTableBody(type, tbody, isClicking, button) {
             handleExpectedOutput(type, row, tbody, isClicking, button);
             break;
         }
-        cell1.classList.add("colGroupStart");
-        cell2.classList.add("colGroupEnd");
+        cell1.classList.add("colGroupStart", "clickable");
+        cell2.classList.add("colGroupEnd", "clickable");
       } else {
         const cell = row.appendChild(document.createElement("td"));
         cell.innerHTML = htmlEscape(e[k]);
