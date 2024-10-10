@@ -129,6 +129,15 @@ export class FunctionDef {
   } // fn: isExported()
 
   /**
+   * Returns true if the function is void; false, otherwise.
+   *
+   * @returns true if the function is void; false, otherwise.
+   */
+  public isVoid(): boolean {
+    return this._ref.isVoid;
+  } // fn: isVoid()
+
+  /**
    * Returns true if the function is a validator; false, otherwise.
    *
    * @returns true if the function is a validator; false, otherwise.
