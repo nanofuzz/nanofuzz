@@ -672,14 +672,26 @@ export function ${validatorPrefix}${
     const fn = this._fuzzEnv.function;
 
     // Apply numeric fuzzer option changes
-    ["suiteTimeout", "maxTests", "maxFailures", "fnTimeout"].forEach((e) => {
+    const numericOptions = [
+      "suiteTimeout",
+      "maxTests",
+      "maxFailures",
+      "fnTimeout",
+    ] as const;
+    numericOptions.forEach((e) => {
       if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "number") {
         this._fuzzEnv.options[e] = panelInput.fuzzer[e];
       }
     });
 
     // Apply boolean fuzzer option changes
-    ["onlyFailures", "useImplicit", "useHuman", "useProperty"].forEach((e) => {
+    const booleanOptions = [
+      "onlyFailures",
+      "useImplicit",
+      "useHuman",
+      "useProperty",
+    ] as const;
+    booleanOptions.forEach((e) => {
       if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "boolean") {
         this._fuzzEnv.options[e] = panelInput.fuzzer[e];
       }
@@ -1041,7 +1053,20 @@ export function ${validatorPrefix}${
             <vscode-panels aria-label="Test result tabs" class="fuzzTabStrip">`;
 
     // If we have results, render the output tabs to display the results.
-    const tabs = [
+    const tabs: (
+      | {
+          id: fuzzer.ResultCateogry;
+          name: string;
+          description: string;
+          hasGrid: boolean;
+        }
+      | {
+          id: "runInfo";
+          name: string;
+          description: string;
+          hasGrid: false;
+        }
+    )[] = [
       {
         id: "failure",
         name: "Validator Error",
