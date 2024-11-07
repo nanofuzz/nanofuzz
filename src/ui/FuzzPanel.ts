@@ -602,7 +602,7 @@ export class FuzzPanel {
 
 export function ${validatorPrefix}${
         fnCounter === 0 ? "" : fnCounter
-      }(r: FuzzTestResult): boolean {
+      }(r: FuzzTestResult): boolean | undefined {
   // Array of inputs: r.in   Output: r.out
   // return false; // <-- Unexpected; failed
   return true;
