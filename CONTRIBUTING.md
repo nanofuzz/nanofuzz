@@ -72,6 +72,9 @@ To run the local version of the NaNofuzz extension:
   - ```sh
     git clone https://github.com/nanofuzz/nanofuzz-examples.git
     ```
+- Click `File->Add folder to workspace` and select the cloned folder (e.g., `nanofuzz-examples`.
+- Note: It might take a few minutes for the Extension Host to start the extension in development.
+- If you cloned `nanofuzz-examples`, run `yarn` to install its dependencies.
 - Click the `NaNofuzz...` button above one of the example functions to start NaNofuzz.
 - Some debug info may be found in the main VSC window's debug console.
 - To test a new build of NaNofuzz
@@ -136,7 +139,7 @@ When your work is ready for review:
 - [Open a pull request][] (PR) by clicking on the **Contribute** button on the
   homepage of your forked repo
   (`https://github.com/<your-github-account-name>/nanofuzz`).
-- Put `fix:` or `feat:` at the beginning of the PR title depending on if it's a
+- Put `fix:` or `feat:` or `chore:` at the beginning of the PR title depending on if it's a
   fix or a feature. We follow [conventional commit guidelines][].
 - Document your changes and rationale in the PR's description (including link(s) to any issue(s) you address).
 - Some things will be checked automatically by our [CI][]:
