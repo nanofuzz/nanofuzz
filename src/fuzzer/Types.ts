@@ -1,5 +1,13 @@
 import { ArgOptions } from "./analysis/typescript/Types";
 
+export type ResultCateogry =
+  | "failure"
+  | "timeout"
+  | "exception"
+  | "badValue"
+  | "ok"
+  | "disagree";
+
 /**
  * Single Fuzzer Test Result
  */
@@ -20,7 +28,7 @@ export type FuzzTestResult = {
   validatorExceptionStack?: string; // validator stack trace if exception was thrown
   elapsedTime: number; // elapsed time of test
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
-  category: string; // the ResultCategory of the test result
+  category: ResultCateogry; // the ResultCategory of the test result
 };
 
 /**
