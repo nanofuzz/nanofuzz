@@ -166,7 +166,7 @@ export const fuzz = async (
       timeout: false,
       passedImplicit: true,
       elapsedTime: 0,
-      category: FuzzResultCategory.OK,
+      category: "ok",
     };
 
     // Before searching, consume the pool of pinned tests
@@ -323,15 +323,12 @@ export const fuzz = async (
     result.category = categorizeResult(result, env);
 
     // Increment the failure counter if this test had a failing result
-    if (result.category !== FuzzResultCategory.OK) {
+    if (result.category !== "ok") {
       failureCount++;
     }
 
     // Store the result for this iteration
-    if (
-      !env.options.onlyFailures ||
-      result.category !== FuzzResultCategory.OK
-    ) {
+    if (!env.options.onlyFailures || result.category !== "ok") {
       results.results.push(result);
     }
   } // for: Main test loop
@@ -520,7 +517,7 @@ export function categorizeResult(
   env: FuzzEnv
 ): FuzzResultCategory {
   if (result.validatorException) {
-    return FuzzResultCategory.FAILURE; // Validator failed
+    return "failure"; // Validator failed
   }
 
   const implicit = result.passedImplicit ? true : false;
@@ -532,19 +529,17 @@ export function categorizeResult(
   // Returns the type of bad value: execption, timeout, or badvalue
   const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
     if (result.exception) {
-      return FuzzResultCategory.EXCEPTION; // PUT threw exception
+      return "exception"; // PUT threw exception
     } else if (result.timeout) {
-      return FuzzResultCategory.TIMEOUT; // PUT timedout
+      return "timeout"; // PUT timedout
     } else {
-      return FuzzResultCategory.BADVALUE; // PUT returned bad value
+      return "badValue"; // PUT returned bad value
     }
   };
   const getBadValueTypeProperty = (
     result: FuzzTestResult
   ): FuzzResultCategory => {
-    return result.passedValidator
-      ? FuzzResultCategory.OK
-      : FuzzResultCategory.BADVALUE; // PUT returned bad value
+    return result.passedValidator ? "ok" : "badValue"; // PUT returned bad value
   };
 
   // Either the human oracle or the validator may take precedence
@@ -554,24 +549,24 @@ export function categorizeResult(
   // then the disagreement is another error.
   if (human === true) {
     if (property === false) {
-      return FuzzResultCategory.DISAGREE;
+      return "disagree";
     } else {
-      return FuzzResultCategory.OK;
+      return "ok";
     }
   } else if (human === false) {
     if (property === true) {
-      return FuzzResultCategory.DISAGREE;
+      return "disagree";
     } else {
       return getBadValueType(result);
     }
   } else {
     if (property === true) {
-      return FuzzResultCategory.OK;
+      return "ok";
     } else if (property === false) {
       return getBadValueTypeProperty(result);
     } else {
       if (implicit) {
-        return FuzzResultCategory.OK;
+        return "ok";
       } else {
         return getBadValueType(result);
       }

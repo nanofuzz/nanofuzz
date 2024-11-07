@@ -666,8 +666,8 @@ export function ${validatorPrefix}${
    */
   private async _doFuzzStartCmd(json: string): Promise<void> {
     const panelInput: {
-      fuzzer: Record<string, number>; // !!! Improve typing
-      args: fuzzer.FuzzArgOverride[]; // !!! Improve typing
+      fuzzer: Record<string, number | boolean>;
+      args: fuzzer.FuzzArgOverride[];
     } = JSON5.parse(json);
     const fn = this._fuzzEnv.function;
 
@@ -679,8 +679,11 @@ export function ${validatorPrefix}${
       "fnTimeout",
     ] as const;
     numericOptions.forEach((e) => {
-      if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "number") {
-        this._fuzzEnv.options[e] = panelInput.fuzzer[e];
+      if (e in panelInput.fuzzer) {
+        const inputOption = panelInput.fuzzer[e];
+        if (typeof inputOption === "number") {
+          this._fuzzEnv.options[e] = inputOption;
+        }
       }
     });
 
@@ -692,8 +695,11 @@ export function ${validatorPrefix}${
       "useProperty",
     ] as const;
     booleanOptions.forEach((e) => {
-      if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "boolean") {
-        this._fuzzEnv.options[e] = panelInput.fuzzer[e];
+      if (e in panelInput.fuzzer) {
+        const inputOption = panelInput.fuzzer[e];
+        if (typeof inputOption === "boolean") {
+          this._fuzzEnv.options[e] = inputOption;
+        }
       }
     });
 
@@ -1055,7 +1061,7 @@ export function ${validatorPrefix}${
     // If we have results, render the output tabs to display the results.
     const tabs: (
       | {
-          id: fuzzer.ResultCateogry;
+          id: fuzzer.FuzzResultCategory;
           name: string;
           description: string;
           hasGrid: boolean;

@@ -1,13 +1,5 @@
 import { ArgOptions } from "./analysis/typescript/Types";
 
-export type ResultCateogry =
-  | "failure"
-  | "timeout"
-  | "exception"
-  | "badValue"
-  | "ok"
-  | "disagree";
-
 /**
  * Single Fuzzer Test Result
  */
@@ -28,7 +20,7 @@ export type FuzzTestResult = {
   validatorExceptionStack?: string; // validator stack trace if exception was thrown
   elapsedTime: number; // elapsed time of test
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
-  category: ResultCateogry; // the ResultCategory of the test result
+  category: FuzzResultCategory; // the ResultCategory of the test result
 };
 
 /**
@@ -81,19 +73,17 @@ export type FuzzIoElement = {
 /**
  * Category of a test result
  */
-export enum FuzzResultCategory {
-  OK = "ok",
-  BADVALUE = "badValue",
-  TIMEOUT = "timeout",
-  EXCEPTION = "exception",
-  DISAGREE = "disagree",
-  FAILURE = "failure", // Validator failure (e.g., threw an exception)
-}
+export type FuzzResultCategory =
+  | "ok"
+  | "badValue"
+  | "timeout"
+  | "exception"
+  | "disagree"
+  | "failure"; // Validator failure (e.g., threw an exception)
 
 /**
  * Fuzzer Options that specify the fuzzing behavior
  */
-
 export type FuzzOptions = {
   outputFile?: string; // optional file to receive the fuzzing output (JSON format)
   argDefaults: ArgOptions; // default options for arguments
