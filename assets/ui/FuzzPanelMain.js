@@ -1269,7 +1269,13 @@ function handleFuzzStart(eCurrTarget) {
   const fuzzBase = "fuzz"; // Base html id name
 
   // Process integer fuzzer options
-  ["suiteTimeout", "maxTests", "fnTimeout", "maxFailures"].forEach((e) => {
+  [
+    "suiteTimeout",
+    "maxTests",
+    "fnTimeout",
+    "maxDupeInputs",
+    "maxFailures",
+  ].forEach((e) => {
     const item = document.getElementById(fuzzBase + "-" + e);
     if (item !== null) {
       disableArr.push(item);

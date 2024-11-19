@@ -380,7 +380,7 @@ const _checkStopCondition = (
   }
 
   // End testing if we exceed the maximum number of duplicates generated
-  if (currentDupeCount >= Math.max(env.options.maxTests, 1000)) {
+  if (currentDupeCount >= env.options.maxDupeInputs) {
     return FuzzStopReason.MAXDUPES;
   }
 
@@ -397,6 +397,7 @@ const _checkStopCondition = (
 const isOptionValid = (options: FuzzOptions): boolean => {
   return !(
     options.maxTests < 0 ||
+    options.maxDupeInputs < 0 ||
     options.maxFailures < 0 ||
     !ArgDef.isOptionValid(options.argDefaults)
   );

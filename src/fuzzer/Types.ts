@@ -89,6 +89,7 @@ export type FuzzOptions = {
   argDefaults: ArgOptions; // default options for arguments
   seed?: string; // optional seed for pseudo-random number generator
   maxTests: number; // number of fuzzing tests to execute (>= 0)
+  maxDupeInputs: number; // maximum number of duplicate inputs before stopping (>=0)
   maxFailures: number; // maximum number of failures to report (>=0)
   onlyFailures: boolean; // only report tests that do not pass
   fnTimeout: number; // timeout threshold in ms per test
