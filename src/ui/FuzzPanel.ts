@@ -1142,7 +1142,7 @@ export function ${validatorPrefix}${
           } ${toolName} also executed.`,
         [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the configured maximum number of sequentially-generated duplicate inputs configured (${
             this._results.env.options.maxDupeInputs
-          }). This can mean that NaNofuzz is having difficulty generating new inputs: the function's input space may be small or near exhaustion. You can change this setting in More Options.`,
+          }). This can mean that NaNofuzz is having difficulty generating further new inputs: the function's input space might be small or near exhaustion. You can change this setting in More Options.`,
         "": `because of an unknown reason.`,
       };
 
