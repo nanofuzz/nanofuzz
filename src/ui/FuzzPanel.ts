@@ -1140,9 +1140,9 @@ export function ${validatorPrefix}${
           }). This is in addition to the ${this._results.inputsSaved} saved test${
             this._results.inputsSaved !== 1 ? "s" : ""
           } ${toolName} also executed.`,
-        [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the maximum number of duplicate tests configured (${
+        [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the configured maximum number of sequentially-generated duplicate inputs configured (${
             this._results.env.options.maxDupeInputs
-          }). Often this means the function's input space is small.`,
+          }). This can mean that NaNofuzz is having difficulty generating new inputs: the function's input space may be small or near exhaustion. You can change this setting in More Options.`,
         "": `because of an unknown reason.`,
       };
 
