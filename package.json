@@ -90,6 +90,13 @@
           "minimum": 1,
           "description": "Maximum number of tests the fuzzer should run before stopping."
         },
+        "nanofuzz.fuzzer.maxDupeInputs": {
+          "title": "Maximum number of duplicate inputs",
+          "type": "integer",
+          "default": 1000,
+          "minimum": 0,
+          "description": "Maximum number of duplicate inputs the fuzzer should generate before stopping."
+        },
         "nanofuzz.fuzzer.maxFailures": {
           "title": "Maximum number of failures (0=no limit)",
           "type": "integer",

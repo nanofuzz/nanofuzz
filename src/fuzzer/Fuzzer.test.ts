@@ -10,6 +10,7 @@ const intOptions: FuzzOptions = {
   fnTimeout: 100,
   suiteTimeout: 3000,
   seed: "qwertyuiop",
+  maxDupeInputs: 1000,
   maxFailures: 0,
   onlyFailures: false,
   useImplicit: true,

@@ -674,6 +674,7 @@ export function ${validatorPrefix}${
     // Apply numeric fuzzer option changes
     const numericOptions = [
       "suiteTimeout",
+      "maxDupeInputs",
       "maxTests",
       "maxFailures",
       "fnTimeout",
@@ -979,6 +980,9 @@ export function ${validatorPrefix}${
                   <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxFailures" name="fuzz-maxFailures" value="${this._fuzzEnv.options.maxFailures}">
                     Max failed tests
                   </vscode-text-field>
+                  <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxDupeInputs" name="fuzz-maxDupeInputs" value="${this._fuzzEnv.options.maxDupeInputs}">
+                    Max dupe inputs
+                  </vscode-text-field>
                 </div>
   
                 <p>
@@ -1136,7 +1140,9 @@ export function ${validatorPrefix}${
           }). This is in addition to the ${this._results.inputsSaved} saved test${
             this._results.inputsSaved !== 1 ? "s" : ""
           } ${toolName} also executed.`,
-        [fuzzer.FuzzStopReason.MAXDUPES]: `because it was unlikely to generate more unique test inputs. Often this means the function's input space is small.`,
+        [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the maximum number of duplicate tests configured (${
+            this._results.env.options.maxDupeInputs
+          }). Often this means the function's input space is small.`,
         "": `because of an unknown reason.`,
       };
 
@@ -1773,6 +1779,9 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     suiteTimeout: vscode.workspace
       .getConfiguration("nanofuzz.fuzzer")
       .get("suiteTimeout", 3000),
+    maxDupeInputs: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("maxDupeInputs", 1000),
     maxFailures: vscode.workspace
       .getConfiguration("nanofuzz.fuzzer")
       .get("maxFailures", 0),
