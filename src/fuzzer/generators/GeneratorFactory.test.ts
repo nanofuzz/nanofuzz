@@ -230,15 +230,21 @@ const testRandomString = (
   for (let i = 0; i < 1000; i++) {
     results.push(gen());
   }
-  //if (strMin !== strMax) {
-  //  expect(results.some((e) => e !== strMin)).toBeTruthy();
-  //  expect(results.some((e) => e !== strMax)).toBeTruthy();
-  //}
+  if (strMin !== strMax) {
+    // Expect: strMin <= output <= strMax
+    expect(results.every((e) => e >= strMin && e <= strMax)).toBeTruthy();
+    // Ensure that we're not always generating strMin or strMax
+    expect(results.some((e) => e !== strMin)).toBeTruthy();
+    expect(results.some((e) => e !== strMax)).toBeTruthy();
+  } else if (strMin === strMax) {
+    // Constant value, so all outputs should = strMin
+    expect(results.every((e) => e === strMin)).toBeTruthy();
+  }
   results.forEach((result) => {
     expect(result.length).toBeGreaterThanOrEqual(strLenMin);
     expect(result.length).toBeLessThanOrEqual(strLenMax);
-    //expect(result >= strMin).toBeTruthy();
-    //expect(result <= strMax).toBeTruthy();
+    expect(result >= strMin).toBeTruthy();
+    expect(result <= strMax).toBeTruthy();
   });
 };
 
