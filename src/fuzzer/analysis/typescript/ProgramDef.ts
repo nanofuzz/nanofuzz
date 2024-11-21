@@ -1031,51 +1031,60 @@ export class ProgramDef {
       ast,
       {
         enter: (node, parent) => {
-          if (
-            // Arrow Function Definition: const xyz = (): void => { ... }
-            node.type === AST_NODE_TYPES.VariableDeclarator &&
-            parent !== undefined &&
-            parent.type === AST_NODE_TYPES.VariableDeclaration &&
-            node.init &&
-            node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
-            node.id.type === AST_NODE_TYPES.Identifier &&
-            !isBlockScoped(node)
-          ) {
-            ret[node.id.name] = {
-              name: node.id.name,
-              module: this._module,
-              src:
-                parent.kind +
-                " " +
-                this._src.substring(node.range[0], node.range[1]),
-              startOffset: node.range[0],
-              endOffset: node.range[1],
-              isExported: parent.parent
-                ? parent.parent.type === AST_NODE_TYPES.ExportNamedDeclaration
-                : false,
-              args: node.init.params
-                .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
-                .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
-            };
-          } else if (
-            // Standard Function Definition: function xyz(): void => { ... }
-            node.type === AST_NODE_TYPES.FunctionDeclaration &&
-            node.id !== null &&
-            !isBlockScoped(node)
-          ) {
-            ret[node.id.name] = {
-              name: node.id.name,
-              module: this._module,
-              src: this._src.substring(node.range[0], node.range[1]),
-              startOffset: node.range[0],
-              endOffset: node.range[1],
-              isExported: parent
-                ? parent.type === AST_NODE_TYPES.ExportNamedDeclaration
-                : false,
-              args: node.params
-                .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
-                .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
-            };
+          try {
+            if (
+              // Arrow Function Definition: const xyz = (): void => { ... }
+              node.type === AST_NODE_TYPES.VariableDeclarator &&
+              parent !== undefined &&
+              parent.type === AST_NODE_TYPES.VariableDeclaration &&
+              node.init &&
+              node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
+              node.id.type === AST_NODE_TYPES.Identifier &&
+              !isBlockScoped(node)
+            ) {
+              ret[node.id.name] = {
+                name: node.id.name,
+                module: this._module,
+                src:
+                  parent.kind +
+                  " " +
+                  this._src.substring(node.range[0], node.range[1]),
+                startOffset: node.range[0],
+                endOffset: node.range[1],
+                isExported: parent.parent
+                  ? parent.parent.type === AST_NODE_TYPES.ExportNamedDeclaration
+                  : false,
+                args: node.init.params
+                  .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
+                  .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
+              };
+            } else if (
+              // Standard Function Definition: function xyz(): void => { ... }
+              node.type === AST_NODE_TYPES.FunctionDeclaration &&
+              node.id !== null &&
+              !isBlockScoped(node)
+            ) {
+              ret[node.id.name] = {
+                name: node.id.name,
+                module: this._module,
+                src: this._src.substring(node.range[0], node.range[1]),
+                startOffset: node.range[0],
+                endOffset: node.range[1],
+                isExported: parent
+                  ? parent.type === AST_NODE_TYPES.ExportNamedDeclaration
+                  : false,
+                args: node.params
+                  .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
+                  .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
+              };
+            }
+          } catch (e: any) {
+            console.warn(
+              `Error processing function '${this._src.substring(
+                node.range[0],
+                node.range[1]
+              )}' in module '${this._module}': ${e.message}`
+            );
           }
         },
         // TODO: Add support for class methods
