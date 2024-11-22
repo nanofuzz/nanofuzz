@@ -395,11 +395,11 @@ const _checkStopCondition = (
  * @returns true if the options are valid, false otherwise
  */
 const isOptionValid = (options: FuzzOptions): boolean => {
-  return !(
-    options.maxTests < 0 ||
-    options.maxDupeInputs < 0 ||
-    options.maxFailures < 0 ||
-    !ArgDef.isOptionValid(options.argDefaults)
+  return (
+    options.maxTests >= 0 &&
+    options.maxDupeInputs >= 0 &&
+    options.maxFailures >= 0 &&
+    ArgDef.isOptionValid(options.argDefaults)
   );
 }; // fn: isOptionValid()
 
