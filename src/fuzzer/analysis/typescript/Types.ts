@@ -38,6 +38,7 @@ export type FunctionRef = {
   endOffset: number; // Ending offset of the function in the source file
   isExported: boolean; // True if the function is exported; false, otherwise
   args?: TypeRef[]; // Array of argument types
+  returnType?: TypeRef; // Return type of the function
 };
 
 /**
