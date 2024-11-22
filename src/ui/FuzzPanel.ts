@@ -1851,7 +1851,7 @@ export const languages = ["typescript", "typescriptreact"];
 /**
  * The Fuzzer State Version we currently support.
  */
-const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.2.1";
+const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.6";
 
 /**
  * Current file format version for persisting test sets / pinned test cases
