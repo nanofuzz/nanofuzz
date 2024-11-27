@@ -607,12 +607,16 @@ export class FuzzPanel {
       )
       .concat([`  const out${returnType ? ": " + returnType : ""} = r.out;`])
       .join("\n");
+    const argTypes = fn
+      .getArgDefs()
+      .map((argDef) => argDef.getType())
+      .join(", ");
     // prettier-ignore
     const skeleton = `
 
 export function ${validatorPrefix}${
         fnCounter === 0 ? "" : fnCounter
-      }(r: FuzzTestResult): boolean | undefined {
+      }(r: FuzzTestResult<[${argTypes}], ${returnType}>): boolean | undefined {
   // Array of inputs: r.in   Output: r.out
 ${inOutArgConsts}
   // return false; // <-- Unexpected; failed
