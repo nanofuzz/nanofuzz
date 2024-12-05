@@ -215,6 +215,17 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
             },
           },
         ],
+        returnType: {
+          dims: 0,
+          isExported: false,
+          module: "dummy.ts",
+          optional: false,
+          type: {
+            children: [],
+            resolved: true,
+            type: "string",
+          },
+        },
       },
       {
         name: "test2",
@@ -224,6 +235,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         endOffset: 170,
         isExported: true,
         args: [],
+        returnType: undefined,
       },
       /*
       {
@@ -274,6 +286,17 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
           },
         },
       ],
+      returnType: {
+        dims: 0,
+        isExported: false,
+        module: "dummy.ts",
+        optional: false,
+        type: {
+          children: [],
+          resolved: true,
+          type: "string",
+        },
+      },
     });
   });
 
@@ -299,6 +322,17 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
           },
         },
       ],
+      returnType: {
+        dims: 0,
+        isExported: false,
+        module: "dummy.ts",
+        optional: false,
+        type: {
+          children: [],
+          resolved: true,
+          type: "string",
+        },
+      },
     });
   });
 });

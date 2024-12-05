@@ -1,6 +1,12 @@
 import * as JSON5 from "json5";
 import { ArgDef } from "./ArgDef";
-import { ArgType, FunctionRef, ArgOptionOverrides, ArgOptions } from "./Types";
+import {
+  ArgType,
+  FunctionRef,
+  ArgOptionOverrides,
+  ArgOptions,
+  TypeRef,
+} from "./Types";
 
 /**
  * The FunctionDef class represents a function definition in a Typescript source
@@ -118,6 +124,17 @@ export class FunctionDef {
   public getRef(): FunctionRef {
     return { ...this._ref };
   } // fn: getRef()
+
+  /**
+   * Returns the return type of the function, or undefined if the
+   * function does not have a return type annotation.
+   *
+   * @returns the return type of the function, or undefined if the
+   * function does not have a return type annotation.
+   */
+  public getReturnType(): TypeRef | undefined {
+    return this._ref.returnType;
+  } // fn: get
 
   /**
    * Returns true if the function is exported; false, otherwise.
