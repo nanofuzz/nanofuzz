@@ -597,6 +597,16 @@ export class FuzzPanel {
  *     ${"`"}yarn add nanofuzz/runtime -D${"`"}
  *  1. Add an import to the top of the file:
  *     ${"`"}import { FuzzTestResult } from "nanofuzz/runtime";${"`"}`;
+
+    const returnType = fn.getReturnType()?.type?.type;
+    const inOutArgConsts = fn
+      .getArgDefs()
+      .map(
+        (argDef, i) =>
+          `  const ${argDef.getName()}: ${argDef.getType()} = r.in[${i}];`
+      )
+      .concat([`  const out${returnType ? ": " + returnType : ""} = r.out;`])
+      .join("\n");
     // prettier-ignore
     const skeleton = `
 
@@ -604,6 +614,7 @@ export function ${validatorPrefix}${
         fnCounter === 0 ? "" : fnCounter
       }(r: FuzzTestResult): boolean | undefined {
   // Array of inputs: r.in   Output: r.out
+${inOutArgConsts}
   // return false; // <-- Unexpected; failed
   return true;
 }`;
