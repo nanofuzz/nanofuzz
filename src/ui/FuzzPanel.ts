@@ -607,7 +607,7 @@ export class FuzzPanel {
     const inArgConsts = inArgs
       .map(
         (argDef, i) =>
-          `  const ${argDef.getName()}: ${argDef.getType()} = ${
+          `  const ${argDef.getName()}: ${this.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
           }.in[${i}];`
       )
@@ -669,6 +669,17 @@ ${outArgConst}
     // In the extremely unlikely event that all 1000 names are taken, we'll
     // just return `r_conflicted` and not worry about potential conflicts.
     return { name: "r_conflicted", generated: true };
+  }
+
+  private getTypeAnnotation(argDef: fuzzer.ArgDef<fuzzer.ArgType>): string {
+    const dim = argDef.getDim();
+    const type = `${argDef.getType()}${dim ? "[]".repeat(dim) : ""}`;
+
+    if (argDef.isOptional()) {
+      return `${type} | undefined`;
+    }
+
+    return type;
   }
 
   private getValidatorArgs(inArgs: fuzzer.ArgDef<fuzzer.ArgType>[]): {
