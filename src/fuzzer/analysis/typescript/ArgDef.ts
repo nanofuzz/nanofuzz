@@ -426,6 +426,22 @@ export class ArgDef<T extends ArgType> {
   } // fn: getChildrenFlat()
 
   /**
+   * Returns a string that works as the type annotation for the argument.
+   * @returns a string that works as the type annotation for the argument
+   */
+  public getTypeAnnotation(): string {
+    const dim = this.getDim();
+    const baseType = this.getTypeRef() ?? this.getType();
+    const type = `${baseType}${dim ? "[]".repeat(dim) : ""}`;
+
+    if (this.isOptional()) {
+      return `${type} | undefined`;
+    }
+
+    return type;
+  } // fn: getTypeAnnotation()
+
+  /**
    * Returns the default option set for signed integer values.
    *
    * @returns the default option set for signed integer values
