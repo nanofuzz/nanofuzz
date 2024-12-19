@@ -7,6 +7,10 @@ import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
 
+// Consts for validator result arg name generation
+const possibleResultArgNames = ["r", "result", "_r", "_result"];
+const maxResultArgSuffix = 1000;
+
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
  * given FuzzEnvironment within a VS Code Webview.
@@ -597,13 +601,31 @@ export class FuzzPanel {
  *     ${"`"}yarn add nanofuzz/runtime -D${"`"}
  *  1. Add an import to the top of the file:
  *     ${"`"}import { FuzzTestResult } from "nanofuzz/runtime";${"`"}`;
+
+    const inArgs = fn.getArgDefs();
+    const validatorArgs = this.getValidatorArgs(inArgs);
+    const inArgConsts = inArgs
+      .map(
+        (argDef, i) =>
+          `  const ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
+            validatorArgs.resultArgName
+          }.in[${i}];`
+      )
+      .join("\n");
+
+    const returnType = fn.getReturnType()?.type?.type;
+    const outArgConst = `  const out${returnType ? ": " + returnType : ""} = ${
+      validatorArgs.resultArgName
+    }.out;`;
+
     // prettier-ignore
     const skeleton = `
 
 export function ${validatorPrefix}${
         fnCounter === 0 ? "" : fnCounter
-      }(r: FuzzTestResult): boolean | undefined {
-  // Array of inputs: r.in   Output: r.out
+      } ${validatorArgs.str}: boolean | undefined {
+${inArgConsts}
+${outArgConst}
   // return false; // <-- Unexpected; failed
   return true;
 }`;
@@ -618,6 +640,57 @@ export function ${validatorPrefix}${
         `Unable to write property validator code skeleton to source file`
       );
     }
+  }
+
+  // Choose the result argument name for a validator while avoiding conflicts
+  private getResultArgName(inArgs: fuzzer.ArgDef<fuzzer.ArgType>[]): {
+    // The chosen name
+    name: string;
+    // Whether the name was generated (as opposed to being in possibleResultArgNames)
+    generated: boolean;
+  } {
+    const inArgNames = inArgs.map((argDef) => argDef.getName());
+    for (const name of possibleResultArgNames) {
+      if (!inArgNames.includes(name)) {
+        return { name, generated: false };
+      }
+    }
+
+    let i = 1;
+    // Generate a new one with a suffix
+    while (i <= maxResultArgSuffix) {
+      const name = `r_${i}`;
+      if (!inArgNames.includes(name)) {
+        return { name, generated: true };
+      }
+      i++;
+    }
+
+    // In the extremely unlikely event that all 1000 names are taken, we'll
+    // just return `r_conflicted` and not worry about potential conflicts.
+    return { name: "r_conflicted", generated: true };
+  }
+
+  private getValidatorArgs(inArgs: fuzzer.ArgDef<fuzzer.ArgType>[]): {
+    str: string;
+    resultArgName: string;
+  } {
+    const resultArgName = this.getResultArgName(inArgs);
+    const resultArgString = `${resultArgName.name}: FuzzTestResult`;
+    if (!resultArgName.generated) {
+      return {
+        str: `(${resultArgString})`,
+        resultArgName: resultArgName.name,
+      };
+    }
+
+    return {
+      str: `(
+    // Generated name for the result argument to avoid conflicts
+    ${resultArgString}
+  )`,
+      resultArgName: resultArgName.name,
+    };
   }
 
   /**
