@@ -673,7 +673,8 @@ ${outArgConst}
 
   private getTypeAnnotation(argDef: fuzzer.ArgDef<fuzzer.ArgType>): string {
     const dim = argDef.getDim();
-    const type = `${argDef.getType()}${dim ? "[]".repeat(dim) : ""}`;
+    const baseType = argDef.getTypeRef() ?? argDef.getType();
+    const type = `${baseType}${dim ? "[]".repeat(dim) : ""}`;
 
     if (argDef.isOptional()) {
       return `${type} | undefined`;
