@@ -426,15 +426,35 @@ export class ArgDef<T extends ArgType> {
   } // fn: getChildrenFlat()
 
   /**
+   * Returns the base type of this ArgDef, i.e., its type without any
+   * dimensions or optionality.
+   */
+  private getBaseType(): string {
+    if (this.typeRef) {
+      return this.typeRef;
+    }
+
+    if (this.type === "object") {
+      // Probably an inline type given the lack of a typeRef, recursively walk
+      // the children to build the type.
+      const childTypeAnnotations = this.children.map(
+        (child) => `${child.getName()}: ${child.getTypeAnnotation()}`
+      );
+      return `{ ${childTypeAnnotations.join(", ")} }`;
+    }
+
+    return this.type;
+  }
+
+  /**
    * Returns a string that works as the type annotation for the argument.
    * @returns a string that works as the type annotation for the argument
    */
   public getTypeAnnotation(): string {
-    const dim = this.getDim();
-    const baseType = this.getTypeRef() ?? this.getType();
-    const type = `${baseType}${dim ? "[]".repeat(dim) : ""}`;
+    const baseType = this.getBaseType();
+    const type = `${baseType}${this.dims ? "[]".repeat(this.dims) : ""}`;
 
-    if (this.isOptional()) {
+    if (this.optional) {
       return `${type} | undefined`;
     }
 
