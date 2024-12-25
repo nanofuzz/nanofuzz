@@ -8,7 +8,7 @@ NaNofuzz proposes an initial set of tests with a single button click. You then i
 
 # Tutorial and Playground
 
-Our [NaNofuzz examples](https://github.com/nanofuzz/nanofuzz-examples/) repositority, provides a 10-minute NaNofuzz tutorial and several example buggy programs that you can use to get familiar with NaNofuzz. Within the `nanofuzz-examples` repo on GitHub, click `Code`->`Codespaces`->`Create` to immediately get started!
+Our [NaNofuzz examples](https://github.com/nanofuzz/nanofuzz-examples/) repository, provides a 10-minute NaNofuzz tutorial and several example buggy programs that you can use to get familiar with NaNofuzz. Within the `nanofuzz-examples` repo on GitHub, click `Code`->`Codespaces`->`Create` to immediately get started!
 
 # Getting started
 
@@ -33,7 +33,7 @@ To use NaNofuzz in your own projects:
 NaNofuzz is an **experimental** testing platform developed by the Accelerated Testing Research Program at Carnegie Mellon University's School of Computer Science. Therefore, NaNofuzz is **not** intended for production use; however, contributions are welcome to address the limitations below. 
 
 NaNofuzz supports exported standard and arrow functions with any mixture of the following parameter types:
- - Numbers (integers and floats, signed and unsigne)
+ - Numbers (integers and floats, signed and unsigned)
  - Strings
  - Booleans
  - Literal object types
@@ -57,7 +57,7 @@ If the NaNofuzz button does not appear above your function, that usually indicat
 
 # Contributing
 
-We welcome outside conributions to address the limitations above and to correct open issues. 
+We welcome outside contributions to address the limitations above and to correct open issues. 
 Please see our [Contributor's Guide](https://github.com/nanofuzz/nanofuzz/blob/main/CONTRIBUTING.md) for more details about how you can get involved.
 
 # NaNofuzz Research Paper
@@ -70,7 +70,7 @@ The paper above covers the 0.1.x version of NaNofuzz. A lot has changed since th
 
 # The NaNofuzz Mascot
 
-Meet NaNcy, the Silky Anteater! Silky anteaters are wonderfully-adapted, small, fuzzy creatures known to find and consume large quantities of bugs on a daily basis. Therefore, NaNcy is NaNofuzz' beloved mascot on our journey to find and eliminate more bugs.
+Meet NaNcy, the Silky Anteater! Silky anteaters are wonderfully-adapted, small, fuzzy creatures known to find and consume large quantities of bugs on a daily basis. Therefore, NaNcy is NaNofuzz's beloved mascot on our journey to find and eliminate more bugs.
 
 ![image](https://avatars.githubusercontent.com/u/136026223?s=200&v=4)
 
