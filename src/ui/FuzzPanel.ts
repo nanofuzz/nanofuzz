@@ -646,7 +646,14 @@ ${outArgConst}
     }
   }
 
-  // Choose a name for an identifier that doesn't conflict with the input arguments
+  /**
+   * Choose a name for an identifier that doesn't conflict with the input arguments
+   *
+   * @param inArgs The input arguments
+   * @param candidateNames The candidate names to choose from
+   * @param maxSuffix The maximum suffix to use when generating a new name
+   * @returns The chosen name and whether it was generated
+   */
   private getIdentifierNameAvoidingConflicts(
     // The input arguments
     inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
@@ -668,17 +675,20 @@ ${outArgConst}
     }
 
     let i = 1;
-    // Generate a new one with a suffix
-    while (i <= maxSuffix) {
-      const name = `r_${i}`;
-      if (!inArgNames.includes(name)) {
-        return { name, generated: true };
+    // Generate a new name with a suffix
+    for (const candidateName of candidateNames) {
+      while (i <= maxSuffix) {
+        const name = `${candidateName}_${i}`;
+        if (!inArgNames.includes(name)) {
+          return { name, generated: true };
+        }
+        i++;
       }
-      i++;
     }
 
-    // In the extremely unlikely event that all 1000 names are taken, we'll
-    // just return `r_conflicted` and not worry about potential conflicts.
+    // In the extremely unlikely event that all the names generated above are
+    // already in `inArgNames`, we'll just return `r_conflicted` and not worry
+    // about potential conflicts.
     return { name: "r_conflicted", generated: true };
   } // fn: getIdentifierNameAvoidingConflicts()
 
@@ -736,15 +746,15 @@ ${outArgConst}
       outVarCandidateNames,
       maxOutVarSuffix
     );
-    const outVarString = `  const ${outVarName.name}${
+    const outVarString = `const ${outVarName.name}${
       returnType ? ": " + returnType : ""
     } = ${resultArgName}.out;`;
     if (!outVarName.generated) {
       return outVarString;
     }
 
-    return `// Generated name for the out variable to avoid conflicts
-${outVarString}`;
+    return `  // Generated name for the out variable to avoid conflicts
+  ${outVarString}`;
   } // fn: getOutConst()
 
   /**

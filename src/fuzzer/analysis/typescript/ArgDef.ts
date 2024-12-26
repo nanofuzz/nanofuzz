@@ -444,7 +444,7 @@ export class ArgDef<T extends ArgType> {
     }
 
     return this.type;
-  }
+  } // fn: getBaseType()
 
   /**
    * Returns a string that works as the type annotation for the argument.
