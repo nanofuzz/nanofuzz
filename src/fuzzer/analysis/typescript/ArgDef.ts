@@ -440,7 +440,7 @@ export class ArgDef<T extends ArgType> {
       const childTypeAnnotations = this.children.map(
         (child) => `${child.getName()}: ${child.getTypeAnnotation()}`
       );
-      return `{ ${childTypeAnnotations.join(", ")} }`;
+      return `{ ${childTypeAnnotations.join("; ")} }`;
     }
 
     return this.type;
