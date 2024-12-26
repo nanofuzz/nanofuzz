@@ -8,8 +8,12 @@ import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
 
 // Consts for validator result arg name generation
-const possibleResultArgNames = ["r", "result", "_r", "_result"];
+const resultArgCandidateNames = ["r", "result", "_r", "_result"];
 const maxResultArgSuffix = 1000;
+
+// Consts for validator out variable name generation
+const outVarCandidateNames = ["out", "output", "_out", "_output"];
+const maxOutVarSuffix = 1000;
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -613,10 +617,10 @@ export class FuzzPanel {
       )
       .join("\n");
 
-    const returnType = fn.getReturnType()?.type?.type;
-    const outArgConst = `  const out${returnType ? ": " + returnType : ""} = ${
+    const outArgConst = this.getOutArgConst(
+      inArgs,
       validatorArgs.resultArgName
-    }.out;`;
+    );
 
     // prettier-ignore
     const skeleton = `
@@ -642,15 +646,22 @@ ${outArgConst}
     }
   }
 
-  // Choose the result argument name for a validator while avoiding conflicts
-  private getResultArgName(inArgs: fuzzer.ArgDef<fuzzer.ArgType>[]): {
+  // Choose a name for an identifier that doesn't conflict with the input arguments
+  private getIdentifierNameAvoidingConflicts(
+    // The input arguments
+    inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
+    // The candidate names to choose from
+    candidateNames: string[],
+    // The maximum suffix to use when generating a new name
+    maxSuffix: number
+  ): {
     // The chosen name
     name: string;
     // Whether the name was generated (as opposed to being in possibleResultArgNames)
     generated: boolean;
   } {
     const inArgNames = inArgs.map((argDef) => argDef.getName());
-    for (const name of possibleResultArgNames) {
+    for (const name of candidateNames) {
       if (!inArgNames.includes(name)) {
         return { name, generated: false };
       }
@@ -658,7 +669,7 @@ ${outArgConst}
 
     let i = 1;
     // Generate a new one with a suffix
-    while (i <= maxResultArgSuffix) {
+    while (i <= maxSuffix) {
       const name = `r_${i}`;
       if (!inArgNames.includes(name)) {
         return { name, generated: true };
@@ -669,13 +680,24 @@ ${outArgConst}
     // In the extremely unlikely event that all 1000 names are taken, we'll
     // just return `r_conflicted` and not worry about potential conflicts.
     return { name: "r_conflicted", generated: true };
-  }
+  } // fn: getIdentifierNameAvoidingConflicts()
 
+  /**
+   * Get the string representation for the validator arguments, along with the
+   * name of the argument that will hold the result.
+   *
+   * @param inArgs The input arguments
+   * @returns An object containing the above information
+   */
   private getValidatorArgs(inArgs: fuzzer.ArgDef<fuzzer.ArgType>[]): {
     str: string;
     resultArgName: string;
   } {
-    const resultArgName = this.getResultArgName(inArgs);
+    const resultArgName = this.getIdentifierNameAvoidingConflicts(
+      inArgs,
+      resultArgCandidateNames,
+      maxResultArgSuffix
+    );
     const resultArgString = `${resultArgName.name}: FuzzTestResult`;
     if (!resultArgName.generated) {
       return {
@@ -691,7 +713,39 @@ ${outArgConst}
   )`,
       resultArgName: resultArgName.name,
     };
-  }
+  } // fn: getValidatorArgs()
+
+  /**
+   * Get the string for the declaration of the out variable.
+   *
+   * The out variable is the variable that will hold the result of the function
+   * under test.
+   *
+   * @param inArgs The input arguments
+   * @param resultArgName The name of the argument that will hold the result
+   * @param returnType The return type of the function
+   * @returns The string for the declaration of the out variable
+   */
+  private getOutArgConst(
+    inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
+    resultArgName: string,
+    returnType?: string
+  ): string {
+    const outVarName = this.getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outVarString = `  const ${outVarName.name}${
+      returnType ? ": " + returnType : ""
+    } = ${resultArgName}.out;`;
+    if (!outVarName.generated) {
+      return outVarString;
+    }
+
+    return `// Generated name for the out variable to avoid conflicts
+${outVarString}`;
+  } // fn: getOutConst()
 
   /**
    * Message handler for the `validator.getList` command. Gets the list
