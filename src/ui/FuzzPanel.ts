@@ -621,8 +621,8 @@ export function ${validatorPrefix}${
       } ${validatorArgs.str}: boolean | undefined {
 ${inArgConsts}
   ${outArgConst}
-  // return false; // <-- Unexpected; failed
-  return true; // <-- Expected; passed
+
+  return true; // true=passed; false=failed
 }`;
 
     // Append the code skeleton to the source file
