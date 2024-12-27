@@ -595,16 +595,7 @@ export class FuzzPanel {
     const hasImport = Object.keys(program.getImports().identifiers).some(
       (e) => e === "FuzzTestResult"
     );
-
-    // Skeleton code for the function
-    const npmInstruction = `
- * 
- * You will need to:
- *  1. Add the nanofuzz/runtime package to your project using npm or yarn:
- *     ${"`"}npm install nanofuzz/runtime -D${"`"}
- *     ${"`"}yarn add nanofuzz/runtime -D${"`"}
- *  1. Add an import to the top of the file:
- *     ${"`"}import { FuzzTestResult } from "nanofuzz/runtime";${"`"}`;
+    // TODO: if !hasImport, add `FuzzTestResult` import
 
     const inArgs = fn.getArgDefs();
     const validatorArgs = this.getValidatorArgs(inArgs);
@@ -629,9 +620,9 @@ export function ${validatorPrefix}${
         fnCounter === 0 ? "" : fnCounter
       } ${validatorArgs.str}: boolean | undefined {
 ${inArgConsts}
-${outArgConst}
+  ${outArgConst}
   // return false; // <-- Unexpected; failed
-  return true;
+  return true; // <-- Expected; passed
 }`;
 
     // Append the code skeleton to the source file
@@ -709,18 +700,8 @@ ${outArgConst}
       maxResultArgSuffix
     );
     const resultArgString = `${resultArgName.name}: FuzzTestResult`;
-    if (!resultArgName.generated) {
-      return {
-        str: `(${resultArgString})`,
-        resultArgName: resultArgName.name,
-      };
-    }
-
     return {
-      str: `(
-    // Generated name for the result argument to avoid conflicts
-    ${resultArgString}
-  )`,
+      str: `(${resultArgString})`,
       resultArgName: resultArgName.name,
     };
   } // fn: getValidatorArgs()
@@ -749,12 +730,7 @@ ${outArgConst}
     const outVarString = `const ${outVarName.name}${
       returnType ? ": " + returnType : ""
     } = ${resultArgName}.out;`;
-    if (!outVarName.generated) {
-      return outVarString;
-    }
-
-    return `  // Generated name for the out variable to avoid conflicts
-  ${outVarString}`;
+    return outVarString;
   } // fn: getOutConst()
 
   /**
