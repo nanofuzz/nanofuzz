@@ -11,6 +11,7 @@ import {
 import {
   TSTypeAliasDeclaration,
   TSTypeAnnotation,
+  TSVoidKeyword,
   Identifier,
   TSPropertySignature,
   TypeNode,
@@ -1135,10 +1136,16 @@ export class ProgramDef {
       // ReturnType is not as important for fuzzing, so we don't throw an error
       // if we encounter something we don't support.
       let returnType;
+      let isVoid = false;
       try {
+        isVoid =
+          node.init.returnType?.typeAnnotation.type ===
+          AST_NODE_TYPES.TSVoidKeyword;
         returnType = this._getTypeRefFromAstNode(node.id);
       } catch {
-        console.debug('Unsupported return type for function "' + name + '".');
+        if (!isVoid) {
+          console.debug('Unsupported return type for function "' + name + '".');
+        }
         returnType = undefined;
       }
       return {
@@ -1155,7 +1162,7 @@ export class ProgramDef {
           .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
           .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
         returnType,
-        isVoid: false, // !!!!! TODO
+        isVoid,
       };
     } else if (
       // Standard Function Definition: function xyz(): void => { ... }
@@ -1165,11 +1172,16 @@ export class ProgramDef {
       // ReturnType is not as important for fuzzing, so we don't throw an error
       // if we encounter something we don't support.
       let returnType;
+      let isVoid = false;
       try {
+        isVoid =
+          node.returnType?.typeAnnotation.type === AST_NODE_TYPES.TSVoidKeyword;
         returnType =
           node.returnType && this._getTypeRefFromAstNode(node.returnType);
       } catch {
-        console.debug('Unsupported return type for function "' + name + '".');
+        if (!isVoid) {
+          console.debug('Unsupported return type for function "' + name + '".');
+        }
         returnType = undefined;
       }
       return {
@@ -1185,7 +1197,7 @@ export class ProgramDef {
           .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
           .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
         returnType,
-        isVoid: false, // !!!!! TODO
+        isVoid,
       };
     }
   } // fn: _getFunctionFromNode()
