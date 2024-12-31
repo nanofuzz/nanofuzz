@@ -28,7 +28,6 @@ import {
   ArgOptions,
   ProgramImport,
 } from "./Types";
-import { Breakpoint } from "vscode";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
