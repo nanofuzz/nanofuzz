@@ -14,7 +14,7 @@ import {
   Identifier,
   TSPropertySignature,
   TypeNode,
-  Statement,
+  Node,
 } from "@typescript-eslint/types/dist/ast-spec";
 import path from "path";
 import fs from "fs";
@@ -58,7 +58,20 @@ export class ProgramDef {
   private _functions: Record<IdentifierName, FunctionRef> = {}; // Functions defined in the program
   private _unsupportedFunctions: Record<
     IdentifierName,
-    { reason: string; argument?: IdentifierName; function: FunctionRef }
+    {
+      reason: string;
+    } & (
+      | {
+          // Functions that are unsupported due to an argument type that could not be resolved
+          argument?: IdentifierName;
+          function: FunctionRef;
+        }
+      | {
+          // Functions that are supported due to being unrepresentable using FunctionRef,
+          // e.g., use of unsupported types
+          node: Node;
+        }
+    )
   > = {}; // Functions defined but not supported
   private _functionCache: Record<IdentifierName, FunctionDef> = {}; // Cached FunctionDef objects
   private _exportedFunctions: Record<IdentifierName, FunctionRef> = {}; // Functions exported by the program
@@ -117,7 +130,9 @@ export class ProgramDef {
     }
 
     // Extract local functions
-    this._functions = this._findFunctions(ast);
+    const functions = this._findFunctions(ast);
+    this._functions = functions.supported;
+    this._unsupportedFunctions = functions.unsupported;
     for (const name in this._functions) {
       if (this._functions[name].isExported) {
         this._exportedFunctions[name] = this._functions[name];
@@ -133,6 +148,8 @@ export class ProgramDef {
       for (const fnRef of Object.values(this._functions)) {
         let lastArgName: string | undefined;
         try {
+          // Attempt to resolve function argument types
+          // Note: failure to resolve any argument makes fn unsupported
           if (fnRef.args) {
             for (const fnArg of fnRef.args) {
               lastArgName = fnArg.name;
@@ -156,6 +173,18 @@ export class ProgramDef {
           };
           delete this._functions[fnRef.name];
           delete this._exportedFunctions[fnRef.name];
+        }
+        // Attempt to resolve function return types
+        // Note: failure to resolve return type does not make function unsupported
+        try {
+          if (fnRef.returnType) {
+            lastArgName = "return";
+            this._resolveTypeRef(fnRef.returnType);
+          }
+        } catch (e: any) {
+          console.debug(
+            `Error resolving return type for function '${fnRef.name}'; Reason: ${e.message}`
+          );
         }
       }
     }
@@ -769,13 +798,9 @@ export class ProgramDef {
             return resolved;
           }
         } else {
-          // Resolve the module using node.
-          //
-          // TODO: There can be a difference, for instance in a monorepo,
-          //       between how node resolves an npm module and how VS Code
-          //       resolves it due to its cwd. We should probably use the
-          //       same approach as the VS Code resolver here.
-          const resolved = require.resolve(importModule + ext);
+          const resolved = require.resolve(importModule + ext, {
+            paths: [path.dirname(this._module)], // Resolve from the importing module's path
+          });
           const extension = path.extname(resolved);
 
           // If node resolves a Javascript file, look for a type defintion file
@@ -791,9 +816,9 @@ export class ProgramDef {
           }
         }
       } catch (e) {
-        // Just eat the exception for now & retry
+        // Eat the exception & retry
       }
-    }
+    } // for: each extension
 
     // Throw an exception if we did not resolve the import
     throw new Error(
@@ -812,7 +837,11 @@ export class ProgramDef {
    * @returns The TypeRef object for the given AST node
    */
   private _getTypeRefFromAstNode(
-    node: Identifier | TSPropertySignature | TSTypeAliasDeclaration
+    node:
+      | Identifier
+      | TSPropertySignature
+      | TSTypeAliasDeclaration
+      | TSTypeAnnotation
   ): TypeRef {
     // Throw an error if type annotations are missing
     if (node.typeAnnotation === undefined) {
@@ -1020,79 +1049,51 @@ export class ProgramDef {
   } // fn: _getChildrenFromNode()
 
   /**
-   * Returns a dictionary of top-level named functions defined in the program
+   * Returns an object with two fields:
+   * - `supported`, a dictionary of top-level named functions defined in the program
+   * - `unsupported`, a dictionary of top-level named functions that could not be processed
    *
    * @param ast Program AST
-   * @returns A dictionary of top-level named functions defined in the program
+   * @returns An object with two fields, `supported` and `unsupported`
    */
   private _findFunctions(
     ast: AST<{
       range: true;
     }>
-  ): Record<IdentifierName, FunctionRef> {
-    const ret: Record<IdentifierName, FunctionRef> = {};
+  ): {
+    supported: Record<IdentifierName, FunctionRef>;
+    unsupported: Record<IdentifierName, { reason: string; node: Node }>;
+  } {
+    const supported: Record<IdentifierName, FunctionRef> = {};
+    const unsupported: Record<IdentifierName, { reason: string; node: Node }> =
+      {};
 
     // Traverse the AST to find function definitions
     simpleTraverse(
       ast,
       {
         enter: (node, parent) => {
-          if (
-            // Arrow Function Definition: const xyz = (): void => { ... }
-            node.type === AST_NODE_TYPES.VariableDeclarator &&
-            parent !== undefined &&
-            parent.type === AST_NODE_TYPES.VariableDeclaration &&
-            node.init &&
-            node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
-            node.id.type === AST_NODE_TYPES.Identifier &&
-            !isBlockScoped(node)
-          ) {
-            // const implicitReturn =
-            //   node.init.body.type === AST_NODE_TYPES.ArrowFunctionExpression &&
-            //   node.init.body.body.type === AST_NODE_TYPES.Identifier;
-            const returns =
-              // implicitReturn ||
-              node.init.body.type !== AST_NODE_TYPES.BlockStatement ||
-              this._findReturns(node.init.body);
+          // Only named functions are supported
+          if (!("id" in node && node.id !== null && "name" in node.id)) {
+            return;
+          }
+          const name = node.id.name;
 
-            ret[node.id.name] = {
-              name: node.id.name,
-              module: this._module,
-              src:
-                parent.kind +
-                " " +
-                this._src.substring(node.range[0], node.range[1]),
-              startOffset: node.range[0],
-              endOffset: node.range[1],
-              isExported: parent.parent
-                ? parent.parent.type === AST_NODE_TYPES.ExportNamedDeclaration
-                : false,
-              isVoid: !returns,
-              args: node.init.params
-                .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
-                .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
-            };
-          } else if (
-            // Standard Function Definition: function xyz(): void => { ... }
-            node.type === AST_NODE_TYPES.FunctionDeclaration &&
-            node.id !== null &&
-            !isBlockScoped(node)
-          ) {
-            const returns = this._findReturns(node.body);
-
-            ret[node.id.name] = {
-              name: node.id.name,
-              module: this._module,
-              src: this._src.substring(node.range[0], node.range[1]),
-              startOffset: node.range[0],
-              endOffset: node.range[1],
-              isExported: parent
-                ? parent.type === AST_NODE_TYPES.ExportNamedDeclaration
-                : false,
-              isVoid: !returns,
-              args: node.params
-                .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
-                .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
+          try {
+            const maybeFunction = this._getFunctionFromNode(name, node, parent);
+            if (maybeFunction) {
+              supported[name] = maybeFunction;
+            }
+          } catch (e: any) {
+            console.debug(
+              `Error processing function '${this._src.substring(
+                node.range[0],
+                node.range[1]
+              )}' in module '${this._module}': ${e.message}`
+            );
+            unsupported[name] = {
+              reason: e.message,
+              node: node,
             };
           }
         },
@@ -1101,57 +1102,90 @@ export class ProgramDef {
       true // set parent pointers
     ); // traverse AST
 
-    return ret;
-  } // fn: findFunctions()
+    return {
+      supported,
+      unsupported,
+    };
+  } // fn: _findFunctions()
 
   /**
-   * Returns true if any return statements are defined in a given block statement
+   * Returns a FunctionRef for the given node if it is a supported function.
+   * If the node is an unsupported function, throws an error.
+   * If the node is not a function, returns undefined.
+   *
+   * @param name The name of the function
+   * @param node The node to analyze
+   * @param parent The parent node of the node to analyze
+   * @returns A FunctionRef if the node is a supported function
    */
-  private _findReturns(node: Statement): boolean {
-    switch (node.type) {
-      case AST_NODE_TYPES.ReturnStatement:
-        return true;
-      case AST_NODE_TYPES.BlockStatement:
-        for (const stmt of node.body) {
-          if (this._findReturns(stmt)) return true;
-        }
-        return false;
-      case AST_NODE_TYPES.IfStatement:
-        return (
-          (node.alternate && this._findReturns(node.alternate)) ||
-          this._findReturns(node.consequent)
-        );
-      case AST_NODE_TYPES.SwitchStatement:
-        for (const cons of node.cases) {
-          for (const stmt of cons.consequent) {
-            if (this._findReturns(stmt)) return true;
-          }
-        }
-        return false;
-      case AST_NODE_TYPES.DoWhileStatement:
-        return this._findReturns(node.body);
-      case AST_NODE_TYPES.ForInStatement:
-        return this._findReturns(node.body);
-      case AST_NODE_TYPES.ForOfStatement:
-        return this._findReturns(node.body);
-      case AST_NODE_TYPES.ForStatement:
-        return this._findReturns(node.body);
-      case AST_NODE_TYPES.LabeledStatement:
-        return this._findReturns(node.body);
-      case AST_NODE_TYPES.ThrowStatement:
-        return true;
-      case AST_NODE_TYPES.TryStatement:
-        return (
-          this._findReturns(node.block) ||
-          (node.handler !== null && this._findReturns(node.handler.body))
-        );
-      case AST_NODE_TYPES.WhileStatement:
-        return this._findReturns(node.body);
-      case AST_NODE_TYPES.WithStatement:
-        return this._findReturns(node.body);
-
-      default:
-        return false;
-    } // switch
-  }
+  private _getFunctionFromNode(
+    name: string,
+    node: Node,
+    parent: Node | undefined
+  ): FunctionRef | undefined {
+    if (
+      // Arrow Function Definition: const xyz = (): void => { ... }
+      node.type === AST_NODE_TYPES.VariableDeclarator &&
+      parent !== undefined &&
+      parent.type === AST_NODE_TYPES.VariableDeclaration &&
+      node.init &&
+      node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
+      node.id.type === AST_NODE_TYPES.Identifier &&
+      !isBlockScoped(node)
+    ) {
+      // ReturnType is not as important for fuzzing, so we don't throw an error
+      // if we encounter something we don't support.
+      let returnType;
+      try {
+        returnType = this._getTypeRefFromAstNode(node.id);
+      } catch {
+        console.debug('Unsupported return type for function "' + name + '".');
+        returnType = undefined;
+      }
+      return {
+        name,
+        module: this._module,
+        src:
+          parent.kind + " " + this._src.substring(node.range[0], node.range[1]),
+        startOffset: node.range[0],
+        endOffset: node.range[1],
+        isExported: parent.parent
+          ? parent.parent.type === AST_NODE_TYPES.ExportNamedDeclaration
+          : false,
+        args: node.init.params
+          .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
+          .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
+        returnType,
+      };
+    } else if (
+      // Standard Function Definition: function xyz(): void => { ... }
+      node.type === AST_NODE_TYPES.FunctionDeclaration &&
+      !isBlockScoped(node)
+    ) {
+      // ReturnType is not as important for fuzzing, so we don't throw an error
+      // if we encounter something we don't support.
+      let returnType;
+      try {
+        returnType =
+          node.returnType && this._getTypeRefFromAstNode(node.returnType);
+      } catch {
+        console.debug('Unsupported return type for function "' + name + '".');
+        returnType = undefined;
+      }
+      return {
+        name,
+        module: this._module,
+        src: this._src.substring(node.range[0], node.range[1]),
+        startOffset: node.range[0],
+        endOffset: node.range[1],
+        isExported: parent
+          ? parent.type === AST_NODE_TYPES.ExportNamedDeclaration
+          : false,
+        args: node.params
+          .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
+          .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
+        returnType,
+      };
+    }
+  } // fn: _getFunctionFromNode()
 } // class: ProgramDef

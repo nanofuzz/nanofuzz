@@ -1,19 +1,39 @@
 # NaNofuzz
-NaNofuzz is a fast, easy-to-use automatic test suite generation tool for TypeScript that integrates with a developer's VS Code workflow.  We like working code, and NaNofuzz is designed to be used during testing or development to more quickly reach working code nirvana. NaNofuzz is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
-![NaNofuzz Screenshot](https://github.com/nanofuzz/nanofuzz/assets/22134678/0bb9ed51-1b07-46e4-8986-ae377055dfe7)
+NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for TypeScript that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
-Unlike many automatic test suite generation tools, NaNofuzz combines multiple approaches to help you generate a test suite. You can define properties of the program similar to QuickCheck or Hypothesis, manually annotate the correctness or incorrectness of a program's output similar to Jest, or use an approach similar to fuzzing and let NaNofuzz automatically draw your attention to likely errors. 
+![NaNofuzz Screenshot](https://github.com/user-attachments/assets/7655c0c7-96ee-4251-b383-77023c68f3da)
 
-Combining multiple approaches can help you quickly find errors and rapidly build a test suite. For example, without any guidance from you, NaNofuzz automatically draws your attention to a test if it:
- - throws a runtime exception
- - returns null, NaN, Infinity, or undefined
- - does not terminate within a configurable period of time
+NaNofuzz proposes an initial set of tests with a single button click. You then improve these tests by manually annotating the correctness of specific examples and/or by adding property validator functions that evaluate correctness at scale. NaNofuzz coherently organizes and prioritizes all test results on a single screen so that you can see at a glance what your suite is testing---as well as what it may be missing. 
 
-These design choices allow NaNofuzz to be fast, lightweight, flexible, easy to integrate into an everyday workflow, and help developers quickly find important edge cases more quickly.
+# Tutorial and Playground
 
-NaNofuzz supports standard and arrow functions with any mixture of the following parameter types:
- - Numbers (integers and floats, signed and unsigne)
+Our [NaNofuzz examples](https://github.com/nanofuzz/nanofuzz-examples/) repository, provides a 10-minute NaNofuzz tutorial and several example buggy programs that you can use to get familiar with NaNofuzz. Within the `nanofuzz-examples` repo on GitHub, click `Code`->`Codespaces`->`Create` to immediately get started!
+
+# Getting started
+
+To use NaNofuzz in your own projects: 
+
+- **Step 1**: Add the NaNofuzz dev dependency
+    - **npm**: `npm i @nanofuzz/runtime -D`
+    - **yarn**: `yarn add @nanofuzz/runtime -D`
+- **Step 2**: Add the NaNofuzz extension to your repo's `./.vscode/settings.json` recommendations:
+    ```
+    {
+        "recommendations": [
+            "penrose.nanofuzz"
+        ]
+    }
+    ```
+
+> **Note:** To run NaNofuzz tests in CI, click the pin button. NaNofuzz exports pinned tests to Jest format for execution in CI.
+
+# Scope and Limitations
+
+NaNofuzz is an **experimental** testing platform developed by the Accelerated Testing Research Program at Carnegie Mellon University's School of Computer Science. Therefore, NaNofuzz is **not** intended for production use; however, contributions are welcome to address the limitations below. 
+
+NaNofuzz supports exported standard and arrow functions with any mixture of the following parameter types:
+ - Numbers (integers and floats, signed and unsigned)
  - Strings
  - Booleans
  - Literal object types
@@ -24,8 +44,8 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
  - Jest
 
 The following are not yet supported:
- - Deconstructed types, OR types, Tuples, Enums, Generics, or Function types
- - Non-finite numeric inputs (NaN, Infinity, null)
+ - Deconstructed types, OR types, Tuples, Enums, Generics, Function, and built-in (e.g., Record) types
+ - Non-finite numeric inputs (`NaN`, `Infinity`), the `bigint` type, and `null`)
  - Class and object methods
  - Compiling to module formats other than CommonJS (see [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
  - Support for stateful, flaky, or non-deterministic tests
@@ -33,17 +53,24 @@ The following are not yet supported:
  - Custom generators and filters
  - Test case minimization
 
- NaNofuzz is a research project not presently intended for production use. Contributions are welcome to address the limitations above.
+If the NaNofuzz button does not appear above your function, that usually indicates that the function is not exported or one of its inputs is comprised of types that are not yet supported (see above).
 
-### NaNofuzz Research Paper
+# Contributing
 
-To reference NaNofuzz in your research, we request you to cite our upcoming ESEC/FSE'23 paper:
+We welcome outside contributions to address the limitations above and to correct open issues. 
+Please see our [Contributor's Guide](https://github.com/nanofuzz/nanofuzz/blob/main/CONTRIBUTING.md) for more details about how you can get involved.
 
-> Matthew C. Davis, Sangheon Choi, Sam Estep, Brad A. Myers, and Joshua Sunshine. **NaNofuzz: A Usable Tool for Automatic Test Generation**. In Proceedings of the 31st ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering, 2023. (accepted and pending publication; [pre-print](https://cmumatt.github.io/assets/NaNofuzz_2023.pdf))
+# NaNofuzz Research Paper
 
-### The NaNofuzz mascot
+To reference NaNofuzz in your own research, please cite our ESEC/FSE'23 paper:
 
-Meet Nancy, the Silky Anteater! Silky anteaters are wonderfully-adapted, small, fuzzy creatures known to find and consume large quantities of bugs on a daily basis. Therefore, Nancy (or, NaNcy, if you prefer) is NaNofuzz' beloved mascot on your journey to find bugs.
+> Matthew C. Davis, Sangheon Choi, Sam Estep, Brad A. Myers, and Joshua Sunshine. **[NaNofuzz: A Usable Tool for Automatic Test Generation](https://dl.acm.org/doi/10.1145/3611643.3616327)**. In Proceedings of the 31st ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering, 2023.
+
+The paper above covers the 0.1.x version of NaNofuzz. A lot has changed since then, and we plan to publish new papers soon!
+
+# The NaNofuzz Mascot
+
+Meet NaNcy, the Silky Anteater! Silky anteaters are wonderfully-adapted, small, fuzzy creatures known to find and consume large quantities of bugs on a daily basis. Therefore, NaNcy is NaNofuzz's beloved mascot on our journey to find and eliminate more bugs.
 
 ![image](https://avatars.githubusercontent.com/u/136026223?s=200&v=4)
 

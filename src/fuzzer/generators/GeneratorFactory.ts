@@ -187,49 +187,23 @@ const getRandomString = <T extends ArgType>(
   const charSet = options.strCharset;
   const intOptions = ArgDef.getDefaultOptions(); // use default for integer selection
 
-  // Happify tsc
-  let minStr: string = min;
-  let maxStr: string = max;
-
-  // Determine the length of the output string
-  const strLen =
-    options.strLength.min === options.strLength.max
-      ? options.strLength.min
-      : getRandomNumber(
-          prng,
-          Math.max(options.strLength.min, min.length),
-          options.strLength.max,
-          intOptions
-        ); // use default for integer selection
-
-  // Pad min and max to the minimum length, if required
-  if (minStr.length < strLen) minStr = minStr.padEnd(strLen, charSet[0]);
-  if (maxStr.length < strLen) maxStr = maxStr.padEnd(strLen, charSet[0]);
+  // This generator does not currently support min and max, but we don't make
+  // that option available in the UI anyway. Find the old code in v0.3.2 and fix
+  // intervals for string types when it's time to implement this.
+  const strLen = getRandomNumber(
+    prng,
+    options.strLength.min,
+    options.strLength.max,
+    intOptions
+  ); // use default for integer selection
 
   // Sequentially choose each character in the string
   // Note: This provides a uniform distribution at each position, but
   //       the distribution of output is not uniform.
+  const charSetLen = charSet.length - 1;
   let outStr = "";
   for (let i = 0; i < strLen; i++) {
-    const minThisCharPos = charSet.indexOf(
-      outStr === minStr.substring(0, i) ? minStr[i] : charSet[0]
-    );
-    const maxThisCharPos = charSet.indexOf(
-      outStr === maxStr.substring(0, i)
-        ? maxStr[i]
-        : charSet[charSet.length - 1]
-    );
-    const thisChar =
-      charSet[
-        minThisCharPos === maxThisCharPos
-          ? minThisCharPos
-          : getRandomNumber(prng, minThisCharPos, maxThisCharPos, intOptions)
-      ];
-    outStr += thisChar;
-
-    // Break out of the loop if we reach the max padded value
-    if (outStr === max.padEnd(options.strLength.min, options.strCharset[0]))
-      break;
+    outStr += charSet[getRandomNumber(prng, 0, charSetLen, intOptions)];
   }
 
   return outStr as T;

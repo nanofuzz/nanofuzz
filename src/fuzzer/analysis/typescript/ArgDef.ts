@@ -144,7 +144,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure we have a resolved type
     if (!ref.type)
       throw new Error(
-        `Internal error: Creating ArgDef for unresolved TypeRef: ${JSON5.stringify(
+        `Internal error: unable to create ArgDef for unresolved TypeRef: ${JSON5.stringify(
           ref
         )}`
       );
@@ -290,6 +290,25 @@ export class ArgDef<T extends ArgType> {
   } // fn: setIntervals()
 
   /**
+   * Sets the input intervals for the argument.
+   *
+   * @param intervals The input intervals to set
+   *
+   * Throws an exception if any interval's min>max.
+   */
+  public setDefaultIntervals(options: ArgOptions): void {
+    const intervals = ArgDef.getDefaultIntervals(
+      this.type,
+      options
+    ) as Interval<T>[];
+    if (intervals.some((e) => e.min > e.max))
+      throw new Error(
+        `Invalid interval provided (max>min): ${JSON5.stringify(intervals)}`
+      );
+    this.intervals = intervals;
+  } // fn: setIntervals()
+
+  /**
    * Indicates whether the argument has a constant input interval.
    *
    * @returns true if the input interval represents a constant input; false otherwise
@@ -375,6 +394,14 @@ export class ArgDef<T extends ArgType> {
   } // fn: setOptions()
 
   /**
+   * Sets the argument's strcharset (alphabet of chars for strings).
+   * @param strcharset
+   */
+  public setStrCharSet(strcharset: string) {
+    this.options.strCharset = strcharset;
+  }
+
+  /**
    * Returns the argument's children.
    *
    * @returns the argument's children (if it is an object)
@@ -397,6 +424,42 @@ export class ArgDef<T extends ArgType> {
     }
     return ret;
   } // fn: getChildrenFlat()
+
+  /**
+   * Returns the base type of this ArgDef, i.e., its type without any
+   * dimensions or optionality.
+   */
+  private getBaseType(): string {
+    if (this.typeRef) {
+      return this.typeRef;
+    }
+
+    if (this.type === "object") {
+      // Probably an inline type given the lack of a typeRef, recursively walk
+      // the children to build the type.
+      const childTypeAnnotations = this.children.map(
+        (child) => `${child.getName()}: ${child.getTypeAnnotation()}`
+      );
+      return `{ ${childTypeAnnotations.join("; ")} }`;
+    }
+
+    return this.type;
+  } // fn: getBaseType()
+
+  /**
+   * Returns a string that works as the type annotation for the argument.
+   * @returns a string that works as the type annotation for the argument
+   */
+  public getTypeAnnotation(): string {
+    const baseType = this.getBaseType();
+    const type = `${baseType}${this.dims ? "[]".repeat(this.dims) : ""}`;
+
+    if (this.optional) {
+      return `${type} | undefined`;
+    }
+
+    return type;
+  } // fn: getTypeAnnotation()
 
   /**
    * Returns the default option set for signed integer values.

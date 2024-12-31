@@ -12,6 +12,7 @@ import {
   FuzzIoElement,
   FuzzPinnedTest,
   FuzzTestResult,
+  Result,
   FuzzResultCategory,
   FuzzStopReason,
 } from "./Types";
@@ -165,7 +166,7 @@ export const fuzz = async (
       timeout: false,
       passedImplicit: true,
       elapsedTime: 0,
-      category: FuzzResultCategory.OK,
+      category: "ok",
     };
 
     // Before searching, consume the pool of pinned tests
@@ -214,7 +215,7 @@ export const fuzz = async (
       result.output.push({
         name: "0",
         offset: 0,
-        value: fnWrapper(result.input), // <-- Wrapper
+        value: fnWrapper(JSON5.parse(JSON5.stringify(result.input))), // <-- Wrapper (protect the input)
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
     } catch (e: any) {
@@ -258,57 +259,83 @@ export const fuzz = async (
 
     // CUSTOM VALIDATOR ------------------------------------------
     // If a custom validator is selected, call it to evaluate the result
-    if ("validator" in env && env.validator) {
-      const fnName = env.validator;
+    if (env.validators.length && env.options.useProperty) {
+      // const fnName = env.validator;
+      result.passedValidators = [];
 
-      // Build the validator function wrapper
-      const validatorFnWrapper = functionTimeout(
-        (input: FuzzTestResult): FuzzTestResult => {
-          try {
-            const result: FuzzTestResult = mod[fnName]({ ...input });
-            return {
-              ...input,
-              passedValidator: result.passedValidator,
+      for (const valFn in env.validators) {
+        const valFnName = env.validators[valFn].name;
+        // Build the validator function wrapper
+        const validatorFnWrapper = functionTimeout(
+          (result: FuzzTestResult): FuzzTestResult => {
+            const inParams: any[] = []; // array of input parameters
+            result.input.forEach((e) => {
+              const param = e.value;
+              inParams.push(param);
+            });
+            // Simplified data structure for validator function input
+            const validatorIn: Result = {
+              in: inParams,
+              out:
+                result.output.length === 0
+                  ? "timeout or exception"
+                  : result.output[0].value,
+              exception: result.exception,
+              timeout: result.timeout,
             };
-          } catch (e: any) {
-            return {
-              ...input,
-              validatorException: true,
-              validatorExceptionMessage: e.message,
-              validatorExceptionStack: e.stack,
-            };
-          }
-        },
-        env.options.fnTimeout
-      );
+            try {
+              const validatorOut: boolean = mod[valFnName](validatorIn); // this is where it goes wrong -- the array just turns into []
+              return {
+                ...result,
+                passedValidator: validatorOut,
+                passedValidators: [],
+              };
+            } catch (e: any) {
+              return {
+                ...result,
+                validatorException: true,
+                validatorExceptionMessage: e.message,
+                validatorExceptionStack: e.stack,
+              };
+            }
+          },
+          env.options.fnTimeout
+        );
 
-      // Categorize the results (so it's not stale)
-      result.category = categorizeResult(result);
+        // Categorize the results (so it's not stale)
+        result.category = categorizeResult(result, env);
 
-      // Call the validator function wrapper
-      const validatorResult = validatorFnWrapper(result);
+        // Call the validator function wrapper
+        const validatorResult = validatorFnWrapper(
+          JSON5.parse(JSON5.stringify(result))
+        ); // <-- Wrapper (protect the input)
 
-      // Store the validator results
-      result.passedValidator = validatorResult.passedValidator;
-      result.validatorException = validatorResult.validatorException;
-      result.validatorExceptionMessage =
-        validatorResult.validatorExceptionMessage;
-      result.validatorExceptionStack = validatorResult.validatorExceptionStack;
-    }
+        // Store the validator results
+        result.passedValidators.push(validatorResult.passedValidator);
+        result.validatorException = validatorResult.validatorException;
+        result.validatorExceptionMessage =
+          validatorResult.validatorExceptionMessage;
+        result.validatorExceptionStack =
+          validatorResult.validatorExceptionStack;
+      } // for: valFn in env.validators
+
+      result.passedValidator = true; // initialize
+      for (const i in result.passedValidators) {
+        result.passedValidator =
+          result.passedValidator && result.passedValidators[i];
+      }
+    } // if validator
 
     // (Re-)categorize the result
-    result.category = categorizeResult(result);
+    result.category = categorizeResult(result, env);
 
     // Increment the failure counter if this test had a failing result
-    if (result.category !== FuzzResultCategory.OK) {
+    if (result.category !== "ok") {
       failureCount++;
     }
 
     // Store the result for this iteration
-    if (
-      !env.options.onlyFailures ||
-      result.category !== FuzzResultCategory.OK
-    ) {
+    if (!env.options.onlyFailures || result.category !== "ok") {
       results.results.push(result);
     }
   } // for: Main test loop
@@ -360,7 +387,7 @@ const _checkStopCondition = (
   }
 
   // End testing if we exceed the maximum number of duplicates generated
-  if (currentDupeCount >= Math.max(env.options.maxTests, 1000)) {
+  if (currentDupeCount >= env.options.maxDupeInputs) {
     return FuzzStopReason.MAXDUPES;
   }
 
@@ -375,10 +402,11 @@ const _checkStopCondition = (
  * @returns true if the options are valid, false otherwise
  */
 const isOptionValid = (options: FuzzOptions): boolean => {
-  return !(
-    options.maxTests < 0 ||
-    options.maxFailures < 0 ||
-    !ArgDef.isOptionValid(options.argDefaults)
+  return (
+    options.maxTests >= 0 &&
+    options.maxDupeInputs >= 0 &&
+    options.maxFailures >= 0 &&
+    ArgDef.isOptionValid(options.argDefaults)
   );
 }; // fn: isOptionValid()
 
@@ -492,26 +520,34 @@ function actualEqualsExpectedOutput(
  * @param result of the test
  * @returns the category of the result
  */
-export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
+export function categorizeResult(
+  result: FuzzTestResult,
+  env: FuzzEnv
+): FuzzResultCategory {
   if (result.validatorException) {
-    return FuzzResultCategory.FAILURE; // Validator failed
+    return "failure"; // Validator failed
   }
 
   const implicit = result.passedImplicit ? true : false;
-  const validator =
-    "passedValidator" in result ? result.passedValidator : undefined;
   const human =
     "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
+  const property =
+    "passedValidator" in result ? result.passedValidator : undefined;
 
   // Returns the type of bad value: execption, timeout, or badvalue
   const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
     if (result.exception) {
-      return FuzzResultCategory.EXCEPTION; // PUT threw exception
+      return "exception"; // PUT threw exception
     } else if (result.timeout) {
-      return FuzzResultCategory.TIMEOUT; // PUT timedout
+      return "timeout"; // PUT timedout
     } else {
-      return FuzzResultCategory.BADVALUE; // PUT returned bad value
+      return "badValue"; // PUT returned bad value
     }
+  };
+  const getBadValueTypeProperty = (
+    result: FuzzTestResult
+  ): FuzzResultCategory => {
+    return result.passedValidator ? "ok" : "badValue"; // PUT returned bad value
   };
 
   // Either the human oracle or the validator may take precedence
@@ -520,25 +556,25 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   // agree. If the human and validator are present yet disagree,
   // then the disagreement is another error.
   if (human === true) {
-    if (validator === false) {
-      return FuzzResultCategory.DISAGREE;
+    if (property === false) {
+      return "disagree";
     } else {
-      return FuzzResultCategory.OK;
+      return "ok";
     }
   } else if (human === false) {
-    if (validator === true) {
-      return FuzzResultCategory.DISAGREE;
+    if (property === true) {
+      return "disagree";
     } else {
       return getBadValueType(result);
     }
   } else {
-    if (validator === true) {
-      return FuzzResultCategory.OK;
-    } else if (validator === false) {
-      return getBadValueType(result);
+    if (property === true) {
+      return "ok";
+    } else if (property === false) {
+      return getBadValueTypeProperty(result);
     } else {
       if (implicit) {
-        return FuzzResultCategory.OK;
+        return "ok";
       } else {
         return getBadValueType(result);
       }
@@ -552,7 +588,6 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
-  validator?: string; // name of the current validator function (if any)
   validators: FunctionRef[]; // list of the module's functions
 };
 

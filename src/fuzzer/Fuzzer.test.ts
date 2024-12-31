@@ -10,10 +10,12 @@ const intOptions: FuzzOptions = {
   fnTimeout: 100,
   suiteTimeout: 3000,
   seed: "qwertyuiop",
+  maxDupeInputs: 1000,
   maxFailures: 0,
   onlyFailures: false,
   useImplicit: true,
   useHuman: true,
+  useProperty: false,
 };
 
 /**
@@ -32,6 +34,14 @@ const counterExampleOptions: FuzzOptions = {
   maxFailures: 1,
   onlyFailures: true,
 };
+
+/**
+ * Fuzz target that alters its input - used to verify
+ * that recorded fuzzer input is not altered by the target
+ */
+export function testChangeInput(obj: { a: number }) {
+  obj["b"] = "hi";
+}
 
 /**
  * These tests currently just ensure that the fuzzer runs and produces output
@@ -320,5 +330,17 @@ describe("Fuzzer", () => {
     ).results;
     expect(results.length).toStrictEqual(1);
     expect(results[0].category).not.toStrictEqual("ok");
+  });
+
+  /**
+   * Ensure fuzz targets that mutate their inputs cannot alter
+   * the input the fuzzer recorded for the function.
+   */
+  test("Fuzz target cannot change fuzzer input record", async () => {
+    const results = (
+      await fuzz(setup(intOptions, "./Fuzzer.test.ts", "testChangeInput"))
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results[0].input[0].value.b).toBeUndefined();
   });
 });

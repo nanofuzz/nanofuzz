@@ -39,6 +39,7 @@ export type FunctionRef = {
   isExported: boolean; // True if the function is exported; false, otherwise
   isVoid: boolean; // True if the function is void; false, otherwise
   args?: TypeRef[]; // Array of argument types
+  returnType?: TypeRef; // Return type of the function
 };
 
 /**

@@ -1,4 +1,4 @@
-import { FuzzTests, FuzzTestResult, implicitOracle } from "../Fuzzer";
+import { FuzzTests, Result, implicitOracle } from "../Fuzzer";
 import * as JSON5 from "json5";
 import * as os from "os";
 import * as path from "path";
@@ -14,16 +14,11 @@ import * as path from "path";
 export const toString = (testSet: FuzzTests, module: string): string => {
   const jestData: string[] = [];
   const moduleFn = path.basename(module).split(".").slice(0, -1).join("."); // remove .ts/.tsx
-  const result: FuzzTestResult = {
-    passedImplicit: false,
-    validatorException: false,
+  const result: Result = {
     timeout: false,
     exception: false,
-    input: [],
-    output: [{ name: "0", offset: 0, value: undefined }],
-    elapsedTime: 0,
-    category: "unknown",
-    pinned: true,
+    in: [],
+    out: undefined,
   };
 
   // Auto-generated warning comment
@@ -33,6 +28,8 @@ export const toString = (testSet: FuzzTests, module: string): string => {
     ` *`,
     ` * This file is auto-generated and maintained by NaNofuzz.`,
     ` * NaNofuzz will overwrite changes made to this file.`,
+    ` *`,
+    ` * NaNofuzz version: ${testSet.version}`,
     ` */`
   );
 
@@ -45,23 +42,18 @@ export const toString = (testSet: FuzzTests, module: string): string => {
     `const implicitOracle = ${implicitOracle.toString()};`,
     ``,
     `// @ts-ignore`,
-    `const runCustomValidator = (input,testFn,validFn,timeout,useImplicit) => {`,
-    `  const testResult = ${JSON5.stringify(result)};`,
-    `  testResult.input = input;`,
+    `const runPropertyValidator = (input,testFn,validFn,timeout) => {`,
+    `  const result = {...${JSON5.stringify(result)},out:undefined};`,
+    `  result.in = input;`,
     `  const startElapsedTime = performance.now(); // start timer`,
     `  try {`,
-    `    testResult.output[0]["value"] = testFn();`,
+    `    result.out = testFn();`,
     `  } catch(e: any) {`,
-    `    testResult.exception = true;`,
-    `    testResult["exceptionMessage"] = e.message;`,
+    `    result.exception = true;`,
     `  }`,
-    `  testResult.elapsedTime = performance.now() - startElapsedTime; // stop timer`,
-    `  testResult.passedImplicit = useImplicit`,
-    `   ? implicitOracle(testResult.output[0]["value"])`,
-    `   : true;`,
-    `  testResult["passedValidator"] = validFn({...testResult})["passedValidator"];`,
-    `  testResult.timeout = testResult.elapsedTime > timeout;`,
-    `  return testResult;`,
+    `  const elapsedTime = performance.now() - startElapsedTime; // stop timer`,
+    `  result.timeout = elapsedTime > timeout;`,
+    `  return validFn({...result});`,
     `}`,
     ``
   );
@@ -115,30 +107,24 @@ export const toString = (testSet: FuzzTests, module: string): string => {
           );
         }
       }
-
-      // Custom validator
-      if (thisFn.validator) {
-        // prettier-ignore
-        jestData.push(
-          `  // Expect custom validator to not return false`,
-          `  // If no validator decision, fallback to heuristic oracle`,
-          `  test("${fn}.${i}.custom", () => {`,
-          `    const testResult = runCustomValidator( ${JSON5.stringify(thisTest.input)}, () => themodule.${fn}(${inputStr}), themodule.${thisFn.validator}, ${timeout}, ${thisFn.options.useImplicit});`,
-          `    expect(testResult.timeout).toBeFalsy();`,
-          `    if(testResult["passedValidator"]!==undefined) {`,
-          `      expect(testResult["passedValidator"]).not.toBeFalsy();`,
-          `    } else {`,
-          `      expect(testResult["passedImplicit"]).not.toBeFalsy();`,
-          `    }`,
+      // Property validators
+      if (thisFn.options.useProperty) {
+        for (const validator of thisFn.validators) {
+          // prettier-ignore
+          jestData.push(
+          `  // Expect property validator to not return false`,
+          `  test("${fn}.${i}.${validator}", () => {`,
+          `    expect(runPropertyValidator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toBeFalsy();`,
           `  });`,
           ``,
         );
+        }
       }
 
       // Heuristic oracle - run only if it is turned on AND no other oracle is present
       if (
         thisFn.options.useImplicit &&
-        !thisFn.validator &&
+        !(thisFn.options.useProperty && thisFn.validators.length) &&
         !(thisFn.options.useHuman && expectedOutput)
       ) {
         jestData.push(

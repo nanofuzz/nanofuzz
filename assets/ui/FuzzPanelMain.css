@@ -36,11 +36,17 @@ th.fuzzGridCellPin {
   text-align: center;
 }
 td.fuzzGridCellPin {
-  opacity: 0%;
+  opacity: 35%;
 }
 td.fuzzGridCellPinned,
 td.fuzzGridCellPin:hover {
   opacity: 100%;
+}
+/* Expand or collapse twistie column (›) */
+th.expandCollapseColumn {
+  padding-left: 0px;
+  padding-right: 0px;
+  padding-bottom: 0px;
 }
 
 /* Validator icons */
@@ -76,9 +82,33 @@ td.classCheckOff,
 td.classErrorOff {
   opacity: 35%;
 }
+
+td.classCheckOff:hover,
+td.classErrorOff:hover {
+  opacity: 100%;
+  /* background-color: var(--vscode-list-inactiveSelectionBackground); */
+}
+td.classCheckOff:active,
+td.classErrorOff:active {
+  opacity: 80%;
+}
 td.classCheckOn,
 td.classErrorOn {
   opacity: 100%;
+}
+td.classCheckOn:active,
+td.classErrorOn:active {
+  opacity: 80%;
+}
+
+/* Clickable cells (e.g., pin buttons) */
+td.clickable {
+  cursor: pointer;
+}
+
+.classAddRefreshValidator:active {
+  /* background-color: var(--vscode-list-inactiveSelectionBackground); */
+  opacity: 50%;
 }
 
 /* Expected output panel */
@@ -260,17 +290,37 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   border-right-color: var(--vscode-focus-border);
 }
 
-/* Sorting */
+/* Clickable columns (e.g., sorting) */
+th.clickable {
+  cursor: pointer;
+}
 .columnSortDesc::after {
   content: "▼";
+  font-size: 0.9em;
   display: inline-block;
   padding-left: 0.25ch;
   position: absolute;
 }
 .columnSortAsc::after {
   content: "▲";
+  font-size: 0.9em;
   display: inline-block;
   padding-left: 0.25ch;
+  position: absolute;
+}
+.columnSortDescSmall::after {
+  content: "▼";
+  font-size: 0.75em;
+  display: inline-block;
+  padding-left: 0.2ch;
+  padding-bottom: 0em;
+  position: absolute;
+}
+.columnSortAscSmall::after {
+  content: "▲";
+  font-size: 0.75em;
+  display: inline-block;
+  padding-left: 0.2ch;
   position: absolute;
 }
 
@@ -331,4 +381,21 @@ div.fuzzInputControlGroup {
 .fuzzInfo > p {
   margin-top: 0.5em;
   margin-bottom: 0.25em;
+}
+
+.dropdown-container {
+  box-sizing: border-box;
+  display: flex;
+  flex-flow: column nowrap;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.dropdown-container label {
+  display: block;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  font-size: var(--vscode-font-size);
+  line-height: normal;
+  margin-bottom: 2px;
 }

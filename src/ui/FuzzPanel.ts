@@ -7,6 +7,14 @@ import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
 
+// Consts for validator result arg name generation
+const resultArgCandidateNames = ["r", "result", "_r", "_result"];
+const maxResultArgSuffix = 1000;
+
+// Consts for validator out variable name generation
+const outVarCandidateNames = ["out", "output", "_out", "_output"];
+const maxOutVarSuffix = 1000;
+
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
  * given FuzzEnvironment within a VS Code Webview.
@@ -206,11 +214,16 @@ export class FuzzPanel {
 
     // Load & apply any persisted fuzz settings previously persisted
     const testSet = this._getFuzzTestsForThisFn();
-    this._fuzzEnv.validator = testSet.validator;
     this._fuzzEnv.options = testSet.options;
     this._argOverrides = testSet.argOverrides ?? [];
     this._sortColumns = testSet.sortColumns;
-    _applyArgOverrides(this._fuzzEnv.function, this._argOverrides);
+
+    // Apply argument ranges, etc. over the defaults
+    _applyArgOverrides(
+      this._fuzzEnv.function,
+      this._argOverrides,
+      this._fuzzEnv.options.argDefaults
+    );
 
     // Set the webview's initial html content
     this._updateHtml();
@@ -261,6 +274,7 @@ export class FuzzPanel {
 
         switch (command) {
           case "fuzz.start":
+            this._doGetValidators();
             this._doFuzzStartCmd(json);
             break;
           case "test.pin":
@@ -274,10 +288,6 @@ export class FuzzPanel {
             break;
           case "validator.add":
             this._doAddValidatorCmd();
-            this._doGetValidators();
-            break;
-          case "validator.set":
-            this._doSetValidator(json);
             this._doGetValidators();
             break;
           case "validator.getList":
@@ -352,6 +362,38 @@ export class FuzzPanel {
       if (inputTests.version === CURR_FILE_FMT_VER) {
         // current format -- no changes needed
         return inputTests;
+      } else if (inputTests.version === "0.3.0") {
+        // v0.3.0 format -- infer arg strCharset override from function default
+        const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
+        for (const fn in testSet.functions) {
+          const thisFn = testSet.functions[fn];
+          if (thisFn.argOverrides) {
+            for (const i in thisFn.argOverrides) {
+              const arg = thisFn.argOverrides[i];
+              // strings overrides only
+              if (arg.string && !arg.string.strCharset) {
+                arg.string.strCharset = thisFn.options.argDefaults.strCharset;
+              }
+            }
+          }
+        }
+        console.info(
+          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+        );
+        return testSet;
+      } else if (inputTests.version === "0.2.1") {
+        // v0.2.1 format -- infer useProperty option & turn on useHuman (the latter
+        // is req'd b/c we eliminated the UI button that controls this)
+        const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
+        for (const fn in testSet.functions) {
+          testSet.functions[fn].options.useProperty =
+            "validator" in testSet.functions[fn];
+          testSet.functions[fn].options.useHuman = true;
+        }
+        console.info(
+          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+        );
+        return testSet;
       } else if (inputTests.version === "0.2.0") {
         // v0.2.0 format -- add maxFailures and onlyFailure options
         const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
@@ -362,13 +404,13 @@ export class FuzzPanel {
           testSet.functions[fn].options.useImplicit = true;
         }
         console.info(
-          `Upgraded test set in file ${jsonFile} to ${testSet.version} to current version`
+          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
         );
         return testSet;
       } else {
         // unknown format; stop to avoid losing data
         throw new Error(
-          `Unknown version ${inputTests.version} in test file ${jsonFile}. Update your NaNofuzz extension or delete/rename the file to continue.`
+          `Unknown version ${inputTests.version} in test file ${jsonFile}. Update your ${toolName} extension or delete/rename the file to continue.`
         );
       }
     } else {
@@ -398,7 +440,7 @@ export class FuzzPanel {
         [this._fuzzEnv.function.getName()]: {
           options: this._fuzzEnv.options,
           argOverrides: this._argOverrides,
-          validator: this._fuzzEnv.validator,
+          validators: this._fuzzEnv.validators.map((ref) => ref.name),
           tests: {},
         },
       },
@@ -526,7 +568,7 @@ export class FuzzPanel {
   }
 
   /**
-   * Add code skeleton for a custom validator to the program source code.
+   * Add code skeleton for a property validator to the program source code.
    */
   private _doAddValidatorCmd() {
     const fn = this._fuzzEnv.function; // Function under test
@@ -553,48 +595,40 @@ export class FuzzPanel {
     const hasImport = Object.keys(program.getImports().identifiers).some(
       (e) => e === "FuzzTestResult"
     );
+    // TODO: if !hasImport, add `FuzzTestResult` import
 
-    // Skeleton code for the function
-    const npmInstruction = `
- * 
- * You will need to:
- *  1. Add the nanofuzz/runtime package to your project using npm or yarn:
- *     ${"`"}npm install nanofuzz/runtime -D${"`"}
- *     ${"`"}yarn add nanofuzz/runtime -D${"`"}
- *  1. Add an import to the top of the file:
- *     ${"`"}import { FuzzTestResult } from "nanofuzz/runtime";${"`"}`;
+    const inArgs = fn.getArgDefs();
+    const validatorArgs = this.getValidatorArgs(inArgs);
+    const inArgConsts = inArgs
+      .map(
+        (argDef, i) =>
+          `  const ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
+            validatorArgs.resultArgName
+          }.in[${i}];`
+      )
+      .join("\n");
+
+    const outTypeAsArg = fn.getReturnArg();
+    const outTypeAsString = outTypeAsArg
+      ? outTypeAsArg.getTypeAnnotation()
+      : undefined;
+
+    const outArgConst = this.getOutArgConst(
+      inArgs,
+      validatorArgs.resultArgName,
+      outTypeAsString
+    );
+
     // prettier-ignore
     const skeleton = `
 
-/**
- * TODO: Implement this custom validator for function ${"`"}${fn.getName()}${"`"}
- *
- * This custom validator has visibility to all inputs, outputs, and
- * prior oracle results (e.g., NaNofuzz' implicit oracle ${"`"}passedImplicit${"`"}
- * and any human correctness annotation ${"`"}passedHuman${"`"}) via the
- * ${"`"}result${"`"} data structure of type ${"`"}FuzzTestResult${"`"} passed as input.
- *
- * Place the result of validation in ${"`"}result.passedValidator${"`"}, where:
- *  - ${"`"}true${"`"} indicates the test passed the custom validation,
- *  - ${"`"}false${"`"} indicates the test failed the custom validation, and
- *  - ${"`"}undefined${"`"} indicates the custom validator could not decide.` 
- + (hasImport ? "" : npmInstruction) + `
- */
 export function ${validatorPrefix}${
         fnCounter === 0 ? "" : fnCounter
-      }(result: FuzzTestResult): FuzzTestResult {
-  if(result.timeout) {
-    // Mark as passed any inputs where timeouts are expected
-    // result.passedValidator = true;
-  } else if(result.exception) {
-    // Flag any inputs as passed where exceptions are expected
-    // result.passedValidator = true;
-  } else {
-    // Evaluate the output relative to the input
-    // result.passedValidator = true;  // <-- As expected; passed
-    // result.passedValidator = false; // <-- Unexpected; failed
-  }
-  return result;
+      } ${validatorArgs.str}: boolean | undefined {
+${inArgConsts}
+  ${outArgConst}
+
+  return true; // true=passed; false=failed
 }`;
 
     // Append the code skeleton to the source file
@@ -604,20 +638,106 @@ export function ${validatorPrefix}${
       fs.closeSync(fd);
     } catch {
       vscode.window.showErrorMessage(
-        `Unable to write custom validator code skeleton to source file`
+        `Unable to write property validator code skeleton to source file`
       );
     }
   }
 
   /**
-   * Saves the name of the toggled validator function into this._fuzzEnv
+   * Choose a name for an identifier that doesn't conflict with the input arguments
    *
-   * @param json name of validator function
+   * @param inArgs The input arguments
+   * @param candidateNames The candidate names to choose from
+   * @param maxSuffix The maximum suffix to use when generating a new name
+   * @returns The chosen name and whether it was generated
    */
-  private _doSetValidator(json: string) {
-    const validatorName = JSON5.parse(json);
-    this._fuzzEnv.validator = validatorName === "" ? undefined : validatorName;
-  }
+  private getIdentifierNameAvoidingConflicts(
+    // The input arguments
+    inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
+    // The candidate names to choose from
+    candidateNames: string[],
+    // The maximum suffix to use when generating a new name
+    maxSuffix: number
+  ): {
+    // The chosen name
+    name: string;
+    // Whether the name was generated (as opposed to being in possibleResultArgNames)
+    generated: boolean;
+  } {
+    const inArgNames = inArgs.map((argDef) => argDef.getName());
+    for (const name of candidateNames) {
+      if (!inArgNames.includes(name)) {
+        return { name, generated: false };
+      }
+    }
+
+    let i = 1;
+    // Generate a new name with a suffix
+    for (const candidateName of candidateNames) {
+      while (i <= maxSuffix) {
+        const name = `${candidateName}_${i}`;
+        if (!inArgNames.includes(name)) {
+          return { name, generated: true };
+        }
+        i++;
+      }
+    }
+
+    // In the extremely unlikely event that all the names generated above are
+    // already in `inArgNames`, we'll just return `r_conflicted` and not worry
+    // about potential conflicts.
+    return { name: "r_conflicted", generated: true };
+  } // fn: getIdentifierNameAvoidingConflicts()
+
+  /**
+   * Get the string representation for the validator arguments, along with the
+   * name of the argument that will hold the result.
+   *
+   * @param inArgs The input arguments
+   * @returns An object containing the above information
+   */
+  private getValidatorArgs(inArgs: fuzzer.ArgDef<fuzzer.ArgType>[]): {
+    str: string;
+    resultArgName: string;
+  } {
+    const resultArgName = this.getIdentifierNameAvoidingConflicts(
+      inArgs,
+      resultArgCandidateNames,
+      maxResultArgSuffix
+    );
+    const resultArgString = `${resultArgName.name}: FuzzTestResult`;
+    return {
+      str: `(${resultArgString})`,
+      resultArgName: resultArgName.name,
+    };
+  } // fn: getValidatorArgs()
+
+  /**
+   * Get the string for the declaration of the out variable.
+   *
+   * The out variable is the variable that will hold the result of the function
+   * under test.
+   *
+   * @param inArgs The input arguments
+   * @param resultArgName The name of the argument that will hold the result
+   * @param returnType The return type of the function
+   * @returns The string for the declaration of the out variable
+   */
+  private getOutArgConst(
+    inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
+    resultArgName: string,
+    returnType?: string
+  ): string {
+    const outVarName = this.getIdentifierNameAvoidingConflicts(
+      inArgs,
+      outVarCandidateNames,
+      maxOutVarSuffix
+    );
+    const outVarString = `const ${outVarName.name}${
+      returnType ? ": " + returnType : ""
+    } = ${resultArgName}.out;`;
+    return outVarString;
+  } // fn: getOutConst()
 
   /**
    * Message handler for the `validator.getList` command. Gets the list
@@ -638,22 +758,11 @@ export function ${validatorPrefix}${
     if (oldValidatorNames !== newValidatorNames) {
       // Update the Fuzzer Environment
       this._fuzzEnv.validators = fuzzer.getValidators(program, fn);
-      if (
-        this._fuzzEnv.validator &&
-        !this._fuzzEnv.validators.some(
-          (e) => e.name === this._fuzzEnv.validator
-        )
-      ) {
-        // If no validator is selected, or the selected validator is not
-        // in the list of validators, clear the selected validator
-        delete this._fuzzEnv.validator;
-      }
 
       // Notify the front-end about the change
       this._panel.webview.postMessage({
         command: "validator.list",
         json: JSON5.stringify({
-          validator: this._fuzzEnv.validator,
           validators: newValidators.map((e) => e.name),
         }),
       });
@@ -676,27 +785,46 @@ export function ${validatorPrefix}${
    */
   private async _doFuzzStartCmd(json: string): Promise<void> {
     const panelInput: {
-      fuzzer: Record<string, number>; // !!! Improve typing
-      args: fuzzer.FuzzArgOverride[]; // !!! Improve typing
+      fuzzer: Record<string, number | boolean>;
+      args: fuzzer.FuzzArgOverride[];
     } = JSON5.parse(json);
     const fn = this._fuzzEnv.function;
 
     // Apply numeric fuzzer option changes
-    ["suiteTimeout", "maxTests", "maxFailures", "fnTimeout"].forEach((e) => {
-      if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "number") {
-        this._fuzzEnv.options[e] = panelInput.fuzzer[e];
+    const numericOptions = [
+      "suiteTimeout",
+      "maxDupeInputs",
+      "maxTests",
+      "maxFailures",
+      "fnTimeout",
+    ] as const;
+    numericOptions.forEach((e) => {
+      if (e in panelInput.fuzzer) {
+        const inputOption = panelInput.fuzzer[e];
+        if (typeof inputOption === "number") {
+          this._fuzzEnv.options[e] = inputOption;
+        }
       }
     });
 
     // Apply boolean fuzzer option changes
-    ["onlyFailures", "useImplicit", "useHuman"].forEach((e) => {
-      if (e in panelInput.fuzzer && typeof panelInput.fuzzer[e] === "boolean") {
-        this._fuzzEnv.options[e] = panelInput.fuzzer[e];
+    const booleanOptions = [
+      "onlyFailures",
+      "useImplicit",
+      "useHuman",
+      "useProperty",
+    ] as const;
+    booleanOptions.forEach((e) => {
+      if (e in panelInput.fuzzer) {
+        const inputOption = panelInput.fuzzer[e];
+        if (typeof inputOption === "boolean") {
+          this._fuzzEnv.options[e] = inputOption;
+        }
       }
     });
 
     // Apply the argument overrides from the front-end UI
-    _applyArgOverrides(fn, panelInput.args);
+    _applyArgOverrides(fn, panelInput.args, this._fuzzEnv.options.argDefaults);
 
     // Update the UI
     this._results = undefined;
@@ -743,7 +871,7 @@ export function ${validatorPrefix}${
         // Persist the fuzz test run settings (!!! validation)
         const testSet = this._getFuzzTestsForThisFn();
         testSet.options = this._fuzzEnv.options;
-        testSet.validator = this._fuzzEnv.validator;
+        testSet.validators = this._fuzzEnv.validators.map((ref) => ref.name);
         testSet.argOverrides = this._argOverrides;
         testSet.sortColumns = this._sortColumns;
         this._putFuzzTestsForThisFn(testSet);
@@ -861,15 +989,47 @@ export function ${validatorPrefix}${
           <script type="module" src="${scriptUrl}"></script>
           <link rel="stylesheet" type="text/css" href="${cssUrl}">
           <link rel="stylesheet" type="text/css" href="${codiconsUri}">
-          <title>NaNofuzz Panel</title>
+          <title>${toolName} Panel</title>
         </head>
         <body>
-          <h2>Test ${htmlEscape(
-            fn.getName()
-          )}() w/inputs:</h2>
+          
+        <!-- ${toolName} pane -->
+        <div id="pane-nanofuzz"> 
+          <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;"> ${this._state === FuzzPanelState.busy ? "Testing..." : "Test: "+htmlEscape(
+            fn.getName())+"()"} </h2>
 
           <!-- Function Arguments -->
           <div id="argDefs">${argDefHtml}</div>
+
+          <!-- Change Validators Options -->
+          <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"><strong>Categorize output using:</strong></p>
+          <div style="padding-left: .76em;">
+            <!-- Checkboxes -->
+            <div class="fuzzInputControlGroup">
+              <vscode-checkbox ${disabledFlag} id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>
+                <span class="tooltipped tooltipped-ne" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN"> 
+                Heuristic validator 
+                </span>
+              </vscode-checkbox>
+              <span style="padding-left:1.3em;"> </span>
+              <span style="display:inline-block;">
+                <vscode-checkbox ${disabledFlag} id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>
+                  <span id="validator-functionList" class="tooltipped tooltipped-ne" aria-label=""> 
+                  Property validator(s) </span>
+                </vscode-checkbox>
+                <span id="validator.add" class="tooltipped tooltipped-nw" aria-label="Add new property validator">
+                  <span class="classAddRefreshValidator">
+                    <span class="codicon codicon-add" style="padding-left:.2em; padding-right:-.1em;"></span>
+                  </span>
+                </span>
+                <span id="validator.getList" class="tooltipped tooltipped-nw" aria-label="Refresh list">
+                  <span class="classAddRefreshValidator">
+                    <span class="codicon codicon-refresh" style="padding-left:.1em;"></span>
+                  </span>
+                </span>
+              </span>
+            </div>
+          </div>
 
           <vscode-divider></vscode-divider>
 
@@ -881,43 +1041,33 @@ export function ${validatorPrefix}${
             <h2>More options</h2>
 
             <vscode-panels aria-label="Options tabs" class="fuzzTabStrip">
-              <vscode-panel-tab aria-label="Validating options tab">Validating</vscode-panel-tab>
+              <!-- <vscode-panel-tab aria-label="Validating options tab">Validating</vscode-panel-tab> -->
               <vscode-panel-tab aria-label="Reporting options tab">Reporting</vscode-panel-tab>
               <vscode-panel-tab aria-label="Stopping options tab">Stopping</vscode-panel-tab>
 
-              <vscode-panel-view>
-                <p>
-                  Validators categorize outputs as passed (✔︎) or failed (X). 
-                  The <strong>heuristic validator</strong> automatically categorizes these outputs as failed: 
-                  undefined, null, NaN, Infinity, exception, timeout.
-                  The <strong>human validator</strong> allows manual categorization of outputs as passed or failed.
-                </p>
-                <div class="fuzzInputControlGroup">
-                  <vscode-checkbox id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>Use heuristic validator</vscode-checkbox>
-                  <vscode-checkbox id="fuzz-useHuman" ${this._fuzzEnv.options.useHuman ? "checked" : ""}>Use human validation</vscode-checkbox>
-                </div>
-
-                <div>
+              <!-- <vscode-panel-view class="hidden">
                   <p>
                     Use a <strong>custom validator function</strong> to automatically categorize outputs as passed (✔︎) or failed (X). 
                     Click the (+) button to create a new custom validator function.
                   </p>
                   <div id="validatorFunctions-edit">
+                    <div> 
                     <vscode-radio-group id="validatorFunctions-radios">
-                      <vscode-button ${disabledFlag} id="validator.add" appearance="icon" aria-label="Add">
+                      <vscode-button ${disabledFlag} id="validator.addHIDDEN" appearance="icon" aria-label="Add">
                         <span class="tooltipped tooltipped-n" aria-label="New validator function">
                           <span class="codicon codicon-add"></span>
                         </span>
                       </vscode-button>
-                      <vscode-button ${disabledFlag} id="validator.getList" appearance="icon" aria-label="Refresh">
+                      <vscode-button ${disabledFlag} id="validator.getListHIDDEN" appearance="icon" aria-label="Refresh">
                         <span class="tooltipped tooltipped-n" aria-label="Refresh list">
                           <span class="codicon codicon-refresh"></span>
                         </span>
                       </vscode-button>
                     </vscode-radio-group>
+                    </div> 
                   </div>
-                </div>
-              </vscode-panel-view>
+              </vscode-panel-view> 
+              -->
 
               <vscode-panel-view>
                 <p>
@@ -949,6 +1099,9 @@ export function ${validatorPrefix}${
                   <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxFailures" name="fuzz-maxFailures" value="${this._fuzzEnv.options.maxFailures}">
                     Max failed tests
                   </vscode-text-field>
+                  <vscode-text-field ${disabledFlag} size="3" id="fuzz-maxDupeInputs" name="fuzz-maxDupeInputs" value="${this._fuzzEnv.options.maxDupeInputs}">
+                    Max dupe inputs
+                  </vscode-text-field>
                 </div>
   
                 <p>
@@ -960,7 +1113,7 @@ export function ${validatorPrefix}${
                   </vscode-text-field>
                 </div>
               </vscode-panel-view>
-            </vscode-panels>
+              </vscode-panels>
 
             <vscode-divider></vscode-divider>
           </div>
@@ -970,6 +1123,9 @@ export function ${validatorPrefix}${
             <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
               ${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}
             </vscode-button>
+            <vscode-button  ${disabledFlag} class="hidden" id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
+              Change Mode
+            </vscode-button>
             <vscode-button ${disabledFlag} ${ 
               vscode.workspace
                 .getConfiguration("nanofuzz.ui")
@@ -977,8 +1133,8 @@ export function ${validatorPrefix}${
                   ? `class="hidden" ` 
                   : ``
               } id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
-              More options
-            </vscode-button>
+              More options...
+              </vscode-button>
           </div>
 
           <!-- Fuzzer Errors -->
@@ -987,17 +1143,25 @@ export function ${validatorPrefix}${
               ? ""
               : " hidden"
           }">
-            <h3>The fuzzer stopped with this error:</h3>
+            <h3>Testing stopped with this error:</h3>
             <p>${this._errorMessage ?? "Unknown error"}</p>
           </div>
 
           <!-- Fuzzer Warnings -->
           <div class="fuzzWarnings${
-            this._state === FuzzPanelState.done && !this._fuzzEnv.options.useHuman && !this._fuzzEnv.options.useImplicit && !("validator" in this._fuzzEnv && this._fuzzEnv.validator)
+            this._state === FuzzPanelState.done && !this._fuzzEnv.options.useHuman && !this._fuzzEnv.options.useImplicit && (!this._fuzzEnv.options.useProperty || !this._fuzzEnv.validators.length )
               ? ""
               : " hidden"
           }">
-            <p>No validators were selected, so all tests below will pass. You can change this in <strong>More options</strong>.</p>
+            <p>No validators were selected, so all tests below will pass. You can change this by turning on one or more validators.</p>
+          </div>
+
+          <div class="fuzzWarnings${
+            this._state === FuzzPanelState.done && this._fuzzEnv.options.useProperty && !(this._fuzzEnv.validators.length)
+              ? ""
+              : " hidden"
+          }">
+            <p>No property validators were found, so the property validator column is blank. Click (+) to add a property validator.</p>
           </div>
 
           <!-- Fuzzer Info -->
@@ -1009,7 +1173,6 @@ export function ${validatorPrefix}${
             <p>All tests passed.</p>
           </div>
           
-          
           <!-- Fuzzer Output -->
           <div class="fuzzResults" ${
             this._state === FuzzPanelState.done
@@ -1019,19 +1182,30 @@ export function ${validatorPrefix}${
             <vscode-panels aria-label="Test result tabs" class="fuzzTabStrip">`;
 
     // If we have results, render the output tabs to display the results.
-    const tabs = [
+    const tabs: (
+      | {
+          id: fuzzer.FuzzResultCategory;
+          name: string;
+          description: string;
+          hasGrid: boolean;
+        }
+      | {
+          id: "runInfo";
+          name: string;
+          description: string;
+          hasGrid: false;
+        }
+    )[] = [
       {
         id: "failure",
         name: "Validator Error",
-        description: `For these inputs, the custom validator function (${
-          this._fuzzEnv.validator ?? ""
-        }) threw an exception. You should fix the bug in the custom validator function and re-test.`,
+        description: `A property validator threw an exception for these inputs. Fix the bug in the property validator and re-test.`,
         hasGrid: true,
       },
       {
         id: "disagree",
         name: "Disagree",
-        description: `For these inputs, the validator function and the manual human validation disagree about whether the output passes. Either correct the validator function or correct the human validation. Then re-test.`,
+        description: `The property and human validators disagreed about how to categorize these outputs. Correct one of the validators and re-test.`,
         hasGrid: true,
       },
       {
@@ -1049,13 +1223,22 @@ export function ${validatorPrefix}${
       {
         id: "badValue",
         name: "Failed",
-        description: `These inputs were categorized by a validator as failed. NaNofuzz by default categorizes outputs as failed that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
+        description: `${
+          this._fuzzEnv.options.useProperty // if using property validator
+            ? `The property or human validator categorized these outputs as failed.`
+            : this._fuzzEnv.options.useImplicit // if using heuristic validator
+            ? `The heuristic or human validator categorized these outputs as failed.`
+            : `The human validator categorized these outputs as failed.`
+        }`,
+        // description: `A validator categorized these outputs as failed. The heuristic validator by default fails outputs that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
         hasGrid: true,
       },
       {
         id: "ok",
         name: "Passed",
-        description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
+        description: `A validator categorized these outputs as passed, or no validator categorized them as failed.`,
+        // description: `Passed. No validator categorized these outputs as failed.`,
+        // description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
         hasGrid: true,
       },
     ];
@@ -1075,33 +1258,38 @@ export function ${validatorPrefix}${
             this._results.env.options.maxTests
           }). This is in addition to the ${this._results.inputsSaved} saved test${
             this._results.inputsSaved !== 1 ? "s" : ""
-          } NaNofuzz also executed.`,
-        [fuzzer.FuzzStopReason.MAXDUPES]: `because it was unlikely to generate more unique test inputs. Often this means the function's input space is small.`,
+          } ${toolName} also executed.`,
+        [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the maximum number of sequentially-generated duplicate inputs configured (${
+            this._results.env.options.maxDupeInputs
+          }). This can mean that NaNofuzz is having difficulty generating further new inputs: the function's input space might be small or near exhaustion. You can change this setting in More Options.`,
         "": `because of an unknown reason.`,
       };
 
       // Build the list of validators used/not used
       const validatorsUsed: string[] = [];
       const validatorsNotUsed: string[] = [];
+      let validatorsUsedText: string;
+      let validatorsUsedText2 = "";
       (env.options.useImplicit ? validatorsUsed : validatorsNotUsed).push(
-        "<strong>heuristic</strong>"
+        "<strong><u>heuristic</u></strong>"
       );
       (env.options.useHuman ? validatorsUsed : validatorsNotUsed).push(
-        "<strong>human</strong>"
+        "<strong><u>human</u></strong>"
       );
-      if ("validator" in env && env.validator) {
-        validatorsUsed.push(
-          `<strong>custom function (${env.validator})</strong>`
-        );
+      if (env.validators.length && env.options.useProperty) {
+        env.validators.forEach((e) => {
+          validatorsUsed.push(`<strong><u>property:${e.name}</u></strong>`);
+        });
+      } else if (!env.options.useProperty) {
+        validatorsNotUsed.push(`<strong><u>property</u></strong>`);
       } else {
-        validatorsNotUsed.push(`<strong>custom function</strong>`);
+        validatorsUsedText2 = `The <strong><u>property</u></strong> validator was active, but no property validators were found, so ${toolName} raised an on-screen warning.`;
       }
-      let validatorsUsedText: string;
       if (validatorsUsed.length) {
         validatorsUsedText = `
-          NaNofuzz categorized outputs using the ${toPrettyList(
-            validatorsUsed
-          )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
+          ${toolName} categorized outputs using the ${toPrettyList(
+          validatorsUsed
+        )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
         if (validatorsNotUsed.length) {
           validatorsUsedText += `The ${toPrettyList(
             validatorsNotUsed
@@ -1110,7 +1298,7 @@ export function ${validatorPrefix}${
           } not configured.`;
         }
       } else {
-        validatorsUsedText = `NaNofuzz did not use any validators in this test. This means that all tests were categorized as passed.`;
+        validatorsUsedText = `${toolName} did not use any validators in this test. This means that all tests were categorized as passed.`;
       }
 
       // Add the run info tab to the panel
@@ -1118,18 +1306,10 @@ export function ${validatorPrefix}${
         id: "runInfo",
         name: `<div class="codicon codicon-info"></div>`,
         description: /*html*/ `
-        <div class="fuzzResultHeading">Why did testing stop?</div>
+
+        <div class="fuzzResultHeading">What did ${toolName} do?</div>
         <p>
-          NaNofuzz stopped testing ${
-            this._results.stopReason in textReason
-              ? textReason[this._results.stopReason]
-              : textReason[""]
-          }
-        </p>
-        
-        <div class="fuzzResultHeading">What did NaNofuzz do?</div>
-        <p>
-          NaNofuzz ran for ${this._results.elapsedTime} ms, re-tested ${
+          ${toolName} ran for ${this._results.elapsedTime} ms, re-tested ${
           this._results.inputsSaved
         } saved input${this._results.inputsSaved !== 1 ? "s" : ""}, generated ${
           this._results.inputsGenerated
@@ -1139,18 +1319,32 @@ export function ${validatorPrefix}${
           this._results.dupesGenerated !== 1
             ? "were duplicates"
             : "was a duplicate"
-        } NaNofuzz previously tested), and reported ${
+        } ${toolName} previously tested), and reported ${
           this._results.results.length
         } test result${
           this._results.results.length !== 1 ? "s" : ""
         } before stopping.
         </p>
 
+        <div class="fuzzResultHeading">How were outputs categorized?</div>
+        <p>
+          ${validatorsUsedText} ${validatorsUsedText2}
+        </p>
+        
+        <div class="fuzzResultHeading">Why did testing stop?</div>
+        <p>
+          ${toolName} stopped testing ${
+          this._results.stopReason in textReason
+            ? textReason[this._results.stopReason]
+            : textReason[""]
+        }
+        </p>
+        
         <div class="fuzzResultHeading">What was returned?</div>
         <p>
-          NaNofuzz is configured to return <strong>${
-            this._results.env.options.onlyFailures ? "only failed" : "all"
-          }</strong> test results, and it found ${
+          ${toolName} is configured to return <strong>${
+          this._results.env.options.onlyFailures ? "only failed" : "all"
+        }</strong> test results, and it found ${
           this._results.results.length
         } of these to return. ${
           this._results.results.length
@@ -1163,11 +1357,7 @@ export function ${validatorPrefix}${
             : ""
         }
         </p>
-
-        <div class="fuzzResultHeading">How were outputs categorized?</div>
-        <p>
-          ${validatorsUsedText}
-        </p>
+        
         <p ${
           vscode.workspace
             .getConfiguration("nanofuzz.ui")
@@ -1175,8 +1365,9 @@ export function ${validatorPrefix}${
             ? `class="hidden" `
             : ``
         }>
-          You may change the configuration using the <strong>More options</strong> button.
-        </p>`,
+          You may change the configuration using the <strong>More options</strong> button, or the options at the top of the screen.
+        </p>
+`,
         hasGrid: false,
       });
     }
@@ -1184,7 +1375,7 @@ export function ${validatorPrefix}${
       if (!e.hasGrid || resultSummary[e.id] > 0) {
         // prettier-ignore
         html += /*html*/ `
-              <vscode-panel-tab id="tab-${e.id}">
+              <vscode-panel-tab id="tab-${e.id}" style="font-size:1.15em;">
                 ${e.name}`;
         if (e.hasGrid) {
           // prettier-ignore
@@ -1252,7 +1443,6 @@ export function ${validatorPrefix}${
             ${htmlEscape(
               JSON5.stringify({
                 disabled: !!disabledFlag,
-                validator: this._fuzzEnv.validator,
                 validators: this._fuzzEnv.validators.map((e) => e.name),
               })
             )}
@@ -1262,7 +1452,7 @@ export function ${validatorPrefix}${
           <div id="fuzzPanelState" style="display:none">
             ${htmlEscape(JSON5.stringify(this.getState()))}
           </div>
-                    
+        </div>
         </body>
       </html>
     `;
@@ -1359,6 +1549,10 @@ export function ${validatorPrefix}${
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxStrLen" name="${idBase}-max" value="${htmlEscape(
           arg.getOptions().strLength.max.toString()
         )}">Max length</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
+          arg.getOptions().strCharset
+        )}">Character set</vscode-text-field>`;
         break;
       }
 
@@ -1499,7 +1693,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   // Ensure we have a function name
   if (!fnName) {
     vscode.window.showErrorMessage(
-      "Please use the NaNofuzz button to test a function."
+      "Please use the " + toolName + " button to test a function."
     );
     return;
   }
@@ -1520,7 +1714,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
     fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
   } catch (e: any) {
     vscode.window.showErrorMessage(
-      `NaNofuzz could not find or does not support this function. Messge: "${e.message}"`
+      `${toolName} could not find or does not support this function. Message: "${e.message}"`
     );
     return;
   }
@@ -1550,7 +1744,23 @@ export function provideCodeLenses(
     const program = ProgramDef.fromModuleAndSource(document.fileName, () =>
       document.getText()
     );
-    const functions = Object.values(program.getExportedFunctions());
+    // Skip analyzing files that we are configured to ignore
+    const fuzzIgnore: string = vscode.workspace
+      .getConfiguration("nanofuzz.ui.codeLens")
+      .get("ignoreFilePattern", "");
+    if (fuzzIgnore !== "" && document.fileName.match(fuzzIgnore)) {
+      return [];
+    }
+
+    // Skip decorating validators if configured to skip them
+    const fuzzValidators: boolean = vscode.workspace
+      .getConfiguration("nanofuzz.ui.codeLens")
+      .get("includeValidators", true);
+    const functions = fuzzValidators
+      ? Object.values(program.getExportedFunctions())
+      : Object.values(program.getExportedFunctions()).filter(
+          (fn) => !fn.isValidator()
+        );
 
     for (const fn of functions) {
       matches.push({
@@ -1573,7 +1783,7 @@ export function provideCodeLenses(
           document.positionAt(match.ref.endOffset)
         ),
         {
-          title: "NaNofuzz...",
+          title: `${toolName}...`,
           command: commands.fuzz.name,
           arguments: [match],
         }
@@ -1590,7 +1800,8 @@ export function provideCodeLenses(
  */
 function _applyArgOverrides(
   fn: fuzzer.FunctionDef,
-  argOverrides: fuzzer.FuzzArgOverride[]
+  argOverrides: fuzzer.FuzzArgOverride[],
+  argDefaults: fuzzer.ArgOptions
 ) {
   // Get the flattened list of function arguments
   const argsFlat = fn.getArgDefsFlat();
@@ -1642,6 +1853,11 @@ function _applyArgOverrides(
               min: Number(thisOverride.string.minStrLen),
               max: Number(thisOverride.string.maxStrLen),
             },
+            // Character set. Note: empty sets are invalid
+            strCharset:
+              thisOverride.string.strCharset === ""
+                ? argDefaults.strCharset
+                : thisOverride.string.strCharset,
           });
         }
         break;
@@ -1682,6 +1898,9 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     suiteTimeout: vscode.workspace
       .getConfiguration("nanofuzz.fuzzer")
       .get("suiteTimeout", 3000),
+    maxDupeInputs: vscode.workspace
+      .getConfiguration("nanofuzz.fuzzer")
+      .get("maxDupeInputs", 1000),
     maxFailures: vscode.workspace
       .getConfiguration("nanofuzz.fuzzer")
       .get("maxFailures", 0),
@@ -1690,6 +1909,7 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
       .get("onlyFailures", false),
     useHuman: true,
     useImplicit: true,
+    useProperty: false,
   };
 }; // fn: getDefaultFuzzOptions()
 
@@ -1736,6 +1956,13 @@ export const commands = {
 };
 
 /**
+ * The tool's current name (used for studies)
+ */
+export const toolName = vscode.workspace
+  .getConfiguration("nanofuzz")
+  .get("name");
+
+/**
  * Languages supported by this module
  */
 export const languages = ["typescript", "typescriptreact"];
@@ -1743,12 +1970,12 @@ export const languages = ["typescript", "typescriptreact"];
 /**
  * The Fuzzer State Version we currently support.
  */
-const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.2.1";
+const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.6";
 
 /**
  * Current file format version for persisting test sets / pinned test cases
  */
-const CURR_FILE_FMT_VER = "0.2.1"; // !!!! Increment if file format changes
+const CURR_FILE_FMT_VER = "0.3.3"; // !!!! Increment if file format changes
 
 // ----------------------------- Types ----------------------------- //
 
