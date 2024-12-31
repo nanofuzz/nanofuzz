@@ -1156,6 +1156,7 @@ export class ProgramDef {
           .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
           .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
         returnType,
+        isVoid: false, // !!!!! TODO
       };
     } else if (
       // Standard Function Definition: function xyz(): void => { ... }
@@ -1185,6 +1186,7 @@ export class ProgramDef {
           .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
           .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
         returnType,
+        isVoid: false, // !!!!! TODO
       };
     }
   } // fn: _getFunctionFromNode()
