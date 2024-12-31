@@ -134,7 +134,22 @@ export class FunctionDef {
    */
   public getReturnType(): TypeRef | undefined {
     return this._ref.returnType;
-  } // fn: get
+  } // fn: getReturnType()
+
+  /**
+   * Returns the return type of the function in the form of an ArgDef,
+   * or undefined if the function does not have a return type annotation.
+   *
+   * @returns the return ArgDef of the function, or undefined if the
+   * function does not have a return type annotation or the return
+   * type could not be resolved.
+   */
+  public getReturnArg(): ArgDef<ArgType> | undefined {
+    // If a return type is defined and resolved, convert it to an ArgDef
+    return this._ref.returnType && this._ref.returnType.type
+      ? ArgDef.fromTypeRef(this._ref.returnType, this._options)
+      : undefined;
+  } // fn: getReturnArg()
 
   /**
    * Returns true if the function is exported; false, otherwise.
