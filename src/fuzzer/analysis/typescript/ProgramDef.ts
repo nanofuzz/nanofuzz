@@ -147,6 +147,8 @@ export class ProgramDef {
       for (const fnRef of Object.values(this._functions)) {
         let lastArgName: string | undefined;
         try {
+          // Attempt to resolve function argument types
+          // Note: failure to resolve any argument makes fn unsupported
           if (fnRef.args) {
             for (const fnArg of fnRef.args) {
               lastArgName = fnArg.name;
@@ -170,6 +172,18 @@ export class ProgramDef {
           };
           delete this._functions[fnRef.name];
           delete this._exportedFunctions[fnRef.name];
+        }
+        // Attempt to resolve function return types
+        // Note: failure to resolve return type does not make function unsupported
+        try {
+          if (fnRef.returnType) {
+            lastArgName = "return";
+            this._resolveTypeRef(fnRef.returnType);
+          }
+        } catch (e: any) {
+          console.debug(
+            `Error resolving return type for function '${fnRef.name}'; Reason: ${e.message}`
+          );
         }
       }
     }

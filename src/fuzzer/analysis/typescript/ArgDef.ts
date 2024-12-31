@@ -144,7 +144,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure we have a resolved type
     if (!ref.type)
       throw new Error(
-        `Internal error: Creating ArgDef for unresolved TypeRef: ${JSON5.stringify(
+        `Internal error: unable to create ArgDef for unresolved TypeRef: ${JSON5.stringify(
           ref
         )}`
       );

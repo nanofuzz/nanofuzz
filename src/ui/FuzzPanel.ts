@@ -608,9 +608,15 @@ export class FuzzPanel {
       )
       .join("\n");
 
+    const outTypeAsArg = fn.getReturnArg();
+    const outTypeAsString = outTypeAsArg
+      ? outTypeAsArg.getTypeAnnotation()
+      : undefined;
+
     const outArgConst = this.getOutArgConst(
       inArgs,
-      validatorArgs.resultArgName
+      validatorArgs.resultArgName,
+      outTypeAsString
     );
 
     // prettier-ignore
