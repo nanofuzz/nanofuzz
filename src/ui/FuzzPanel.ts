@@ -442,6 +442,7 @@ export class FuzzPanel {
           argOverrides: this._argOverrides,
           validators: this._fuzzEnv.validators.map((ref) => ref.name),
           tests: {},
+          isVoid: this._fuzzEnv.function.isVoid(),
         },
       },
     };
@@ -874,6 +875,7 @@ ${inArgConsts}
         testSet.validators = this._fuzzEnv.validators.map((ref) => ref.name);
         testSet.argOverrides = this._argOverrides;
         testSet.sortColumns = this._sortColumns;
+        testSet.isVoid = this._fuzzEnv.function.isVoid();
         this._putFuzzTestsForThisFn(testSet);
       } catch (e: any) {
         this._state = FuzzPanelState.error;
