@@ -844,8 +844,6 @@ export class ProgramDef {
       | TSTypeAliasDeclaration
       | TSTypeAnnotation
   ): TypeRef {
-    //console.debug(JSON5.stringify(node, removeParents, 2)); // !!!!!
-
     // Throw an error if type annotations are missing
     if (node.typeAnnotation === undefined) {
       throw new Error(
@@ -979,11 +977,11 @@ export class ProgramDef {
           this._getLiteralValueFromNode(node),
         ];
       case AST_NODE_TYPES.TSArrayType: {
-        const [type, dims, typeName] = this._getTypeFromAstNode(
+        const [type, dims, typeName, literalValue] = this._getTypeFromAstNode(
           node.elementType,
           options
         );
-        return [type, dims + 1, typeName];
+        return [type, dims + 1, typeName, literalValue];
       }
       case AST_NODE_TYPES.TSTypeReference: {
         return [ArgTag.UNRESOLVED, 0, getIdentifierName(node.typeName)];

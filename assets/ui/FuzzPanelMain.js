@@ -548,7 +548,7 @@ function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
     data[type][index][expectedLabel] = resultsData.results[id].output;
   }
 
-  // Redraw table !!!!! Do we need to do this?
+  // Redraw table
   drawTableBody(type, tbody, true, button);
 
   const onOff = JSON.parse(button.getAttribute("onOff"));

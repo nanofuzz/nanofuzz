@@ -16,10 +16,20 @@ function makeArgDef(
   dims: number,
   optional: boolean = false,
   children: TypeRef[] = [],
-  typeRefName?: string
+  typeRefName?: string,
+  literalValue?: ArgType
 ): ArgDef<ArgType> {
   return ArgDef.fromTypeRef(
-    makeTypeRef(module, name, type, dims, optional, children, typeRefName),
+    makeTypeRef(
+      module,
+      name,
+      type,
+      dims,
+      optional,
+      children,
+      typeRefName,
+      literalValue
+    ),
     argOptions,
     offset
   );
@@ -31,7 +41,8 @@ function makeTypeRef(
   dims: number,
   optional: boolean = false,
   children: TypeRef[] = [],
-  typeRefName?: string
+  typeRefName?: string,
+  literalValue?: ArgType
 ): TypeRef {
   return {
     name: name,
@@ -42,6 +53,7 @@ function makeTypeRef(
     type: {
       type: type,
       children: children,
+      value: literalValue,
     },
     isExported: true,
   };
@@ -52,12 +64,26 @@ function makeTypeRef(
  * function argument.
  */
 describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
-  it.each([ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN])(
-    // !!!!!! add tests for LITERAL
+  it.each([ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL])(
     "should return %s for primitive type %s",
     (tag: ArgTag) => {
-      const argDef = makeArgDef(dummyModule, "test", 0, tag, argOptions, 0);
-      expect(argDef.getTypeAnnotation()).toBe(tag);
+      const argDef = makeArgDef(
+        dummyModule,
+        "test",
+        0,
+        tag,
+        argOptions,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        tag === ArgTag.LITERAL ? 5 : undefined
+      );
+      if (tag === ArgTag.LITERAL) {
+        expect(argDef.getTypeAnnotation()).toStrictEqual("5");
+      } else {
+        expect(argDef.getTypeAnnotation()).toStrictEqual(tag);
+      }
     }
   );
 
@@ -78,8 +104,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
     }
   );
 
-  it.each([ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN])(
-    // !!!!!! add tests for LITERAL
+  it.each([ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL])(
     "should return '<type> | undefined' for optional types",
     (tag: ArgTag) => {
       const argDef = makeArgDef(
@@ -89,9 +114,16 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         tag,
         argOptions,
         0,
-        true
+        true,
+        undefined,
+        undefined,
+        tag === ArgTag.LITERAL ? 5 : undefined
       );
-      expect(argDef.getTypeAnnotation()).toBe(tag + " | undefined");
+      if (tag === ArgTag.LITERAL) {
+        expect(argDef.getTypeAnnotation()).toStrictEqual("5 | undefined");
+      } else {
+        expect(argDef.getTypeAnnotation()).toStrictEqual(tag + " | undefined");
+      }
     }
   );
 

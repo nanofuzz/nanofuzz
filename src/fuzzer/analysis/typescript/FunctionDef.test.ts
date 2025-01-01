@@ -29,18 +29,20 @@ function makeArgDef(
   argOptions = ArgDef.getDefaultOptions(),
   dims: number,
   optional: boolean = false,
-  children: TypeRef[] = []
+  children: TypeRef[] = [],
+  typeRefName?: string,
+  literalValue?: ArgType
 ): ArgDef<ArgType> {
   return ArgDef.fromTypeRef(
     makeTypeRef(
       module,
       name,
-      offset,
       type,
-      argOptions,
       dims,
       optional,
-      children
+      children,
+      typeRefName,
+      literalValue
     ),
     argOptions,
     offset
@@ -49,21 +51,23 @@ function makeArgDef(
 function makeTypeRef(
   module: string,
   name: string,
-  offset: number,
   type: ArgTag,
-  argOptions = ArgDef.getDefaultOptions(),
   dims: number,
   optional: boolean = false,
-  children: TypeRef[] = []
+  children: TypeRef[] = [],
+  typeRefName?: string,
+  literalValue?: ArgType
 ): TypeRef {
   return {
     name: name,
     module: module,
+    typeRefName,
     optional: optional ?? false,
     dims: dims,
     type: {
       type: type,
       children: children,
+      value: literalValue,
     },
     isExported: true,
   };
@@ -77,8 +81,7 @@ function makeTypeRef(
  */
 describe("fuzzer/analysis/typescript/FunctionDef", () => {
   test("arrowFunction", () => {
-    // !!!!!! add tests for LITERAL
-    const src = `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void => {
+    const src = `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], lit: 5, obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[], lit:6, litA:6[]}):void => {
       const whatever:string = name + offset + happy + JSON5.stringify(nums);}`;
     const thisProgram = dummyProgram.setSrc(() => src);
 
@@ -89,32 +92,50 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       makeArgDef(dummyRef.module, "nums", 3, ArgTag.NUMBER, argOptions, 2),
       makeArgDef(
         dummyRef.module,
-        "obj",
+        "lit",
         4,
+        ArgTag.LITERAL,
+        argOptions,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        5
+      ),
+      makeArgDef(
+        dummyRef.module,
+        "obj",
+        5,
         ArgTag.OBJECT,
         argOptions,
         0,
         undefined,
         [
-          makeTypeRef(dummyRef.module, "num", 0, ArgTag.NUMBER, argOptions, 0),
-          makeTypeRef(dummyRef.module, "numA", 1, ArgTag.NUMBER, argOptions, 1),
-          makeTypeRef(dummyRef.module, "str", 2, ArgTag.STRING, argOptions, 0),
-          makeTypeRef(dummyRef.module, "strA", 3, ArgTag.STRING, argOptions, 1),
+          makeTypeRef(dummyRef.module, "num", ArgTag.NUMBER, 0),
+          makeTypeRef(dummyRef.module, "numA", ArgTag.NUMBER, 1),
+          makeTypeRef(dummyRef.module, "str", ArgTag.STRING, 0),
+          makeTypeRef(dummyRef.module, "strA", ArgTag.STRING, 1),
+          makeTypeRef(dummyRef.module, "bool", ArgTag.BOOLEAN, 0),
+          makeTypeRef(dummyRef.module, "boolA", ArgTag.BOOLEAN, 1),
           makeTypeRef(
             dummyRef.module,
-            "bool",
-            4,
-            ArgTag.BOOLEAN,
-            argOptions,
-            0
+            "lit",
+            ArgTag.LITERAL,
+            0,
+            undefined,
+            undefined,
+            undefined,
+            6
           ),
           makeTypeRef(
             dummyRef.module,
-            "boolA",
-            5,
-            ArgTag.BOOLEAN,
-            argOptions,
-            1
+            "litA",
+            ArgTag.LITERAL,
+            1,
+            undefined,
+            undefined,
+            undefined,
+            6
           ),
         ]
       ),
@@ -122,8 +143,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
   });
 
   test("standardFunction", () => {
-    // !!!!!! add tests for LITERAL
-    const src = `function $_f(name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void {
+    const src = `function $_f(name: string, offset: number, happy: boolean, nums: number[][], lit: 5, obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[], lit: 6, litA: 6[]}):void {
       const whatever:string = name + offset + happy + JSON5.stringify(nums);}`;
     const thisProgram = dummyProgram.setSrc(() => src);
 
@@ -134,32 +154,50 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       makeArgDef(dummyRef.module, "nums", 3, ArgTag.NUMBER, argOptions, 2),
       makeArgDef(
         dummyRef.module,
-        "obj",
+        "lit",
         4,
+        ArgTag.LITERAL,
+        argOptions,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        5
+      ),
+      makeArgDef(
+        dummyRef.module,
+        "obj",
+        5,
         ArgTag.OBJECT,
         argOptions,
         0,
         undefined,
         [
-          makeTypeRef(dummyRef.module, "num", 0, ArgTag.NUMBER, argOptions, 0),
-          makeTypeRef(dummyRef.module, "numA", 1, ArgTag.NUMBER, argOptions, 1),
-          makeTypeRef(dummyRef.module, "str", 2, ArgTag.STRING, argOptions, 0),
-          makeTypeRef(dummyRef.module, "strA", 3, ArgTag.STRING, argOptions, 1),
+          makeTypeRef(dummyRef.module, "num", ArgTag.NUMBER, 0),
+          makeTypeRef(dummyRef.module, "numA", ArgTag.NUMBER, 1),
+          makeTypeRef(dummyRef.module, "str", ArgTag.STRING, 0),
+          makeTypeRef(dummyRef.module, "strA", ArgTag.STRING, 1),
+          makeTypeRef(dummyRef.module, "bool", ArgTag.BOOLEAN, 0),
+          makeTypeRef(dummyRef.module, "boolA", ArgTag.BOOLEAN, 1),
           makeTypeRef(
             dummyRef.module,
-            "bool",
-            4,
-            ArgTag.BOOLEAN,
-            argOptions,
-            0
+            "lit",
+            ArgTag.LITERAL,
+            0,
+            undefined,
+            undefined,
+            undefined,
+            6
           ),
           makeTypeRef(
             dummyRef.module,
-            "boolA",
-            5,
-            ArgTag.BOOLEAN,
-            argOptions,
-            1
+            "litA",
+            ArgTag.LITERAL,
+            1,
+            undefined,
+            undefined,
+            undefined,
+            6
           ),
         ]
       ),

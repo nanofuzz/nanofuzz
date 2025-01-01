@@ -319,8 +319,7 @@ export class ArgDef<T extends ArgType> {
   public isConstant(): boolean {
     return (
       this.intervals.length === 1 &&
-      this.intervals[0].min === this.intervals[0].max &&
-      this.getDim() === 0
+      this.intervals[0].min === this.intervals[0].max
     );
   } // fn: isConstant()
 
@@ -444,6 +443,10 @@ export class ArgDef<T extends ArgType> {
         (child) => `${child.getName()}: ${child.getTypeAnnotation()}`
       );
       return `{ ${childTypeAnnotations.join("; ")} }`;
+    }
+
+    if (this.type === "literal") {
+      return `${this.getConstantValue()}`;
     }
 
     return this.type;
