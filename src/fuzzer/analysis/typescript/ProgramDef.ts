@@ -11,6 +11,7 @@ import {
 import {
   TSTypeAliasDeclaration,
   TSTypeAnnotation,
+  TSVoidKeyword,
   Identifier,
   TSPropertySignature,
   TypeNode,
@@ -1134,12 +1135,18 @@ export class ProgramDef {
     ) {
       // ReturnType is not as important for fuzzing, so we don't throw an error
       // if we encounter something we don't support.
-      let returnType;
+      let returnType = undefined;
+      let isVoid = false;
+      const typeNode = node.init.returnType;
       try {
-        returnType = this._getTypeRefFromAstNode(node.id);
+        isVoid = typeNode?.typeAnnotation.type === AST_NODE_TYPES.TSVoidKeyword;
+        returnType = typeNode
+          ? this._getTypeRefFromAstNode(typeNode)
+          : undefined;
       } catch {
-        console.debug('Unsupported return type for function "' + name + '".');
-        returnType = undefined;
+        if (!isVoid) {
+          console.debug('Unsupported return type for function "' + name + '".');
+        }
       }
       return {
         name,
@@ -1155,6 +1162,7 @@ export class ProgramDef {
           .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
           .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
         returnType,
+        isVoid,
       };
     } else if (
       // Standard Function Definition: function xyz(): void => { ... }
@@ -1163,13 +1171,18 @@ export class ProgramDef {
     ) {
       // ReturnType is not as important for fuzzing, so we don't throw an error
       // if we encounter something we don't support.
-      let returnType;
+      let returnType = undefined;
+      let isVoid = false;
+      const typeNode = node.returnType;
       try {
-        returnType =
-          node.returnType && this._getTypeRefFromAstNode(node.returnType);
+        isVoid = typeNode?.typeAnnotation.type === AST_NODE_TYPES.TSVoidKeyword;
+        returnType = typeNode
+          ? this._getTypeRefFromAstNode(typeNode)
+          : undefined;
       } catch {
-        console.debug('Unsupported return type for function "' + name + '".');
-        returnType = undefined;
+        if (!isVoid) {
+          console.debug('Unsupported return type for function "' + name + '".');
+        }
       }
       return {
         name,
@@ -1184,6 +1197,7 @@ export class ProgramDef {
           .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
           .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
         returnType,
+        isVoid,
       };
     }
   } // fn: _getFunctionFromNode()

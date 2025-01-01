@@ -442,6 +442,7 @@ export class FuzzPanel {
           argOverrides: this._argOverrides,
           validators: this._fuzzEnv.validators.map((ref) => ref.name),
           tests: {},
+          isVoid: this._fuzzEnv.function.isVoid(),
         },
       },
     };
@@ -874,6 +875,7 @@ ${inArgConsts}
         testSet.validators = this._fuzzEnv.validators.map((ref) => ref.name);
         testSet.argOverrides = this._argOverrides;
         testSet.sortColumns = this._sortColumns;
+        testSet.isVoid = this._fuzzEnv.function.isVoid();
         this._putFuzzTestsForThisFn(testSet);
       } catch (e: any) {
         this._state = FuzzPanelState.error;
@@ -963,6 +965,9 @@ ${inArgConsts}
     const fn = env.function; // Function under test
     const counter = { id: 0 }; // Unique counter for argument ids
     let argDefHtml = ""; // HTML representing argument definitions
+    const heuristicValidatorDescription = fn.isVoid()
+      ? "Heuristic validator (for void functions). Fails: timeout, exception, values !==undefined"
+      : "Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN";
 
     // If fuzzer results are available, calculate how many tests passed, failed, etc.
     if (this._state === FuzzPanelState.done && this._results !== undefined) {
@@ -1007,7 +1012,7 @@ ${inArgConsts}
             <!-- Checkboxes -->
             <div class="fuzzInputControlGroup">
               <vscode-checkbox ${disabledFlag} id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>
-                <span class="tooltipped tooltipped-ne" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN"> 
+                <span class="tooltipped tooltipped-ne" aria-label="${heuristicValidatorDescription}">
                 Heuristic validator 
                 </span>
               </vscode-checkbox>

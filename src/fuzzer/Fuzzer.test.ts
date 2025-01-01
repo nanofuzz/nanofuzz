@@ -40,8 +40,40 @@ const counterExampleOptions: FuzzOptions = {
  * that recorded fuzzer input is not altered by the target
  */
 export function testChangeInput(obj: { a: number }) {
-  obj["b"] = "hi";
+  (obj as any).b = 1;
 }
+
+/**
+ * Fuzz targets with return type `void` that returns undefined
+ */
+export function testStandardVoidReturnUndefined(x: number): void {
+  const y = x - 1;
+}
+export const testArrowVoidReturnUndefined = (x: number): void => {
+  const y = x - 1;
+};
+
+/**
+ * Fuzz targets with return type `void` that returns number
+ */
+export function testStandardVoidReturnNumber(x: number): void {
+  const y: unknown = x;
+  return y as void;
+}
+export const testArrowVoidReturnNumber = (x: number): void => {
+  const y: unknown = x;
+  return y as void;
+};
+
+/**
+ * Fuzz targets with return type `void` that throw an exception
+ */
+export function testStandardVoidReturnException(x: number): void {
+  throw new Error("Random error");
+}
+export const testArrowVoidReturnException = (x: number): void => {
+  throw new Error("Random error");
+};
 
 /**
  * These tests currently just ensure that the fuzzer runs and produces output
@@ -342,5 +374,76 @@ describe("Fuzzer", () => {
     ).results;
     expect(results.length).not.toStrictEqual(0);
     expect(results[0].input[0].value.b).toBeUndefined();
+  });
+
+  /**
+   * Test that `void` functions (standard and arrow) fail the implicit
+   * oracle in the case that they return values other than `undefined`
+   */
+  test("Standard fn void fuzz target fails if return is !==undefined", async () => {
+    const results = (
+      await fuzz(
+        setup(intOptions, "./Fuzzer.test.ts", "testStandardVoidReturnNumber")
+      )
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results.some((e) => e.passedImplicit)).toBeFalsy();
+  });
+  test("Arrow fn void fuzz target fails if return is !==undefined", async () => {
+    const results = (
+      await fuzz(
+        setup(intOptions, "./Fuzzer.test.ts", "testArrowVoidReturnNumber")
+      )
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results.some((e) => e.passedImplicit)).toBeFalsy();
+  });
+
+  /**
+   * Test that `void` functions (standard and arrow) pass the implicit
+   * oracle in the case that they only return `undefined`
+   */
+  test("Standard fn void fuzz target passes if return is undefined", async () => {
+    const results = (
+      await fuzz(
+        setup(intOptions, "./Fuzzer.test.ts", "testStandardVoidReturnUndefined")
+      )
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results.some((e) => e.passedImplicit)).toBeTruthy();
+  });
+  test("Arrow fn void fuzz target passes if return is undefined", async () => {
+    const results = (
+      await fuzz(
+        setup(intOptions, "./Fuzzer.test.ts", "testArrowVoidReturnUndefined")
+      )
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results.some((e) => e.passedImplicit)).toBeTruthy();
+  });
+
+  /**
+   * Test that `void` functions (standard and arrow) fail the implicit
+   * oracle when they throw an exception.
+   */
+  test("Standard fn void fuzz target fails if exception is thrown", async () => {
+    const results = (
+      await fuzz(
+        setup(intOptions, "./Fuzzer.test.ts", "testStandardVoidReturnException")
+      )
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(results.every((e) => e.exception)).toBeTruthy();
+  });
+  test("Arrow fn void fuzz target fails if exception is thrown", async () => {
+    const results = (
+      await fuzz(
+        setup(intOptions, "./Fuzzer.test.ts", "testArrowVoidReturnException")
+      )
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(results.every((e) => e.exception)).toBeTruthy();
   });
 });

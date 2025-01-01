@@ -1,7 +1,15 @@
+import * as vscode from "vscode";
 import { FuzzTests, Result, implicitOracle } from "../Fuzzer";
 import * as JSON5 from "json5";
 import * as os from "os";
 import * as path from "path";
+
+/**
+ * The tool's current name (used for studies)
+ */
+export const toolName = vscode.workspace
+  .getConfiguration("nanofuzz")
+  .get("name");
 
 /**
  * Converts a set of NaNofuzz saved tests into a Jest test suite
@@ -26,10 +34,10 @@ export const toString = (testSet: FuzzTests, module: string): string => {
     `/**`,
     ` *              * * * DO NOT MODIFY * * *`,
     ` *`,
-    ` * This file is auto-generated and maintained by NaNofuzz.`,
-    ` * NaNofuzz will overwrite changes made to this file.`,
+    ` * This file is auto-generated and maintained by ${toolName}.`,
+    ` * ${toolName} will overwrite changes made to this file.`,
     ` *`,
-    ` * NaNofuzz version: ${testSet.version}`,
+    ` * ${toolName} test file version: ${testSet.version}`,
     ` */`
   );
 
@@ -127,11 +135,19 @@ export const toString = (testSet: FuzzTests, module: string): string => {
         !(thisFn.options.useProperty && thisFn.validators.length) &&
         !(thisFn.options.useHuman && expectedOutput)
       ) {
-        jestData.push(
-          `  // Expect no timeout, exception, NaN, null, undefined, or infinity`,
-          `  test("${fn}.${i}.heuristic", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);},${timeout});`,
-          ``
-        );
+        if (thisFn.isVoid) {
+          jestData.push(
+            `  // As a void function, expect only undefined and no timeout or exception`,
+            `  test("${fn}.${i}.heuristic", () => {expect(themodule.${fn}(${inputStr})).toBeUndefined();},${timeout});`,
+            ``
+          );
+        } else {
+          jestData.push(
+            `  // Expect no timeout, exception, NaN, null, undefined, or infinity`,
+            `  test("${fn}.${i}.heuristic", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);},${timeout});`,
+            ``
+          );
+        }
       }
     }
   }

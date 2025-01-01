@@ -270,11 +270,14 @@ function main() {
             // noop (hidden)
           } else if (k === implicitLabel) {
             if (resultsData.env.options.useImplicit) {
+              const heuristicValidatorDescription =
+                document.getElementById("fuzz-useImplicit").children[0]
+                  .ariaLabel;
               const cell = hRow.appendChild(document.createElement("th"));
               cell.id = type + "-" + implicitLabel;
               cell.classList.add("colorColumn", "clickable");
               cell.innerHTML = /* html */ `
-              <span class="tooltipped tooltipped-nw" aria-label="Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN">
+              <span class="tooltipped tooltipped-nw" aria-label="${heuristicValidatorDescription}">
                 <span class="codicon codicon-debug"></span>
               </span>`;
               cell.addEventListener("click", () => {

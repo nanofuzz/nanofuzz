@@ -47,6 +47,7 @@ export type FuzzTestsFunction = {
   sortColumns?: FuzzSortColumns; // column sort order
   validators: string[]; // validator functions
   tests: Record<string, FuzzPinnedTest>; // pinned tests
+  isVoid: boolean; // is the function return type void?
 };
 
 /**
