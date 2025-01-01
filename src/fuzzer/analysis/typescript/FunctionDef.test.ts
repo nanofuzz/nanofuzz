@@ -671,7 +671,9 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     const src = `
     export type litn = 3;
     export type lita = "a";
-    export function testLit(n:litn,a:lita) {return;}
+    export type litb = true;
+    export function testLit(n:litn,a:lita,b:litb) {return;}
+    const world = "earth";
     `;
     const thisProgram = dummyProgram.setSrc(() => src);
     expect(
@@ -680,9 +682,9 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       {
         name: "testLit",
         module: "dummy.ts",
-        src: "function testLit(n:litn,a:lita) {return;}",
-        startOffset: 66,
-        endOffset: 107,
+        src: "function testLit(n:litn,a:lita,b:litb) {return;}",
+        startOffset: 95,
+        endOffset: 143,
         isExported: true,
         isVoid: false,
         args: [
@@ -713,6 +715,20 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
               type: "literal",
             },
             typeRefName: "lita",
+          },
+          {
+            dims: 0,
+            isExported: false,
+            module: "dummy.ts",
+            name: "b",
+            optional: false,
+            type: {
+              children: [],
+              resolved: true,
+              type: "literal",
+              value: true,
+            },
+            typeRefName: "litb",
           },
         ],
         returnType: undefined,

@@ -972,10 +972,6 @@ export class ProgramDef {
       case AST_NODE_TYPES.TSTypeLiteral:
         return [ArgTag.OBJECT, 0];
       case AST_NODE_TYPES.TSLiteralType:
-        //console.debug(
-        //  "case AST_NODE_TYPES.TSLiteralType: " +
-        //    JSON5.stringify(node, removeParents, 2)
-        //); // !!!!!!
         return [
           ArgTag.LITERAL,
           0,
