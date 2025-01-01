@@ -231,21 +231,19 @@ export const fuzz = async (
 
     // IMPLICIT ORACLE --------------------------------------------
     // How can it fail ... let us count the ways...
-    // TODO Add suppport for multiple validators !!!
-    if (
-      // Check for exceptions and timeouts
-      env.options.useImplicit &&
-      (result.exception || result.timeout)
-    ) {
-      result.passedImplicit = false;
-    }
-    if (
-      // Check implicit oracle if function is not void
-      env.options.useImplicit &&
-      !env.function.isVoid() &&
-      result.output.some((e) => !implicitOracle(e))
-    ) {
-      result.passedImplicit = false;
+    if (env.options.useImplicit) {
+      if (result.exception || result.timeout) {
+        // Exceptions and timeouts fail the implicit oracle
+        result.passedImplicit = false;
+      } else if (env.function.isVoid()) {
+        // Functions with a void return type should only return undefined
+        result.passedImplicit = !result.output.some(
+          (e) => e.value !== undefined
+        );
+      } else {
+        // Non-void functions should not contain disallowed values
+        result.passedImplicit = !result.output.some((e) => !implicitOracle(e));
+      }
     }
 
     // HUMAN ORACLE -----------------------------------------------
