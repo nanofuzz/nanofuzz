@@ -54,6 +54,7 @@ export type TypeRef = {
   type?: {
     type: ArgTag; // Concrete type of the type
     children: TypeRef[]; // Array of child types
+    value?: ArgType; // Value if a literal type
     resolved?: boolean; // True if the type's children have been resolved; false, otherwise
   };
   isExported: boolean; // True if the type is exported; false, otherwise
@@ -67,6 +68,7 @@ export enum ArgTag {
   STRING = "string",
   BOOLEAN = "boolean",
   OBJECT = "object",
+  LITERAL = "literal",
   UNRESOLVED = "unresolved", // unresolved type reference
 }
 export type ArgType = number | string | boolean | Record<string, unknown>;

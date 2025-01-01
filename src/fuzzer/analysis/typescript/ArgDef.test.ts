@@ -53,6 +53,7 @@ function makeTypeRef(
  */
 describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
   it.each([ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN])(
+    // !!!!!! add tests for LITERAL
     "should return %s for primitive type %s",
     (tag: ArgTag) => {
       const argDef = makeArgDef(dummyModule, "test", 0, tag, argOptions, 0);
@@ -78,6 +79,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
   );
 
   it.each([ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN])(
+    // !!!!!! add tests for LITERAL
     "should return '<type> | undefined' for optional types",
     (tag: ArgTag) => {
       const argDef = makeArgDef(

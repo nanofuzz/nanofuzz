@@ -77,6 +77,7 @@ function makeTypeRef(
  */
 describe("fuzzer/analysis/typescript/FunctionDef", () => {
   test("arrowFunction", () => {
+    // !!!!!! add tests for LITERAL
     const src = `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void => {
       const whatever:string = name + offset + happy + JSON5.stringify(nums);}`;
     const thisProgram = dummyProgram.setSrc(() => src);
@@ -121,6 +122,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
   });
 
   test("standardFunction", () => {
+    // !!!!!! add tests for LITERAL
     const src = `function $_f(name: string, offset: number, happy: boolean, nums: number[][], obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[]}):void {
       const whatever:string = name + offset + happy + JSON5.stringify(nums);}`;
     const thisProgram = dummyProgram.setSrc(() => src);
@@ -660,6 +662,59 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         isExported: true,
         isVoid: false,
         args: [],
+        returnType: undefined,
+      },
+    ]);
+  });
+
+  test("findFnInSource: literal args", () => {
+    const src = `
+    export type litn = 3;
+    export type lita = "a";
+    export function testLit(n:litn,a:lita) {return;}
+    `;
+    const thisProgram = dummyProgram.setSrc(() => src);
+    expect(
+      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
+    ).toStrictEqual([
+      {
+        name: "testLit",
+        module: "dummy.ts",
+        src: "function testLit(n:litn,a:lita) {return;}",
+        startOffset: 66,
+        endOffset: 107,
+        isExported: true,
+        isVoid: false,
+        args: [
+          {
+            dims: 0,
+            isExported: false,
+            module: "dummy.ts",
+            name: "n",
+            optional: false,
+            type: {
+              children: [],
+              resolved: true,
+              value: 3,
+              type: "literal",
+            },
+            typeRefName: "litn",
+          },
+          {
+            dims: 0,
+            isExported: false,
+            module: "dummy.ts",
+            name: "a",
+            optional: false,
+            type: {
+              children: [],
+              resolved: true,
+              value: "a",
+              type: "literal",
+            },
+            typeRefName: "lita",
+          },
+        ],
         returnType: undefined,
       },
     ]);

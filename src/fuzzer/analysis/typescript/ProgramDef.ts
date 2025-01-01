@@ -11,7 +11,7 @@ import {
 import {
   TSTypeAliasDeclaration,
   TSTypeAnnotation,
-  TSVoidKeyword,
+  TSLiteralType,
   Identifier,
   TSPropertySignature,
   TypeNode,
@@ -28,6 +28,7 @@ import {
   TypeRef,
   ArgOptions,
   ProgramImport,
+  ArgType,
 } from "./Types";
 
 /**
@@ -843,6 +844,8 @@ export class ProgramDef {
       | TSTypeAliasDeclaration
       | TSTypeAnnotation
   ): TypeRef {
+    //console.debug(JSON5.stringify(node, removeParents, 2)); // !!!!!
+
     // Throw an error if type annotations are missing
     if (node.typeAnnotation === undefined) {
       throw new Error(
@@ -894,12 +897,12 @@ export class ProgramDef {
     // Handle type references, which we will resolve later
     //
     // Note: this does not catch arrays of type references;
-    // we handle those below)
+    // we handle those below
     if (node.typeAnnotation.type === AST_NODE_TYPES.TSTypeReference) {
       thisType.typeRefName = getIdentifierName(node.typeAnnotation.typeName);
     } else {
       // Get the node's type and dimensions
-      const [type, dims, typeRefNode] = this._getTypeFromAstNode(
+      const [type, dims, typeRefNode, literalValue] = this._getTypeFromAstNode(
         node.typeAnnotation,
         this._options
       );
@@ -913,6 +916,15 @@ export class ProgramDef {
           thisType.type = {
             type: type,
             children: [],
+            resolved: true,
+          };
+          break;
+        }
+        case ArgTag.LITERAL: {
+          thisType.type = {
+            type: type,
+            children: [],
+            value: literalValue,
             resolved: true,
           };
           break;
@@ -945,7 +957,7 @@ export class ProgramDef {
   private _getTypeFromAstNode(
     node: TSTypeAnnotation | TypeNode,
     options: ArgOptions
-  ): [ArgTag, number, string?] {
+  ): [ArgTag, number, string?, ArgType?] {
     switch (node.type) {
       case AST_NODE_TYPES.TSAnyKeyword:
         return [options.anyType, options.anyDims];
@@ -959,6 +971,17 @@ export class ProgramDef {
         return this._getTypeFromAstNode(node.typeAnnotation, options);
       case AST_NODE_TYPES.TSTypeLiteral:
         return [ArgTag.OBJECT, 0];
+      case AST_NODE_TYPES.TSLiteralType:
+        //console.debug(
+        //  "case AST_NODE_TYPES.TSLiteralType: " +
+        //    JSON5.stringify(node, removeParents, 2)
+        //); // !!!!!!
+        return [
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          this._getLiteralValueFromNode(node),
+        ];
       case AST_NODE_TYPES.TSArrayType: {
         const [type, dims, typeName] = this._getTypeFromAstNode(
           node.elementType,
@@ -978,6 +1001,33 @@ export class ProgramDef {
   } // fn: _getTypeFromAstNode()
 
   /**
+   * Returns an ArgType from a TSLiteralType AST Node
+   *
+   * @param node a TSLiteralType AST node
+   * @returns an ArgType literal value
+   */
+  private _getLiteralValueFromNode(node: TSLiteralType): ArgType {
+    const literalNode = node.literal;
+    switch (literalNode.type) {
+      case AST_NODE_TYPES.Literal: {
+        // TODO Add support for bigint, null, RegExp
+        if (
+          typeof literalNode.value === "number" ||
+          typeof literalNode.value === "string" ||
+          typeof literalNode.value === "boolean"
+        ) {
+          return literalNode.value;
+        }
+      }
+      // TODO Add support for TemplateLiteral, UnaryExpression, UpdateExpression
+    }
+    throw new Error(
+      "Unsupported literal value type in type annotation: " +
+        JSON5.stringify(node, removeParents, 2)
+    );
+  } // fn: _getLiteralValueFromNode()
+
+  /**
    * Returns the child TypeRef objects for the given AST type node.
    *
    * @param node The AST type node or type annotation
@@ -988,6 +1038,7 @@ export class ProgramDef {
       case AST_NODE_TYPES.TSAnyKeyword:
       case AST_NODE_TYPES.TSStringKeyword:
       case AST_NODE_TYPES.TSBooleanKeyword:
+      case AST_NODE_TYPES.TSLiteralType:
       case AST_NODE_TYPES.TSNumberKeyword:
         return [];
       case AST_NODE_TYPES.TSArrayType:
