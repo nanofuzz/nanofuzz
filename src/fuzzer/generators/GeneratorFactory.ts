@@ -23,8 +23,9 @@ export function GeneratorFactory<T extends ArgType>(
   arg: ArgDef<T>,
   prng: seedrandom.prng
 ): () => any {
-  // For constant values, return the constant
-  if (arg.isConstant()) return () => arg.getConstantValue();
+  // For constant values of no dimensions, return the constant
+  if (arg.isConstant() && arg.getDim() === 0)
+    return () => arg.getConstantValue();
 
   let randFn: typeof getRandomNumber;
 
