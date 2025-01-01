@@ -344,7 +344,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
   test("findFnInSource: void, standard fn def", () => {
     const src = `
     export function returnF1() {return;}
-    export function returnF2() {return 1;}
+    export function returnF2():number {return 1;}
     export function returnF3() {return () => {return 1;}}
     export function noReturnF1():void {const x = 2;}
     export function noReturnF2():void {const z2 = [1,2,3].map((z) => {return z*z;});}
@@ -368,20 +368,30 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       {
         name: "returnF2",
         module: "dummy.ts",
-        src: "function returnF2() {return 1;}",
+        src: "function returnF2():number {return 1;}",
         startOffset: 53,
-        endOffset: 84,
+        endOffset: 91,
         isExported: true,
         isVoid: false,
         args: [],
-        returnType: undefined,
+        returnType: {
+          dims: 0,
+          isExported: false,
+          module: "dummy.ts",
+          optional: false,
+          type: {
+            children: [],
+            resolved: true,
+            type: "number",
+          },
+        },
       },
       {
         name: "returnF3",
         module: "dummy.ts",
         src: "function returnF3() {return () => {return 1;}}",
-        startOffset: 96,
-        endOffset: 142,
+        startOffset: 103,
+        endOffset: 149,
         isExported: true,
         isVoid: false,
         args: [],
@@ -391,8 +401,8 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         name: "noReturnF1",
         module: "dummy.ts",
         src: "function noReturnF1():void {const x = 2;}",
-        startOffset: 154,
-        endOffset: 195,
+        startOffset: 161,
+        endOffset: 202,
         isExported: true,
         isVoid: true,
         args: [],
@@ -402,8 +412,8 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         name: "noReturnF2",
         module: "dummy.ts",
         src: "function noReturnF2():void {const z2 = [1,2,3].map((z) => {return z*z;});}",
-        startOffset: 207,
-        endOffset: 281,
+        startOffset: 214,
+        endOffset: 288,
         isExported: true,
         isVoid: true,
         args: [],
@@ -413,8 +423,8 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         name: "noReturnF3",
         module: "dummy.ts",
         src: "function noReturnF3():void {const x = () => {return 1;}}",
-        startOffset: 293,
-        endOffset: 349,
+        startOffset: 300,
+        endOffset: 356,
         isExported: true,
         isVoid: true,
         args: [],
@@ -426,7 +436,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
   test("findFnInSource: void, arrow fn", () => {
     const src = `
     export const returnA1 = () => {return;}
-    export const returnA2 = () => {return 1;}
+    export const returnA2 = ():number => {return 1;}
     export const returnA3 = () => {return () => {return 1;}}
     export const noReturnA1 = ():void => {const x = 2;}
     export const noReturnA2 = ():void => {const z2 = [1,2,3].map((z) => {return z*z;});}
@@ -450,20 +460,30 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       {
         name: "returnA2",
         module: "dummy.ts",
-        src: "const returnA2 = () => {return 1;}",
+        src: "const returnA2 = ():number => {return 1;}",
         startOffset: 62,
-        endOffset: 90,
+        endOffset: 97,
         isExported: true,
         isVoid: false,
         args: [],
-        returnType: undefined,
+        returnType: {
+          dims: 0,
+          isExported: false,
+          module: "dummy.ts",
+          optional: false,
+          type: {
+            children: [],
+            resolved: true,
+            type: "number",
+          },
+        },
       },
       {
         name: "returnA3",
         module: "dummy.ts",
         src: "const returnA3 = () => {return () => {return 1;}}",
-        startOffset: 108,
-        endOffset: 151,
+        startOffset: 115,
+        endOffset: 158,
         isExported: true,
         isVoid: false,
         args: [],
@@ -473,8 +493,8 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         name: "noReturnA1",
         module: "dummy.ts",
         src: "const noReturnA1 = ():void => {const x = 2;}",
-        startOffset: 169,
-        endOffset: 207,
+        startOffset: 176,
+        endOffset: 214,
         isExported: true,
         isVoid: true,
         args: [],
@@ -484,8 +504,8 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         name: "noReturnA2",
         module: "dummy.ts",
         src: "const noReturnA2 = ():void => {const z2 = [1,2,3].map((z) => {return z*z;});}",
-        startOffset: 225,
-        endOffset: 296,
+        startOffset: 232,
+        endOffset: 303,
         isExported: true,
         isVoid: true,
         args: [],
@@ -495,8 +515,8 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         name: "noReturnA3",
         module: "dummy.ts",
         src: "const noReturnA3 = ():void => {const x = () => {return 1;}}",
-        startOffset: 314,
-        endOffset: 367,
+        startOffset: 321,
+        endOffset: 374,
         isExported: true,
         isVoid: true,
         args: [],

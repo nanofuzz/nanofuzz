@@ -1135,18 +1135,18 @@ export class ProgramDef {
     ) {
       // ReturnType is not as important for fuzzing, so we don't throw an error
       // if we encounter something we don't support.
-      let returnType;
+      let returnType = undefined;
       let isVoid = false;
+      const typeNode = node.init.returnType;
       try {
-        isVoid =
-          node.init.returnType?.typeAnnotation.type ===
-          AST_NODE_TYPES.TSVoidKeyword;
-        returnType = this._getTypeRefFromAstNode(node.id);
+        isVoid = typeNode?.typeAnnotation.type === AST_NODE_TYPES.TSVoidKeyword;
+        returnType = typeNode
+          ? this._getTypeRefFromAstNode(typeNode)
+          : undefined;
       } catch {
         if (!isVoid) {
           console.debug('Unsupported return type for function "' + name + '".');
         }
-        returnType = undefined;
       }
       return {
         name,
@@ -1171,18 +1171,18 @@ export class ProgramDef {
     ) {
       // ReturnType is not as important for fuzzing, so we don't throw an error
       // if we encounter something we don't support.
-      let returnType;
+      let returnType = undefined;
       let isVoid = false;
+      const typeNode = node.returnType;
       try {
-        isVoid =
-          node.returnType?.typeAnnotation.type === AST_NODE_TYPES.TSVoidKeyword;
-        returnType =
-          node.returnType && this._getTypeRefFromAstNode(node.returnType);
+        isVoid = typeNode?.typeAnnotation.type === AST_NODE_TYPES.TSVoidKeyword;
+        returnType = typeNode
+          ? this._getTypeRefFromAstNode(typeNode)
+          : undefined;
       } catch {
         if (!isVoid) {
           console.debug('Unsupported return type for function "' + name + '".');
         }
-        returnType = undefined;
       }
       return {
         name,
