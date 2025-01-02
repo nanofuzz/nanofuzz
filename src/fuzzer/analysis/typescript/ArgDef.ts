@@ -289,6 +289,16 @@ export class ArgDef<T extends ArgType> {
       throw new Error(
         `Invalid interval provided (max>min): ${JSON5.stringify(intervals)}`
       );
+    if (
+      this.type === ArgTag.LITERAL &&
+      (intervals.length !== 1 || intervals[0].max === intervals[0].min)
+    ) {
+      throw new Error(
+        `Invalid interval provided for LITERAL type: (req's one interval where max=min): ${JSON5.stringify(
+          intervals
+        )}`
+      );
+    }
     this.intervals = intervals;
   } // fn: setIntervals()
 

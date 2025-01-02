@@ -1501,7 +1501,11 @@ ${inArgConsts}
       typeString = argTypeRef.substring(argTypeRef.lastIndexOf(".") + 1);
     } else {
       typeString =
-        argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase();
+        argType === fuzzer.ArgTag.OBJECT
+          ? "Object"
+          : argType === fuzzer.ArgTag.LITERAL && arg.isConstant()
+          ? htmlEscape(JSON5.stringify(arg.getConstantValue(), undefined, 2))
+          : argType.toLowerCase();
     }
 
     // prettier-ignore
@@ -1512,7 +1516,11 @@ ${inArgConsts}
       <div class="argDef-name" style="font-size:1.25em;">
         <strong>${htmlEscape(
           arg.getName()
-        )}</strong>${optionalString}: ${typeString}${dimString} =
+        )}</strong>${optionalString}: ${typeString}${dimString} 
+        ${argType === fuzzer.ArgTag.LITERAL
+          ? ""
+          : "="
+        }
         ${argType === fuzzer.ArgTag.OBJECT
           ? ' {'
           : ''
