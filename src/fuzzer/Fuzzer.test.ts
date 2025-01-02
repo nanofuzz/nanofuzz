@@ -76,6 +76,16 @@ export const testArrowVoidReturnException = (x: number): void => {
 };
 
 /**
+ * Fuzz targets with literal arguments
+ */
+export function testStandardVoidLiteralArgs(n: 5, n2: 5[]): void {
+  return;
+}
+export const testArrowVoidLiteralArgs = (n: 5, n2: 5[]): void => {
+  return;
+};
+
+/**
  * These tests currently just ensure that the fuzzer runs and produces output
  * for each example. TODO: Add tests that check the fuzzer output.
  */
@@ -445,5 +455,28 @@ describe("Fuzzer", () => {
     expect(results.length).not.toStrictEqual(0);
     expect(results.some((e) => e.passedImplicit)).toBeFalsy();
     expect(results.every((e) => e.exception)).toBeTruthy();
+  });
+
+  /**
+   * Test that `void` functions w/literal arguments (standard and arrow) pass
+   * when they return undefined.
+   */
+  test("Standard void literal arg fuzz target", async () => {
+    const results = (
+      await fuzz(
+        setup(intOptions, "./Fuzzer.test.ts", "testStandardVoidLiteralArgs")
+      )
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results.some((e) => e.passedImplicit)).toBeTruthy();
+  });
+  test("Arrow void literal arg fuzz target", async () => {
+    const results = (
+      await fuzz(
+        setup(intOptions, "./Fuzzer.test.ts", "testArrowVoidLiteralArgs")
+      )
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results.some((e) => e.passedImplicit)).toBeTruthy();
   });
 });

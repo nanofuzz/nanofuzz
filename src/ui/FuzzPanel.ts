@@ -362,6 +362,14 @@ export class FuzzPanel {
       if (inputTests.version === CURR_FILE_FMT_VER) {
         // current format -- no changes needed
         return inputTests;
+      } else if (inputTests.version === "0.3.3") {
+        // v0.3.3 format -- only additions such as isVoid and literal types that
+        // older versions of NaNofuzz will not interpret
+        const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
+        console.info(
+          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+        );
+        return testSet;
       } else if (inputTests.version === "0.3.0") {
         // v0.3.0 format -- infer arg strCharset override from function default
         const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
@@ -1493,7 +1501,11 @@ ${inArgConsts}
       typeString = argTypeRef.substring(argTypeRef.lastIndexOf(".") + 1);
     } else {
       typeString =
-        argType === fuzzer.ArgTag.OBJECT ? "Object" : argType.toLowerCase();
+        argType === fuzzer.ArgTag.OBJECT
+          ? "Object"
+          : argType === fuzzer.ArgTag.LITERAL && arg.isConstant()
+          ? htmlEscape(JSON5.stringify(arg.getConstantValue(), undefined, 2))
+          : argType.toLowerCase();
     }
 
     // prettier-ignore
@@ -1504,7 +1516,11 @@ ${inArgConsts}
       <div class="argDef-name" style="font-size:1.25em;">
         <strong>${htmlEscape(
           arg.getName()
-        )}</strong>${optionalString}: ${typeString}${dimString} =
+        )}</strong>${optionalString}: ${typeString}${dimString} 
+        ${argType === fuzzer.ArgTag.LITERAL
+          ? ""
+          : "="
+        }
         ${argType === fuzzer.ArgTag.OBJECT
           ? ' {'
           : ''
@@ -1980,7 +1996,7 @@ const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.6";
 /**
  * Current file format version for persisting test sets / pinned test cases
  */
-const CURR_FILE_FMT_VER = "0.3.3"; // !!!! Increment if file format changes
+const CURR_FILE_FMT_VER = "0.3.6"; // !!!! Increment if file format changes
 
 // ----------------------------- Types ----------------------------- //
 

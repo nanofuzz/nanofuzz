@@ -23,8 +23,9 @@ export function GeneratorFactory<T extends ArgType>(
   arg: ArgDef<T>,
   prng: seedrandom.prng
 ): () => any {
-  // For constant values, return the constant
-  if (arg.isConstant()) return () => arg.getConstantValue();
+  // For constant values of no dimensions, return the constant
+  if (arg.isConstant() && arg.getDim() === 0)
+    return () => arg.getConstantValue();
 
   let randFn: typeof getRandomNumber;
 
@@ -37,6 +38,9 @@ export function GeneratorFactory<T extends ArgType>(
       break;
     case "string":
       randFn = getRandomString;
+      break;
+    case "literal":
+      randFn = getLiteral;
       break;
     case "object":
       // We generate this here using arg
@@ -155,6 +159,27 @@ const getRandomBool = <T extends ArgType>(
   if (!min && !max) return false as T;
   return (prng() >= 0.5) as T;
 }; // getRandomBool()
+
+/**
+ * Returns a literal value
+ *
+ * @param prng pesudo-random number generator
+ * @param min minimum value allowed (inclusive)
+ * @param max maximum value allowed (inclusive)
+ * @param options argument option set
+ * @returns the constant
+ *
+ * Throws an exception if min and max are not the same
+ */
+const getLiteral = <T extends ArgType>(
+  prng: seedrandom.prng,
+  min: T,
+  max: T,
+  options: ArgOptions
+): T => {
+  if (min === max) return min as T;
+  throw new Error("Min and max must be the same for literals");
+}; // getLiteral()
 
 /**
  * Returns a random string >= min and <= max with

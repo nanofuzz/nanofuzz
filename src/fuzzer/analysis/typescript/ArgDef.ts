@@ -50,7 +50,7 @@ export class ArgDef<T extends ArgType> {
    * @param options Specifies defaults to infer input intervals and any types
    * @param dims Dimensions of the value (e.g., number = 0, number[] = 1, etc.)
    * @param optional Indicates whether the argument is optional
-   * @param intervals Input intervals for the argument
+   * @param intervals Input intervals for the argument. REQUIRED for literal types.
    */
   private constructor(
     name: string,
@@ -80,18 +80,6 @@ export class ArgDef<T extends ArgType> {
           2
         )}`
       );
-
-    // Ensure the input intervals, if provided, are valid
-    if (intervals !== undefined && !intervals.some((e) => e.min > e.max))
-      throw new Error(
-        `Invalid intervals provided. Required: min <= max. ${JSON5.stringify(
-          options,
-          null,
-          2
-        )}`
-      );
-
-    // Ensure we have a sensible set of options. Watch out for mutable state here.
     this.options = { ...options };
 
     // Fill the array dimensions w/defaults if missing or incongruent with the AST
@@ -110,6 +98,11 @@ export class ArgDef<T extends ArgType> {
       );
     }
 
+    // Intervals are required for literal types
+    if (type === ArgTag.LITERAL && (!intervals || !intervals.length)) {
+      throw new Error(`An interval is required for the literal ArgDef type`);
+    }
+
     // If no interval is provided, use the type's default
     this.intervals =
       intervals === undefined ||
@@ -120,7 +113,9 @@ export class ArgDef<T extends ArgType> {
 
     // Ensure each non-array dimension is valid
     if (this.intervals.filter((e) => e.min > e.max).length) {
-      throw new Error(`Invalid interval: ${JSON5.stringify(this.intervals)}`);
+      throw new Error(
+        `Invalid interval: ${JSON5.stringify(this.intervals, undefined, 2)}`
+      );
     }
   } // end: constructor
 
@@ -149,6 +144,12 @@ export class ArgDef<T extends ArgType> {
         )}`
       );
 
+    // An interval is mandatory for the Literal type
+    const intervals: Interval<ArgType>[] | undefined =
+      ref.type.type === ArgTag.LITERAL && ref.type.value !== undefined
+        ? [{ min: ref.type.value, max: ref.type.value }]
+        : undefined;
+
     // Use the type reference to build the ArgDef
     return new ArgDef<ArgType>(
       ref.name ?? "unknown", // name
@@ -157,7 +158,7 @@ export class ArgDef<T extends ArgType> {
       options, // options
       ref.dims, // dims
       ref.optional, // optional
-      undefined, // intervals
+      intervals, // intervals
       ref.type.children.map((child) => ArgDef.fromTypeRef(child, options, i++)), // children
       ref.typeRefName // type reference
     );
@@ -192,6 +193,8 @@ export class ArgDef<T extends ArgType> {
       case ArgTag.BOOLEAN:
         return [{ min: false, max: true }];
       case ArgTag.OBJECT:
+        return [];
+      case ArgTag.LITERAL:
         return [];
       default:
         throw new Error(`Unsupported type: ${type}`);
@@ -286,6 +289,16 @@ export class ArgDef<T extends ArgType> {
       throw new Error(
         `Invalid interval provided (max>min): ${JSON5.stringify(intervals)}`
       );
+    if (
+      this.type === ArgTag.LITERAL &&
+      (intervals.length !== 1 || intervals[0].max === intervals[0].min)
+    ) {
+      throw new Error(
+        `Invalid interval provided for LITERAL type: (req's one interval where max=min): ${JSON5.stringify(
+          intervals
+        )}`
+      );
+    }
     this.intervals = intervals;
   } // fn: setIntervals()
 
@@ -316,8 +329,7 @@ export class ArgDef<T extends ArgType> {
   public isConstant(): boolean {
     return (
       this.intervals.length === 1 &&
-      this.intervals[0].min === this.intervals[0].max &&
-      this.getDim() === 0
+      this.intervals[0].min === this.intervals[0].max
     );
   } // fn: isConstant()
 
@@ -441,6 +453,10 @@ export class ArgDef<T extends ArgType> {
         (child) => `${child.getName()}: ${child.getTypeAnnotation()}`
       );
       return `{ ${childTypeAnnotations.join("; ")} }`;
+    }
+
+    if (this.type === "literal") {
+      return `${this.getConstantValue()}`;
     }
 
     return this.type;
