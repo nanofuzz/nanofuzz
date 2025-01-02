@@ -348,91 +348,105 @@ export class FuzzPanel {
    */
   private _getFuzzTestsForModule(): fuzzer.FuzzTests {
     const jsonFile = this._getFuzzTestsFilename();
-    let inputTests: fuzzer.FuzzTests;
+    let inputTests, testSet: fuzzer.FuzzTests;
 
     // Read the file; if it doesn't exist, load default values
     try {
       inputTests = JSON5.parse(fs.readFileSync(jsonFile).toString());
+      testSet = inputTests;
     } catch (e: any) {
       return this._initFuzzTestsForThisFn();
     }
 
     // Handle any version conversions needed
-    if ("version" in inputTests) {
-      if (inputTests.version === CURR_FILE_FMT_VER) {
-        // current format -- no changes needed
-        return inputTests;
-      } else if (inputTests.version === "0.3.3") {
-        // v0.3.3 format -- only additions such as isVoid and literal types that
-        // older versions of NaNofuzz will not interpret
-        const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
+    while (inputTests.version !== CURR_FILE_FMT_VER) {
+      if (!("version" in inputTests)) {
+        // v0.1.0 format -- convert to current format
+        testSet = this._initFuzzTestsForThisFn();
+        const fnName = this._fuzzEnv.function.getName();
+        if (fnName in inputTests) {
+          testSet.functions[fnName].tests = inputTests[fnName];
+        }
         console.info(
-          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+          `Upgraded test set in file ${jsonFile} to ${testSet.version} to current version`
         );
-        return testSet;
-      } else if (inputTests.version === "0.3.0") {
-        // v0.3.0 format -- infer arg strCharset override from function default
-        const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
-        for (const fn in testSet.functions) {
-          const thisFn = testSet.functions[fn];
-          if (thisFn.argOverrides) {
-            for (const i in thisFn.argOverrides) {
-              const arg = thisFn.argOverrides[i];
-              // strings overrides only
-              if (arg.string && !arg.string.strCharset) {
-                arg.string.strCharset = thisFn.options.argDefaults.strCharset;
-              }
+        inputTests = testSet;
+      } else {
+        switch (inputTests.version) {
+          case "0.2.0": {
+            // v0.2.0 format -- add maxFailures and onlyFailure options
+            testSet = { ...inputTests, version: "0.2.1" };
+            for (const fn in testSet.functions) {
+              testSet.functions[fn].options.maxFailures = 0;
+              testSet.functions[fn].options.onlyFailures = false;
+              testSet.functions[fn].options.useHuman = true;
+              testSet.functions[fn].options.useImplicit = true;
             }
+            console.info(
+              `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+            );
+            inputTests = testSet;
+            break;
+          }
+          case "0.2.1": {
+            // v0.2.1 format -- infer useProperty option & turn on useHuman (the latter
+            // is req'd b/c we eliminated the UI button that controls this)
+            testSet = { ...inputTests, version: "0.3.0" };
+            for (const fn in testSet.functions) {
+              testSet.functions[fn].options.useProperty =
+                "validator" in testSet.functions[fn];
+              testSet.functions[fn].options.useHuman = true;
+            }
+            console.info(
+              `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+            );
+            inputTests = testSet;
+            break;
+          }
+          case "0.3.0": {
+            // v0.3.0 format -- infer arg strCharset override from function default
+            testSet = { ...inputTests, version: "0.3.3" };
+            for (const fn in testSet.functions) {
+              const thisFn = testSet.functions[fn];
+              if (thisFn.argOverrides) {
+                for (const i in thisFn.argOverrides) {
+                  const arg = thisFn.argOverrides[i];
+                  // strings overrides only
+                  if (arg.string && !arg.string.strCharset) {
+                    arg.string.strCharset =
+                      thisFn.options.argDefaults.strCharset;
+                  }
+                }
+              }
+              break;
+            }
+            console.info(
+              `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+            );
+            inputTests = testSet;
+            break;
+          }
+          case "0.3.3": {
+            // v0.3.3 format -- only additions such as isVoid and literal types that
+            // older versions of NaNofuzz will not interpret
+            testSet = { ...inputTests, version: "0.3.6" };
+            console.info(
+              `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+            );
+            inputTests = testSet;
+            break;
+          }
+          default: {
+            // unknown format; stop to avoid losing data
+            throw new Error(
+              `Unknown version ${inputTests.version} in test file ${jsonFile}. Update your ${toolName} extension or delete/rename the file to continue.`
+            );
           }
         }
-        console.info(
-          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
-        );
-        return testSet;
-      } else if (inputTests.version === "0.2.1") {
-        // v0.2.1 format -- infer useProperty option & turn on useHuman (the latter
-        // is req'd b/c we eliminated the UI button that controls this)
-        const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
-        for (const fn in testSet.functions) {
-          testSet.functions[fn].options.useProperty =
-            "validator" in testSet.functions[fn];
-          testSet.functions[fn].options.useHuman = true;
-        }
-        console.info(
-          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
-        );
-        return testSet;
-      } else if (inputTests.version === "0.2.0") {
-        // v0.2.0 format -- add maxFailures and onlyFailure options
-        const testSet = { ...inputTests, version: CURR_FILE_FMT_VER };
-        for (const fn in testSet.functions) {
-          testSet.functions[fn].options.maxFailures = 0;
-          testSet.functions[fn].options.onlyFailures = false;
-          testSet.functions[fn].options.useHuman = true;
-          testSet.functions[fn].options.useImplicit = true;
-        }
-        console.info(
-          `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
-        );
-        return testSet;
-      } else {
-        // unknown format; stop to avoid losing data
-        throw new Error(
-          `Unknown version ${inputTests.version} in test file ${jsonFile}. Update your ${toolName} extension or delete/rename the file to continue.`
-        );
       }
-    } else {
-      // v0.1.0 format -- convert to v0.2.0 format
-      const testSet = this._initFuzzTestsForThisFn();
-      const fnName = this._fuzzEnv.function.getName();
-      if (fnName in inputTests) {
-        testSet.functions[fnName].tests = inputTests[fnName];
-      }
-      console.info(
-        `Upgraded test set in file ${jsonFile} to ${testSet.version} to current version`
-      );
-      return testSet;
     }
+
+    return testSet;
   } // fn: _getFuzzTestsForModule()
 
   /**
