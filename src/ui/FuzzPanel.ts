@@ -1000,7 +1000,12 @@ ${inArgConsts}
 
     // Render the HTML for each argument
     fn.getArgDefs().forEach(
-      (arg) => (argDefHtml += this._argDefToHtmlForm(arg, counter))
+      (arg, i) =>
+        (argDefHtml += this._argDefToHtmlForm(
+          arg,
+          counter,
+          i === fn.getArgDefs().length - 1
+        ))
     );
 
     // Prettier abhorrently butchers this HTML, so disable prettier here
@@ -1499,7 +1504,8 @@ ${inArgConsts}
    */
   private _argDefToHtmlForm(
     arg: fuzzer.ArgDef<fuzzer.ArgType>,
-    counter: { id: number } // pass counter by reference
+    counter: { id: number }, // pass counter by reference
+    isLast: boolean
   ): string {
     const id = counter.id++; // unique id for each argument
     const idBase = `argDef-${id}`; // base HTML id for this argument
@@ -1530,10 +1536,9 @@ ${inArgConsts}
       <div class="argDef-name" style="font-size:1.25em;">
         <strong>${htmlEscape(
           arg.getName()
-        )}</strong>${optionalString}: ${typeString}${dimString} 
-        ${argType === fuzzer.ArgTag.LITERAL
-          ? ""
-          : "="
+        )}</strong>${optionalString}: ${typeString}${dimString}${argType === fuzzer.ArgTag.LITERAL
+          ? isLast ? "" : ","
+          : " ="
         }
         ${argType === fuzzer.ArgTag.OBJECT
           ? ' {'
@@ -1620,9 +1625,15 @@ ${inArgConsts}
         // This seems odd, but the screen reads better to the user this way.
         html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
         html += `<div>`;
-        arg
-          .getChildren()
-          .forEach((child) => (html += this._argDefToHtmlForm(child, counter)));
+        const children = arg.getChildren();
+        children.forEach(
+          (child, i) =>
+            (html += this._argDefToHtmlForm(
+              child,
+              counter,
+              i === children.length - 1
+            ))
+        );
         html += `</div>`;
         break;
       }
@@ -1636,7 +1647,9 @@ ${inArgConsts}
     html += `</div>`;
     // For objects: output the end of object character ("}") here
     if (argType === fuzzer.ArgTag.OBJECT) {
-      html += /*html*/ `<span style="font-size:1.25em;">}</span>`;
+      html += /*html*/ `<span style="font-size:1.25em;">}${
+        isLast ? "" : ","
+      }</span>`;
     }
     html += `</div>`;
 

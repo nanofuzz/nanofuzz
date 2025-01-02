@@ -843,15 +843,28 @@ export class ProgramDef {
       | TSPropertySignature
       | TSTypeAliasDeclaration
       | TSTypeAnnotation
+      | TypeNode
   ): TypeRef {
-    // Throw an error if type annotations are missing
-    if (node.typeAnnotation === undefined) {
-      throw new Error(
-        `Missing type annotation (already transpiled to JS?): ${JSON5.stringify(
-          node,
-          removeParents
-        )}`
-      );
+    let typeNode: TypeNode | TSTypeAnnotation;
+    switch (node.type) {
+      case AST_NODE_TYPES.Identifier:
+      case AST_NODE_TYPES.TSTypeAnnotation:
+      case AST_NODE_TYPES.TSTypeAliasDeclaration:
+      case AST_NODE_TYPES.TSPropertySignature: {
+        // Throw an error if type annotations are missing
+        if (node.typeAnnotation === undefined) {
+          throw new Error(
+            `Missing type annotation (already transpiled to JS?): ${JSON5.stringify(
+              node,
+              removeParents
+            )}`
+          );
+        }
+        typeNode = node.typeAnnotation;
+        break;
+      }
+      default:
+        typeNode = node;
     }
 
     // Add the type alias to the running list
@@ -890,18 +903,24 @@ export class ProgramDef {
     }
 
     // Determine whether the argument is optional (TSTypeAliasDeclarations don't have this)
-    thisType.optional = "optional" in node && (node.optional ?? false);
+    thisType.optional =
+      "optional" in node &&
+      node.optional !== undefined &&
+      node.optional === true;
 
     // Handle type references, which we will resolve later
     //
     // Note: this does not catch arrays of type references;
     // we handle those below
-    if (node.typeAnnotation.type === AST_NODE_TYPES.TSTypeReference) {
+    if (
+      "typeAnnotation" in node &&
+      node.typeAnnotation?.type === AST_NODE_TYPES.TSTypeReference
+    ) {
       thisType.typeRefName = getIdentifierName(node.typeAnnotation.typeName);
     } else {
       // Get the node's type and dimensions
       const [type, dims, typeRefNode, literalValue] = this._getTypeFromAstNode(
-        node.typeAnnotation,
+        typeNode,
         this._options
       );
       thisType.dims = dims;
@@ -927,10 +946,11 @@ export class ProgramDef {
           };
           break;
         }
+        case ArgTag.UNION:
         case ArgTag.OBJECT: {
           thisType.type = {
             type: type,
-            children: this._getChildrenFromNode(node.typeAnnotation),
+            children: this._getChildrenFromNode(typeNode),
           };
           break;
         }
@@ -950,7 +970,7 @@ export class ProgramDef {
    *
    * @param node The AST type node or type annotation
    * @param options ArgOptions
-   * @returns The type tag, number of dimensions, and type reference name
+   * @returns [type tag, dimensions, type reference name, literal value]
    */
   private _getTypeFromAstNode(
     node: TSTypeAnnotation | TypeNode,
@@ -967,7 +987,9 @@ export class ProgramDef {
         return [ArgTag.NUMBER, 0];
       case AST_NODE_TYPES.TSTypeAnnotation:
         return this._getTypeFromAstNode(node.typeAnnotation, options);
-      case AST_NODE_TYPES.TSTypeLiteral:
+      case AST_NODE_TYPES.TSUnionType:
+        return [ArgTag.UNION, 0];
+      case AST_NODE_TYPES.TSTypeLiteral: // Object literal
         return [ArgTag.OBJECT, 0];
       case AST_NODE_TYPES.TSLiteralType:
         return [
@@ -982,6 +1004,9 @@ export class ProgramDef {
           options
         );
         return [type, dims + 1, typeName, literalValue];
+      }
+      case AST_NODE_TYPES.TSUndefinedKeyword: {
+        return [ArgTag.LITERAL, 0, undefined, undefined];
       }
       case AST_NODE_TYPES.TSTypeReference: {
         return [ArgTag.UNRESOLVED, 0, getIdentifierName(node.typeName)];
@@ -1055,6 +1080,8 @@ export class ProgramDef {
             );
         });
       }
+      case AST_NODE_TYPES.TSUnionType:
+        return node.types.map((type) => this._getTypeRefFromAstNode(type));
       case AST_NODE_TYPES.TSTypeAnnotation: {
         // Collapse array annotations -- we previously handled those
         while (node.typeAnnotation.type === AST_NODE_TYPES.TSArrayType)

@@ -69,6 +69,7 @@ export enum ArgTag {
   BOOLEAN = "boolean",
   OBJECT = "object",
   LITERAL = "literal",
+  UNION = "union",
   UNRESOLVED = "unresolved", // unresolved type reference
 }
 export type ArgType = number | string | boolean | Record<string, unknown>;

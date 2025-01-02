@@ -42,6 +42,26 @@ export function GeneratorFactory<T extends ArgType>(
     case "literal":
       randFn = getLiteral;
       break;
+    case "union":
+      // We generate this here using arg
+      randFn = <T extends ArgType>(
+        prng: seedrandom.prng,
+        min: T,
+        max: T,
+        options: ArgOptions
+      ): T => {
+        if (typeof min !== "object" || typeof max !== "object")
+          throw new Error("Min and max must be objects");
+        const children = arg.getChildren();
+        const rn = getRandomNumber(
+          prng,
+          0,
+          children.length - 1,
+          ArgDef.getDefaultOptions() // use defaults for union member selection
+        );
+        return GeneratorFactory(children[rn], prng)();
+      };
+      break;
     case "object":
       // We generate this here using arg
       randFn = <T extends ArgType>(
@@ -52,7 +72,7 @@ export function GeneratorFactory<T extends ArgType>(
       ): T => {
         if (typeof min !== "object" || typeof max !== "object")
           throw new Error("Min and max must be objects");
-        const outObj = {};
+        const outObj: { [key: string]: any } = {};
         for (const child of arg.getChildren()) {
           outObj[child.getName()] = GeneratorFactory(child, prng)();
 
@@ -79,6 +99,8 @@ export function GeneratorFactory<T extends ArgType>(
   // Callback fn to generate random value
   const randFnWrapper = () => {
     if (type === ArgTag.OBJECT) return randFn(prng, {}, {}, options);
+    if (type === ArgTag.UNION) return randFn(prng, {}, {}, options);
+    if (type === ArgTag.LITERAL && !intervals.length) return undefined;
 
     // TODO: weight interval selection based on the size of the interval !!!
     const interval =
@@ -250,7 +272,7 @@ const getRandomString = <T extends ArgType>(
  */
 const nArray = (
   prng: seedrandom.prng,
-  genFn: () => ArgType,
+  genFn: () => ArgType | undefined,
   dimLength: Interval<number>[],
   options: ArgOptions
 ): any => {
