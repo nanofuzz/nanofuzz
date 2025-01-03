@@ -1646,16 +1646,12 @@ ${inArgConsts}
         // This seems odd, but the screen reads better to the user this way.
         html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
         html += `<div>`;
-        const children = arg.getChildren();
-        children.forEach(
-          (child, i) =>
-            (html += this._argDefToHtmlForm(
-              child,
-              counter,
-              !i ? "" : " | ",
-              ""
-            ))
-        );
+        arg
+          .getChildren()
+          .forEach(
+            (child) =>
+              (html += this._argDefToHtmlForm(child, counter, " | ", ""))
+          );
         html += `</div>`;
         break;
       }
