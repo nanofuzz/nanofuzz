@@ -474,7 +474,7 @@ export class ArgDef<T extends ArgType> {
     let baseType = this.getBaseType();
 
     // Wrap union types w/dims in parens prior to adding the dims
-    if (this.type === ArgTag.UNION && this.dims) {
+    if (this.type === ArgTag.UNION && this.dims && this.typeRef === undefined) {
       baseType = `(${baseType})`;
     }
 
