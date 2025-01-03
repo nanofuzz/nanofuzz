@@ -102,7 +102,7 @@ export class ArgDef<T extends ArgType> {
     // Intervals are required for literal types !!!!!
     // if (type === ArgTag.LITERAL && (!intervals || !intervals.length)) {
     //  throw new Error(`An interval is required for the literal ArgDef type`);
-    //}
+    // }
 
     // If no interval is provided, use the type's default
     this.intervals =
@@ -268,6 +268,17 @@ export class ArgDef<T extends ArgType> {
   public isOptional(): boolean {
     return this.optional;
   } // fn: isOptional()
+
+  /**
+   * Returns whether the argument should receive input.
+   *
+   * Only applies to union members.
+   *
+   * @returns true if the argument should not receive input.
+   */
+  public isNoInput(): boolean {
+    return this.options.noInput ?? false;
+  } // fn: isNoInput()
 
   /**
    * Returns the input intervals for the argument.

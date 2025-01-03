@@ -52,7 +52,10 @@ export function GeneratorFactory<T extends ArgType>(
       ): T => {
         if (typeof min !== "object" || typeof max !== "object")
           throw new Error("Min and max must be objects");
-        const children = arg.getChildren();
+        let children = arg.getChildren().filter((child) => !child.isNoInput());
+        if (!children.length) {
+          children = arg.getChildren();
+        }
         const rn = getRandomNumber(
           prng,
           0,

@@ -97,6 +97,9 @@ export type ArgOptions = {
   // for number[][]: dimLength[0] = length of 1st dimension
   // and dimLength[1] = length of 2nd dimension.
   dftDimLength: Interval<number>; // Length of any dimension not specified in dimLength.
+
+  // For members of a union, suppress input generation
+  noInput?: boolean; // true=do not generate inputs (unions only)
 };
 
 /**
@@ -117,6 +120,7 @@ export type ArgOptionOverride = {
   strLength?: Interval<number>;
   strCharset?: string;
   children?: ArgOptionOverrides;
+  noInput?: boolean;
 };
 
 /**
