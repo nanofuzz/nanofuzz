@@ -86,6 +86,25 @@ export const testArrowVoidLiteralArgs = (n: 5, n2: 5[]): void => {
 };
 
 /**
+ * Fuzz targets with union arguments
+ */
+type hellos = "hello" | "bonjour" | "olá" | "ciao" | "hej";
+type stringOrNumber = string | number;
+type maybeString = string | undefined;
+export function testStandardUnionArgs(
+  a: stringOrNumber,
+  b: maybeString[]
+): boolean | undefined {
+  return;
+}
+export const testArrowUnionArgs = (
+  a: stringOrNumber,
+  b: maybeString[]
+): boolean | undefined => {
+  return;
+};
+
+/**
  * These tests currently just ensure that the fuzzer runs and produces output
  * for each example. TODO: Add tests that check the fuzzer output.
  */
@@ -478,5 +497,23 @@ describe("Fuzzer", () => {
     ).results;
     expect(results.length).not.toStrictEqual(0);
     expect(results.some((e) => e.passedImplicit)).toBeTruthy();
+  });
+
+  /**
+   * Test that we can fuzz functions with union arguments.
+   */
+  test("Standard union arg fuzz target", async () => {
+    const results = (
+      await fuzz(setup(intOptions, "./Fuzzer.test.ts", "testStandardUnionArgs"))
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results.some((e) => e.passedImplicit)).toBeFalsy();
+  });
+  test("Arrow union arg fuzz target", async () => {
+    const results = (
+      await fuzz(setup(intOptions, "./Fuzzer.test.ts", "testArrowUnionArgs"))
+    ).results;
+    expect(results.length).not.toStrictEqual(0);
+    expect(results.some((e) => e.passedImplicit)).toBeFalsy();
   });
 });
