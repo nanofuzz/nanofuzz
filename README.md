@@ -44,8 +44,8 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
  - Jest
 
 The following are not yet supported:
- - Deconstructed types, OR types, Tuples, Enums, Generics, Function, and built-in (e.g., Record) types
- - Non-finite numeric inputs (`NaN`, `Infinity`), the `bigint` type, and `null`)
+ - Deconstructed types, Tuples, Enums, Generics, Function, and built-in (e.g., Record) types
+ - Non-finite numeric inputs (`NaN`, `Infinity`), `bigint`, `null`
  - Class and object methods
  - Compiling to module formats other than CommonJS (see [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
  - Support for stateful, flaky, or non-deterministic tests
