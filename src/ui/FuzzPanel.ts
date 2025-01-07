@@ -596,9 +596,19 @@ export class FuzzPanel {
   private async _doAddValidatorCmd() {
     const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
-    const program = ProgramDef.fromModule(module);
     const validatorPrefix = fn.getName() + "Validator";
     let fnCounter = 0;
+    let program: ProgramDef;
+
+    try {
+      program = ProgramDef.fromModule(module);
+    } catch (e: any) {
+      this._errorMessage = e.message ?? "Unknown error";
+      vscode.window.showErrorMessage(
+        `Unable to add the validator. TypeScript source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
+      );
+      return;
+    }
 
     // Determine the next available validator name
     Object.keys(program.getFunctions())
@@ -797,7 +807,21 @@ ${inArgConsts}
    * front-end.
    */
   private _doGetValidators() {
-    const program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
+    let program: ProgramDef;
+    try {
+      program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
+    } catch (e: any) {
+      this._errorMessage = e.message ?? "Unknown error";
+      vscode.commands.executeCommand(
+        telemetry.commands.logTelemetry.name,
+        new telemetry.LoggerEntry(
+          "FuzzPanel.parse.error",
+          "Parsing program failed. Target: %s. Message: %s",
+          [this.getFnRefKey(), this._errorMessage ?? "Unknown error"]
+        )
+      );
+      return;
+    }
     const fn = this._fuzzEnv.function; // Function under test
 
     const oldValidatorNames = JSON5.stringify(
