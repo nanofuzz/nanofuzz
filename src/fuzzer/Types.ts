@@ -135,6 +135,7 @@ export type FuzzArgOverride = {
   array?: {
     dimLength: { min: number; max: number }[];
   };
+  isNoInput?: boolean;
 };
 
 /**

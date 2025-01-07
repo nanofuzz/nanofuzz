@@ -139,7 +139,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
       [],
       "Type"
     );
-    expect(argDef.getTypeAnnotation()).toBe("Type");
+    expect(argDef.getTypeAnnotation()).toStrictEqual("Type");
   });
 
   test("should return the literal type for literal types", () => {
@@ -156,6 +156,243 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         makeTypeRef(dummyModule, "str", ArgTag.STRING, 0),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toBe("{ bool: boolean; str: string }");
+    expect(argDef.getTypeAnnotation()).toStrictEqual(
+      "{ bool: boolean; str: string }"
+    );
+  });
+
+  test("type annotation for union with dimensions", () => {
+    const argDef = makeArgDef(
+      dummyModule,
+      "test",
+      0,
+      ArgTag.UNION,
+      argOptions,
+      1,
+      false,
+      [
+        makeTypeRef(dummyModule, "bool", ArgTag.BOOLEAN, 1),
+        makeTypeRef(dummyModule, "str", ArgTag.STRING, 0),
+        makeTypeRef(
+          dummyModule,
+          "litn",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          5
+        ),
+        makeTypeRef(
+          dummyModule,
+          "lita",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          "x"
+        ),
+        makeTypeRef(
+          dummyModule,
+          "und",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          undefined
+        ),
+      ]
+    );
+    expect(argDef.getTypeAnnotation()).toStrictEqual(
+      "(boolean[] | string | 5 | 'x' | undefined)[]"
+    );
+  });
+
+  test("type annotation for union with dimensions and optionality", () => {
+    const argDef = makeArgDef(
+      dummyModule,
+      "test",
+      0,
+      ArgTag.UNION,
+      argOptions,
+      1,
+      true,
+      [
+        makeTypeRef(dummyModule, "bool", ArgTag.BOOLEAN, 1),
+        makeTypeRef(dummyModule, "str", ArgTag.STRING, 0),
+        makeTypeRef(
+          dummyModule,
+          "litn",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          5
+        ),
+        makeTypeRef(
+          dummyModule,
+          "lita",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          "x"
+        ),
+        makeTypeRef(
+          dummyModule,
+          "und",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          undefined
+        ),
+      ]
+    );
+    expect(argDef.getTypeAnnotation()).toStrictEqual(
+      "(boolean[] | string | 5 | 'x' | undefined)[] | undefined"
+    );
+  });
+
+  test("type annotation for union w/o dimensions", () => {
+    const argDef = makeArgDef(
+      dummyModule,
+      "test",
+      0,
+      ArgTag.UNION,
+      argOptions,
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "bool", ArgTag.BOOLEAN, 1),
+        makeTypeRef(dummyModule, "str", ArgTag.STRING, 0),
+        makeTypeRef(
+          dummyModule,
+          "litn",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          5
+        ),
+        makeTypeRef(
+          dummyModule,
+          "lita",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          "x"
+        ),
+        makeTypeRef(
+          dummyModule,
+          "und",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          undefined
+        ),
+      ]
+    );
+    expect(argDef.getTypeAnnotation()).toStrictEqual(
+      "boolean[] | string | 5 | 'x' | undefined"
+    );
+  });
+
+  test("type annotation for union w/double optionality", () => {
+    const argDef = makeArgDef(
+      dummyModule,
+      "test",
+      0,
+      ArgTag.UNION,
+      argOptions,
+      0,
+      true,
+      [
+        makeTypeRef(dummyModule, "bool", ArgTag.BOOLEAN, 1),
+        makeTypeRef(dummyModule, "str", ArgTag.STRING, 0),
+        makeTypeRef(
+          dummyModule,
+          "litn",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          5
+        ),
+        makeTypeRef(
+          dummyModule,
+          "lita",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          "x"
+        ),
+        makeTypeRef(
+          dummyModule,
+          "und",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          undefined
+        ),
+      ]
+    );
+    expect(argDef.getTypeAnnotation()).toStrictEqual(
+      "boolean[] | string | 5 | 'x' | undefined"
+    );
+  });
+
+  test("type annotation for union w/single optionality", () => {
+    const argDef = makeArgDef(
+      dummyModule,
+      "test",
+      0,
+      ArgTag.UNION,
+      argOptions,
+      0,
+      true,
+      [
+        makeTypeRef(dummyModule, "bool", ArgTag.BOOLEAN, 1),
+        makeTypeRef(dummyModule, "str", ArgTag.STRING, 0),
+        makeTypeRef(
+          dummyModule,
+          "litn",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          5
+        ),
+        makeTypeRef(
+          dummyModule,
+          "lita",
+          ArgTag.LITERAL,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          "x"
+        ),
+      ]
+    );
+    expect(argDef.getTypeAnnotation()).toStrictEqual(
+      "boolean[] | string | 5 | 'x' | undefined"
+    );
   });
 });

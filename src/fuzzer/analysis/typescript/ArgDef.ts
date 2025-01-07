@@ -68,7 +68,8 @@ export class ArgDef<T extends ArgType> {
     this.type = type;
     this.dims = dims ?? 0;
     this.optional = optional ?? false;
-    this.children = type === ArgTag.OBJECT ? children ?? [] : [];
+    this.children =
+      type === ArgTag.OBJECT || type === ArgTag.UNION ? children ?? [] : [];
     this.typeRef = typeRef;
 
     // Ensure the options are valid before ingesting them
@@ -98,10 +99,10 @@ export class ArgDef<T extends ArgType> {
       );
     }
 
-    // Intervals are required for literal types
-    if (type === ArgTag.LITERAL && (!intervals || !intervals.length)) {
-      throw new Error(`An interval is required for the literal ArgDef type`);
-    }
+    // Intervals are required for literal types !!!!!
+    // if (type === ArgTag.LITERAL && (!intervals || !intervals.length)) {
+    //  throw new Error(`An interval is required for the literal ArgDef type`);
+    // }
 
     // If no interval is provided, use the type's default
     this.intervals =
@@ -193,8 +194,8 @@ export class ArgDef<T extends ArgType> {
       case ArgTag.BOOLEAN:
         return [{ min: false, max: true }];
       case ArgTag.OBJECT:
-        return [];
       case ArgTag.LITERAL:
+      case ArgTag.UNION:
         return [];
       default:
         throw new Error(`Unsupported type: ${type}`);
@@ -269,6 +270,17 @@ export class ArgDef<T extends ArgType> {
   } // fn: isOptional()
 
   /**
+   * Returns whether the argument should receive input.
+   *
+   * Only applies to union members.
+   *
+   * @returns true if the argument should not receive input.
+   */
+  public isNoInput(): boolean {
+    return this.options.isNoInput ?? false;
+  } // fn: isNoInput()
+
+  /**
    * Returns the input intervals for the argument.
    *
    * @returns The input intervals of the argument
@@ -289,16 +301,6 @@ export class ArgDef<T extends ArgType> {
       throw new Error(
         `Invalid interval provided (max>min): ${JSON5.stringify(intervals)}`
       );
-    if (
-      this.type === ArgTag.LITERAL &&
-      (intervals.length !== 1 || intervals[0].max === intervals[0].min)
-    ) {
-      throw new Error(
-        `Invalid interval provided for LITERAL type: (req's one interval where max=min): ${JSON5.stringify(
-          intervals
-        )}`
-      );
-    }
     this.intervals = intervals;
   } // fn: setIntervals()
 
@@ -328,8 +330,10 @@ export class ArgDef<T extends ArgType> {
    */
   public isConstant(): boolean {
     return (
-      this.intervals.length === 1 &&
-      this.intervals[0].min === this.intervals[0].max
+      (this.type === ArgTag.LITERAL &&
+        this.intervals.length === 0) /* literal=undefined */ ||
+      (this.intervals.length === 1 &&
+        this.intervals[0].min === this.intervals[0].max)
     );
   } // fn: isConstant()
 
@@ -340,7 +344,7 @@ export class ArgDef<T extends ArgType> {
    *
    * Throws an exception is isConstant() is false
    */
-  public getConstantValue(): T {
+  public getConstantValue(): T | undefined {
     if (!this.isConstant())
       throw new Error("Arg is not a constant -- check isConstant() first");
     if (
@@ -351,6 +355,9 @@ export class ArgDef<T extends ArgType> {
         .padEnd(this.options.strLength.min, this.options.strCharset[0])
         .substring(0, this.options.strLength.max);
       return result as T;
+    }
+    if (this.type === ArgTag.LITERAL && !this.intervals.length) {
+      return undefined;
     }
     return this.intervals[0].min;
   } // fn: getConstantValue()
@@ -369,7 +376,9 @@ export class ArgDef<T extends ArgType> {
    *
    * @param options the argument's option set
    */
-  public setOptions(options: ArgOptions | ArgOptionOverride): void {
+  public setOptions(inOptions: ArgOptions | ArgOptionOverride): void {
+    const options = { ...inOptions };
+
     // Cascade child options to child arguments
     if ("children" in options) {
       for (const child in options.children) {
@@ -390,8 +399,12 @@ export class ArgDef<T extends ArgType> {
     }
 
     // Merge the two option sets; incoming has precedence
-    const newOptions = { ...this.options, ...options };
-    delete newOptions["children"], newOptions["numMin"], newOptions["numMax"];
+    const newOptions: ArgOptions = { ...this.options, ...options };
+
+    // Handle isNoInput
+    if (options.isNoInput === false) {
+      delete newOptions.isNoInput;
+    }
 
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(newOptions))
@@ -409,7 +422,7 @@ export class ArgDef<T extends ArgType> {
    * Sets the argument's strcharset (alphabet of chars for strings).
    * @param strcharset
    */
-  public setStrCharSet(strcharset: string) {
+  public setStrCharSet(strcharset: string): void {
     this.options.strCharset = strcharset;
   }
 
@@ -446,20 +459,27 @@ export class ArgDef<T extends ArgType> {
       return this.typeRef;
     }
 
-    if (this.type === "object") {
-      // Probably an inline type given the lack of a typeRef, recursively walk
-      // the children to build the type.
-      const childTypeAnnotations = this.children.map(
-        (child) => `${child.getName()}: ${child.getTypeAnnotation()}`
-      );
-      return `{ ${childTypeAnnotations.join("; ")} }`;
+    switch (this.type) {
+      case ArgTag.OBJECT: {
+        // Probably an inline type given the lack of a typeRef, recursively walk
+        // the children to build the type.
+        const childTypeAnnotations = this.children.map(
+          (child) => `${child.getName()}: ${child.getTypeAnnotation()}`
+        );
+        return `{ ${childTypeAnnotations.join("; ")} }`;
+      }
+      case ArgTag.UNION: {
+        const childTypeAnnotations = this.children.map((child) =>
+          child.getTypeAnnotation()
+        );
+        return childTypeAnnotations.join(" | ");
+      }
+      case ArgTag.LITERAL: {
+        return `${JSON5.stringify(this.getConstantValue())}`;
+      }
+      default:
+        return this.type;
     }
-
-    if (this.type === "literal") {
-      return `${this.getConstantValue()}`;
-    }
-
-    return this.type;
   } // fn: getBaseType()
 
   /**
@@ -467,13 +487,33 @@ export class ArgDef<T extends ArgType> {
    * @returns a string that works as the type annotation for the argument
    */
   public getTypeAnnotation(): string {
-    const baseType = this.getBaseType();
-    const type = `${baseType}${this.dims ? "[]".repeat(this.dims) : ""}`;
+    // Get the base type annotation
+    let baseType = this.getBaseType();
 
-    if (this.optional) {
-      return `${type} | undefined`;
+    // Wrap union types w/dims in parens prior to adding the dims
+    if (this.type === ArgTag.UNION && this.dims && this.typeRef === undefined) {
+      baseType = `(${baseType})`;
     }
 
+    // Add the dimensions to the annotation
+    let type = `${baseType}${this.dims ? "[]".repeat(this.dims) : ""}`;
+
+    // Add optionality (if specified and not already part of the union type)
+    if (
+      this.optional &&
+      !(
+        this.type === ArgTag.UNION &&
+        this.dims === 0 &&
+        this.children.some(
+          (child) =>
+            child.getType() === ArgTag.LITERAL &&
+            child.isConstant() &&
+            child.getConstantValue() === undefined
+        )
+      )
+    ) {
+      type = `${type} | undefined`;
+    }
     return type;
   } // fn: getTypeAnnotation()
 

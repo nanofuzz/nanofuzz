@@ -103,6 +103,23 @@ function main() {
     .getElementById("fuzzOptions-close")
     .addEventListener("click", (e) => toggleFuzzOptions(e));
 
+  // Add event listeners for all the union generate checkboxes
+  document.querySelectorAll(".isNoInput vscode-checkbox").forEach((element) => {
+    element.addEventListener("click", (e) =>
+      setIsNoInput(
+        e.target,
+        (e.target.getAttribute("value") ??
+          e.target.getAttribute("current-checked")) !== "true" // changing state
+      )
+    );
+    // Set the UI state
+    setIsNoInput(
+      element,
+      (element.getAttribute("value") ??
+        element.getAttribute("current-checked")) === "true" // steady state
+    );
+  });
+
   // Load the fuzzer results data from the HTML
   resultsData = JSON5.parse(
     htmlUnescape(document.getElementById("fuzzResultsData").innerHTML)
@@ -429,6 +446,41 @@ function toggleFuzzOptions(e) {
   // Refresh the list of validators
   handleGetListOfValidators();
 } // fn: toggleFuzzOptions()
+
+/**
+ * Sets whether the argument should generate inputs
+ *
+ * @param e onClick() event target
+ */
+function setIsNoInput(vsCodeCheckbox, isChecked) {
+  const checkboxWrapper = vsCodeCheckbox.parentElement;
+  const thisArg = vsCodeCheckbox.parentElement.parentElement;
+
+  // Fade/un-fade the arg (except the checkbox wrapper)
+  thisArg.querySelectorAll(":scope > div").forEach((child) => {
+    if (child != checkboxWrapper) {
+      if (isChecked) {
+        child.classList.remove("faded");
+      } else {
+        child.classList.add("faded");
+      }
+    }
+  });
+  // Hide/Show the arg settings
+  thisArg
+    .querySelectorAll(
+      ":scope > .argDef-type, :scope > .argDef-array, :scope > .argDef-preClose"
+    )
+    .forEach((child) => {
+      (isChecked ? show : hide)(child);
+    });
+  // Hide/Show the ellipsis
+  thisArg
+    .querySelectorAll(":scope > .argDef-name > .argDef-ellipsis")
+    .forEach((child) => {
+      (isChecked ? hide : show)(child);
+    });
+} // fn: setIsNoInput()
 
 /**
  * Toggles whether a test is pinned for CI and the next test run.
@@ -1313,6 +1365,8 @@ function handleFuzzStart(eCurrTarget) {
     const minStrLen = document.getElementById(idBase + "-minStrLen");
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
+    const isNoInput = document.getElementById(idBase + "-isNoInput");
+    console.debug(idBase + "-isNoInput"); // !!!!!
 
     // Process numeric overrides
     if (numInteger !== null) {
@@ -1359,6 +1413,14 @@ function handleFuzzStart(eCurrTarget) {
         };
       }
     } // TODO: Validation !!!
+
+    // Process isNoInput overrides
+    if (isNoInput !== null) {
+      disableArr.push(isNoInput);
+      thisOverride["isNoInput"] =
+        (isNoInput.getAttribute("value") ??
+          isNoInput.getAttribute("current-checked")) !== "true";
+    }
 
     // Process array dimension overrides
     const dimLength = [];

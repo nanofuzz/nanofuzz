@@ -773,4 +773,136 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       },
     ]);
   });
+
+  test("findFnInSource: union args", () => {
+    const src = `
+    type hellos = "hello" | "bonjour" | "olá" | "ciao" | "hej";
+    type stringOrNumber = string | number;
+    type maybeString = string | undefined;
+    export function test(a:stringOrNumber,b:maybeString[]):boolean | undefined {return;}
+    `;
+    const thisProgram = dummyProgram.setSrc(() => src);
+    expect(
+      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
+    ).toStrictEqual([
+      {
+        name: "test",
+        module: "dummy.ts",
+        src: "function test(a:stringOrNumber,b:maybeString[]):boolean | undefined {return;}",
+        startOffset: 162,
+        endOffset: 239,
+        isExported: true,
+        isVoid: false,
+        args: [
+          {
+            dims: 0,
+            isExported: false,
+            module: "dummy.ts",
+            name: "a",
+            optional: false,
+            type: {
+              children: [
+                {
+                  dims: 0,
+                  isExported: false,
+                  module: "dummy.ts",
+                  optional: false,
+                  type: {
+                    children: [],
+                    resolved: true,
+                    type: "string",
+                  },
+                },
+                {
+                  dims: 0,
+                  isExported: false,
+                  module: "dummy.ts",
+                  optional: false,
+                  type: {
+                    children: [],
+                    resolved: true,
+                    type: "number",
+                  },
+                },
+              ],
+              resolved: true,
+              type: "union",
+            },
+            typeRefName: "stringOrNumber",
+          },
+          {
+            dims: 1,
+            isExported: false,
+            module: "dummy.ts",
+            name: "b",
+            optional: false,
+            type: {
+              children: [
+                {
+                  dims: 0,
+                  isExported: false,
+                  module: "dummy.ts",
+                  optional: false,
+                  type: {
+                    children: [],
+                    resolved: true,
+                    type: "string",
+                  },
+                },
+                {
+                  dims: 0,
+                  isExported: false,
+                  module: "dummy.ts",
+                  optional: false,
+                  type: {
+                    children: [],
+                    resolved: true,
+                    type: "literal",
+                  },
+                },
+              ],
+              resolved: true,
+              type: "union",
+            },
+            typeRefName: "maybeString",
+          },
+        ],
+        returnType: {
+          dims: 0,
+          isExported: false,
+          module: "dummy.ts",
+          optional: false,
+          type: {
+            resolved: true,
+            type: "union",
+            children: [
+              {
+                dims: 0,
+                isExported: false,
+                module: "dummy.ts",
+                optional: false,
+                type: {
+                  children: [],
+                  resolved: true,
+                  type: "boolean",
+                },
+              },
+              {
+                dims: 0,
+                isExported: false,
+                module: "dummy.ts",
+                optional: false,
+                type: {
+                  children: [],
+                  resolved: true,
+                  type: "literal",
+                  value: undefined,
+                },
+              },
+            ],
+          },
+        },
+      },
+    ]);
+  });
 });

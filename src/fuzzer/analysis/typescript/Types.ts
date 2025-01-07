@@ -69,6 +69,7 @@ export enum ArgTag {
   BOOLEAN = "boolean",
   OBJECT = "object",
   LITERAL = "literal",
+  UNION = "union",
   UNRESOLVED = "unresolved", // unresolved type reference
 }
 export type ArgType = number | string | boolean | Record<string, unknown>;
@@ -96,6 +97,9 @@ export type ArgOptions = {
   // for number[][]: dimLength[0] = length of 1st dimension
   // and dimLength[1] = length of 2nd dimension.
   dftDimLength: Interval<number>; // Length of any dimension not specified in dimLength.
+
+  // For members of a union, suppress input generation
+  isNoInput?: boolean; // true=do not generate inputs (unions only)
 };
 
 /**
@@ -116,6 +120,7 @@ export type ArgOptionOverride = {
   strLength?: Interval<number>;
   strCharset?: string;
   children?: ArgOptionOverrides;
+  isNoInput?: boolean;
 };
 
 /**

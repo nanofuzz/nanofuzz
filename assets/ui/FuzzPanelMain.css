@@ -111,6 +111,39 @@ td.clickable {
   opacity: 50%;
 }
 
+.argDef-name {
+  float: left;
+}
+
+.argDef,
+.argDef-type,
+.argDef-array {
+  clear: both;
+}
+
+.argDef-preClose {
+  clear: both;
+}
+
+.argDef-close {
+  float: left;
+}
+
+.isNoInput {
+  float: right;
+  padding-right: 0.85em;
+}
+
+.isNoInput vscode-checkbox {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.faded {
+  background-color: var(--vscode-list-inactiveSelectionBackground);
+  opacity: 50%;
+}
+
 /* Expected output panel */
 td.classErrorCell {
   text-decoration: red underline wavy;
