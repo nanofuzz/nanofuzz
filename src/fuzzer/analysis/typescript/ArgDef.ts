@@ -277,7 +277,7 @@ export class ArgDef<T extends ArgType> {
    * @returns true if the argument should not receive input.
    */
   public isNoInput(): boolean {
-    return this.options.noInput ?? false;
+    return this.options.isNoInput ?? false;
   } // fn: isNoInput()
 
   /**

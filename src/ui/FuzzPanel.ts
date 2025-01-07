@@ -1037,6 +1037,7 @@ ${inArgConsts}
             <div id="argDefs">${argDefHtml}</div>
 
             <!-- Change Validators Options -->
+            <div style="clear: both;">
             <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"><strong>Categorize output using:</strong></p>
             <div style="padding-left: .76em;">
               <!-- Checkboxes -->
@@ -1499,7 +1500,8 @@ ${inArgConsts}
     arg: fuzzer.ArgDef<fuzzer.ArgType>,
     counter: { id: number }, // pass counter by reference
     beginSep: string,
-    endSep: string
+    endSep: string,
+    parentTag?: fuzzer.ArgTag
   ): string {
     const id = counter.id++; // unique id for each argument
     const idBase = `argDef-${id}`; // base HTML id for this argument
@@ -1537,7 +1539,10 @@ ${inArgConsts}
     // prettier-ignore
     let html = /*html*/ `
     <!-- Argument Definition -->
-    <div class="argDef" id="${idBase}">
+    <div class="argDef" id="${idBase}">`
+
+    // prettier-ignore
+    html += /*html*/ `
       <!-- Argument Name -->
       <div class="argDef-name" style="font-size:1.25em;">${beginSep}`;
 
@@ -1567,9 +1572,18 @@ ${inArgConsts}
          ${typeString}${dimString}${sep}
       </div>`;
 
+    // Give the option of suppressing generation of union members
+    if (parentTag === fuzzer.ArgTag.UNION) {
+      // prettier-ignore
+      html += /*html*/ `
+        <div class="isNoInput tooltipped tooltipped-nw" aria-label="Generate inputs of this type?">
+          <vscode-checkbox id="${idBase}-isNoInput" ${disabledFlag} ${arg.isNoInput() ? "" : "checked"}></vscode-checkbox>
+        </div>`
+    }
+
     html += /*html*/ `
       <!-- Argument Type -->
-      <div class="argDef-type-${htmlEscape(
+      <div class="argDef-type argDef-type-${htmlEscape(
         arg.getType()
       )}" id="${idBase}-${argType}" style="padding-left: 1em;">
       <!-- Argument Options -->`;
@@ -1650,7 +1664,13 @@ ${inArgConsts}
           .getChildren()
           .forEach(
             (child) =>
-              (html += this._argDefToHtmlForm(child, counter, " | ", ""))
+              (html += this._argDefToHtmlForm(
+                child,
+                counter,
+                " | ",
+                "",
+                arg.getType()
+              ))
           );
         html += `</div>`;
         break;
@@ -1669,7 +1689,8 @@ ${inArgConsts}
               child,
               counter,
               "",
-              i === children.length - 1 ? "" : ","
+              i === children.length - 1 ? "" : ",",
+              arg.getType()
             ))
         );
         html += `</div>`;
@@ -1677,7 +1698,7 @@ ${inArgConsts}
       }
     }
 
-    // For objects & unions: output any sub-arguments.
+    // For objects & unions: output the array settings
     if (argType !== fuzzer.ArgTag.OBJECT && argType !== fuzzer.ArgTag.UNION) {
       html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
     }
@@ -1685,7 +1706,7 @@ ${inArgConsts}
     html += `</div>`;
     // For objects: output the end of object character ("}") here
     if (argType === fuzzer.ArgTag.OBJECT) {
-      html += /*html*/ `<span style="font-size:1.25em;">}${endSep}</span>`;
+      html += /*html*/ `<div class="argDef-close" style="font-size:1.25em;">}${endSep}</div>`;
     }
     html += `</div>`;
 
@@ -1716,7 +1737,7 @@ ${inArgConsts}
       html += /*html*/ ``;
       html +=
         /*html*/
-        `<div>
+        `<div class="argDef-array">
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
           arg.getOptions().dimLength[dim].min.toString()
         )}">Array${"[]".repeat(dim + 1)}: Min 
@@ -1946,6 +1967,11 @@ function _applyArgOverrides(
         }
         break;
     }
+
+    // isNoInput
+    thisArg.setOptions({
+      isNoInput: thisOverride.isNoInput ?? false,
+    });
 
     // Array dimensions
     if (thisOverride.array) {
