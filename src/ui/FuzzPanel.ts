@@ -593,7 +593,7 @@ export class FuzzPanel {
   /**
    * Add code skeleton for a property validator to the program source code.
    */
-  private _doAddValidatorCmd() {
+  private async _doAddValidatorCmd() {
     const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
     const program = ProgramDef.fromModule(module);
@@ -654,11 +654,40 @@ ${inArgConsts}
   return true; // true=passed; false=failed
 }`;
 
+    // Save the editor if dirty
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (editor.document.fileName === module && editor.document.isDirty) {
+        await editor.document.save();
+      }
+    }
+
     // Append the code skeleton to the source file
     try {
-      const fd = fs.openSync(module, "as+");
-      fs.writeFileSync(fd, skeleton);
-      fs.closeSync(fd);
+      if (!hasImport) {
+        // Pre-pend the import & append the validator
+        const fileData = fs.readFileSync(module);
+        const importStmt =
+          Buffer.from(`import { FuzzTestResult } from "@nanofuzz/runtime";
+`);
+        const validatorFn = Buffer.from(skeleton);
+        const fd = fs.openSync(module, "w+");
+
+        fs.writeSync(fd, importStmt, 0, importStmt.length, 0);
+        fs.writeSync(fd, fileData, 0, fileData.length, importStmt.length);
+        fs.writeSync(
+          fd,
+          validatorFn,
+          0,
+          validatorFn.length,
+          importStmt.length + fileData.length
+        );
+        fs.closeSync(fd);
+      } else {
+        // Append the validator to the end of the file
+        const fd = fs.openSync(module, "as+");
+        fs.writeFileSync(fd, skeleton);
+        fs.closeSync(fd);
+      }
     } catch {
       vscode.window.showErrorMessage(
         `Unable to write property validator code skeleton to source file`
@@ -1804,10 +1833,9 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
     return;
   }
 
-  // Ensure the document is saved / not dirty
+  // Save the file if dirty
   if (document.isDirty) {
-    vscode.window.showErrorMessage("Please save the file before testing.");
-    return;
+    await document.save();
   }
 
   // Get the current active editor filename
