@@ -102,7 +102,13 @@ export function GeneratorFactory<T extends ArgType>(
   // Callback fn to generate random value
   const randFnWrapper = () => {
     if (type === ArgTag.OBJECT) return randFn(prng, {}, {}, options);
-    if (type === ArgTag.UNION) return randFn(prng, {}, {}, options);
+    if (type === ArgTag.UNION) {
+      if (arg.getChildren().filter((child) => !child.isNoInput()).length) {
+        return randFn(prng, {}, {}, options);
+      } else {
+        return undefined; // no active union members
+      }
+    }
     if (type === ArgTag.LITERAL && !intervals.length) return undefined;
 
     // TODO: weight interval selection based on the size of the interval !!!
