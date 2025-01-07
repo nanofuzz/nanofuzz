@@ -376,7 +376,9 @@ export class ArgDef<T extends ArgType> {
    *
    * @param options the argument's option set
    */
-  public setOptions(options: ArgOptions | ArgOptionOverride): void {
+  public setOptions(inOptions: ArgOptions | ArgOptionOverride): void {
+    const options = { ...inOptions };
+
     // Cascade child options to child arguments
     if ("children" in options) {
       for (const child in options.children) {
@@ -397,8 +399,12 @@ export class ArgDef<T extends ArgType> {
     }
 
     // Merge the two option sets; incoming has precedence
-    const newOptions = { ...this.options, ...options };
-    delete newOptions["children"], newOptions["numMin"], newOptions["numMax"];
+    const newOptions: ArgOptions = { ...this.options, ...options };
+
+    // Handle isNoInput
+    if (options.isNoInput === false) {
+      delete newOptions.isNoInput;
+    }
 
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(newOptions))

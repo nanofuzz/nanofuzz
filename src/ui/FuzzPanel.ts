@@ -1577,7 +1577,7 @@ ${inArgConsts}
       // prettier-ignore
       html += /*html*/ `
         <div class="isNoInput tooltipped tooltipped-nw" aria-label="Generate inputs of this type?">
-          <vscode-checkbox id="${idBase}-isNoInput" ${disabledFlag} ${arg.isNoInput() ? "" : "checked"}></vscode-checkbox>
+          <vscode-checkbox id="${idBase}-isNoInput" ${disabledFlag} ${arg.isNoInput() ? "" : "checked"} current-checked="${arg.isNoInput() ? "false" : "true"}"></vscode-checkbox>
         </div>`
     }
 
