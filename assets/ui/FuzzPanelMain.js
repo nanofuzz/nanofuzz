@@ -468,9 +468,17 @@ function setIsNoInput(vsCodeCheckbox, isChecked) {
   });
   // Hide/Show the arg settings
   thisArg
-    .querySelectorAll(":scope > .argDef-type, :scope > .argDef-array")
+    .querySelectorAll(
+      ":scope > .argDef-type, :scope > .argDef-array, :scope > .argDef-preClose"
+    )
     .forEach((child) => {
       (isChecked ? show : hide)(child);
+    });
+  // Hide/Show the ellipsis
+  thisArg
+    .querySelectorAll(":scope > .argDef-name > .argDef-ellipsis")
+    .forEach((child) => {
+      (isChecked ? hide : show)(child);
     });
 } // fn: setIsNoInput()
 

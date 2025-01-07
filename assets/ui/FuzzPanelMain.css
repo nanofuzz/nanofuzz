@@ -121,6 +121,10 @@ td.clickable {
   clear: both;
 }
 
+.argDef-preClose {
+  clear: both;
+}
+
 .argDef-close {
   float: left;
 }

@@ -1511,6 +1511,7 @@ ${inArgConsts}
       this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
+    const htmlEllipsis = `<span class="hidden argDef-ellipsis">...</span>`;
 
     let typeString: string; // Text indicating the type of argument
     const argTypeRef = arg.getTypeRef();
@@ -1562,10 +1563,10 @@ ${inArgConsts}
         sep = ":";
         break;
       case fuzzer.ArgTag.OBJECT:
-        sep = " = {";
+        sep = ` = {` + htmlEllipsis;
         break;
       default:
-        sep = " =";
+        sep = " = " + htmlEllipsis;
     }
     // prettier-ignore
     html += /*html*/ `
@@ -1706,7 +1707,7 @@ ${inArgConsts}
     html += `</div>`;
     // For objects: output the end of object character ("}") here
     if (argType === fuzzer.ArgTag.OBJECT) {
-      html += /*html*/ `<div class="argDef-close" style="font-size:1.25em;">}${endSep}</div>`;
+      html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close" style="font-size:1.25em;">}${endSep}</div>`;
     }
     html += `</div>`;
 
