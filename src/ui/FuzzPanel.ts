@@ -1784,10 +1784,20 @@ ${inArgConsts}
     disabledFlag: string
   ): string {
     let html = "";
+    const argOptions = arg.getOptions();
 
     // Array dimensions
     for (let dim = 0; dim < arg.getDim(); dim++) {
       const arrayBase = `${idBase}-array-${dim}`;
+      const arrayDimOptions = argOptions.dimLength;
+      const minValue =
+        arrayDimOptions.length > dim
+          ? arrayDimOptions[dim].min
+          : argOptions.dftDimLength.min;
+      const maxValue =
+        arrayDimOptions.length > dim
+          ? arrayDimOptions[dim].max
+          : argOptions.dftDimLength.max;
 
       // TODO: validate for ints > 0 !!!
       html += /*html*/ ``;
@@ -1795,11 +1805,11 @@ ${inArgConsts}
         /*html*/
         `<div class="argDef-array">
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
-          arg.getOptions().dimLength[dim].min.toString()
+          minValue.toString()
         )}">Array${"[]".repeat(dim + 1)}: Min 
           </vscode-text-field>
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${htmlEscape(
-          arg.getOptions().dimLength[dim].max.toString()
+          maxValue.toString()
         )}">Max length
           </vscode-text-field>
         </div>`;

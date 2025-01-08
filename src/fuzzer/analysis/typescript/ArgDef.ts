@@ -157,7 +157,7 @@ export class ArgDef<T extends ArgType> {
       offset, // offset
       ref.type.type, // type
       options, // options
-      ref.dims, // dims
+      ref.dims + ref.type.dims, // type reference dims + concrete type dims
       ref.optional, // optional
       intervals, // intervals
       ref.type.children.map((child) => ArgDef.fromTypeRef(child, options, i++)), // children

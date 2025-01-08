@@ -63,8 +63,9 @@ function makeTypeRef(
     module: module,
     typeRefName,
     optional: optional ?? false,
-    dims: dims,
+    dims: 0,
     type: {
+      dims: dims,
       type: type,
       children: children,
       value: literalValue,
@@ -245,12 +246,13 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         isVoid: false,
         args: [
           {
-            dims: 1,
+            dims: 0,
             isExported: false,
             module: thisProgram.getModule(),
             name: "array",
             optional: false,
             type: {
+              dims: 1,
               children: [],
               resolved: true,
               type: ArgTag.STRING,
@@ -263,6 +265,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
           module: "dummy.ts",
           optional: false,
           type: {
+            dims: 0,
             children: [],
             resolved: true,
             type: "string",
@@ -318,12 +321,13 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       isVoid: false,
       args: [
         {
-          dims: 1,
+          dims: 0,
           isExported: false,
           module: thisProgram.getModule(),
           name: "array",
           optional: false,
           type: {
+            dims: 1,
             children: [],
             resolved: true,
             type: ArgTag.STRING,
@@ -336,6 +340,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         module: "dummy.ts",
         optional: false,
         type: {
+          dims: 0,
           children: [],
           resolved: true,
           type: "string",
@@ -355,12 +360,13 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
       isVoid: false,
       args: [
         {
-          dims: 1,
+          dims: 0,
           isExported: false,
           module: thisProgram.getModule(),
           name: "array",
           optional: false,
           type: {
+            dims: 1,
             children: [],
             resolved: true,
             type: ArgTag.STRING,
@@ -373,6 +379,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
         module: "dummy.ts",
         optional: false,
         type: {
+          dims: 0,
           children: [],
           resolved: true,
           type: "string",
@@ -420,6 +427,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
           module: "dummy.ts",
           optional: false,
           type: {
+            dims: 0,
             children: [],
             resolved: true,
             type: "number",
@@ -512,6 +520,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
           module: "dummy.ts",
           optional: false,
           type: {
+            dims: 0,
             children: [],
             resolved: true,
             type: "number",
@@ -733,6 +742,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
             name: "n",
             optional: false,
             type: {
+              dims: 0,
               children: [],
               resolved: true,
               value: 3,
@@ -747,6 +757,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
             name: "a",
             optional: false,
             type: {
+              dims: 0,
               children: [],
               resolved: true,
               value: "a",
@@ -761,6 +772,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
             name: "b",
             optional: false,
             type: {
+              dims: 0,
               children: [],
               resolved: true,
               type: "literal",
@@ -801,6 +813,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
             name: "a",
             optional: false,
             type: {
+              dims: 0,
               children: [
                 {
                   dims: 0,
@@ -808,6 +821,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                   module: "dummy.ts",
                   optional: false,
                   type: {
+                    dims: 0,
                     children: [],
                     resolved: true,
                     type: "string",
@@ -819,6 +833,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                   module: "dummy.ts",
                   optional: false,
                   type: {
+                    dims: 0,
                     children: [],
                     resolved: true,
                     type: "number",
@@ -837,6 +852,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
             name: "b",
             optional: false,
             type: {
+              dims: 0,
               children: [
                 {
                   dims: 0,
@@ -844,6 +860,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                   module: "dummy.ts",
                   optional: false,
                   type: {
+                    dims: 0,
                     children: [],
                     resolved: true,
                     type: "string",
@@ -855,6 +872,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                   module: "dummy.ts",
                   optional: false,
                   type: {
+                    dims: 0,
                     children: [],
                     resolved: true,
                     type: "literal",
@@ -873,6 +891,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
           module: "dummy.ts",
           optional: false,
           type: {
+            dims: 0,
             resolved: true,
             type: "union",
             children: [
@@ -882,6 +901,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                 module: "dummy.ts",
                 optional: false,
                 type: {
+                  dims: 0,
                   children: [],
                   resolved: true,
                   type: "boolean",
@@ -893,6 +913,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                 module: "dummy.ts",
                 optional: false,
                 type: {
+                  dims: 0,
                   children: [],
                   resolved: true,
                   type: "literal",
@@ -902,6 +923,125 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
             ],
           },
         },
+      },
+    ]);
+  });
+
+  test("findFnInSource: type references w/arrays", () => {
+    const src = `
+    type onlyNumbers = number[];
+    type onlyNumber = number;
+    export function test5(a: onlyNumbers): void {return;}
+    export function test6(a: onlyNumbers[]): void {return;}
+    export function test7(a: onlyNumber): void {return;}
+    export function test8(a: onlyNumber[]): void {return;}`;
+    const thisProgram = dummyProgram.setSrc(() => src);
+    expect(
+      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
+    ).toStrictEqual([
+      {
+        name: "test5",
+        module: "dummy.ts",
+        src: "function test5(a: onlyNumbers): void {return;}",
+        startOffset: 75,
+        endOffset: 121,
+        isExported: true,
+        isVoid: true,
+        args: [
+          {
+            dims: 0,
+            isExported: false,
+            module: "dummy.ts",
+            name: "a",
+            optional: false,
+            type: {
+              dims: 1,
+              children: [],
+              resolved: true,
+              type: "number",
+            },
+            typeRefName: "onlyNumbers",
+          },
+        ],
+        returnType: undefined,
+      },
+      {
+        name: "test6",
+        module: "dummy.ts",
+        src: "function test6(a: onlyNumbers[]): void {return;}",
+        startOffset: 133,
+        endOffset: 181,
+        isExported: true,
+        isVoid: true,
+        args: [
+          {
+            dims: 1,
+            isExported: false,
+            module: "dummy.ts",
+            name: "a",
+            optional: false,
+            type: {
+              dims: 1,
+              children: [],
+              resolved: true,
+              type: "number",
+            },
+            typeRefName: "onlyNumbers",
+          },
+        ],
+        returnType: undefined,
+      },
+      {
+        name: "test7",
+        module: "dummy.ts",
+        src: "function test7(a: onlyNumber): void {return;}",
+        startOffset: 193,
+        endOffset: 238,
+        isExported: true,
+        isVoid: true,
+        args: [
+          {
+            dims: 0,
+            isExported: false,
+            module: "dummy.ts",
+            name: "a",
+            optional: false,
+            type: {
+              dims: 0,
+              children: [],
+              resolved: true,
+              type: "number",
+            },
+            typeRefName: "onlyNumber",
+          },
+        ],
+        returnType: undefined,
+      },
+      {
+        name: "test8",
+        module: "dummy.ts",
+        src: "function test8(a: onlyNumber[]): void {return;}",
+        startOffset: 250,
+        endOffset: 297,
+        isExported: true,
+        isVoid: true,
+        args: [
+          {
+            dims: 1,
+            isExported: false,
+            module: "dummy.ts",
+            name: "a",
+            optional: false,
+            type: {
+              dims: 0,
+              children: [],
+              resolved: true,
+              type: "number",
+            },
+            typeRefName: "onlyNumber",
+          },
+        ],
+        returnType: undefined,
       },
     ]);
   });
