@@ -231,8 +231,9 @@ function main() {
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
       if (e.validatorException) {
-        outputs[`output`] =
-          "(validator exception) " + e.validatorExceptionMessage;
+        outputs[
+          `output`
+        ] = `(${e.validatorExceptionFunction} exception) ${e.validatorExceptionMessage}`;
       } else if (e.exception) {
         outputs[`output`] = "(exception) " + e.exceptionMessage;
       }
@@ -402,9 +403,11 @@ function main() {
             });
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
+            const label =
+              type === "failure" && k === "output" ? "exception" : k;
             cell.id = type + "-" + k;
             cell.classList.add("clickable");
-            cell.innerHTML = `<big>${htmlEscape(k)}</big>`;
+            cell.innerHTML = `<big>${htmlEscape(label)}</big>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, hRow, type, k, tbody, true);
             });
@@ -1366,7 +1369,6 @@ function handleFuzzStart(eCurrTarget) {
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
-    console.debug(idBase + "-isNoInput"); // !!!!!
 
     // Process numeric overrides
     if (numInteger !== null) {

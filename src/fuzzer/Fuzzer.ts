@@ -293,6 +293,7 @@ export const fuzz = async (
                 ...result,
                 validatorException: true,
                 validatorExceptionMessage: e.message,
+                validatorExceptionFunction: valFnName,
                 validatorExceptionStack: e.stack,
               };
             }
@@ -311,6 +312,8 @@ export const fuzz = async (
         // Store the validator results
         result.passedValidators.push(validatorResult.passedValidator);
         result.validatorException = validatorResult.validatorException;
+        result.validatorExceptionFunction =
+          validatorResult.validatorExceptionFunction;
         result.validatorExceptionMessage =
           validatorResult.validatorExceptionMessage;
         result.validatorExceptionStack =
