@@ -2,7 +2,7 @@ import { ArgDef } from "../analysis/typescript/ArgDef";
 import { GeneratorFactory } from "./GeneratorFactory";
 import seedrandom from "seedrandom";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
-import { ArgOptions } from "fuzzer/analysis/typescript/Types";
+import { ArgOptions, ArgValueType } from "fuzzer/analysis/typescript/Types";
 
 /**
  * Provide a seed to ensure tests are deterministic.
@@ -123,7 +123,8 @@ const testRandomInt = (intMin: number, intMax: number): void => {
   arg[0].setIntervals([{ min: intMin, max: intMax }]);
   const gen = GeneratorFactory(arg[0], prng);
   for (let i = 0; i < 1000; i++) {
-    const result: number = gen();
+    const result: ArgValueType = gen();
+    expect(typeof result === "number" && Number.isInteger(result)).toBeTruthy();
     expect(result).toBeGreaterThanOrEqual(intMin);
     expect(result).toBeLessThanOrEqual(intMax);
   }
@@ -154,7 +155,8 @@ const testRandomFloat = (floatMin: number, floatMax: number): void => {
   arg[0].setIntervals([{ min: floatMin, max: floatMax }]);
   const gen = GeneratorFactory(arg[0], prng);
   for (let i = 0; i < 1000; i++) {
-    const result: number = gen();
+    const result: ArgValueType = gen();
+    expect(typeof result === "number").toBeTruthy();
     expect(result).toBeGreaterThanOrEqual(floatMin);
     expect(result).toBeLessThanOrEqual(floatMax);
   }
@@ -187,10 +189,11 @@ const testRandomBool = (boolMin: boolean, boolMax: boolean): void => {
   const gen = GeneratorFactory(arg[0], prng);
 
   // Test that the generator generates booleans within the bounds
-  const results: boolean[] = [];
+  const results: ArgValueType[] = [];
   for (let i = 0; i < 1000; i++) {
     results.push(gen());
   }
+  expect(results.every((e) => typeof e === "boolean")).toBeTruthy();
   expect(results.some((e) => e === boolMin)).toBeTruthy();
   expect(results.some((e) => e === boolMax)).toBeTruthy();
 };
@@ -226,7 +229,7 @@ const testRandomString = (
   const gen = GeneratorFactory(arg[0], prng);
 
   // Test that the generator generates strings within the bounds
-  const results: string[] = [];
+  const results: ArgValueType[] = [];
   for (let i = 0; i < 1000; i++) {
     results.push(gen());
   }
@@ -235,10 +238,13 @@ const testRandomString = (
   //  expect(results.some((e) => e !== strMax)).toBeTruthy();
   //}
   results.forEach((result) => {
-    expect(result.length).toBeGreaterThanOrEqual(strLenMin);
-    expect(result.length).toBeLessThanOrEqual(strLenMax);
-    //expect(result >= strMin).toBeTruthy();
-    //expect(result <= strMax).toBeTruthy();
+    expect(typeof result === "string").toBeTruthy();
+    if (typeof result === "string") {
+      expect(result.length).toBeGreaterThanOrEqual(strLenMin);
+      expect(result.length).toBeLessThanOrEqual(strLenMax);
+      //expect(result >= strMin).toBeTruthy();
+      //expect(result <= strMax).toBeTruthy();
+    }
   });
 };
 

@@ -1626,8 +1626,11 @@ ${inArgConsts}
          ${typeString}${dimString}${sep}
       </div>`;
 
-    // Give the option of suppressing generation of union members
-    if (parentTag === fuzzer.ArgTag.UNION) {
+    // Give the option of suppressing generation of optional members
+    if (
+      parentTag === fuzzer.ArgTag.UNION ||
+      (parentTag === fuzzer.ArgTag.OBJECT && arg.isOptional())
+    ) {
       // prettier-ignore
       html += /*html*/ `
         <div class="isNoInput tooltipped tooltipped-nw" aria-label="Generate inputs of this type?">

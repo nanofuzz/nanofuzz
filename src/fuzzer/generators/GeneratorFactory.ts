@@ -3,6 +3,7 @@ import { ArgDef } from "../analysis/typescript/ArgDef";
 import {
   ArgTag,
   ArgType,
+  ArgValueType,
   ArgOptions,
   Interval,
 } from "../analysis/typescript/Types";
@@ -19,15 +20,25 @@ import {
  *
  * TODO: bias selection of input interval based on interval size
  */
+
+type PrivateRandFn = (
+  prng: seedrandom.prng,
+  min: ArgValueType,
+  max: ArgValueType,
+  options: ArgOptions
+) => ArgValueType;
+
+type PublicRandFn = () => ArgValueType;
+
 export function GeneratorFactory<T extends ArgType>(
   arg: ArgDef<T>,
   prng: seedrandom.prng
-): () => any {
-  // For constant values of no dimensions, return the constant
-  if (arg.isConstant() && arg.getDim() === 0)
-    return () => arg.getConstantValue();
+): PublicRandFn {
+  let randFn: PrivateRandFn;
 
-  let randFn: typeof getRandomNumber;
+  // For constant values of no dimensions, return the constant
+  //if (arg.isConstant() && arg.getDim() === 0 && !arg.isNoInput())
+  //  return () => arg.getConstantValue();
 
   switch (arg.getType()) {
     case "number":
@@ -44,12 +55,12 @@ export function GeneratorFactory<T extends ArgType>(
       break;
     case "union":
       // We generate this here using arg
-      randFn = <T extends ArgType>(
+      randFn = (
         prng: seedrandom.prng,
-        min: T,
-        max: T,
+        min: ArgValueType,
+        max: ArgValueType,
         options: ArgOptions
-      ): T => {
+      ): ArgValueType => {
         if (typeof min !== "object" || typeof max !== "object")
           throw new Error("Min and max must be objects");
         let children = arg.getChildren().filter((child) => !child.isNoInput());
@@ -67,15 +78,15 @@ export function GeneratorFactory<T extends ArgType>(
       break;
     case "object":
       // We generate this here using arg
-      randFn = <T extends ArgType>(
+      randFn = (
         prng: seedrandom.prng,
-        min: T,
-        max: T,
+        min: ArgValueType,
+        max: ArgValueType,
         options: ArgOptions
-      ): T => {
+      ): ArgValueType => {
         if (typeof min !== "object" || typeof max !== "object")
           throw new Error("Min and max must be objects");
-        const outObj: { [key: string]: any } = {};
+        const outObj: { [key: string]: ArgValueType } = {};
         for (const child of arg.getChildren()) {
           outObj[child.getName()] = GeneratorFactory(child, prng)();
 
@@ -85,7 +96,7 @@ export function GeneratorFactory<T extends ArgType>(
             delete outObj[child.getName()];
           }
         }
-        return outObj as T;
+        return outObj;
       };
       break;
     default:
@@ -99,8 +110,9 @@ export function GeneratorFactory<T extends ArgType>(
   const dimLength = arg.getOptions().dimLength;
   const isOptional = arg.isOptional();
 
-  // Callback fn to generate random value
-  const randFnWrapper = () => {
+  // Callback fn to generate value
+  const randFnWrapper: PublicRandFn = () => {
+    if (arg.isNoInput()) return undefined;
     if (type === ArgTag.OBJECT) return randFn(prng, {}, {}, options);
     if (type === ArgTag.UNION) {
       if (arg.getChildren().filter((child) => !child.isNoInput()).length) {
@@ -125,7 +137,7 @@ export function GeneratorFactory<T extends ArgType>(
   };
 
   // If the arg is an array, return the array generator
-  const randArgValueWrapper = !dimLength.length
+  const randArgValueWrapper: PublicRandFn = !dimLength.length
     ? randFnWrapper
     : () => nArray(prng, randFnWrapper, dimLength, options);
 
@@ -149,21 +161,21 @@ export function GeneratorFactory<T extends ArgType>(
  *
  * Throws an exception if min and max are not numbers
  */
-const getRandomNumber = <T extends ArgType>(
+const getRandomNumber = (
   prng: seedrandom.prng,
-  min: T,
-  max: T,
+  min: ArgValueType,
+  max: ArgValueType,
   options: ArgOptions
-): T => {
+): number => {
   if (typeof min !== "number" || typeof max !== "number")
     throw new Error("Min and max must be numbers");
 
   if (options.numInteger) {
     const minInt: number = Math.ceil(min);
     const maxInt: number = Math.floor(max) + 1;
-    return Math.floor(prng() * (maxInt - minInt) + minInt) as T; // Max and Min are inclusive
+    return Math.floor(prng() * (maxInt - minInt) + minInt); // Max and Min are inclusive
   } else {
-    return (prng() * (max - min) + min) as T; // Max and Min are inclusive
+    return prng() * (max - min) + min; // Max and Min are inclusive
   }
 }; // getRandomNumber()
 
@@ -178,17 +190,17 @@ const getRandomNumber = <T extends ArgType>(
  *
  * Throws an exception if min and max are not booleans
  */
-const getRandomBool = <T extends ArgType>(
+const getRandomBool: PrivateRandFn = (
   prng: seedrandom.prng,
-  min: T,
-  max: T,
+  min: ArgValueType,
+  max: ArgValueType,
   options: ArgOptions
-): T => {
+): boolean => {
   if (typeof min !== "boolean" || typeof max !== "boolean")
     throw new Error("Min and max must be booleans");
-  if (min && max) return true as T;
-  if (!min && !max) return false as T;
-  return (prng() >= 0.5) as T;
+  if (min && max) return true;
+  if (!min && !max) return false;
+  return prng() >= 0.5;
 }; // getRandomBool()
 
 /**
@@ -202,13 +214,13 @@ const getRandomBool = <T extends ArgType>(
  *
  * Throws an exception if min and max are not the same
  */
-const getLiteral = <T extends ArgType>(
+const getLiteral: PrivateRandFn = (
   prng: seedrandom.prng,
-  min: T,
-  max: T,
+  min: ArgValueType,
+  max: ArgValueType,
   options: ArgOptions
-): T => {
-  if (min === max) return min as T;
+): ArgValueType => {
+  if (min === max) return min;
   throw new Error("Min and max must be the same for literals");
 }; // getLiteral()
 
@@ -231,12 +243,12 @@ const getLiteral = <T extends ArgType>(
  *
  * TODO: Min and max may cause a non-uniform distribution of inputs.
  */
-const getRandomString = <T extends ArgType>(
+const getRandomString: PrivateRandFn = (
   prng: seedrandom.prng,
-  min: T,
-  max: T,
+  min: ArgValueType,
+  max: ArgValueType,
   options: ArgOptions
-): T => {
+): string => {
   if (typeof min !== "string" || typeof max !== "string")
     throw new Error("Min and max must be strings");
 
@@ -262,7 +274,7 @@ const getRandomString = <T extends ArgType>(
     outStr += charSet[getRandomNumber(prng, 0, charSetLen, intOptions)];
   }
 
-  return outStr as T;
+  return outStr;
 }; // getRandomString()
 
 /**
@@ -281,13 +293,13 @@ const getRandomString = <T extends ArgType>(
  */
 const nArray = (
   prng: seedrandom.prng,
-  genFn: () => ArgType | undefined,
+  genFn: PublicRandFn,
   dimLength: Interval<number>[],
   options: ArgOptions
-): any => {
+): ArgValueType => {
   if (dimLength.length) {
     const [dim, ...rest] = dimLength; // split the array: head, tail
-    const newArray = []; // output array
+    const newArray: ArgValueType[] = []; // output array
     const thisDim = getRandomNumber(
       prng,
       dim.min,
