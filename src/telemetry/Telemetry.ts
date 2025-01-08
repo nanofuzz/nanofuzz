@@ -124,7 +124,7 @@ export const listeners: Listener<any>[] = [
 
   {
     event: vscode.workspace.onDidChangeConfiguration,
-    fn: (e: vscode.ConfigurationChangeEvent): void => {
+    fn: (): void => {
       // If the config is active, we need to log the change and re-load
       if (config.active) {
         logger.push(new LoggerEntry("onDidChangeConfiguration"));

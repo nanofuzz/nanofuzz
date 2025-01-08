@@ -8,7 +8,7 @@
 export const workspace = {
   getConfiguration: (k: string) => {
     return {
-      get: (k: string, dft?: any) => dft,
+      get: (k: string, dft?: string | number | boolean | undefined) => dft,
     };
   },
 };

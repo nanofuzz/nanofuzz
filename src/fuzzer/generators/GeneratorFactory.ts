@@ -58,8 +58,7 @@ export function GeneratorFactory<T extends ArgType>(
       randFn = (
         prng: seedrandom.prng,
         min: ArgValueType,
-        max: ArgValueType,
-        options: ArgOptions
+        max: ArgValueType
       ): ArgValueType => {
         if (typeof min !== "object" || typeof max !== "object")
           throw new Error("Min and max must be objects");
@@ -81,8 +80,7 @@ export function GeneratorFactory<T extends ArgType>(
       randFn = (
         prng: seedrandom.prng,
         min: ArgValueType,
-        max: ArgValueType,
-        options: ArgOptions
+        max: ArgValueType
       ): ArgValueType => {
         if (typeof min !== "object" || typeof max !== "object")
           throw new Error("Min and max must be objects");
@@ -193,8 +191,7 @@ const getRandomNumber = (
 const getRandomBool: PrivateRandFn = (
   prng: seedrandom.prng,
   min: ArgValueType,
-  max: ArgValueType,
-  options: ArgOptions
+  max: ArgValueType
 ): boolean => {
   if (typeof min !== "boolean" || typeof max !== "boolean")
     throw new Error("Min and max must be booleans");
@@ -217,8 +214,7 @@ const getRandomBool: PrivateRandFn = (
 const getLiteral: PrivateRandFn = (
   prng: seedrandom.prng,
   min: ArgValueType,
-  max: ArgValueType,
-  options: ArgOptions
+  max: ArgValueType
 ): ArgValueType => {
   if (min === max) return min;
   throw new Error("Min and max must be the same for literals");

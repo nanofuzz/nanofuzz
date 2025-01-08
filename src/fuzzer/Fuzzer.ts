@@ -3,7 +3,7 @@ import * as JSON5 from "json5";
 import vm from "vm";
 import seedrandom from "seedrandom";
 import { ArgDef } from "./analysis/typescript/ArgDef";
-import { FunctionRef } from "./analysis/typescript/Types";
+import { ArgValueType, FunctionRef } from "./analysis/typescript/Types";
 import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
@@ -266,7 +266,7 @@ export const fuzz = async (
         // Build the validator function wrapper
         const validatorFnWrapper = functionTimeout(
           (result: FuzzTestResult): FuzzTestResult => {
-            const inParams: any[] = []; // array of input parameters
+            const inParams: ArgValueType[] = []; // array of input parameters
             result.input.forEach((e) => {
               const param = e.value;
               inParams.push(param);
@@ -444,7 +444,7 @@ export const implicitOracle = (x: any): boolean => {
 export default function functionTimeout(function_: any, timeout: number): any {
   const script = new vm.Script("returnValue = function_()");
 
-  const wrappedFunction = (...arguments_: any[]) => {
+  const wrappedFunction = (...arguments_: ArgValueType[]) => {
     const context = {
       returnValue: undefined,
       function_: () => function_(...arguments_),
