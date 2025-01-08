@@ -1,4 +1,4 @@
-import { ArgOptions } from "./analysis/typescript/Types";
+import { ArgOptions, ArgValueType } from "./analysis/typescript/Types";
 
 /**
  * Single Fuzzer Test Result
@@ -27,7 +27,7 @@ export type FuzzTestResult = {
  * Simplified single test result for writing custom validator
  */
 export type Result = {
-  in: any[]; // function input
+  in: ArgValueType[]; // function input
   out: any; // function output
   exception: boolean; // true if an exception was thrown
   timeout: boolean; // true if the fn call timed out
@@ -68,7 +68,7 @@ export type FuzzIoElement = {
   offset: number; // offset of element (0-based)
   isException?: boolean; // true if element is an exception
   isTimeout?: boolean; // true if element is a timeout
-  value: any; // value of element
+  value: ArgValueType; // value of element
 };
 
 /**

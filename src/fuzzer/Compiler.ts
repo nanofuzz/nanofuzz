@@ -117,7 +117,7 @@ function isModified(tsname: string, jsname: string) {
  *
  * @return {string} js file path
  */
-function compileTS(module: any) {
+function compileTS(module: NodeJS.Module) {
   let exitCode = 0;
   const moduleDirName = path.dirname(module.filename);
   const relativeFolder =
@@ -231,7 +231,7 @@ function compileTS(module: any) {
  * @param module Javqscript module
  * @returns The script result, if any
  */
-function runJS(jsname: string, module: any) {
+function runJS(jsname: string, module: NodeJS.Module) {
   const content = fs.readFileSync(jsname, "utf8");
 
   const sandbox: { [k: string]: any } = {};

@@ -72,7 +72,7 @@ export class FuzzPanel {
         FuzzPanel.viewType, // FuzzPanel view type
         `Test: ${env.function.getName()}()`, // webview title
         vscode.ViewColumn.Beside, // open beside the editor
-        FuzzPanel.getWebviewOptions(extensionUri) // options
+        FuzzPanel.getWebviewOptions() // options
       );
       panel.iconPath = vscode.Uri.joinPath(
         extensionUri,
@@ -163,9 +163,8 @@ export class FuzzPanel {
    * @param extensionUri The Uri of the extension
    * @returns The options to use when creating the FuzzPanel WebView
    */
-  public static getWebviewOptions(
-    extensionUri: vscode.Uri
-  ): vscode.WebviewPanelOptions & vscode.WebviewOptions {
+  public static getWebviewOptions(): vscode.WebviewPanelOptions &
+    vscode.WebviewOptions {
     return {
       // Enable javascript in the webview
       enableScripts: true,
@@ -1626,8 +1625,11 @@ ${inArgConsts}
          ${typeString}${dimString}${sep}
       </div>`;
 
-    // Give the option of suppressing generation of union members
-    if (parentTag === fuzzer.ArgTag.UNION) {
+    // Give the option of suppressing generation of optional members
+    if (
+      parentTag === fuzzer.ArgTag.UNION ||
+      (parentTag === fuzzer.ArgTag.OBJECT && arg.isOptional())
+    ) {
       // prettier-ignore
       html += /*html*/ `
         <div class="isNoInput tooltipped tooltipped-nw" aria-label="Generate inputs of this type?">
@@ -1893,8 +1895,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
  * @returns array of CodeLens objects
  */
 export function provideCodeLenses(
-  document: vscode.TextDocument,
-  token: vscode.CancellationToken
+  document: vscode.TextDocument
 ): vscode.CodeLens[] {
   // Use the TypeScript analyzer to find all fn declarations in the module
   const matches: FunctionMatch[] = [];

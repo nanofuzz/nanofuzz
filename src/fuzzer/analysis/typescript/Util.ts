@@ -11,7 +11,7 @@ import {
  * @param value The value of the property being stringified
  * @returns undefined if key==='parent', otherwise value
  */
-export function removeParents(key: any, value: any): any {
+export function removeParents(key: string, value: unknown): unknown {
   if (key === "parent") {
     return undefined;
   } else {

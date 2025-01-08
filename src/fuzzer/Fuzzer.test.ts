@@ -401,8 +401,13 @@ describe("Fuzzer", () => {
     const results = (
       await fuzz(setup(intOptions, "./Fuzzer.test.ts", "testChangeInput"))
     ).results;
+    const resultValue = results[0].input[0].value;
     expect(results.length).not.toStrictEqual(0);
-    expect(results[0].input[0].value.b).toBeUndefined();
+    expect(
+      resultValue !== undefined &&
+        typeof resultValue === "object" &&
+        !("b" in resultValue)
+    ).toBeTruthy();
   });
 
   /**

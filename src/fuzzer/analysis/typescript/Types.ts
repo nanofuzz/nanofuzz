@@ -73,6 +73,7 @@ export enum ArgTag {
   UNRESOLVED = "unresolved", // unresolved type reference
 }
 export type ArgType = number | string | boolean | Record<string, unknown>;
+export type ArgValueType = ArgType | ArgValueType[] | undefined;
 
 /**
  * The set of options for an argument.  This option set is used to "fill in" information
