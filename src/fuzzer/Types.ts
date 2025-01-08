@@ -17,6 +17,7 @@ export type FuzzTestResult = {
   passedValidators?: boolean[]; // for each custom validator, true if passed; false, otherwise
   validatorException: boolean; // true if validator threw an exception
   validatorExceptionMessage?: string; // validator exception message
+  validatorExceptionFunction?: string; // name of validator throwing exception
   validatorExceptionStack?: string; // validator stack trace if exception was thrown
   elapsedTime: number; // elapsed time of test
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
