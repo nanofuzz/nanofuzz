@@ -49,8 +49,9 @@ function makeTypeRef(
     module: module,
     typeRefName,
     optional: optional ?? false,
-    dims: dims,
+    dims: 0,
     type: {
+      dims: dims,
       type: type,
       children: children,
       value: literalValue,

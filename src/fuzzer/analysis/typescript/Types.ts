@@ -53,6 +53,7 @@ export type TypeRef = {
   dims: number; // Number of dimensions for the type (0 for non-array types)
   type?: {
     type: ArgTag; // Concrete type of the type
+    dims: number; // Concrete type dims (the concrete type may have its own dimensions)
     children: TypeRef[]; // Array of child types
     value?: ArgType; // Value if a literal type
     resolved?: boolean; // True if the type's children have been resolved; false, otherwise

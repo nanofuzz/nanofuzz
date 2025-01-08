@@ -923,7 +923,6 @@ export class ProgramDef {
         typeNode,
         this._options
       );
-      thisType.dims = dims;
 
       // Create the TypeRef data structure
       switch (type) {
@@ -931,6 +930,7 @@ export class ProgramDef {
         case ArgTag.BOOLEAN:
         case ArgTag.NUMBER: {
           thisType.type = {
+            dims: dims,
             type: type,
             children: [],
             resolved: true,
@@ -939,6 +939,7 @@ export class ProgramDef {
         }
         case ArgTag.LITERAL: {
           thisType.type = {
+            dims: dims,
             type: type,
             children: [],
             value: literalValue,
@@ -949,12 +950,14 @@ export class ProgramDef {
         case ArgTag.UNION:
         case ArgTag.OBJECT: {
           thisType.type = {
+            dims: dims,
             type: type,
             children: this._getChildrenFromNode(typeNode),
           };
           break;
         }
         case ArgTag.UNRESOLVED: {
+          thisType.dims = dims;
           thisType.typeRefName = typeRefNode; // Unresolved type reference
           break;
         }
