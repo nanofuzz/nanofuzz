@@ -377,7 +377,7 @@ export class ArgDef<T extends ArgType> {
    * @param options the argument's option set
    */
   public setOptions(inOptions: ArgOptions | ArgOptionOverride): void {
-    const options = { ...inOptions };
+    const options = { dimLength: this.options.dimLength, ...inOptions };
 
     // Cascade child options to child arguments
     if ("children" in options) {
@@ -400,6 +400,14 @@ export class ArgDef<T extends ArgType> {
 
     // Merge the two option sets; incoming has precedence
     const newOptions: ArgOptions = { ...this.options, ...options };
+
+    // Ensure this.dims-1 === dimLength.length
+    while (newOptions.dimLength.length < this.dims) {
+      newOptions.dimLength.push({ ...ArgDef.getDefaultOptions().dftDimLength });
+    }
+    newOptions.dimLength = this.dims
+      ? newOptions.dimLength.slice(0, this.dims)
+      : [];
 
     // Handle isNoInput
     if (options.isNoInput === false) {
