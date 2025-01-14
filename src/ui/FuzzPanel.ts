@@ -1975,16 +1975,20 @@ function _applyArgOverrides(
   // Get the flattened list of function arguments
   const argsFlat = fn.getArgDefsFlat();
 
+  // Make the user aware if it appears that the function arguments changed
+  if (argOverrides.length && argOverrides.length !== argsFlat.length) {
+    vscode.window.showInformationMessage(
+      `Check the testing config: '${fn.getName()}()' may have changed`
+    );
+  }
+
   // Apply argument option changes
   for (const i in argOverrides) {
     const thisOverride = argOverrides[i];
     const thisArg: fuzzer.ArgDef<fuzzer.ArgType> = argsFlat[i];
-    if (Number(i) + 1 > argsFlat.length)
-      throw new Error(
-        `FuzzPanel input has ${
-          Object.entries(argOverrides).length
-        } but the function has ${argsFlat.length}`
-      );
+    if (Number(i) + 1 > argsFlat.length) {
+      break; // exit the for loop
+    }
 
     // Min and max values
     switch (thisArg.getType()) {
