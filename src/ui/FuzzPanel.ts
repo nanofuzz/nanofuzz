@@ -1975,18 +1975,18 @@ function _applyArgOverrides(
   // Get the flattened list of function arguments
   const argsFlat = fn.getArgDefsFlat();
 
+  // Make the user aware if it appears that the function arguments changed
+  if (argOverrides.length && argOverrides.length !== argsFlat.length) {
+    vscode.window.showInformationMessage(
+      `Check the testing config: '${fn.getName()}()' changed`
+    );
+  }
+
   // Apply argument option changes
   for (const i in argOverrides) {
     const thisOverride = argOverrides[i];
     const thisArg: fuzzer.ArgDef<fuzzer.ArgType> = argsFlat[i];
     if (Number(i) + 1 > argsFlat.length) {
-      console.warn(
-        `FuzzPanel input has ${
-          Object.entries(argOverrides).length
-        } argument(s), but the function has ${
-          argsFlat.length
-        } argument(s). Ignoring the extra argument(s).`
-      );
       break; // exit the for loop
     }
 
