@@ -1979,12 +1979,16 @@ function _applyArgOverrides(
   for (const i in argOverrides) {
     const thisOverride = argOverrides[i];
     const thisArg: fuzzer.ArgDef<fuzzer.ArgType> = argsFlat[i];
-    if (Number(i) + 1 > argsFlat.length)
-      throw new Error(
+    if (Number(i) + 1 > argsFlat.length) {
+      console.warn(
         `FuzzPanel input has ${
           Object.entries(argOverrides).length
-        } but the function has ${argsFlat.length}`
+        } argument(s), but the function has ${
+          argsFlat.length
+        } argument(s). Ignoring the extra argument(s).`
       );
+      break; // exit the for loop
+    }
 
     // Min and max values
     switch (thisArg.getType()) {
