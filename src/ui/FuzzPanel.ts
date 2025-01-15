@@ -691,7 +691,6 @@ export class FuzzPanel {
     const hasImport = Object.keys(program.getImports().identifiers).some(
       (e) => e === "FuzzTestResult"
     );
-    // TODO: if !hasImport, add `FuzzTestResult` import
 
     const inArgs = fn.getArgDefs();
     const validatorArgs = this.getValidatorArgs(inArgs);
@@ -715,12 +714,15 @@ export class FuzzPanel {
       outTypeAsString
     );
 
+    // Name of the validator generated
+    const validatorName = `${validatorPrefix}${
+      fnCounter === 0 ? "" : fnCounter
+    }`;
+
     // prettier-ignore
     const skeleton = `
 
-export function ${validatorPrefix}${
-        fnCounter === 0 ? "" : fnCounter
-      } ${validatorArgs.str}: boolean | undefined {
+export function ${validatorName} ${validatorArgs.str}: boolean | undefined {
 ${inArgConsts}
   ${outArgConst}
 
@@ -760,6 +762,18 @@ ${inArgConsts}
         const fd = fs.openSync(module, "as+");
         fs.writeFileSync(fd, skeleton);
         fs.closeSync(fd);
+      }
+
+      // Change focus to the generated validator
+      try {
+        const fn = ProgramDef.fromModule(module).getFunctions()[validatorName];
+        this._navigateToSource(fn.getModule(), fn.getStartOffset());
+      } catch (e: any) {
+        this._errorMessage = e.message ?? "Unknown error";
+        vscode.window.showErrorMessage(
+          `Unable to navigate to the created validator '${validatorName}' in '${fn.getModule()}'`
+        );
+        return;
       }
     } catch {
       vscode.window.showErrorMessage(
