@@ -292,6 +292,13 @@ export class FuzzPanel {
           case "validator.getList":
             this._doGetValidators();
             break;
+          case "open.source": {
+            this._navigateToSource(
+              this._fuzzEnv.function.getModule(),
+              this._fuzzEnv.function.getRef().startOffset
+            );
+            break;
+          }
         }
       },
       undefined,
@@ -589,6 +596,63 @@ export class FuzzPanel {
     this._sortColumns = JSON5.parse(json);
   }
 
+  /**
+   * Shows the open text editor at the desired position. If an
+   * exsting editor is not found, then one is created either to
+   * the left of the FuzzPanel (in the case where it is not in
+   * column 1) or to the right of the FuzzPanel.
+   *
+   * @param module path to TypeScript module
+   * @param position? offset position to receive focus in file
+   */
+  private _navigateToSource(module: string, position?: number): void {
+    const uri = vscode.Uri.file(module);
+    let viewColumn: vscode.ViewColumn | undefined;
+
+    // Find an open editor with this module's url & store its ViewColumn
+    for (const tabGroup of vscode.window.tabGroups.all) {
+      for (const tab of tabGroup.tabs) {
+        if (tab.input instanceof vscode.TabInputText) {
+          if (tab.input.uri.toString() === uri.toString()) {
+            viewColumn = tabGroup.viewColumn; // found the editor
+          }
+        }
+        if (viewColumn) break;
+      }
+      if (viewColumn) break;
+    }
+
+    // If we didn't find an editor, open the editor to the left of the
+    // FuzzPanel except in the case where FuzzPanel is in column 1, in
+    // which case open the editor to the right
+    if (!viewColumn) {
+      if (this._panel.viewColumn) {
+        const fuzzPanelPane = Number.parseInt(
+          this._panel.viewColumn.toString()
+        );
+        if (fuzzPanelPane === 1) {
+          viewColumn = 2; // already in left-most column so open to the right
+        } else {
+          viewColumn = fuzzPanelPane - 1; // open one column to the left
+        }
+      } else {
+        viewColumn = -2; // FuzzPanel doesn't have a ViewColumn...?
+      }
+    }
+
+    // Open the text document for the module
+    vscode.workspace.openTextDocument(uri).then((doc) => {
+      // Show the document in the desired column and position the
+      // cursor where we want, if a position was provided.
+      const opt: vscode.TextDocumentShowOptions = {
+        viewColumn: viewColumn,
+        selection: position
+          ? new vscode.Range(doc.positionAt(position), doc.positionAt(position))
+          : undefined,
+      };
+      vscode.window.showTextDocument(doc, opt);
+    });
+  }
   /**
    * Add code skeleton for a property validator to the program source code.
    */
@@ -1083,7 +1147,9 @@ ${inArgConsts}
           <!-- ${toolName} pane -->
           <div id="pane-nanofuzz"> 
             <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;"> ${this._state === FuzzPanelState.busy ? "Testing..." : "Test: "+htmlEscape(
-              fn.getName())+"()"} </h2>
+              fn.getName())+"()"} 
+              <div title="Open soure code" id="openSourceLink" class='codicon codicon-file-text clickable'></div>
+            </h2>
 
             <!-- Function Arguments -->
             <div id="argDefs">${argDefHtml}</div>

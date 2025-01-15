@@ -101,11 +101,6 @@ td.classErrorOn:active {
   opacity: 80%;
 }
 
-/* Clickable cells (e.g., pin buttons) */
-td.clickable {
-  cursor: pointer;
-}
-
 .classAddRefreshValidator:active {
   /* background-color: var(--vscode-list-inactiveSelectionBackground); */
   opacity: 50%;
@@ -323,8 +318,8 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   border-right-color: var(--vscode-focus-border);
 }
 
-/* Clickable columns (e.g., sorting) */
-th.clickable {
+/* Clickable items (e.g., sorting) */
+.clickable {
   cursor: pointer;
 }
 .columnSortDesc::after {

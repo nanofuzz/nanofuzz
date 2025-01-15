@@ -98,6 +98,11 @@ function main() {
     .getElementById("fuzz.options")
     .addEventListener("click", (e) => toggleFuzzOptions(e));
 
+  // Add event listener for opening the function source code
+  document
+    .getElementById("openSourceLink")
+    .addEventListener("click", (e) => handleOpenSource(e));
+
   // Add event listener for the fuzz.options close button
   document
     .getElementById("fuzzOptions-close")
@@ -1495,6 +1500,19 @@ function refreshValidators(validatorList) {
 function handleAddValidator(e) {
   vscode.postMessage({
     command: "validator.add",
+    json: JSON5.stringify(""),
+  });
+} // fn: handleAddValidator()
+
+/**
+ * Send message to back-end to add code skeleton to source code (because the
+ * user clicked the customValidator button)
+ *
+ * @param e on-click event
+ */
+function handleOpenSource(e) {
+  vscode.postMessage({
+    command: "open.source",
     json: JSON5.stringify(""),
   });
 } // fn: handleAddValidator()
