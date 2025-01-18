@@ -1,6 +1,12 @@
 import * as JSON5 from "json5";
 
 import { getElementByIdOrThrow } from "./utils";
+import {
+  FuzzResultCategory,
+  FuzzSortColumns,
+  FuzzSortOrder,
+} from "fuzzer/Types";
+import { FuzzTestResults } from "fuzzer/Fuzzer";
 
 const vscode = acquireVsCodeApi();
 
@@ -15,7 +21,7 @@ const gridTypes = [
   "timeout",
   "badValue",
   "ok",
-];
+] as const;
 
 // Column name labels
 const pinnedLabel = "pinned";
@@ -57,15 +63,15 @@ const validatorResult = {
 };
 
 // Sort order for each grid and column
-const sortOrder = ["asc", "desc", "none"];
-function getDefaultColumnSortOrder() {
+const sortOrder = [FuzzSortOrder.asc, FuzzSortOrder.desc, FuzzSortOrder.none];
+function getDefaultColumnSortOrder(): Record<string, FuzzSortOrder> {
   return {
-    [pinnedLabel]: "desc",
-    [correctLabel]: "desc",
-    [expandLabel]: "asc",
+    [pinnedLabel]: FuzzSortOrder.desc,
+    [correctLabel]: FuzzSortOrder.desc,
+    [expandLabel]: FuzzSortOrder.asc,
   };
 }
-const defaultColumnSortOrders = {
+const defaultColumnSortOrders: FuzzSortColumns = {
   failure: {}, // no pinned column
   timeout: getDefaultColumnSortOrder(),
   exception: getDefaultColumnSortOrder(),
@@ -75,13 +81,21 @@ const defaultColumnSortOrders = {
 };
 
 // Column sort orders (filled by main or handleColumnSort())
-let columnSortOrders;
+let columnSortOrders: FuzzSortColumns;
 // Fuzzer Results (filled by main during load event)
-let resultsData;
+let resultsData: FuzzTestResults;
 // Results grouped by type (filled by main during load event)
-let data = {};
+// TODO: Use a better type instead of any[]
+const data: Record<FuzzResultCategory, any[]> = {
+  ok: [],
+  badValue: [],
+  timeout: [],
+  exception: [],
+  disagree: [],
+  failure: [],
+};
 // Validator functions (filled by main during load event)
-let validators;
+let validators: { validators: string[] };
 
 /**
  * Sets up the UI when the page is loaded, including setting up
@@ -219,7 +233,7 @@ function main() {
       // Name each input argument and make it clear which inputs were not provided
       // (i.e., the argument was optional).  Otherwise, stringify the value for
       // display.
-      const inputs = {};
+      const inputs: Record<string, string> = {};
       e.input.forEach((i) => {
         inputs[`input: ${i.name}`] =
           i.value === undefined ? "(no input)" : JSON5.stringify(i.value);
@@ -228,7 +242,7 @@ function main() {
       // There are 0-1 outputs: if an output is present, just name it `output`
       // and make it clear which outputs are undefined.  Otherwise, stringify
       // the value for display.
-      const outputs = {};
+      const outputs: Record<string, string> = {};
       e.output.forEach((o) => {
         outputs[`output`] =
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
@@ -492,7 +506,7 @@ function setIsNoInput(vsCodeCheckbox, isChecked) {
  * @param type grid type (e.g., passed, invalid)
  * @param data the back-end data structure
  */
-function handlePinToggle(id, type) {
+function handlePinToggle(id, type: FuzzResultCategory) {
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) throw e("invalid id");
 
@@ -549,7 +563,14 @@ function handlePinToggle(id, type) {
  * @param cell1 check icon
  * @param cell2 error icon
  */
-function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
+function handleCorrectToggle(
+  button,
+  row,
+  type: FuzzResultCategory,
+  tbody,
+  cell1,
+  cell2
+) {
   const id = row.getAttribute("id");
   const index = data[type].findIndex((element) => element.id == id);
   if (index <= -1) throw e("invalid id");
@@ -632,7 +653,7 @@ function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
   });
 }
 
-function toggleExpandColumn(type) {
+function toggleExpandColumn(type: FuzzResultCategory) {
   const thead = getElementByIdOrThrow(`fuzzResultsGrid-${type}-thead`);
   const tbody = getElementByIdOrThrow(`fuzzResultsGrid-${type}-tbody`);
 
@@ -684,7 +705,14 @@ function toggleExpandColumn(type) {
  *  - Making sure the pinned/correct columns are sorted at the beginning
  *  - Making sure we retain previous sort settings if you click 'Test' again
  */
-function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
+function handleColumnSort(
+  cell,
+  hRow,
+  type: FuzzResultCategory,
+  column,
+  tbody,
+  isClicking
+) {
   // console.debug(`Sorting type:'${type}' col:'${column}' cell:'${cell.id}'`);
 
   // We are only explicitly sorting by one column at a time (with the pinned and correct
@@ -795,7 +823,7 @@ function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
  * @param type (timeout, exception, badValue, ok)
  * @param thisCol the current column being sorted by
  */
-function resetOtherColumnArrows(hRow, type, thisCol) {
+function resetOtherColumnArrows(hRow, type: FuzzResultCategory, thisCol) {
   for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
     // For a given type, iterate over the columns (ex: input a, output, pin)
     const col = Object.keys(data[type][0])[i]; // back-end column
@@ -829,7 +857,7 @@ function resetOtherColumnArrows(hRow, type, thisCol) {
  * is being called because the user clicked on a column
  * @returns
  */
-function updateColumnArrow(cell, type, col, isClicking) {
+function updateColumnArrow(cell, type: FuzzResultCategory, col, isClicking) {
   // Pinned and correct columns are special -- can be sorted by them, plus one addtional column
   let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
   let currIndex = -1; // index in sortOrder array
@@ -837,7 +865,7 @@ function updateColumnArrow(cell, type, col, isClicking) {
   if (isClicking) {
     if (!currOrder) {
       // Set default if undefined
-      currOrder = "asc";
+      currOrder = FuzzSortOrder.asc;
       currIndex = 0; // index in [asc, desc, none]
     } else {
       // Update sorting direction (asc -> desc, desc -> none, none -> asc)
@@ -890,7 +918,7 @@ function updateColumnArrow(cell, type, col, isClicking) {
  * @param tbody table body
  * @param isClicking bool true if user is clicking
  */
-function drawTableBody(type, tbody, isClicking, button) {
+function drawTableBody(type: FuzzResultCategory, tbody, isClicking, button) {
   // Clear table
   while (tbody.rows.length > 0) tbody.deleteRow(0);
 
@@ -1061,7 +1089,13 @@ function drawTableBody(type, tbody, isClicking, button) {
  * @param row row of tbody
  * @param tbody table body for 'type'
  */
-function handleExpectedOutput(type, row, tbody, isClicking, button) {
+function handleExpectedOutput(
+  type: FuzzResultCategory,
+  row,
+  tbody,
+  isClicking,
+  button
+) {
   const id = row.getAttribute("id");
   let toggledId;
   if (isClicking) {
@@ -1208,7 +1242,7 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
  * @param data back-end data structure
  * @param type e.g. bad output, passed
  */
-function expectedOutputHtml(id, index, type) {
+function expectedOutputHtml(id, index, type: FuzzResultCategory) {
   const expectedOutput = data[type][index][expectedLabel];
   let defaultOutput;
 
@@ -1247,7 +1281,7 @@ function expectedOutputHtml(id, index, type) {
  *
  * @returns test case object or undefined if the expected value is invalid
  */
-function buildExpectedTestCase(id, type, index) {
+function buildExpectedTestCase(id, type: FuzzResultCategory, index) {
   const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
   const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
   const radioException = getElementByIdOrThrow(`fuzz-radioException${id}`);
@@ -1561,7 +1595,7 @@ function show(e) {
  * @param type Table type key
  * @returns sum of colspans for table header
  */
-function getColCountForTable(type) {
+function getColCountForTable(type: FuzzResultCategory) {
   // Get the table header row
   const thead = getElementByIdOrThrow(`fuzzResultsGrid-${type}-thead`);
   const theadRow = thead.rows[0];
