@@ -25,7 +25,6 @@ const expectedLabel = "expectedOutput";
 const validatorLabel = "validator";
 const allValidatorsLabel = "allValidators";
 const implicitLabel = "implicit";
-const elapsedTimeLabel = "running time (ms)";
 const expandLabel = "expandColumn";
 const collapseLabel = "collapseColumn";
 
@@ -39,9 +38,6 @@ const pinState = {
   classPinned: "fuzzGridCellPinned",
   classPin: "fuzzGridCellPin",
 };
-
-// Implicit Oracle Validator Name
-const implicitOracleValidatorName = "none";
 
 // Correct icon states
 const correctState = {
@@ -98,19 +94,22 @@ function main() {
   });
 
   // Add event listener for the fuzz.options button
-  getElementByIdOrThrow("fuzz.options").addEventListener("click", (e) => {
-    toggleFuzzOptions(e);
-  });
+  getElementByIdOrThrow("fuzz.options").addEventListener(
+    "click",
+    toggleFuzzOptions
+  );
 
   // Add event listener for opening the function source code
-  getElementByIdOrThrow("openSourceLink").addEventListener("click", (e) => {
-    handleOpenSource(e);
-  });
+  getElementByIdOrThrow("openSourceLink").addEventListener(
+    "click",
+    handleOpenSource
+  );
 
   // Add event listener for the fuzz.options close button
-  getElementByIdOrThrow("fuzzOptions-close").addEventListener("click", (e) => {
-    toggleFuzzOptions(e);
-  });
+  getElementByIdOrThrow("fuzzOptions-close").addEventListener(
+    "click",
+    toggleFuzzOptions
+  );
 
   // Add event listeners for all the union generate checkboxes
   document.querySelectorAll(".isNoInput vscode-checkbox").forEach((element) => {
@@ -135,12 +134,14 @@ function main() {
   );
 
   // Add event listener for the validator buttons
-  getElementByIdOrThrow("validator.add").addEventListener("click", (e) => {
-    handleAddValidator(e);
-  });
-  getElementByIdOrThrow(`validator.getList`).addEventListener("click", (e) => {
-    handleGetListOfValidators(e);
-  });
+  getElementByIdOrThrow("validator.add").addEventListener(
+    "click",
+    handleAddValidator
+  );
+  getElementByIdOrThrow(`validator.getList`).addEventListener(
+    "click",
+    handleGetListOfValidators
+  );
 
   // Load & display the validator functions from the HTML
   validators = JSON5.parse(
@@ -214,11 +215,6 @@ function main() {
       for (const v in e.passedValidators) {
         validatorFns[validators.validators[v]] = e.passedValidators[v];
       }
-
-      // Test case runtime
-      const elapsedTime = {
-        [elapsedTimeLabel]: e.elapsedTime.toFixed(3),
-      };
 
       // Name each input argument and make it clear which inputs were not provided
       // (i.e., the argument was optional).  Otherwise, stringify the value for
@@ -352,7 +348,7 @@ function main() {
                   expandCell.classList.add("hidden"); // hide if currently expanded
                 }
                 expandCell.addEventListener("click", () => {
-                  toggleExpandColumn(cell, expandCell, type);
+                  toggleExpandColumn(type);
                 });
               }
               // Individual property validator column
@@ -391,7 +387,7 @@ function main() {
                 collapseCell.id = type + "-" + collapseLabel;
                 collapseCell.classList.add("expandCollapseColumn", "clickable");
                 collapseCell.addEventListener("click", () => {
-                  toggleExpandColumn(cell, collapseCell, type);
+                  toggleExpandColumn(type);
                 });
               }
             } // if useProperty and multiple validators
@@ -438,10 +434,8 @@ function main() {
 
 /**
  * Toggles whether more fuzzer options are shown.
- *
- * @param e onClick() event
  */
-function toggleFuzzOptions(e) {
+function toggleFuzzOptions() {
   const fuzzOptions = document.getElementById("fuzzOptions");
   const fuzzOptionsButton = getElementByIdOrThrow("fuzz.options");
   if (isHidden(fuzzOptions)) {
@@ -638,7 +632,7 @@ function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
   });
 }
 
-function toggleExpandColumn(cell, expandCell, type) {
+function toggleExpandColumn(type) {
   const thead = getElementByIdOrThrow(`fuzzResultsGrid-${type}-thead`);
   const tbody = getElementByIdOrThrow(`fuzzResultsGrid-${type}-tbody`);
 
@@ -1099,20 +1093,20 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
 
       // Event handler for text field
       const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
-      textField.addEventListener("change", (e) =>
-        buildExpectedTestCase(textField, id, type, index)
+      textField.addEventListener("change", () =>
+        buildExpectedTestCase(id, type, index)
       );
 
       // Event handler for timeout radio button
       const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
       radioTimeout.addEventListener("change", () =>
-        buildExpectedTestCase(radioTimeout, id, type, index)
+        buildExpectedTestCase(id, type, index)
       );
 
       // Event handler for exception radio button
       const radioException = getElementByIdOrThrow(`fuzz-radioException${id}`);
       radioException.addEventListener("change", () =>
-        buildExpectedTestCase(radioException, id, type, index)
+        buildExpectedTestCase(id, type, index)
       );
 
       // Event handler for value radio button
@@ -1123,14 +1117,14 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
         } else {
           hide(textField);
         }
-        buildExpectedTestCase(radioValue, id, type, index);
+        buildExpectedTestCase(id, type, index);
       });
 
       // Event handler for ok button
       const okButton = getElementByIdOrThrow(`fuzz-expectedOutputOk${id}`);
-      okButton.addEventListener("click", (e) => {
+      okButton.addEventListener("click", () => {
         // Build the test case from the expected output panel
-        const testCase = buildExpectedTestCase(radioValue, id, type, index);
+        const testCase = buildExpectedTestCase(id, type, index);
 
         // If the test case is valid, save it & exit the screen
         if (testCase) {
@@ -1197,7 +1191,7 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
 
       // Create event handler for edit click
       const editButton = getElementByIdOrThrow(`fuzz-editExpectedOutput${id}`);
-      editButton.addEventListener("click", (e) => {
+      editButton.addEventListener("click", () => {
         toggleHidden(expectedRow);
         handleExpectedOutput(type, row, tbody, true, editButton);
       });
@@ -1247,15 +1241,13 @@ function expectedOutputHtml(id, index, type) {
 /**
  * Builds a test case from the expected output panel
  *
- * @param e on-change event
  * @param id id of row
- * @param data back-end data structure
  * @param type e.g. bad output, passed
  * @param index index in `data`
  *
  * @returns test case object or undefined if the expected value is invalid
  */
-function buildExpectedTestCase(e, id, type, index) {
+function buildExpectedTestCase(id, type, index) {
   const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
   const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
   const radioException = getElementByIdOrThrow(`fuzz-radioException${id}`);
@@ -1489,10 +1481,8 @@ function refreshValidators(validatorList) {
 /**
  * Send message to back-end to add code skeleton to source code (because the
  * user clicked the customValidator button)
- *
- * @param e on-click event
  */
-function handleAddValidator(e) {
+function handleAddValidator() {
   vscode.postMessage({
     command: "validator.add",
     json: JSON5.stringify(""),
@@ -1505,7 +1495,7 @@ function handleAddValidator(e) {
  *
  * @param e on-click event
  */
-function handleOpenSource(e) {
+function handleOpenSource() {
   vscode.postMessage({
     command: "open.source",
     json: JSON5.stringify(""),
@@ -1618,34 +1608,6 @@ function listForValidatorFnTooltip(validatorList) {
     }
   }
   return list;
-}
-
-/**
- * Returns string for list separated with \n
- *
- * @param list list of strings
- * @returns string for list
- */
-function toNewLineList(list) {
-  let str = list.length === 0 ? `none` : ``;
-  list.forEach((e) => {
-    str += `${e}\n`;
-  });
-  return str;
-}
-
-/**
- * Returns HTML for a bulleted list
- *
- * @param list list of strings
- * @returns HTML for bulleted list
- */
-function toBulletListHTML(list) {
-  let html = `<ul>`;
-  list.forEach((e) => {
-    html += `<li> ${e} </li>`;
-  });
-  return (html += `</ul>`);
 }
 
 /**
