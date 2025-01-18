@@ -26,3 +26,15 @@ build({
   format: "cjs",
   sourcemap: "both",
 });
+
+build({
+  entry: "./assets/ui/FuzzPanelMain.ts",
+  bundle: true,
+  sourcemap: "inline",
+  tsconfig: "./tsconfig.json",
+  platform: "browser",
+  outfile: "./build/ui/FuzzPanelMain.js",
+  minify: true,
+  format: "iife", // IIFE format is suitable for browser-based UI
+  external: [],
+});

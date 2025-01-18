@@ -1,3 +1,7 @@
+import * as JSON5 from "json5";
+
+import { getElementByIdOrThrow } from "./utils";
+
 const vscode = acquireVsCodeApi();
 
 // Attach main to the window onLoad() event
@@ -89,34 +93,34 @@ let validators;
  */
 function main() {
   // Add event listener for the fuzz.start button
-  document
-    .getElementById("fuzz.start")
-    .addEventListener("click", (e) => handleFuzzStart(e.currentTarget));
+  getElementByIdOrThrow("fuzz.start").addEventListener("click", (e) => {
+    handleFuzzStart(e.currentTarget);
+  });
 
   // Add event listener for the fuzz.options button
-  document
-    .getElementById("fuzz.options")
-    .addEventListener("click", (e) => toggleFuzzOptions(e));
+  getElementByIdOrThrow("fuzz.options").addEventListener("click", (e) => {
+    toggleFuzzOptions(e);
+  });
 
   // Add event listener for opening the function source code
-  document
-    .getElementById("openSourceLink")
-    .addEventListener("click", (e) => handleOpenSource(e));
+  getElementByIdOrThrow("openSourceLink").addEventListener("click", (e) => {
+    handleOpenSource(e);
+  });
 
   // Add event listener for the fuzz.options close button
-  document
-    .getElementById("fuzzOptions-close")
-    .addEventListener("click", (e) => toggleFuzzOptions(e));
+  getElementByIdOrThrow("fuzzOptions-close").addEventListener("click", (e) => {
+    toggleFuzzOptions(e);
+  });
 
   // Add event listeners for all the union generate checkboxes
   document.querySelectorAll(".isNoInput vscode-checkbox").forEach((element) => {
-    element.addEventListener("click", (e) =>
+    element.addEventListener("click", (e) => {
       setIsNoInput(
         e.target,
         (e.target.getAttribute("value") ??
           e.target.getAttribute("current-checked")) !== "true" // changing state
-      )
-    );
+      );
+    });
     // Set the UI state
     setIsNoInput(
       element,
@@ -127,26 +131,26 @@ function main() {
 
   // Load the fuzzer results data from the HTML
   resultsData = JSON5.parse(
-    htmlUnescape(document.getElementById("fuzzResultsData").innerHTML)
+    htmlUnescape(getElementByIdOrThrow("fuzzResultsData").innerHTML)
   );
 
   // Add event listener for the validator buttons
-  document
-    .getElementById("validator.add")
-    .addEventListener("click", (e) => handleAddValidator(e));
-  document
-    .getElementById(`validator.getList`)
-    .addEventListener("click", (e) => handleGetListOfValidators(e));
+  getElementByIdOrThrow("validator.add").addEventListener("click", (e) => {
+    handleAddValidator(e);
+  });
+  getElementByIdOrThrow(`validator.getList`).addEventListener("click", (e) => {
+    handleGetListOfValidators(e);
+  });
 
   // Load & display the validator functions from the HTML
   validators = JSON5.parse(
-    htmlUnescape(document.getElementById("validators").innerHTML)
+    htmlUnescape(getElementByIdOrThrow("validators").innerHTML)
   );
   refreshValidators(validators);
 
   // Load column sort orders from the HTML
   columnSortOrders = JSON5.parse(
-    htmlUnescape(document.getElementById("fuzzSortColumns").innerHTML)
+    htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
   );
   if (Object.keys(columnSortOrders).length === 0) {
     columnSortOrders = defaultColumnSortOrders;
@@ -166,9 +170,7 @@ function main() {
   // an 'official' way to directly persist state within the extension itself,
   // at least as of vscode 1.69.2.  Hence, the roundtrip.
   vscode.setState(
-    JSON5.parse(
-      htmlUnescape(document.getElementById("fuzzPanelState").innerHTML)
-    )
+    JSON5.parse(htmlUnescape(getElementByIdOrThrow("fuzzPanelState").innerHTML))
   );
 
   // Fill the result grids
@@ -272,7 +274,7 @@ function main() {
     // Fill the grids with data
     gridTypes.forEach((type) => {
       if (data[type].length) {
-        const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
+        const thead = getElementByIdOrThrow(`fuzzResultsGrid-${type}-thead`);
         const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
 
         // Render the header row
@@ -294,8 +296,7 @@ function main() {
           } else if (k === implicitLabel) {
             if (resultsData.env.options.useImplicit) {
               const heuristicValidatorDescription =
-                document.getElementById("fuzz-useImplicit").children[0]
-                  .ariaLabel;
+                getElementByIdOrThrow("fuzz-useImplicit").children[0].ariaLabel;
               const cell = hRow.appendChild(document.createElement("th"));
               cell.id = type + "-" + implicitLabel;
               cell.classList.add("colorColumn", "clickable");
@@ -442,7 +443,7 @@ function main() {
  */
 function toggleFuzzOptions(e) {
   const fuzzOptions = document.getElementById("fuzzOptions");
-  const fuzzOptionsButton = document.getElementById("fuzz.options");
+  const fuzzOptionsButton = getElementByIdOrThrow("fuzz.options");
   if (isHidden(fuzzOptions)) {
     toggleHidden(fuzzOptions);
     fuzzOptionsButton.innerHTML = "Fewer options";
@@ -502,7 +503,7 @@ function handlePinToggle(id, type) {
   if (index <= -1) throw e("invalid id");
 
   // Get the control that was clicked
-  const button = document.getElementById(`fuzzSaveToggle-${id}`);
+  const button = getElementByIdOrThrow(`fuzzSaveToggle-${id}`);
 
   // Are we pinning or unpinning the test?
   const pinning = button.innerHTML === pinState.htmlPin;
@@ -612,7 +613,7 @@ function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
   drawTableBody(type, tbody, true, button);
 
   const onOff = JSON.parse(button.getAttribute("onOff"));
-  const pinCell = document.getElementById(`fuzzSaveToggle-${id}`);
+  const pinCell = getElementByIdOrThrow(`fuzzSaveToggle-${id}`);
   const isPinned = pinCell.className === pinState.classPinned;
 
   // Get the test data for the test case
@@ -638,8 +639,8 @@ function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
 }
 
 function toggleExpandColumn(cell, expandCell, type) {
-  const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
-  const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
+  const thead = getElementByIdOrThrow(`fuzzResultsGrid-${type}-thead`);
+  const tbody = getElementByIdOrThrow(`fuzzResultsGrid-${type}-tbody`);
 
   const valIdx = getIdxInTableHeader(
     type + "-" + validators.validators[0],
@@ -912,12 +913,12 @@ function drawTableBody(type, tbody, isClicking, button) {
         cell.id = `fuzzSaveToggle-${id}`;
         cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
         cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
-        cell.addEventListener("click", (e) =>
+        cell.addEventListener("click", (e) => {
           handlePinToggle(
             e.currentTarget.parentElement.getAttribute("id"),
             type
-          )
-        );
+          );
+        });
       } else if (k === idLabel) {
         id = parseInt(e[k]);
         row.setAttribute("id", id);
@@ -1015,16 +1016,16 @@ function drawTableBody(type, tbody, isClicking, button) {
         const cell1 = row.appendChild(document.createElement("td"));
         cell1.innerHTML = correctState.htmlCheck;
         cell1.setAttribute("correctType", "true");
-        cell1.addEventListener("click", () =>
-          handleCorrectToggle(cell1, row, type, tbody, cell1, cell2)
-        );
+        cell1.addEventListener("click", () => {
+          handleCorrectToggle(cell1, row, type, tbody, cell1, cell2);
+        });
         // Add X mark icon
         const cell2 = row.appendChild(document.createElement("td"));
         cell2.innerHTML = correctState.htmlError;
         cell2.setAttribute("correctType", "false");
-        cell2.addEventListener("click", () =>
-          handleCorrectToggle(cell2, row, type, tbody, cell1, cell2)
-        );
+        cell2.addEventListener("click", () => {
+          handleCorrectToggle(cell2, row, type, tbody, cell1, cell2);
+        });
 
         // Defaults here; override in the switch below
         cell1.className = correctState.classCheckOff;
@@ -1097,27 +1098,25 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
       cell.innerHTML = expectedOutputHtml(id, index, type);
 
       // Event handler for text field
-      const textField = document.getElementById(`fuzz-expectedOutput${id}`);
+      const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
       textField.addEventListener("change", (e) =>
         buildExpectedTestCase(textField, id, type, index)
       );
 
       // Event handler for timeout radio button
-      const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
+      const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
       radioTimeout.addEventListener("change", () =>
         buildExpectedTestCase(radioTimeout, id, type, index)
       );
 
       // Event handler for exception radio button
-      const radioException = document.getElementById(
-        `fuzz-radioException${id}`
-      );
+      const radioException = getElementByIdOrThrow(`fuzz-radioException${id}`);
       radioException.addEventListener("change", () =>
         buildExpectedTestCase(radioException, id, type, index)
       );
 
       // Event handler for value radio button
-      const radioValue = document.getElementById(`fuzz-radioValue${id}`);
+      const radioValue = getElementByIdOrThrow(`fuzz-radioValue${id}`);
       radioValue.addEventListener("change", () => {
         if (radioValue.checked) {
           show(textField);
@@ -1128,7 +1127,7 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
       });
 
       // Event handler for ok button
-      const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
+      const okButton = getElementByIdOrThrow(`fuzz-expectedOutputOk${id}`);
       okButton.addEventListener("click", (e) => {
         // Build the test case from the expected output panel
         const testCase = buildExpectedTestCase(radioValue, id, type, index);
@@ -1197,9 +1196,7 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
         </div>`;
 
       // Create event handler for edit click
-      const editButton = document.getElementById(
-        `fuzz-editExpectedOutput${id}`
-      );
+      const editButton = getElementByIdOrThrow(`fuzz-editExpectedOutput${id}`);
       editButton.addEventListener("click", (e) => {
         toggleHidden(expectedRow);
         handleExpectedOutput(type, row, tbody, true, editButton);
@@ -1259,13 +1256,11 @@ function expectedOutputHtml(id, index, type) {
  * @returns test case object or undefined if the expected value is invalid
  */
 function buildExpectedTestCase(e, id, type, index) {
-  const textField = document.getElementById(`fuzz-expectedOutput${id}`);
-  const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
-  const radioException = document.getElementById(`fuzz-radioException${id}`);
-  const radioValue = document.getElementById(`fuzz-radioValue${id}`);
-  const errorMessage = document.getElementById(
-    `fuzz-expectedOutputMessage${id}`
-  );
+  const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
+  const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
+  const radioException = getElementByIdOrThrow(`fuzz-radioException${id}`);
+  const radioValue = getElementByIdOrThrow(`fuzz-radioValue${id}`);
+  const errorMessage = getElementByIdOrThrow(`fuzz-expectedOutputMessage${id}`);
   const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
 
   // Check if the expected value is valid JSON
@@ -1578,7 +1573,7 @@ function show(e) {
  */
 function getColCountForTable(type) {
   // Get the table header row
-  const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
+  const thead = getElementByIdOrThrow(`fuzzResultsGrid-${type}-thead`);
   const theadRow = thead.rows[0];
 
   // Return the sum of the cell colspans
@@ -1671,7 +1666,7 @@ function getIdBase(i) {
  * @param html HTML to unescape
  * @returns unescaped string
  */
-function htmlUnescape(html) {
+function htmlUnescape(html: string) {
   return html
     .replace(/&gt;/g, ">")
     .replace(/&lt;/g, "<")
@@ -1688,7 +1683,7 @@ function htmlUnescape(html) {
  * @param str string to escape
  * @returns escaped string
  */
-function htmlEscape(str) {
+function htmlEscape(str: string) {
   return str
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
