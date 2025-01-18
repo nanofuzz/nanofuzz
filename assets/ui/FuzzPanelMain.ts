@@ -332,7 +332,7 @@ function main() {
               cell.id = type + "-" + validatorLabel;
               cell.classList.add("colorColumn", "clickable");
               if (validators.validators.length > 1) {
-                cell.style = "padding-right:3px"; // close to twistie column
+                cell.style.paddingRight = "3px"; // close to twistie column
               }
               cell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-nw" aria-label="${
@@ -380,9 +380,12 @@ function main() {
                   <span class="codicon codicon-hubot" style="font-size: 1em;"></span> <!-- small -->
                 </span>`;
               cell.id = type + "-" + k;
-              cell.style = "padding-left:0px; padding-right:0px;";
+              cell.style.paddingLeft = "0px";
+              cell.style.paddingRight = "0px";
               if (validators.validators.indexOf(k) === 0) {
-                cell.style = "padding-left:16px; padding-right:6px"; // add padding to first custom validator header cell
+                // add padding to first custom validator header cell
+                cell.style.paddingLeft = "16px";
+                cell.style.paddingRight = "6px";
               }
               if (columnSortOrders[type][expandLabel] === "asc") {
                 cell.classList.add("hidden"); // hide individual validators if currently collapsed
@@ -980,7 +983,7 @@ function drawTableBody(type: FuzzResultCategory, tbody, isClicking, button) {
           // Property validator column (summary)
           const cell = row.appendChild(document.createElement("td"));
           if (validators.validators.length > 1) {
-            cell.style = "padding-right:0px;"; // close to twistie column if multiple validators
+            cell.style.paddingRight = "0px"; // close to twistie column if multiple validators
           }
           if (e[k] === undefined) {
             cell.innerHTML = "";
@@ -1010,7 +1013,7 @@ function drawTableBody(type: FuzzResultCategory, tbody, isClicking, button) {
           }
           // Individual property validator column
           const cell = row.appendChild(document.createElement("td"));
-          cell.style = "text-align: right;";
+          cell.style.textAlign = "right";
           if (e[k] === undefined) {
             cell.innerHTML = "";
           } else if (e[k]) {
