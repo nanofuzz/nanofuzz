@@ -128,10 +128,17 @@ function main() {
   // Add event listeners for all the union generate checkboxes
   document.querySelectorAll(".isNoInput vscode-checkbox").forEach((element) => {
     element.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!target) {
+        throw new Error("no target");
+      }
+      if (!(target instanceof HTMLElement)) {
+        throw new Error("target not HTMLElement");
+      }
       setIsNoInput(
-        e.target,
-        (e.target.getAttribute("value") ??
-          e.target.getAttribute("current-checked")) !== "true" // changing state
+        target,
+        (target.getAttribute("value") ??
+          target.getAttribute("current-checked")) !== "true" // changing state
       );
     });
     // Set the UI state
@@ -225,10 +232,10 @@ function main() {
       //   : {};
 
       // Result for each property validator (true if passed)
-      const validatorFns = {};
-      for (const v in e.passedValidators) {
-        validatorFns[validators.validators[v]] = e.passedValidators[v];
-      }
+      const validatorFns: Record<string, boolean> = {};
+      e.passedValidators?.forEach((v, i) => {
+        validatorFns[validators.validators[i]] = v;
+      });
 
       // Name each input argument and make it clear which inputs were not provided
       // (i.e., the argument was optional).  Otherwise, stringify the value for
