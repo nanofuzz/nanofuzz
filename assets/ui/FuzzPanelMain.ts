@@ -1,6 +1,6 @@
 import * as JSON5 from "json5";
 
-import { getElementByIdOrThrow } from "./utils";
+import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./utils";
 import {
   FuzzResultCategory,
   FuzzSortColumns,
@@ -292,7 +292,10 @@ function main() {
     gridTypes.forEach((type) => {
       if (data[type].length) {
         const thead = getElementByIdOrThrow(`fuzzResultsGrid-${type}-thead`);
-        const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
+        const tbody = getElementByIdWithTypeOrThrow(
+          `fuzzResultsGrid-${type}-tbody`,
+          HTMLTableSectionElement
+        );
 
         // Render the header row
         const hRow = thead.appendChild(document.createElement("tr"));
@@ -441,7 +444,7 @@ function main() {
         }); // for each column k
 
         // Render the data rows, set up event listeners
-        drawTableBody(type, tbody, false);
+        drawTableBody({ type, tbody, isClicking: false });
 
         // Initial sort, according to columnSortOrders
         for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
@@ -521,7 +524,10 @@ function handlePinToggle(id, type: FuzzResultCategory) {
   if (index <= -1) throw e("invalid id");
 
   // Get the control that was clicked
-  const button = getElementByIdOrThrow(`fuzzSaveToggle-${id}`);
+  const button = getElementByIdWithTypeOrThrow(
+    `fuzzSaveToggle-${id}`,
+    HTMLTableCellElement
+  );
 
   // Are we pinning or unpinning the test?
   const pinning = button.innerHTML === pinState.htmlPin;
@@ -574,12 +580,12 @@ function handlePinToggle(id, type: FuzzResultCategory) {
  * @param cell2 error icon
  */
 function handleCorrectToggle(
-  button,
-  row,
+  button: HTMLTableCellElement,
+  row: HTMLTableRowElement,
   type: FuzzResultCategory,
-  tbody,
-  cell1,
-  cell2
+  tbody: HTMLTableSectionElement,
+  cell1: HTMLTableCellElement,
+  cell2: HTMLTableCellElement
 ) {
   const id = row.getAttribute("id");
   const index = data[type].findIndex((element) => element.id == id);
@@ -635,10 +641,13 @@ function handleCorrectToggle(
   }
 
   // Redraw table
-  drawTableBody(type, tbody, true, button);
+  drawTableBody({ type, tbody, isClicking: true, button });
 
   const onOff = JSON.parse(button.getAttribute("onOff"));
-  const pinCell = getElementByIdOrThrow(`fuzzSaveToggle-${id}`);
+  const pinCell = getElementByIdWithTypeOrThrow(
+    `fuzzSaveToggle-${id}`,
+    HTMLTableCellElement
+  );
   const isPinned = pinCell.className === pinState.classPinned;
 
   // Get the test data for the test case
@@ -664,8 +673,14 @@ function handleCorrectToggle(
 }
 
 function toggleExpandColumn(type: FuzzResultCategory) {
-  const thead = getElementByIdOrThrow(`fuzzResultsGrid-${type}-thead`);
-  const tbody = getElementByIdOrThrow(`fuzzResultsGrid-${type}-tbody`);
+  const thead = getElementByIdWithTypeOrThrow(
+    `fuzzResultsGrid-${type}-thead`,
+    HTMLTableSectionElement
+  );
+  const tbody = getElementByIdWithTypeOrThrow(
+    `fuzzResultsGrid-${type}-tbody`,
+    HTMLTableSectionElement
+  );
 
   const valIdx = getIdxInTableHeader(
     type + "-" + validators.validators[0],
@@ -677,7 +692,7 @@ function toggleExpandColumn(type: FuzzResultCategory) {
     toggleHidden(document.getElementById(type + "-" + valName));
   }
   // Show or hide custom validator table cells
-  for (const row of tbody.rows) {
+  for (const row of Array.from(tbody.rows)) {
     if (row.getAttribute("class") === "classErrorExpectedOutputRow") continue;
     for (let i = valIdx; i < valIdx + validators.validators.length; ++i) {
       toggleHidden(row.cells[i]); // custom validator cell
@@ -707,7 +722,7 @@ function toggleExpandColumn(type: FuzzResultCategory) {
  * @param cell cell of hRow
  * @param hRow header row
  * @param type (timeout, exception, badValue, ok, etc.)
- * @param col (ex: input:a, output, pin)
+ * @param column (ex: input:a, output, pin)
  * @param tbody table body
  * @param isClicking true if user clicked a column; false if an 'initial sort'
  *
@@ -720,8 +735,8 @@ function handleColumnSort(
   hRow,
   type: FuzzResultCategory,
   column,
-  tbody,
-  isClicking
+  tbody: HTMLTableSectionElement,
+  isClicking: boolean
 ) {
   // console.debug(`Sorting type:'${type}' col:'${column}' cell:'${cell.id}'`);
 
@@ -814,7 +829,7 @@ function handleColumnSort(
   });
 
   // Sorting done, display table
-  drawTableBody(type, tbody, false);
+  drawTableBody({ type, tbody, isClicking: false });
 
   // Send message to extension to retain sort order
   if (isClicking) {
@@ -867,7 +882,12 @@ function resetOtherColumnArrows(hRow, type: FuzzResultCategory, thisCol) {
  * is being called because the user clicked on a column
  * @returns
  */
-function updateColumnArrow(cell, type: FuzzResultCategory, col, isClicking) {
+function updateColumnArrow(
+  cell: HTMLTableCellElement,
+  type: FuzzResultCategory,
+  col,
+  isClicking: boolean
+) {
   // Pinned and correct columns are special -- can be sorted by them, plus one addtional column
   let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
   let currIndex = -1; // index in sortOrder array
@@ -928,7 +948,18 @@ function updateColumnArrow(cell, type: FuzzResultCategory, col, isClicking) {
  * @param tbody table body
  * @param isClicking bool true if user is clicking
  */
-function drawTableBody(type: FuzzResultCategory, tbody, isClicking, button) {
+function drawTableBody({
+  type,
+  tbody,
+  isClicking,
+  button,
+}: {
+  type: FuzzResultCategory;
+  tbody: HTMLTableSectionElement;
+} & (
+  | { isClicking: true; button: HTMLElement }
+  | { isClicking: false; button?: undefined }
+)) {
   // Clear table
   while (tbody.rows.length > 0) tbody.deleteRow(0);
 
@@ -1072,12 +1103,20 @@ function drawTableBody(type: FuzzResultCategory, tbody, isClicking, button) {
           case "true":
             cell1.className = correctState.classCheckOn;
             cell1.setAttribute("onOff", "true");
-            handleExpectedOutput(type, row, tbody, isClicking, button);
+            if (isClicking) {
+              handleExpectedOutput({ type, row, tbody, isClicking, button });
+            } else {
+              handleExpectedOutput({ type, row, tbody, isClicking, button });
+            }
             break;
           case "false":
             cell2.className = correctState.classErrorOn;
             cell2.setAttribute("onOff", "true");
-            handleExpectedOutput(type, row, tbody, isClicking, button);
+            if (isClicking) {
+              handleExpectedOutput({ type, row, tbody, isClicking, button });
+            } else {
+              handleExpectedOutput({ type, row, tbody, isClicking, button });
+            }
             break;
         }
         cell1.classList.add("colGroupStart", "clickable");
@@ -1099,13 +1138,20 @@ function drawTableBody(type: FuzzResultCategory, tbody, isClicking, button) {
  * @param row row of tbody
  * @param tbody table body for 'type'
  */
-function handleExpectedOutput(
-  type: FuzzResultCategory,
+function handleExpectedOutput({
+  type,
   row,
   tbody,
   isClicking,
-  button
-) {
+  button,
+}: {
+  type: FuzzResultCategory;
+  row: HTMLTableRowElement;
+  tbody: HTMLTableSectionElement;
+} & (
+  | { isClicking: true; button: HTMLElement }
+  | { isClicking: false; button?: undefined }
+)) {
   const id = row.getAttribute("id");
   let toggledId;
   if (isClicking) {
@@ -1184,7 +1230,7 @@ function handleExpectedOutput(
           });
 
           // Re-draw the expected output row again
-          handleExpectedOutput(type, row, tbody, false, button);
+          handleExpectedOutput({ type, row, tbody, isClicking: false });
 
           // Hide this panel that is collecting the expected output
           expectedRow.remove();
@@ -1237,7 +1283,13 @@ function handleExpectedOutput(
       const editButton = getElementByIdOrThrow(`fuzz-editExpectedOutput${id}`);
       editButton.addEventListener("click", () => {
         toggleHidden(expectedRow);
-        handleExpectedOutput(type, row, tbody, true, editButton);
+        handleExpectedOutput({
+          type,
+          row,
+          tbody,
+          isClicking: true,
+          button: editButton,
+        });
       });
     }
   }
@@ -1607,7 +1659,10 @@ function show(e) {
  */
 function getColCountForTable(type: FuzzResultCategory) {
   // Get the table header row
-  const thead = getElementByIdOrThrow(`fuzzResultsGrid-${type}-thead`);
+  const thead = getElementByIdWithTypeOrThrow(
+    `fuzzResultsGrid-${type}-thead`,
+    HTMLTableSectionElement
+  );
   const theadRow = thead.rows[0];
 
   // Return the sum of the cell colspans
