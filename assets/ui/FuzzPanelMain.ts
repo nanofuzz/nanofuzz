@@ -2,6 +2,7 @@ import * as JSON5 from "json5";
 
 import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./utils";
 import {
+  FuzzIoElement,
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
@@ -463,7 +464,7 @@ function main() {
  * Toggles whether more fuzzer options are shown.
  */
 function toggleFuzzOptions() {
-  const fuzzOptions = document.getElementById("fuzzOptions");
+  const fuzzOptions = getElementByIdOrThrow("fuzzOptions");
   const fuzzOptionsButton = getElementByIdOrThrow("fuzz.options");
   if (isHidden(fuzzOptions)) {
     toggleHidden(fuzzOptions);
@@ -482,12 +483,12 @@ function toggleFuzzOptions() {
  *
  * @param e onClick() event target
  */
-function setIsNoInput(vsCodeCheckbox, isChecked) {
+function setIsNoInput(vsCodeCheckbox: any, isChecked: any) {
   const checkboxWrapper = vsCodeCheckbox.parentElement;
   const thisArg = vsCodeCheckbox.parentElement.parentElement;
 
   // Fade/un-fade the arg (except the checkbox wrapper)
-  thisArg.querySelectorAll(":scope > div").forEach((child) => {
+  thisArg.querySelectorAll(":scope > div").forEach((child: any) => {
     if (child != checkboxWrapper) {
       if (isChecked) {
         child.classList.remove("faded");
@@ -501,13 +502,13 @@ function setIsNoInput(vsCodeCheckbox, isChecked) {
     .querySelectorAll(
       ":scope > .argDef-type, :scope > .argDef-array, :scope > .argDef-preClose"
     )
-    .forEach((child) => {
+    .forEach((child: any) => {
       (isChecked ? show : hide)(child);
     });
   // Hide/Show the ellipsis
   thisArg
     .querySelectorAll(":scope > .argDef-name > .argDef-ellipsis")
-    .forEach((child) => {
+    .forEach((child: any) => {
       (isChecked ? hide : show)(child);
     });
 } // fn: setIsNoInput()
@@ -519,9 +520,9 @@ function setIsNoInput(vsCodeCheckbox, isChecked) {
  * @param type grid type (e.g., passed, invalid)
  * @param data the back-end data structure
  */
-function handlePinToggle(id, type: FuzzResultCategory) {
+function handlePinToggle(id: any, type: FuzzResultCategory) {
   const index = data[type].findIndex((element) => element.id == id);
-  if (index <= -1) throw e("invalid id");
+  if (index <= -1) throw new Error("invalid id");
 
   // Get the control that was clicked
   const button = getElementByIdWithTypeOrThrow(
@@ -534,7 +535,12 @@ function handlePinToggle(id, type: FuzzResultCategory) {
   data[type][index][pinnedLabel] = pinning;
 
   // Get the test data for the test case
-  const testCase = {
+  const testCase: {
+    input: FuzzIoElement[];
+    output: FuzzIoElement[];
+    pinned: boolean;
+    expectedOutput?: any;
+  } = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: data[type][index][pinnedLabel],
@@ -542,9 +548,6 @@ function handlePinToggle(id, type: FuzzResultCategory) {
   if (data[type][index][expectedLabel]) {
     testCase.expectedOutput = data[type][index][expectedLabel];
   }
-
-  // Disable the control while we wait for the response
-  button.disabled = true;
 
   // Send the request to the extension
   window.setTimeout(() => {
@@ -563,9 +566,6 @@ function handlePinToggle(id, type: FuzzResultCategory) {
       button.className = pinState.classPin;
       button.setAttribute("aria-label", "pin");
     }
-
-    // Disable the control while we wait for the response
-    button.disabled = false;
   });
 } // fn: handleSaveToggle()
 
@@ -587,9 +587,13 @@ function handleCorrectToggle(
   cell1: HTMLTableCellElement,
   cell2: HTMLTableCellElement
 ) {
-  const id = row.getAttribute("id");
+  const idStr = row.getAttribute("id");
+  if (idStr === null) {
+    throw new Error("no id");
+  }
+  const id = parseInt(idStr, 10);
   const index = data[type].findIndex((element) => element.id == id);
-  if (index <= -1) throw e("invalid id");
+  if (index <= -1) throw new Error("invalid id");
 
   // Change the state of the correct icon that was clicked
   // Only one icon should be selected at a time; if an icon is turned on, all
@@ -617,11 +621,11 @@ function handleCorrectToggle(
     cell2.className = correctState.classErrorOff;
     cell2.setAttribute("onOff", "false");
     //save expected output value
-    if (resultsData.results[id].timeout === true) {
+    if (resultsData.results[id].timeout) {
       data[type][index][expectedLabel] = [
         { name: "0", offset: 0, isTimeout: true },
       ];
-    } else if (resultsData.results[id].exception === true) {
+    } else if (resultsData.results[id].exception) {
       data[type][index][expectedLabel] = [
         { name: "0", offset: 0, isException: true },
       ];
@@ -643,7 +647,11 @@ function handleCorrectToggle(
   // Redraw table
   drawTableBody({ type, tbody, isClicking: true, button });
 
-  const onOff = JSON.parse(button.getAttribute("onOff"));
+  const onOffStr = button.getAttribute("onOff");
+  if (onOffStr !== "true" && onOffStr !== "false") {
+    throw new Error("invalid onOff value");
+  }
+  const onOff: boolean = JSON.parse(onOffStr);
   const pinCell = getElementByIdWithTypeOrThrow(
     `fuzzSaveToggle-${id}`,
     HTMLTableCellElement
@@ -658,17 +666,12 @@ function handleCorrectToggle(
     expectedOutput: data[type][index][expectedLabel],
   };
 
-  // Disable the control while we wait for the response
-  button.disabled = true;
-
   // Send the request to the extension
   window.setTimeout(() => {
     vscode.postMessage({
       command: onOff ? "test.pin" : "test.unpin",
       json: JSON5.stringify(testCase),
     });
-    // Disable the control while we wait for the response
-    button.disabled = false;
   });
 }
 
@@ -689,7 +692,7 @@ function toggleExpandColumn(type: FuzzResultCategory) {
 
   // Show or hide custom validator fn header
   for (const valName of validators.validators) {
-    toggleHidden(document.getElementById(type + "-" + valName));
+    toggleHidden(getElementByIdOrThrow(type + "-" + valName));
   }
   // Show or hide custom validator table cells
   for (const row of Array.from(tbody.rows)) {
@@ -702,12 +705,14 @@ function toggleExpandColumn(type: FuzzResultCategory) {
   }
 
   // Show or hide twistie column headers (expand, collapse)
-  toggleHidden(document.getElementById(type + "-" + expandLabel));
-  toggleHidden(document.getElementById(type + "-" + collapseLabel));
+  toggleHidden(getElementByIdOrThrow(type + "-" + expandLabel));
+  toggleHidden(getElementByIdOrThrow(type + "-" + collapseLabel));
 
   // Send message to extension to retain whether columns are expanded or hidden
   columnSortOrders[type][expandLabel] =
-    columnSortOrders[type][expandLabel] === "desc" ? "asc" : "desc";
+    columnSortOrders[type][expandLabel] === "desc"
+      ? FuzzSortOrder.asc
+      : FuzzSortOrder.desc;
   vscode.postMessage({
     command: "columns.sorted",
     json: JSON5.stringify(columnSortOrders),
@@ -731,10 +736,10 @@ function toggleExpandColumn(type: FuzzResultCategory) {
  *  - Making sure we retain previous sort settings if you click 'Test' again
  */
 function handleColumnSort(
-  cell,
-  hRow,
+  cell: any,
+  hRow: any,
   type: FuzzResultCategory,
-  column,
+  column: any,
   tbody: HTMLTableSectionElement,
   isClicking: boolean
 ) {
@@ -744,7 +749,7 @@ function handleColumnSort(
   // columns being special cases)
   // Reset the other column arrows to 'none'
   if (isClicking) {
-    resetOtherColumnArrows(hRow, type, column);
+    resetOtherColumnArrows(type, column);
   }
 
   // Update the sort arrow for this column (asc->desc etc, and frontend)
@@ -752,7 +757,7 @@ function handleColumnSort(
 
   // Define sorting function:
   // Sort current column value based on sort order
-  const sortFn = (a, b, thisCol) => {
+  const sortFn = (a: any, b: any, thisCol: any) => {
     if (columnSortOrders[type][thisCol] == "none") {
       return 0; // no need to sort
     } else if (columnSortOrders[type][thisCol] == "desc") {
@@ -773,8 +778,16 @@ function handleColumnSort(
     // How are we sorting?
     if (thisCol === correctLabel || thisCol === validatorLabel) {
       // Sort by numerical values in validatorResult map.
-      a = validatorResult[(a[thisCol] ?? "undefined") + ""];
-      b = validatorResult[(b[thisCol] ?? "undefined") + ""];
+      const aId = (a[thisCol] ?? "undefined") + "";
+      const bId = (b[thisCol] ?? "undefined") + "";
+      if (aId !== "true" && aId !== "false" && aId !== "undefined") {
+        throw new Error(`Invalid validator result: ${aId}`);
+      }
+      if (bId !== "true" && bId !== "false" && bId !== "undefined") {
+        throw new Error(`Invalid validator result: ${bId}`);
+      }
+      a = validatorResult[aId];
+      b = validatorResult[bId];
     } else {
       switch (aType) {
         case "number":
@@ -844,11 +857,10 @@ function handleColumnSort(
  * For a given type, set columns arrows to 'none', unless the column is
  * the current column being sorted by. The 'pinned' column is a special case
  *
- * @param hRow header row
  * @param type (timeout, exception, badValue, ok)
  * @param thisCol the current column being sorted by
  */
-function resetOtherColumnArrows(hRow, type: FuzzResultCategory, thisCol) {
+function resetOtherColumnArrows(type: FuzzResultCategory, thisCol: any) {
   for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
     // For a given type, iterate over the columns (ex: input a, output, pin)
     const col = Object.keys(data[type][0])[i]; // back-end column
@@ -885,7 +897,7 @@ function resetOtherColumnArrows(hRow, type: FuzzResultCategory, thisCol) {
 function updateColumnArrow(
   cell: HTMLTableCellElement,
   type: FuzzResultCategory,
-  col,
+  col: any,
   isClicking: boolean
 ) {
   // Pinned and correct columns are special -- can be sorted by them, plus one addtional column
@@ -936,7 +948,7 @@ function updateColumnArrow(
       cell.classList.remove("columnSortAscSmall");
       break;
     default:
-      assert(false);
+    // TODO: add a type check here to ensure this never happens
   }
 } //fn: updateColumnArrows
 
@@ -977,14 +989,20 @@ function drawTableBody({
         cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
         cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
         cell.addEventListener("click", (e) => {
-          handlePinToggle(
-            e.currentTarget.parentElement.getAttribute("id"),
-            type
-          );
+          const currentTarget = e.currentTarget;
+          if (
+            currentTarget === null ||
+            !("parentElement" in currentTarget) ||
+            !currentTarget.parentElement ||
+            !(currentTarget.parentElement instanceof HTMLElement)
+          ) {
+            throw new Error("Invalid event target");
+          }
+          handlePinToggle(currentTarget.parentElement.getAttribute("id"), type);
         });
       } else if (k === idLabel) {
         id = parseInt(e[k]);
-        row.setAttribute("id", id);
+        row.setAttribute("id", `${id}`);
       } else if (hiddenColumns.indexOf(k) !== -1) {
         // noop (hidden)
       } else if (k === implicitLabel) {
@@ -1152,9 +1170,16 @@ function handleExpectedOutput({
   | { isClicking: true; button: HTMLElement }
   | { isClicking: false; button?: undefined }
 )) {
-  const id = row.getAttribute("id");
+  const idStr = row.getAttribute("id");
+  if (idStr === null) {
+    throw new Error("no id");
+  }
+  const id = parseInt(idStr, 10);
   let toggledId;
   if (isClicking) {
+    if (!button.parentElement) {
+      throw new Error("no parent element");
+    }
     toggledId =
       button.parentElement.getAttribute("id") ?? // human validation X button
       button.getAttribute("rowId"); // expected value edit button
@@ -1173,6 +1198,9 @@ function handleExpectedOutput({
       "afterend",
       document.createElement("tr")
     );
+    if (expectedRow === null) {
+      throw new Error("failed to create expected row");
+    }
     const cell = expectedRow.appendChild(document.createElement("td"));
     cell.colSpan = getColCountForTable(type);
 
@@ -1202,7 +1230,7 @@ function handleExpectedOutput({
       // Event handler for value radio button
       const radioValue = getElementByIdOrThrow(`fuzz-radioValue${id}`);
       radioValue.addEventListener("change", () => {
-        if (radioValue.checked) {
+        if ("checked" in radioValue && radioValue.checked) {
           show(textField);
         } else {
           hide(textField);
@@ -1239,7 +1267,7 @@ function handleExpectedOutput({
 
       // Bounce & give focus to the value field if the value radio is selected
       window.setTimeout(() => {
-        if (radioValue.checked) {
+        if ("checked" in radioValue && radioValue.checked) {
           textField.focus();
         }
       });
@@ -1304,7 +1332,7 @@ function handleExpectedOutput({
  * @param data back-end data structure
  * @param type e.g. bad output, passed
  */
-function expectedOutputHtml(id, index, type: FuzzResultCategory) {
+function expectedOutputHtml(id: any, index: any, type: FuzzResultCategory) {
   const expectedOutput = data[type][index][expectedLabel];
   let defaultOutput;
 
@@ -1318,7 +1346,7 @@ function expectedOutputHtml(id, index, type: FuzzResultCategory) {
     !defaultOutput.isTimeout && !defaultOutput.isException;
 
   // prettier-ignore
-  let html = /*html*/ `
+  const html = /*html*/ `
     What is the expected ouput?
     <vscode-radio-group>
       <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? " checked " : ""}>Exception</vscode-radio>
@@ -1343,13 +1371,13 @@ function expectedOutputHtml(id, index, type: FuzzResultCategory) {
  *
  * @returns test case object or undefined if the expected value is invalid
  */
-function buildExpectedTestCase(id, type: FuzzResultCategory, index) {
+function buildExpectedTestCase(id: any, type: FuzzResultCategory, index: any) {
   const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
   const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
   const radioException = getElementByIdOrThrow(`fuzz-radioException${id}`);
   const radioValue = getElementByIdOrThrow(`fuzz-radioValue${id}`);
   const errorMessage = getElementByIdOrThrow(`fuzz-expectedOutputMessage${id}`);
-  const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
+  const okButton = getElementByIdOrThrow(`fuzz-expectedOutputOk${id}`);
 
   // Check if the expected value is valid JSON
   const expectedValue = textField.getAttribute("current-value");
@@ -1362,7 +1390,7 @@ function buildExpectedTestCase(id, type: FuzzResultCategory, index) {
         : JSON5.parse(expectedValue);
   } catch (e) {
     // Only validate the value if we are doing a value check
-    if (radioValue.checked) {
+    if ("checked" in radioValue && radioValue.checked) {
       // Indicate to the user that there is an error
       textField.classList.add("classErrorCell");
       errorMessage.classList.add("expectedOutputErrorMessage");
@@ -1381,13 +1409,19 @@ function buildExpectedTestCase(id, type: FuzzResultCategory, index) {
   show(okButton);
 
   // Build the expected output object
-  const expectedOutput = {
+  const expectedOutput: {
+    name: string;
+    offset: number;
+    isTimeout?: boolean;
+    isException?: boolean;
+    value?: any;
+  } = {
     name: "0",
     offset: 0,
   };
-  if (radioTimeout.checked) {
+  if ("checked" in radioTimeout && radioTimeout.checked) {
     expectedOutput["isTimeout"] = true;
-  } else if (radioException.checked) {
+  } else if ("checked" in radioException && radioException.checked) {
     expectedOutput["isException"] = true;
   } else {
     expectedOutput["value"] = parsedExpectedValue;
@@ -1409,8 +1443,11 @@ function buildExpectedTestCase(id, type: FuzzResultCategory, index) {
  * // e onClick() event
  * @param eCurrTarget current target of onClick() event
  */
-function handleFuzzStart(eCurrTarget) {
-  const overrides = { fuzzer: {}, args: [] }; // Fuzzer option overrides (from UI)
+function handleFuzzStart(eCurrTarget: any) {
+  const overrides: {
+    fuzzer: any;
+    args: any[];
+  } = { fuzzer: {}, args: [] }; // Fuzzer option overrides (from UI)
   const disableArr = [eCurrTarget]; // List of controls to disable while fuzzer is busy
   const fuzzBase = "fuzz"; // Base html id name
 
@@ -1425,7 +1462,11 @@ function handleFuzzStart(eCurrTarget) {
     const item = document.getElementById(fuzzBase + "-" + e);
     if (item !== null) {
       disableArr.push(item);
-      overrides.fuzzer[e] = parseInt(item.getAttribute("current-value"));
+      const currentValue = item.getAttribute("current-value");
+      if (currentValue === null) {
+        throw new Error("current-value is null");
+      }
+      overrides.fuzzer[e] = parseInt(currentValue);
     }
   });
 
@@ -1443,7 +1484,7 @@ function handleFuzzStart(eCurrTarget) {
   // Process all the argument overrides
   for (let i = 0; document.getElementById(getIdBase(i)) !== null; i++) {
     const idBase = getIdBase(i);
-    const thisOverride = {};
+    const thisOverride: any = {};
     overrides.args.push(thisOverride);
 
     // Get all the possible controls for this argument
@@ -1566,8 +1607,8 @@ function handleFuzzStart(eCurrTarget) {
  *  validators: string[], // list of available custom validators
  * }
  */
-function refreshValidators(validatorList) {
-  const validatorFnList = document.getElementById("validator-functionList");
+function refreshValidators(validatorList: { validators: string[] }) {
+  const validatorFnList = getElementByIdOrThrow("validator-functionList");
   validatorFnList.setAttribute(
     "aria-label",
     listForValidatorFnTooltip(validatorList)
@@ -1616,7 +1657,7 @@ function handleGetListOfValidators() {
  * @param e The DOM node to check for the 'hidden' class
  * @returns true if the DOM node is hidden; false otherwise
  */
-function isHidden(e) {
+function isHidden(e: HTMLElement) {
   return e.classList.contains("hidden");
 } // fn: isHidden()
 
@@ -1625,7 +1666,7 @@ function isHidden(e) {
  *
  * @param e DOM element to toggle
  */
-function toggleHidden(e) {
+function toggleHidden(e: Element) {
   if (e.classList.contains("hidden")) {
     e.classList.remove("hidden");
   } else {
@@ -1638,7 +1679,7 @@ function toggleHidden(e) {
  *
  * @param e DOM element to hide
  */
-function hide(e) {
+function hide(e: HTMLElement) {
   e.classList.add("hidden");
 } // fn: hide()
 
@@ -1647,7 +1688,7 @@ function hide(e) {
  *
  * @param e DOM element to hide
  */
-function show(e) {
+function show(e: HTMLElement) {
   e.classList.remove("hidden");
 } // fn: hide()
 
@@ -1677,7 +1718,7 @@ function getColCountForTable(type: FuzzResultCategory) {
  * @param {*} hRow
  * @returns
  */
-function getIdxInTableHeader(id, hRow) {
+function getIdxInTableHeader(id: any, hRow: any) {
   // Get idx of first custom validator col
   let idx = 0;
   for (const hCell of hRow.cells) {
@@ -1695,7 +1736,7 @@ function getIdxInTableHeader(id, hRow) {
  * @param {*} validatorList list of validator fn names
  * @returns
  */
-function listForValidatorFnTooltip(validatorList) {
+function listForValidatorFnTooltip(validatorList: { validators: string[] }) {
   let list = "Property validators:\n";
   if (validatorList.validators.length === 0) {
     list += "(none)";
@@ -1715,7 +1756,7 @@ function listForValidatorFnTooltip(validatorList) {
  * @param i unique argument id
  * @returns HTML id for the argument
  */
-function getIdBase(i) {
+function getIdBase(i: any) {
   return "argDef-" + i;
 } // fn: getIdBase()
 
