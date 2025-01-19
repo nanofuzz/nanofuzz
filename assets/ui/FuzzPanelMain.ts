@@ -1522,7 +1522,7 @@ function handleFuzzStart(eCurrTarget: any) {
         disableArr.push(min, max);
         const minVal = min.getAttribute("current-value");
         const maxVal = max.getAttribute("current-value");
-        if (minVal !== undefined && maxVal !== undefined) {
+        if (minVal !== null && maxVal !== null) {
           thisOverride.number["min"] = Math.min(Number(minVal), Number(maxVal));
           thisOverride.number["max"] = Math.max(Number(minVal), Number(maxVal));
         }
@@ -1548,7 +1548,7 @@ function handleFuzzStart(eCurrTarget: any) {
         throw new Error("strCharset is null");
       }
       const strCharsetVal = strCharset.getAttribute("current-value");
-      if (minStrLenVal !== undefined && maxStrLenVal !== undefined) {
+      if (minStrLenVal !== null && maxStrLenVal !== null) {
         thisOverride.string = {
           minStrLen: Math.max(
             0,
@@ -1579,7 +1579,7 @@ function handleFuzzStart(eCurrTarget: any) {
         disableArr.push(min, max);
         const minVal = min.getAttribute("current-value");
         const maxVal = max.getAttribute("current-value");
-        if (minVal !== undefined && maxVal !== undefined) {
+        if (minVal !== null && maxVal !== null) {
           dimLength.push({
             min: Math.max(Math.min(Number(minVal), Number(maxVal)), 0),
             max: Math.max(Number(minVal), Number(maxVal), 0),
