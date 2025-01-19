@@ -481,15 +481,22 @@ function toggleFuzzOptions() {
 /**
  * Sets whether the argument should generate inputs
  *
- * @param e onClick() event target
+ * @param vsCodeCheckbox the checkbox that was clicked
+ * @param isChecked whether the checkbox is checked
  */
 function setIsNoInput(vsCodeCheckbox: any, isChecked: any) {
   const checkboxWrapper = vsCodeCheckbox.parentElement;
+  if (!checkboxWrapper || !(checkboxWrapper instanceof HTMLDivElement)) {
+    throw new Error("invalid checkboxWrapper");
+  }
   const thisArg = vsCodeCheckbox.parentElement.parentElement;
+  if (!thisArg) {
+    throw new Error("invalid thisArg");
+  }
 
   // Fade/un-fade the arg (except the checkbox wrapper)
-  thisArg.querySelectorAll(":scope > div").forEach((child: any) => {
-    if (child != checkboxWrapper) {
+  thisArg.querySelectorAll(":scope > div").forEach((child: Element) => {
+    if (child !== checkboxWrapper) {
       if (isChecked) {
         child.classList.remove("faded");
       } else {
@@ -521,7 +528,7 @@ function setIsNoInput(vsCodeCheckbox: any, isChecked: any) {
  * @param data the back-end data structure
  */
 function handlePinToggle(id: any, type: FuzzResultCategory) {
-  const index = data[type].findIndex((element) => element.id == id);
+  const index = data[type].findIndex((element) => `${element.id}` === id);
   if (index <= -1) throw new Error("invalid id");
 
   // Get the control that was clicked
@@ -592,7 +599,7 @@ function handleCorrectToggle(
     throw new Error("no id");
   }
   const id = parseInt(idStr, 10);
-  const index = data[type].findIndex((element) => element.id == id);
+  const index = data[type].findIndex((element) => element.id === id);
   if (index <= -1) throw new Error("invalid id");
 
   // Change the state of the correct icon that was clicked
@@ -758,9 +765,9 @@ function handleColumnSort(
   // Define sorting function:
   // Sort current column value based on sort order
   const sortFn = (a: any, b: any, thisCol: any) => {
-    if (columnSortOrders[type][thisCol] == "none") {
+    if (columnSortOrders[type][thisCol] === FuzzSortOrder.none) {
       return 0; // no need to sort
-    } else if (columnSortOrders[type][thisCol] == "desc") {
+    } else if (columnSortOrders[type][thisCol] === FuzzSortOrder.desc) {
       const temp = a;
       (a = b), (b = temp); // swap a and b
     }
@@ -1180,12 +1187,17 @@ function handleExpectedOutput({
     if (!button.parentElement) {
       throw new Error("no parent element");
     }
-    toggledId =
+    const toggledIdStr =
       button.parentElement.getAttribute("id") ?? // human validation X button
       button.getAttribute("rowId"); // expected value edit button
+    if (toggledIdStr !== null) {
+      toggledId = parseInt(toggledIdStr);
+    }
   }
 
-  const index = data[type].findIndex((element) => element.id == id);
+  const index = data[type].findIndex((element) => {
+    return element.id === id;
+  });
   if (index <= -1) {
     throw new Error("invalid id");
   }
@@ -1532,6 +1544,9 @@ function handleFuzzStart(eCurrTarget: any) {
       disableArr.push(minStrLen, maxStrLen);
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
+      if (strCharset === null) {
+        throw new Error("strCharset is null");
+      }
       const strCharsetVal = strCharset.getAttribute("current-value");
       if (minStrLenVal !== undefined && maxStrLenVal !== undefined) {
         thisOverride.string = {
@@ -1741,12 +1756,12 @@ function listForValidatorFnTooltip(validatorList: { validators: string[] }) {
   if (validatorList.validators.length === 0) {
     list += "(none)";
   }
-  for (const idx in validatorList.validators) {
+  validatorList.validators.forEach((validator, idx) => {
     list += validatorList.validators[idx];
     if (idx !== validatorList.validators.length) {
       list += "\n";
     }
-  }
+  });
   return list;
 }
 
