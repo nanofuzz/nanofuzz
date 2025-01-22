@@ -1,6 +1,10 @@
 import * as JSON5 from "json5";
 
-import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./utils";
+import {
+  assertNonreachable,
+  getElementByIdOrThrow,
+  getElementByIdWithTypeOrThrow,
+} from "./utils";
 import {
   FuzzArgOverride,
   FuzzIoElement,
@@ -936,7 +940,7 @@ function updateColumnArrow(
   if (!isClicking && !currOrder) return;
   // Update frontend with appropriate arrow
   switch (currOrder) {
-    case "asc":
+    case FuzzSortOrder.asc:
       if (validators.validators.indexOf(col) === -1) {
         cell.classList.add("columnSortAsc");
         cell.classList.remove("columnSortDesc");
@@ -945,7 +949,7 @@ function updateColumnArrow(
         cell.classList.remove("columnSortDescSmall");
       }
       break;
-    case "desc":
+    case FuzzSortOrder.desc:
       if (validators.validators.indexOf(col) === -1) {
         cell.classList.add("columnSortDesc");
         cell.classList.remove("columnSortAsc");
@@ -954,14 +958,14 @@ function updateColumnArrow(
         cell.classList.remove("columnSortAscSmall");
       }
       break;
-    case "none":
+    case FuzzSortOrder.none:
       cell.classList.remove("columnSortDesc");
       cell.classList.remove("columnSortAsc");
       cell.classList.remove("columnSortDescSmall");
       cell.classList.remove("columnSortAscSmall");
       break;
     default:
-    // TODO: add a type check here to ensure this never happens
+      assertNonreachable(currOrder);
   }
 } //fn: updateColumnArrows
 
