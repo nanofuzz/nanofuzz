@@ -434,8 +434,22 @@ export class FuzzPanel {
           }
           case "0.3.3": {
             // v0.3.3 format -- only additions such as isVoid and literal types that
-            // older versions of NaNofuzz will not interpret
+            // older versions of NaNofuzz will not interpret. Also check for missing
+            // maxDupeInputs value
             testSet = { ...inputTests, version: "0.3.6" };
+            for (const fn in testSet.functions) {
+              const thisFn = testSet.functions[fn];
+              const thisOpt: Partial<fuzzer.FuzzOptions> = thisFn.options;
+              if (
+                !("maxDupeInputs" in thisOpt) ||
+                thisOpt.maxDupeInputs === undefined ||
+                isNaN(thisOpt.maxDupeInputs)
+              ) {
+                thisOpt.maxDupeInputs = vscode.workspace
+                  .getConfiguration("nanofuzz.fuzzer")
+                  .get("maxDupeInputs", 1000);
+              }
+            }
             console.info(
               `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
             );
