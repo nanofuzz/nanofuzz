@@ -25,7 +25,7 @@ const maxOutVarSuffix = 1000;
  *
  * For its user interface, this extension relies on the VS Code Webview
  * API and WebView controls.  Client-side Javascript is contained in
- * a separate FuzzPanelMain.js.
+ * a separate FuzzPanelMain.ts.
  */
 export class FuzzPanel {
   // Static variables
@@ -1120,7 +1120,7 @@ ${inArgConsts}
         "index.js",
       ]); // URI to the json5 library
       const scriptUrl = getUri(webview, extensionUri, [
-        "assets",
+        "build",
         "ui",
         "FuzzPanelMain.js",
       ]); // URI to client-side panel script

@@ -4,7 +4,7 @@
     "outDir": "build/extension",
     "module": "commonjs",
     "target": "ES2020",
-    "lib": ["ES2020", "ES2021.String", "WebWorker"],
+    "lib": ["ES2020", "ES2021.String", "WebWorker", "DOM"],
     "sourceMap": true,
     "allowJs": true,
     "moduleResolution": "node",
@@ -21,7 +21,7 @@
     "noUnusedLocals": false,
     "skipLibCheck": true,
     "downlevelIteration": true,
-    "types": ["jest", "node", "tslib"],
+    "types": ["jest", "node", "tslib", "vscode-webview"],
     "esModuleInterop": true,
     "isolatedModules": false,
     "strict": true,
@@ -53,7 +53,7 @@
     "placeOpenBraceOnNewLineForFunctions": false,
     "placeOpenBraceOnNewLineForControlBlocks": false
   },
-  "include": ["src", "assets/FuzzPanelMain.js"],
+  "include": ["src", "assets/ui"],
   "exclude": [
     "node_modules",
     "build",
