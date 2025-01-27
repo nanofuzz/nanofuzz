@@ -41,6 +41,7 @@ bower_components
 build/Release
 build/dist
 build/extension
+build/ui
 
 # Dependency directories
 node_modules/

@@ -1,3 +1,20 @@
+import * as JSON5 from "json5";
+
+import {
+  assertNonreachable,
+  getElementByIdOrThrow,
+  getElementByIdWithTypeOrThrow,
+} from "./utils";
+import {
+  FuzzArgOverride,
+  FuzzIoElement,
+  FuzzOptions,
+  FuzzResultCategory,
+  FuzzSortColumns,
+  FuzzSortOrder,
+} from "fuzzer/Types";
+import { FuzzTestResults } from "fuzzer/Fuzzer";
+
 const vscode = acquireVsCodeApi();
 
 // Attach main to the window onLoad() event
@@ -11,7 +28,7 @@ const gridTypes = [
   "timeout",
   "badValue",
   "ok",
-];
+] as const;
 
 // Column name labels
 const pinnedLabel = "pinned";
@@ -21,7 +38,6 @@ const expectedLabel = "expectedOutput";
 const validatorLabel = "validator";
 const allValidatorsLabel = "allValidators";
 const implicitLabel = "implicit";
-const elapsedTimeLabel = "running time (ms)";
 const expandLabel = "expandColumn";
 const collapseLabel = "collapseColumn";
 
@@ -35,9 +51,6 @@ const pinState = {
   classPinned: "fuzzGridCellPinned",
   classPin: "fuzzGridCellPin",
 };
-
-// Implicit Oracle Validator Name
-const implicitOracleValidatorName = "none";
 
 // Correct icon states
 const correctState = {
@@ -57,15 +70,15 @@ const validatorResult = {
 };
 
 // Sort order for each grid and column
-const sortOrder = ["asc", "desc", "none"];
-function getDefaultColumnSortOrder() {
+const sortOrder = [FuzzSortOrder.asc, FuzzSortOrder.desc, FuzzSortOrder.none];
+function getDefaultColumnSortOrder(): Record<string, FuzzSortOrder> {
   return {
-    [pinnedLabel]: "desc",
-    [correctLabel]: "desc",
-    [expandLabel]: "asc",
+    [pinnedLabel]: FuzzSortOrder.desc,
+    [correctLabel]: FuzzSortOrder.desc,
+    [expandLabel]: FuzzSortOrder.asc,
   };
 }
-const defaultColumnSortOrders = {
+const defaultColumnSortOrders: FuzzSortColumns = {
   failure: {}, // no pinned column
   timeout: getDefaultColumnSortOrder(),
   exception: getDefaultColumnSortOrder(),
@@ -75,13 +88,20 @@ const defaultColumnSortOrders = {
 };
 
 // Column sort orders (filled by main or handleColumnSort())
-let columnSortOrders;
+let columnSortOrders: FuzzSortColumns;
 // Fuzzer Results (filled by main during load event)
-let resultsData;
+let resultsData: FuzzTestResults;
 // Results grouped by type (filled by main during load event)
-let data = {};
+const data: Record<FuzzResultCategory, any[]> = {
+  ok: [],
+  badValue: [],
+  timeout: [],
+  exception: [],
+  disagree: [],
+  failure: [],
+};
 // Validator functions (filled by main during load event)
-let validators;
+let validators: { validators: string[] };
 
 /**
  * Sets up the UI when the page is loaded, including setting up
@@ -89,34 +109,47 @@ let validators;
  */
 function main() {
   // Add event listener for the fuzz.start button
-  document
-    .getElementById("fuzz.start")
-    .addEventListener("click", (e) => handleFuzzStart(e.currentTarget));
+  getElementByIdOrThrow("fuzz.start").addEventListener("click", (e) => {
+    if (!e.currentTarget) {
+      throw new Error("no currentTarget");
+    }
+    handleFuzzStart(e.currentTarget);
+  });
 
   // Add event listener for the fuzz.options button
-  document
-    .getElementById("fuzz.options")
-    .addEventListener("click", (e) => toggleFuzzOptions(e));
+  getElementByIdOrThrow("fuzz.options").addEventListener(
+    "click",
+    toggleFuzzOptions
+  );
 
   // Add event listener for opening the function source code
-  document
-    .getElementById("openSourceLink")
-    .addEventListener("click", (e) => handleOpenSource(e));
+  getElementByIdOrThrow("openSourceLink").addEventListener(
+    "click",
+    handleOpenSource
+  );
 
   // Add event listener for the fuzz.options close button
-  document
-    .getElementById("fuzzOptions-close")
-    .addEventListener("click", (e) => toggleFuzzOptions(e));
+  getElementByIdOrThrow("fuzzOptions-close").addEventListener(
+    "click",
+    toggleFuzzOptions
+  );
 
   // Add event listeners for all the union generate checkboxes
   document.querySelectorAll(".isNoInput vscode-checkbox").forEach((element) => {
-    element.addEventListener("click", (e) =>
+    element.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!target) {
+        throw new Error("no target");
+      }
+      if (!(target instanceof HTMLElement)) {
+        throw new Error("target not HTMLElement");
+      }
       setIsNoInput(
-        e.target,
-        (e.target.getAttribute("value") ??
-          e.target.getAttribute("current-checked")) !== "true" // changing state
-      )
-    );
+        target,
+        (target.getAttribute("value") ??
+          target.getAttribute("current-checked")) !== "true" // changing state
+      );
+    });
     // Set the UI state
     setIsNoInput(
       element,
@@ -127,26 +160,28 @@ function main() {
 
   // Load the fuzzer results data from the HTML
   resultsData = JSON5.parse(
-    htmlUnescape(document.getElementById("fuzzResultsData").innerHTML)
+    htmlUnescape(getElementByIdOrThrow("fuzzResultsData").innerHTML)
   );
 
   // Add event listener for the validator buttons
-  document
-    .getElementById("validator.add")
-    .addEventListener("click", (e) => handleAddValidator(e));
-  document
-    .getElementById(`validator.getList`)
-    .addEventListener("click", (e) => handleGetListOfValidators(e));
+  getElementByIdOrThrow("validator.add").addEventListener(
+    "click",
+    handleAddValidator
+  );
+  getElementByIdOrThrow(`validator.getList`).addEventListener(
+    "click",
+    handleGetListOfValidators
+  );
 
   // Load & display the validator functions from the HTML
   validators = JSON5.parse(
-    htmlUnescape(document.getElementById("validators").innerHTML)
+    htmlUnescape(getElementByIdOrThrow("validators").innerHTML)
   );
   refreshValidators(validators);
 
   // Load column sort orders from the HTML
   columnSortOrders = JSON5.parse(
-    htmlUnescape(document.getElementById("fuzzSortColumns").innerHTML)
+    htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
   );
   if (Object.keys(columnSortOrders).length === 0) {
     columnSortOrders = defaultColumnSortOrders;
@@ -166,9 +201,7 @@ function main() {
   // an 'official' way to directly persist state within the extension itself,
   // at least as of vscode 1.69.2.  Hence, the roundtrip.
   vscode.setState(
-    JSON5.parse(
-      htmlUnescape(document.getElementById("fuzzPanelState").innerHTML)
-    )
+    JSON5.parse(htmlUnescape(getElementByIdOrThrow("fuzzPanelState").innerHTML))
   );
 
   // Fill the result grids
@@ -208,20 +241,15 @@ function main() {
       //   : {};
 
       // Result for each property validator (true if passed)
-      const validatorFns = {};
-      for (const v in e.passedValidators) {
-        validatorFns[validators.validators[v]] = e.passedValidators[v];
-      }
-
-      // Test case runtime
-      const elapsedTime = {
-        [elapsedTimeLabel]: e.elapsedTime.toFixed(3),
-      };
+      const validatorFns: Record<string, boolean> = {};
+      e.passedValidators?.forEach((v, i) => {
+        validatorFns[validators.validators[i]] = v;
+      });
 
       // Name each input argument and make it clear which inputs were not provided
       // (i.e., the argument was optional).  Otherwise, stringify the value for
       // display.
-      const inputs = {};
+      const inputs: Record<string, string> = {};
       e.input.forEach((i) => {
         inputs[`input: ${i.name}`] =
           i.value === undefined ? "(no input)" : JSON5.stringify(i.value);
@@ -230,7 +258,7 @@ function main() {
       // There are 0-1 outputs: if an output is present, just name it `output`
       // and make it clear which outputs are undefined.  Otherwise, stringify
       // the value for display.
-      const outputs = {};
+      const outputs: Record<string, string> = {};
       e.output.forEach((o) => {
         outputs[`output`] =
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
@@ -272,8 +300,11 @@ function main() {
     // Fill the grids with data
     gridTypes.forEach((type) => {
       if (data[type].length) {
-        const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
-        const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
+        const thead = getElementByIdOrThrow(`fuzzResultsGrid-${type}-thead`);
+        const tbody = getElementByIdWithTypeOrThrow(
+          `fuzzResultsGrid-${type}-tbody`,
+          HTMLTableSectionElement
+        );
 
         // Render the header row
         const hRow = thead.appendChild(document.createElement("tr"));
@@ -287,15 +318,14 @@ function main() {
                 <big>pin</big>
               </span>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, tbody, true);
+              handleColumnSort(cell, type, k, tbody, true);
             });
           } else if (hiddenColumns.indexOf(k) !== -1) {
             // noop (hidden)
           } else if (k === implicitLabel) {
             if (resultsData.env.options.useImplicit) {
               const heuristicValidatorDescription =
-                document.getElementById("fuzz-useImplicit").children[0]
-                  .ariaLabel;
+                getElementByIdOrThrow("fuzz-useImplicit").children[0].ariaLabel;
               const cell = hRow.appendChild(document.createElement("th"));
               cell.id = type + "-" + implicitLabel;
               cell.classList.add("colorColumn", "clickable");
@@ -304,7 +334,7 @@ function main() {
                 <span class="codicon codicon-debug"></span>
               </span>`;
               cell.addEventListener("click", () => {
-                handleColumnSort(cell, hRow, type, k, tbody, true);
+                handleColumnSort(cell, type, k, tbody, true);
               });
             }
           } else if (k === validatorLabel) {
@@ -314,7 +344,7 @@ function main() {
               cell.id = type + "-" + validatorLabel;
               cell.classList.add("colorColumn", "clickable");
               if (validators.validators.length > 1) {
-                cell.style = "padding-right:3px"; // close to twistie column
+                cell.style.paddingRight = "3px"; // close to twistie column
               }
               cell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-nw" aria-label="${
@@ -326,7 +356,7 @@ function main() {
                 </span>`;
               cell.id = type + "-" + k;
               cell.addEventListener("click", () => {
-                handleColumnSort(cell, hRow, type, k, tbody, true);
+                handleColumnSort(cell, type, k, tbody, true);
               });
             } // if useProperty
           } else if (validators.validators.indexOf(k) !== -1) {
@@ -351,7 +381,7 @@ function main() {
                   expandCell.classList.add("hidden"); // hide if currently expanded
                 }
                 expandCell.addEventListener("click", () => {
-                  toggleExpandColumn(cell, expandCell, type);
+                  toggleExpandColumn(type);
                 });
               }
               // Individual property validator column
@@ -362,15 +392,18 @@ function main() {
                   <span class="codicon codicon-hubot" style="font-size: 1em;"></span> <!-- small -->
                 </span>`;
               cell.id = type + "-" + k;
-              cell.style = "padding-left:0px; padding-right:0px;";
+              cell.style.paddingLeft = "0px";
+              cell.style.paddingRight = "0px";
               if (validators.validators.indexOf(k) === 0) {
-                cell.style = "padding-left:16px; padding-right:6px"; // add padding to first custom validator header cell
+                // add padding to first custom validator header cell
+                cell.style.paddingLeft = "16px";
+                cell.style.paddingRight = "6px";
               }
               if (columnSortOrders[type][expandLabel] === "asc") {
                 cell.classList.add("hidden"); // hide individual validators if currently collapsed
               }
               cell.addEventListener("click", () => {
-                handleColumnSort(cell, hRow, type, k, tbody, true);
+                handleColumnSort(cell, type, k, tbody, true);
               });
               if (
                 validators.validators.indexOf(k) ===
@@ -390,7 +423,7 @@ function main() {
                 collapseCell.id = type + "-" + collapseLabel;
                 collapseCell.classList.add("expandCollapseColumn", "clickable");
                 collapseCell.addEventListener("click", () => {
-                  toggleExpandColumn(cell, collapseCell, type);
+                  toggleExpandColumn(type);
                 });
               }
             } // if useProperty and multiple validators
@@ -404,7 +437,7 @@ function main() {
               </span>`;
             cell.colSpan = 2;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, tbody, true);
+              handleColumnSort(cell, type, k, tbody, true);
             });
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
@@ -414,20 +447,23 @@ function main() {
             cell.classList.add("clickable");
             cell.innerHTML = `<big>${htmlEscape(label)}</big>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, hRow, type, k, tbody, true);
+              handleColumnSort(cell, type, k, tbody, true);
             });
           }
         }); // for each column k
 
         // Render the data rows, set up event listeners
-        drawTableBody(type, tbody, false);
+        drawTableBody({ type, tbody, isClicking: false });
 
         // Initial sort, according to columnSortOrders
         for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
           const col = Object.keys(data[type][0])[i]; // back-end column
           const cell = document.getElementById(type + "-" + col); // front-end column
           if (!(col in hiddenColumns) && cell !== null) {
-            handleColumnSort(cell, hRow, type, col, tbody, false);
+            if (!(cell instanceof HTMLTableCellElement)) {
+              throw new Error("cell not HTMLTableCellElement");
+            }
+            handleColumnSort(cell, type, col, tbody, false);
           }
         } // for i
       } // if data[type].length
@@ -437,12 +473,10 @@ function main() {
 
 /**
  * Toggles whether more fuzzer options are shown.
- *
- * @param e onClick() event
  */
-function toggleFuzzOptions(e) {
-  const fuzzOptions = document.getElementById("fuzzOptions");
-  const fuzzOptionsButton = document.getElementById("fuzz.options");
+function toggleFuzzOptions() {
+  const fuzzOptions = getElementByIdOrThrow("fuzzOptions");
+  const fuzzOptionsButton = getElementByIdOrThrow("fuzz.options");
   if (isHidden(fuzzOptions)) {
     toggleHidden(fuzzOptions);
     fuzzOptionsButton.innerHTML = "Fewer options";
@@ -458,15 +492,22 @@ function toggleFuzzOptions(e) {
 /**
  * Sets whether the argument should generate inputs
  *
- * @param e onClick() event target
+ * @param vsCodeCheckbox the checkbox that was clicked
+ * @param isChecked whether the checkbox is checked
  */
-function setIsNoInput(vsCodeCheckbox, isChecked) {
+function setIsNoInput(vsCodeCheckbox: Element, isChecked: boolean) {
   const checkboxWrapper = vsCodeCheckbox.parentElement;
+  if (!checkboxWrapper || !(checkboxWrapper instanceof HTMLDivElement)) {
+    throw new Error("invalid checkboxWrapper");
+  }
   const thisArg = vsCodeCheckbox.parentElement.parentElement;
+  if (!thisArg) {
+    throw new Error("invalid thisArg");
+  }
 
   // Fade/un-fade the arg (except the checkbox wrapper)
-  thisArg.querySelectorAll(":scope > div").forEach((child) => {
-    if (child != checkboxWrapper) {
+  thisArg.querySelectorAll(":scope > div").forEach((child: Element) => {
+    if (child !== checkboxWrapper) {
       if (isChecked) {
         child.classList.remove("faded");
       } else {
@@ -479,13 +520,13 @@ function setIsNoInput(vsCodeCheckbox, isChecked) {
     .querySelectorAll(
       ":scope > .argDef-type, :scope > .argDef-array, :scope > .argDef-preClose"
     )
-    .forEach((child) => {
+    .forEach((child: Element) => {
       (isChecked ? show : hide)(child);
     });
   // Hide/Show the ellipsis
   thisArg
     .querySelectorAll(":scope > .argDef-name > .argDef-ellipsis")
-    .forEach((child) => {
+    .forEach((child: Element) => {
       (isChecked ? hide : show)(child);
     });
 } // fn: setIsNoInput()
@@ -497,19 +538,27 @@ function setIsNoInput(vsCodeCheckbox, isChecked) {
  * @param type grid type (e.g., passed, invalid)
  * @param data the back-end data structure
  */
-function handlePinToggle(id, type) {
-  const index = data[type].findIndex((element) => element.id == id);
-  if (index <= -1) throw e("invalid id");
+function handlePinToggle(id: number, type: FuzzResultCategory) {
+  const index = data[type].findIndex((element) => element.id === id);
+  if (index <= -1) throw new Error("invalid id");
 
   // Get the control that was clicked
-  const button = document.getElementById(`fuzzSaveToggle-${id}`);
+  const button = getElementByIdWithTypeOrThrow(
+    `fuzzSaveToggle-${id}`,
+    HTMLTableCellElement
+  );
 
   // Are we pinning or unpinning the test?
   const pinning = button.innerHTML === pinState.htmlPin;
   data[type][index][pinnedLabel] = pinning;
 
   // Get the test data for the test case
-  const testCase = {
+  const testCase: {
+    input: FuzzIoElement[];
+    output: FuzzIoElement[];
+    pinned: boolean;
+    expectedOutput?: any;
+  } = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: data[type][index][pinnedLabel],
@@ -517,9 +566,6 @@ function handlePinToggle(id, type) {
   if (data[type][index][expectedLabel]) {
     testCase.expectedOutput = data[type][index][expectedLabel];
   }
-
-  // Disable the control while we wait for the response
-  button.disabled = true;
 
   // Send the request to the extension
   window.setTimeout(() => {
@@ -538,11 +584,8 @@ function handlePinToggle(id, type) {
       button.className = pinState.classPin;
       button.setAttribute("aria-label", "pin");
     }
-
-    // Disable the control while we wait for the response
-    button.disabled = false;
   });
-} // fn: handleSaveToggle()
+} // fn: handlePinToggle()
 
 /**
  * Toggles the correct icons on or off (check mark, X mark, question mark).
@@ -554,10 +597,21 @@ function handlePinToggle(id, type) {
  * @param cell1 check icon
  * @param cell2 error icon
  */
-function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
-  const id = row.getAttribute("id");
-  const index = data[type].findIndex((element) => element.id == id);
-  if (index <= -1) throw e("invalid id");
+function handleCorrectToggle(
+  button: HTMLTableCellElement,
+  row: HTMLTableRowElement,
+  type: FuzzResultCategory,
+  tbody: HTMLTableSectionElement,
+  cell1: HTMLTableCellElement,
+  cell2: HTMLTableCellElement
+) {
+  const idStr = row.getAttribute("id");
+  if (idStr === null) {
+    throw new Error("no id");
+  }
+  const id = parseInt(idStr, 10);
+  const index = data[type].findIndex((element) => element.id === id);
+  if (index <= -1) throw new Error("invalid id");
 
   // Change the state of the correct icon that was clicked
   // Only one icon should be selected at a time; if an icon is turned on, all
@@ -585,11 +639,11 @@ function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
     cell2.className = correctState.classErrorOff;
     cell2.setAttribute("onOff", "false");
     //save expected output value
-    if (resultsData.results[id].timeout === true) {
+    if (resultsData.results[id].timeout) {
       data[type][index][expectedLabel] = [
         { name: "0", offset: 0, isTimeout: true },
       ];
-    } else if (resultsData.results[id].exception === true) {
+    } else if (resultsData.results[id].exception) {
       data[type][index][expectedLabel] = [
         { name: "0", offset: 0, isException: true },
       ];
@@ -609,10 +663,17 @@ function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
   }
 
   // Redraw table
-  drawTableBody(type, tbody, true, button);
+  drawTableBody({ type, tbody, isClicking: true, button });
 
-  const onOff = JSON.parse(button.getAttribute("onOff"));
-  const pinCell = document.getElementById(`fuzzSaveToggle-${id}`);
+  const onOffStr = button.getAttribute("onOff");
+  if (onOffStr !== "true" && onOffStr !== "false") {
+    throw new Error("invalid onOff value");
+  }
+  const onOff: boolean = JSON.parse(onOffStr);
+  const pinCell = getElementByIdWithTypeOrThrow(
+    `fuzzSaveToggle-${id}`,
+    HTMLTableCellElement
+  );
   const isPinned = pinCell.className === pinState.classPinned;
 
   // Get the test data for the test case
@@ -623,23 +684,24 @@ function handleCorrectToggle(button, row, type, tbody, cell1, cell2) {
     expectedOutput: data[type][index][expectedLabel],
   };
 
-  // Disable the control while we wait for the response
-  button.disabled = true;
-
   // Send the request to the extension
   window.setTimeout(() => {
     vscode.postMessage({
       command: onOff ? "test.pin" : "test.unpin",
       json: JSON5.stringify(testCase),
     });
-    // Disable the control while we wait for the response
-    button.disabled = false;
   });
 }
 
-function toggleExpandColumn(cell, expandCell, type) {
-  const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
-  const tbody = document.getElementById(`fuzzResultsGrid-${type}-tbody`);
+function toggleExpandColumn(type: FuzzResultCategory) {
+  const thead = getElementByIdWithTypeOrThrow(
+    `fuzzResultsGrid-${type}-thead`,
+    HTMLTableSectionElement
+  );
+  const tbody = getElementByIdWithTypeOrThrow(
+    `fuzzResultsGrid-${type}-tbody`,
+    HTMLTableSectionElement
+  );
 
   const valIdx = getIdxInTableHeader(
     type + "-" + validators.validators[0],
@@ -648,10 +710,10 @@ function toggleExpandColumn(cell, expandCell, type) {
 
   // Show or hide custom validator fn header
   for (const valName of validators.validators) {
-    toggleHidden(document.getElementById(type + "-" + valName));
+    toggleHidden(getElementByIdOrThrow(type + "-" + valName));
   }
   // Show or hide custom validator table cells
-  for (const row of tbody.rows) {
+  for (const row of Array.from(tbody.rows)) {
     if (row.getAttribute("class") === "classErrorExpectedOutputRow") continue;
     for (let i = valIdx; i < valIdx + validators.validators.length; ++i) {
       toggleHidden(row.cells[i]); // custom validator cell
@@ -661,12 +723,14 @@ function toggleExpandColumn(cell, expandCell, type) {
   }
 
   // Show or hide twistie column headers (expand, collapse)
-  toggleHidden(document.getElementById(type + "-" + expandLabel));
-  toggleHidden(document.getElementById(type + "-" + collapseLabel));
+  toggleHidden(getElementByIdOrThrow(type + "-" + expandLabel));
+  toggleHidden(getElementByIdOrThrow(type + "-" + collapseLabel));
 
   // Send message to extension to retain whether columns are expanded or hidden
   columnSortOrders[type][expandLabel] =
-    columnSortOrders[type][expandLabel] === "desc" ? "asc" : "desc";
+    columnSortOrders[type][expandLabel] === "desc"
+      ? FuzzSortOrder.asc
+      : FuzzSortOrder.desc;
   vscode.postMessage({
     command: "columns.sorted",
     json: JSON5.stringify(columnSortOrders),
@@ -681,7 +745,7 @@ function toggleExpandColumn(cell, expandCell, type) {
  * @param cell cell of hRow
  * @param hRow header row
  * @param type (timeout, exception, badValue, ok, etc.)
- * @param col (ex: input:a, output, pin)
+ * @param column (ex: input:a, output, pin)
  * @param tbody table body
  * @param isClicking true if user clicked a column; false if an 'initial sort'
  *
@@ -689,14 +753,20 @@ function toggleExpandColumn(cell, expandCell, type) {
  *  - Making sure the pinned/correct columns are sorted at the beginning
  *  - Making sure we retain previous sort settings if you click 'Test' again
  */
-function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
+function handleColumnSort(
+  cell: HTMLTableCellElement,
+  type: FuzzResultCategory,
+  column: string,
+  tbody: HTMLTableSectionElement,
+  isClicking: boolean
+) {
   // console.debug(`Sorting type:'${type}' col:'${column}' cell:'${cell.id}'`);
 
   // We are only explicitly sorting by one column at a time (with the pinned and correct
   // columns being special cases)
   // Reset the other column arrows to 'none'
   if (isClicking) {
-    resetOtherColumnArrows(hRow, type, column);
+    resetOtherColumnArrows(type, column);
   }
 
   // Update the sort arrow for this column (asc->desc etc, and frontend)
@@ -704,10 +774,10 @@ function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
 
   // Define sorting function:
   // Sort current column value based on sort order
-  const sortFn = (a, b, thisCol) => {
-    if (columnSortOrders[type][thisCol] == "none") {
+  const sortFn = (a: any, b: any, thisCol: string) => {
+    if (columnSortOrders[type][thisCol] === FuzzSortOrder.none) {
       return 0; // no need to sort
-    } else if (columnSortOrders[type][thisCol] == "desc") {
+    } else if (columnSortOrders[type][thisCol] === FuzzSortOrder.desc) {
       const temp = a;
       (a = b), (b = temp); // swap a and b
     }
@@ -725,8 +795,16 @@ function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
     // How are we sorting?
     if (thisCol === correctLabel || thisCol === validatorLabel) {
       // Sort by numerical values in validatorResult map.
-      a = validatorResult[(a[thisCol] ?? "undefined") + ""];
-      b = validatorResult[(b[thisCol] ?? "undefined") + ""];
+      const aId = (a[thisCol] ?? "undefined") + "";
+      const bId = (b[thisCol] ?? "undefined") + "";
+      if (aId !== "true" && aId !== "false" && aId !== "undefined") {
+        throw new Error(`Invalid validator result: ${aId}`);
+      }
+      if (bId !== "true" && bId !== "false" && bId !== "undefined") {
+        throw new Error(`Invalid validator result: ${bId}`);
+      }
+      a = validatorResult[aId];
+      b = validatorResult[bId];
     } else {
       switch (aType) {
         case "number":
@@ -781,7 +859,7 @@ function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
   });
 
   // Sorting done, display table
-  drawTableBody(type, tbody, false);
+  drawTableBody({ type, tbody, isClicking: false });
 
   // Send message to extension to retain sort order
   if (isClicking) {
@@ -796,11 +874,10 @@ function handleColumnSort(cell, hRow, type, column, tbody, isClicking) {
  * For a given type, set columns arrows to 'none', unless the column is
  * the current column being sorted by. The 'pinned' column is a special case
  *
- * @param hRow header row
  * @param type (timeout, exception, badValue, ok)
  * @param thisCol the current column being sorted by
  */
-function resetOtherColumnArrows(hRow, type, thisCol) {
+function resetOtherColumnArrows(type: FuzzResultCategory, thisCol: string) {
   for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
     // For a given type, iterate over the columns (ex: input a, output, pin)
     const col = Object.keys(data[type][0])[i]; // back-end column
@@ -834,7 +911,12 @@ function resetOtherColumnArrows(hRow, type, thisCol) {
  * is being called because the user clicked on a column
  * @returns
  */
-function updateColumnArrow(cell, type, col, isClicking) {
+function updateColumnArrow(
+  cell: HTMLTableCellElement,
+  type: FuzzResultCategory,
+  col: string,
+  isClicking: boolean
+) {
   // Pinned and correct columns are special -- can be sorted by them, plus one addtional column
   let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
   let currIndex = -1; // index in sortOrder array
@@ -842,7 +924,7 @@ function updateColumnArrow(cell, type, col, isClicking) {
   if (isClicking) {
     if (!currOrder) {
       // Set default if undefined
-      currOrder = "asc";
+      currOrder = FuzzSortOrder.asc;
       currIndex = 0; // index in [asc, desc, none]
     } else {
       // Update sorting direction (asc -> desc, desc -> none, none -> asc)
@@ -858,7 +940,7 @@ function updateColumnArrow(cell, type, col, isClicking) {
   if (!isClicking && !currOrder) return;
   // Update frontend with appropriate arrow
   switch (currOrder) {
-    case "asc":
+    case FuzzSortOrder.asc:
       if (validators.validators.indexOf(col) === -1) {
         cell.classList.add("columnSortAsc");
         cell.classList.remove("columnSortDesc");
@@ -867,7 +949,7 @@ function updateColumnArrow(cell, type, col, isClicking) {
         cell.classList.remove("columnSortDescSmall");
       }
       break;
-    case "desc":
+    case FuzzSortOrder.desc:
       if (validators.validators.indexOf(col) === -1) {
         cell.classList.add("columnSortDesc");
         cell.classList.remove("columnSortAsc");
@@ -876,14 +958,14 @@ function updateColumnArrow(cell, type, col, isClicking) {
         cell.classList.remove("columnSortAscSmall");
       }
       break;
-    case "none":
+    case FuzzSortOrder.none:
       cell.classList.remove("columnSortDesc");
       cell.classList.remove("columnSortAsc");
       cell.classList.remove("columnSortDescSmall");
       cell.classList.remove("columnSortAscSmall");
       break;
     default:
-      assert(false);
+      assertNonreachable(currOrder);
   }
 } //fn: updateColumnArrows
 
@@ -895,7 +977,18 @@ function updateColumnArrow(cell, type, col, isClicking) {
  * @param tbody table body
  * @param isClicking bool true if user is clicking
  */
-function drawTableBody(type, tbody, isClicking, button) {
+function drawTableBody({
+  type,
+  tbody,
+  isClicking,
+  button,
+}: {
+  type: FuzzResultCategory;
+  tbody: HTMLTableSectionElement;
+} & (
+  | { isClicking: true; button: HTMLElement }
+  | { isClicking: false; button?: undefined }
+)) {
   // Clear table
   while (tbody.rows.length > 0) tbody.deleteRow(0);
 
@@ -912,15 +1005,25 @@ function drawTableBody(type, tbody, isClicking, button) {
         cell.id = `fuzzSaveToggle-${id}`;
         cell.setAttribute("aria-label", e[k] ? "pinned" : "pin");
         cell.innerHTML = e[k] ? pinState.htmlPinned : pinState.htmlPin;
-        cell.addEventListener("click", (e) =>
-          handlePinToggle(
-            e.currentTarget.parentElement.getAttribute("id"),
-            type
-          )
-        );
+        cell.addEventListener("click", (e) => {
+          const currentTarget = e.currentTarget;
+          if (
+            currentTarget === null ||
+            !("parentElement" in currentTarget) ||
+            !currentTarget.parentElement ||
+            !(currentTarget.parentElement instanceof HTMLElement)
+          ) {
+            throw new Error("Invalid event target");
+          }
+          const idStr = currentTarget.parentElement.getAttribute("id");
+          if (idStr === null || parseInt(idStr)) {
+            throw new Error("Invalid event target");
+          }
+          handlePinToggle(parseInt(idStr), type);
+        });
       } else if (k === idLabel) {
         id = parseInt(e[k]);
-        row.setAttribute("id", id);
+        row.setAttribute("id", `${id}`);
       } else if (hiddenColumns.indexOf(k) !== -1) {
         // noop (hidden)
       } else if (k === implicitLabel) {
@@ -950,7 +1053,7 @@ function drawTableBody(type, tbody, isClicking, button) {
           // Property validator column (summary)
           const cell = row.appendChild(document.createElement("td"));
           if (validators.validators.length > 1) {
-            cell.style = "padding-right:0px;"; // close to twistie column if multiple validators
+            cell.style.paddingRight = "0px"; // close to twistie column if multiple validators
           }
           if (e[k] === undefined) {
             cell.innerHTML = "";
@@ -980,7 +1083,7 @@ function drawTableBody(type, tbody, isClicking, button) {
           }
           // Individual property validator column
           const cell = row.appendChild(document.createElement("td"));
-          cell.style = "text-align: right;";
+          cell.style.textAlign = "right";
           if (e[k] === undefined) {
             cell.innerHTML = "";
           } else if (e[k]) {
@@ -1015,16 +1118,16 @@ function drawTableBody(type, tbody, isClicking, button) {
         const cell1 = row.appendChild(document.createElement("td"));
         cell1.innerHTML = correctState.htmlCheck;
         cell1.setAttribute("correctType", "true");
-        cell1.addEventListener("click", () =>
-          handleCorrectToggle(cell1, row, type, tbody, cell1, cell2)
-        );
+        cell1.addEventListener("click", () => {
+          handleCorrectToggle(cell1, row, type, tbody, cell1, cell2);
+        });
         // Add X mark icon
         const cell2 = row.appendChild(document.createElement("td"));
         cell2.innerHTML = correctState.htmlError;
         cell2.setAttribute("correctType", "false");
-        cell2.addEventListener("click", () =>
-          handleCorrectToggle(cell2, row, type, tbody, cell1, cell2)
-        );
+        cell2.addEventListener("click", () => {
+          handleCorrectToggle(cell2, row, type, tbody, cell1, cell2);
+        });
 
         // Defaults here; override in the switch below
         cell1.className = correctState.classCheckOff;
@@ -1039,12 +1142,20 @@ function drawTableBody(type, tbody, isClicking, button) {
           case "true":
             cell1.className = correctState.classCheckOn;
             cell1.setAttribute("onOff", "true");
-            handleExpectedOutput(type, row, tbody, isClicking, button);
+            if (isClicking) {
+              handleExpectedOutput({ type, row, tbody, isClicking, button });
+            } else {
+              handleExpectedOutput({ type, row, tbody, isClicking, button });
+            }
             break;
           case "false":
             cell2.className = correctState.classErrorOn;
             cell2.setAttribute("onOff", "true");
-            handleExpectedOutput(type, row, tbody, isClicking, button);
+            if (isClicking) {
+              handleExpectedOutput({ type, row, tbody, isClicking, button });
+            } else {
+              handleExpectedOutput({ type, row, tbody, isClicking, button });
+            }
             break;
         }
         cell1.classList.add("colGroupStart", "clickable");
@@ -1066,16 +1177,41 @@ function drawTableBody(type, tbody, isClicking, button) {
  * @param row row of tbody
  * @param tbody table body for 'type'
  */
-function handleExpectedOutput(type, row, tbody, isClicking, button) {
-  const id = row.getAttribute("id");
+function handleExpectedOutput({
+  type,
+  row,
+  tbody,
+  isClicking,
+  button,
+}: {
+  type: FuzzResultCategory;
+  row: HTMLTableRowElement;
+  tbody: HTMLTableSectionElement;
+} & (
+  | { isClicking: true; button: HTMLElement }
+  | { isClicking: false; button?: undefined }
+)) {
+  const idStr = row.getAttribute("id");
+  if (idStr === null) {
+    throw new Error("no id");
+  }
+  const id = parseInt(idStr, 10);
   let toggledId;
   if (isClicking) {
-    toggledId =
+    if (!button.parentElement) {
+      throw new Error("no parent element");
+    }
+    const toggledIdStr =
       button.parentElement.getAttribute("id") ?? // human validation X button
       button.getAttribute("rowId"); // expected value edit button
+    if (toggledIdStr !== null) {
+      toggledId = parseInt(toggledIdStr);
+    }
   }
 
-  const index = data[type].findIndex((element) => element.id == id);
+  const index = data[type].findIndex((element) => {
+    return element.id === id;
+  });
   if (index <= -1) {
     throw new Error("invalid id");
   }
@@ -1088,6 +1224,9 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
       "afterend",
       document.createElement("tr")
     );
+    if (expectedRow === null) {
+      throw new Error("failed to create expected row");
+    }
     const cell = expectedRow.appendChild(document.createElement("td"));
     cell.colSpan = getColCountForTable(type);
 
@@ -1097,41 +1236,39 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
       cell.innerHTML = expectedOutputHtml(id, index, type);
 
       // Event handler for text field
-      const textField = document.getElementById(`fuzz-expectedOutput${id}`);
-      textField.addEventListener("change", (e) =>
-        buildExpectedTestCase(textField, id, type, index)
+      const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
+      textField.addEventListener("change", () =>
+        buildExpectedTestCase(id, type, index)
       );
 
       // Event handler for timeout radio button
-      const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
+      const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
       radioTimeout.addEventListener("change", () =>
-        buildExpectedTestCase(radioTimeout, id, type, index)
+        buildExpectedTestCase(id, type, index)
       );
 
       // Event handler for exception radio button
-      const radioException = document.getElementById(
-        `fuzz-radioException${id}`
-      );
+      const radioException = getElementByIdOrThrow(`fuzz-radioException${id}`);
       radioException.addEventListener("change", () =>
-        buildExpectedTestCase(radioException, id, type, index)
+        buildExpectedTestCase(id, type, index)
       );
 
       // Event handler for value radio button
-      const radioValue = document.getElementById(`fuzz-radioValue${id}`);
+      const radioValue = getElementByIdOrThrow(`fuzz-radioValue${id}`);
       radioValue.addEventListener("change", () => {
-        if (radioValue.checked) {
+        if ("checked" in radioValue && radioValue.checked) {
           show(textField);
         } else {
           hide(textField);
         }
-        buildExpectedTestCase(radioValue, id, type, index);
+        buildExpectedTestCase(id, type, index);
       });
 
       // Event handler for ok button
-      const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
-      okButton.addEventListener("click", (e) => {
+      const okButton = getElementByIdOrThrow(`fuzz-expectedOutputOk${id}`);
+      okButton.addEventListener("click", () => {
         // Build the test case from the expected output panel
-        const testCase = buildExpectedTestCase(radioValue, id, type, index);
+        const testCase = buildExpectedTestCase(id, type, index);
 
         // If the test case is valid, save it & exit the screen
         if (testCase) {
@@ -1147,7 +1284,7 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
           });
 
           // Re-draw the expected output row again
-          handleExpectedOutput(type, row, tbody, false, button);
+          handleExpectedOutput({ type, row, tbody, isClicking: false });
 
           // Hide this panel that is collecting the expected output
           expectedRow.remove();
@@ -1156,7 +1293,7 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
 
       // Bounce & give focus to the value field if the value radio is selected
       window.setTimeout(() => {
-        if (radioValue.checked) {
+        if ("checked" in radioValue && radioValue.checked) {
           textField.focus();
         }
       });
@@ -1197,12 +1334,16 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
         </div>`;
 
       // Create event handler for edit click
-      const editButton = document.getElementById(
-        `fuzz-editExpectedOutput${id}`
-      );
-      editButton.addEventListener("click", (e) => {
+      const editButton = getElementByIdOrThrow(`fuzz-editExpectedOutput${id}`);
+      editButton.addEventListener("click", () => {
         toggleHidden(expectedRow);
-        handleExpectedOutput(type, row, tbody, true, editButton);
+        handleExpectedOutput({
+          type,
+          row,
+          tbody,
+          isClicking: true,
+          button: editButton,
+        });
       });
     }
   }
@@ -1214,10 +1355,13 @@ function handleExpectedOutput(type, row, tbody, isClicking, button) {
  *
  * @param id id of row
  * @param index index in `data`
- * @param data back-end data structure
  * @param type e.g. bad output, passed
  */
-function expectedOutputHtml(id, index, type) {
+function expectedOutputHtml(
+  id: number,
+  index: number,
+  type: FuzzResultCategory
+) {
   const expectedOutput = data[type][index][expectedLabel];
   let defaultOutput;
 
@@ -1231,7 +1375,7 @@ function expectedOutputHtml(id, index, type) {
     !defaultOutput.isTimeout && !defaultOutput.isException;
 
   // prettier-ignore
-  let html = /*html*/ `
+  const html = /*html*/ `
     What is the expected ouput?
     <vscode-radio-group>
       <vscode-radio id="fuzz-radioException${id}" ${defaultOutput.isException ? " checked " : ""}>Exception</vscode-radio>
@@ -1250,23 +1394,23 @@ function expectedOutputHtml(id, index, type) {
 /**
  * Builds a test case from the expected output panel
  *
- * @param e on-change event
  * @param id id of row
- * @param data back-end data structure
  * @param type e.g. bad output, passed
  * @param index index in `data`
  *
  * @returns test case object or undefined if the expected value is invalid
  */
-function buildExpectedTestCase(e, id, type, index) {
-  const textField = document.getElementById(`fuzz-expectedOutput${id}`);
-  const radioTimeout = document.getElementById(`fuzz-radioTimeout${id}`);
-  const radioException = document.getElementById(`fuzz-radioException${id}`);
-  const radioValue = document.getElementById(`fuzz-radioValue${id}`);
-  const errorMessage = document.getElementById(
-    `fuzz-expectedOutputMessage${id}`
-  );
-  const okButton = document.getElementById(`fuzz-expectedOutputOk${id}`);
+function buildExpectedTestCase(
+  id: number,
+  type: FuzzResultCategory,
+  index: number
+) {
+  const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
+  const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
+  const radioException = getElementByIdOrThrow(`fuzz-radioException${id}`);
+  const radioValue = getElementByIdOrThrow(`fuzz-radioValue${id}`);
+  const errorMessage = getElementByIdOrThrow(`fuzz-expectedOutputMessage${id}`);
+  const okButton = getElementByIdOrThrow(`fuzz-expectedOutputOk${id}`);
 
   // Check if the expected value is valid JSON
   const expectedValue = textField.getAttribute("current-value");
@@ -1279,7 +1423,7 @@ function buildExpectedTestCase(e, id, type, index) {
         : JSON5.parse(expectedValue);
   } catch (e) {
     // Only validate the value if we are doing a value check
-    if (radioValue.checked) {
+    if ("checked" in radioValue && radioValue.checked) {
       // Indicate to the user that there is an error
       textField.classList.add("classErrorCell");
       errorMessage.classList.add("expectedOutputErrorMessage");
@@ -1298,13 +1442,19 @@ function buildExpectedTestCase(e, id, type, index) {
   show(okButton);
 
   // Build the expected output object
-  const expectedOutput = {
+  const expectedOutput: {
+    name: string;
+    offset: number;
+    isTimeout?: boolean;
+    isException?: boolean;
+    value?: any;
+  } = {
     name: "0",
     offset: 0,
   };
-  if (radioTimeout.checked) {
+  if ("checked" in radioTimeout && radioTimeout.checked) {
     expectedOutput["isTimeout"] = true;
-  } else if (radioException.checked) {
+  } else if ("checked" in radioException && radioException.checked) {
     expectedOutput["isException"] = true;
   } else {
     expectedOutput["value"] = parsedExpectedValue;
@@ -1319,6 +1469,13 @@ function buildExpectedTestCase(e, id, type, index) {
   };
 } // fn: buildExpectedTestCase()
 
+// Copied from https://github.com/joonhocho/tsdef/blob/master/src/index.ts
+export type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends Array<infer I>
+    ? Array<DeepPartial<I>>
+    : DeepPartial<T[P]>;
+};
+
 /**
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
  * from the UI and sends them to the extension to start the fuzzer.
@@ -1326,41 +1483,52 @@ function buildExpectedTestCase(e, id, type, index) {
  * // e onClick() event
  * @param eCurrTarget current target of onClick() event
  */
-function handleFuzzStart(eCurrTarget) {
-  const overrides = { fuzzer: {}, args: [] }; // Fuzzer option overrides (from UI)
+function handleFuzzStart(eCurrTarget: EventTarget) {
+  const overrides: {
+    fuzzer: Partial<FuzzOptions>;
+    args: DeepPartial<FuzzArgOverride>[];
+  } = { fuzzer: {}, args: [] }; // Fuzzer option overrides (from UI)
   const disableArr = [eCurrTarget]; // List of controls to disable while fuzzer is busy
   const fuzzBase = "fuzz"; // Base html id name
 
   // Process integer fuzzer options
-  [
-    "suiteTimeout",
-    "maxTests",
-    "fnTimeout",
-    "maxDupeInputs",
-    "maxFailures",
-  ].forEach((e) => {
+  (
+    [
+      "suiteTimeout",
+      "maxTests",
+      "fnTimeout",
+      "maxDupeInputs",
+      "maxFailures",
+    ] as const
+  ).forEach((e) => {
     const item = document.getElementById(fuzzBase + "-" + e);
     if (item !== null) {
       disableArr.push(item);
-      overrides.fuzzer[e] = parseInt(item.getAttribute("current-value"));
+      const currentValue = item.getAttribute("current-value");
+      if (currentValue === null) {
+        throw new Error("current-value is null");
+      }
+      overrides.fuzzer[e] = parseInt(currentValue);
     }
   });
 
   // Process boolean fuzzer options
-  ["onlyFailures", "useHuman", "useImplicit", "useProperty"].forEach((e) => {
-    const item = document.getElementById(fuzzBase + "-" + e);
-    if (item !== null) {
-      disableArr.push(item);
-      overrides.fuzzer[e] =
-        (item.getAttribute("value") ?? item.getAttribute("current-checked")) ===
-        "true";
+  (["onlyFailures", "useHuman", "useImplicit", "useProperty"] as const).forEach(
+    (e) => {
+      const item = document.getElementById(fuzzBase + "-" + e);
+      if (item !== null) {
+        disableArr.push(item);
+        overrides.fuzzer[e] =
+          (item.getAttribute("value") ??
+            item.getAttribute("current-checked")) === "true";
+      }
     }
-  });
+  );
 
   // Process all the argument overrides
   for (let i = 0; document.getElementById(getIdBase(i)) !== null; i++) {
     const idBase = getIdBase(i);
-    const thisOverride = {};
+    const thisOverride: DeepPartial<FuzzArgOverride> = {};
     overrides.args.push(thisOverride);
 
     // Get all the possible controls for this argument
@@ -1386,7 +1554,7 @@ function handleFuzzStart(eCurrTarget) {
         disableArr.push(min, max);
         const minVal = min.getAttribute("current-value");
         const maxVal = max.getAttribute("current-value");
-        if (minVal !== undefined && maxVal !== undefined) {
+        if (minVal !== null && maxVal !== null) {
           thisOverride.number["min"] = Math.min(Number(minVal), Number(maxVal));
           thisOverride.number["max"] = Math.max(Number(minVal), Number(maxVal));
         }
@@ -1408,15 +1576,18 @@ function handleFuzzStart(eCurrTarget) {
       disableArr.push(minStrLen, maxStrLen);
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
+      if (strCharset === null) {
+        throw new Error("strCharset is null");
+      }
       const strCharsetVal = strCharset.getAttribute("current-value");
-      if (minStrLenVal !== undefined && maxStrLenVal !== undefined) {
+      if (minStrLenVal !== null && maxStrLenVal !== null) {
         thisOverride.string = {
           minStrLen: Math.max(
             0,
             Math.min(Number(minStrLenVal), Number(maxStrLenVal))
           ),
           maxStrLen: Math.max(Number(minStrLenVal), Number(maxStrLenVal), 0),
-          strCharset: strCharsetVal,
+          strCharset: strCharsetVal ?? undefined,
         };
       }
     } // TODO: Validation !!!
@@ -1440,7 +1611,7 @@ function handleFuzzStart(eCurrTarget) {
         disableArr.push(min, max);
         const minVal = min.getAttribute("current-value");
         const maxVal = max.getAttribute("current-value");
-        if (minVal !== undefined && maxVal !== undefined) {
+        if (minVal !== null && maxVal !== null) {
           dimLength.push({
             min: Math.max(Math.min(Number(minVal), Number(maxVal)), 0),
             max: Math.max(Number(minVal), Number(maxVal), 0),
@@ -1458,7 +1629,14 @@ function handleFuzzStart(eCurrTarget) {
 
   // Disable input elements while the Fuzzer runs.
   disableArr.forEach((e) => {
-    e.style.disabled = true;
+    if (
+      "style" in e &&
+      typeof e.style === "object" &&
+      e.style &&
+      "disabled" in e.style
+    ) {
+      e.style.disabled = true;
+    }
   });
 
   // // Disable the validator controls while the Fuzzer runs.
@@ -1478,13 +1656,13 @@ function handleFuzzStart(eCurrTarget) {
  * Refreshes the displayed list of validators based on a list of
  * validators provided from the back-end.
  *
- * @param {*} object of type: {
+ * @param {*} validatorList of type: {
  *  validator?: string,   // selected custom validator
  *  validators: string[], // list of available custom validators
  * }
  */
-function refreshValidators(validatorList) {
-  const validatorFnList = document.getElementById("validator-functionList");
+function refreshValidators(validatorList: { validators: string[] }) {
+  const validatorFnList = getElementByIdOrThrow("validator-functionList");
   validatorFnList.setAttribute(
     "aria-label",
     listForValidatorFnTooltip(validatorList)
@@ -1494,10 +1672,8 @@ function refreshValidators(validatorList) {
 /**
  * Send message to back-end to add code skeleton to source code (because the
  * user clicked the customValidator button)
- *
- * @param e on-click event
  */
-function handleAddValidator(e) {
+function handleAddValidator() {
   vscode.postMessage({
     command: "validator.add",
     json: JSON5.stringify(""),
@@ -1507,20 +1683,16 @@ function handleAddValidator(e) {
 /**
  * Send message to back-end to add code skeleton to source code (because the
  * user clicked the customValidator button)
- *
- * @param e on-click event
  */
-function handleOpenSource(e) {
+function handleOpenSource() {
   vscode.postMessage({
     command: "open.source",
     json: JSON5.stringify(""),
   });
-} // fn: handleAddValidator()
+} // fn: handleOpenSource()
 
 /**
  * Send message to back-end to refresh the validators
- *
- * @param e on-click event
  */
 function handleGetListOfValidators() {
   vscode.postMessage({
@@ -1535,7 +1707,7 @@ function handleGetListOfValidators() {
  * @param e The DOM node to check for the 'hidden' class
  * @returns true if the DOM node is hidden; false otherwise
  */
-function isHidden(e) {
+function isHidden(e: HTMLElement) {
   return e.classList.contains("hidden");
 } // fn: isHidden()
 
@@ -1544,7 +1716,7 @@ function isHidden(e) {
  *
  * @param e DOM element to toggle
  */
-function toggleHidden(e) {
+function toggleHidden(e: Element) {
   if (e.classList.contains("hidden")) {
     e.classList.remove("hidden");
   } else {
@@ -1557,7 +1729,7 @@ function toggleHidden(e) {
  *
  * @param e DOM element to hide
  */
-function hide(e) {
+function hide(e: Element) {
   e.classList.add("hidden");
 } // fn: hide()
 
@@ -1566,9 +1738,9 @@ function hide(e) {
  *
  * @param e DOM element to hide
  */
-function show(e) {
+function show(e: Element) {
   e.classList.remove("hidden");
-} // fn: hide()
+} // fn: show()
 
 /**
  * Returns the number of columns in a table
@@ -1576,9 +1748,12 @@ function show(e) {
  * @param type Table type key
  * @returns sum of colspans for table header
  */
-function getColCountForTable(type) {
+function getColCountForTable(type: FuzzResultCategory) {
   // Get the table header row
-  const thead = document.getElementById(`fuzzResultsGrid-${type}-thead`);
+  const thead = getElementByIdWithTypeOrThrow(
+    `fuzzResultsGrid-${type}-thead`,
+    HTMLTableSectionElement
+  );
   const theadRow = thead.rows[0];
 
   // Return the sum of the cell colspans
@@ -1593,10 +1768,10 @@ function getColCountForTable(type) {
  * @param {*} hRow
  * @returns
  */
-function getIdxInTableHeader(id, hRow) {
+function getIdxInTableHeader(id: string, hRow: HTMLTableRowElement) {
   // Get idx of first custom validator col
   let idx = 0;
-  for (const hCell of hRow.cells) {
+  for (const hCell of Array.from(hRow.cells)) {
     if (hCell.id === id) {
       break;
     }
@@ -1611,46 +1786,18 @@ function getIdxInTableHeader(id, hRow) {
  * @param {*} validatorList list of validator fn names
  * @returns
  */
-function listForValidatorFnTooltip(validatorList) {
+function listForValidatorFnTooltip(validatorList: { validators: string[] }) {
   let list = "Property validators:\n";
   if (validatorList.validators.length === 0) {
     list += "(none)";
   }
-  for (const idx in validatorList.validators) {
+  validatorList.validators.forEach((validator, idx) => {
     list += validatorList.validators[idx];
     if (idx !== validatorList.validators.length) {
       list += "\n";
     }
-  }
+  });
   return list;
-}
-
-/**
- * Returns string for list separated with \n
- *
- * @param list list of strings
- * @returns string for list
- */
-function toNewLineList(list) {
-  let str = list.length === 0 ? `none` : ``;
-  list.forEach((e) => {
-    str += `${e}\n`;
-  });
-  return str;
-}
-
-/**
- * Returns HTML for a bulleted list
- *
- * @param list list of strings
- * @returns HTML for bulleted list
- */
-function toBulletListHTML(list) {
-  let html = `<ul>`;
-  list.forEach((e) => {
-    html += `<li> ${e} </li>`;
-  });
-  return (html += `</ul>`);
 }
 
 /**
@@ -1659,7 +1806,7 @@ function toBulletListHTML(list) {
  * @param i unique argument id
  * @returns HTML id for the argument
  */
-function getIdBase(i) {
+function getIdBase(i: number) {
   return "argDef-" + i;
 } // fn: getIdBase()
 
@@ -1671,7 +1818,7 @@ function getIdBase(i) {
  * @param html HTML to unescape
  * @returns unescaped string
  */
-function htmlUnescape(html) {
+function htmlUnescape(html: string) {
   return html
     .replace(/&gt;/g, ">")
     .replace(/&lt;/g, "<")
@@ -1688,7 +1835,7 @@ function htmlUnescape(html) {
  * @param str string to escape
  * @returns escaped string
  */
-function htmlEscape(str) {
+function htmlEscape(str: string) {
   return str
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
