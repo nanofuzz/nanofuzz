@@ -1016,7 +1016,7 @@ function drawTableBody({
             throw new Error("Invalid event target");
           }
           const idStr = currentTarget.parentElement.getAttribute("id");
-          if (idStr === null || parseInt(idStr)) {
+          if (idStr === null || isNaN(parseInt(idStr))) {
             throw new Error("Invalid event target");
           }
           handlePinToggle(parseInt(idStr), type);
