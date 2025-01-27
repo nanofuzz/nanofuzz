@@ -6,6 +6,8 @@ import {
   ArgOptionOverrides,
   ArgOptions,
   TypeRef,
+  ArgTag,
+  ArgValueType,
 } from "./Types";
 
 /**
@@ -150,6 +152,94 @@ export class FunctionDef {
       ? ArgDef.fromTypeRef(this._ref.returnType, this._options)
       : undefined;
   } // fn: getReturnArg()
+
+  /** !!!!!! */
+  public getJsonSignature(): string {
+    // Build the JSON signature for each argument
+    const getJsonArgSignature = (arg: ArgDef<ArgType>): string => {
+      const name = arg.isNamed()
+        ? `name:${JSON5.stringify(arg.getName())},`
+        : "";
+      const value = `value${
+        arg.isOptional() ? "?" : ""
+      }:${arg.getTypeAnnotation({})},`;
+      const typeRef = arg.getTypeRef() ? `typeName:${arg.getTypeRef()},` : "";
+
+      return `{${name}${value}${typeRef}}`;
+    };
+
+    const inputs = `inputs: [${this._argDefs
+      .map((arg) => getJsonArgSignature(arg))
+      .join(",")}]`;
+    const returnArg = this.getReturnArg();
+    const outputs = returnArg
+      ? `output?: ${getJsonArgSignature(returnArg)}}`
+      : this.isVoid()
+      ? ``
+      : `output?: any`;
+    return `{${inputs},${outputs}}`;
+  } // !!!!!!
+
+  /** !!!!!! */
+  public getJsonOverrides(): string {
+    const getJsonArgOverride = (
+      arg: ArgDef<ArgType>
+    ): Record<string, ArgValueType> => {
+      const argOverride: Record<string, ArgValueType> = {
+        type: arg.getType(),
+        updated: false,
+      };
+      const argIntervals = arg.getIntervals();
+      const argOptions = arg.getOptions();
+      const argTypeRef = arg.getTypeRef();
+
+      if (arg.isNamed()) {
+        argOverride["name"] = arg.getName();
+      }
+      if (argTypeRef) {
+        argOverride["typeName"] = argTypeRef;
+      }
+
+      // !!!!!! dimensions
+
+      switch (arg.getType()) {
+        case ArgTag.NUMBER: {
+          argOverride["number"] = {
+            min: argIntervals[0].min,
+            max: argIntervals[0].max,
+            onlyIntegers: argOptions.numInteger,
+          };
+          break;
+        }
+        case ArgTag.STRING: {
+          argOverride["string"] = {
+            minLength: argOptions.strLength.min,
+            maxLength: argOptions.strLength.max,
+            charSet: argOptions.strCharset,
+          };
+          break;
+        }
+        case ArgTag.LITERAL: {
+          break;
+        }
+        case ArgTag.OBJECT: {
+          argOverride["children"] = arg
+            .getChildren()
+            .map((child) => getJsonArgOverride(child));
+          break;
+        }
+        case ArgTag.UNION: {
+          argOverride["type"] = arg.getTypeAnnotation({});
+          break;
+        }
+      }
+      return argOverride;
+    };
+
+    return JSON5.stringify(
+      this.getArgDefs().map((arg) => getJsonArgOverride(arg))
+    );
+  }
 
   /**
    * Returns true if the function is exported; false, otherwise.

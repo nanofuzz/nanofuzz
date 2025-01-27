@@ -6,6 +6,8 @@ import {
   ArgTag,
   ArgType,
   Interval,
+  TypeAnnotationOptionDefaults,
+  TypeAnnotationOptions,
   TypeRef,
 } from "./Types";
 
@@ -281,6 +283,15 @@ export class ArgDef<T extends ArgType> {
   } // fn: isNoInput()
 
   /**
+   * Returns whether the argument is named.
+   *
+   * @returns true if the argument is named; false, otherwise.
+   */
+  public isNamed(): boolean {
+    return this.name !== "unknown";
+  } // fn: isNamed()
+
+  /**
    * Returns the input intervals for the argument.
    *
    * @returns The input intervals of the argument
@@ -462,8 +473,10 @@ export class ArgDef<T extends ArgType> {
    * Returns the base type of this ArgDef, i.e., its type without any
    * dimensions or optionality.
    */
-  private getBaseType(): string {
-    if (this.typeRef) {
+  private getBaseType(
+    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    if (this.typeRef && options.useTypeRefs) {
       return this.typeRef;
     }
 
@@ -472,13 +485,16 @@ export class ArgDef<T extends ArgType> {
         // Probably an inline type given the lack of a typeRef, recursively walk
         // the children to build the type.
         const childTypeAnnotations = this.children.map(
-          (child) => `${child.getName()}: ${child.getTypeAnnotation()}`
+          (child) =>
+            `${child.getName()}${
+              child.optional && !options.useOptionality ? "?" : ""
+            }: ${child.getTypeAnnotation(options)}`
         );
         return `{ ${childTypeAnnotations.join("; ")} }`;
       }
       case ArgTag.UNION: {
         const childTypeAnnotations = this.children.map((child) =>
-          child.getTypeAnnotation()
+          child.getTypeAnnotation(options)
         );
         return childTypeAnnotations.join(" | ");
       }
@@ -494,12 +510,18 @@ export class ArgDef<T extends ArgType> {
    * Returns a string that works as the type annotation for the argument.
    * @returns a string that works as the type annotation for the argument
    */
-  public getTypeAnnotation(): string {
+  public getTypeAnnotation(
+    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
     // Get the base type annotation
-    let baseType = this.getBaseType();
+    let baseType = this.getBaseType(options);
 
     // Wrap union types w/dims in parens prior to adding the dims
-    if (this.type === ArgTag.UNION && this.dims && this.typeRef === undefined) {
+    if (
+      this.type === ArgTag.UNION &&
+      this.dims &&
+      (this.typeRef === undefined || !options.useTypeRefs)
+    ) {
       baseType = `(${baseType})`;
     }
 
@@ -524,6 +546,52 @@ export class ArgDef<T extends ArgType> {
     }
     return type;
   } // fn: getTypeAnnotation()
+
+  /** !!!!!! */
+  //public getJsonSignature(): string {
+  /*
+    let thisType: string;
+    switch (this.type) {
+      case ArgTag.OBJECT: {
+        const childTypeAnnotations = this.children.map(
+          (child) => `${child.getName()}: ${child.getTypeAnnotation({})}`
+        );
+        return `{ ${childTypeAnnotations.join("; ")} }`;
+      }
+      case ArgTag.UNION: {
+        const childTypeAnnotations = this.children.map((child) =>
+          child.getTypeAnnotation({})
+        );
+        thisType = `(${childTypeAnnotations.join(" | ")})`;
+        break;
+      }
+      case ArgTag.LITERAL:
+        thisType = JSON5.stringify(`${this.getConstantValue()}`);
+        break;
+      default:
+        thisType = this.type;
+    }
+
+    // Add the dimensions to the annotation
+    thisType = `${thisType}${this.dims ? "[]".repeat(this.dims) : ""}`;
+
+    // !!! dimensions
+
+    // !!!!!! const typing = `{type: ${thisType},`;
+    // !!!!!! const optional = `{optional: ${this.optional},`;
+    const value =
+      this.type === ArgTag.OBJECT
+        ? ``
+        : `value${this.optional ? "?" : ""}: ${thisType},`;
+    const children =
+      this.type === ArgTag.OBJECT
+        ? ``
+        : `children: [${this.children
+            .map((child) => child.getJsonSignature())
+            .join(",")}],`;
+            */
+  //return `{value${this.optional ? "?" : ""}:${this.getTypeAnnotation({})}`;
+  //}
 
   /**
    * Returns the default option set for signed integer values.

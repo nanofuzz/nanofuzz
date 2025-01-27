@@ -43,10 +43,6 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:nanofuzz.Fuzz",
-    "onCommand:nanofuzz.telemetry.log",
-    "onCommand:nanofuzz.telemetry.FlushLog",
-    "onCommand:nanofuzz.telemetry.ClearLog",
     "onLanguage:typescript",
     "onLanguage:typescriptreact",
     "onWebviewPanel:FuzzPanel"
@@ -142,6 +138,17 @@
           "default": "",
           "description": "Regex of files for NaNofuzz to ignore"
         },
+        "nanofuzz.ai.gemini.apitoken": {
+          "title": "Gemini API Token",
+          "type": "string",
+          "description": "API key for accessing Gemini LLM"
+        },
+        "nanofuzz.ai.gemini.model": {
+          "title": "Gemini Model Name",
+          "type": "string",
+          "default": "gemini-2.0-flash-exp",
+          "description": "Gemini model name to query"
+        },
         "nanofuzz.argdef.strCharset": {
           "title": "String character set",
           "type": "string",
@@ -234,6 +241,7 @@
   },
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
+    "@google/generative-ai": "^0.21.0",
     "@vscode/codicons": "^0.0.32",
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "eslint": "^7.3.2",
@@ -244,7 +252,7 @@
   },
   "devDependencies": {
     "@types/jest": "^27.4.1",
-    "@types/node": "16.x",
+    "@types/node": "18.x",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.69.0",
     "@typescript-eslint/eslint-plugin": "^4.5.0",

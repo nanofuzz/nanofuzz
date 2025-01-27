@@ -8,6 +8,7 @@ import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
+import { ProgramModelFactory } from "../llm/ProgramModelFactory";
 import {
   FuzzIoElement,
   FuzzPinnedTest,
@@ -45,6 +46,17 @@ export const setup = (
   // Ensure we found a function to fuzz
   if (!(fnName in fnList))
     throw new Error(`Could not find function ${fnName} in: ${module})}`);
+
+  // !!!!!!
+  try {
+    const model = ProgramModelFactory.create(program, fnList[fnName].getRef());
+  } catch (e) {
+    console.debug(
+      `Failed to load AI models: ${
+        e instanceof Error ? e.message : JSON5.stringify(e)
+      }`
+    );
+  }
 
   return {
     options: { ...options },
