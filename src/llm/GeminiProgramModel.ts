@@ -3,11 +3,12 @@ import { ProgramDef } from "../fuzzer/analysis/typescript/ProgramDef";
 import { AbstractProgramModel } from "./AbstractProgramModel";
 import * as JSON5 from "json5";
 import * as gemini from "@google/generative-ai";
-import { ModelInputRanges } from "./Types";
+import { ModelArgOverrides } from "./Types";
 
 export class GeminiProgramModel extends AbstractProgramModel {
   private _apiToken: string;
   private _modelName: string;
+  private static _promptCache: Record<string, string> = {};
 
   constructor(pgm: ProgramDef, fnRef: FunctionRef) {
     super(pgm, fnRef, "gemini");
@@ -19,65 +20,89 @@ export class GeminiProgramModel extends AbstractProgramModel {
     if (this._modelName === "") {
       throw new Error("No Gemini model name is configured");
     }
-    if (!this._spec) {
-      this.generateSpec();
-    }
-  }
+  } // !!!!!!
 
-  public override async generateSpec(): Promise<string> {
+  public override async getSpec(): Promise<string> {
     if (!this._spec) {
       this._spec = JSON5.parse(
         await this._query([this._prompts.specFromCode])
       ).spec.join("\n");
-      this._concretizePrompts();
       console.debug(`got the spec from the llm: ${this._spec}`); // !!!!!!
     }
-    this.predictInputRanges(); // !!!!!! Need to take into account the ranges!
-    this.generateExampleInputs(); // !!!!!!
     return this._spec;
-  }
+  } // !!!!!!
 
   public override async generateExampleInputs(): Promise<any[][]> {
     const inputs = JSON5.parse(
       await this._query([this._prompts.exampleInputs])
-    ).inputs;
+    );
     console.debug(
       `got these tests from the llm: ${JSON5.stringify(inputs, null, 2)}`
     ); // !!!!!!
     return inputs;
-  }
+  } // !!!!!!
 
-  public override async predictInputRanges(): Promise<ModelInputRanges> {
-    const ranges: ModelInputRanges = JSON5.parse(
+  public override async predictArgOverrides(): Promise<ModelArgOverrides[]> {
+    // !!!!!!const oldOverrides = this._overrides;
+    const newOverrides: ModelArgOverrides[] = JSON5.parse(
       await this._query([this._prompts.predictRanges])
-    ).inputs;
+    );
     console.debug(
-      `got these ranges from the llm: ${JSON5.stringify(ranges, null, 2)}`
+      `got these overrides from the llm: ${JSON5.stringify(
+        newOverrides,
+        null,
+        2
+      )}`
     ); // !!!!!!
-    return ranges;
-  }
+    // this._overrides = AbstractProgramModel.compareModelArgOverrides(
+    //   oldOverrides,
+    //   newOverrides
+    // ); // !!!!!! Not sure this is necessary
+    this._overrides = newOverrides;
+    console.debug(
+      `got these overrides from the llm (AFTER comparison): ${JSON5.stringify(
+        this._overrides,
+        null,
+        2
+      )}`
+    ); // !!!!!!
+    return this._overrides;
+  } // !!!!!!
 
+  // !!!!!! optioon to bypass cache
   private async _query(
-    prompt: string[],
-    type: "text" | "json" = "json"
+    inPrompt: string[],
+    type: "text" | "json" = "json",
+    bypassCache: boolean = false
   ): Promise<string> {
-    const genAI = new gemini.GoogleGenerativeAI(this._apiToken);
-    const model = genAI.getGenerativeModel({
-      model: this._modelName,
-      systemInstruction: this._prompts.system,
-      generationConfig: { responseMimeType: `application/${type}` },
-    });
-    console.debug(`gemini<<<${prompt.join(", ")}`); // !!!!!!
+    const prompt = inPrompt.map((p) => this._concretizePrompt(p));
+    const promptSerialized = JSON5.stringify(prompt);
 
-    const promptParts: gemini.Part[] = [];
-    prompt.forEach((e) => {
-      promptParts.push({
-        text: e,
+    if (promptSerialized in GeminiProgramModel._promptCache && !bypassCache) {
+      const cachedResponse = GeminiProgramModel._promptCache[promptSerialized];
+      console.debug(`gemini(CACHE)<<<${prompt.join(", ")}`); // !!!!!!
+      console.debug(`gemini(CACHE)>>>${cachedResponse}`); // !!!!!!
+      return cachedResponse;
+    } else {
+      const genAI = new gemini.GoogleGenerativeAI(this._apiToken);
+      const model = genAI.getGenerativeModel({
+        model: this._modelName,
+        systemInstruction: this._prompts.system,
+        generationConfig: { responseMimeType: `application/${type}` },
       });
-    });
+      console.debug(`gemini<<<${prompt.join(", ")}`); // !!!!!!
 
-    const result = await model.generateContent(promptParts);
-    console.debug(`gemini>>>${result.response.text()}`); // !!!!!!
-    return result.response.text();
-  }
+      const promptParts: gemini.Part[] = [];
+      prompt.forEach((e) => {
+        promptParts.push({
+          text: e,
+        });
+      });
+
+      const result = (await model.generateContent(promptParts)).response.text();
+      console.debug(`gemini(+CACHE)>>>${result}`); // !!!!!!
+      GeminiProgramModel._promptCache[promptSerialized] = result;
+      return result;
+    }
+  } // !!!!!!
 }

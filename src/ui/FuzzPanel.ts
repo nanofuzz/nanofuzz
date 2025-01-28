@@ -6,6 +6,7 @@ import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
+import { ProgramModelFactory } from "src/llm/ProgramModelFactory";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -38,7 +39,7 @@ export class FuzzPanel {
   private readonly _extensionUri: vscode.Uri; // Current Uri of the extension
   private _disposables: vscode.Disposable[] = []; // List of disposables
   private _fuzzEnv: fuzzer.FuzzEnv; // The Fuzz environment this panel represents
-  private _state: FuzzPanelState = FuzzPanelState.init; // The current state of the fuzzer.
+  private _state: FuzzPanelState = "init"; // The current state of the fuzzer.
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
 
   // State-dependent instance variables
@@ -217,18 +218,61 @@ export class FuzzPanel {
     this._argOverrides = testSet.argOverrides ?? [];
     this._sortColumns = testSet.sortColumns;
 
-    // Apply argument ranges, etc. over the defaults
-    _applyArgOverrides(
-      this._fuzzEnv.function,
-      this._argOverrides,
-      this._fuzzEnv.options.argDefaults
-    );
-
-    // Set the webview's initial html content
-    this._updateHtml();
-
     // Register the new panel
     FuzzPanel.currentPanels[this.getFnRefKey()] = this;
+
+    // Post-analysis callback function
+    const onInit = (): void => {
+      // Apply argument ranges, etc. over the defaults
+      _applyArgOverrides(
+        this._fuzzEnv.function,
+        this._argOverrides,
+        this._fuzzEnv.options.argDefaults
+      );
+
+      // Set the webview's initial html content
+      this._state = "init";
+      this._updateHtml();
+    };
+
+    // Program Model is configured and we do not have any overrides yet
+    // ...which means we are encountering the function for the first time
+    // and should use our program model to analyze it
+    if (ProgramModelFactory.isConfigured() && !this._argOverrides.length) {
+      this._state = "busyAnalyzing";
+      this._updateHtml();
+
+      // Bounce off the stack and perform the analysis
+      setTimeout(async () => {
+        try {
+          // Get the program model
+          const model = ProgramModelFactory.create(
+            ProgramDef.fromModule(env.function.getModule()),
+            env.function.getRef()
+          );
+          await model.getSpec();
+          const overrides = await model.getFuzzerArgOverrides();
+          console.debug(
+            `Applying overrides from analysis: ${JSON5.stringify(
+              overrides,
+              null,
+              2
+            )}`
+          ); // !!!!!!
+          this._argOverrides = overrides;
+          onInit();
+        } catch (e: unknown) {
+          const msg = `Failed to perform AI analysis of function. Message: ${
+            e instanceof Error ? e.message : JSON5.stringify(e)
+          }`;
+          vscode.window.showWarningMessage(msg);
+          console.debug(msg);
+          // !!!!!! telemetry
+        }
+      });
+    } else {
+      onInit();
+    }
   } // fn: constructor
 
   /**
@@ -995,7 +1039,7 @@ ${inArgConsts}
 
     // Update the UI
     this._results = undefined;
-    this._state = FuzzPanelState.busy;
+    this._state = "busyFuzzing";
     this._updateHtml();
 
     // Save the argument overrides
@@ -1023,7 +1067,7 @@ ${inArgConsts}
 
         // Transition to done state
         this._errorMessage = undefined;
-        this._state = FuzzPanelState.done;
+        this._state = "done";
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1044,7 +1088,7 @@ ${inArgConsts}
         testSet.isVoid = this._fuzzEnv.function.isVoid();
         this._putFuzzTestsForThisFn(testSet);
       } catch (e: any) {
-        this._state = FuzzPanelState.error;
+        this._state = "error";
         this._errorMessage = e.message ?? "Unknown error";
         vscode.commands.executeCommand(
           telemetry.commands.logTelemetry.name,
@@ -1089,8 +1133,7 @@ ${inArgConsts}
     try {
       const webview: vscode.Webview = this._panel.webview; // Current webview
       const extensionUri: vscode.Uri = this._extensionUri; // Extension URI
-      const disabledFlag =
-        this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
+      const disabledFlag = this._state.startsWith("busy"); // Disable inputs if busy
       const resultSummary = {
         failure: 0,
         timeout: 0,
@@ -1138,7 +1181,7 @@ ${inArgConsts}
         : "Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN";
 
       // If fuzzer results are available, calculate how many tests passed, failed, etc.
-      if (this._state === FuzzPanelState.done && this._results !== undefined) {
+      if (this._state === "done" && this._results !== undefined) {
         this._results.results.forEach((result) => {
           resultSummary[result.category]++;
         });
@@ -1174,7 +1217,7 @@ ${inArgConsts}
             
           <!-- ${toolName} pane -->
           <div id="pane-nanofuzz"> 
-            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;"> ${this._state === FuzzPanelState.busy ? "Testing..." : "Test: "+htmlEscape(
+            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;"> ${this._state === "busyFuzzing" ? "Testing..." : this._state === "busyAnalyzing" ? "Analyzing..." : "Test: "+htmlEscape(
               fn.getName())+"()"} 
               <div title="Open soure code" id="openSourceLink" class='codicon codicon-file-text clickable'></div>
             </h2>
@@ -1280,7 +1323,7 @@ ${inArgConsts}
             <!-- Button Bar -->
             <div style="padding-top: .25em;">
               <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
-                ${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}
+                ${this._state === "busyFuzzing" ? "Testing..." : "Test"}
               </vscode-button>
               <vscode-button  ${disabledFlag} class="hidden" id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
                 Change Mode
@@ -1298,7 +1341,7 @@ ${inArgConsts}
 
             <!-- Fuzzer Errors -->
             <div class="fuzzErrors${
-              this._state === FuzzPanelState.error
+              this._state === "error"
                 ? ""
                 : " hidden"
             }">
@@ -1308,7 +1351,7 @@ ${inArgConsts}
 
             <!-- Fuzzer Warnings -->
             <div class="fuzzWarnings${
-              this._state === FuzzPanelState.done && !this._fuzzEnv.options.useHuman && !this._fuzzEnv.options.useImplicit && (!this._fuzzEnv.options.useProperty || !this._fuzzEnv.validators.length )
+              this._state === "done" && !this._fuzzEnv.options.useHuman && !this._fuzzEnv.options.useImplicit && (!this._fuzzEnv.options.useProperty || !this._fuzzEnv.validators.length )
                 ? ""
                 : " hidden"
             }">
@@ -1316,7 +1359,7 @@ ${inArgConsts}
             </div>
 
             <div class="fuzzWarnings${
-              this._state === FuzzPanelState.done && this._fuzzEnv.options.useProperty && !(this._fuzzEnv.validators.length)
+              this._state === "done" && this._fuzzEnv.options.useProperty && !(this._fuzzEnv.validators.length)
                 ? ""
                 : " hidden"
             }">
@@ -1325,7 +1368,7 @@ ${inArgConsts}
 
             <!-- Fuzzer Info -->
             <div class="fuzzInfo${
-              this._state === FuzzPanelState.done && this._fuzzEnv.options.onlyFailures && this._results?.results.length === 0 
+              this._state === "done" && this._fuzzEnv.options.onlyFailures && this._results?.results.length === 0 
                 ? ""
                 : " hidden"
             }">
@@ -1334,7 +1377,7 @@ ${inArgConsts}
             
             <!-- Fuzzer Output -->
             <div class="fuzzResults" ${
-              this._state === FuzzPanelState.done
+              this._state === "done"
                 ? ""
                 : /*html*/ `style="display:none;"`
             }>
@@ -1653,8 +1696,7 @@ ${inArgConsts}
     const idBase = `argDef-${id}`; // base HTML id for this argument
     const argType = arg.getType(); // type of argument
     const argName = arg.getName(); // name of the argument
-    const disabledFlag =
-      this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
+    const disabledFlag = this._state.startsWith("busy") ? ` disabled ` : ""; // Disable inputs if busy
     const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
     const htmlEllipsis = `<span class="hidden argDef-ellipsis">...</span>`;
@@ -2262,12 +2304,12 @@ export type FuzzPanelMessage = {
 /**
  * Represents the possible states of the FuzzPanel
  */
-export enum FuzzPanelState {
-  init = "init", // Nothing has been fuzzed yet
-  busy = "busy", // Fuzzing is in progress
-  done = "done", // Fuzzing is done
-  error = "error", // Fuzzing stopped due to an error
-}
+export type FuzzPanelState =
+  | "busyAnalyzing" // Busy analyzing the function
+  | "init" // Function analyzed but nothing has been fuzzed yet
+  | "busyFuzzing" // Fuzzing is in progress
+  | "done" // Fuzzing is done
+  | "error"; // Fuzzing stopped due to an error
 
 /**
  * The serialized state of a FuzzPanel

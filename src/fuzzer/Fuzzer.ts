@@ -47,17 +47,6 @@ export const setup = (
   if (!(fnName in fnList))
     throw new Error(`Could not find function ${fnName} in: ${module})}`);
 
-  // !!!!!!
-  try {
-    const model = ProgramModelFactory.create(program, fnList[fnName].getRef());
-  } catch (e) {
-    console.debug(
-      `Failed to load AI models: ${
-        e instanceof Error ? e.message : JSON5.stringify(e)
-      }`
-    );
-  }
-
   return {
     options: { ...options },
     function: fnList[fnName],
