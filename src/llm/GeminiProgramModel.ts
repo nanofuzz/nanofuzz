@@ -22,8 +22,8 @@ export class GeminiProgramModel extends AbstractProgramModel {
     }
   } // !!!!!!
 
-  public override async getSpec(): Promise<string> {
-    if (!this._spec) {
+  public override async getSpec(): Promise<string | undefined> {
+    if (this._spec === undefined) {
       this._spec = JSON5.parse(
         await this._query([this._prompts.specFromCode])
       ).spec.join("\n");

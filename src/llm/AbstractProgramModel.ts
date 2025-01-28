@@ -14,11 +14,12 @@ import { FuzzArgOverride } from "fuzzer/Types";
 export abstract class AbstractProgramModel {
   protected readonly _cfgCategory: string;
   protected _fnRef: FunctionRef;
-  protected _spec = "";
+  protected _spec: string | undefined;
   protected _state: "notready" | "ready" = "notready"; // !!!!!!
   protected _inputSchema;
   protected _overrides;
 
+  /** !!!!!! */
   protected constructor(
     pgm: ProgramDef,
     fnRef: FunctionRef,
@@ -28,16 +29,19 @@ export abstract class AbstractProgramModel {
 
     this._cfgCategory = cfgCategory;
     this._fnRef = fnRef;
+    this._spec = fnRef.cmt ?? "";
     this._inputSchema = AbstractProgramModel.getJsonSignature(thisFn);
     this._overrides = AbstractProgramModel.getModelArgOverrides(thisFn);
   } // !!!!!!
 
+  /** !!!!!! */
   protected _getConfig<T>(section: string, dft: T): T {
     return vscode.workspace
       .getConfiguration("nanofuzz.ai." + this._cfgCategory)
       .get(section, dft);
   } // !!!!!!
 
+  /** !!!!!! */
   protected _concretizePrompt(
     prompt: string,
     translations?: Record<string, string>
@@ -45,17 +49,17 @@ export abstract class AbstractProgramModel {
     const allTranslations: Record<string, string> = {
       "fn-name": this._fnRef.name,
       "fn-source": this._fnRef.src,
-      "fn-spec": this._spec,
+      "fn-spec": this._spec ?? "",
       "fn-schema": this._inputSchema,
       "fn-overrides": JSON5.stringify(this._overrides),
       ...(translations ?? {}),
     };
 
-    console.debug(`prompt was: ${prompt}`); // !!!!!!
+    //console.debug(`prompt was: ${prompt}`); // !!!!!!
     for (const name in allTranslations) {
       prompt = prompt.replaceAll(`<${name}>`, allTranslations[name]);
     }
-    console.debug(`prompt now: ${prompt}`); // !!!!!!
+    //console.debug(`prompt now: ${prompt}`); // !!!!!!
     return prompt;
   } // !!!!!!
 
@@ -221,7 +225,13 @@ export abstract class AbstractProgramModel {
 
   /** !!!!!! */
   public async getFuzzerArgOverrides(): Promise<FuzzArgOverride[]> {
-    console.debug(`Raw overrides: ${await this.predictArgOverrides()}`); // !!!!!!
+    console.debug(
+      `Raw overrides: ${JSON5.stringify(
+        await this.predictArgOverrides(),
+        null,
+        2
+      )}`
+    ); // !!!!!!
     return AbstractProgramModel.toArgOverrides(
       await this.predictArgOverrides()
     );
@@ -274,7 +284,7 @@ export abstract class AbstractProgramModel {
     return result;
   } // !!!!!!
 
-  public abstract getSpec(): Promise<string>;
+  public abstract getSpec(): Promise<string | undefined>;
 
   public abstract generateExampleInputs(): Promise<any[][]>;
 
@@ -302,7 +312,7 @@ Return the unit test inputs in this JSON schema format. Omit any undefined value
 The "<fn-name>" program:
 <fn-source>
     
-The “<fn-name>” specification in TypeDoc docstring format:
+The “<fn-name>” specification in docstring format:
 <fn-spec>`,
 
     /*L3*/ predictRanges: `Use the "<fn-name>" TypeScript specification below to understand any minimum and maximum values, lengths, array lengths, and character sets for the tree of function arguments.
@@ -313,7 +323,7 @@ Compare the specification to the values for the tree of arguments in this JSON o
 The "<fn-name>" program:
 <fn-source>
 
-The “<fn-name>” specification in TypeDoc docstring format:
+The “<fn-name>” specification in docstring format:
 <fn-spec>`,
   };
 } // !!!!!!

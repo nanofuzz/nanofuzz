@@ -6,14 +6,22 @@ import * as vscode from "vscode";
 
 /** !!!!!! TODO !!!!!!
  *
- * - Retrieve spec from program code if present
- * - Pipeline & sequence queries by concrete implementation
- * - Prompt cache invalidation
- * - Singletons by model, module, fnref
- * - Handle Gemini back-end failures (e.g., overloaded; try again later)
- * - CodeLens to insert generated specification
- * - Support some other models
+ * Features:
+ * - Inject unit tests into fuzzer
  * - Telemetry logging for model queries
+ * - CodeLens to insert generated specification if missing
+ * - Support at least one other model, e.g., Copilot
+ *
+ * Fix:
+ * - Retry/fail logic for Gemini back-end failures (e.g., overloaded)
+ *
+ * Could be better:
+ * - Analyze spec during CodeLens analysis phase
+ * - Pipeline & sequence queries by concrete implementation
+ * - Use real prompt parameterization
+ * - Prompt cache invalidation
+ * - Singleton concrete models by model, module, fnref
+ * -
  */
 export abstract class ProgramModelFactory {
   public static create(

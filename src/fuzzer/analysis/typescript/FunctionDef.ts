@@ -6,8 +6,6 @@ import {
   ArgOptionOverrides,
   ArgOptions,
   TypeRef,
-  ArgTag,
-  ArgValueType,
 } from "./Types";
 
 /**
@@ -81,6 +79,15 @@ export class FunctionDef {
   public getSrc(): string {
     return this._ref.src;
   } // fn: getSrc()
+
+  /**
+   * Returns the function's docstring specification, if present.
+   *
+   * @returns Docstring spec of the function or undefined
+   */
+  public getSpec(): string | undefined {
+    return this._ref.cmt;
+  } // fn: getSpec()
 
   /**
    * Returns the array of function arguments

@@ -40,6 +40,7 @@ export type FunctionRef = {
   isVoid: boolean; // True if the function is void; false, otherwise
   args?: TypeRef[]; // Array of argument types
   returnType?: TypeRef; // Return type of the function
+  cmt?: string; // Docstring spec of the function
 };
 
 /**
