@@ -14,7 +14,6 @@ import * as vscode from "vscode";
  * - CodeLens to insert generated specification
  * - Support some other models
  * - Telemetry logging for model queries
- * - FuzzPanel buttons aren't getting disabled on busyAnalyzing
  */
 export abstract class ProgramModelFactory {
   public static create(

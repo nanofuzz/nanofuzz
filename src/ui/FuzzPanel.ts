@@ -1133,7 +1133,8 @@ ${inArgConsts}
     try {
       const webview: vscode.Webview = this._panel.webview; // Current webview
       const extensionUri: vscode.Uri = this._extensionUri; // Extension URI
-      const disabledFlag = this._state.startsWith("busy"); // Disable inputs if busy
+      const disabledFlag = this._state.startsWith("busy") ? ` disabled ` : ""; // Disable inputs if busy
+
       const resultSummary = {
         failure: 0,
         timeout: 0,
