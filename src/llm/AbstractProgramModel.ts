@@ -3,35 +3,28 @@ import {
   ArgType,
   FunctionRef,
 } from "../fuzzer/analysis/typescript/Types";
-import { ProgramDef } from "../fuzzer/analysis/typescript/ProgramDef";
 import * as vscode from "vscode";
 import * as JSON5 from "json5";
 import { ModelArgOverrides } from "./Types";
 import { ArgDef } from "fuzzer/analysis/typescript/ArgDef";
 import { FunctionDef } from "fuzzer/analysis/typescript/FunctionDef";
-import { FuzzArgOverride } from "fuzzer/Types";
+import { FuzzArgOverride, FuzzIoElement } from "fuzzer/Types";
 
 export abstract class AbstractProgramModel {
   protected readonly _cfgCategory: string;
+  protected _fn: FunctionDef;
   protected _fnRef: FunctionRef;
-  protected _spec: string | undefined;
   protected _state: "notready" | "ready" = "notready"; // !!!!!!
   protected _inputSchema;
   protected _overrides;
 
   /** !!!!!! */
-  protected constructor(
-    pgm: ProgramDef,
-    fnRef: FunctionRef,
-    cfgCategory: string
-  ) {
-    const thisFn = pgm.getExportedFunctions()[fnRef.name];
-
+  protected constructor(fn: FunctionDef, cfgCategory: string) {
+    this._fn = fn;
     this._cfgCategory = cfgCategory;
-    this._fnRef = fnRef;
-    this._spec = fnRef.cmt ?? "";
-    this._inputSchema = AbstractProgramModel.getJsonSignature(thisFn);
-    this._overrides = AbstractProgramModel.getModelArgOverrides(thisFn);
+    this._fnRef = fn.getRef();
+    this._inputSchema = AbstractProgramModel.getFuzzInputElements(this._fn);
+    this._overrides = AbstractProgramModel.getModelArgOverrides(this._fn);
   } // !!!!!!
 
   /** !!!!!! */
@@ -49,7 +42,7 @@ export abstract class AbstractProgramModel {
     const allTranslations: Record<string, string> = {
       "fn-name": this._fnRef.name,
       "fn-source": this._fnRef.src,
-      "fn-spec": this._spec ?? "",
+      "fn-spec": this._fn.getSpec() ?? "",
       "fn-schema": this._inputSchema,
       "fn-overrides": JSON5.stringify(this._overrides),
       ...(translations ?? {}),
@@ -64,31 +57,33 @@ export abstract class AbstractProgramModel {
   } // !!!!!!
 
   /** !!!!!! */
-  protected static getJsonSignature(fn: FunctionDef): string {
-    // Build the JSON signature for each argument
-    const getJsonArgSignature = (arg: ArgDef<ArgType>): string => {
+  protected static getFuzzInputElements(fn: FunctionDef): string {
+    let i = 0;
+    // Build the FuzzIoElement for each argument
+    const getFuzzIoElement = (arg: ArgDef<ArgType>): string => {
       const name = arg.isNamed()
         ? `name:${JSON5.stringify(arg.getName())},`
         : "";
+      const offset = `offset:${i++},`;
       const value = `value${
         arg.isOptional() ? "?" : ""
       }:${arg.getTypeAnnotation({})},`;
       const typeRef = arg.getTypeRef() ? `typeName:${arg.getTypeRef()},` : "";
 
-      return `{${name}${value}${typeRef}}`;
+      return `{${name}${offset}${value}${typeRef}}`;
     };
 
-    const inputs = `inputs: [${fn
+    const inputs = `[${fn
       .getArgDefs()
-      .map((arg) => getJsonArgSignature(arg))
+      .map((arg) => getFuzzIoElement(arg))
       .join(",")}]`;
-    const returnArg = fn.getReturnArg();
-    const outputs = returnArg
-      ? `output?: ${getJsonArgSignature(returnArg)}}`
-      : fn.isVoid()
-      ? ``
-      : `output?: any`;
-    return `{${inputs},${outputs}}`;
+    //const returnArg = fn.getReturnArg();
+    //const outputs = returnArg
+    //  ? `output?: ${getFuzzIoElement(returnArg)}}`
+    //  : fn.isVoid()
+    //  ? ``
+    //  : `output?: any`;
+    return inputs;
   } // !!!!!!
 
   /** !!!!!! */
@@ -185,44 +180,6 @@ export abstract class AbstractProgramModel {
     return fn.getArgDefs().map((arg) => getModelArgOverrideInner(arg));
   } // !!!!!!
 
-  //   protected static compareModelArgOverrides(
-  //     oldOverrides: ModelArgOverrides[],
-  //     newOverrides: ModelArgOverrides[]
-  //   ): ModelArgOverrides[] {
-  //     const result: ModelArgOverrides[] = [];
-  //     for (const i in newOverrides) {
-  //       const thisOld = oldOverrides[i];
-  //       const thisNew = newOverrides[i];
-  //       const changed = JSON5.stringify(thisOld) !== JSON5.stringify(thisNew);
-  //       const thisResult = {
-  //         ...newOverrides[i],
-  //       };
-  //       if (changed) {
-  //         thisResult.changed = true;
-  //         console.debug(
-  //           `change detected: (old) ${JSON5.stringify(thisOld, null, 2)}`
-  //         ); // !!!!!!
-  //         console.debug(
-  //           `                 (new) ${JSON5.stringify(thisNew, null, 2)}`
-  //         ); // !!!!!!
-  //       }
-  //       if ("children" in thisNew && "children" in thisResult) {
-  //         if ("children" in thisOld) {
-  //           thisResult.children = AbstractProgramModel.compareModelArgOverrides(
-  //             thisOld.children,
-  //             thisNew.children
-  //           );
-  //         } else {
-  //           thisResult.children = AbstractProgramModel.compareModelArgOverrides(
-  //             [],
-  //             thisNew.children
-  //           );
-  //         }
-  //       }
-  //     }
-  //     return result;
-  //   } // !!!!!!
-
   /** !!!!!! */
   public async getFuzzerArgOverrides(): Promise<FuzzArgOverride[]> {
     console.debug(
@@ -286,7 +243,7 @@ export abstract class AbstractProgramModel {
 
   public abstract getSpec(): Promise<string | undefined>;
 
-  public abstract generateExampleInputs(): Promise<any[][]>;
+  public abstract generateExampleInputs(): Promise<FuzzIoElement[][]>;
 
   public abstract predictArgOverrides(): Promise<ModelArgOverrides[]>;
 
@@ -301,13 +258,16 @@ A JSON Schema descrbing the concrete inputs and outputs:
 The "<fn-name>" program:
 <fn-source>`,
 
-    /*L2*/ exampleInputs: `For the following TypeScript program "<fn-name>" and its specification, provide the most important input values to test so as to determine whether the program satisfies its specification.
+    /*L2*/ exampleInputs: `To evaluate whether the following TypeScript program "<fn-name>" satisfies its specification, generate several test cases for testing the program. Each test case includes all the inputs needed to call the program. Choose 5-15 test cases that are important to determine whether the program satisfies its specification.
 
 For each argument of each unit test, you must satisfy the constraints for each argument and subargument. This includes min and max ranges (numbers, booleans), min and max lengths of each string and array dimension, character set restrictions (strings), and whether floats are allowed or only integers (numbers), as defined here:
 <fn-overrides>
 
-Return the unit test inputs in this JSON schema format. Omit any undefined values (e.g., optional inputs). Provide only literal values that are compatible with the type annotations. Each element in the array is a unit test.
-<fn-schema>[]
+Each unit test must be in the following JSON schema format ("testCase"). You will only change the "value" fields. In each unit test, omit any undefined values (e.g., optional inputs). Provide only literal values that are compatible with the type annotations. 
+testCase = <fn-schema>
+
+Return an array of unit tests in the following JSON format such that you return an array of arrays.
+testCase[]
 
 The "<fn-name>" program:
 <fn-source>

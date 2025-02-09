@@ -41,11 +41,13 @@ export class FuzzPanel {
   private _fuzzEnv: fuzzer.FuzzEnv; // The Fuzz environment this panel represents
   private _state: FuzzPanelState = "init"; // The current state of the fuzzer.
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
+  private _disposed = false; // Indicates whether this panel is disposed
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
   private _errorMessage?: string; // error state: the error message
   private _sortColumns?: fuzzer.FuzzSortColumns; // column sort orders
+  private _testsToInject?: fuzzer.FuzzIoElement[][]; // suggested tests to inject
 
   // ------------------------ Static Methods ------------------------ //
 
@@ -242,14 +244,11 @@ export class FuzzPanel {
       this._state = "busyAnalyzing";
       this._updateHtml();
 
-      // Bounce off the stack and perform the analysis
+      // Bounce off the stack and perform the range analysis
       setTimeout(async () => {
         try {
           // Get the program model
-          const model = ProgramModelFactory.create(
-            ProgramDef.fromModule(env.function.getModule()),
-            env.function.getRef()
-          );
+          const model = ProgramModelFactory.create(this._fuzzEnv.function);
           await model.getSpec();
           const overrides = await model.getFuzzerArgOverrides();
           console.debug(
@@ -261,13 +260,28 @@ export class FuzzPanel {
           ); // !!!!!!
           this._argOverrides = overrides;
           onInit();
+
+          // Bounce off the stack and have the model generate test cases
+          setTimeout(async () => {
+            this._testsToInject = await model.generateExampleInputs();
+            console.debug(
+              `Got tests to inject: ${JSON5.stringify(
+                this._testsToInject,
+                null,
+                2
+              )}`
+            ); // !!!!!!
+            // check that generated tests are valid !!!!!!
+          });
         } catch (e: unknown) {
-          const msg = `Failed to perform AI analysis of function. Message: ${
-            e instanceof Error ? e.message : JSON5.stringify(e)
-          }`;
-          vscode.window.showWarningMessage(msg);
-          console.debug(msg);
-          // !!!!!! telemetry
+          if (!this._disposed) {
+            const msg = `Failed to perform AI analysis of function. Message: ${
+              e instanceof Error ? e.message : JSON5.stringify(e)
+            }`;
+            vscode.window.showWarningMessage(msg);
+            console.debug(msg); // !!!!!!
+            // !!!!!! telemetry
+          }
         }
       });
     } else {
@@ -1057,12 +1071,49 @@ ${inArgConsts}
         )
       );
 
+      // Get the set of saved or recommended tests to inject
+      const testsToInject = this._getFuzzTestsForThisFn().tests;
+      console.debug(`savedTests: ${JSON5.stringify(testsToInject, null, 2)}`); // !!!!!!
+      console.debug(
+        `testsToInject: ${JSON5.stringify(this._testsToInject, null, 2)}`
+      ); // !!!!!!
+      if (this._testsToInject) {
+        this._testsToInject.forEach((testCase) => {
+          console.debug(
+            ` - processing test inputs: ${JSON5.stringify(testCase, null, 2)}`
+          ); // !!!!!!
+          const thisTest: fuzzer.FuzzPinnedTest = {
+            input: testCase.map((input) => {
+              return {
+                name: input.name,
+                offset: input.offset,
+                value: input.value,
+              };
+            }),
+            output: [],
+            pinned: false,
+          };
+          const key = JSON5.stringify(thisTest.input);
+          if (!(key in testsToInject)) {
+            console.debug(
+              ` - added test w/key "${key}" (not previously present)`
+            ); // !!!!!!
+            testsToInject[key] = thisTest;
+          } else {
+            console.debug(` - test w/key "${key}" already exists; skipping`); // !!!!!!
+          }
+        });
+      }
+      console.debug(
+        `all injected tests: ${JSON5.stringify(testsToInject, null, 2)}`
+      ); // !!!!!!
+
       // Fuzz the function & store the results
       try {
         // Run the fuzzer
         this._results = await fuzzer.fuzz(
           this._fuzzEnv,
-          Object.values(this._getFuzzTestsForThisFn().tests)
+          Object.values(testsToInject)
         );
 
         // Transition to done state
@@ -1109,6 +1160,9 @@ ${inArgConsts}
    * Disposes all objects used by this instance
    */
   public dispose(): void {
+    // Set the disposed flag
+    this._disposed = true;
+
     // Remove this panel from the list of current panels.
     delete FuzzPanel.currentPanels[this.getFnRefKey()];
 

@@ -25,6 +25,7 @@ export class FunctionDef {
   private _argDefs: ArgDef<ArgType>[] = [];
   private _options: ArgOptions;
   private _ref: FunctionRef;
+  private _spec: string | undefined;
 
   /**
    * Constructs a new FunctionDef instance using a FunctionRef object.
@@ -36,6 +37,7 @@ export class FunctionDef {
   private constructor(ref: FunctionRef, options?: ArgOptions) {
     this._options = options ?? ArgDef.getDefaultOptions();
     this._ref = ref;
+    this._spec = ref.cmt;
 
     if (!ref.args) {
       throw new Error(`FunctionRef.args is undefined: ${JSON5.stringify(ref)}`);
@@ -86,8 +88,18 @@ export class FunctionDef {
    * @returns Docstring spec of the function or undefined
    */
   public getSpec(): string | undefined {
-    return this._ref.cmt;
+    return this._spec ?? this._ref.cmt;
   } // fn: getSpec()
+
+  /**
+   * Sets the function's docstring specification.
+   *
+   * @param spec Docstring specification
+   * @returns void
+   */
+  public setSpec(spec: string): void {
+    this._spec = spec;
+  } // fn: setSpec()
 
   /**
    * Returns the array of function arguments

@@ -1,17 +1,18 @@
-import { FunctionRef } from "../fuzzer/analysis/typescript/Types";
-import { ProgramDef } from "../fuzzer/analysis/typescript/ProgramDef";
 import { AbstractProgramModel } from "./AbstractProgramModel";
 import * as JSON5 from "json5";
 import * as gemini from "@google/generative-ai";
 import { ModelArgOverrides } from "./Types";
+import { FuzzIoElement } from "fuzzer/Types";
+import { FunctionDef } from "fuzzer/Fuzzer";
 
 export class GeminiProgramModel extends AbstractProgramModel {
   private _apiToken: string;
   private _modelName: string;
   private static _promptCache: Record<string, string> = {};
 
-  constructor(pgm: ProgramDef, fnRef: FunctionRef) {
-    super(pgm, fnRef, "gemini");
+  /** !!!!!! */
+  constructor(fn: FunctionDef) {
+    super(fn, "gemini");
     this._apiToken = this._getConfig("apitoken", "");
     this._modelName = this._getConfig("model", "");
     if (this._apiToken === "") {
@@ -22,18 +23,22 @@ export class GeminiProgramModel extends AbstractProgramModel {
     }
   } // !!!!!!
 
+  /** !!!!!! */
   public override async getSpec(): Promise<string | undefined> {
-    if (this._spec === undefined) {
-      this._spec = JSON5.parse(
-        await this._query([this._prompts.specFromCode])
-      ).spec.join("\n");
-      console.debug(`got the spec from the llm: ${this._spec}`); // !!!!!!
+    if (this._fn.getSpec() === undefined) {
+      this._fn.setSpec(
+        JSON5.parse(await this._query([this._prompts.specFromCode])).spec.join(
+          "\n"
+        )
+      );
+      console.debug(`got the spec from the llm: ${this._fn.getSpec()}`); // !!!!!!
     }
-    return this._spec;
+    return this._fn.getSpec();
   } // !!!!!!
 
-  public override async generateExampleInputs(): Promise<any[][]> {
-    const inputs = JSON5.parse(
+  /** !!!!!! */
+  public override async generateExampleInputs(): Promise<FuzzIoElement[][]> {
+    const inputs: FuzzIoElement[][] = JSON5.parse(
       await this._query([this._prompts.exampleInputs])
     );
     console.debug(
@@ -42,6 +47,7 @@ export class GeminiProgramModel extends AbstractProgramModel {
     return inputs;
   } // !!!!!!
 
+  /** !!!!!! */
   public override async predictArgOverrides(): Promise<ModelArgOverrides[]> {
     // !!!!!!const oldOverrides = this._overrides;
     const newOverrides: ModelArgOverrides[] = JSON5.parse(
@@ -73,7 +79,7 @@ export class GeminiProgramModel extends AbstractProgramModel {
   private async _query(
     inPrompt: string[],
     type: "text" | "json" = "json",
-    bypassCache: boolean = false
+    bypassCache = false
   ): Promise<string> {
     const prompt = inPrompt.map((p) => this._concretizePrompt(p));
     const promptSerialized = JSON5.stringify(prompt);
