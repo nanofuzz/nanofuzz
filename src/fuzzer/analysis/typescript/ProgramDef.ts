@@ -159,16 +159,17 @@ export class ProgramDef {
               }
             }
           }
-        } catch (e: any) {
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : JSON.stringify(e);
           console.debug(
             `Error resolving types for function '${fnRef.name}' argument '${
               lastArgName ?? "(unknown)"
-            }'; marking fn as unsupported. Reason: ${e.message}`
+            }'; marking fn as unsupported. Reason: ${msg}`
           );
 
           // Remove functions that we couldn't resolve
           this._unsupportedFunctions[fnRef.name] = {
-            reason: e.message,
+            reason: msg,
             argument: lastArgName,
             function: fnRef,
           };
@@ -182,9 +183,11 @@ export class ProgramDef {
             lastArgName = "return";
             this._resolveTypeRef(fnRef.returnType);
           }
-        } catch (e: any) {
+        } catch (e: unknown) {
           console.debug(
-            `Error resolving return type for function '${fnRef.name}'; Reason: ${e.message}`
+            `Error resolving return type for function '${
+              fnRef.name
+            }'; Reason: ${e instanceof Error ? e.message : JSON.stringify(e)}`
           );
         }
       }
@@ -1159,15 +1162,16 @@ export class ProgramDef {
             if (maybeFunction) {
               supported[name] = maybeFunction;
             }
-          } catch (e: any) {
+          } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : JSON.stringify(e);
             console.debug(
               `Error processing function '${this._src.substring(
                 node.range[0],
                 node.range[1]
-              )}' in module '${this._module}': ${e.message}`
+              )}' in module '${this._module}': ${msg}`
             );
             unsupported[name] = {
-              reason: e.message,
+              reason: msg,
               node: node,
             };
           }
