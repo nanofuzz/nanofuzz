@@ -2,7 +2,7 @@
   "name": "@nanofuzz/runtime",
   "displayName": "NaNofuzz runtime support",
   "publisher": "penrose",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Runtime support and types for NaNofuzz",
   "repository": {
     "type": "git",
