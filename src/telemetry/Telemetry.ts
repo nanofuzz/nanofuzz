@@ -275,7 +275,7 @@ export const listeners: Listener<any>[] = [
 /**
  * Associates a callback function with an vscode event.
  */
-type Listener<T extends any> = {
+type Listener<T extends unknown> = {
   event: vscode.Event<T>;
   fn: (e: T) => void;
 };
