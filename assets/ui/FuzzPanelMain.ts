@@ -9,6 +9,7 @@ import {
   FuzzArgOverride,
   FuzzIoElement,
   FuzzOptions,
+  FuzzPinnedTest,
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
@@ -553,12 +554,7 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   data[type][index][pinnedLabel] = pinning;
 
   // Get the test data for the test case
-  const testCase: {
-    input: FuzzIoElement[];
-    output: FuzzIoElement[];
-    pinned: boolean;
-    expectedOutput?: any;
-  } = {
+  const testCase: FuzzPinnedTest = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: data[type][index][pinnedLabel],
@@ -1442,22 +1438,20 @@ function buildExpectedTestCase(
   show(okButton);
 
   // Build the expected output object
-  const expectedOutput: {
-    name: string;
-    offset: number;
-    isTimeout?: boolean;
-    isException?: boolean;
-    value?: any;
-  } = {
+  const expectedOutput: FuzzIoElement = {
     name: "0",
     offset: 0,
+    isTimeout: false,
+    isException: false,
+    value: undefined,
+    origin: { type: "human" },
   };
   if ("checked" in radioTimeout && radioTimeout.checked) {
-    expectedOutput["isTimeout"] = true;
+    expectedOutput.isTimeout = true;
   } else if ("checked" in radioException && radioException.checked) {
-    expectedOutput["isException"] = true;
+    expectedOutput.isException = true;
   } else {
-    expectedOutput["value"] = parsedExpectedValue;
+    expectedOutput.value = parsedExpectedValue;
   }
 
   // Build & return the test case object

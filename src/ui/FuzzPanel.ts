@@ -7,6 +7,7 @@ import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
 import { ProgramModelFactory } from "src/llm/ProgramModelFactory";
+import { AbstractProgramModel } from "src/llm/AbstractProgramModel";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -47,7 +48,7 @@ export class FuzzPanel {
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
   private _errorMessage?: string; // error state: the error message
   private _sortColumns?: fuzzer.FuzzSortColumns; // column sort orders
-  private _testsToInject?: fuzzer.FuzzIoElement[][]; // suggested tests to inject
+  private _model?: AbstractProgramModel; // !!!!!!
 
   // ------------------------ Static Methods ------------------------ //
 
@@ -238,41 +239,36 @@ export class FuzzPanel {
       this._updateHtml();
     };
 
-    // Program Model is configured and we do not have any overrides yet
-    // ...which means we are encountering the function for the first time
-    // and should use our program model to analyze it
-    if (ProgramModelFactory.isConfigured() && !this._argOverrides.length) {
+    if (ProgramModelFactory.isConfigured()) {
+      // Program Model is configured and we do not have any overrides yet
+      // ...which means we are encountering the function for the first time
+      // and should use our program model to analyze it
       this._state = "busyAnalyzing";
       this._updateHtml();
 
-      // Bounce off the stack and perform the range analysis
+      // Bounce off the stack and perform the model-driven analyses
       setTimeout(async () => {
         try {
           // Get the program model
-          const model = ProgramModelFactory.create(this._fuzzEnv.function);
-          await model.getSpec();
-          const overrides = await model.getFuzzerArgOverrides();
-          console.debug(
-            `Applying overrides from analysis: ${JSON5.stringify(
-              overrides,
-              null,
-              2
-            )}`
-          ); // !!!!!!
-          this._argOverrides = overrides;
-          onInit();
-
-          // Bounce off the stack and have the model generate test cases
-          setTimeout(async () => {
-            this._testsToInject = await model.generateExampleInputs();
+          const model = this._getModel();
+          if (!this._argOverrides.length) {
+            await model.getSpec();
+            const overrides = await model.getFuzzerArgOverrides();
             console.debug(
-              `Got tests to inject: ${JSON5.stringify(
-                this._testsToInject,
+              `Applying overrides from analysis: ${JSON5.stringify(
+                overrides,
                 null,
                 2
               )}`
             ); // !!!!!!
-            // check that generated tests are valid !!!!!!
+            this._argOverrides = overrides;
+          }
+          onInit();
+
+          // Bounce off the stack and have the model suggest test cases
+          // The main purpose of doing it at this point is to prime the cache
+          setTimeout(async () => {
+            this._getSuggestedInputs();
           });
         } catch (e: unknown) {
           if (!this._disposed) {
@@ -316,6 +312,21 @@ export class FuzzPanel {
       fnName: this._fuzzEnv.function.getName(),
     });
   }
+
+  /** !!!!!! */
+  private _getModel(): AbstractProgramModel {
+    if (!this._model) {
+      this._model = ProgramModelFactory.create(this._fuzzEnv.function);
+    }
+    return this._model;
+  } // !!!!!!
+
+  /** !!!!!! */
+  private _updateModel(): void {
+    if (this._model) {
+      this._model = ProgramModelFactory.create(this._fuzzEnv.function);
+    }
+  } // !!!!!!
 
   // ----------------------- Message Handling ----------------------- //
 
@@ -515,6 +526,36 @@ export class FuzzPanel {
             inputTests = testSet;
             break;
           }
+          case "0.3.6": {
+            // v0.3.6 format -- update the pinned test key (FuzzIoElement change) and
+            // update the source of all FuzzIoElement objects
+            testSet = { ...inputTests, version: "0.3.7" }; // !!!!!!
+            for (const fn in testSet.functions) {
+              const thisFn = testSet.functions[fn];
+              const oldTestSet = thisFn.tests;
+              thisFn.tests = {};
+              for (const oldKey in oldTestSet) {
+                const newKey = FuzzPanel._getPinnedTestKey(oldTestSet[oldKey]);
+                const thisTest = (thisFn.tests[newKey] = oldTestSet[oldKey]);
+                for (const input of thisTest.input) {
+                  input.origin = { type: "generator" };
+                }
+                for (const output of thisTest.output) {
+                  output.origin = { type: "put" };
+                }
+                if (thisTest.expectedOutput) {
+                  for (const expectedOutput of thisTest.expectedOutput) {
+                    expectedOutput.origin = { type: "human" };
+                  }
+                }
+              }
+            }
+            console.info(
+              `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+            );
+            inputTests = testSet;
+            break;
+          }
           default: {
             // unknown format; stop to avoid losing data
             throw new Error(
@@ -548,6 +589,14 @@ export class FuzzPanel {
       },
     };
   } // fn: _initFuzzTestsForThisFn()
+
+  /** !!!!!! */
+  private static _getPinnedTestKey(test: fuzzer.FuzzPinnedTest): string {
+    const inputs: fuzzer.ArgValueType[] = test.input.map(
+      (input) => input.value
+    );
+    return JSON5.stringify(inputs);
+  } // !!!!!!
 
   /**
    * Returns the pinned tests for just the current function.
@@ -647,7 +696,7 @@ export class FuzzPanel {
   ): boolean {
     let changed = false;
     const currTest: fuzzer.FuzzPinnedTest = JSON5.parse(json);
-    const currInputsJson = JSON5.stringify(currTest.input);
+    const currInputsJson = FuzzPanel._getPinnedTestKey(currTest);
 
     // If input is already in pinnedSet, is not pinned, and does not have
     // an expected value assigned, then delete it
@@ -665,6 +714,16 @@ export class FuzzPanel {
     }
     return changed;
   } // fn: _updateFuzzTestsForThisFn()
+
+  /** !!!!!! */
+  // !!!!!! This should build actual test cases rather than just inputs
+  private async _getSuggestedInputs(): Promise<fuzzer.FuzzIoElement[][]> {
+    const testSet: fuzzer.FuzzIoElement[][] =
+      await this._getModel().generateExampleInputs();
+    console.debug(`Got tests to inject: ${JSON5.stringify(testSet, null, 2)}`); // !!!!!!
+    return testSet;
+    // check that generated tests are valid !!!!!!
+  } // !!!!!!
 
   /**
    * Message handler for the `columns.sort' command.
@@ -1076,49 +1135,58 @@ ${inArgConsts}
         )
       );
 
-      // Get the set of saved or recommended tests to inject
-      const testsToInject = this._getFuzzTestsForThisFn().tests;
-      console.debug(`savedTests: ${JSON5.stringify(testsToInject, null, 2)}`); // !!!!!!
-      console.debug(
-        `testsToInject: ${JSON5.stringify(this._testsToInject, null, 2)}`
-      ); // !!!!!!
-      if (this._testsToInject) {
-        this._testsToInject.forEach((testCase) => {
-          console.debug(
-            ` - processing test inputs: ${JSON5.stringify(testCase, null, 2)}`
-          ); // !!!!!!
-          const thisTest: fuzzer.FuzzPinnedTest = {
-            input: testCase.map((input) => {
-              return {
-                name: input.name,
-                offset: input.offset,
-                value: input.value,
-              };
-            }),
-            output: [],
-            pinned: false,
-          };
-          const key = JSON5.stringify(thisTest.input);
-          if (!(key in testsToInject)) {
+      // Get the set of saved tests
+      const savedTests = this._getFuzzTestsForThisFn().tests; // saved tests
+      console.debug(`savedTests: ${JSON5.stringify(savedTests, null, 2)}`); // !!!!!!
+
+      // If a program model is active, inject suggested tests
+      let suggestedInputs: fuzzer.FuzzIoElement[][] = [];
+      let suggestedTests: fuzzer.FuzzPinnedTest[] = [];
+      if (this._model) {
+        this._updateModel(); // Seems inefficient !!!!!!
+        suggestedInputs = await this._getSuggestedInputs();
+        console.debug(
+          `testsToInject: ${JSON5.stringify(suggestedInputs, null, 2)}`
+        ); // !!!!!!
+        suggestedTests = suggestedInputs
+          .map((testCase) => {
             console.debug(
-              ` - added test w/key "${key}" (not previously present)`
+              ` - processing test input: ${JSON5.stringify(testCase, null, 2)}`
             ); // !!!!!!
-            testsToInject[key] = thisTest;
-          } else {
-            console.debug(` - test w/key "${key}" already exists; skipping`); // !!!!!!
-          }
-        });
+            return {
+              input: testCase.map((input) => {
+                return {
+                  name: input.name,
+                  offset: input.offset,
+                  value: input.value,
+                  origin: input.origin,
+                };
+              }),
+              output: [],
+              pinned: false,
+            };
+          })
+          // Filter out any suggested tests that are already in the saved test set
+          .filter(
+            (testCase) => !(FuzzPanel._getPinnedTestKey(testCase) in savedTests)
+          );
+
+        console.debug(
+          `all unique suggested tests: ${JSON5.stringify(
+            suggestedTests,
+            null,
+            2
+          )}`
+        ); // !!!!!!
       }
-      console.debug(
-        `all injected tests: ${JSON5.stringify(testsToInject, null, 2)}`
-      ); // !!!!!!
 
       // Fuzz the function & store the results
       try {
         // Run the fuzzer
         this._results = await fuzzer.fuzz(
           this._fuzzEnv,
-          Object.values(testsToInject)
+          Object.values(savedTests),
+          suggestedTests
         );
 
         // Transition to done state
@@ -2079,7 +2147,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   try {
     fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : JSON.stringify(e);
+    const msg = e instanceof Error ? e.message : JSON5.stringify(e);
     vscode.window.showErrorMessage(
       `${toolName} could not find or does not support this function. Message: "${msg}"`
     );
@@ -2135,7 +2203,7 @@ export function provideCodeLenses(
       });
     }
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : JSON.stringify(e);
+    const msg = e instanceof Error ? e.message : JSON5.stringify(e);
     console.error(
       `Error parsing typescript file: ${document.fileName} error: ${msg}`
     );
@@ -2351,7 +2419,7 @@ const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.6";
 /**
  * Current file format version for persisting test sets / pinned test cases
  */
-const CURR_FILE_FMT_VER = "0.3.6"; // !!!! Increment if file format changes
+const CURR_FILE_FMT_VER = "0.3.7"; // !!!! Increment if file format changes
 
 // ----------------------------- Types ----------------------------- //
 

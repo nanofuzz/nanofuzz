@@ -234,10 +234,7 @@ function compileTS(module: NodeJS.Module) {
 function runJS(jsname: string, module: NodeJS.Module) {
   const content = fs.readFileSync(jsname, "utf8");
 
-  const sandbox: { [k: string]: any } = {};
-  for (const k in global) {
-    sandbox[k] = global[k];
-  }
+  const sandbox: { [k: string]: unknown } = { ...global };
   sandbox.require = module.require.bind(module);
   sandbox.exports = module.exports;
   sandbox.__filename = jsname;
@@ -249,10 +246,10 @@ function runJS(jsname: string, module: NodeJS.Module) {
   return vm.runInNewContext(content, sandbox, { filename: jsname });
 }
 
-function merge(a: any, b: any) {
+function merge(a: unknown, b: unknown) {
   if (a && b) {
-    for (const key in b) {
-      a[key] = b[key];
+    if (typeof a === "object" && typeof b === "object") {
+      return { ...a, ...b };
     }
   }
   return a;

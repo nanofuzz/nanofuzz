@@ -1216,7 +1216,7 @@ export class ProgramDef {
   ): FunctionRef | undefined {
     // Internal function to retrieve docstring comment immediately preceding the function
     const getComments = (
-      fnNode: VariableDeclaration | FunctionDeclaration
+      node: VariableDeclaration | FunctionDeclaration
     ): string | undefined => {
       const nodeLine = node.loc.start.line;
       const cmts = comments.filter(

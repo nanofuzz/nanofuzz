@@ -41,6 +41,16 @@ export class GeminiProgramModel extends AbstractProgramModel {
     const inputs: FuzzIoElement[][] = JSON5.parse(
       await this._query([this._prompts.exampleInputs])
     );
+    inputs.forEach((test) => {
+      test.forEach(
+        (input) =>
+          (input.origin = {
+            type: "model",
+            category: this._cfgCategory,
+            name: this._modelName,
+          })
+      );
+    });
     console.debug(
       `got these tests from the llm: ${JSON5.stringify(inputs, null, 2)}`
     ); // !!!!!!
@@ -103,7 +113,7 @@ export class GeminiProgramModel extends AbstractProgramModel {
         promptParts.push({
           text: e,
         });
-      });
+      }); // !!!!!! move to initializer
 
       const result = (await model.generateContent(promptParts)).response.text();
       console.debug(`gemini(+CACHE)>>>${result}`); // !!!!!!

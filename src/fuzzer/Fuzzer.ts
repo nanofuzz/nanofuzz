@@ -8,7 +8,6 @@ import { GeneratorFactory } from "./generators/GeneratorFactory";
 import * as compiler from "./Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
-import { ProgramModelFactory } from "../llm/ProgramModelFactory";
 import {
   FuzzIoElement,
   FuzzPinnedTest,
@@ -65,7 +64,8 @@ export const setup = (
  */
 export const fuzz = async (
   env: FuzzEnv,
-  pinnedTests: FuzzPinnedTest[] = []
+  pinnedTests: FuzzPinnedTest[] = [],
+  suggestedTests: FuzzPinnedTest[] = []
 ): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
@@ -76,9 +76,11 @@ export const fuzz = async (
     inputsGenerated: 0, // updated later
     dupesGenerated: 0, // updated later
     inputsSaved: 0, // updated later
+    inputsSuggested: 0, // updated later
     results: [],
   };
   let savedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
+  let inputsSuggested = 0; // Number of suggested inputs processed
   let currentDupeCount = 0; // Number of duplicated tests since the last non-duplicated test
   let totalDupeCount = 0; // Total number of duplicates generated in the fuzzing session
   let inputsGenerated = 0; // Number of inputs generated so far
@@ -154,6 +156,7 @@ export const fuzz = async (
       results.inputsGenerated = inputsGenerated;
       results.dupesGenerated = totalDupeCount;
       results.inputsSaved = savedCount;
+      results.inputsSuggested = inputsSuggested;
       break;
     }
 
@@ -172,7 +175,7 @@ export const fuzz = async (
 
     // Before searching, consume the pool of pinned tests
     // Note: Do not count pinned tests against the maxTests limit
-    const pinnedTest = pinnedTests.pop();
+    const pinnedTest: FuzzPinnedTest | undefined = pinnedTests.pop();
     if (pinnedTest) {
       savedCount++; // increment the number of saved tests processed
       result.input = pinnedTest.input;
@@ -181,17 +184,28 @@ export const fuzz = async (
         result.expectedOutput = pinnedTest.expectedOutput;
       }
     } else {
-      // Generate and store the inputs
-      // TODO: We should provide a way to filter inputs
-      fuzzArgGen.forEach((e) => {
-        result.input.push({
-          name: e.arg.getName(),
-          offset: e.arg.getOffset(),
-          value: e.gen(),
+      const suggestedTest: FuzzPinnedTest | undefined = suggestedTests.pop();
+      if (suggestedTest) {
+        inputsSuggested++; // Increment the number of suggested inputs processed
+        result.input = suggestedTest.input;
+        result.pinned = suggestedTest.pinned;
+        if (suggestedTest.expectedOutput) {
+          result.expectedOutput = suggestedTest.expectedOutput;
+        }
+      } else {
+        // Generate and store the inputs
+        // TODO: We should provide a way to filter inputs
+        fuzzArgGen.forEach((e) => {
+          result.input.push({
+            name: e.arg.getName(),
+            offset: e.arg.getOffset(),
+            value: e.gen(),
+            origin: { type: "generator" },
+          });
         });
-      });
-      // Increment the number of inputs generated
-      inputsGenerated++;
+        // Increment the number of inputs generated
+        inputsGenerated++;
+      }
     }
 
     // Skip tests if we previously processed the input
@@ -217,16 +231,19 @@ export const fuzz = async (
         name: "0",
         offset: 0,
         value: fnWrapper(JSON5.parse(JSON5.stringify(result.input))), // <-- Wrapper (protect the input)
+        origin: { type: "put" },
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : JSON5.stringify(e);
+      const stack = e instanceof Error ? e.stack : "<no stack>";
       if (isTimeoutError(e)) {
         result.timeout = true;
         result.elapsedTime = performance.now() - result.elapsedTime;
       } else {
         result.exception = true;
-        result.exceptionMessage = e.message;
-        result.stack = e.stack;
+        result.exceptionMessage = msg;
+        result.stack = stack;
       }
     }
 
@@ -289,13 +306,17 @@ export const fuzz = async (
                 passedValidator: validatorOut,
                 passedValidators: [],
               };
-            } catch (e: any) {
+            } catch (e: unknown) {
+              const [msg, stack] =
+                e instanceof Error
+                  ? [e.message, e.stack]
+                  : [JSON5.stringify(e), "<no stack>"];
               return {
                 ...result,
                 validatorException: true,
-                validatorExceptionMessage: e.message,
+                validatorExceptionMessage: msg,
                 validatorExceptionFunction: valFnName,
-                validatorExceptionStack: e.stack,
+                validatorExceptionStack: stack,
               };
             }
           },
@@ -475,8 +496,14 @@ export default function functionTimeout(function_: any, timeout: number): any {
  * @param error exception
  * @returns true if the exeception is a timeout exception, false otherwise
  */
-export function isTimeoutError(error: { code?: string }): boolean {
-  return "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
+export function isTimeoutError(error: unknown): boolean {
+  return (
+    error !== undefined &&
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT"
+  );
 } // fn: isTimeoutError()
 
 /**
@@ -601,6 +628,7 @@ export type FuzzTestResults = {
   stopReason: FuzzStopReason; // why the fuzzer stopped
   elapsedTime: number; // elapsed time the fuzzer ran
   inputsGenerated: number; // number of inputs generated
+  inputsSuggested: number; // number of inputs suggested
   dupesGenerated: number; // number of duplicate inputs generated
   inputsSaved: number; // number of inputs saved
   results: FuzzTestResult[]; // fuzzing test results

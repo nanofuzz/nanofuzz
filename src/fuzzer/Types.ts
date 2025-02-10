@@ -47,7 +47,7 @@ export type FuzzTestsFunction = {
   argOverrides?: FuzzArgOverride[]; // argument overrides
   sortColumns?: FuzzSortColumns; // column sort order
   validators: string[]; // validator functions
-  tests: Record<string, FuzzPinnedTest>; // pinned tests
+  tests: Record<string, FuzzPinnedTest>; // pinned tests (generate key w/FuzzPanel._getTestInputKey())
   isVoid: boolean; // is the function return type void?
 };
 
@@ -70,7 +70,21 @@ export type FuzzIoElement = {
   isException?: boolean; // true if element is an exception
   isTimeout?: boolean; // true if element is a timeout
   value: ArgValueType; // value of element
+  origin: FuzzValueOrigin; // origin of value
 };
+
+/**
+ * Source / Provenance of Value
+ */
+export type FuzzValueOrigin =
+  | {
+      type: "human" | "generator" | "put";
+    }
+  | {
+      type: "model";
+      category: string;
+      name?: string;
+    };
 
 /**
  * Category of a test result

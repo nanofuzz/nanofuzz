@@ -6,17 +6,19 @@ import { FunctionDef } from "fuzzer/Fuzzer";
 /** !!!!!! TODO !!!!!!
  *
  * Features:
- * - Re-determine unit tests to inject at start of fuzzing
- *   (because the ranges may have changed)
- * - Track provenance of inputs, outputs, and judgements
+ * - NoInput should be respected in suggested tests (e.g., unions)
+ * - Statistics about number of tests suggested (i)
  * - Telemetry logging for model queries
  * - CodeLens to insert generated specification if missing
  * - Support at least one other model, e.g., Copilot
  *
  * Fix:
+ * - Suggested tests should not bypass the fuzz counter like saved tests
  * - Retry/fail logic for Gemini back-end failures (e.g., overloaded)
+ * - Missing tests for models, specs
  *
  * Could be better:
+ * - _getSuggestedInputs() should return test cases not inputs
  * - Analyze spec during CodeLens analysis phase
  * - Check injected tests to ensure they meet the requirements
  * - Pipeline & sequence queries by concrete implementation
