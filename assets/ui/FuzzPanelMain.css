@@ -6,10 +6,11 @@ body {
 /** Grid Styles **/
 vscode-panel-view.fuzzGridPanel {
   padding-top: 5px;
+  padding-left: 3px;
 }
 .fuzzGrid {
   width: 100%;
-  padding-left: 4px;
+  padding-left: 0;
   border-spacing: 0;
 }
 .fuzzGrid td {
@@ -22,9 +23,16 @@ vscode-panel-view.fuzzGridPanel {
   border-bottom: 1px solid;
   vertical-align: bottom;
 }
+.fuzzGrid td:first-child,
+.fuzzGrid th:first-child {
+  padding-left: 0;
+}
 .fuzzGrid th.colorColumn {
   padding: 2px 8px;
   text-align: center;
+}
+.fuzzGrid tr.classGetExpectedOutputRow td:first-child {
+  padding-left: 6px;
 }
 td.fuzzGridCellPinned,
 td.fuzzGridCellPin {
