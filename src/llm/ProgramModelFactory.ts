@@ -18,7 +18,7 @@ import { FunctionDef } from "fuzzer/Fuzzer";
  * Fix:
  * - Validate incoming model tests
  * - Schemas for literal unions do not look right:
- *
+ *   [{type:"'hello' | 'bonjour' | 'olá' | 'ciao' | 'hej'",arrayDimensions:[],name:'z',typeName:'hellos',children:[{type:'literal',arrayDimensions:[]},{type:'literal',arrayDimensions:[]},{type:'literal',arrayDimensions:[]},{type:'literal',arrayDimensions:[]},{type:'literal',arrayDimensions:[]}]}]
  * - Retry/fail logic for model back-end failures (e.g., overloaded)
  * - Add tests for models, specs
  * - Use real prompt parameterization
