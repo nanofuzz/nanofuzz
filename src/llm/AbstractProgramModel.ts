@@ -1,6 +1,7 @@
 import {
   ArgTag,
   ArgType,
+  ArgValueType,
   FunctionRef,
 } from "../fuzzer/analysis/typescript/Types";
 import * as vscode from "vscode";
@@ -247,6 +248,10 @@ export abstract class AbstractProgramModel {
 
   public abstract predictArgOverrides(): Promise<ModelArgOverrides[]>;
 
+  public abstract predictOutput(
+    inputs: ArgValueType[]
+  ): Promise<FuzzIoElement[]>;
+
   protected _prompts: Record<string, string> = {
     /*L0*/ system: `You are writing correct, secure, understandable, efficient TypeScript code and are aware of the important differences among TypeScript’s === and == operators.`,
 
@@ -285,5 +290,21 @@ The "<fn-name>" program:
 
 The “<fn-name>” specification in docstring format:
 <fn-spec>`,
+
+    /*L6*/ predictOutput: `For the following "<fn-name>" TypeScript program and specification, predict the expected output for the following inputs: 
+<fn-input>
+
+Output the prediction in the following JSON format:
+{
+  isException?: true; // true if input causes program to throw an exception
+  value?: any; // output of program (omit if exception or undefined)
+}
+
+The "<fn-name>" program:
+<fn-source>
+
+The “<fn-name>” specification in TypeDoc docstring format:
+<fn-spec>
+`,
   };
 } // !!!!!!

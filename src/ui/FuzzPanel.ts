@@ -527,11 +527,15 @@ export class FuzzPanel {
             break;
           }
           case "0.3.6": {
-            // v0.3.6 format -- update the pinned test key (FuzzIoElement change) and
-            // update the source of all FuzzIoElement objects
+            // v0.3.6 format -- update the pinned test key (FuzzIoElement change),
+            // update the source of all FuzzIoElement objects, and fill the new
+            // useLlm Fuzzer option
             testSet = { ...inputTests, version: "0.3.7" }; // !!!!!!
             for (const fn in testSet.functions) {
               const thisFn = testSet.functions[fn];
+              if (!thisFn.options.useLlm) {
+                thisFn.options.useLlm = false;
+              }
               const oldTestSet = thisFn.tests;
               thisFn.tests = {};
               for (const oldKey in oldTestSet) {
@@ -1102,6 +1106,7 @@ ${inArgConsts}
       "useImplicit",
       "useHuman",
       "useProperty",
+      "useLlm",
     ] as const;
     booleanOptions.forEach((e) => {
       if (e in panelInput.fuzzer) {
@@ -1186,7 +1191,10 @@ ${inArgConsts}
         this._results = await fuzzer.fuzz(
           this._fuzzEnv,
           Object.values(savedTests),
-          suggestedTests
+          suggestedTests,
+          this._fuzzEnv.options.useLlm && ProgramModelFactory.isConfigured()
+            ? this._getModel()
+            : undefined
         );
 
         // Transition to done state
@@ -1347,7 +1355,7 @@ ${inArgConsts}
           <div id="pane-nanofuzz"> 
             <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;"> ${this._state === "busyFuzzing" ? "Testing..." : this._state === "busyAnalyzing" ? "Analyzing..." : "Test: "+htmlEscape(
               fn.getName())+"()"} 
-              <div title="Open soure code" id="openSourceLink" class='codicon codicon-file-text clickable'></div>
+              <div title="Link to soure code" id="openSourceLink" class='codicon codicon-link clickable'></div>
             </h2>
 
             <!-- Function Arguments -->
@@ -1359,28 +1367,40 @@ ${inArgConsts}
             <div style="padding-left: .76em;">
               <!-- Checkboxes -->
               <div class="fuzzInputControlGroup">
+                <!-- Heuristic Validator -->
                 <vscode-checkbox ${disabledFlag} id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>
                   <span class="tooltipped tooltipped-ne" aria-label="${heuristicValidatorDescription}">
                   Heuristic validator 
                   </span>
                 </vscode-checkbox>
-                <span style="padding-left:1.3em;"> </span>
+
+                <!-- Property Validator -->
+                <span style="padding-left:1em;"> </span>
                 <span style="display:inline-block;">
                   <vscode-checkbox ${disabledFlag} id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>
                     <span id="validator-functionList" class="tooltipped tooltipped-ne" aria-label=""> 
-                    Property validator(s) </span>
+                      Property validators (<span id="validator-functionCount">${this._fuzzEnv.validators.length}</span>) 
+                    </span>
                   </vscode-checkbox>
-                  <span id="validator.add" class="tooltipped tooltipped-nw" aria-label="Add new property validator">
+                  <span id="validator.add" class="tooltipped tooltipped-ne" aria-label="Add new property validator">
                     <span class="classAddRefreshValidator">
-                      <span class="codicon codicon-add" style="padding-left:.2em; padding-right:-.1em;"></span>
+                      <span class="codicon codicon-add" style="padding-left:0; padding-right:-.1em;"></span>
                     </span>
                   </span>
-                  <span id="validator.getList" class="tooltipped tooltipped-nw" aria-label="Refresh list">
+                  <span id="validator.getList" class="tooltipped tooltipped-ne" aria-label="Refresh list">
                     <span class="classAddRefreshValidator">
                       <span class="codicon codicon-refresh" style="padding-left:.1em;"></span>
                     </span>
                   </span>
                 </span>
+
+                <!-- LLM Validator -->
+                <span style="padding-left:1em;"> </span>
+                <vscode-checkbox ${disabledFlag} id="fuzz-useLlm" ${this._fuzzEnv.options.useLlm ? "checked" : ""}>
+                  <span class="tooltipped tooltipped-ne" aria-label="Fail outputs that differ from LLM's prediction"> 
+                    LLM Validator 
+                  </span>
+                </vscode-checkbox>
               </div>
             </div>
 
@@ -2354,6 +2374,7 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     useHuman: true,
     useImplicit: true,
     useProperty: false,
+    useLlm: false,
   };
 }; // fn: getDefaultFuzzOptions()
 

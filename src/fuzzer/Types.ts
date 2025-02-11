@@ -11,8 +11,9 @@ export type FuzzTestResult = {
   exceptionMessage?: string; // exception message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
-  passedImplicit: boolean; // true if output matches implicit oracle; false, otherwise
+  passedImplicit?: boolean; // true if output matches implicit oracle; false, otherwise
   passedHuman?: boolean; // true if actual output matches human-expected output
+  passedLlm?: boolean; // true if actual output matches llm-expected output
   passedValidator?: boolean; // true if passed all custom validators; false, otherwise
   passedValidators?: boolean[]; // for each custom validator, true if passed; false, otherwise
   validatorException: boolean; // true if validator threw an exception
@@ -21,6 +22,7 @@ export type FuzzTestResult = {
   validatorExceptionStack?: string; // validator stack trace if exception was thrown
   elapsedTime: number; // elapsed time of test
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
+  predictedOutput?: FuzzIoElement[]; // the LLM-predicted output, if any (!!!!!!is this the right name?)
   category: FuzzResultCategory; // the ResultCategory of the test result
 };
 
@@ -59,6 +61,7 @@ export type FuzzPinnedTest = {
   output: FuzzIoElement[]; // function output
   pinned: boolean; // is the test pinned?
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
+  predictedOutput?: FuzzIoElement[]; // the output predicted by an analysis (e.g., a model), if any
 };
 
 /**
@@ -113,6 +116,7 @@ export type FuzzOptions = {
   useImplicit: boolean; // use implicit oracle
   useHuman: boolean; // use human oracle
   useProperty: boolean; // use property validator oracle
+  useLlm: boolean; // use code llm-based oracle
 };
 
 /**

@@ -36,9 +36,11 @@ const pinnedLabel = "pinned";
 const idLabel = "id";
 const correctLabel = "correct output?";
 const expectedLabel = "expectedOutput";
+const predictedLabel = "predictedOutput";
 const validatorLabel = "validator";
 const allValidatorsLabel = "allValidators";
 const implicitLabel = "implicit";
+const llmLabel = "llm";
 const expandLabel = "expandColumn";
 const collapseLabel = "collapseColumn";
 
@@ -236,6 +238,15 @@ function main() {
         ? { [validatorLabel]: e.passedValidator }
         : {};
 
+      // LLM validation result
+      const passedLlm = resultsData.env.options.useLlm
+        ? { [llmLabel]: e.passedLlm }
+        : {};
+      // !!!!!!
+      //const predictedOutput = resultsData.env.options.useLlm
+      //  ? { [predictedLabel]: e.predictedOutput }
+      //  : {};
+
       // Array of all property validator results (array of bools, each is true if passed)
       // const allValidators = resultsData.env.options.useProperty
       //   ? { [allValidatorsLabel]: e.passedValidators }
@@ -289,6 +300,7 @@ function main() {
           ...outputs,
           //...elapsedTimes,
           ...passedImplicit,
+          ...passedLlm,
           ...passedValidator,
           // ...allValidators,
           ...validatorFns,
@@ -440,6 +452,20 @@ function main() {
             cell.addEventListener("click", () => {
               handleColumnSort(cell, type, k, tbody, true);
             });
+          } else if (k === llmLabel) {
+            console.debug(`In llm th (${resultsData.env.options.useLlm})`); // !!!!!!
+            if (resultsData.env.options.useLlm) {
+              const cell = hRow.appendChild(document.createElement("th"));
+              cell.classList.add("colorColumn", "clickable");
+              cell.id = type + "-" + llmLabel;
+              cell.innerHTML = /* html */ `
+              <span class="tooltipped tooltipped-nw" aria-label="LLM validator">
+                <span class="codicon codicon-wand" id="llmIndicator" style="font-size:1.4em;"></span>
+              </span>`;
+              cell.addEventListener("click", () => {
+                handleColumnSort(cell, type, k, tbody, true);
+              });
+            }
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             const label =
@@ -1044,6 +1070,30 @@ function drawTableBody({
             span.classList.add("codicon", "codicon-error");
           }
         }
+      } else if (k === llmLabel) {
+        console.debug(`In llm td (${resultsData.env.options.useLlm})`); // !!!!!!
+
+        if (resultsData.env.options.useLlm) {
+          const cell = row.appendChild(document.createElement("td"));
+          // Fade the indicator if overridden by another validator
+          if (
+            e[correctLabel] !== undefined ||
+            e[validatorLabel] !== undefined
+          ) {
+            cell.style.opacity = "35%";
+          }
+          if (e[k] === undefined) {
+            cell.innerHTML = "";
+          } else if (e[k]) {
+            cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-pass");
+          } else {
+            cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-error");
+          }
+        }
       } else if (k === validatorLabel) {
         if (resultsData.env.options.useProperty) {
           // Property validator column (summary)
@@ -1507,17 +1557,23 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
   });
 
   // Process boolean fuzzer options
-  (["onlyFailures", "useHuman", "useImplicit", "useProperty"] as const).forEach(
-    (e) => {
-      const item = document.getElementById(fuzzBase + "-" + e);
-      if (item !== null) {
-        disableArr.push(item);
-        overrides.fuzzer[e] =
-          (item.getAttribute("value") ??
-            item.getAttribute("current-checked")) === "true";
-      }
+  (
+    [
+      "onlyFailures",
+      "useHuman",
+      "useImplicit",
+      "useLlm",
+      "useProperty",
+    ] as const
+  ).forEach((e) => {
+    const item = document.getElementById(fuzzBase + "-" + e);
+    if (item !== null) {
+      disableArr.push(item);
+      overrides.fuzzer[e] =
+        (item.getAttribute("value") ?? item.getAttribute("current-checked")) ===
+        "true";
     }
-  );
+  });
 
   // Process all the argument overrides
   for (let i = 0; document.getElementById(getIdBase(i)) !== null; i++) {
@@ -1657,10 +1713,12 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
  */
 function refreshValidators(validatorList: { validators: string[] }) {
   const validatorFnList = getElementByIdOrThrow("validator-functionList");
+  const validatorCount = getElementByIdOrThrow("validator-functionCount");
   validatorFnList.setAttribute(
     "aria-label",
     listForValidatorFnTooltip(validatorList)
   );
+  validatorCount.innerText = `${validatorList.validators.length}`;
 } // fn: refreshValidators
 
 /**

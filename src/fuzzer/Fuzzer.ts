@@ -17,6 +17,7 @@ import {
   FuzzStopReason,
 } from "./Types";
 import { FuzzOptions } from "./Types";
+import { AbstractProgramModel } from "src/llm/AbstractProgramModel";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -65,7 +66,8 @@ export const setup = (
 export const fuzz = async (
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = [],
-  suggestedTests: FuzzPinnedTest[] = []
+  suggestedTests: FuzzPinnedTest[] = [],
+  model?: AbstractProgramModel
 ): Promise<FuzzTestResults> => {
   const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
@@ -168,7 +170,6 @@ export const fuzz = async (
       exception: false,
       validatorException: false,
       timeout: false,
-      passedImplicit: true,
       elapsedTime: 0,
       category: "ok",
     };
@@ -348,6 +349,22 @@ export const fuzz = async (
           result.passedValidator && result.passedValidators[i];
       }
     } // if validator
+
+    // LLM ORACLE -------------------------------------------------
+    // !!!!!!
+    if (env.options.useLlm && model) {
+      // !!!!!! handle condition where llm is on but there's no model
+      result.predictedOutput = await model.predictOutput(
+        [...result.input].map((input) => input.value)
+      );
+      console.debug(
+        `predictedOutput: ${JSON5.stringify(result.predictedOutput, null, 2)}`
+      ); // !!!!!!
+      result.passedLlm = actualEqualsExpectedOutput(
+        result,
+        result.predictedOutput
+      ); // !!!!!!
+    }
 
     // (Re-)categorize the result
     result.category = categorizeResult(result, env);
@@ -539,7 +556,10 @@ function actualEqualsExpectedOutput(
   } else if (result.exception) {
     return expectedOutput.length > 0 && expectedOutput[0].isException === true;
   } else {
-    return JSON5.stringify(result.output) === JSON5.stringify(expectedOutput);
+    return (
+      JSON5.stringify(result.output.map((input) => input.value)) ===
+      JSON5.stringify(expectedOutput.map((input) => input.value))
+    );
   }
 }
 
@@ -557,12 +577,6 @@ export function categorizeResult(
     return "failure"; // Validator failed
   }
 
-  const implicit = result.passedImplicit ? true : false;
-  const human =
-    "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
-  const property =
-    "passedValidator" in result ? result.passedValidator : undefined;
-
   // Returns the type of bad value: execption, timeout, or badvalue
   const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
     if (result.exception) {
@@ -579,27 +593,49 @@ export function categorizeResult(
     return result.passedValidator ? "ok" : "badValue"; // PUT returned bad value
   };
 
-  // Either the human oracle or the validator may take precedence
-  // over the implicit oracle if they exist. However, if both the
-  // validator and the human oracle are present, then they must
-  // agree. If the human and validator are present yet disagree,
-  // then the disagreement is another error.
-  if (human === true) {
-    if (property === false) {
+  // Setup the Composite Oracle -- we describe this in the TerzoN paper
+  // !!!!!!! link
+
+  const implicit =
+    "passedImplicit" in result ? (result.passedImplicit ? 1 : -1) : 0;
+  const human = "passedHuman" in result ? (result.passedHuman ? 1 : -1) : 0;
+  const property =
+    "passedValidator" in result ? (result.passedValidator ? 1 : -1) : 0;
+  const llm = "passedLlm" in result ? (result.passedLlm ? 1 : -1) : 0;
+
+  /* !!!!!!
+  const JH = [
+    [human, property],
+    [llm, implicit],
+  ];
+
+  let J = 0;
+  JH.forEach((JH_i) => {
+    
+    J = JH_i.reduce((prev,curr) => prev+curr);
+    if(J!==0) {
+      break
+    }
+
+  })
+    */
+
+  if (human > 0) {
+    if (property < 0) {
       return "disagree";
     } else {
       return "ok";
     }
-  } else if (human === false) {
-    if (property === true) {
+  } else if (human < 0) {
+    if (property > 0) {
       return "disagree";
     } else {
       return getBadValueType(result);
     }
   } else {
-    if (property === true) {
+    if (property > 0) {
       return "ok";
-    } else if (property === false) {
+    } else if (property < 0) {
       return getBadValueTypeProperty(result);
     } else {
       if (implicit) {

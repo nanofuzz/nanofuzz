@@ -7,19 +7,27 @@ import { FunctionDef } from "fuzzer/Fuzzer";
  *
  * Features:
  * - Suggest expected output
+ * - Batch up LLM predictOutputs
+ * - Impleent Composite Oracle from paper in Fuzzer
+ * - Also generate property test & compare
+ * - Score / rank tests
+ * - Sticky tabs
  * - Suggested tests should respect NoOutput (i.e., unions, objects)
- * - More options setting to turn AI-generated tests on/off
+ * - Update tab explanations to account for LLM oracle
+ * - More options llm settings
+ * - Disable or hide LLM options if not active feedback if configured but running w/o
  * - Statistics about number of tests suggested (i)
  * - Telemetry logging for model queries
  * - CodeLens to insert generated specification if missing
  * - Support at least one other model, e.g., Copilot
  * - Experiment w/problems tab
+ * - Process all the !!!!!!
  *
  * Fix:
  * - Validate incoming model tests
  * - Schemas for literal unions do not look right:
  *   [{type:"'hello' | 'bonjour' | 'olá' | 'ciao' | 'hej'",arrayDimensions:[],name:'z',typeName:'hellos',children:[{type:'literal',arrayDimensions:[]},{type:'literal',arrayDimensions:[]},{type:'literal',arrayDimensions:[]},{type:'literal',arrayDimensions:[]},{type:'literal',arrayDimensions:[]}]}]
- * - Retry/fail logic for model back-end failures (e.g., overloaded)
+ * - Retry/fail logic for model back-end failures (e.g., overloaded) (esp. within fuzzer)
  * - Add tests for models, specs
  * - Use real prompt parameterization
  * - Prompt cache invalidation & hash key

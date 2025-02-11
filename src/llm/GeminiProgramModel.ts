@@ -85,13 +85,40 @@ export class GeminiProgramModel extends AbstractProgramModel {
     return this._overrides;
   } // !!!!!!
 
+  /** !!!!!! */
+  public async predictOutput(
+    inputs: FuzzIoElement[]
+  ): Promise<FuzzIoElement[]> {
+    const output: FuzzIoElement[] = [
+      {
+        ...JSON5.parse(
+          await this._query([this._prompts.predictOutput], "json", false, {
+            "fn-input": JSON.stringify(inputs),
+          })
+        ),
+        name: "0",
+        offset: 0,
+        origin: {
+          type: "model",
+          category: this._cfgCategory,
+          name: this._modelName,
+        },
+      },
+    ];
+    console.debug(
+      `got these outputs from the llm: ${JSON5.stringify(output, null, 2)}`
+    );
+    return output;
+  } // !!!!!!
+
   // !!!!!! optioon to bypass cache
   private async _query(
     inPrompt: string[],
     type: "text" | "json" = "json",
-    bypassCache = false
+    bypassCache = false,
+    variables: Record<string, string> = {}
   ): Promise<string> {
-    const prompt = inPrompt.map((p) => this._concretizePrompt(p));
+    const prompt = inPrompt.map((p) => this._concretizePrompt(p, variables));
     const promptSerialized = JSON5.stringify(prompt);
 
     if (promptSerialized in GeminiProgramModel._promptCache && !bypassCache) {
