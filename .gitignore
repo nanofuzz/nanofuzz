@@ -118,5 +118,6 @@ dist
 # Telemetry data
 /telemetry
 
-# Extension bundles
-*.vsix
+# direnv files
+/.direnv/
+/.envrc
