@@ -27,6 +27,8 @@ Be sure you have these tools installed:
 - [Node.js][] v16+ (if using Linux or Mac, we recommend installing via [nvm][])
 - [Yarn][] v1.x
 
+If you're using [Nix][], all dependencies other than Git will be automatically provided by the `flake.nix` file in this repo once you've cloned it.
+
 ### Developing in Windows WSL
 
 Here are some WSL-specific guides:
@@ -183,6 +185,7 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 [homebrew]: https://brew.sh/
 [install dependencies]: https://classic.yarnpkg.com/en/docs/installing-dependencies
 [merge conflicts]: https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/addressing-merge-conflicts/resolving-a-merge-conflict-using-the-command-line
+[nix]: https://nixos.org/
 [node.js]: https://nodejs.org/en/download/
 [npm]: https://www.npmjs.com/
 [nvm]: https://github.com/nvm-sh/nvm
