@@ -6,11 +6,11 @@ NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for Typ
 
 NaNofuzz proposes an initial set of tests with a single button click. You then improve these tests by manually annotating the correctness of specific examples and/or by adding property validator functions that evaluate correctness at scale. NaNofuzz coherently organizes and prioritizes all test results on a single screen so that you can see at a glance what your suite is testing---as well as what it may be missing. 
 
-# Tutorial and Playground
+## Tutorial and Playground
 
 Our [NaNofuzz examples](https://github.com/nanofuzz/nanofuzz-examples/) repository, provides a 10-minute NaNofuzz tutorial and several example buggy programs that you can use to get familiar with NaNofuzz. Within the `nanofuzz-examples` repo on GitHub, click `Code`->`Codespaces`->`Create` to immediately get started!
 
-# Getting started
+## Getting started
 
 To use NaNofuzz in your own projects: 
 
@@ -28,7 +28,7 @@ To use NaNofuzz in your own projects:
 
 > **Note:** To run NaNofuzz tests in CI, click the pin button. NaNofuzz exports pinned tests to Jest format for execution in CI.
 
-# Scope and Limitations
+## Scope and Limitations
 
 NaNofuzz is an **experimental** testing platform developed by the Accelerated Testing Research Program at Carnegie Mellon University's School of Computer Science. Therefore, NaNofuzz is **not** intended for production use; however, contributions are welcome to address the limitations below. 
 
@@ -55,12 +55,12 @@ The following are not yet supported:
 
 If the NaNofuzz button does not appear above your function, that usually indicates that the function is not exported or one of its inputs is comprised of types that are not yet supported (see above).
 
-# Contributing
+## Contributing
 
 We welcome outside contributions to address the limitations above and to correct open issues. 
 Please see our [Contributor's Guide](https://github.com/nanofuzz/nanofuzz/blob/main/CONTRIBUTING.md) for more details about how you can get involved.
 
-# NaNofuzz Research Paper
+## NaNofuzz Research Paper
 
 To reference NaNofuzz in your own research, please cite our ESEC/FSE'23 paper:
 
@@ -68,10 +68,18 @@ To reference NaNofuzz in your own research, please cite our ESEC/FSE'23 paper:
 
 The paper above covers the 0.1.x version of NaNofuzz. A lot has changed since then, and we plan to publish new papers soon!
 
-# The NaNofuzz Mascot
+## The NaNofuzz Mascot
 
 Meet NaNcy, the Silky Anteater! Silky anteaters are wonderfully-adapted, small, fuzzy creatures known to find and consume large quantities of bugs on a daily basis. Therefore, NaNcy is NaNofuzz's beloved mascot on our journey to find and eliminate more bugs.
 
 ![image](https://avatars.githubusercontent.com/u/136026223?s=200&v=4)
+
+## Trophy Case
+If you find bugs with NaNofuzz and feel comfortable sharing them, we would be happy to add them to our list. 
+Please send a PR for README.md with a link to the bug or CVE that you found.
+
+- [RosettaCode Levenshtein distance](https://rosettacode.org/wiki/Levenshtein_distance?oldid=371462): returned `undefined` when `a===''`
+
+
 
 
