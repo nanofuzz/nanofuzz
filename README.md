@@ -30,7 +30,7 @@ To use NaNofuzz in your own projects:
 
 ## Scope and Limitations
 
-NaNofuzz is an **experimental** testing platform developed by the Accelerated Testing Research Program at Carnegie Mellon University's School of Computer Science. Therefore, NaNofuzz is **not** intended for production use; however, contributions are welcome to address the limitations below. 
+NaNofuzz is an **experimental** testing platform developed by the Accelerated Testing Research Program at Carnegie Mellon University's School of Computer Science. While NaNofuzz is **not** intended for production use, contributions are welcome to address the limitations below. 
 
 NaNofuzz supports exported standard and arrow functions with any mixture of the following parameter types:
  - Numbers (integers and floats, signed and unsigned)
@@ -62,11 +62,20 @@ Please see our [Contributor's Guide](https://github.com/nanofuzz/nanofuzz/blob/m
 
 ## NaNofuzz Research Paper
 
-To reference NaNofuzz in your own research, please cite our ESEC/FSE'23 paper:
+To reference NaNofuzz v0.1.x in your own research, please cite our ESEC/FSE'23 paper:
 
 > Matthew C. Davis, Sangheon Choi, Sam Estep, Brad A. Myers, and Joshua Sunshine. **[NaNofuzz: A Usable Tool for Automatic Test Generation](https://dl.acm.org/doi/10.1145/3611643.3616327)**. In Proceedings of the 31st ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering, 2023.
 
-The paper above covers the 0.1.x version of NaNofuzz. A lot has changed since then, and we plan to publish new papers soon!
+This paper covers the original implicit oracle version of NaNofuzz that introduced the "tab-and-grid" user interface for organizing test results.
+
+## TerzoN Research Paper
+
+To reference NaNofuzz v0.3.x ("TerzoN") in your own research, please cite our FSE'25 paper:
+
+> Matthew C. Davis, Amy Wei, Brad A. Myers, and Joshua Sunshine. **[TerzoN: Human-in-the-loop Software Testing with a Composite Oracle](https://conf.researchr.org/details/fse-2025/fse-2025-research-papers/30/TerzoN-Human-in-the-Loop-Software-Testing-with-a-Composite-Oracle)**. At FSE’25. In Proceedings of the ACM on Software Engineering, 2025. (accepted, pre-print, pending publication)
+
+This paper covers the version of NaNofuzz that introduced the Composite Oracle, which features implicit, property-based, and example-based oracles, as well as the expanded "tab-and-grid" user interface.
+
 
 ## The NaNofuzz Mascot
 
