@@ -179,7 +179,7 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 [conventional commit guidelines]: https://www.conventionalcommits.org/en/v1.0.0/
 [create a fork]: https://docs.github.com/en/get-started/quickstart/fork-a-repo
 [git]: https://git-scm.com/downloads
-[good first issues]: https://github.com/nanofuzz/nanofuzz/issues?q=is%3Aopen+is%3Aissue+label%3A%22kind%3Agood+first+issue%22
+[good first issues]: https://github.com/nanofuzz/nanofuzz/issues?q=is%3Aissue%20state%3Aopen%20label%3A%22good%20first%20issue%22
 [guide for installing nvm and node.js]: https://logfetch.com/install-node-npm-wsl2/
 [guide for installing yarn]: https://dev.to/bonstine/installing-yarn-on-wsl-38p2
 [homebrew]: https://brew.sh/
