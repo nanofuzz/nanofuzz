@@ -444,7 +444,7 @@ export class FuzzPanel {
           testSet.functions[fnName].tests = inputTests[fnName];
         }
         console.info(
-          `Upgraded test set in file ${jsonFile} to ${testSet.version} to current version`
+          `Upgraded test set in file ${jsonFile} from ${testSet.version} to current version`
         );
         inputTests = testSet;
       } else {
@@ -459,7 +459,7 @@ export class FuzzPanel {
               testSet.functions[fn].options.useImplicit = true;
             }
             console.info(
-              `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
             );
             inputTests = testSet;
             break;
@@ -474,7 +474,7 @@ export class FuzzPanel {
               testSet.functions[fn].options.useHuman = true;
             }
             console.info(
-              `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
             );
             inputTests = testSet;
             break;
@@ -497,7 +497,7 @@ export class FuzzPanel {
               break;
             }
             console.info(
-              `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
             );
             inputTests = testSet;
             break;
@@ -521,7 +521,7 @@ export class FuzzPanel {
               }
             }
             console.info(
-              `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
             );
             inputTests = testSet;
             break;
@@ -555,7 +555,7 @@ export class FuzzPanel {
               }
             }
             console.info(
-              `Upgraded test set in file ${jsonFile} to ${inputTests.version} to ${testSet.version}`
+              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
             );
             inputTests = testSet;
             break;
@@ -1397,7 +1397,7 @@ ${inArgConsts}
                 <!-- LLM Validator -->
                 <span style="padding-left:1em;"> </span>
                 <vscode-checkbox ${disabledFlag} id="fuzz-useLlm" ${this._fuzzEnv.options.useLlm ? "checked" : ""}>
-                  <span class="tooltipped tooltipped-ne" aria-label="Fail outputs that differ from LLM's prediction"> 
+                  <span class="tooltipped tooltipped-ne" aria-label="Fail outputs that differ from LLM's predicted output"> 
                     LLM Validator 
                   </span>
                 </vscode-checkbox>
