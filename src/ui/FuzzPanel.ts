@@ -1974,7 +1974,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   }
 
   // Get the current active editor filename
-  const srcFile = document.uri.path; // full path of the file which contains the function
+  const srcFile = document.uri.fsPath; // full path of the file which contains the function
 
   // Call the fuzzer to analyze the function
   const fuzzOptions = getDefaultFuzzOptions();
