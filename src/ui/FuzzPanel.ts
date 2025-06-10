@@ -1815,7 +1815,6 @@ ${inArgConsts}
       // Number-specific Options
       case fuzzer.ArgTag.NUMBER: {
         if (isCustomArgDef) {
-          console.log("type", arg.getType(), "isCustomArgDef", isCustomArgDef);
           // TODO: validate that this is a number
           html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-exact" name="${idBase}-exact" value="${
             isArgArray

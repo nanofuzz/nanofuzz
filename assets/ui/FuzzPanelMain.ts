@@ -1746,8 +1746,6 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
     }
   }
 
-  console.log("overrides", overrides);
-
   // Disable input elements while the Fuzzer runs.
   disableArr.forEach((e) => {
     if (
