@@ -12,6 +12,7 @@ import {
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
+  FuzzTestResult,
 } from "fuzzer/Types";
 import { FuzzTestResults } from "fuzzer/Fuzzer";
 
@@ -120,6 +121,23 @@ function main() {
   getElementByIdOrThrow("fuzz.options").addEventListener(
     "click",
     toggleFuzzOptions
+  );
+
+  // Add event listener for the fuzz.options button
+  getElementByIdOrThrow("fuzz.addCustomTestOptions").addEventListener(
+    "click",
+    toggleAddCustomTestOptions
+  );
+
+  // Add event listener for the fuzz.options close button
+  getElementByIdOrThrow("fuzzAddCustomTestOptions-close").addEventListener(
+    "click",
+    toggleAddCustomTestOptions
+  );
+
+  getElementByIdOrThrow("fuzz.addCustomTest").addEventListener(
+    "click",
+    handleAddCustomTestCase
   );
 
   // Add event listener for opening the function source code
@@ -490,6 +508,107 @@ function toggleFuzzOptions() {
 } // fn: toggleFuzzOptions()
 
 /**
+ * Toggles whether add test case options are shown.
+ */
+function toggleAddCustomTestOptions() {
+  const fuzzAddCustomTestOptions = getElementByIdOrThrow(
+    "fuzzAddCustomTestOptions"
+  );
+  const fuzzAddCustomTestOptionsButton = getElementByIdOrThrow(
+    "fuzz.addCustomTestOptions"
+  );
+  if (isHidden(fuzzAddCustomTestOptions)) {
+    toggleHidden(fuzzAddCustomTestOptions);
+    fuzzAddCustomTestOptionsButton.innerHTML = "Close custom test options";
+  } else {
+    toggleHidden(fuzzAddCustomTestOptions);
+    fuzzAddCustomTestOptionsButton.innerHTML = "Add custom test...";
+  }
+
+  // Refresh the list of validators
+  // handleGetListOfValidators();
+} // fn: toggleFuzzOptions()
+
+/**
+ * Add custom test to the test results table.
+ */
+function handleAddCustomTestCase() {
+  const input: FuzzIoElement[] = [];
+  const output: FuzzIoElement[] = [];
+
+  for (let i = 0; document.getElementById(`customArgDef-${i}`) !== null; i++) {
+    const argDef = getElementByIdOrThrow(`customArgDef-${i}`);
+    const argType = argDef.querySelector(".argDef-type")?.id.split("-")[2];
+    const argIsArray =
+      argDef.querySelector(".argDef-isArray")?.id.split("-")[2] === "true";
+    const name = argDef.querySelector(".argDef-name")?.textContent || "";
+
+    const unparsedValue =
+      getElementByIdOrThrow(`customArgDef-${i}-exact`).getAttribute(
+        "current-value"
+      ) || "";
+
+    let value: any;
+    if (argIsArray) {
+      try {
+        value = JSON5.parse(unparsedValue);
+        if (!Array.isArray(value)) {
+          throw new Error("Expected an array input.");
+        }
+      } catch (error) {
+        throw new Error(`Invalid array input: ${unparsedValue}`);
+      }
+    } else {
+      switch (argType) {
+        case "number":
+          value = Number(unparsedValue);
+          break;
+        case "boolean":
+          value =
+            getElementByIdOrThrow(`customArgDef-${i}-true`).getAttribute(
+              "current-checked"
+            ) === "true";
+          break;
+        default:
+          // For string or any other type, try parsing; fallback to raw string
+          try {
+            value = JSON5.parse(unparsedValue);
+          } catch {
+            value = unparsedValue;
+          }
+      }
+    }
+
+    input.push({ name, value, offset: 0 });
+  }
+
+  // Build the custom test object.
+  const customTest: FuzzTestResult = {
+    input,
+    output,
+    pinned: true,
+    category: "ok", // default category; may be changed based on the result
+    exception: false,
+    timeout: false,
+    validatorException: false,
+    elapsedTime: 0,
+    passedImplicit: true,
+  };
+
+  // Pin the new test case
+  vscode.postMessage({
+    command: "test.pin",
+    json: JSON5.stringify(customTest),
+  });
+
+  // Request the extension to run just this custom test.
+  vscode.postMessage({
+    command: "fuzz.customTest",
+    json: JSON5.stringify(customTest),
+  });
+}
+
+/**
  * Sets whether the argument should generate inputs
  *
  * @param vsCodeCheckbox the checkbox that was clicked
@@ -681,7 +800,7 @@ function handleCorrectToggle(
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: isPinned,
-    expectedOutput: data[type][index][expectedLabel],
+    implicit: true,
   };
 
   // Send the request to the extension
@@ -1626,6 +1745,8 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
       };
     }
   }
+
+  console.log("overrides", overrides);
 
   // Disable input elements while the Fuzzer runs.
   disableArr.forEach((e) => {

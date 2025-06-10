@@ -277,6 +277,9 @@ export class FuzzPanel {
             this._doGetValidators();
             this._doFuzzStartCmd(json);
             break;
+          case "fuzz.customTest":
+            await this._doCustomTestCmd(json);
+            break;
           case "test.pin":
             this._doTestPinnedCmd(json, true);
             break;
@@ -1066,6 +1069,22 @@ ${inArgConsts}
     });
   } // fn: _doFuzzStartCmd()
 
+  private async _doCustomTestCmd(json: string): Promise<void> {
+    const customTest: fuzzer.FuzzTestResult = JSON5.parse(json);
+    try {
+      // Run just the custom test
+      const results = await fuzzer.fuzz(this._fuzzEnv, [customTest]);
+      const testOutcome = results.results[0];
+
+      this._results?.results.push(testOutcome);
+      this._state = FuzzPanelState.done;
+    } catch (e: unknown) {
+      this._state = FuzzPanelState.error;
+      this._errorMessage = e instanceof Error ? e.message : "Unknown error";
+    }
+
+    this._updateHtml();
+  }
   /**
    * Disposes all objects used by this instance
    */
@@ -1136,8 +1155,10 @@ ${inArgConsts}
       ]); // URI to client-side panel script
       const env = this._fuzzEnv; // Fuzzer environment
       const fn = env.function; // Function under test
-      const counter = { id: 0 }; // Unique counter for argument ids
+      const counterArgDef = { id: 0 }; // Unique counter for argument ids
+      const counterCustomArgDef = { id: 0 }; // Unique counter for argument ids
       let argDefHtml = ""; // HTML representing argument definitions
+      let customArgDefHtml = ""; // HTML representing custom test case argument definitions.
       const heuristicValidatorDescription = fn.isVoid()
         ? "Heuristic validator (for void functions). Fails: timeout, exception, values !==undefined"
         : "Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN";
@@ -1149,16 +1170,26 @@ ${inArgConsts}
         });
       } // if: results are available
 
-      // Render the HTML for each argument
-      fn.getArgDefs().forEach(
-        (arg, i) =>
-          (argDefHtml += this._argDefToHtmlForm(
-            arg,
-            counter,
-            "",
-            i === fn.getArgDefs().length - 1 ? "" : ","
-          ))
-      );
+      // Render the HTML for each argument and custom test case argument
+      fn.getArgDefs().forEach((arg, i) => {
+        argDefHtml += this._argDefToHtmlForm(
+          arg,
+          counterArgDef,
+          "",
+          i === fn.getArgDefs().length - 1 ? "" : ",",
+          undefined,
+          false
+        );
+
+        customArgDefHtml += this._argDefToHtmlForm(
+          arg,
+          counterCustomArgDef,
+          "",
+          i === fn.getArgDefs().length - 1 ? "" : ",",
+          undefined,
+          true
+        );
+      });
 
       // Prettier abhorrently butchers this HTML, so disable prettier here
       // prettier-ignore
@@ -1282,6 +1313,22 @@ ${inArgConsts}
               <vscode-divider></vscode-divider>
             </div>
 
+            <!-- Add New Test Case Options -->
+            <div id="fuzzAddCustomTestOptions" class="hidden">
+              <div class="panelButton">
+                <span class="codicon codicon-close" id="fuzzAddCustomTestOptions-close"></span>
+              </div>
+              <h2>Custom test case options</h2>
+
+              <div id="pane-nanofuzz"
+                <div id="argDefs">${customArgDefHtml}</div>
+                <br></br>
+                <vscode-button ${disabledFlag} id="fuzz.addCustomTest" appearance="primary">
+                  Add custom test
+                </vscode-button>
+              </div>
+            </div>
+
             <!-- Button Bar -->
             <div style="padding-top: .25em;">
               <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
@@ -1298,7 +1345,14 @@ ${inArgConsts}
                     : ``
                 } id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
                 More options...
-                </vscode-button>
+              </vscode-button>
+              <vscode-button ${disabledFlag} ${ 
+                (this._state === FuzzPanelState.done && this._results !== undefined)
+                    ? ``
+                    : `class="hidden" ` 
+                } id="fuzz.addCustomTestOptions" appearance="secondary" aria-label="Fuzzer Options">
+                Add custom test...
+              </vscode-button>
             </div>
 
             <!-- Fuzzer Errors -->
@@ -1652,10 +1706,11 @@ ${inArgConsts}
     counter: { id: number }, // pass counter by reference
     beginSep: string,
     endSep: string,
-    parentTag?: fuzzer.ArgTag
+    parentTag?: fuzzer.ArgTag,
+    isCustomArgDef?: boolean
   ): string {
     const id = counter.id++; // unique id for each argument
-    const idBase = `argDef-${id}`; // base HTML id for this argument
+    const idBase = isCustomArgDef ? `customArgDef-${id}` : `argDef-${id}`; // base HTML id for this argument
     const argType = arg.getType(); // type of argument
     const argName = arg.getName(); // name of the argument
     const disabledFlag =
@@ -1663,6 +1718,7 @@ ${inArgConsts}
     const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
     const htmlEllipsis = `<span class="hidden argDef-ellipsis">...</span>`;
+    const isArgArray = arg.getDim() > 0; // Is this an array argument?
 
     let typeString: string; // Text indicating the type of argument
     const argTypeRef = arg.getTypeRef();
@@ -1719,6 +1775,9 @@ ${inArgConsts}
       default:
         sep = " = " + htmlEllipsis;
     }
+
+    if (isCustomArgDef) sep = " = " + htmlEllipsis; // Custom test case arguments do not have ellipsis
+
     // prettier-ignore
     html += /*html*/ `
          ${typeString}${dimString}${sep}
@@ -1737,6 +1796,14 @@ ${inArgConsts}
     }
 
     html += /*html*/ `
+      <!-- Argument isArray -->
+      <div class="argDef-isArray argDef-isArray-${htmlEscape(
+        isArgArray ? "true" : "false"
+      )}" id="${idBase}-${
+      isArgArray ? "true" : "false"
+    }" style="padding-left: 1em;"></div>`;
+
+    html += /*html*/ `
       <!-- Argument Type -->
       <div class="argDef-type argDef-type-${htmlEscape(
         arg.getType()
@@ -1747,120 +1814,171 @@ ${inArgConsts}
     switch (arg.getType()) {
       // Number-specific Options
       case fuzzer.ArgTag.NUMBER: {
-        // TODO: validate for ints and floats !!!
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
-          Number(arg.getIntervals()[0].min).toString()
-        )}">Min value</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-max" name="${idBase}-max" value="${htmlEscape(
-          Number(arg.getIntervals()[0].max).toString()
-        )}">Max value</vscode-text-field>`;
-        html += " ";
-        html +=
-          /*html*/
-          `<vscode-radio-group style="display: inline-block;">
+        if (isCustomArgDef) {
+          console.log("type", arg.getType(), "isCustomArgDef", isCustomArgDef);
+          // TODO: validate that this is a number
+          html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-exact" name="${idBase}-exact" value="${
+            isArgArray
+              ? "[]"
+              : htmlEscape(Number(arg.getIntervals()[0].min).toString())
+          }">Value</vscode-text-field>`;
+        } else {
+          // TODO: validate for ints and floats !!!
+          html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
+            Number(arg.getIntervals()[0].min).toString()
+          )}">Min value</vscode-text-field>`;
+          html += " ";
+          html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-max" name="${idBase}-max" value="${htmlEscape(
+            Number(arg.getIntervals()[0].max).toString()
+          )}">Max value</vscode-text-field>`;
+          html += " ";
+          html +=
+            /*html*/
+            `<vscode-radio-group style="display: inline-block;">
             <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
-            arg.getOptions().numInteger ? " checked " : ""
-          }>Integer</vscode-radio>
+              arg.getOptions().numInteger ? " checked " : ""
+            }>Integer</vscode-radio>
             <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
-            !arg.getOptions().numInteger ? " checked " : ""
-          }>Float</vscode-radio>
+              !arg.getOptions().numInteger ? " checked " : ""
+            }>Float</vscode-radio>
           </vscode-radio-group>`;
+        }
+
         break;
       }
 
       // String-specific Options
       case fuzzer.ArgTag.STRING: {
-        // TODO: validate for ints > 0 !!!
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
-          arg.getOptions().strLength.min.toString()
-        )}">Min length</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxStrLen" name="${idBase}-max" value="${htmlEscape(
-          arg.getOptions().strLength.max.toString()
-        )}">Max length</vscode-text-field>`;
-        html += " ";
-        html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
-          arg.getOptions().strCharset
-        )}">Character set</vscode-text-field>`;
+        if (isCustomArgDef) {
+          // TODO: validate that this is a string
+          html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-exact" name="${idBase}-exact" value="${
+            isArgArray ? "[]" : ""
+          }">Value</vscode-text-field>`;
+        } else {
+          // TODO: validate for ints > 0 !!!
+          html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
+            arg.getOptions().strLength.min.toString()
+          )}">Min length</vscode-text-field>`;
+          html += " ";
+          html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxStrLen" name="${idBase}-max" value="${htmlEscape(
+            arg.getOptions().strLength.max.toString()
+          )}">Max length</vscode-text-field>`;
+          html += " ";
+          html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
+            arg.getOptions().strCharset
+          )}">Character set</vscode-text-field>`;
+        }
         break;
       }
 
       // Boolean-specific Options
       case fuzzer.ArgTag.BOOLEAN: {
-        let intervals = arg.getIntervals();
-        if (intervals.length === 0) {
-          intervals = [{ min: false, max: true }];
-        }
-        html +=
-          /*html*/
-          `<vscode-radio-group>
+        if (isCustomArgDef) {
+          html +=
+            /*html*/
+            isArgArray
+              ? `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-exact" name="${idBase}-exact" value="[]">Value</vscode-text-field>`
+              : `<vscode-radio-group id="${idBase}-exact" ${disabledFlag}>
+            <vscode-radio id="${idBase}-true" name="${idBase}-exact" value="true" checked>True</vscode-radio>
+            <vscode-radio id="${idBase}-false" name="${idBase}-exact" value="false">False</vscode-radio>
+          </vscode-radio-group>`;
+        } else {
+          let intervals = arg.getIntervals();
+          if (intervals.length === 0) {
+            intervals = [{ min: false, max: true }];
+          }
+          html +=
+            /*html*/
+            `<vscode-radio-group>
             <!--<label slot="label">Values</label>-->
             <vscode-radio ${disabledFlag} id="${idBase}-trueFalse" name="${idBase}-trueFalse" ${
-            intervals[0].min !== intervals[0].max ? " checked " : ""
-          }>True and false</vscode-radio>
+              intervals[0].min !== intervals[0].max ? " checked " : ""
+            }>True and false</vscode-radio>
             <vscode-radio ${disabledFlag} id="${idBase}-trueOnly" name="${idBase}-trueOnly" ${
-            intervals[0].min && intervals[0].max ? " checked " : ""
-          }>True</vscode-radio>
+              intervals[0].min && intervals[0].max ? " checked " : ""
+            }>True</vscode-radio>
             <vscode-radio ${disabledFlag} id="${idBase}-falseOnly" name="${idBase}-falseOnly" ${
-            !intervals[0].min && !intervals[0].max ? " checked " : ""
-          }>False</vscode-radio>
+              !intervals[0].min && !intervals[0].max ? " checked " : ""
+            }>False</vscode-radio>
           </vscode-radio-group>`;
+        }
+
         break;
       }
 
       // Union-specific Options
       case fuzzer.ArgTag.UNION: {
-        // Output the array form prior to the child arguments.
-        // This seems odd, but the screen reads better to the user this way.
-        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
-        html += `<div>`;
-        arg
-          .getChildren()
-          .forEach(
-            (child) =>
-              (html += this._argDefToHtmlForm(
-                child,
-                counter,
-                " | ",
-                "",
-                arg.getType()
-              ))
-          );
-        html += `</div>`;
+        if (isCustomArgDef) {
+          // TODO: validate
+          html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-exact" name="${idBase}-exact" value="${
+            isArgArray ? "[]" : ""
+          }">Value</vscode-text-field>`;
+        } else {
+          // Output the array form prior to the child arguments.
+          // This seems odd, but the screen reads better to the user this way.
+          html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
+
+          html += `<div>`;
+          arg
+            .getChildren()
+            .forEach(
+              (child) =>
+                (html += this._argDefToHtmlForm(
+                  child,
+                  counter,
+                  " | ",
+                  "",
+                  arg.getType(),
+                  isCustomArgDef
+                ))
+            );
+          html += `</div>`;
+        }
         break;
       }
 
       // Object-specific Options
       case fuzzer.ArgTag.OBJECT: {
-        // Output the array form prior to the child arguments.
-        // This seems odd, but the screen reads better to the user this way.
-        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
-        html += `<div>`;
-        const children = arg.getChildren();
-        children.forEach(
-          (child, i) =>
-            (html += this._argDefToHtmlForm(
-              child,
-              counter,
-              "",
-              i === children.length - 1 ? "" : ",",
-              arg.getType()
-            ))
-        );
-        html += `</div>`;
+        if (isCustomArgDef) {
+          // TODO: validate
+          html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-exact" name="${idBase}-exact" value="${
+            isArgArray ? "[]" : "{}"
+          }">Value</vscode-text-field>`;
+        } else {
+          // Output the array form prior to the child arguments.
+          // This seems odd, but the screen reads better to the user this way.
+          html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
+          html += `<div>`;
+          const children = arg.getChildren();
+          children.forEach(
+            (child, i) =>
+              (html += this._argDefToHtmlForm(
+                child,
+                counter,
+                "",
+                i === children.length - 1 ? "" : ",",
+                arg.getType(),
+                isCustomArgDef
+              ))
+          );
+          html += `</div>`;
+        }
         break;
       }
     }
 
     // For objects & unions: output the array settings
-    if (argType !== fuzzer.ArgTag.OBJECT && argType !== fuzzer.ArgTag.UNION) {
+    if (
+      argType !== fuzzer.ArgTag.OBJECT &&
+      argType !== fuzzer.ArgTag.UNION &&
+      !isCustomArgDef
+    ) {
       html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
     }
 
     html += `</div>`;
     // For objects: output the end of object character ("}") here
-    if (argType === fuzzer.ArgTag.OBJECT) {
+    if (argType === fuzzer.ArgTag.OBJECT && !isCustomArgDef) {
       html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close" style="font-size:1.25em;">}${endSep}</div>`;
     }
     html += `</div>`;
@@ -1974,7 +2092,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   }
 
   // Get the current active editor filename
-  const srcFile = document.uri.path; // full path of the file which contains the function
+  const srcFile = document.uri.fsPath; // full path of the file which contains the function
 
   // Call the fuzzer to analyze the function
   const fuzzOptions = getDefaultFuzzOptions();
