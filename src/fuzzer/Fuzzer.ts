@@ -26,7 +26,6 @@ import {
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { RandomInputGenerator } from "./generators/RandomInputGenerator";
 import { CoverageMeasure } from "./measures/CoverageMeasure";
-import { DummyInputGenerator } from "./generators/DummyInputGenerator";
 
 /**
  * Builds and returns the environment required by fuzz().
