@@ -24,6 +24,9 @@ import {
   CoverageMap,
 } from "istanbul-lib-coverage";
 import { createInstrumenter } from "istanbul-lib-instrument";
+import { RandomInputGenerator } from "./generators/RandomInputGenerator";
+import { CoverageMeasure } from "./measures/CoverageMeasure";
+import { DummyInputGenerator } from "./generators/DummyInputGenerator";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -98,10 +101,18 @@ export const fuzz = async (
   let compositeInputGenerator = env.compositeInputGenerator;
   if (!compositeInputGenerator) {
     // If no composite input generator already exists, instantiate a new one.
-    compositeInputGenerator = new CompositeInputGenerator();
-    compositeInputGenerator.init(env);
+    const randomInputGenerator = new RandomInputGenerator(env);
+    const dummyInputGenerator = new DummyInputGenerator(env);
+    compositeInputGenerator = new CompositeInputGenerator(
+      env,
+      [randomInputGenerator, dummyInputGenerator],
+      [CoverageMeasure],
+      [1]
+    );
     env.compositeInputGenerator = compositeInputGenerator;
   }
+
+  compositeInputGenerator.initRun();
 
   const instrumenter = createInstrumenter();
   const aggregateCoverageMap: CoverageMap = createCoverageMap({});
@@ -354,6 +365,9 @@ export const fuzz = async (
       results.results.push(result);
     }
   } // for: Main test loop
+
+  results.aggregateCoverageSummary = aggregateCoverageMap.getCoverageSummary();
+  compositeInputGenerator.onRunEnd(results);
 
   // Persist to outfile, if requested
   if (env.options.outputFile) {
