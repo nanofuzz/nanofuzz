@@ -101,10 +101,9 @@ export const fuzz = async (
   if (!compositeInputGenerator) {
     // If no composite input generator already exists, instantiate a new one.
     const randomInputGenerator = new RandomInputGenerator(env);
-    const dummyInputGenerator = new DummyInputGenerator(env);
     compositeInputGenerator = new CompositeInputGenerator(
       env,
-      [randomInputGenerator, dummyInputGenerator],
+      [randomInputGenerator],
       [CoverageMeasure],
       [1]
     );
