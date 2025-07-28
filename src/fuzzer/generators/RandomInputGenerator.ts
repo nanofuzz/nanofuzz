@@ -4,9 +4,11 @@ import { GeneratorFactory } from "./GeneratorFactory";
 import { InputGenerator } from "./InputGenerator";
 
 export class RandomInputGenerator implements InputGenerator {
+  public readonly name = "RandomInputGenerator";
+
   private gens: Array<{ name: string; offset: number; fn: () => any }> = [];
 
-  init(env: FuzzEnv): void {
+  public constructor(env: FuzzEnv) {
     const prng = seedrandom(env.options.seed ?? "");
     this.gens = env.function.getArgDefs().map((argDef) => ({
       name: argDef.getName(),
@@ -15,7 +17,7 @@ export class RandomInputGenerator implements InputGenerator {
     }));
   }
 
-  next(): FuzzIoElement[] {
+  public next(): FuzzIoElement[] {
     return this.gens.map(({ name, offset, fn }) => ({
       name,
       offset,

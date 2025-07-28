@@ -1,71 +1,120 @@
+import seedrandom from "seedrandom";
 import { InputGenerator } from "./InputGenerator";
 import { FuzzEnv } from "fuzzer/Fuzzer";
-import { FuzzIoElement, FuzzTestResult } from "fuzzer/Fuzzer";
-import { RandomInputGenerator } from "./RandomInputGenerator";
+import { FuzzIoElement, FuzzTestResult, FuzzTestResults } from "fuzzer/Fuzzer";
+import { Measure } from "fuzzer/measures/Measure";
 
-export const InputGeneratorStrategies = ["random"] as const;
+export const InputGeneratorStrategies = ["RandomInputGenerator"] as const;
 
 export class CompositeInputGenerator implements InputGenerator {
-  // Mapping of input generator strategies to their respective factories.
-  static readonly inputGenerators = new Map<
-    (typeof InputGeneratorStrategies)[number],
-    () => InputGenerator
-  >([["random", () => new RandomInputGenerator()]]);
+  public readonly name = "CompositeInputGenerator";
 
-  // Default weights for each input generator strategy.
-  static defaultWeights: Record<
-    (typeof InputGeneratorStrategies)[number],
-    number
-  > = {
-    random: 1,
-  };
+  private _subgens: InputGenerator[];
+  private _measures: (typeof Measure)[];
+  private _weights: number[];
+  private _history: {
+    values: (number | undefined)[][];
+    currentIndex: number;
+  }[];
+  private _runCount = 0;
+  private _selectedSubgenIndex = 0;
+  private readonly _L = 10; // Lookback window size for history.
+  private readonly _explorationP = 20; // Exploration probability.
+  private readonly _prng: seedrandom.prng;
 
-  // private _env?: FuzzEnv; // Initialized in init().
-  private _subgens = new Map<string, InputGenerator>();
-  private _weights: Record<string, number> = {};
-  private _lastInputGeneratorStrategy?: string;
+  public constructor(
+    env: FuzzEnv,
+    subgens: InputGenerator[],
+    measures: (typeof Measure)[],
+    weights: number[]
+  ) {
+    this._prng = seedrandom(env.options.seed ?? "");
+    this._subgens = subgens;
+    this._measures = measures;
+    this._weights = weights;
 
-  init(env: FuzzEnv): void {
-    this._weights = {
-      ...CompositeInputGenerator.defaultWeights,
-      // Potentially override with user-provided config.
-    };
-
-    for (const inputGeneratorStrategy of InputGeneratorStrategies) {
-      const factory = CompositeInputGenerator.inputGenerators.get(
-        inputGeneratorStrategy
+    if (this._subgens.length === 0)
+      throw new Error(
+        "No input generators provided to CompositeInputGenerator."
       );
-      if (!factory)
-        throw new Error(
-          `Unknown input-generator strategy "${inputGeneratorStrategy}"`
-        );
-      const gen = factory();
-      gen.init(env);
-      this._subgens.set(inputGeneratorStrategy, gen);
+    if (this._measures.length !== this._weights.length)
+      throw new Error("Measures and weights must have the same length.");
+
+    this._history = subgens.map(() => ({
+      values: measures.map(() => Array(this._L).fill(undefined)),
+      currentIndex: 0,
+    }));
+
+    this._runCount = 0;
+    for (const h of this._history) {
+      h.values.forEach((v) => v.fill(undefined));
+      h.currentIndex = 0;
     }
   }
 
-  next(): FuzzIoElement[] {
-    const strat = this.sampleStrategy();
-    this._lastInputGeneratorStrategy = strat;
-    const generator = this._subgens.get(strat);
-    if (!generator) {
-      throw new Error(`Input generator for strategy "${strat}" not found.`);
-    }
-    return generator.next();
+  public next(): FuzzIoElement[] {
+    const G = this._subgens.length;
+
+    let gen: InputGenerator;
+    const rand = Math.floor(this._prng() * this._explorationP);
+    if (rand === 0) {
+      const randval = Math.floor(this._prng() * G);
+      gen = this._subgens[randval];
+    } else gen = this._subgens[this._selectedSubgenIndex];
+
+    return gen.next();
   }
 
-  onResult(result: FuzzTestResult, coverageSummary?: any): void {
-    // adjust this.weights[this.lastStrategy!]
+  public initRun(): void {
+    const G = this._subgens.length;
+    if (
+      this._runCount === 0 ||
+      Math.floor(this._prng() * this._explorationP) === 0
+    ) {
+      // Exploration on first run or with prob 1/_explorationP.
+      this._selectedSubgenIndex = Math.floor(this._prng() * G);
+    } else {
+      // Pick g with max weighted sum of delta-M over last L runs with g as selected generator.
+      let bestIdx = 0;
+      let bestEff = -Infinity;
+      for (let genIdx = 0; genIdx < G; genIdx++) {
+        let sum = 0;
+        for (
+          let measureIdx = 0;
+          measureIdx < this._measures.length;
+          measureIdx++
+        ) {
+          const buffer = this._history[genIdx].values[measureIdx];
+
+          for (let i = 1; i < this._L; i++) {
+            if (buffer[i] !== undefined && buffer[i - 1] !== undefined) {
+              const current = buffer[i]!;
+              const previous = buffer[i - 1]!;
+              sum += (current - previous) * this._weights[measureIdx];
+            }
+          }
+          const eff = sum / 1; // TODO: Let us set cost=1 for now.
+          if (eff > bestEff) {
+            bestEff = eff;
+            bestIdx = genIdx;
+          }
+        }
+        this._selectedSubgenIndex = bestIdx;
+      }
+    }
   }
 
-  private sampleStrategy(): string {
-    const total = Object.values(this._weights).reduce((a, b) => a + b, 0);
-    let r = Math.random() * total;
-    for (const strat of InputGeneratorStrategies) {
-      r -= this._weights[strat];
-      if (r <= 0) return strat;
+  public onRunEnd(results: FuzzTestResults): void {
+    let aggregateMeasure = 0;
+    for (let measureIdx = 0; measureIdx < this._measures.length; measureIdx++) {
+      const h = this._history[this._selectedSubgenIndex];
+      const measure = this._measures[measureIdx];
+
+      aggregateMeasure += measure.measure(results);
+      h.values[measureIdx][h.currentIndex] = aggregateMeasure;
+      h.currentIndex = (h.currentIndex + 1) % this._L;
+
+      this._runCount++;
     }
-    return InputGeneratorStrategies[0];
   }
 }
