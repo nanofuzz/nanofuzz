@@ -1,10 +1,9 @@
 import * as fs from "fs";
 import * as JSON5 from "json5";
 import vm from "vm";
-import seedrandom from "seedrandom";
 import { ArgDef } from "./analysis/typescript/ArgDef";
 import { ArgValueType, FunctionRef } from "./analysis/typescript/Types";
-import { GeneratorFactory } from "./generators/GeneratorFactory";
+import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as compiler from "./Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
@@ -17,6 +16,14 @@ import {
   FuzzStopReason,
 } from "./Types";
 import { FuzzOptions } from "./Types";
+
+import {
+  createCoverageMap,
+  CoverageMapData,
+  CoverageSummary,
+  CoverageMap,
+} from "istanbul-lib-coverage";
+import { createInstrumenter } from "istanbul-lib-instrument";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -66,7 +73,6 @@ export const fuzz = async (
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = []
 ): Promise<FuzzTestResults> => {
-  const prng = seedrandom(env.options.seed);
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
@@ -89,16 +95,22 @@ export const fuzz = async (
       `Invalid options provided: ${JSON5.stringify(env.options, null, 2)}`
     );
 
-  // Build a generator for each argument
-  const fuzzArgGen = env.function.getArgDefs().map((e) => {
-    return { arg: e, gen: GeneratorFactory(e, prng) };
-  });
+  let compositeInputGenerator = env.compositeInputGenerator;
+  if (!compositeInputGenerator) {
+    // If no composite input generator already exists, instantiate a new one.
+    compositeInputGenerator = new CompositeInputGenerator();
+    compositeInputGenerator.init(env);
+    env.compositeInputGenerator = compositeInputGenerator;
+  }
+
+  const instrumenter = createInstrumenter();
+  const aggregateCoverageMap: CoverageMap = createCoverageMap({});
 
   // The module that includes the function to fuzz will
   // be a TypeScript source file, so we first must compile
   // it to JavaScript prior to execution.  This activates the
   // TypeScript compiler that hooks into the require() function.
-  compiler.activate();
+  compiler.activate(instrumenter);
 
   // The fuzz target is likely under development, so
   // invalidate the cache to get the latest copy.
@@ -181,14 +193,8 @@ export const fuzz = async (
       }
     } else {
       // Generate and store the inputs
-      // TODO: We should provide a way to filter inputs
-      fuzzArgGen.forEach((e) => {
-        result.input.push({
-          name: e.arg.getName(),
-          offset: e.arg.getOffset(),
-          value: e.gen(),
-        });
-      });
+      result.input = compositeInputGenerator.next();
+
       // Increment the number of inputs generated
       inputsGenerated++;
     }
@@ -218,6 +224,14 @@ export const fuzz = async (
         value: fnWrapper(JSON5.parse(JSON5.stringify(result.input))), // <-- Wrapper (protect the input)
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
+
+      const fileCoverage = instrumenter.lastFileCoverage();
+      const fileCoverageData: CoverageMapData = {
+        [fileCoverage.path]: fileCoverage,
+      };
+      const coverageMap = createCoverageMap(fileCoverageData);
+      result.coverageSummary = coverageMap.getCoverageSummary();
+      aggregateCoverageMap.merge(coverageMap);
     } catch (e: any) {
       if (isTimeoutError(e)) {
         result.timeout = true;
@@ -590,6 +604,7 @@ export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
   validators: FunctionRef[]; // list of the module's functions
+  compositeInputGenerator?: CompositeInputGenerator; // input generator (optional)
 };
 
 /**
@@ -603,6 +618,7 @@ export type FuzzTestResults = {
   dupesGenerated: number; // number of duplicate inputs generated
   inputsSaved: number; // number of inputs saved
   results: FuzzTestResult[]; // fuzzing test results
+  aggregateCoverageSummary?: CoverageSummary;
 };
 
 export * from "./analysis/typescript/ProgramDef";
