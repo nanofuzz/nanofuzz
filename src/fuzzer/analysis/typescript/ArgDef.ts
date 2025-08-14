@@ -1,5 +1,5 @@
 import * as JSON5 from "json5";
-import * as vscode from "vscode";
+import * as vscode from "../../../vscode";
 import {
   ArgOptionOverride,
   ArgOptions,

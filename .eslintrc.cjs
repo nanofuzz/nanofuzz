@@ -27,6 +27,10 @@ module.exports = {
   parserOptions: {
     project: "tsconfig.json",
     sourceType: "module",
+    babelOptions: {
+      presets: ["@babel/preset-typescript"],
+    },
+    extraFileExtensions: [".cjs"],
   },
   plugins: ["eslint-comments", "eslint-plugin-import", "eslint-plugin-jsdoc"],
   rules: {
@@ -46,5 +50,11 @@ module.exports = {
     "no-fallthrough": 2,
     "no-template-curly-in-string": 2,
   },
-  ignorePatterns: ["**/*.test.ts", "**/*.test.tsx", "*.js"],
+  ignorePatterns: [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "*.js",
+    "*.cjs",
+    "src/vscode/index.d.ts",
+  ],
 };

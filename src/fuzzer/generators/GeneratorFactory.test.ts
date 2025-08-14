@@ -1,8 +1,8 @@
 import { ArgDef } from "../analysis/typescript/ArgDef";
 import { GeneratorFactory } from "./GeneratorFactory";
 import seedrandom from "seedrandom";
-import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
-import { ArgOptions, ArgValueType } from "fuzzer/analysis/typescript/Types";
+import { ProgramDef } from "../analysis/typescript/ProgramDef";
+import { ArgOptions, ArgValueType } from "../analysis/typescript/Types";
 
 /**
  * Provide a seed to ensure tests are deterministic.
@@ -28,84 +28,84 @@ const dummyProgram = ProgramDef.fromSource(() => "");
  * TODO: These tests do not check that distributions are reasonably uniform.
  * TODO: Add tests for dimensions.
  */
-describe("fuzzer/generator/GeneratorFactory", () => {
+describe("fuzzer/generator/GeneratorFactory:", () => {
   // -------------------------------- Strings -------------------------------- //
 
-  test(`Random String >= "" && <= "1" len 2-2`, () => {
+  it(`Random String >= "" && <= "1" len 2-2`, () => {
     testRandomString("", "1", 2, 2);
   });
 
-  test(`Random String >= " " && <= "A" len 0-1`, () => {
+  it(`Random String >= " " && <= "A" len 0-1`, () => {
     testRandomString("", "A", 0, 1);
   });
 
-  test(`Random String >= " " && <= "A" len 1-1`, () => {
+  it(`Random String >= " " && <= "A" len 1-1`, () => {
     testRandomString("", "A", 1, 1);
   });
 
-  test(`Random String >= " " && <= " " len 2`, () => {
+  it(`Random String >= " " && <= " " len 2`, () => {
     testRandomString(" ", " ", 2, 2);
   });
 
-  test(`Random String >= " " && <= "!" len 0-2`, () => {
+  it(`Random String >= " " && <= "!" len 0-2`, () => {
     testRandomString(" ", "!", 0, 2);
   });
 
-  test(`Random String >= "ABC" && <= "ABCDEF" len 3-6`, () => {
+  it(`Random String >= "ABC" && <= "ABCDEF" len 3-6`, () => {
     testRandomString("ABC", "ABCDEF", 3, 6);
   });
 
-  test(`Random String >= "ABCDEF" && <= "ABC" (invalid min/max reversal) len 3-6`, () => {
+  it(`Random String >= "ABCDEF" && <= "ABC" (invalid min/max reversal) len 3-6`, () => {
     testRandomStringException("ABCDEF", "ABC", 3, 6);
   });
 
-  test(`Random String >= "ABC" && <= "ABCDEF" len 6-3 (invalid min/max reversal)`, () => {
+  it(`Random String >= "ABC" && <= "ABCDEF" len 6-3 (invalid min/max reversal)`, () => {
     testRandomStringException("ABC", "ABCDEF", 6, 3);
   });
 
-  test(`Random String >= "ABCDEF" && <= "ABC" len 3-6 (invalid min/max reversal x2)`, () => {
+  it(`Random String >= "ABCDEF" && <= "ABC" len 3-6 (invalid min/max reversal x2)`, () => {
     testRandomStringException("ABCDEF", "ABC", 6, 3);
   });
 
   // -------------------------------- Integers -------------------------------- //
 
-  test(`Random Int >= 0 && <= 5`, () => {
+  it(`Random Int >= 0 && <= 5`, () => {
     testRandomInt(0, 5);
   });
 
-  test(`Random Int >= -50 && <= 50`, () => {
+  it(`Random Int >= -50 && <= 50`, () => {
     testRandomInt(-50, 50);
   });
 
-  test(`Random Int >= 50 && <= -50 (invalid min/max reversal)`, () => {
+  it(`Random Int >= 50 && <= -50 (invalid min/max reversal)`, () => {
     testRandomIntException(50, -50);
   });
 
   // -------------------------------- Floats --------------------------------- //
 
-  test(`Random Float >= 0 && <= 0`, () => {
+  it(`Random Float >= 0 && <= 0`, () => {
     testRandomFloat(0, 0);
   });
 
-  test(`Random Float >= -5.05 && <= 5.05`, () => {
+  it(`Random Float >= -5.05 && <= 5.05`, () => {
     testRandomFloat(-5.05, 5.05);
   });
 
-  test(`Random Float >= 5.05 && <= -5.05 (invalid min/max reversal)`, () => {
+  it(`Random Float >= 5.05 && <= -5.05 (invalid min/max reversal)`, () => {
     testRandomFloatException(5.05, -5.05);
   });
 
   // ------------------------------- Booleans -------------------------------- //
 
-  test(`Random Bool >= false && <= true`, () => {
+  it(`Random Bool >= false && <= true`, () => {
     testRandomBool(false, true);
   });
 
-  test(`Random Bool >= false && <= false`, () => {
+  it(`Random Bool >= false && <= false`, () => {
     testRandomBool(false, false);
   });
 
-  test(`Random Bool >= true && <= true`, () => {
+  it(`Random Bool >= true && <= true`, () => {
     testRandomBool(true, true);
   });
 });

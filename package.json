@@ -20,21 +20,6 @@
   "files": [
     "/build"
   ],
-  "jest": {
-    "preset": "ts-jest",
-    "testEnvironment": "jsdom",
-    "modulePaths": [
-      "node_modules",
-      "<rootDir>/src/"
-    ],
-    "testPathIgnorePatterns": [
-      "build/",
-      "src/test/suite/"
-    ],
-    "transformIgnorePatterns": [
-      "/node_modules/(?!nanofuzz-study/)"
-    ]
-  },
   "engines": {
     "vscode": "^1.69.0"
   },
@@ -217,8 +202,8 @@
     }
   },
   "scripts": {
-    "build": "node build.js",
-    "test": "jest --watchAll=false",
+    "build": "node build.cjs",
+    "test": "jasmine",
     "start": "yarn build;node ./build/dist/index.esm.js",
     "docs": "typedoc --plugin none --out docs",
     "coverage": "yarn test --coverage --watchAll=false",
@@ -232,6 +217,19 @@
     "pretest": "yarn run compile && yarn run lint",
     "ext:test": "node ./build/extension/test/runTest.js"
   },
+  "babel": {
+    "presets": [
+      "@babel/preset-typescript"
+    ],
+    "plugins": [
+      [
+        "@babel/plugin-transform-modules-commonjs",
+        {
+          "importInterop": "node"
+        }
+      ]
+    ]
+  },
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
     "@types/vscode-webview": "^1.57.5",
@@ -244,7 +242,11 @@
     "typescript": "^4.9.5"
   },
   "devDependencies": {
-    "@types/jest": "^27.4.1",
+    "@babel/core": "^7.28.0",
+    "@babel/plugin-transform-modules-commonjs": "^7.27.1",
+    "@babel/preset-typescript": "^7.27.1",
+    "@babel/register": "^7.27.1",
+    "@types/jasmine": "^5.1.8",
     "@types/node": "16.x",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.69.0",
@@ -253,6 +255,7 @@
     "@typescript-eslint/parser": "^4.5.0",
     "@vscode/test-electron": "^2.1.5",
     "@vscode/vsce": "^2.15.0",
+    "cross-env": "^10.0.0",
     "esbuild": "^0.25.0",
     "escape-goat": "^4.0.0",
     "eslint-config-prettier": "^6.13.0",
@@ -261,10 +264,9 @@
     "eslint-plugin-jsdoc": "^30.7.3",
     "eslint-plugin-react": "^7.28.0",
     "estrella": "^1.4.1",
-    "jest": "^27.5.1",
-    "jest-junit": "^12.0.0",
+    "jasmine": "5.9.0",
+    "jsdom": "^26.1.0",
     "nanofuzz-study": "nanofuzz/nanofuzz-study#main",
-    "ts-jest": "^27.1.3",
     "tsc-alias": "^1.6.7",
     "tslib": "^2.1.0",
     "typedoc": "^0.22.11",

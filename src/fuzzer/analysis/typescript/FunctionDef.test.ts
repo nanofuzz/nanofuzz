@@ -80,13 +80,13 @@ function makeTypeRef(
  *
  * TODO: Add 'skip' tests for the situations we do not support yet.
  */
-describe("fuzzer/analysis/typescript/FunctionDef", () => {
-  test("arrowFunction", () => {
+describe("fuzzer/analysis/typescript/FunctionDef:", () => {
+  it("arrowFunction", () => {
     const src = `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], lit: 5, obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[], lit:6, litA:6[]}):void => {
       const whatever:string = name + offset + happy + JSON5.stringify(nums);}`;
     const thisProgram = dummyProgram.setSrc(() => src);
 
-    expect(thisProgram.getFunctions()["$_f"].getArgDefs()).toStrictEqual([
+    expect(thisProgram.getFunctions()["$_f"].getArgDefs()).toEqual([
       makeArgDef(dummyRef.module, "name", 0, ArgTag.STRING, argOptions, 0),
       makeArgDef(dummyRef.module, "offset", 1, ArgTag.NUMBER, argOptions, 0),
       makeArgDef(dummyRef.module, "happy", 2, ArgTag.BOOLEAN, argOptions, 0),
@@ -143,12 +143,12 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     ]);
   });
 
-  test("standardFunction", () => {
+  it("standardFunction", () => {
     const src = `function $_f(name: string, offset: number, happy: boolean, nums: number[][], lit: 5, obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[], lit: 6, litA: 6[]}):void {
       const whatever:string = name + offset + happy + JSON5.stringify(nums);}`;
     const thisProgram = dummyProgram.setSrc(() => src);
 
-    expect(thisProgram.getFunctions()["$_f"].getArgDefs()).toStrictEqual([
+    expect(thisProgram.getFunctions()["$_f"].getArgDefs()).toEqual([
       makeArgDef(dummyRef.module, "name", 0, ArgTag.STRING, argOptions, 0),
       makeArgDef(dummyRef.module, "offset", 1, ArgTag.NUMBER, argOptions, 0),
       makeArgDef(dummyRef.module, "happy", 2, ArgTag.BOOLEAN, argOptions, 0),
@@ -205,7 +205,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     ]);
   });
 
-  test("optionalParameter", () => {
+  it("optionalParameter", () => {
     const src = `function totalDinnerExpenses( total?: number ): number {
       items.forEach((item) => (total += item.dinner));
       return total;}`;
@@ -213,7 +213,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
 
     expect(
       thisProgram.getFunctions()["totalDinnerExpenses"].getArgDefs()
-    ).toStrictEqual([
+    ).toEqual([
       makeArgDef(
         dummyRef.module,
         "total",
@@ -232,10 +232,10 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
   const test3 = 0;`;
   const thisProgram = dummyProgram.setSrc(() => src);
 
-  test("findFnInSource: All", () => {
+  it("findFnInSource: All", () => {
     expect(
       Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toStrictEqual([
+    ).toEqual([
       {
         name: "test",
         module: "dummy.ts",
@@ -268,7 +268,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
             dims: 0,
             children: [],
             resolved: true,
-            type: "string",
+            type: ArgTag.STRING,
           },
         },
       },
@@ -310,8 +310,8 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     ]);
   });
 
-  test("findFnInSource: By Name, non-exported", () => {
-    expect(thisProgram.getFunctions()["test"].getRef()).toStrictEqual({
+  it("findFnInSource: By Name, non-exported", () => {
+    expect(thisProgram.getFunctions()["test"].getRef()).toEqual({
       name: "test",
       module: "dummy.ts",
       src: 'function test(array: string[]): string {return "";}',
@@ -343,14 +343,14 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
           dims: 0,
           children: [],
           resolved: true,
-          type: "string",
+          type: ArgTag.STRING,
         },
       },
     });
   });
 
-  test("findFnInSource: By Name, Exported", () => {
-    expect(thisProgram.getExportedFunctions()["test"].getRef()).toStrictEqual({
+  it("findFnInSource: By Name, Exported", () => {
+    expect(thisProgram.getExportedFunctions()["test"].getRef()).toEqual({
       name: "test",
       module: "dummy.ts",
       src: 'function test(array: string[]): string {return "";}',
@@ -382,13 +382,13 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
           dims: 0,
           children: [],
           resolved: true,
-          type: "string",
+          type: ArgTag.STRING,
         },
       },
     });
   });
 
-  test("findFnInSource: void, standard fn def", () => {
+  it("findFnInSource: void, standard fn def", () => {
     const src = `
     export function returnF1() {return;}
     export function returnF2():number {return 1;}
@@ -400,7 +400,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     const thisProgram = dummyProgram.setSrc(() => src);
     expect(
       Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toStrictEqual([
+    ).toEqual([
       {
         name: "returnF1",
         module: "dummy.ts",
@@ -430,7 +430,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
             dims: 0,
             children: [],
             resolved: true,
-            type: "number",
+            type: ArgTag.NUMBER,
           },
         },
       },
@@ -481,7 +481,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     ]);
   });
 
-  test("findFnInSource: void, arrow fn", () => {
+  it("findFnInSource: void, arrow fn", () => {
     const src = `
     export const returnA1 = () => {return;}
     export const returnA2 = ():number => {return 1;}
@@ -493,7 +493,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     const thisProgram = dummyProgram.setSrc(() => src);
     expect(
       Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toStrictEqual([
+    ).toEqual([
       {
         name: "returnA1",
         module: "dummy.ts",
@@ -523,7 +523,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
             dims: 0,
             children: [],
             resolved: true,
-            type: "number",
+            type: ArgTag.NUMBER,
           },
         },
       },
@@ -574,7 +574,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     ]);
   });
 
-  test("findFnInSource: void, loops", () => {
+  it("findFnInSource: void, loops", () => {
     const src = `
     export const returnWhile = () => {let x: number = 0; while (x < 10) {return Infinity;}}
     export const returnForIn = () => {const arr: number[] = [1,2,3]; for (var idx in arr) {if (arr[idx] === 2) {return undefined;}} return 0;}
@@ -585,7 +585,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     const thisProgram = dummyProgram.setSrc(() => src);
     expect(
       Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toStrictEqual([
+    ).toEqual([
       {
         name: "returnWhile",
         module: "dummy.ts",
@@ -644,7 +644,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     ]);
   });
 
-  test("findFnInSource: void, other cases", () => {
+  it("findFnInSource: void, other cases", () => {
     const src = `
     export const returnIf = () => {const x = undefined; if (x) {return x} else {return Infinity;}}
     export const returnSwitch = () => {switch(1) {case 1: {return undefined;} default: {return undefined;}}}
@@ -655,7 +655,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     const thisProgram = dummyProgram.setSrc(() => src);
     expect(
       Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toStrictEqual([
+    ).toEqual([
       {
         name: "returnIf",
         module: "dummy.ts",
@@ -714,7 +714,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     ]);
   });
 
-  test("findFnInSource: literal args", () => {
+  it("findFnInSource: literal args", () => {
     const src = `
     export type litn = 3;
     export type lita = "a";
@@ -725,7 +725,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     const thisProgram = dummyProgram.setSrc(() => src);
     expect(
       Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toStrictEqual([
+    ).toEqual([
       {
         name: "testLit",
         module: "dummy.ts",
@@ -746,7 +746,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
               children: [],
               resolved: true,
               value: 3,
-              type: "literal",
+              type: ArgTag.LITERAL,
             },
             typeRefName: "litn",
           },
@@ -761,7 +761,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
               children: [],
               resolved: true,
               value: "a",
-              type: "literal",
+              type: ArgTag.LITERAL,
             },
             typeRefName: "lita",
           },
@@ -775,7 +775,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
               dims: 0,
               children: [],
               resolved: true,
-              type: "literal",
+              type: ArgTag.LITERAL,
               value: true,
             },
             typeRefName: "litb",
@@ -786,7 +786,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     ]);
   });
 
-  test("findFnInSource: union args", () => {
+  it("findFnInSource: union args", () => {
     const src = `
     type hellos = "hello" | "bonjour" | "olá" | "ciao" | "hej";
     type stringOrNumber = string | number;
@@ -796,7 +796,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     const thisProgram = dummyProgram.setSrc(() => src);
     expect(
       Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toStrictEqual([
+    ).toEqual([
       {
         name: "test",
         module: "dummy.ts",
@@ -824,7 +824,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                     dims: 0,
                     children: [],
                     resolved: true,
-                    type: "string",
+                    type: ArgTag.STRING,
                   },
                 },
                 {
@@ -836,12 +836,12 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                     dims: 0,
                     children: [],
                     resolved: true,
-                    type: "number",
+                    type: ArgTag.NUMBER,
                   },
                 },
               ],
               resolved: true,
-              type: "union",
+              type: ArgTag.UNION,
             },
             typeRefName: "stringOrNumber",
           },
@@ -863,7 +863,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                     dims: 0,
                     children: [],
                     resolved: true,
-                    type: "string",
+                    type: ArgTag.STRING,
                   },
                 },
                 {
@@ -875,12 +875,12 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                     dims: 0,
                     children: [],
                     resolved: true,
-                    type: "literal",
+                    type: ArgTag.LITERAL,
                   },
                 },
               ],
               resolved: true,
-              type: "union",
+              type: ArgTag.UNION,
             },
             typeRefName: "maybeString",
           },
@@ -893,7 +893,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
           type: {
             dims: 0,
             resolved: true,
-            type: "union",
+            type: ArgTag.UNION,
             children: [
               {
                 dims: 0,
@@ -904,7 +904,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                   dims: 0,
                   children: [],
                   resolved: true,
-                  type: "boolean",
+                  type: ArgTag.BOOLEAN,
                 },
               },
               {
@@ -916,7 +916,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
                   dims: 0,
                   children: [],
                   resolved: true,
-                  type: "literal",
+                  type: ArgTag.LITERAL,
                   value: undefined,
                 },
               },
@@ -927,7 +927,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     ]);
   });
 
-  test("findFnInSource: type references w/arrays", () => {
+  it("findFnInSource: type references w/arrays", () => {
     const src = `
     type onlyNumbers = number[];
     type onlyNumber = number;
@@ -938,7 +938,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
     const thisProgram = dummyProgram.setSrc(() => src);
     expect(
       Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toStrictEqual([
+    ).toEqual([
       {
         name: "test5",
         module: "dummy.ts",
@@ -958,7 +958,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
               dims: 1,
               children: [],
               resolved: true,
-              type: "number",
+              type: ArgTag.NUMBER,
             },
             typeRefName: "onlyNumbers",
           },
@@ -984,7 +984,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
               dims: 1,
               children: [],
               resolved: true,
-              type: "number",
+              type: ArgTag.NUMBER,
             },
             typeRefName: "onlyNumbers",
           },
@@ -1010,7 +1010,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
               dims: 0,
               children: [],
               resolved: true,
-              type: "number",
+              type: ArgTag.NUMBER,
             },
             typeRefName: "onlyNumber",
           },
@@ -1036,7 +1036,7 @@ describe("fuzzer/analysis/typescript/FunctionDef", () => {
               dims: 0,
               children: [],
               resolved: true,
-              type: "number",
+              type: ArgTag.NUMBER,
             },
             typeRefName: "onlyNumber",
           },

@@ -65,32 +65,32 @@ function makeTypeRef(
  * function argument.
  */
 describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
-  it.each([ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL])(
-    "should return %s for primitive type %s",
+  [ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL].forEach(
     (tag: ArgTag) => {
-      const argDef = makeArgDef(
-        dummyModule,
-        "test",
-        0,
-        tag,
-        argOptions,
-        0,
-        undefined,
-        undefined,
-        undefined,
-        tag === ArgTag.LITERAL ? 5 : undefined
-      );
-      if (tag === ArgTag.LITERAL) {
-        expect(argDef.getTypeAnnotation()).toStrictEqual("5");
-      } else {
-        expect(argDef.getTypeAnnotation()).toStrictEqual(tag);
-      }
+      it(`should return %s for primitive type '${tag}'`, () => {
+        const argDef = makeArgDef(
+          dummyModule,
+          "test",
+          0,
+          tag,
+          argOptions,
+          0,
+          undefined,
+          undefined,
+          undefined,
+          tag === ArgTag.LITERAL ? 5 : undefined
+        );
+        if (tag === ArgTag.LITERAL) {
+          expect(argDef.getTypeAnnotation()).toBe("5");
+        } else {
+          expect(argDef.getTypeAnnotation()).toBe(tag);
+        }
+      });
     }
   );
 
-  it.each([1, 2, 3])(
-    'should return %s "[]"s for array type with %s dimensions',
-    (dims: number) => {
+  [1, 2, 3].forEach((dims: number) => {
+    it(`should return ${dims} "[]"s for array type with ${dims} dimensions`, () => {
       const argDef = makeArgDef(
         dummyModule,
         "test",
@@ -102,33 +102,34 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
       expect(argDef.getTypeAnnotation()).toBe(
         ArgTag.STRING + "[]".repeat(dims)
       );
-    }
-  );
+    });
+  });
 
-  it.each([ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL])(
-    "should return '<type> | undefined' for optional types",
+  [ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL].forEach(
     (tag: ArgTag) => {
-      const argDef = makeArgDef(
-        dummyModule,
-        "test",
-        0,
-        tag,
-        argOptions,
-        0,
-        true,
-        undefined,
-        undefined,
-        tag === ArgTag.LITERAL ? 5 : undefined
-      );
-      if (tag === ArgTag.LITERAL) {
-        expect(argDef.getTypeAnnotation()).toStrictEqual("5 | undefined");
-      } else {
-        expect(argDef.getTypeAnnotation()).toStrictEqual(tag + " | undefined");
-      }
+      it(`should return '<type> | undefined' for optional types (${tag})`, () => {
+        const argDef = makeArgDef(
+          dummyModule,
+          "test",
+          0,
+          tag,
+          argOptions,
+          0,
+          true,
+          undefined,
+          undefined,
+          tag === ArgTag.LITERAL ? 5 : undefined
+        );
+        if (tag === ArgTag.LITERAL) {
+          expect(argDef.getTypeAnnotation()).toBe("5 | undefined");
+        } else {
+          expect(argDef.getTypeAnnotation()).toBe(tag + " | undefined");
+        }
+      });
     }
   );
 
-  test("should return type name for type refs", () => {
+  it("should return type name for type refs", () => {
     const argDef = makeArgDef(
       dummyModule,
       "test",
@@ -140,10 +141,10 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
       [],
       "Type"
     );
-    expect(argDef.getTypeAnnotation()).toStrictEqual("Type");
+    expect(argDef.getTypeAnnotation()).toBe("Type");
   });
 
-  test("should return the literal type for literal types", () => {
+  it("should return the literal type for literal types", () => {
     const argDef = makeArgDef(
       dummyModule,
       "test",
@@ -157,12 +158,10 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         makeTypeRef(dummyModule, "str", ArgTag.STRING, 0),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toStrictEqual(
-      "{ bool: boolean; str: string }"
-    );
+    expect(argDef.getTypeAnnotation()).toBe("{ bool: boolean; str: string }");
   });
 
-  test("type annotation for union with dimensions", () => {
+  it("type annotation for union with dimensions", () => {
     const argDef = makeArgDef(
       dummyModule,
       "test",
@@ -206,12 +205,12 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         ),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toStrictEqual(
+    expect(argDef.getTypeAnnotation()).toBe(
       "(boolean[] | string | 5 | 'x' | undefined)[]"
     );
   });
 
-  test("type annotation for union with dimensions and optionality", () => {
+  it("type annotation for union with dimensions and optionality", () => {
     const argDef = makeArgDef(
       dummyModule,
       "test",
@@ -255,12 +254,12 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         ),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toStrictEqual(
+    expect(argDef.getTypeAnnotation()).toBe(
       "(boolean[] | string | 5 | 'x' | undefined)[] | undefined"
     );
   });
 
-  test("type annotation for union w/o dimensions", () => {
+  it("type annotation for union w/o dimensions", () => {
     const argDef = makeArgDef(
       dummyModule,
       "test",
@@ -304,12 +303,12 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         ),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toStrictEqual(
+    expect(argDef.getTypeAnnotation()).toBe(
       "boolean[] | string | 5 | 'x' | undefined"
     );
   });
 
-  test("type annotation for union w/double optionality", () => {
+  it("type annotation for union w/double optionality", () => {
     const argDef = makeArgDef(
       dummyModule,
       "test",
@@ -353,12 +352,12 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         ),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toStrictEqual(
+    expect(argDef.getTypeAnnotation()).toBe(
       "boolean[] | string | 5 | 'x' | undefined"
     );
   });
 
-  test("type annotation for union w/single optionality", () => {
+  it("type annotation for union w/single optionality", () => {
     const argDef = makeArgDef(
       dummyModule,
       "test",
@@ -392,7 +391,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         ),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toStrictEqual(
+    expect(argDef.getTypeAnnotation()).toBe(
       "boolean[] | string | 5 | 'x' | undefined"
     );
   });
