@@ -14,6 +14,12 @@ import os from "os";
 const tsc = path.join(path.dirname(require.resolve("typescript")), "tsc.js");
 const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8"));
 
+// Place to store previous ts hooks
+const previousRequireExtensions: NodeJS.Dict<
+  ((m: NodeJS.Module, filename: string) => any)[]
+> = {};
+const hookType = ".ts";
+
 /**
  * Default compilation options
  */
@@ -78,17 +84,29 @@ export function getOptions(): CompilerOptions {
  * Activate the TypeScript compiler hook
  */
 export function activate(): void {
-  require.extensions[".ts"] = function (module) {
+  // Save the previous extension, if it exists
+  if (require.extensions[hookType] !== undefined) {
+    if (previousRequireExtensions[hookType] === undefined) {
+      previousRequireExtensions[hookType] = [];
+    }
+    previousRequireExtensions[hookType].push(require.extensions[hookType]);
+  }
+
+  // Add our new extension
+  require.extensions[hookType] = function (module) {
     const jsname = compileTS(module);
     runJS(jsname, module);
   };
 }
 
 /**
- * De-activate the TypeScript compiler hook
+ * De-activate the TypeScript compiler hook & restore the previous hook
  */
 export function deactivate(): void {
-  require.extensions[".ts"] = undefined;
+  require.extensions[".ts"] =
+    previousRequireExtensions[hookType] === undefined
+      ? undefined
+      : previousRequireExtensions[hookType].pop();
 }
 
 /**
@@ -234,8 +252,9 @@ function compileTS(module: NodeJS.Module) {
 function runJS(jsname: string, module: NodeJS.Module) {
   const content = fs.readFileSync(jsname, "utf8");
 
-  const sandbox: { [k: string]: any } = {};
-  for (const k in global) {
+  const sandbox: { [k: string]: unknown } = {};
+  let k: keyof typeof global;
+  for (k in global) {
     sandbox[k] = global[k];
   }
   sandbox.require = module.require.bind(module);
