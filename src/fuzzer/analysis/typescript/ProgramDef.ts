@@ -208,7 +208,7 @@ export class ProgramDef {
     options?: ArgOptions,
     parent?: ProgramDef
   ): ProgramDef {
-    module = require.resolve(module);
+    if (module !== "") module = require.resolve(module);
     const getSource = () => fs.readFileSync(module).toString(); // Callback fn to read the source code
 
     return ProgramDef.fromModuleAndSource(module, getSource, options, parent);
@@ -245,7 +245,7 @@ export class ProgramDef {
     options?: ArgOptions,
     parent?: ProgramDef
   ): ProgramDef {
-    module = require.resolve(module);
+    if (module !== "") module = require.resolve(module);
 
     // If a ProgramDef already exists within this program hierarchy,
     // return it. Otherwise, create a new one

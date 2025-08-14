@@ -2,7 +2,7 @@
   "recommendations": [
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
-    "firsttris.vscode-jest-runner",
+    "hbenl.vscode-jasmine-test-adapter",
     "tobermory.es6-string-html"
   ]
 }
