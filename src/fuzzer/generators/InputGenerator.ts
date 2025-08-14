@@ -1,5 +1,5 @@
-import { FuzzEnv } from "fuzzer/Fuzzer";
-import { FuzzIoElement, FuzzTestResult } from "fuzzer/Types";
+import { FuzzEnv } from "../Fuzzer";
+import { FuzzIoElement, FuzzTestResult } from "../Types";
 import { CoverageSummary } from "istanbul-lib-coverage";
 
 export interface InputGenerator {

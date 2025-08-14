@@ -1,5 +1,5 @@
 import seedrandom from "seedrandom";
-import { FuzzEnv, FuzzIoElement } from "fuzzer/Fuzzer";
+import { FuzzEnv, FuzzIoElement } from "../Fuzzer";
 import { GeneratorFactory } from "./GeneratorFactory";
 import { InputGenerator } from "./InputGenerator";
 

@@ -1,5 +1,5 @@
 import { Measure } from "./Measure";
-import { FuzzTestResults } from "fuzzer/Fuzzer";
+import { FuzzTestResults } from "../Fuzzer";
 
 // export class CoverageMeasure implements Measure {
 //   public readonly name = "CoverageMeasure";

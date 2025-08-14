@@ -1,8 +1,8 @@
 import seedrandom from "seedrandom";
 import { InputGenerator } from "./InputGenerator";
-import { FuzzEnv } from "fuzzer/Fuzzer";
-import { FuzzIoElement, FuzzTestResult, FuzzTestResults } from "fuzzer/Fuzzer";
-import { Measure } from "fuzzer/measures/Measure";
+import { FuzzEnv } from "../Fuzzer";
+import { FuzzIoElement, FuzzTestResult, FuzzTestResults } from "../Fuzzer";
+import { Measure } from "../measures/Measure";
 
 export const InputGeneratorStrategies = ["RandomInputGenerator"] as const;
 

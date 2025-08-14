@@ -1,4 +1,4 @@
-import { FuzzTestResults } from "fuzzer/Fuzzer";
+import { FuzzTestResults } from "../Fuzzer";
 
 export abstract class Measure {
   /** Unique measure identifier. */
