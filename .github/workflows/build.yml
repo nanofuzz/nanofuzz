@@ -6,7 +6,7 @@ on:
       - main
 jobs:
   buildandtest:
-    runs-on: ubunto-latest
+    runs-on: ubuntu-latest
     steps:
       # Visual Studio Code Extension
       - name: Checkout
