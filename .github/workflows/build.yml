@@ -8,7 +8,7 @@ jobs:
   buildandtest:
     strategy:
       matrix:
-        runner: [ubuntu-latest]
+        runner: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.runner }}
     steps:
       # Visual Studio Code Extension
