@@ -6,7 +6,10 @@ on:
       - main
 jobs:
   buildandtest:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${os}
     steps:
       # Visual Studio Code Extension
       - name: Checkout
