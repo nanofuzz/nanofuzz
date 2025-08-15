@@ -13,25 +13,18 @@
   },
   "license": "MIT",
   "main": "build/extension/extension.js",
-  "module": "build/dist/index.esm.js",
-  "unpkg": "build/dist/index.min.js",
-  "types": "build/dist/index.d.ts",
   "type": "commonjs",
   "files": [
     "/build"
   ],
   "engines": {
-    "vscode": "^1.69.0"
+    "vscode": "^1.75.0"
   },
   "categories": [
     "Testing"
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:nanofuzz.Fuzz",
-    "onCommand:nanofuzz.telemetry.log",
-    "onCommand:nanofuzz.telemetry.FlushLog",
-    "onCommand:nanofuzz.telemetry.ClearLog",
     "onLanguage:typescript",
     "onLanguage:typescriptreact",
     "onWebviewPanel:FuzzPanel"
@@ -202,7 +195,7 @@
     }
   },
   "scripts": {
-    "build": "node build.cjs",
+    "build": "node build.mjs",
     "test": "jasmine",
     "start": "yarn build;node ./build/dist/index.esm.js",
     "docs": "typedoc --plugin none --out docs",
@@ -237,6 +230,10 @@
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "eslint": "^7.3.2",
     "immutable": "^4.1.0",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-hook": "^3.0.0",
+    "istanbul-lib-instrument": "5.2.1",
+    "istanbul-lib-source-maps": "^5.0.6",
     "json5": "^2.2.3",
     "seedrandom": "^3.0.5",
     "typescript": "^4.9.5"
@@ -246,6 +243,8 @@
     "@babel/plugin-transform-modules-commonjs": "^7.27.1",
     "@babel/preset-typescript": "^7.27.1",
     "@babel/register": "^7.27.1",
+    "@types/istanbul-lib-hook": "^2.0.4",
+    "@types/istanbul-lib-instrument": "^1.7.7",
     "@types/jasmine": "^5.1.8",
     "@types/node": "16.x",
     "@types/seedrandom": "^2.4.28",
@@ -263,7 +262,6 @@
     "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-jsdoc": "^30.7.3",
     "eslint-plugin-react": "^7.28.0",
-    "estrella": "^1.4.1",
     "jasmine": "5.9.0",
     "jsdom": "^26.1.0",
     "nanofuzz-study": "nanofuzz/nanofuzz-study#main",

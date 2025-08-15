@@ -9,6 +9,8 @@ import vm from "vm";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { Instrumenter } from "istanbul-lib-instrument";
+import { FileCoverage } from "istanbul-lib-coverage";
 
 // Load the TypeScript compiler script
 const tsc = path.join(path.dirname(require.resolve("typescript")), "tsc.js");
@@ -83,7 +85,7 @@ export function getOptions(): CompilerOptions {
 /**
  * Activate the TypeScript compiler hook
  */
-export function activate(): void {
+export function activate(instrumenter: Instrumenter): void {
   // Save the previous extension, if it exists
   if (require.extensions[hookType] !== undefined) {
     if (previousRequireExtensions[hookType] === undefined) {
@@ -95,7 +97,7 @@ export function activate(): void {
   // Add our new extension
   require.extensions[hookType] = function (module) {
     const jsname = compileTS(module);
-    runJS(jsname, module);
+    runJS(jsname, module, instrumenter);
   };
 }
 
@@ -249,11 +251,19 @@ function compileTS(module: NodeJS.Module) {
  * @param module Javqscript module
  * @returns The script result, if any
  */
-function runJS(jsname: string, module: NodeJS.Module) {
+function runJS(
+  jsname: string,
+  module: NodeJS.Module,
+  instrumenter: Instrumenter
+) {
   const content = fs.readFileSync(jsname, "utf8");
 
-  const sandbox: { [k: string]: unknown } = {};
-  let k: keyof typeof global;
+  // Instrument the code for coverage
+  // const instrumenter2 = createInstrumenter();
+  const instrumentedContent = instrumenter.instrumentSync(content, jsname);
+
+  const sandbox: { [k: string]: any } = {};
+  let k: keyof typeof global;    
   for (k in global) {
     sandbox[k] = global[k];
   }
@@ -264,8 +274,16 @@ function runJS(jsname: string, module: NodeJS.Module) {
   sandbox.module = module;
   sandbox.global = sandbox;
   sandbox.root = global;
+  sandbox.__coverage__ = {};
+  const result = vm.runInNewContext(instrumentedContent, sandbox, {
+    filename: jsname,
+  });
 
-  return vm.runInNewContext(content, sandbox, { filename: jsname });
+  instrumenter.fileCoverage = Object.values(
+    sandbox.__coverage__
+  )[0] as FileCoverage;
+
+  return result;
 }
 
 function merge(a: any, b: any) {
