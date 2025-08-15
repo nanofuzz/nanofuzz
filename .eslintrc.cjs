@@ -30,7 +30,7 @@ module.exports = {
     babelOptions: {
       presets: ["@babel/preset-typescript"],
     },
-    extraFileExtensions: [".cjs"],
+    extraFileExtensions: [".cjs", ".mjs"],
   },
   plugins: ["eslint-comments", "eslint-plugin-import", "eslint-plugin-jsdoc"],
   rules: {
@@ -55,6 +55,7 @@ module.exports = {
     "**/*.test.tsx",
     "*.js",
     "*.cjs",
+    "*.mjs",
     "src/vscode/index.d.ts",
   ],
 };
