@@ -244,7 +244,6 @@
     "@typescript-eslint/eslint-plugin": "^4.5.0",
     "@typescript-eslint/eslint-plugin-tslint": "^4.5.0",
     "@typescript-eslint/parser": "^4.5.0",
-    "@vscode/test-electron": "^2.1.5",
     "@vscode/vsce": "^2.15.0",
     "cross-env": "^10.0.0",
     "esbuild": "^0.25.0",
