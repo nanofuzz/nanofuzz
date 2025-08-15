@@ -121,7 +121,7 @@ export const fuzz = async (
 
   // Build a wrapper around the function to be fuzzed that we can
   // easily call in the testing loop.
-  const fnWrapper = functionTimeout((input: FuzzIoElement[]): any => {
+  const fnWrapper = functionTimeout((input: FuzzIoElement[]): unknown => {
     return mod[env.function.getName()](...input.map((e) => e.value));
   }, env.options.fnTimeout);
 
@@ -306,7 +306,7 @@ export const fuzz = async (
         );
 
         // Categorize the results (so it's not stale)
-        result.category = categorizeResult(result, env);
+        result.category = categorizeResult(result);
 
         // Call the validator function wrapper
         const validatorResult = validatorFnWrapper(
@@ -332,7 +332,7 @@ export const fuzz = async (
     } // if validator
 
     // (Re-)categorize the result
-    result.category = categorizeResult(result, env);
+    result.category = categorizeResult(result);
 
     // Increment the failure counter if this test had a failing result
     if (result.category !== "ok") {
@@ -525,10 +525,7 @@ function actualEqualsExpectedOutput(
  * @param result of the test
  * @returns the category of the result
  */
-export function categorizeResult(
-  result: FuzzTestResult,
-  env: FuzzEnv
-): FuzzResultCategory {
+export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   if (result.validatorException) {
     return "failure"; // Validator failed
   }

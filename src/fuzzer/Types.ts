@@ -29,7 +29,7 @@ export type FuzzTestResult = {
  */
 export type Result = {
   in: ArgValueType[]; // function input
-  out: any; // function output
+  out: unknown; // function output
   exception: boolean; // true if an exception was thrown
   timeout: boolean; // true if the fn call timed out
 };
