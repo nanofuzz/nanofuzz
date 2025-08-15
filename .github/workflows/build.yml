@@ -6,10 +6,7 @@ on:
       - main
 jobs:
   buildandtest:
-    strategy:
-      matrix:
-        runner: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubunto-latest
     steps:
       # Visual Studio Code Extension
       - name: Checkout
