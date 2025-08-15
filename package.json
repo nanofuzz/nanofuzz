@@ -237,7 +237,7 @@
     "@babel/preset-typescript": "^7.27.1",
     "@babel/register": "^7.27.1",
     "@types/jasmine": "^5.1.8",
-    "@types/node": "16.x",
+    "@types/node": "22.17.x",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.69.0",
     "@typescript-eslint/eslint-plugin": "^4.5.0",
