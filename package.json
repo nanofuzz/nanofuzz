@@ -18,7 +18,7 @@
   ],
   "engines": {
     "vscode": "^1.75.0",
-    "node": "22"
+    "node": "22.17"
   },
   "categories": [
     "Testing"
