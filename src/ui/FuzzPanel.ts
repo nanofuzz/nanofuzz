@@ -1634,7 +1634,7 @@ ${inArgConsts}
       `;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
-      const stack = e instanceof Error ? e.stack : "<no stack>>";
+      const stack = e instanceof Error ? e.stack : "<no stack>";
       html = /*html*/ `
       <head></head>
       <body>
