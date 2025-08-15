@@ -11,6 +11,10 @@ jobs:
       # Visual Studio Code Extension
       - name: Checkout
         uses: actions/checkout@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
       - name: Install packages
         run: yarn
       - name: Run all builds
