@@ -262,7 +262,7 @@ function runJS(
   // const instrumenter2 = createInstrumenter();
   const instrumentedContent = instrumenter.instrumentSync(content, jsname);
 
-  const sandbox: { [k: string]: unknown } = {};
+  const sandbox: { [k: string]: any } = {};
   let k: keyof typeof global;    
   for (k in global) {
     sandbox[k] = global[k];

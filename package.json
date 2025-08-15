@@ -13,25 +13,18 @@
   },
   "license": "MIT",
   "main": "build/extension/extension.js",
-  "module": "build/dist/index.esm.js",
-  "unpkg": "build/dist/index.min.js",
-  "types": "build/dist/index.d.ts",
   "type": "commonjs",
   "files": [
     "/build"
   ],
   "engines": {
-    "vscode": "^1.69.0"
+    "vscode": "^1.75.0"
   },
   "categories": [
     "Testing"
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:nanofuzz.Fuzz",
-    "onCommand:nanofuzz.telemetry.log",
-    "onCommand:nanofuzz.telemetry.FlushLog",
-    "onCommand:nanofuzz.telemetry.ClearLog",
     "onLanguage:typescript",
     "onLanguage:typescriptreact",
     "onWebviewPanel:FuzzPanel"
@@ -202,7 +195,7 @@
     }
   },
   "scripts": {
-    "build": "node build.cjs",
+    "build": "node build.mjs",
     "test": "jasmine",
     "start": "yarn build;node ./build/dist/index.esm.js",
     "docs": "typedoc --plugin none --out docs",
@@ -269,7 +262,6 @@
     "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-jsdoc": "^30.7.3",
     "eslint-plugin-react": "^7.28.0",
-    "estrella": "^1.4.1",
     "jasmine": "5.9.0",
     "jsdom": "^26.1.0",
     "nanofuzz-study": "nanofuzz/nanofuzz-study#main",
