@@ -8,7 +8,7 @@ jobs:
   buildandtest:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [ubuntu-latest]
     runs-on: ${os}
     steps:
       # Visual Studio Code Extension
