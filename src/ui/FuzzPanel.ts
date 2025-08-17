@@ -685,7 +685,10 @@ export class FuzzPanel {
     try {
       program = ProgramDef.fromModule(module);
     } catch (e: unknown) {
-      this._errorMessage = e instanceof Error ? e.message : "Unknown error";
+      this._errorMessage =
+        e instanceof Error
+          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
+          : "Unknown error";
       vscode.window.showErrorMessage(
         `Unable to add the validator. TypeScript source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
       );
@@ -788,7 +791,10 @@ ${inArgConsts}
         const fn = ProgramDef.fromModule(module).getFunctions()[validatorName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (e: unknown) {
-        this._errorMessage = e instanceof Error ? e.message : "Unknown error";
+        this._errorMessage =
+          e instanceof Error
+            ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
+            : "Unknown error";
         vscode.window.showErrorMessage(
           `Unable to navigate to the created validator '${validatorName}' in '${fn.getModule()}'`
         );
@@ -907,7 +913,10 @@ ${inArgConsts}
     try {
       program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
     } catch (e: unknown) {
-      this._errorMessage = e instanceof Error ? e.message : "Unknown error";
+      this._errorMessage =
+        e instanceof Error
+          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
+          : "Unknown error";
       vscode.commands.executeCommand(
         telemetry.commands.logTelemetry.name,
         new telemetry.LoggerEntry(
@@ -1050,7 +1059,10 @@ ${inArgConsts}
         this._putFuzzTestsForThisFn(testSet);
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
-        this._errorMessage = e instanceof Error ? e.message : "Unknown error";
+        this._errorMessage =
+          e instanceof Error
+            ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
+            : "Unknown error";
         vscode.commands.executeCommand(
           telemetry.commands.logTelemetry.name,
           new telemetry.LoggerEntry(
@@ -1622,7 +1634,7 @@ ${inArgConsts}
       `;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
-      const stack = e instanceof Error ? e.stack : "<no stack>>";
+      const stack = e instanceof Error ? e.stack : "<no stack>";
       html = /*html*/ `
       <head></head>
       <body>

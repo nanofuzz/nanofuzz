@@ -1239,7 +1239,7 @@ export class ProgramDef {
           : false,
         args: node.init.params
           .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
-          .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
+          .map((arg) => this._getTypeRefFromAstNode(arg)),
         returnType,
         isVoid,
       };
@@ -1274,7 +1274,7 @@ export class ProgramDef {
           : false,
         args: node.params
           .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
-          .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
+          .map((arg) => this._getTypeRefFromAstNode(arg)),
         returnType,
         isVoid,
       };

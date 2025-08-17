@@ -18,7 +18,7 @@ const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8"));
 
 // Place to store previous ts hooks
 const previousRequireExtensions: NodeJS.Dict<
-  ((m: NodeJS.Module, filename: string) => any)[]
+  ((m: NodeJS.Module, filename: string) => unknown)[]
 > = {};
 const hookType = ".ts";
 

@@ -13,12 +13,12 @@
   },
   "license": "MIT",
   "main": "build/extension/extension.js",
-  "type": "commonjs",
   "files": [
     "/build"
   ],
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.75.0",
+    "node": "22.17"
   },
   "categories": [
     "Testing"
@@ -197,7 +197,6 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "jasmine",
-    "start": "yarn build;node ./build/dist/index.esm.js",
     "docs": "typedoc --plugin none --out docs",
     "coverage": "yarn test --coverage --watchAll=false",
     "lint": "eslint --ext js,ts,tsx src",
@@ -207,8 +206,7 @@
     "package": "vsce package --yarn",
     "compile": "yarn build",
     "watch": "tsc -watch -p ./",
-    "pretest": "yarn run compile && yarn run lint",
-    "ext:test": "node ./build/extension/test/runTest.js"
+    "pretest": "yarn run compile && yarn run lint"
   },
   "babel": {
     "presets": [
@@ -246,14 +244,13 @@
     "@types/istanbul-lib-hook": "^2.0.4",
     "@types/istanbul-lib-instrument": "^1.7.7",
     "@types/jasmine": "^5.1.8",
-    "@types/node": "16.x",
+    "@types/node": "22.17.x",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.69.0",
     "@typescript-eslint/eslint-plugin": "^4.5.0",
     "@typescript-eslint/eslint-plugin-tslint": "^4.5.0",
     "@typescript-eslint/parser": "^4.5.0",
-    "@vscode/test-electron": "^2.1.5",
-    "@vscode/vsce": "^2.15.0",
+    "@vscode/vsce": "^3.6.0",
     "cross-env": "^10.0.0",
     "esbuild": "^0.25.0",
     "escape-goat": "^4.0.0",

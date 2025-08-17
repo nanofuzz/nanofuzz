@@ -142,7 +142,7 @@ export const fuzz = async (
 
   // Build a wrapper around the function to be fuzzed that we can
   // easily call in the testing loop.
-  const fnWrapper = functionTimeout((input: FuzzIoElement[]): any => {
+  const fnWrapper = functionTimeout((input: FuzzIoElement[]): unknown => {
     return mod[env.function.getName()](...input.map((e) => e.value));
   }, env.options.fnTimeout);
 
@@ -233,7 +233,7 @@ export const fuzz = async (
         value: fnWrapper(JSON5.parse(JSON5.stringify(result.input))), // <-- Wrapper (protect the input)
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
-
+      // Move this out of the exec try/catch !!!!!!
       const fileCoverage = instrumenter.lastFileCoverage();
       const fileCoverageData: CoverageMapData = {
         [fileCoverage.path]: fileCoverage,
@@ -241,14 +241,16 @@ export const fuzz = async (
       const coverageMap = createCoverageMap(fileCoverageData);
       result.coverageSummary = coverageMap.getCoverageSummary();
       aggregateCoverageMap.merge(coverageMap);
-    } catch (e: any) {
-      if (isTimeoutError(e)) {
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : JSON.stringify(e);
+      const stack = e instanceof Error ? e.stack : "<no stack>";
+      if (e instanceof Error && isTimeoutError(e)) {
         result.timeout = true;
         result.elapsedTime = performance.now() - result.elapsedTime;
       } else {
         result.exception = true;
-        result.exceptionMessage = e.message;
-        result.stack = e.stack;
+        result.exceptionMessage = msg;
+        result.stack = stack;
       }
     }
 
@@ -311,13 +313,15 @@ export const fuzz = async (
                 passedValidator: validatorOut,
                 passedValidators: [],
               };
-            } catch (e: any) {
+            } catch (e: unknown) {
+              const msg = e instanceof Error ? e.message : JSON.stringify(e);
+              const stack = e instanceof Error ? e.stack : "<no stack>";
               return {
                 ...result,
                 validatorException: true,
-                validatorExceptionMessage: e.message,
+                validatorExceptionMessage: msg,
                 validatorExceptionFunction: valFnName,
-                validatorExceptionStack: e.stack,
+                validatorExceptionStack: stack,
               };
             }
           },
@@ -325,7 +329,7 @@ export const fuzz = async (
         );
 
         // Categorize the results (so it's not stale)
-        result.category = categorizeResult(result, env);
+        result.category = categorizeResult(result);
 
         // Call the validator function wrapper
         const validatorResult = validatorFnWrapper(
@@ -351,7 +355,7 @@ export const fuzz = async (
     } // if validator
 
     // (Re-)categorize the result
-    result.category = categorizeResult(result, env);
+    result.category = categorizeResult(result);
 
     // Increment the failure counter if this test had a failing result
     if (result.category !== "ok") {
@@ -444,7 +448,7 @@ const isOptionValid = (options: FuzzOptions): boolean => {
  * @param x any value
  * @returns true if x has no nulls, undefineds, NaNs, or Infinity values; false otherwise
  */
-export const implicitOracle = (x: any): boolean => {
+export const implicitOracle = (x: unknown): boolean => {
   if (Array.isArray(x)) return !x.flat().some((e) => !implicitOracle(e));
   if (typeof x === "number")
     return !(isNaN(x) || x === Infinity || x === -Infinity);
@@ -500,7 +504,7 @@ export default function functionTimeout(function_: any, timeout: number): any {
  * @param error exception
  * @returns true if the exeception is a timeout exception, false otherwise
  */
-export function isTimeoutError(error: { code?: string }): boolean {
+export function isTimeoutError(error: Error): boolean {
   return "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
 } // fn: isTimeoutError()
 
@@ -547,10 +551,7 @@ function actualEqualsExpectedOutput(
  * @param result of the test
  * @returns the category of the result
  */
-export function categorizeResult(
-  result: FuzzTestResult,
-  env: FuzzEnv
-): FuzzResultCategory {
+export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   if (result.validatorException) {
     return "failure"; // Validator failed
   }
