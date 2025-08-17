@@ -234,7 +234,7 @@
     "istanbul-lib-source-maps": "^5.0.6",
     "json5": "^2.2.3",
     "seedrandom": "^3.0.5",
-    "typescript": "^4.9.5"
+    "typescript": "5.9.2"
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",
