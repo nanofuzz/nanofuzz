@@ -18,7 +18,7 @@
   ],
   "engines": {
     "vscode": "^1.75.0",
-    "node": "22.17"
+    "node": "22"
   },
   "categories": [
     "Testing"
@@ -196,7 +196,7 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "test": "jasmine",
+    "test": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
     "docs": "typedoc --plugin none --out docs",
     "coverage": "yarn test --coverage --watchAll=false",
     "lint": "eslint --ext js,ts,tsx src",
@@ -244,7 +244,7 @@
     "@types/istanbul-lib-hook": "^2.0.4",
     "@types/istanbul-lib-instrument": "^1.7.7",
     "@types/jasmine": "^5.1.8",
-    "@types/node": "22.17.x",
+    "@types/node": "22",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.69.0",
     "@typescript-eslint/eslint-plugin": "^4.5.0",
