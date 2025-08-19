@@ -11,7 +11,7 @@ import path from "path";
 import os from "os";
 
 // Load the TypeScript compiler script
-const tsc = path.join(path.dirname(require.resolve("typescript")), "tsc.js");
+const tsc = path.join(path.dirname(require.resolve("typescript")), "_tsc.js");
 const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8"));
 
 // Place to store previous ts hooks
@@ -229,6 +229,7 @@ function compileTS(module: NodeJS.Module) {
     setTimeout: setTimeout,
     clearTimeout: clearTimeout,
     __filename: tsc,
+    __dirname: path.dirname(tsc),
   };
 
   // Execute the module script
