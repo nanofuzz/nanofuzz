@@ -53,6 +53,7 @@ module.exports = {
   ignorePatterns: [
     "**/*.test.ts",
     "**/*.test.tsx",
+    "**/*.testFixtures.ts",
     "*.js",
     "*.cjs",
     "*.mjs",

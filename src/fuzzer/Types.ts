@@ -151,3 +151,8 @@ export enum FuzzStopReason {
   MAXTIME = "maxTime",
   MAXDUPES = "maxDupes",
 }
+
+/**
+ * Global execution environment
+ */
+export type VmGlobals = Record<string, any>;

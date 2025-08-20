@@ -14,18 +14,13 @@ import {
   Result,
   FuzzResultCategory,
   FuzzStopReason,
+  VmGlobals,
 } from "./Types";
 import { FuzzOptions } from "./Types";
-
-import {
-  createCoverageMap,
-  CoverageMapData,
-  CoverageSummary,
-  CoverageMap,
-} from "istanbul-lib-coverage";
-import { createInstrumenter } from "istanbul-lib-instrument";
+import { CoverageSummary } from "istanbul-lib-coverage"; // !!!!!!!! Don't want this dependency here
 import { RandomInputGenerator } from "./generators/RandomInputGenerator";
-import { CoverageMeasure } from "./measures/CoverageMeasure";
+import { MeasureFactory } from "./measures/MeasureFactory";
+import { RunnerFactory } from "./runners/RunnerFactory";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -71,10 +66,10 @@ export const setup = (
  *
  * Throws an exception if the fuzz options are invalid
  */
-export const fuzz = async (
+export const fuzz = (
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = []
-): Promise<FuzzTestResults> => {
+): FuzzTestResults => {
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
@@ -97,29 +92,32 @@ export const fuzz = async (
       `Invalid options provided: ${JSON5.stringify(env.options, null, 2)}`
     );
 
+  // Setup the Composite Generator
   let compositeInputGenerator = env.compositeInputGenerator;
   if (!compositeInputGenerator) {
     // If no composite input generator already exists, instantiate a new one.
     const randomInputGenerator = new RandomInputGenerator(env);
     compositeInputGenerator = new CompositeInputGenerator(
       env,
-      [randomInputGenerator],
-      [CoverageMeasure],
+      [randomInputGenerator], // !!!!!!!
+      MeasureFactory(env), // !!!!!!!
       [1]
     );
     env.compositeInputGenerator = compositeInputGenerator;
   }
+  compositeInputGenerator.initRun(); // !!!!!!!
 
-  compositeInputGenerator.initRun();
+  console.debug(`Fuzz target: ${env.function.getName()}`); // !!!!!!!
 
-  const instrumenter = createInstrumenter();
-  const aggregateCoverageMap: CoverageMap = createCoverageMap({});
+  // Get the active measures, which will take various measurements
+  // during execution that guide the composite generator
+  const measures = MeasureFactory(env);
 
   // The module that includes the function to fuzz will
   // be a TypeScript source file, so we first must compile
   // it to JavaScript prior to execution.  This activates the
   // TypeScript compiler that hooks into the require() function.
-  compiler.activate(instrumenter);
+  compiler.activate(measures);
 
   // The fuzz target is likely under development, so
   // invalidate the cache to get the latest copy.
@@ -128,23 +126,12 @@ export const fuzz = async (
   /* eslint eslint-comments/no-use: off */
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require(fqSrcFile);
-  compiler.deactivate(); // Deactivate the TypeScript compiler
 
-  // Ensure what we found is a function
-  if (!(env.function.getName() in mod))
-    throw new Error(
-      `Could not find exported function ${env.function.getName()} in ${env.function.getModule()} to fuzz`
-    );
-  else if (typeof mod[env.function.getName()] !== "function")
-    throw new Error(
-      `Cannot fuzz exported member '${env.function.getName()} in ${env.function.getModule()} because it is not a function`
-    );
+  // Deactivate the TypeScript compiler
+  compiler.deactivate();
 
-  // Build a wrapper around the function to be fuzzed that we can
-  // easily call in the testing loop.
-  const fnWrapper = functionTimeout((input: FuzzIoElement[]): unknown => {
-    return mod[env.function.getName()](...input.map((e) => e.value));
-  }, env.options.fnTimeout);
+  // Build a test runner for executing tests
+  const runner = RunnerFactory(env, mod, env.function.getName());
 
   // Main test loop
   // We break out of this loop when any of the following are true:
@@ -223,24 +210,27 @@ export const fuzz = async (
       }
     }
 
+    // Prepare measures for next test execution
+    for (const measure of measures) {
+      measure.onBeforeNextTestExecution();
+    }
+
     // Call the function via the wrapper
+    let exeContext: VmGlobals = {};
     try {
       const startElapsedTime = performance.now(); // start timer
       result.elapsedTime = startElapsedTime;
+      let exeOutput: unknown;
+      [exeOutput, exeContext] = runner.run(
+        JSON5.parse(JSON5.stringify(result.input.map((e) => e.value))),
+        env.options.fnTimeout
+      ); // <-- Runner (protect the input)
       result.output.push({
         name: "0",
         offset: 0,
-        value: fnWrapper(JSON5.parse(JSON5.stringify(result.input))), // <-- Wrapper (protect the input)
+        value: exeOutput as ArgValueType,
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
-      // Move this out of the exec try/catch !!!!!!
-      const fileCoverage = instrumenter.lastFileCoverage();
-      const fileCoverageData: CoverageMapData = {
-        [fileCoverage.path]: fileCoverage,
-      };
-      const coverageMap = createCoverageMap(fileCoverageData);
-      result.coverageSummary = coverageMap.getCoverageSummary();
-      aggregateCoverageMap.merge(coverageMap);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : JSON.stringify(e);
       const stack = e instanceof Error ? e.stack : "<no stack>";
@@ -252,6 +242,11 @@ export const fuzz = async (
         result.exceptionMessage = msg;
         result.stack = stack;
       }
+    }
+
+    // Measure progress !!!!!!!
+    for (const measure of measures) {
+      const thisMeasure = measure.onAfterExecute(exeContext);
     }
 
     // IMPLICIT ORACLE --------------------------------------------
@@ -368,8 +363,43 @@ export const fuzz = async (
     }
   } // for: Main test loop
 
-  results.aggregateCoverageSummary = aggregateCoverageMap.getCoverageSummary();
+  // End-of-run processing for each measure
+  for (const measure of measures) {
+    measure.onAfterTesting(results);
+  }
+
+  // End of run processing for the Composite Input Generator
   compositeInputGenerator.onRunEnd(results);
+
+  console.debug(`Tests executed: ${results.results.length}`); // !!!!!!!
+  console.debug(
+    `Tests with exceptions: ${
+      results.results.filter((e) => e.exception).length
+    }`
+  ); // !!!!!!
+  console.debug(
+    `Tests with timeouts: ${results.results.filter((e) => e.timeout).length}`
+  ); // !!!!!!!
+  console.debug(
+    `Tests passing human: ${
+      results.results.filter((e) => e.passedHuman === true).length
+    }`
+  ); // !!!!!!!
+  console.debug(
+    `Tests failing human: ${
+      results.results.filter((e) => e.passedHuman === false).length
+    }`
+  ); // !!!!!!!
+  console.debug(
+    `Tests passing implicit: ${
+      results.results.filter((e) => e.passedImplicit).length
+    }`
+  ); // !!!!!!!
+  console.debug(
+    `Tests failing implicit: ${
+      results.results.filter((e) => !e.passedImplicit).length
+    }`
+  ); // !!!!!!!
 
   // Persist to outfile, if requested
   if (env.options.outputFile) {
@@ -631,7 +661,7 @@ export type FuzzTestResults = {
   dupesGenerated: number; // number of duplicate inputs generated
   inputsSaved: number; // number of inputs saved
   results: FuzzTestResult[]; // fuzzing test results
-  aggregateCoverageSummary?: CoverageSummary;
+  aggregateCoverageSummary?: CoverageSummary; // !!!!!!! multiple measures
 };
 
 export * from "./analysis/typescript/ProgramDef";
