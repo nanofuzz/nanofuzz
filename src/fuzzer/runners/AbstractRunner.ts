@@ -1,5 +1,6 @@
 import { VmGlobals } from "../Types";
 
+// !!!!!!
 export abstract class AbstractRunner {
   protected readonly _module: NodeJS.Module;
   protected readonly _jsFn: string;
@@ -12,9 +13,9 @@ export abstract class AbstractRunner {
   }
 
   /**
-   * Returns the measure's unique identifier
+   * Returns the measure's name
    */
-  public get id(): string {
+  public get name(): string {
     return this.constructor.name;
   }
 

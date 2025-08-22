@@ -29,7 +29,7 @@ export class CoverageMeasure extends AbstractMeasure {
     // Save the global context of the original module load because
     // that is where the instrumented code writes coverage data
     if (this._coverageData === undefined) {
-      this._coverageData = globals.__coverage__;
+      this._coverageData = globals.__coverage__ as CoverageMapData;
     }
 
     // Build a coverage map from a cloned copy of the

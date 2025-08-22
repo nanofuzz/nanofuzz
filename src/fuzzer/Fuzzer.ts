@@ -18,9 +18,9 @@ import {
 } from "./Types";
 import { FuzzOptions } from "./Types";
 import { CoverageSummary } from "istanbul-lib-coverage"; // !!!!!!!! Don't want this dependency here
-import { RandomInputGenerator } from "./generators/RandomInputGenerator";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
+import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -92,26 +92,22 @@ export const fuzz = (
       `Invalid options provided: ${JSON5.stringify(env.options, null, 2)}`
     );
 
-  // Setup the Composite Generator
-  let compositeInputGenerator = env.compositeInputGenerator;
-  if (!compositeInputGenerator) {
-    // If no composite input generator already exists, instantiate a new one.
-    const randomInputGenerator = new RandomInputGenerator(env);
-    compositeInputGenerator = new CompositeInputGenerator(
-      env,
-      [randomInputGenerator], // !!!!!!!
-      MeasureFactory(env), // !!!!!!!
-      [1]
-    );
-    env.compositeInputGenerator = compositeInputGenerator;
-  }
-  compositeInputGenerator.initRun(); // !!!!!!!
-
-  console.debug(`Fuzz target: ${env.function.getName()}`); // !!!!!!!
-
   // Get the active measures, which will take various measurements
   // during execution that guide the composite generator
   const measures = MeasureFactory(env);
+
+  // Setup the Composite Generator
+  const compositeInputGenerator = new CompositeInputGenerator(
+    env.function.getArgDefs(), // spec of inputs to generate
+    env.options.seed ?? "", // prng seed
+    InputGeneratorFactory(env), // set of subordinate input generators
+    measures // measures
+  );
+  compositeInputGenerator.onRunStart();
+
+  console.debug(
+    `\r\nFuzzing target: "${env.function.getName()}" of "${env.function.getModule()}"`
+  ); // !!!!!!!
 
   // The module that includes the function to fuzz will
   // be a TypeScript source file, so we first must compile
@@ -157,7 +153,7 @@ export const fuzz = (
     );
     if (stopCondition !== undefined) {
       results.stopReason = stopCondition;
-      results.elapsedTime = new Date().getTime() - startTime;
+      results.elapsedTime = new Date().getTime() - startTime; // TODO: non-monotonic time breakage possible !!!!!
       results.inputsGenerated = inputsGenerated;
       results.dupesGenerated = totalDupeCount;
       results.inputsSaved = savedCount;
@@ -371,34 +367,30 @@ export const fuzz = (
   // End of run processing for the Composite Input Generator
   compositeInputGenerator.onRunEnd(results);
 
-  console.debug(`Tests executed: ${results.results.length}`); // !!!!!!!
+  console.debug(
+    `Fuzzer generated ${results.inputsGenerated} inputs including ${results.dupesGenerated} dupes. Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}`
+  ); // !!!!!!!
   console.debug(
     `Tests with exceptions: ${
       results.results.filter((e) => e.exception).length
-    }`
+    }, timeouts: ${results.results.filter((e) => e.timeout).length}`
   ); // !!!!!!
   console.debug(
-    `Tests with timeouts: ${results.results.filter((e) => e.timeout).length}`
-  ); // !!!!!!!
-  console.debug(
-    `Tests passing human: ${
+    `Human validator passed: ${
       results.results.filter((e) => e.passedHuman === true).length
+    }, failed: ${results.results.filter((e) => e.passedHuman === false).length}`
+  ); // !!!!!!!
+  console.debug(
+    `Property validator passed: ${
+      results.results.filter((e) => e.passedValidator === true).length
+    }, failed: ${
+      results.results.filter((e) => e.passedValidator === false).length
     }`
   ); // !!!!!!!
   console.debug(
-    `Tests failing human: ${
-      results.results.filter((e) => e.passedHuman === false).length
-    }`
-  ); // !!!!!!!
-  console.debug(
-    `Tests passing implicit: ${
+    `Heuristic validator passed: ${
       results.results.filter((e) => e.passedImplicit).length
-    }`
-  ); // !!!!!!!
-  console.debug(
-    `Tests failing implicit: ${
-      results.results.filter((e) => !e.passedImplicit).length
-    }`
+    }, failed: ${results.results.filter((e) => !e.passedImplicit).length}`
   ); // !!!!!!!
 
   // Persist to outfile, if requested
@@ -646,8 +638,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
-  validators: FunctionRef[]; // list of the module's functions
-  compositeInputGenerator?: CompositeInputGenerator; // input generator (optional)
+  validators: FunctionRef[]; // list of the module's validator functions
 };
 
 /**

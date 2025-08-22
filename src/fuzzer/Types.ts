@@ -20,7 +20,7 @@ export type FuzzTestResult = {
   validatorExceptionMessage?: string; // validator exception message
   validatorExceptionFunction?: string; // name of validator throwing exception
   validatorExceptionStack?: string; // validator stack trace if exception was thrown
-  elapsedTime: number; // elapsed time of test
+  elapsedTime: number; // elapsed time of test in ms
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: FuzzResultCategory; // the ResultCategory of the test result
   coverageSummary?: CoverageSummary;
@@ -155,4 +155,4 @@ export enum FuzzStopReason {
 /**
  * Global execution environment
  */
-export type VmGlobals = Record<string, any>;
+export type VmGlobals = Record<string, unknown>;

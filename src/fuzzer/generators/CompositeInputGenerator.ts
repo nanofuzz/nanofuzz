@@ -1,15 +1,10 @@
-import seedrandom from "seedrandom";
-import { InputGenerator } from "./InputGenerator";
-import { FuzzEnv } from "../Fuzzer";
+import { AbstractInputGenerator } from "./AbstractInputGenerator";
+import { ArgDef, ArgType } from "../Fuzzer";
 import { FuzzIoElement, FuzzTestResults } from "../Fuzzer";
 import { AbstractMeasure } from "../measures/AbstractMeasure";
 
-export const InputGeneratorStrategies = ["RandomInputGenerator"] as const;
-
-export class CompositeInputGenerator implements InputGenerator {
-  public readonly name = "CompositeInputGenerator";
-
-  private _subgens: InputGenerator[];
+export class CompositeInputGenerator extends AbstractInputGenerator {
+  private _subgens: AbstractInputGenerator[];
   private _measures: AbstractMeasure[];
   private _weights: number[];
   private _history: {
@@ -20,18 +15,18 @@ export class CompositeInputGenerator implements InputGenerator {
   private _selectedSubgenIndex = 0;
   private readonly _L = 10; // Lookback window size for history.
   private readonly _explorationP = 20; // Exploration probability.
-  private readonly _prng: seedrandom.prng;
 
   public constructor(
-    env: FuzzEnv,
-    subgens: InputGenerator[],
-    measures: AbstractMeasure[],
-    weights: number[]
+    argType: ArgDef<ArgType>[],
+    rngSeed: string,
+    subgens: AbstractInputGenerator[],
+    measures: AbstractMeasure[]
   ) {
-    this._prng = seedrandom(env.options.seed ?? "");
+    super(argType, rngSeed);
+
     this._subgens = subgens;
     this._measures = measures;
-    this._weights = weights;
+    this._weights = measures.map((m) => m.weight);
 
     if (this._subgens.length === 0)
       throw new Error(
@@ -55,7 +50,7 @@ export class CompositeInputGenerator implements InputGenerator {
   public next(): FuzzIoElement[] {
     const G = this._subgens.length;
 
-    let gen: InputGenerator;
+    let gen: AbstractInputGenerator;
     const rand = Math.floor(this._prng() * this._explorationP);
     if (rand === 0) {
       const randval = Math.floor(this._prng() * G);
@@ -65,7 +60,7 @@ export class CompositeInputGenerator implements InputGenerator {
     return gen.next();
   }
 
-  public initRun(): void {
+  public onRunStart(): void {
     const G = this._subgens.length;
     if (
       this._runCount === 0 ||
@@ -105,17 +100,18 @@ export class CompositeInputGenerator implements InputGenerator {
   }
 
   public onRunEnd(results: FuzzTestResults): void {
-    /* !!!!!!!
+    results;
+    /* !!!!!!! 
     let aggregateMeasure = 0;
     for (let measureIdx = 0; measureIdx < this._measures.length; measureIdx++) {
       const h = this._history[this._selectedSubgenIndex];
       const measure = this._measures[measureIdx];
 
-      aggregateMeasure += measure.measure(results);
+      // !!!!!!! aggregateMeasure += measure.measure(results);
       h.values[measureIdx][h.currentIndex] = aggregateMeasure;
       h.currentIndex = (h.currentIndex + 1) % this._L;
     }
-    */
+    !!!!!!! */
     this._runCount++;
   }
 }

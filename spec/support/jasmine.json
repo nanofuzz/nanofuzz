@@ -8,9 +8,8 @@
   ],
   "helpers": ["spec/helpers/babel.cjs", "spec/helpers/**/*.{js,ts}"],
   "env": {
-    "stopSpecOnExpectationFailure": false,
+    "stopSpecOnExpectationFailure": true,
     "failSpecWithNoExpectations": true,
-    "random": true,
     "forbidDuplicateNames": true
   }
 }
