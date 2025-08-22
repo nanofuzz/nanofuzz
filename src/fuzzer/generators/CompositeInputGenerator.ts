@@ -82,9 +82,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
           const buffer = this._history[genIdx].values[measureIdx];
 
           for (let i = 1; i < this._L; i++) {
-            if (buffer[i] !== undefined && buffer[i - 1] !== undefined) {
-              const current = buffer[i]!;
-              const previous = buffer[i - 1]!;
+            const current = buffer[i];
+            const previous = buffer[i - 1];
+            if (current !== undefined && previous !== undefined) {
               sum += (current - previous) * this._weights[measureIdx];
             }
           }

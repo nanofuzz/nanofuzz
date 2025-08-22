@@ -249,7 +249,7 @@ export const fuzz = (
 
     // Measure progress !!!!!!!
     for (const measure of measures) {
-      const thisMeasure = measure.onAfterExecute(exeContext);
+      measure.onAfterExecute(exeContext);
     }
 
     // IMPLICIT ORACLE --------------------------------------------

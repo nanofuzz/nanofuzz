@@ -195,7 +195,7 @@
     }
   },
   "scripts": {
-    "build": "node build.mjs",
+    "build": "eslint --ext js,ts,tsx src && node build.mjs",
     "test": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
     "docs": "typedoc --plugin none --out docs",
     "coverage": "yarn test --coverage --watchAll=false",
