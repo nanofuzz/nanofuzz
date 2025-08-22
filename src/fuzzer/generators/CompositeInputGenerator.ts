@@ -1,6 +1,6 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
-import { ArgDef, ArgType } from "../Fuzzer";
-import { FuzzIoElement, FuzzTestResults } from "../Fuzzer";
+import { ArgType, ArgValueType } from "../analysis/typescript/Types";
+import { ArgDef } from "../analysis/typescript/ArgDef";
 import { AbstractMeasure } from "../measures/AbstractMeasure";
 
 export class CompositeInputGenerator extends AbstractInputGenerator {
@@ -47,7 +47,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
   }
 
-  public next(): FuzzIoElement[] {
+  public next(): ArgValueType[] {
     const G = this._subgens.length;
 
     let gen: AbstractInputGenerator;
@@ -99,8 +99,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
   }
 
-  public onRunEnd(results: FuzzTestResults): void {
-    results;
+  public onRunEnd(): void {
     /* !!!!!!! 
     let aggregateMeasure = 0;
     for (let measureIdx = 0; measureIdx < this._measures.length; measureIdx++) {

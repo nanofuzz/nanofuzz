@@ -1,16 +1,16 @@
 import seedrandom from "seedrandom";
-import { ArgDef, ArgType } from "../Fuzzer";
-import { FuzzIoElement } from "../Types";
+import { ArgType, ArgValueType } from "../analysis/typescript/Types";
+import { ArgDef } from "../analysis/typescript/ArgDef";
 
 // !!!!!!
 export abstract class AbstractInputGenerator {
-  protected _argType;
+  protected _argDefs;
   protected _rngSeed;
   protected _prng;
 
   // !!!!!!
-  protected constructor(argType: ArgDef<ArgType>[], rngSeed: string) {
-    this._argType = argType;
+  protected constructor(argDef: ArgDef<ArgType>[], rngSeed: string) {
+    this._argDefs = argDef;
     this._rngSeed = rngSeed;
     this._prng = seedrandom(rngSeed);
   }
@@ -25,7 +25,7 @@ export abstract class AbstractInputGenerator {
   /**
    * Produce the next test-case inputs if isAvailable();
    */
-  public abstract next(): FuzzIoElement[];
+  public abstract next(): ArgValueType[];
 
   /**
    * Returns true If the generator is presently available for use

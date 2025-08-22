@@ -1,9 +1,7 @@
-import * as JSON5 from "json5";
 import { ArgDef } from "../analysis/typescript/ArgDef";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { ProgramDef } from "../analysis/typescript/ProgramDef";
 import { ArgOptions, ArgValueType } from "../analysis/typescript/Types";
-import { FuzzIoElement } from "fuzzer/Types";
 
 /**
  * Provide a seed to ensure tests are deterministic.
@@ -125,7 +123,7 @@ const testRandomInt = (intMin: number, intMax: number): void => {
   arg[0].setIntervals([{ min: intMin, max: intMax }]);
   const gen = new RandomInputGenerator(arg, seed);
   for (let i = 0; i < 1000; i++) {
-    const result: ArgValueType = gen.next()[0].value;
+    const result: ArgValueType = gen.next()[0];
     expect(typeof result === "number" && Number.isInteger(result)).toBeTruthy();
     expect(result).toBeGreaterThanOrEqual(intMin);
     expect(result).toBeLessThanOrEqual(intMax);
@@ -156,7 +154,7 @@ const testRandomFloat = (floatMin: number, floatMax: number): void => {
   arg[0].setIntervals([{ min: floatMin, max: floatMax }]);
   const gen = new RandomInputGenerator(arg, seed);
   for (let i = 0; i < 1000; i++) {
-    const input: ArgValueType = gen.next()[0].value;
+    const input: ArgValueType = gen.next()[0];
     expect(typeof input === "number").toBeTruthy();
     expect(input).toBeGreaterThanOrEqual(floatMin);
     expect(input).toBeLessThanOrEqual(floatMax);
@@ -191,7 +189,7 @@ const testRandomBool = (boolMin: boolean, boolMax: boolean): void => {
   // Test that the generator generates booleans within the bounds
   const inputs: ArgValueType[] = [];
   for (let i = 0; i < 1000; i++) {
-    inputs[i] = gen.next()[0].value;
+    inputs[i] = gen.next()[0];
   }
   expect(inputs.every((e) => typeof e === "boolean")).toBeTruthy();
   expect(inputs.some((e) => e === boolMin)).toBeTruthy();
@@ -230,7 +228,7 @@ const testRandomString = (
   // Test that the generator generates strings within the bounds
   const inputs: ArgValueType[] = [];
   for (let i = 0; i < 1000; i++) {
-    const input = gen.next()[0].value;
+    const input = gen.next()[0];
     inputs[i] = input;
     expect(typeof input === "string").toBeTruthy();
     if (typeof input === "string") {

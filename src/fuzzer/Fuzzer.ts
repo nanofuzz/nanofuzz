@@ -97,8 +97,9 @@ export const fuzz = (
   const measures = MeasureFactory(env);
 
   // Setup the Composite Generator
+  const argDefs = env.function.getArgDefs();
   const compositeInputGenerator = new CompositeInputGenerator(
-    env.function.getArgDefs(), // spec of inputs to generate
+    argDefs, // spec of inputs to generate
     env.options.seed ?? "", // prng seed
     InputGeneratorFactory(env), // set of subordinate input generators
     measures // measures
@@ -185,7 +186,13 @@ export const fuzz = (
       }
     } else {
       // Generate and store the inputs
-      result.input = compositeInputGenerator.next();
+      result.input = compositeInputGenerator.next().map((e, i) => {
+        return {
+          name: argDefs[i].getName(),
+          offset: i,
+          value: e,
+        };
+      });
 
       // Increment the number of inputs generated
       inputsGenerated++;
@@ -365,10 +372,10 @@ export const fuzz = (
   }
 
   // End of run processing for the Composite Input Generator
-  compositeInputGenerator.onRunEnd(results);
+  compositeInputGenerator.onRunEnd();
 
   console.debug(
-    `Fuzzer generated ${results.inputsGenerated} inputs including ${results.dupesGenerated} dupes. Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}`
+    `Fuzzer generated ${results.inputsGenerated} inputs including ${results.dupesGenerated} dupes. Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}.`
   ); // !!!!!!!
   console.debug(
     `Tests with exceptions: ${

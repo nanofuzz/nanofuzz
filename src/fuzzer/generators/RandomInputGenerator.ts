@@ -7,30 +7,23 @@ import {
   ArgOptions,
   Interval,
 } from "../analysis/typescript/Types";
-import { FuzzIoElement } from "fuzzer/Types";
 
 // !!!!!!
 export class RandomInputGenerator extends AbstractInputGenerator {
-  private _gens: Array<{ name: string; offset: number; fn: PublicRandFn }> = []; // !!!!!!
+  private _gens: PublicRandFn[] = []; // !!!!!!
 
   // !!!!!!
   public constructor(argType: ArgDef<ArgType>[], rngSeed: string) {
     super(argType, rngSeed);
 
-    this._gens = argType.map((argDef) => ({
-      name: argDef.getName(),
-      offset: argDef.getOffset(),
-      fn: generateRandomInputFn(argDef, this._prng),
-    }));
+    this._gens = argType.map((argDef) =>
+      generateRandomInputFn(argDef, this._prng)
+    );
   }
 
   // !!!!!!
-  public next(): FuzzIoElement[] {
-    return this._gens.map(({ name, offset, fn }) => ({
-      name,
-      offset,
-      value: fn(),
-    }));
+  public next(): ArgValueType[] {
+    return this._gens.map((e) => e());
   }
 }
 
