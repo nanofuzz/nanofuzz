@@ -110,7 +110,7 @@ export function activate(measures: AbstractMeasure[]): void {
 
     // Collect measurements from the initial load
     for (const measure of measures) {
-      measure.onAfterExecute(context);
+      measure.onAfterLoad(context);
     }
   };
 }

@@ -1,12 +1,13 @@
-import { AbstractMeasure, Measurement } from "./AbstractMeasure";
+import { AbstractMeasure } from "./AbstractMeasure";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import {
   CoverageMap,
   CoverageMapData,
   createCoverageMap,
 } from "istanbul-lib-coverage";
-import { VmGlobals } from "../Types";
+import { FuzzTestResult, VmGlobals } from "../Types";
 import { FuzzTestResults } from "fuzzer/Fuzzer";
+import { BaseMeasurement } from "./Types";
 
 // !!!!!!
 export class CoverageMeasure extends AbstractMeasure {
@@ -22,23 +23,30 @@ export class CoverageMeasure extends AbstractMeasure {
   }
 
   // !!!!!!
-  // Note: also called on initial load
-  public onAfterExecute(globals: VmGlobals): CoverageMeasurement {
-    const measure = super.onAfterExecute(globals);
-
+  public onAfterLoad(globals: VmGlobals): void {
     // Save the global context of the original module load because
     // that is where the instrumented code writes coverage data
+    if (
+      globals.__coverage__ !== null &&
+      typeof globals.__coverage__ === "object"
+    ) {
+      this._coverageData = globals.__coverage__ as CoverageMapData;
+    } else {
+      throw new Error(
+        "Unable to retrieve global.__coverage__ code coverage object"
+      );
+    }
+  }
+
+  // !!!!!!
+  // Note: also called on initial load
+  public measure(result: FuzzTestResult): CoverageMeasurement {
+    const measure = super.measure(result);
+
     if (this._coverageData === undefined) {
-      if (
-        globals.__coverage__ !== null &&
-        typeof globals.__coverage__ === "object"
-      ) {
-        this._coverageData = globals.__coverage__ as CoverageMapData;
-      } else {
-        throw new Error(
-          "Unable to retrieve global.__coverage__ code coverage object"
-        );
-      }
+      throw new Error(
+        "Unable to retrieve global.__coverage__ code coverage object"
+      );
     }
 
     // Build a coverage map from a cloned copy of the
@@ -65,6 +73,7 @@ export class CoverageMeasure extends AbstractMeasure {
     const coverageSummary = this._totalCoverage.getCoverageSummary();
     return {
       ...measure,
+      name: "CoverageMeasure",
       value:
         coverageSummary.branches.covered +
         coverageSummary.statements.covered +
@@ -115,7 +124,7 @@ export class CoverageMeasure extends AbstractMeasure {
   }
 
   // !!!!!!
-  public onAfterTesting(results: FuzzTestResults): void {
+  public onTestingEnd(results: FuzzTestResults): void {
     results.aggregateCoverageSummary = this._totalCoverage.getCoverageSummary(); // !!!!!!
     console.debug(
       `[CoverageMeasure][${this._tick}] `,
@@ -125,7 +134,8 @@ export class CoverageMeasure extends AbstractMeasure {
 }
 
 // !!!!!!
-type CoverageMeasurement = Measurement & {
+type CoverageMeasurement = BaseMeasurement & {
+  name: "CoverageMeasure";
   coverageMeasure: {
     progress: {
       lines: {

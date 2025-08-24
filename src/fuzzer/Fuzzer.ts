@@ -14,13 +14,13 @@ import {
   Result,
   FuzzResultCategory,
   FuzzStopReason,
-  VmGlobals,
 } from "./Types";
 import { FuzzOptions } from "./Types";
 import { CoverageSummary } from "istanbul-lib-coverage"; // !!!!!!!! Don't want this dependency here
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
+import { BaseMeasurement } from "./measures/Types";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -104,7 +104,6 @@ export const fuzz = (
     InputGeneratorFactory(env), // set of subordinate input generators
     measures // measures
   );
-  compositeInputGenerator.onRunStart();
 
   console.debug(
     `\r\nFuzzing target: "${env.function.getName()}" of "${env.function.getModule()}"`
@@ -174,9 +173,10 @@ export const fuzz = (
       category: "ok",
     };
 
-    // Before searching, consume the pool of pinned tests
+    // Before generating new inputs, consume the pool of pinned tests
     // Note: Do not count pinned tests against the maxTests limit
     const pinnedTest = pinnedTests.pop();
+    let inputSource: "pinned" | "generator";
     if (pinnedTest) {
       savedCount++; // increment the number of saved tests processed
       result.input = pinnedTest.input;
@@ -184,6 +184,7 @@ export const fuzz = (
       if (pinnedTest.expectedOutput) {
         result.expectedOutput = pinnedTest.expectedOutput;
       }
+      inputSource = "pinned";
     } else {
       // Generate and store the inputs
       result.input = compositeInputGenerator.next().map((e, i) => {
@@ -196,6 +197,7 @@ export const fuzz = (
 
       // Increment the number of inputs generated
       inputsGenerated++;
+      inputSource = "generator";
     }
 
     // Skip tests if we previously processed the input
@@ -219,12 +221,10 @@ export const fuzz = (
     }
 
     // Call the function via the wrapper
-    let exeContext: VmGlobals = {};
     try {
       const startElapsedTime = performance.now(); // start timer
       result.elapsedTime = startElapsedTime;
-      let exeOutput: unknown;
-      [exeOutput, exeContext] = runner.run(
+      const [exeOutput] = runner.run(
         JSON5.parse(JSON5.stringify(result.input.map((e) => e.value))),
         env.options.fnTimeout
       ); // <-- Runner (protect the input)
@@ -245,11 +245,6 @@ export const fuzz = (
         result.exceptionMessage = msg;
         result.stack = stack;
       }
-    }
-
-    // Measure progress !!!!!!!
-    for (const measure of measures) {
-      measure.onAfterExecute(exeContext);
     }
 
     // IMPLICIT ORACLE --------------------------------------------
@@ -364,15 +359,27 @@ export const fuzz = (
     if (!env.options.onlyFailures || result.category !== "ok") {
       results.results.push(result);
     }
+
+    // Get measures for this test run
+    const measurements: BaseMeasurement[] = [];
+    let m: keyof typeof measures;
+    for (m in measures) {
+      // Take the post-validation measurement
+      measurements[m] = measures[m].measure(JSON.parse(JSON.stringify(result)));
+    }
+
+    // !!!!!!! Ssave the measures
+
+    // Provide measures feedback to the composite input generator
+    if (inputSource === "generator") {
+      compositeInputGenerator.onInputFeedback(measurements);
+    }
   } // for: Main test loop
 
   // End-of-run processing for each measure
   for (const measure of measures) {
-    measure.onAfterTesting(results);
+    measure.onTestingEnd(results);
   }
-
-  // End of run processing for the Composite Input Generator
-  compositeInputGenerator.onRunEnd();
 
   console.debug(
     `Fuzzer generated ${results.inputsGenerated} inputs including ${results.dupesGenerated} dupes. Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}.`

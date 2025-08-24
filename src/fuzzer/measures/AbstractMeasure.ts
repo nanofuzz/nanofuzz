@@ -1,5 +1,6 @@
 import { FuzzTestResults } from "../Fuzzer";
-import { VmGlobals } from "../Types";
+import { FuzzTestResult, VmGlobals } from "../Types";
+import { BaseMeasurement } from "./Types";
 
 // !!!!!!
 export abstract class AbstractMeasure {
@@ -28,6 +29,7 @@ export abstract class AbstractMeasure {
   }
 
   // !!!!!!
+  // Called after compilation but before load; useful for instrumenting code
   public onAfterCompile(jsSrc: string, jsFileName: string): string {
     jsFileName;
     this._tick = 0;
@@ -35,38 +37,36 @@ export abstract class AbstractMeasure {
   }
 
   // !!!!!!
-  public onAfterExecute(globals: VmGlobals): Measurement {
+  // Called after load; useful for retrieving the context needed to
+  // extract instrumentation
+  public onAfterLoad(globals: VmGlobals): void {
     globals;
-    return { type: "measure", tick: this._tick, value: 0 };
   }
 
   // !!!!!!
+  // Called before executing the next test. Useful for updating internal
+  // per-run variables.
   public onBeforeNextTestExecution(): void {
     this._tick++;
   }
 
-  // !!!!!!! Narrow to individual FuzzTestResult
-  public onAfterValidation(results: FuzzTestResults): Measurement {
-    results;
-    return { type: "measure", tick: this._tick, value: 0 };
+  // !!!!!!
+  // Takes a measurement after execution of a test
+  public measure(result: FuzzTestResult): BaseMeasurement {
+    result;
+    return { type: "measure", name: this.name, tick: this._tick, value: 0 };
   }
 
   // !!!!!
-  public onAfterTesting(results: FuzzTestResults): void {
+  // Called after testing has ended
+  public onTestingEnd(results: FuzzTestResults): void {
     results;
   }
 
   // !!!!!!
-  public delta(first: Measurement, second: Measurement): number {
+  public delta(first: BaseMeasurement, second: BaseMeasurement): number {
     first;
     second;
     return 0;
   }
 }
-
-// !!!!!!
-export type Measurement = {
-  type: "measure";
-  tick: number;
-  value: number;
-};
