@@ -1,10 +1,9 @@
 import * as fs from "fs";
 import * as JSON5 from "json5";
 import vm from "vm";
-import seedrandom from "seedrandom";
 import { ArgDef } from "./analysis/typescript/ArgDef";
 import { ArgValueType, FunctionRef } from "./analysis/typescript/Types";
-import { GeneratorFactory } from "./generators/GeneratorFactory";
+import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as compiler from "./Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
 import { FunctionDef } from "./analysis/typescript/FunctionDef";
@@ -17,6 +16,11 @@ import {
   FuzzStopReason,
 } from "./Types";
 import { FuzzOptions } from "./Types";
+import { CoverageSummary } from "istanbul-lib-coverage"; // !!!!!!!! Don't want this dependency here
+import { MeasureFactory } from "./measures/MeasureFactory";
+import { RunnerFactory } from "./runners/RunnerFactory";
+import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
+import { BaseMeasurement } from "./measures/Types";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -62,11 +66,10 @@ export const setup = (
  *
  * Throws an exception if the fuzz options are invalid
  */
-export const fuzz = async (
+export const fuzz = (
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = []
-): Promise<FuzzTestResults> => {
-  const prng = seedrandom(env.options.seed);
+): FuzzTestResults => {
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
@@ -77,7 +80,7 @@ export const fuzz = async (
     inputsSaved: 0, // updated later
     results: [],
   };
-  let savedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
+  let injectedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
   let currentDupeCount = 0; // Number of duplicated tests since the last non-duplicated test
   let totalDupeCount = 0; // Total number of duplicates generated in the fuzzing session
   let inputsGenerated = 0; // Number of inputs generated so far
@@ -89,16 +92,35 @@ export const fuzz = async (
       `Invalid options provided: ${JSON5.stringify(env.options, null, 2)}`
     );
 
-  // Build a generator for each argument
-  const fuzzArgGen = env.function.getArgDefs().map((e) => {
-    return { arg: e, gen: GeneratorFactory(e, prng) };
-  });
+  // Get the active measures, which will take various measurements
+  // during execution that guide the composite generator
+  const measures = MeasureFactory(env);
+
+  // Setup the Composite Generator
+  const argDefs = env.function.getArgDefs();
+  const compositeInputGenerator = new CompositeInputGenerator(
+    argDefs, // spec of inputs to generate
+    env.options.seed ?? "", // prng seed
+    InputGeneratorFactory(env), // set of subordinate input generators
+    measures // measures
+  );
+
+  // Inject pinned tests into the composite generator so that they generate
+  // first: we want the composite generator to know about these inputs so that
+  // any "interesting" inputs might be further mutated by other generators.
+  compositeInputGenerator.inject(
+    pinnedTests.map((t) => t.input.map((i) => i.value))
+  );
+
+  console.debug(
+    `\r\nFuzzing target: "${env.function.getName()}" of "${env.function.getModule()}"`
+  ); // !!!!!!!
 
   // The module that includes the function to fuzz will
   // be a TypeScript source file, so we first must compile
   // it to JavaScript prior to execution.  This activates the
   // TypeScript compiler that hooks into the require() function.
-  compiler.activate();
+  compiler.activate(measures);
 
   // The fuzz target is likely under development, so
   // invalidate the cache to get the latest copy.
@@ -107,23 +129,12 @@ export const fuzz = async (
   /* eslint eslint-comments/no-use: off */
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require(fqSrcFile);
-  compiler.deactivate(); // Deactivate the TypeScript compiler
 
-  // Ensure what we found is a function
-  if (!(env.function.getName() in mod))
-    throw new Error(
-      `Could not find exported function ${env.function.getName()} in ${env.function.getModule()} to fuzz`
-    );
-  else if (typeof mod[env.function.getName()] !== "function")
-    throw new Error(
-      `Cannot fuzz exported member '${env.function.getName()} in ${env.function.getModule()} because it is not a function`
-    );
+  // Deactivate the TypeScript compiler
+  compiler.deactivate();
 
-  // Build a wrapper around the function to be fuzzed that we can
-  // easily call in the testing loop.
-  const fnWrapper = functionTimeout((input: FuzzIoElement[]): unknown => {
-    return mod[env.function.getName()](...input.map((e) => e.value));
-  }, env.options.fnTimeout);
+  // Build a test runner for executing tests
+  const runner = RunnerFactory(env, mod, env.function.getName());
 
   // Main test loop
   // We break out of this loop when any of the following are true:
@@ -149,10 +160,10 @@ export const fuzz = async (
     );
     if (stopCondition !== undefined) {
       results.stopReason = stopCondition;
-      results.elapsedTime = new Date().getTime() - startTime;
+      results.elapsedTime = new Date().getTime() - startTime; // TODO: non-monotonic time breakage possible !!!!!
       results.inputsGenerated = inputsGenerated;
       results.dupesGenerated = totalDupeCount;
-      results.inputsSaved = savedCount;
+      results.inputsSaved = injectedCount;
       break;
     }
 
@@ -169,28 +180,43 @@ export const fuzz = async (
       category: "ok",
     };
 
-    // Before searching, consume the pool of pinned tests
-    // Note: Do not count pinned tests against the maxTests limit
-    const pinnedTest = pinnedTests.pop();
-    if (pinnedTest) {
-      savedCount++; // increment the number of saved tests processed
-      result.input = pinnedTest.input;
-      result.pinned = pinnedTest.pinned;
-      if (pinnedTest.expectedOutput) {
-        result.expectedOutput = pinnedTest.expectedOutput;
+    // Generate and store the inputs
+    const { input, source } = compositeInputGenerator.next();
+    result.input = input.map((e, i) => {
+      return {
+        name: argDefs[i].getName(),
+        offset: i,
+        value: e,
+      };
+    });
+
+    // Handle pinned vs. generated tests differently, e.g.,
+    // 1. pinned tests do not count against the maxTests limit
+    // 2. pinned tests stay pinned and may have an expected result
+    if (source === CompositeInputGenerator.INJECTED) {
+      // Ensure the injected inputs are in the expected order
+      const expectedInput = JSON5.stringify(pinnedTests[injectedCount].input);
+      const returnedInput = JSON5.stringify(result.input);
+      if (expectedInput !== returnedInput) {
+        throw new Error(
+          `Injected inputs in unexpected order at injected input# ${injectedCount}. Expected: "${expectedInput}". Got: "${returnedInput}".`
+        );
       }
+
+      // Map the pinned test information to the new result
+      result.pinned = pinnedTests[injectedCount].pinned;
+      if (pinnedTests[injectedCount].expectedOutput) {
+        result.expectedOutput = pinnedTests[injectedCount].expectedOutput;
+      }
+      injectedCount++; // increment the number of pinned tests injected
     } else {
-      // Generate and store the inputs
-      // TODO: We should provide a way to filter inputs
-      fuzzArgGen.forEach((e) => {
-        result.input.push({
-          name: e.arg.getName(),
-          offset: e.arg.getOffset(),
-          value: e.gen(),
-        });
-      });
       // Increment the number of inputs generated
       inputsGenerated++;
+    }
+
+    // Prepare measures for next test execution
+    for (const measure of measures) {
+      measure.onBeforeNextTestExecution();
     }
 
     // Skip tests if we previously processed the input
@@ -199,6 +225,7 @@ export const fuzz = async (
       currentDupeCount++; // increment the dupe coynter
       totalDupeCount++; // incremement the total run dupe counter
       continue; // skip this test
+      // !!!!!!!! Make sure measures are calculated correctly for skipped inputs
     } else {
       currentDupeCount = 0; // reset the duplicate count
       // if the function accepts inputs, add test input
@@ -212,10 +239,14 @@ export const fuzz = async (
     try {
       const startElapsedTime = performance.now(); // start timer
       result.elapsedTime = startElapsedTime;
+      const [exeOutput] = runner.run(
+        JSON5.parse(JSON5.stringify(result.input.map((e) => e.value))),
+        env.options.fnTimeout
+      ); // <-- Runner (protect the input)
       result.output.push({
         name: "0",
         offset: 0,
-        value: fnWrapper(JSON5.parse(JSON5.stringify(result.input))), // <-- Wrapper (protect the input)
+        value: exeOutput as ArgValueType,
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
     } catch (e: unknown) {
@@ -343,7 +374,49 @@ export const fuzz = async (
     if (!env.options.onlyFailures || result.category !== "ok") {
       results.results.push(result);
     }
+
+    // Get measures for this test run
+    const measurements: BaseMeasurement[] = [];
+    let m: keyof typeof measures;
+    for (m in measures) {
+      // Take the post-validation measurement
+      measurements[m] = measures[m].measure(JSON.parse(JSON.stringify(result)));
+    }
+
+    // Provide measures feedback to the composite input generator
+    compositeInputGenerator.onInputFeedback(measurements);
   } // for: Main test loop
+
+  // End-of-run processing for each measure
+  for (const measure of measures) {
+    measure.onTestingEnd(results);
+  }
+
+  console.debug(
+    `Fuzzer injected ${injectedCount} and generated ${results.inputsGenerated} inputs including ${results.dupesGenerated} dupes. Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}.`
+  ); // !!!!!!!
+  console.debug(
+    `Tests with exceptions: ${
+      results.results.filter((e) => e.exception).length
+    }, timeouts: ${results.results.filter((e) => e.timeout).length}`
+  ); // !!!!!!
+  console.debug(
+    `Human validator passed: ${
+      results.results.filter((e) => e.passedHuman === true).length
+    }, failed: ${results.results.filter((e) => e.passedHuman === false).length}`
+  ); // !!!!!!!
+  console.debug(
+    `Property validator passed: ${
+      results.results.filter((e) => e.passedValidator === true).length
+    }, failed: ${
+      results.results.filter((e) => e.passedValidator === false).length
+    }`
+  ); // !!!!!!!
+  console.debug(
+    `Heuristic validator passed: ${
+      results.results.filter((e) => e.passedImplicit).length
+    }, failed: ${results.results.filter((e) => !e.passedImplicit).length}`
+  ); // !!!!!!!
 
   // Persist to outfile, if requested
   if (env.options.outputFile) {
@@ -590,7 +663,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
-  validators: FunctionRef[]; // list of the module's functions
+  validators: FunctionRef[]; // list of the module's validator functions
 };
 
 /**
@@ -604,6 +677,7 @@ export type FuzzTestResults = {
   dupesGenerated: number; // number of duplicate inputs generated
   inputsSaved: number; // number of inputs saved
   results: FuzzTestResult[]; // fuzzing test results
+  aggregateCoverageSummary?: CoverageSummary; // !!!!!!! multiple measures
 };
 
 export * from "./analysis/typescript/ProgramDef";

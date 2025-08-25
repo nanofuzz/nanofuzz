@@ -1,4 +1,4 @@
-import seedrandom from "seedrandom";
+import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { ArgDef } from "../analysis/typescript/ArgDef";
 import {
   ArgTag,
@@ -7,6 +7,25 @@ import {
   ArgOptions,
   Interval,
 } from "../analysis/typescript/Types";
+
+// !!!!!!
+export class RandomInputGenerator extends AbstractInputGenerator {
+  private _gens: PublicRandFn[] = []; // !!!!!!
+
+  // !!!!!!
+  public constructor(argType: ArgDef<ArgType>[], rngSeed: string) {
+    super(argType, rngSeed);
+
+    this._gens = argType.map((argDef) =>
+      generateRandomInputFn(argDef, this._prng)
+    );
+  }
+
+  // !!!!!!
+  public next(): { input: ArgValueType[]; source: string } {
+    return { input: this._gens.map((e) => e()), source: this.name };
+  }
+}
 
 /**
  * Builds and returns a generator function that generates a pseudo-
@@ -30,7 +49,7 @@ type PrivateRandFn = (
 
 type PublicRandFn = () => ArgValueType;
 
-export function GeneratorFactory<T extends ArgType>(
+function generateRandomInputFn<T extends ArgType>(
   arg: ArgDef<T>,
   prng: seedrandom.prng
 ): PublicRandFn {
@@ -72,7 +91,7 @@ export function GeneratorFactory<T extends ArgType>(
           children.length - 1,
           ArgDef.getDefaultOptions() // use defaults for union member selection
         );
-        return GeneratorFactory(children[rn], prng)();
+        return generateRandomInputFn(children[rn], prng)();
       };
       break;
     case "object":
@@ -86,7 +105,7 @@ export function GeneratorFactory<T extends ArgType>(
           throw new Error("Min and max must be objects");
         const outObj: { [key: string]: ArgValueType } = {};
         for (const child of arg.getChildren()) {
-          outObj[child.getName()] = GeneratorFactory(child, prng)();
+          outObj[child.getName()] = generateRandomInputFn(child, prng)();
 
           // Remove undefined object members, otherwise the
           // implicit oracle flags them.

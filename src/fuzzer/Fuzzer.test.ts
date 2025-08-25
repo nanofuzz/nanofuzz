@@ -36,75 +36,6 @@ const counterExampleOptions: FuzzOptions = {
 };
 
 /**
- * Fuzz target that alters its input - used to verify
- * that recorded fuzzer input is not altered by the target
- */
-export function testChangeInput(obj: { a: number }) {
-  (obj as any).b = 1;
-}
-
-/**
- * Fuzz targets with return type `void` that returns undefined
- */
-export function testStandardVoidReturnUndefined(x: number): void {
-  const y = x - 1;
-}
-export const testArrowVoidReturnUndefined = (x: number): void => {
-  const y = x - 1;
-};
-
-/**
- * Fuzz targets with return type `void` that returns number
- */
-export function testStandardVoidReturnNumber(x: number): void {
-  const y: unknown = x;
-  return y as void;
-}
-export const testArrowVoidReturnNumber = (x: number): void => {
-  const y: unknown = x;
-  return y as void;
-};
-
-/**
- * Fuzz targets with return type `void` that throw an exception
- */
-export function testStandardVoidReturnException(x: number): void {
-  throw new Error("Random error");
-}
-export const testArrowVoidReturnException = (x: number): void => {
-  throw new Error("Random error");
-};
-
-/**
- * Fuzz targets with literal arguments
- */
-export function testStandardVoidLiteralArgs(n: 5, n2: 5[]): void {
-  return;
-}
-export const testArrowVoidLiteralArgs = (n: 5, n2: 5[]): void => {
-  return;
-};
-
-/**
- * Fuzz targets with union arguments
- */
-type hellos = "hello" | "bonjour" | "olá" | "ciao" | "hej";
-type stringOrNumber = string | number;
-type maybeString = string | undefined;
-export function testStandardUnionArgs(
-  a: stringOrNumber,
-  b: maybeString[]
-): boolean | undefined {
-  return;
-}
-export const testArrowUnionArgs = (
-  a: stringOrNumber,
-  b: maybeString[]
-): boolean | undefined => {
-  return;
-};
-
-/**
  * These tests currently just ensure that the fuzzer runs and produces output
  * for each example. TODO: Add tests that check the fuzzer output.
  */
@@ -257,32 +188,29 @@ describe("fuzzer:", () => {
     expect(implicitOracle([{ a: [{ c: 2 }], b: 1 }])).toBe(true);
   });
 
-  it("Fuzz example 1", async () => {
-    fuzz(setup(intOptions, "nanofuzz-study/examples/1.ts", "minValue")).then(
-      (fuzzResult) => {
-        expect(fuzzResult.results.length).not.toBe(0);
-      }
+  it("Fuzz example 1", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "nanofuzz-study/examples/1.ts", "minValue")
     );
+    expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 2", async () => {
-    fuzz(
+  it("Fuzz example 2", function () {
+    const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/2.ts", "getSortSetting")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-    });
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 3", async () => {
-    fuzz(
+  it("Fuzz example 3", function () {
+    const fuzzResult = fuzz(
       setup(floatOptions, "nanofuzz-study/examples/3.ts", "totalDinnerExpenses")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-    });
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 4", async () => {
-    fuzz(
+  it("Fuzz example 4", function () {
+    const fuzzResult = fuzz(
       setup(
         {
           ...intOptions,
@@ -291,222 +219,223 @@ describe("fuzzer:", () => {
         "nanofuzz-study/examples/4.ts",
         "maxOfArray"
       )
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-    });
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 5", async () => {
-    fuzz(
+  it("Fuzz example 5", function () {
+    const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/5.ts", "getRandomNumber")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-    });
-  });
-
-  it("Fuzz example 6", async () => {
-    fuzz(setup(intOptions, "nanofuzz-study/examples/6.ts", "getZero")).then(
-      (fuzzResult) => {
-        expect(fuzzResult.results.length).not.toBe(0);
-      }
     );
+    expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 7", async () => {
-    fuzz(
+  it("Fuzz example 6", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "nanofuzz-study/examples/6.ts", "getZero")
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+  });
+
+  it("Fuzz example 7", function () {
+    const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/7.ts", "sortByWinLoss")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-    });
-  });
-
-  it("Fuzz example 8", async () => {
-    fuzz(setup(intOptions, "nanofuzz-study/examples/8.ts", "minSalary")).then(
-      (fuzzResult) => {
-        expect(fuzzResult.results.length).not.toBe(0);
-      }
     );
+    expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 9", async () => {
-    fuzz(
+  it("Fuzz example 8", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "nanofuzz-study/examples/8.ts", "minSalary")
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+  });
+
+  it("Fuzz example 9", function () {
+    const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/9.ts", "getOffsetOrDefault")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-    });
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
   });
 
   // TODO: Vector length is randomized here - probably do not want that !!!
-  it("Fuzz example 10", async () => {
-    fuzz(
+  it("Fuzz example 10", function () {
+    const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/10.ts", "gramSchmidt")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-    });
-  });
-
-  it("Fuzz example 11", async () => {
-    fuzz(setup(intOptions, "nanofuzz-study/examples/11.ts", "idMatrix")).then(
-      (fuzzResult) => {
-        expect(fuzzResult.results.length).not.toBe(0);
-      }
     );
+    expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 12", async () => {
-    fuzz(
+  it("Fuzz example 11", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "nanofuzz-study/examples/11.ts", "idMatrix")
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+  });
+
+  it("Fuzz example 12", function () {
+    const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/12.ts", "levenshtein")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-    });
-  });
-
-  it("Fuzz example 13", async () => {
-    fuzz(setup(intOptions, "nanofuzz-study/examples/13.ts", "isSteady")).then(
-      (fuzzResult) => {
-        expect(fuzzResult.results.length).not.toBe(0);
-      }
     );
+    expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 14", async () => {
-    fuzz(setup(intOptions, "nanofuzz-study/examples/14.ts", "modInv")).then(
-      (fuzzResult) => {
-        expect(fuzzResult.results.length).not.toBe(0);
-      }
+  it("Fuzz example 13", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "nanofuzz-study/examples/13.ts", "isSteady")
     );
+    expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Counter-example mode 01", async () => {
-    fuzz(
+  it("Fuzz example 14", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "nanofuzz-study/examples/14.ts", "modInv")
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+  });
+
+  it("Counter-example mode 01", function () {
+    const fuzzResult = fuzz(
       setup(counterExampleOptions, "nanofuzz-study/examples/14.ts", "modInv")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).toBe(1);
-      expect(fuzzResult.results[0].category).not.toBe("ok");
-    });
+    );
+    expect(fuzzResult.results.length).toBe(1);
+    expect(fuzzResult.results[0].category).not.toBe("ok");
   });
 
   /**
    * Ensure fuzz targets that mutate their inputs cannot alter
    * the input the fuzzer recorded for the function.
    */
-  it("Fuzz target cannot change fuzzer input record", async () => {
-    fuzz(setup(intOptions, "./Fuzzer.test.ts", "testChangeInput")).then(
-      (fuzzResult) => {
-        const resultValue = fuzzResult.results[0].input[0].value;
-        expect(fuzzResult.results.length).not.toBe(0);
-        expect(
-          resultValue !== undefined &&
-            typeof resultValue === "object" &&
-            !("b" in resultValue)
-        ).toBeTruthy();
-      }
+  it("Fuzz target cannot change fuzzer input record", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "./Fuzzer.testfixtures.ts", "testChangeInput")
     );
+    const resultValue = fuzzResult.results[0].input[0].value;
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(
+      resultValue !== undefined &&
+        typeof resultValue === "object" &&
+        !("b" in resultValue)
+    ).toBeTruthy();
   });
 
   /**
    * Test that `void` functions (standard and arrow) fail the implicit
    * oracle in the case that they return values other than `undefined`
    */
-  it("Standard fn void fuzz target fails if return is !==undefined", async () => {
-    fuzz(
-      setup(intOptions, "./Fuzzer.test.ts", "testStandardVoidReturnNumber")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-      expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
-    });
+  it("Standard fn void fuzz target fails if return is !==undefined", function () {
+    const fuzzResult = fuzz(
+      setup(
+        intOptions,
+        "./Fuzzer.testfixtures.ts",
+        "testStandardVoidReturnNumber"
+      )
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
   });
-  it("Arrow fn void fuzz target fails if return is !==undefined", async () => {
-    fuzz(
-      setup(intOptions, "./Fuzzer.test.ts", "testArrowVoidReturnNumber")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-      expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
-    });
+  it("Arrow fn void fuzz target fails if return is !==undefined", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "./Fuzzer.testfixtures.ts", "testArrowVoidReturnNumber")
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
   });
 
   /**
    * Test that `void` functions (standard and arrow) pass the implicit
    * oracle in the case that they only return `undefined`
    */
-  it("Standard fn void fuzz target passes if return is undefined", async () => {
-    fuzz(
-      setup(intOptions, "./Fuzzer.test.ts", "testStandardVoidReturnUndefined")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-      expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
-    });
+  it("Standard fn void fuzz target passes if return is undefined", function () {
+    const fuzzResult = fuzz(
+      setup(
+        intOptions,
+        "./Fuzzer.testfixtures.ts",
+        "testStandardVoidReturnUndefined"
+      )
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
   });
-  it("Arrow fn void fuzz target passes if return is undefined", async () => {
-    fuzz(
-      setup(intOptions, "./Fuzzer.test.ts", "testArrowVoidReturnUndefined")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-      expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
-    });
+  it("Arrow fn void fuzz target passes if return is undefined", function () {
+    const fuzzResult = fuzz(
+      setup(
+        intOptions,
+        "./Fuzzer.testfixtures.ts",
+        "testArrowVoidReturnUndefined"
+      )
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
   });
 
   /**
    * Test that `void` functions (standard and arrow) fail the implicit
    * oracle when they throw an exception.
    */
-  it("Standard fn void fuzz target fails if exception is thrown", async () => {
-    fuzz(
-      setup(intOptions, "./Fuzzer.test.ts", "testStandardVoidReturnException")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-      expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
-      expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
-    });
+  it("Standard fn void fuzz target fails if exception is thrown", function () {
+    const fuzzResult = fuzz(
+      setup(
+        intOptions,
+        "./Fuzzer.testfixtures.ts",
+        "testStandardVoidReturnException"
+      )
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
   });
-  it("Arrow fn void fuzz target fails if exception is thrown", async () => {
-    fuzz(
-      setup(intOptions, "./Fuzzer.test.ts", "testArrowVoidReturnException")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-      expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
-      expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
-    });
+  it("Arrow fn void fuzz target fails if exception is thrown", function () {
+    const fuzzResult = fuzz(
+      setup(
+        intOptions,
+        "./Fuzzer.testfixtures.ts",
+        "testArrowVoidReturnException"
+      )
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
   });
 
   /**
    * Test that `void` functions w/literal arguments (standard and arrow) pass
    * when they return undefined.
    */
-  it("Standard void literal arg fuzz target", async () => {
-    fuzz(
-      setup(intOptions, "./Fuzzer.test.ts", "testStandardVoidLiteralArgs")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-      expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
-    });
+  it("Standard void literal arg fuzz target", function () {
+    const fuzzResult = fuzz(
+      setup(
+        intOptions,
+        "./Fuzzer.testfixtures.ts",
+        "testStandardVoidLiteralArgs"
+      )
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
   });
-  it("Arrow void literal arg fuzz target", async () => {
-    fuzz(
-      setup(intOptions, "./Fuzzer.test.ts", "testArrowVoidLiteralArgs")
-    ).then((fuzzResult) => {
-      expect(fuzzResult.results.length).not.toBe(0);
-      expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
-    });
+  it("Arrow void literal arg fuzz target", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "./Fuzzer.testfixtures.ts", "testArrowVoidLiteralArgs")
+    );
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
   });
 
   /**
    * Test that we can fuzz functions with union arguments.
    */
-  it("Standard union arg fuzz target", async () => {
-    fuzz(setup(intOptions, "./Fuzzer.test.ts", "testStandardUnionArgs")).then(
-      (fuzzResult) => {
-        expect(fuzzResult.results.length).not.toBe(0);
-        expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
-      }
+  it("Standard union arg fuzz target", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "./Fuzzer.testfixtures.ts", "testStandardUnionArgs")
     );
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
   });
-  it("Arrow union arg fuzz target", async () => {
-    fuzz(setup(intOptions, "./Fuzzer.test.ts", "testArrowUnionArgs")).then(
-      (fuzzResult) => {
-        expect(fuzzResult.results.length).not.toBe(0);
-        expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
-      }
+  it("Arrow union arg fuzz target", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "./Fuzzer.testfixtures.ts", "testArrowUnionArgs")
     );
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
   });
 });

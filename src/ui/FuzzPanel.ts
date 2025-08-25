@@ -2034,10 +2034,10 @@ export function provideCodeLenses(
     }
 
     // Skip decorating validators if configured to skip them
-    const fuzzValidators: boolean = vscode.workspace
+    const fuzzValidators = vscode.workspace
       .getConfiguration("nanofuzz.ui.codeLens")
-      .get("includeValidators", true);
-    const functions = fuzzValidators
+      .get("includeValidators");
+    const functions = (fuzzValidators === undefined ? true : fuzzValidators)
       ? Object.values(program.getExportedFunctions())
       : Object.values(program.getExportedFunctions()).filter(
           (fn) => !fn.isValidator()
