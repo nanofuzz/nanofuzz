@@ -39,7 +39,6 @@ export class CoverageMeasure extends AbstractMeasure {
   }
 
   // !!!!!!
-  // Note: also called on initial load
   public measure(result: FuzzTestResult): CoverageMeasurement {
     const measure = super.measure(result);
 
@@ -51,10 +50,10 @@ export class CoverageMeasure extends AbstractMeasure {
 
     // Build a coverage map from a cloned copy of the
     // coverage data
-    const coverageMap = createCoverageMap(
+    const incrementCoverageMap = createCoverageMap(
       JSON.parse(JSON.stringify(this._coverageData))
     );
-    this._totalCoverage.merge(coverageMap);
+    this._totalCoverage.merge(incrementCoverageMap);
     /*
     if (this._tick < 11) {
       console.debug(
@@ -70,28 +69,45 @@ export class CoverageMeasure extends AbstractMeasure {
 
     // Summarize the coverage and return the progress measure,
     // which is total branches + statements + functions covered.
-    const coverageSummary = this._totalCoverage.getCoverageSummary();
+    const total = this._totalCoverage.getCoverageSummary();
+    const increment = incrementCoverageMap.getCoverageSummary();
     return {
       ...measure,
-      name: "CoverageMeasure",
+      name: this.name,
       value:
-        coverageSummary.branches.covered +
-        coverageSummary.statements.covered +
-        coverageSummary.functions.covered,
+        total.branches.covered +
+        total.statements.covered +
+        total.functions.covered,
       coverageMeasure: {
-        progress: {
+        increment: {
           lines: {
-            total: coverageSummary.data.lines.total,
-            covered: coverageSummary.data.lines.covered,
+            total: increment.data.lines.total,
+            covered: increment.data.lines.covered,
           },
           branches: {
-            total: coverageSummary.data.branches.total,
-            covered: coverageSummary.data.branches.covered,
+            total: increment.data.branches.total,
+            covered: increment.data.branches.covered,
           },
           functions: {
-            total: coverageSummary.data.functions.total,
-            covered: coverageSummary.data.functions.covered,
+            total: increment.data.functions.total,
+            covered: increment.data.functions.covered,
           },
+          map: JSON.parse(JSON.stringify(incrementCoverageMap)),
+        },
+        total: {
+          lines: {
+            total: total.data.lines.total,
+            covered: total.data.lines.covered,
+          },
+          branches: {
+            total: total.data.branches.total,
+            covered: total.data.branches.covered,
+          },
+          functions: {
+            total: total.data.functions.total,
+            covered: total.data.functions.covered,
+          },
+          map: JSON.parse(JSON.stringify(this._totalCoverage)),
         },
       },
     };
@@ -134,22 +150,27 @@ export class CoverageMeasure extends AbstractMeasure {
 }
 
 // !!!!!!
-type CoverageMeasurement = BaseMeasurement & {
-  name: "CoverageMeasure";
+export type CoverageMeasurement = BaseMeasurement & {
+  name: string;
   coverageMeasure: {
-    progress: {
-      lines: {
-        total: number;
-        covered: number;
-      };
-      branches: {
-        total: number;
-        covered: number;
-      };
-      functions: {
-        total: number;
-        covered: number;
-      };
-    };
+    increment: CoverageMeasurementData;
+    total: CoverageMeasurementData;
   };
+};
+
+// !!!!!!
+type CoverageMeasurementData = {
+  lines: {
+    total: number;
+    covered: number;
+  };
+  branches: {
+    total: number;
+    covered: number;
+  };
+  functions: {
+    total: number;
+    covered: number;
+  };
+  map: CoverageMap;
 };
