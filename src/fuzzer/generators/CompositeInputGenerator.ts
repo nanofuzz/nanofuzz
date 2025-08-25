@@ -15,10 +15,12 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     values: (number | undefined)[][];
     currentIndex: number;
   }[]; // !!!!!!
+  private _injectedInputs: ArgValueType[][] = []; // Inputs to force generate first
   private _selectedSubgenIndex = 0; // Selected subordinate input generator (e.g., by efficiency)
   private readonly _L = 10; // Lookback window size for history.
   private readonly _chunkSize = 1; // Re-evaluate subgen after _chunkSize inputs generated
   private readonly _explorationP = 20; // Exploration probability.
+  public static readonly INJECTED = "injected";
 
   // !!!!!!
   public constructor(
@@ -46,15 +48,38 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   }
 
   // !!!!!!
-  public next(): ArgValueType[] {
-    this._tick++;
-    const G = this._subgens.length;
+  public inject(inputs: ArgValueType[][]): void {
+    this._injectedInputs = inputs.reverse();
+  }
 
-    // If the prior chunk of inputs is exhausted, start a new one and
-    // re-determine subgen efficiency
+  // !!!!!!
+  public next(): { input: ArgValueType[]; source: string } {
+    this._tick++;
+
+    // Produce injected inputs first, if available
+    if (this._injectedInputs.length) {
+      const injectedInput = this._injectedInputs.pop();
+      if (injectedInput) {
+        return {
+          input: injectedInput,
+          source: CompositeInputGenerator.INJECTED,
+        };
+      }
+    }
+
+    // If the prior chunk of generated inputs is exhausted, start
+    // a new chunk and re-determine subgen efficiency
     if (this._ticksLeftInChunk < 1) {
       this._ticksLeftInChunk = this._chunkSize;
-      this._selectedSubgenIndex = this.selectNextSubGen();
+      const [nextSubGen, reason] = this.selectNextSubGen();
+      if (nextSubGen !== this._selectedSubgenIndex) {
+        console.debug(
+          `[${this.name}][${this._tick}] Switching subgen from "${
+            this._subgens[this._selectedSubgenIndex].name
+          }" to "${this._subgens[nextSubGen].name}" b/c "${reason}`
+        ); // !!!!!!!
+      }
+      this._selectedSubgenIndex = nextSubGen;
     }
     this._ticksLeftInChunk--;
 
@@ -62,6 +87,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // efficient subgen
     let gen: AbstractInputGenerator;
     const rand = Math.floor(this._prng() * this._explorationP);
+    const G = this._subgens.length;
     if (rand === 0) {
       const randval = Math.floor(this._prng() * G);
       gen = this._subgens[randval]; // random subgen (exploration)
@@ -105,14 +131,14 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   }
 
   // !!!!!!
-  private selectNextSubGen(): number {
+  private selectNextSubGen(): [number, "efficiency" | "explore"] {
     const G = this._subgens.length;
     if (
       this._tick === 0 ||
       Math.floor(this._prng() * this._explorationP) === 0
     ) {
       // Exploration on first run or with prob 1/_explorationP.
-      return Math.floor(this._prng() * G);
+      return [Math.floor(this._prng() * G), "explore"];
     } else {
       // Pick g with max weighted sum of delta-M over last L runs with g as selected generator.
       let bestIdx = 0;
@@ -140,7 +166,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
           }
         }
       }
-      return bestIdx;
+      return [bestIdx, "efficiency"];
     }
   }
 }

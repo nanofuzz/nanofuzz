@@ -25,7 +25,7 @@ export abstract class AbstractInputGenerator {
   /**
    * Produce the next test-case inputs if isAvailable();
    */
-  public abstract next(): ArgValueType[];
+  public abstract next(): { input: ArgValueType[]; source: string };
 
   /**
    * Returns true If the generator is presently available for use

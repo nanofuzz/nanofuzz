@@ -22,8 +22,8 @@ export class RandomInputGenerator extends AbstractInputGenerator {
   }
 
   // !!!!!!
-  public next(): ArgValueType[] {
-    return this._gens.map((e) => e());
+  public next(): { input: ArgValueType[]; source: string } {
+    return { input: this._gens.map((e) => e()), source: this.name };
   }
 }
 

@@ -80,7 +80,7 @@ export const fuzz = (
     inputsSaved: 0, // updated later
     results: [],
   };
-  let savedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
+  let injectedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
   let currentDupeCount = 0; // Number of duplicated tests since the last non-duplicated test
   let totalDupeCount = 0; // Total number of duplicates generated in the fuzzing session
   let inputsGenerated = 0; // Number of inputs generated so far
@@ -103,6 +103,13 @@ export const fuzz = (
     env.options.seed ?? "", // prng seed
     InputGeneratorFactory(env), // set of subordinate input generators
     measures // measures
+  );
+
+  // Inject pinned tests into the composite generator so that they generate
+  // first: we want the composite generator to know about these inputs so that
+  // any "interesting" inputs might be further mutated by other generators.
+  compositeInputGenerator.inject(
+    pinnedTests.map((t) => t.input.map((i) => i.value))
   );
 
   console.debug(
@@ -156,7 +163,7 @@ export const fuzz = (
       results.elapsedTime = new Date().getTime() - startTime; // TODO: non-monotonic time breakage possible !!!!!
       results.inputsGenerated = inputsGenerated;
       results.dupesGenerated = totalDupeCount;
-      results.inputsSaved = savedCount;
+      results.inputsSaved = injectedCount;
       break;
     }
 
@@ -173,31 +180,43 @@ export const fuzz = (
       category: "ok",
     };
 
-    // Before generating new inputs, consume the pool of pinned tests
-    // Note: Do not count pinned tests against the maxTests limit
-    const pinnedTest = pinnedTests.pop();
-    let inputSource: "pinned" | "generator";
-    if (pinnedTest) {
-      savedCount++; // increment the number of saved tests processed
-      result.input = pinnedTest.input;
-      result.pinned = pinnedTest.pinned;
-      if (pinnedTest.expectedOutput) {
-        result.expectedOutput = pinnedTest.expectedOutput;
-      }
-      inputSource = "pinned";
-    } else {
-      // Generate and store the inputs
-      result.input = compositeInputGenerator.next().map((e, i) => {
-        return {
-          name: argDefs[i].getName(),
-          offset: i,
-          value: e,
-        };
-      });
+    // Generate and store the inputs
+    const { input, source } = compositeInputGenerator.next();
+    result.input = input.map((e, i) => {
+      return {
+        name: argDefs[i].getName(),
+        offset: i,
+        value: e,
+      };
+    });
 
+    // Handle pinned vs. generated tests differently, e.g.,
+    // 1. pinned tests do not count against the maxTests limit
+    // 2. pinned tests stay pinned and may have an expected result
+    if (source === CompositeInputGenerator.INJECTED) {
+      // Ensure the injected inputs are in the expected order
+      const expectedInput = JSON5.stringify(pinnedTests[injectedCount].input);
+      const returnedInput = JSON5.stringify(result.input);
+      if (expectedInput !== returnedInput) {
+        throw new Error(
+          `Injected inputs in unexpected order at injected input# ${injectedCount}. Expected: "${expectedInput}". Got: "${returnedInput}".`
+        );
+      }
+
+      // Map the pinned test information to the new result
+      result.pinned = pinnedTests[injectedCount].pinned;
+      if (pinnedTests[injectedCount].expectedOutput) {
+        result.expectedOutput = pinnedTests[injectedCount].expectedOutput;
+      }
+      injectedCount++; // increment the number of pinned tests injected
+    } else {
       // Increment the number of inputs generated
       inputsGenerated++;
-      inputSource = "generator";
+    }
+
+    // Prepare measures for next test execution
+    for (const measure of measures) {
+      measure.onBeforeNextTestExecution();
     }
 
     // Skip tests if we previously processed the input
@@ -206,6 +225,7 @@ export const fuzz = (
       currentDupeCount++; // increment the dupe coynter
       totalDupeCount++; // incremement the total run dupe counter
       continue; // skip this test
+      // !!!!!!!! Make sure measures are calculated correctly for skipped inputs
     } else {
       currentDupeCount = 0; // reset the duplicate count
       // if the function accepts inputs, add test input
@@ -213,11 +233,6 @@ export const fuzz = (
       if (env.function.getArgDefs().length) {
         allInputs[inputHash] = true;
       }
-    }
-
-    // Prepare measures for next test execution
-    for (const measure of measures) {
-      measure.onBeforeNextTestExecution();
     }
 
     // Call the function via the wrapper
@@ -368,12 +383,8 @@ export const fuzz = (
       measurements[m] = measures[m].measure(JSON.parse(JSON.stringify(result)));
     }
 
-    // !!!!!!! Ssave the measures
-
     // Provide measures feedback to the composite input generator
-    if (inputSource === "generator") {
-      compositeInputGenerator.onInputFeedback(measurements);
-    }
+    compositeInputGenerator.onInputFeedback(measurements);
   } // for: Main test loop
 
   // End-of-run processing for each measure
@@ -382,7 +393,7 @@ export const fuzz = (
   }
 
   console.debug(
-    `Fuzzer generated ${results.inputsGenerated} inputs including ${results.dupesGenerated} dupes. Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}.`
+    `Fuzzer injected ${injectedCount} and generated ${results.inputsGenerated} inputs including ${results.dupesGenerated} dupes. Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}.`
   ); // !!!!!!!
   console.debug(
     `Tests with exceptions: ${
