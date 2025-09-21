@@ -21,6 +21,8 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
 import { BaseMeasurement } from "./measures/Types";
+import { Leaderboard } from "./generators/Leaderboard";
+import { InputAndSource } from "./generators/Types";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -98,11 +100,13 @@ export const fuzz = (
 
   // Setup the Composite Generator
   const argDefs = env.function.getArgDefs();
+  const leaderboard = new Leaderboard<InputAndSource>();
   const compositeInputGenerator = new CompositeInputGenerator(
     argDefs, // spec of inputs to generate
     env.options.seed ?? "", // prng seed
-    InputGeneratorFactory(env), // set of subordinate input generators
-    measures // measures
+    InputGeneratorFactory(env, leaderboard), // set of subordinate input generators
+    measures, // measures
+    leaderboard
   );
 
   // Inject pinned tests into the composite generator so that they generate

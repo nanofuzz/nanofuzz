@@ -54,7 +54,13 @@ export abstract class AbstractMeasure {
   // Takes a measurement after execution of a test
   public measure(result: FuzzTestResult): BaseMeasurement {
     result;
-    return { type: "measure", name: this.name, tick: this._tick, value: 0 };
+    return {
+      type: "measure",
+      name: this.name,
+      tick: this._tick,
+      total: 0,
+      increment: 0,
+    };
   }
 
   // !!!!!

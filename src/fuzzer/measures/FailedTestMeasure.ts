@@ -16,11 +16,10 @@ export class FailedTestMeasure extends CoverageMeasure {
   }
 
   // !!!!!!
-  // No ground truth for bugs so here approximating by
-  // coverage and validator
+  // No ground truth for bugs so we approximate by coverage & validator
   public measure(result: FuzzTestResult): FailedTestMeasurement {
     const coverageMeasure = super.measure(result);
-    let pseudoBugFound = false;
+    let pseudoBugsFound = 0;
     const newlyFailingValidators: number[] = [];
 
     // Make an array of all validator results
@@ -46,7 +45,7 @@ export class FailedTestMeasure extends CoverageMeasure {
         if (!(incrementMap in this._pseudoBugsData[v])) {
           this._pseudoBugsData[v][incrementMap] = 1;
           newlyFailingValidators.push(Number(v));
-          pseudoBugFound = true;
+          pseudoBugsFound++;
         } else {
           this._pseudoBugsData[v][incrementMap]++;
         }
@@ -54,8 +53,8 @@ export class FailedTestMeasure extends CoverageMeasure {
     }
 
     // If we found a new one, incremement the counter
-    if (pseudoBugFound) {
-      this._pseudoBugsFound++;
+    if (pseudoBugsFound) {
+      this._pseudoBugsFound += pseudoBugsFound;
     }
 
     /* !!!!!!!
@@ -73,10 +72,12 @@ export class FailedTestMeasure extends CoverageMeasure {
     }
     */
 
+    // Return the measurement
     return {
       ...coverageMeasure,
       name: this.name,
-      value: this._pseudoBugsFound,
+      total: this._pseudoBugsFound,
+      increment: pseudoBugsFound,
       failedTestMeasure: {
         increment: {
           validators: newlyFailingValidators,

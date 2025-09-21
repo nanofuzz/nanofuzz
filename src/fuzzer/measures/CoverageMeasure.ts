@@ -74,10 +74,14 @@ export class CoverageMeasure extends AbstractMeasure {
     return {
       ...measure,
       name: this.name,
-      value:
+      total:
         total.branches.covered +
         total.statements.covered +
         total.functions.covered,
+      increment:
+        increment.branches.covered +
+        increment.statements.covered +
+        increment.functions.covered,
       coverageMeasure: {
         increment: {
           lines: {

@@ -1,6 +1,7 @@
 import seedrandom from "seedrandom";
-import { ArgType, ArgValueType } from "../analysis/typescript/Types";
+import { ArgType } from "../analysis/typescript/Types";
 import { ArgDef } from "../analysis/typescript/ArgDef";
+import { InputAndSource } from "./Types";
 
 // !!!!!!
 export abstract class AbstractInputGenerator {
@@ -25,7 +26,7 @@ export abstract class AbstractInputGenerator {
   /**
    * Produce the next test-case inputs if isAvailable();
    */
-  public abstract next(): { input: ArgValueType[]; source: string };
+  public abstract next(): InputAndSource;
 
   /**
    * Returns true If the generator is presently available for use
