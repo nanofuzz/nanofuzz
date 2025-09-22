@@ -188,28 +188,28 @@ describe("fuzzer:", () => {
     expect(implicitOracle([{ a: [{ c: 2 }], b: 1 }])).toBe(true);
   });
 
-  it("Fuzz example 1", function () {
+  it("Fuzz example 01 - minValue", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/1.ts", "minValue")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 2", function () {
+  it("Fuzz example 02 - getSortSetting", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/2.ts", "getSortSetting")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 3", function () {
+  it("Fuzz example 03 - totalDinnerExpenses", function () {
     const fuzzResult = fuzz(
       setup(floatOptions, "nanofuzz-study/examples/3.ts", "totalDinnerExpenses")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 4", function () {
+  it("Fuzz example 04 - maxOfArray", function () {
     const fuzzResult = fuzz(
       setup(
         {
@@ -223,35 +223,35 @@ describe("fuzzer:", () => {
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 5", function () {
+  it("Fuzz example 05 - getRandomNumber", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/5.ts", "getRandomNumber")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 6", function () {
+  it("Fuzz example 06 - getZero", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/6.ts", "getZero")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 7", function () {
+  it("Fuzz example 07 - sortByWinLoss", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/7.ts", "sortByWinLoss")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 8", function () {
+  it("Fuzz example 08 - minSalary", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/8.ts", "minSalary")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 9", function () {
+  it("Fuzz example 09 - getOffsetOrDefault", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/9.ts", "getOffsetOrDefault")
     );
@@ -259,35 +259,35 @@ describe("fuzzer:", () => {
   });
 
   // TODO: Vector length is randomized here - probably do not want that !!!
-  it("Fuzz example 10", function () {
+  it("Fuzz example 10 - gramSchmidt", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/10.ts", "gramSchmidt")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 11", function () {
+  it("Fuzz example 11 - idMatrix", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/11.ts", "idMatrix")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 12", function () {
+  it("Fuzz example 12 - levenshtein", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/12.ts", "levenshtein")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 13", function () {
+  it("Fuzz example 13 - isSteady", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/13.ts", "isSteady")
     );
     expect(fuzzResult.results.length).not.toBe(0);
   });
 
-  it("Fuzz example 14", function () {
+  it("Fuzz example 14 - modInv", function () {
     const fuzzResult = fuzz(
       setup(intOptions, "nanofuzz-study/examples/14.ts", "modInv")
     );
@@ -437,5 +437,16 @@ describe("fuzzer:", () => {
     );
     expect(fuzzResult.results.length).not.toBe(0);
     expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+  });
+
+  /**
+   * Test that we can fuzz optional boolean inputs.
+   */
+  it("Optional boolean inputs", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "./Fuzzer.testfixtures.ts", "testBoolean")
+    );
+    expect(fuzzResult.results.length).toBe(3);
+    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy();
   });
 });

@@ -81,11 +81,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       this._ticksLeftInChunk = this._chunkSize;
       const [nextSubGen, reason] = this.selectNextSubGen();
       if (nextSubGen !== this._selectedSubgenIndex) {
-        console.debug(
+        /*console.debug(
           `[${this.name}][${this._tick}] Switching subgen from "${
             this._subgens[this._selectedSubgenIndex].name
           }" to "${this._subgens[nextSubGen].name}" b/c "${reason}`
-        ); // !!!!!!!
+        ); // !!!!!!!*/
       }
       this._selectedSubgenIndex = nextSubGen;
     }

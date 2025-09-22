@@ -75,3 +75,6 @@ export const testArrowUnionArgs = (
 ): boolean | undefined => {
   return;
 };
+export function testBoolean(a?: boolean): boolean {
+  return true;
+}
