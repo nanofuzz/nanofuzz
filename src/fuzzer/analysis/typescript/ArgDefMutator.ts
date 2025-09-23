@@ -20,6 +20,8 @@ export class ArgDefMutator {
         }) for input: ${JSON5.stringify(input)}`
       );
     }
+
+    // !!!!!!
     const mutations: {
       name: string;
       value: ArgValueType;
@@ -81,21 +83,6 @@ export class ArgDefMutator {
           // !!!!!!!! including for literals (see test: testArrowVoidLiteralArgs)
         }
       } else if (!spec.isNoInput()) {
-        // Determine mutations for optional fields
-        if (spec.isOptional()) {
-          if (subInput.subElement !== undefined) {
-            // Turn off optional field
-            mutations.push({
-              name: "optional-delete",
-              value: undefined, // !!!!!!! should delete if parent is object
-              path: [...subInput.subPath],
-            });
-          } else {
-            // Turn on optional field
-            // !!!!!!!!
-          }
-        }
-
         // Determine mutations according to ArgDef types
         switch (spec.getType()) {
           case ArgTag.NUMBER: {
@@ -221,6 +208,35 @@ export class ArgDefMutator {
               const children = spec.getChildren().filter((c) => !c.isNoInput());
               for (const c of children) {
                 const name = c.getName();
+
+                // Mutator to generate optional member if missing
+                if (c.isOptional()) {
+                  const oldValue = value[name];
+                  if (value[name] === undefined) {
+                    const newValue = ArgDefGenerator.gen(c, prng);
+                    mutations.push(
+                      ...[
+                        {
+                          name: `optional-genFromSpec`,
+                          value: newValue,
+                          path: [...subInput.subPath, name],
+                        },
+                      ].filter(
+                        (e) =>
+                          JSON5.stringify(e.value) !== JSON5.stringify(oldValue)
+                      )
+                    );
+                  } else {
+                    // Mutator to delete optional input
+                    mutations.push({
+                      name: "optional-delete",
+                      value: undefined, // !!!!!!! should delete if parent is object
+                      path: [...subInput.subPath, name],
+                    });
+                  }
+                }
+
+                // Mutators for object member value
                 subInputs.push({
                   subPath: [...subInput.subPath, name],
                   subElement: value[name],
