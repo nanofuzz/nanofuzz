@@ -4,6 +4,8 @@ import { ArgTag, ArgType, ArgValueType } from "../analysis/typescript/Types";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "./Types";
 import * as JSON5 from "json5";
+import { ArgDefValidator } from "../analysis/typescript/ArgDefValidator";
+import { ArgDefGenerator } from "../analysis/typescript/ArgDefGenerator";
 
 // !!!!!!
 export class MutationInputGenerator extends AbstractInputGenerator {
@@ -13,11 +15,11 @@ export class MutationInputGenerator extends AbstractInputGenerator {
 
   // !!!!!!
   public constructor(
-    argDefs: ArgDef<ArgType>[],
+    specs: ArgDef<ArgType>[],
     rngSeed: string,
     leaderboard: Leaderboard<InputAndSource>
   ) {
-    super(argDefs, rngSeed);
+    super(specs, rngSeed);
     this._leaderboard = leaderboard;
   } // !!!!!!
 
@@ -45,7 +47,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       const originalInput = JSON5.parse(JSON5.stringify(input));
 
       // calculate possible mutations for the input values
-      mutators.push(...this._getMutators(this._argDefs, input));
+      mutators.push(...this._getMutators(this._specs, input));
       console.debug(
         `[${this.name}] ${mutators.length} mutators for input ${JSON5.stringify(
           input
@@ -291,13 +293,12 @@ export class MutationInputGenerator extends AbstractInputGenerator {
             const value = subInput.subElement;
             if (typeof value === "object" && !Array.isArray(value)) {
               const children = spec.getChildren().filter((c) => !c.isNoInput());
-              for (const c in children) {
-                const childSpec = children[c];
-                const name = childSpec.getName();
+              for (const c of children) {
+                const name = c.getName();
                 subInputs.push({
                   subPath: [...subInput.subPath, name],
                   subElement: value[name],
-                  subSpec: childSpec,
+                  subSpec: c,
                   inArray: false,
                 });
               }
@@ -309,8 +310,53 @@ export class MutationInputGenerator extends AbstractInputGenerator {
             break;
           }
           case ArgTag.UNION: {
-            // !!!!!!!!
-            // We need to validate and determine which union member we are mutating
+            const value = subInput.subElement;
+
+            // Filter out invalid and noInput specs & select a random valid spec
+            // with which to mutate the input value
+            const validChildren = spec
+              .getChildren()
+              .filter(
+                (c) => ArgDefValidator.validate(value, c) && !c.isNoInput()
+              );
+            if (validChildren.length) {
+              subInputs.push({
+                subPath: [...subInput.subPath],
+                subElement: value,
+                subSpec:
+                  validChildren[
+                    Math.floor(this._prng() * validChildren.length)
+                  ],
+                inArray: false,
+              });
+            }
+
+            // Create a mutator with a randomly-generated value for a randomly-
+            // selected spec that allows inputs
+            const inputOkChildren = spec
+              .getChildren()
+              .filter((c) => !c.isNoInput());
+            if (inputOkChildren.length) {
+              const newValue = ArgDefGenerator.gen(
+                inputOkChildren[
+                  Math.floor(this._prng() * inputOkChildren.length)
+                ],
+                this._prng
+              );
+              mutations.push(
+                ...[
+                  {
+                    name: `union-regenFromSpec`,
+                    value: newValue,
+                    path: [...subInput.subPath],
+                  },
+                ].filter(
+                  (e) =>
+                    JSON5.stringify(e.value) !== JSON5.stringify(value) &&
+                    !(e.value === undefined && isNull(value))
+                )
+              );
+            }
             break;
           }
           case ArgTag.UNRESOLVED: {
@@ -387,3 +433,8 @@ type mutatorFn = {
   path: (string | number)[];
   fn: () => ArgValueType;
 };
+
+// !!!!!!
+function isNull(value: unknown): boolean {
+  return value === null;
+} // !!!!!!!

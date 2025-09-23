@@ -29,13 +29,13 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
   // !!!!!!
   public constructor(
-    argType: ArgDef<ArgType>[],
+    specs: ArgDef<ArgType>[],
     rngSeed: string,
     subgens: AbstractInputGenerator[],
     measures: AbstractMeasure[],
     leaderboard: Leaderboard<InputAndSource>
   ) {
-    super(argType, rngSeed);
+    super(specs, rngSeed);
 
     this._subgens = subgens;
     this._measures = measures;
@@ -77,7 +77,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
     // If the prior chunk of generated inputs is exhausted, start
     // a new chunk and re-determine subgen efficiency
-    if (this._ticksLeftInChunk < 1) {
+    if (this._ticksLeftInChunk-- < 1) {
       this._ticksLeftInChunk = this._chunkSize;
       const [nextSubGen, reason] = this.selectNextSubGen();
       if (nextSubGen !== this._selectedSubgenIndex) {
@@ -89,7 +89,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       }
       this._selectedSubgenIndex = nextSubGen;
     }
-    this._ticksLeftInChunk--;
 
     // Randomly select a subgen 1 in P times, otherwise use the most
     // efficient subgen

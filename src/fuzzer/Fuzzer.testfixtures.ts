@@ -62,16 +62,16 @@ export const testArrowVoidLiteralArgs = (n: 5, n2: 5[]): void => {
  */
 type hellos = "hello" | "bonjour" | "olá" | "ciao" | "hej";
 type stringOrNumber = string | number;
-type maybeString = string | undefined;
+type maybeBool = boolean | undefined;
 export function testStandardUnionArgs(
   a: stringOrNumber,
-  b: maybeString[]
+  b: maybeBool[]
 ): boolean | undefined {
   return;
 }
 export const testArrowUnionArgs = (
   a: stringOrNumber,
-  b: maybeString[]
+  b: maybeBool[]
 ): boolean | undefined => {
   return;
 };

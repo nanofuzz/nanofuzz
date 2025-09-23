@@ -5,13 +5,13 @@ import { InputAndSource } from "./Types";
 
 // !!!!!!
 export abstract class AbstractInputGenerator {
-  protected _argDefs;
+  protected _specs;
   protected _rngSeed;
   protected _prng;
 
   // !!!!!!
-  protected constructor(argDef: ArgDef<ArgType>[], rngSeed: string) {
-    this._argDefs = argDef;
+  protected constructor(specs: ArgDef<ArgType>[], rngSeed: string) {
+    this._specs = specs;
     this._rngSeed = rngSeed;
     this._prng = seedrandom(rngSeed);
   }
