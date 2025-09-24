@@ -7,6 +7,7 @@ import * as JSON5 from "json5";
 // !!!!!!
 export class ArgDefMutator {
   // !!!!!!
+  // mutators only work once
   public static getMutators(
     specs: ArgDef<ArgType>[],
     input: ArgValueType[],
@@ -29,15 +30,59 @@ export class ArgDefMutator {
     }[] = [];
 
     // !!!!!!
-    const traverse = (
+    const mutateArray = (
       a: Array<ArgValueType>,
       path: (string | number)[],
       spec: ArgDef<ArgType>,
-      maxLevels: number
+      level = 1
     ): void => {
+      const options = spec.getOptions();
+      mutations.push(
+        ...[
+          {
+            name: "array-jumble",
+            value: [...a].sort(() => 0.5 - prng()),
+            path: [...path],
+          },
+          {
+            name: "array-reverse",
+            value: [...a].reverse(),
+            path: [...path],
+          },
+          {
+            name: "array-appendNewElement",
+            value: [
+              ...a,
+              ArgDefGenerator.gen(spec, prng, false /* w/o dimensions */),
+            ],
+            path: [...path],
+          },
+        ].filter(
+          (e) =>
+            JSON5.stringify(e.value) !== JSON5.stringify(a) &&
+            options.dimLength[level - 1].max >= e.value.length &&
+            options.dimLength[level - 1].min <= e.value.length
+        )
+      );
+
+      // !!!!!!
       for (const i in a) {
-        if (Array.isArray(a[i]) && maxLevels) {
-          traverse(a[i], [...path, Number(i)], spec, maxLevels - 1);
+        mutations.push(
+          ...[
+            {
+              name: `array-deleteElement${i}`,
+              value: [...a.filter((v, j) => Number(i) !== j)],
+              path: [...path],
+            },
+          ].filter(
+            (e) =>
+              options.dimLength[level - 1].max >= e.value.length &&
+              options.dimLength[level - 1].min <= e.value.length
+          )
+        );
+
+        if (Array.isArray(a[i]) && level < spec.getDim()) {
+          mutateArray(a[i], [...path, Number(i)], spec, level + 1);
         } else {
           subInputs.push({
             subPath: [...path, Number(i)],
@@ -73,14 +118,12 @@ export class ArgDefMutator {
       // Handle array dimensions
       if (spec.getDim() && !subInput.inArray) {
         if (Array.isArray(subInput.subElement)) {
-          traverse(
+          mutateArray(
             subInput.subElement,
             [...subInput.subPath],
             spec,
             spec.getDim()
           );
-          // !!!!!!!! Also need to delete, add, reverse, jumble elements & increase, reduce dimensions
-          // !!!!!!!! including for literals (see test: testArrowVoidLiteralArgs)
         }
       } else if (!spec.isNoInput()) {
         // Determine mutations according to ArgDef types
@@ -213,12 +256,11 @@ export class ArgDefMutator {
                 if (c.isOptional()) {
                   const oldValue = value[name];
                   if (value[name] === undefined) {
-                    const newValue = ArgDefGenerator.gen(c, prng);
                     mutations.push(
                       ...[
                         {
-                          name: `optional-genFromSpec`,
-                          value: newValue,
+                          name: `optional-genMember`,
+                          value: ArgDefGenerator.gen(c, prng),
                           path: [...subInput.subPath, name],
                         },
                       ].filter(

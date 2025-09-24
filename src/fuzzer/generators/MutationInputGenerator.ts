@@ -51,13 +51,13 @@ export class MutationInputGenerator extends AbstractInputGenerator {
         input,
         this._prng
       );
-      console.debug(
+      /*console.debug(
         `[${this.name}] ${mutators.length} mutators for input ${JSON5.stringify(
           input
         )}: ${mutators
           .map((e) => `${e.name}@${JSON5.stringify(e.path)}`)
           .join(", ")}`
-      ); // !!!!!!!
+      ); // !!!!!!!*/
 
       // !!!!!! some kind of error here? seems pointless to return a duplicate input....?
       if (!mutators.length) {

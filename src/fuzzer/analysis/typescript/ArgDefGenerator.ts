@@ -23,9 +23,10 @@ export class ArgDefGenerator {
   // !!!!!! one-shot generation
   public static gen(
     spec: ArgDef<ArgType>,
-    prng: seedrandom.prng
+    prng: seedrandom.prng,
+    genDims = true
   ): ArgValueType {
-    return generateRandomInputFn(spec, prng)();
+    return generateRandomInputFn(spec, prng, genDims)();
   }
 } // !!!!!!
 
@@ -53,7 +54,8 @@ type PublicRandFn = () => ArgValueType;
 
 function generateRandomInputFn<T extends ArgType>(
   arg: ArgDef<T>,
-  prng: seedrandom.prng
+  prng: seedrandom.prng,
+  genDims = true
 ): PublicRandFn {
   let randFn: PrivateRandFn;
 
@@ -156,9 +158,10 @@ function generateRandomInputFn<T extends ArgType>(
   };
 
   // If the arg is an array, return the array generator
-  const randArgValueWrapper: PublicRandFn = !dimLength.length
-    ? randFnWrapper
-    : () => nArray(prng, randFnWrapper, dimLength, options);
+  const randArgValueWrapper: PublicRandFn =
+    dimLength.length && genDims
+      ? () => nArray(prng, randFnWrapper, dimLength, options)
+      : randFnWrapper;
 
   // Inject undefined values into arg only if it is optional
   return isOptional
