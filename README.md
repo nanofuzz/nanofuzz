@@ -72,7 +72,7 @@ This paper covers the original implicit oracle version of NaNofuzz that introduc
 
 To reference NaNofuzz v0.3.x ("TerzoN") in your own research, please cite our FSE'25 paper:
 
-> Matthew C. Davis, Amy Wei, Brad A. Myers, and Joshua Sunshine. **[TerzoN: Human-in-the-loop Software Testing with a Composite Oracle](https://conf.researchr.org/details/fse-2025/fse-2025-research-papers/30/TerzoN-Human-in-the-Loop-Software-Testing-with-a-Composite-Oracle)**. At FSE’25. In Proceedings of the ACM on Software Engineering, 2025. (accepted, pre-print, pending publication)
+> Matthew C. Davis, Amy Wei, Brad A. Myers, and Joshua Sunshine. 2025. **[TerzoN: Human-in-the-loop Software Testing with a Composite Oracle](https://dl.acm.org/doi/abs/10.1145/3729359)**. Proceedings of the ACM on Software Engineering, 2, FSE, Article FSE089 (July 2025),
 
 This paper covers the version of NaNofuzz that introduced the Composite Oracle, which features implicit, property-based, and example-based oracles, as well as the expanded "tab-and-grid" user interface.
 
