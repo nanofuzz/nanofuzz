@@ -52,7 +52,7 @@ export class ArgDef<T extends ArgType> {
    * @param optional Indicates whether the argument is optional
    * @param intervals Input intervals for the argument. REQUIRED for literal types.
    */
-  private constructor(
+  public constructor(
     name: string,
     offset: number,
     type: ArgTag,

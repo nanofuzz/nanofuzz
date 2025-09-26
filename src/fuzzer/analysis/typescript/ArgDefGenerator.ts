@@ -108,7 +108,7 @@ function generateRandomInputFn<T extends ArgType>(
         if (typeof min !== "object" || typeof max !== "object")
           throw new Error("Min and max must be objects");
         const outObj: { [key: string]: ArgValueType } = {};
-        for (const child of arg.getChildren()) {
+        for (const child of arg.getChildren().filter((e) => !e.isNoInput())) {
           outObj[child.getName()] = generateRandomInputFn(child, prng)();
 
           // Remove undefined object members, otherwise the

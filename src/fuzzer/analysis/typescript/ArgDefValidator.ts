@@ -67,11 +67,24 @@ export class ArgDefValidator {
             const children = spec.getChildren();
             for (const c of children) {
               const name = c.getName();
+              const childValue = input[name];
+              const isNoInput = c.isNoInput();
+              const isOptional = c.isOptional();
+              let valid = false; // assume invalid & look for cases of validity
+              if (isNoInput && childValue === undefined) {
+                valid = true;
+              }
+              if (!valid && isOptional && childValue === undefined) {
+                valid = true;
+              }
               if (
-                (c.isNoInput() && input[name] !== undefined) ||
-                (!c.isOptional() && input[name] === undefined) ||
-                !ArgDefValidator.validate(input[name], c)
+                !valid &&
+                !isNoInput &&
+                ArgDefValidator.validate(childValue, c)
               ) {
+                valid = true;
+              }
+              if (!valid) {
                 return false;
               }
             }

@@ -118,12 +118,7 @@ export class ArgDefMutator {
       // Handle array dimensions
       if (spec.getDim() && !subInput.inArray) {
         if (Array.isArray(subInput.subElement)) {
-          mutateArray(
-            subInput.subElement,
-            [...subInput.subPath],
-            spec,
-            spec.getDim()
-          );
+          mutateArray(subInput.subElement, [...subInput.subPath], spec);
         }
       } else if (!spec.isNoInput()) {
         // Determine mutations according to ArgDef types
@@ -181,7 +176,7 @@ export class ArgDefMutator {
             const value = String(subInput.subElement);
             const rPos = Math.floor(prng() * Math.max(0, value.length - 1));
             const charSet = options.strCharset;
-            const rChar = charSet[Math.floor(prng() * charSet.length - 1)];
+            const rChar = charSet[Math.floor(prng() * (charSet.length - 1))];
 
             mutations.push(
               ...[
@@ -238,11 +233,6 @@ export class ArgDefMutator {
                     e.value === Boolean(spec.getIntervals()[0].min))
               )
             );
-            console.debug(
-              `[${this.name}] boolInterval: ${JSON5.stringify(
-                spec.getIntervals()
-              )}`
-            ); // !!!!!!!
             break;
           }
           case ArgTag.OBJECT: {
