@@ -55,7 +55,8 @@ type PublicRandFn = () => ArgValueType;
 function generateRandomInputFn<T extends ArgType>(
   arg: ArgDef<T>,
   prng: seedrandom.prng,
-  genDims = true
+  genDims = true /* true=generate array dimensions if present;
+                    false=generate only the value */
 ): PublicRandFn {
   let randFn: PrivateRandFn;
 
@@ -164,7 +165,8 @@ function generateRandomInputFn<T extends ArgType>(
       : randFnWrapper;
 
   // Inject undefined values into arg only if it is optional
-  return isOptional
+  // and we are not generating values inside an array
+  return isOptional && genDims
     ? () => {
         if (prng() >= 0.5) return undefined;
         else return randArgValueWrapper();

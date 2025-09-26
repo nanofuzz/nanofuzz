@@ -186,6 +186,13 @@ export class ArgDefMutator {
                   path: [...subInput.subPath],
                 },
                 {
+                  name: "string-replaceOneChar",
+                  value: `${value.slice(0, rPos)}${rChar}${value.slice(
+                    rPos + 1
+                  )}`,
+                  path: [...subInput.subPath],
+                },
+                {
                   name: "string-insertOneChar",
                   value: `${value.slice(0, rPos)}${rChar}${value.slice(rPos)}`,
                   path: [...subInput.subPath],

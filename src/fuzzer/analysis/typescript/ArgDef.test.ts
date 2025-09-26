@@ -448,20 +448,20 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
 
   it("fuzz test gen/mutate/validate loop", function () {
     const prng = seedrandom("qwertyuiop");
-    let outputted = false; // !!!!!!!!
     const stats: {
       gens: { valid: number; invalid: number };
       muts: { valid: number; invalid: number; dupe: number };
-      specs: {
+      specsWithErrors: {
         [k: string]: { [k: string]: number };
       };
     } = {
       gens: { valid: 0, invalid: 0 },
       muts: { valid: 0, invalid: 0, dupe: 0 },
-      specs: {},
+      specsWithErrors: {},
     };
     const failingSpecs: string[] = [];
     const failingMutators: { [k: string]: number } = {};
+    const dupeMutators: { [k: string]: number } = {};
     let i = 50;
     while (i--) {
       const spec = [getRandomArgDef(prng, Math.floor(prng() * 2))];
@@ -469,51 +469,65 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
       const gen = new ArgDefGenerator(spec, prng);
       const val = new ArgDefValidator(spec);
 
-      let j = 50;
+      let j = 100;
       while (j--) {
-        const input = gen.next();
+        let input = gen.next();
         const isValid = val.validate(input);
         if (!isValid) {
           const itxt = JSON5.stringify(input[0]);
           stats.gens.invalid++;
-          stats.specs[stxt] = stats.specs[stxt] ?? {};
-          stats.specs[stxt][itxt] = (stats.specs[stxt][itxt] ?? 0) + 1;
+          stats.specsWithErrors[stxt] = stats.specsWithErrors[stxt] ?? {};
+          stats.specsWithErrors[stxt][itxt] =
+            (stats.specsWithErrors[stxt][itxt] ?? 0) + 1;
           failingSpecs.push(stxt);
+          console.debug(`Generated invalid input for spec:`);
+          console.debug(`  Invalid input: ${itxt}`);
+          console.debug(`  Spec         : ${stxt}`);
         } else {
           stats.gens.valid++;
-        }
-        expect(isValid).toBeTrue(); // generated input passed validation
 
-        let k = 50;
-        while (k--) {
-          const inputStringBefore = JSON5.stringify(input);
-          const muts = ArgDefMutator.getMutators(spec, input, prng);
-          if (muts.length) {
-            const index = Math.floor(prng() * (muts.length - 1));
-            const mut = muts[index];
-            mut.fn(); // mutate the input
-            const inputStringAfter = JSON5.stringify(input);
-            if (inputStringBefore === inputStringAfter) {
-              stats.muts.dupe++;
-            }
-            expect(inputStringBefore === inputStringAfter).toBeFalse();
+          let k = 100;
+          while (k--) {
+            const inputStringBefore = JSON5.stringify(input);
+            const muts = ArgDefMutator.getMutators(spec, input, prng);
+            if (muts.length) {
+              const index = Math.floor(prng() * (muts.length - 1));
+              const mut = muts[index];
+              mut.fn(); // mutate the input
+              const inputStringAfter = JSON5.stringify(input);
+              if (inputStringBefore === inputStringAfter) {
+                stats.muts.dupe++;
+                dupeMutators[mut.name] = (failingMutators[mut.name] ?? 0) + 1;
+              }
+              const isValid = val.validate(input);
+              if (!isValid) {
+                stats.muts.invalid++;
+                failingMutators[mut.name] =
+                  (failingMutators[mut.name] ?? 0) + 1;
+                console.debug(
+                  `Mutator ${mut.name}@[${mut.path}] output failed validation:`
+                );
+                console.debug(`  Before: ${inputStringBefore}`);
+                console.debug(`  After : ${inputStringAfter}`);
+                console.debug(`  Spec  : ${stxt}`);
 
-            const isValid = val.validate(input);
-            if (!isValid) {
-              stats.muts.invalid++;
-              failingMutators[mut.name] = (failingMutators[mut.name] ?? 0) + 1;
-            } else {
-              stats.muts.valid++;
-            }
-            expect(isValid).toBeTrue(); // generated input passed validation
+                // Revert to the previous input so that we don't confuse
+                // the issue about which mutator broke the input chain
+                input = JSON5.parse(inputStringBefore);
+              } else {
+                stats.muts.valid++;
+              }
 
-            if (!k) {
-              try {
-                mut.fn();
-                console.error(`Double mutation is expected to fail but didn't`);
-                expect(false).toBeTrue();
-              } catch (e: unknown) {
-                // we expect this to throw an exception
+              if (!k) {
+                try {
+                  mut.fn();
+                  console.error(
+                    `Double mutation is expected to fail but didn't`
+                  );
+                  expect(false).toBeTrue();
+                } catch (e: unknown) {
+                  // we expect this to throw an exception
+                }
               }
             }
           }
@@ -521,18 +535,38 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
       }
     }
 
-    console.debug(`${Object.keys(stats.specs).length} specs had failed gens:`);
+    console.debug(
+      `${
+        Object.keys(stats.specsWithErrors).length
+      } specs generated invalid inputs:`
+    );
     const specs: Record<string, number> = {};
     failingSpecs.forEach((e) => (specs[e] = (specs[e] ?? 0) + 1));
     for (const k in specs) {
       console.debug(`${specs[k]}: ${k}`);
     }
+
     console.debug(
       `${
         Object.keys(failingMutators).length
       } failing mutators: ${JSON5.stringify(failingMutators, null, 3)}`
     );
+    console.debug(
+      `${Object.keys(dupeMutators).length} dupe mutators: ${JSON5.stringify(
+        dupeMutators,
+        null,
+        3
+      )}`
+    );
+
     console.debug(`Stats: ${JSON5.stringify(stats, null, 3)}`);
+
+    expect(stats.gens.valid).not.toBe(0);
+    expect(stats.gens.invalid).toBe(0);
+
+    expect(stats.muts.valid).not.toBe(0);
+    expect(stats.muts.dupe).toBe(0);
+    expect(stats.muts.invalid).toBe(0);
   });
 });
 
@@ -544,6 +578,7 @@ function abbrSpec(spec: ArgDef<ArgType>, indents = 0): string[] {
   line.push(`${spec.getName()}:${spec.getTypeAnnotation()}`);
   line.push(`dims: ${JSON5.stringify(spec.getOptions().dimLength)}`);
   if (spec.isNoInput()) line.push(`NOINPUT`);
+  if (spec.isOptional()) line.push(`OPTIONAL`);
   if (spec.getType() === ArgTag.NUMBER && spec.getOptions().numSigned)
     line.push(`SIGNED`);
   if (spec.getType() === ArgTag.NUMBER && spec.getOptions().numInteger)
@@ -582,8 +617,14 @@ function getRandomArgDef(
   const children: ArgDef<ArgType>[] = [];
   if (levels && (argTag === ArgTag.OBJECT || argTag === ArgTag.UNION)) {
     let childCount = 2;
-    while (childCount--) {
-      children.push(getRandomArgDef(prng, levels - 1, argTag));
+    while (childCount) {
+      const child = getRandomArgDef(prng, levels - 1, argTag);
+      // Children need to have unique names. If by random chance we
+      // have a collision, just try again
+      if (children.every((e) => e.getName() !== child.getName())) {
+        children.push(child);
+        childCount--;
+      }
     }
   }
 
