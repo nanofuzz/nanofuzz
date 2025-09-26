@@ -9,6 +9,8 @@ import vm from "vm";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { AbstractMeasure } from "./measures/AbstractMeasure";
+import { VmGlobals } from "./Types";
 
 // Load the TypeScript compiler script
 const tsc = path.join(path.dirname(require.resolve("typescript")), "_tsc.js");
@@ -83,7 +85,7 @@ export function getOptions(): CompilerOptions {
 /**
  * Activate the TypeScript compiler hook
  */
-export function activate(): void {
+export function activate(measures: AbstractMeasure[]): void {
   // Save the previous extension, if it exists
   if (require.extensions[hookType] !== undefined) {
     if (previousRequireExtensions[hookType] === undefined) {
@@ -94,8 +96,22 @@ export function activate(): void {
 
   // Add our new extension
   require.extensions[hookType] = function (module) {
+    // Transpile the Typescript file
     const jsname = compileTS(module);
-    runJS(jsname, module);
+
+    // Apply measurement instrumentation
+    let src = fs.readFileSync(jsname, "utf8");
+    for (const measure of measures) {
+      src = measure.onAfterCompile(src, jsname);
+    }
+
+    // Load the module
+    const context: VmGlobals = runJS(jsname, module, src);
+
+    // Collect measurements from the initial load
+    for (const measure of measures) {
+      measure.onAfterLoad(context);
+    }
   };
 }
 
@@ -137,6 +153,8 @@ function isModified(tsname: string, jsname: string) {
  */
 function compileTS(module: NodeJS.Module) {
   let exitCode = 0;
+
+  // Determine the compiled name of the module we are about to compile
   const moduleDirName = path.dirname(module.filename);
   const relativeFolder =
     "." +
@@ -250,23 +268,23 @@ function compileTS(module: NodeJS.Module) {
  * @param module Javqscript module
  * @returns The script result, if any
  */
-function runJS(jsname: string, module: NodeJS.Module) {
-  const content = fs.readFileSync(jsname, "utf8");
-
-  const sandbox: { [k: string]: unknown } = {};
+function runJS(jsname: string, module: NodeJS.Module, src: string) {
+  const context: { [k: string]: any } = {};
   let k: keyof typeof global;
   for (k in global) {
-    sandbox[k] = global[k];
+    context[k] = global[k];
   }
-  sandbox.require = module.require.bind(module);
-  sandbox.exports = module.exports;
-  sandbox.__filename = jsname;
-  sandbox.__dirname = path.dirname(module.filename);
-  sandbox.module = module;
-  sandbox.global = sandbox;
-  sandbox.root = global;
-
-  return vm.runInNewContext(content, sandbox, { filename: jsname });
+  context.require = module.require.bind(module);
+  context.exports = module.exports;
+  context.__filename = jsname;
+  context.__dirname = path.dirname(module.filename);
+  context.module = module;
+  context.global = context;
+  context.root = global;
+  vm.runInNewContext(src, context, {
+    filename: jsname,
+  });
+  return context;
 }
 
 function merge(a: any, b: any) {

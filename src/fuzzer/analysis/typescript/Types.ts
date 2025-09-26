@@ -73,8 +73,22 @@ export enum ArgTag {
   UNION = "union",
   UNRESOLVED = "unresolved", // unresolved type reference
 }
-export type ArgType = number | string | boolean | Record<string, unknown>;
-export type ArgValueType = ArgType | ArgValueType[] | undefined;
+export type ArgType =
+  | number
+  | string
+  | boolean
+  | {
+      [key: string]: ArgType;
+    };
+export type ArgValueType =
+  | number
+  | string
+  | boolean
+  | {
+      [key: string]: ArgValueType;
+    }
+  | ArgValueType[]
+  | undefined;
 
 /**
  * The set of options for an argument.  This option set is used to "fill in" information

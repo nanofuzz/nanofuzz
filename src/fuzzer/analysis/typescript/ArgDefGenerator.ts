@@ -1,12 +1,34 @@
 import seedrandom from "seedrandom";
-import { ArgDef } from "../analysis/typescript/ArgDef";
-import {
-  ArgTag,
-  ArgType,
-  ArgValueType,
-  ArgOptions,
-  Interval,
-} from "../analysis/typescript/Types";
+import { ArgDef } from "./ArgDef";
+import { ArgTag, ArgType, ArgValueType, ArgOptions, Interval } from "./Types";
+
+// !!!!!!
+export class ArgDefGenerator {
+  protected _gens: PublicRandFn[] = []; // !!!!!!
+  protected _prng; // !!!!!!
+
+  // !!!!!!
+  public constructor(argDefs: ArgDef<ArgType>[], prng: seedrandom.prng) {
+    this._prng = prng;
+    this._gens = argDefs.map((argDef) =>
+      generateRandomInputFn(argDef, this._prng)
+    );
+  } // !!!!!!
+
+  // !!!!!!
+  public next(): ArgValueType[] {
+    return this._gens.map((e) => e());
+  } // !!!!!!
+
+  // !!!!!! one-shot generation
+  public static gen(
+    spec: ArgDef<ArgType>,
+    prng: seedrandom.prng,
+    genDims = true
+  ): ArgValueType {
+    return generateRandomInputFn(spec, prng, genDims)();
+  }
+} // !!!!!!
 
 /**
  * Builds and returns a generator function that generates a pseudo-
@@ -30,9 +52,11 @@ type PrivateRandFn = (
 
 type PublicRandFn = () => ArgValueType;
 
-export function GeneratorFactory<T extends ArgType>(
+function generateRandomInputFn<T extends ArgType>(
   arg: ArgDef<T>,
-  prng: seedrandom.prng
+  prng: seedrandom.prng,
+  genDims = true /* true=generate array dimensions if present;
+                    false=generate only the value */
 ): PublicRandFn {
   let randFn: PrivateRandFn;
 
@@ -72,7 +96,7 @@ export function GeneratorFactory<T extends ArgType>(
           children.length - 1,
           ArgDef.getDefaultOptions() // use defaults for union member selection
         );
-        return GeneratorFactory(children[rn], prng)();
+        return generateRandomInputFn(children[rn], prng)();
       };
       break;
     case "object":
@@ -85,8 +109,8 @@ export function GeneratorFactory<T extends ArgType>(
         if (typeof min !== "object" || typeof max !== "object")
           throw new Error("Min and max must be objects");
         const outObj: { [key: string]: ArgValueType } = {};
-        for (const child of arg.getChildren()) {
-          outObj[child.getName()] = GeneratorFactory(child, prng)();
+        for (const child of arg.getChildren().filter((e) => !e.isNoInput())) {
+          outObj[child.getName()] = generateRandomInputFn(child, prng)();
 
           // Remove undefined object members, otherwise the
           // implicit oracle flags them.
@@ -135,12 +159,14 @@ export function GeneratorFactory<T extends ArgType>(
   };
 
   // If the arg is an array, return the array generator
-  const randArgValueWrapper: PublicRandFn = !dimLength.length
-    ? randFnWrapper
-    : () => nArray(prng, randFnWrapper, dimLength, options);
+  const randArgValueWrapper: PublicRandFn =
+    dimLength.length && genDims
+      ? () => nArray(prng, randFnWrapper, dimLength, options)
+      : randFnWrapper;
 
   // Inject undefined values into arg only if it is optional
-  return isOptional
+  // and we are not generating values inside an array
+  return isOptional && genDims
     ? () => {
         if (prng() >= 0.5) return undefined;
         else return randArgValueWrapper();
