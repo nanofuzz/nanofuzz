@@ -35,4 +35,9 @@ export abstract class AbstractInputGenerator {
   public isAvailable(): boolean {
     return true;
   }
+
+  // !!!!!!
+  public onShutdown(): void {
+    return;
+  }
 }

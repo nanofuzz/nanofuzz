@@ -379,7 +379,7 @@ export const fuzz = (
       results.results.push(result);
     }
 
-    // Get measures for this test run
+    // Take measurements for this test run
     const measurements: BaseMeasurement[] = [];
     let m: keyof typeof measures;
     for (m in measures) {
@@ -391,10 +391,11 @@ export const fuzz = (
     compositeInputGenerator.onInputFeedback(measurements);
   } // for: Main test loop
 
-  // End-of-run processing for each measure
+  // End-of-run processing for each measure and input generator
   for (const measure of measures) {
-    measure.onTestingEnd(results);
+    measure.onShutdown(results);
   }
+  compositeInputGenerator.onShutdown();
 
   console.debug(
     `Fuzzer injected ${injectedCount} and generated ${results.inputsGenerated} inputs including ${results.dupesGenerated} dupes. Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}.`

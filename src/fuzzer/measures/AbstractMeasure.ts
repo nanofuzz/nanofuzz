@@ -65,7 +65,7 @@ export abstract class AbstractMeasure {
 
   // !!!!!
   // Called after testing has ended
-  public onTestingEnd(results: FuzzTestResults): void {
+  public onShutdown(results: FuzzTestResults): void {
     results;
   }
 

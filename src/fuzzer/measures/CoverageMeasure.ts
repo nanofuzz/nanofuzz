@@ -48,6 +48,9 @@ export class CoverageMeasure extends AbstractMeasure {
       );
     }
 
+    // Calculate prior total coverage before merging in the current coverage
+    const priorTotalMeasure = CoverageMeasure.toScore(this._totalCoverage);
+
     // Build a coverage map from a cloned copy of the
     // coverage data
     const incrementCoverageMap = createCoverageMap(
@@ -67,23 +70,22 @@ export class CoverageMeasure extends AbstractMeasure {
     }
     */
 
-    // Summarize the coverage and return the progress measure,
-    // which is total branches + statements + functions covered.
+    // Summarize the coverage and return the progress measures,
+    // which are branches + statements + functions covered.
     const total = this._totalCoverage.getCoverageSummary();
+    const totalMeasure = CoverageMeasure.toScore(this._totalCoverage);
+    const incrementMeasure = totalMeasure - priorTotalMeasure;
+    console.debug(
+      `[${this.name}][cov] totalM: ${totalMeasure} priorTotalM: ${priorTotalMeasure} incM: ${incrementMeasure}`
+    ); // !!!!!!!
     const increment = incrementCoverageMap.getCoverageSummary();
     return {
       ...measure,
       name: this.name,
-      total:
-        total.branches.covered +
-        total.statements.covered +
-        total.functions.covered,
-      increment:
-        increment.branches.covered +
-        increment.statements.covered +
-        increment.functions.covered,
+      total: totalMeasure,
+      increment: incrementMeasure,
       coverageMeasure: {
-        increment: {
+        current: {
           lines: {
             total: increment.data.lines.total,
             covered: increment.data.lines.covered,
@@ -144,12 +146,22 @@ export class CoverageMeasure extends AbstractMeasure {
   }
 
   // !!!!!!
-  public onTestingEnd(results: FuzzTestResults): void {
+  public onShutdown(results: FuzzTestResults): void {
     results.aggregateCoverageSummary = this._totalCoverage.getCoverageSummary(); // !!!!!!
     console.debug(
-      `[CoverageMeasure][${this._tick}] `,
+      `[${this.name}][${this._tick}] `,
       results.aggregateCoverageSummary
     ); // !!!!!!!
+  }
+
+  // !!!!!!
+  // return the progress measure,
+  // which is total branches + statements + functions covered.
+  private static toScore(m: CoverageMap): number {
+    const summ = m.getCoverageSummary();
+    return (
+      summ.branches.covered + summ.statements.covered + summ.functions.covered
+    );
   }
 }
 
@@ -157,7 +169,7 @@ export class CoverageMeasure extends AbstractMeasure {
 export type CoverageMeasurement = BaseMeasurement & {
   name: string;
   coverageMeasure: {
-    increment: CoverageMeasurementData;
+    current: CoverageMeasurementData;
     total: CoverageMeasurementData;
   };
 };

@@ -4,17 +4,39 @@ import * as JSON5 from "json5";
 export class Leaderboard<T> {
   private _leaders: { leader: T; score: number }[] = []; // !!!!!!
   private _leadersJson: string = JSON5.stringify(this._leaders); // !!!!!!
-  private _minScore = -1; // !!!!!!
-  private _slots; // 0 = no limit !!!!!!
+  private _minScore = 0.001; // !!!!!!
+  private _slots = 200; // >= 1 !!!!!!
   private _isDirty = false; // !!!!!!
 
   // !!!!!!
   public constructor(slots?: number) {
-    this._slots = slots ?? 200;
+    if (slots && slots <= 0) {
+      throw new Error("Leaderboard slots must be >= 0");
+    }
+    if (slots !== undefined) {
+      this._slots = slots;
+    }
+  }
+
+  /**
+   * Returns the leaderboard's name
+   */
+  public get name(): string {
+    return this.constructor.name;
+  }
+
+  // !!!!!!
+  public get slots(): number {
+    return this._slots;
   }
 
   // !!!!!!
   public postScore(leader: T, score: number): void {
+    console.debug(
+      `[${this.name}] got input: ${JSON5.stringify(
+        leader
+      )} score: ${score} (min score: ${this._minScore})`
+    ); // !!!!!!!
     // Only change the leaderboard if score is > the current minimum
     if (score > this._minScore) {
       // Add the score
@@ -46,7 +68,9 @@ export class Leaderboard<T> {
       }
 
       // Update the minimum score & Json
-      this._minScore = this._leaders[this._leaders.length - 1].score;
+      if (this._leaders.length >= this._slots) {
+        this._minScore = this._leaders[this._leaders.length - 1].score;
+      }
       this._leadersJson = JSON5.stringify(this._leaders);
 
       // Mark the leaderboard as not dirty

@@ -37,7 +37,7 @@ export class FailedTestMeasure extends CoverageMeasure {
 
     // Find validators and coverage combinations exhibiting failures
     const incrementMap = JSON.stringify(
-      coverageMeasure.coverageMeasure.increment.map
+      coverageMeasure.coverageMeasure.current.map
     );
     let v: keyof typeof validators;
     for (v in validators) {
@@ -87,7 +87,7 @@ export class FailedTestMeasure extends CoverageMeasure {
   }
 
   // !!!!!!
-  public onTestingEnd(results: FuzzTestResults): void {
+  public onShutdown(results: FuzzTestResults): void {
     results;
   }
 }

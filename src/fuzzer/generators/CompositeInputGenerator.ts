@@ -22,7 +22,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   private _selectedSubgenIndex = 0; // Selected subordinate input generator (e.g., by efficiency)
   private _leaderboard; // Interesting inputs
   private _lastInput?: InputAndSource; // Last input generated
-  private readonly _L = 10; // Lookback window size for history.
+  private readonly _L = 25; // Lookback window size for history !!!!!!! externalize
   private readonly _chunkSize = 1; // Re-evaluate subgen after _chunkSize inputs generated
   private readonly _explorationP = 20; // Exploration probability.
   public static readonly INJECTED = "injected";
@@ -122,10 +122,12 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       );
     }
 
+    const increments: { name: string; increment: number; total: number }[] = []; // !!!!!!
+    const h = this._history[this._selectedSubgenIndex]; // history of current subgen
+
     // Add each of the measurements to the history
     let m: keyof typeof this._measures;
     for (m in this._measures) {
-      const h = this._history[this._selectedSubgenIndex]; // history of current subgen
       const measure = this._measures[m]; // current measure
       const measurement = measurements[m]; // input measurement for current measure
 
@@ -139,12 +141,32 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       }
 
       // Update history
-      h.values[m][h.currentIndex] = measurement.total;
-      h.currentIndex = (h.currentIndex + 1) % this._L;
+      console.debug(
+        `[${this.name} ] m: ${measurement.name} inTotal: ${
+          measurement.increment
+        }/${measurement.total} currIdx: ${h.currentIndex} L: ${
+          this._L
+        } Values: ${JSON5.stringify(h.values[m])} for subGen: ${
+          this._selectedSubgenIndex
+        }`
+      ); // !!!!!!!
+      h.values[m][h.currentIndex] = measurement.increment;
 
-      // Update leaderboard
-      this._leaderboard.postScore(this._lastInput, measurement.increment);
-    }
+      // Update score
+      increments.push({
+        name: measure.name,
+        increment: measurement.increment,
+        total: measurement.total,
+      });
+    } // !!!!!!
+    h.currentIndex = (h.currentIndex + 1) % this._L; // !!!!!!
+
+    // Update leaderboard
+    console.debug(`[${this.name}] ${JSON5.stringify(increments)}`); // !!!!!!!
+    this._leaderboard.postScore(
+      this._lastInput,
+      increments.map((e) => e.increment).reduce((a, b) => a + b)
+    );
   }
 
   // !!!!!!
@@ -185,5 +207,22 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       }
       return [bestIdx, "efficiency"];
     }
+  }
+
+  // !!!!!!
+  public onShutdown(): void {
+    super.onShutdown();
+    this._subgens.forEach((e) => {
+      e.onShutdown();
+    });
+    const leaders = this._leaderboard.getLeaders();
+    console.debug(
+      `Leaderboard: (${leaders.length} of max ${this._leaderboard.slots} entires)`
+    ); // !!!!!!!
+    leaders
+      .map((e) => [e.leader.input, e.leader.source, e.score])
+      .forEach((e) => {
+        console.debug(JSON.stringify(e));
+      }); // !!!!!!!
   }
 }
