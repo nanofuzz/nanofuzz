@@ -185,7 +185,9 @@ export const fuzz = (
     };
 
     // Generate and store the inputs
+    const startGenTime = performance.now(); // start time: input generation
     const { input, source } = compositeInputGenerator.next();
+    const genTime = performance.now() - startGenTime; // total time: input generation
     result.input = input.map((e, i) => {
       return {
         name: argDefs[i].getName(),
@@ -228,6 +230,7 @@ export const fuzz = (
     if (inputHash in allInputs) {
       currentDupeCount++; // increment the dupe coynter
       totalDupeCount++; // incremement the total run dupe counter
+      compositeInputGenerator.onInputSkipped(genTime); // empty input generator feedback
       continue; // skip this test
       // !!!!!!!! Make sure measures are calculated correctly for skipped inputs
     } else {
@@ -388,7 +391,10 @@ export const fuzz = (
     }
 
     // Provide measures feedback to the composite input generator
-    compositeInputGenerator.onInputFeedback(measurements);
+    compositeInputGenerator.onInputFeedback(
+      measurements,
+      result.elapsedTime + genTime
+    );
   } // for: Main test loop
 
   // End-of-run processing for each measure and input generator

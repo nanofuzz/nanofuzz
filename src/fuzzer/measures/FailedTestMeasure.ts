@@ -77,7 +77,7 @@ export class FailedTestMeasure extends CoverageMeasure {
       ...coverageMeasure,
       name: this.name,
       total: this._pseudoBugsFound,
-      increment: pseudoBugsFound,
+      progress: pseudoBugsFound,
       failedTestMeasure: {
         increment: {
           validators: newlyFailingValidators,

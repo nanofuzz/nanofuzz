@@ -74,16 +74,16 @@ export class CoverageMeasure extends AbstractMeasure {
     // which are branches + statements + functions covered.
     const total = this._totalCoverage.getCoverageSummary();
     const totalMeasure = CoverageMeasure.toScore(this._totalCoverage);
-    const incrementMeasure = totalMeasure - priorTotalMeasure;
-    console.debug(
-      `[${this.name}][cov] totalM: ${totalMeasure} priorTotalM: ${priorTotalMeasure} incM: ${incrementMeasure}`
-    ); // !!!!!!!
+    const progress = totalMeasure - priorTotalMeasure;
+    /*console.debug(
+      `[${this.name}][cov] totalM: ${totalMeasure} priorTotalM: ${priorTotalMeasure} progress: ${progress}`
+    ); // !!!!!!!*/
     const increment = incrementCoverageMap.getCoverageSummary();
     return {
       ...measure,
       name: this.name,
       total: totalMeasure,
-      increment: incrementMeasure,
+      progress: progress,
       coverageMeasure: {
         current: {
           lines: {

@@ -59,7 +59,7 @@ export abstract class AbstractMeasure {
       name: this.name,
       tick: this._tick,
       total: 0,
-      increment: 0,
+      progress: 0,
     };
   }
 

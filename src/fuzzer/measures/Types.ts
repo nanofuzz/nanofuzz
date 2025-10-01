@@ -4,5 +4,5 @@ export type BaseMeasurement = {
   name: string;
   tick: number;
   total: number;
-  increment: number;
+  progress: number;
 };
