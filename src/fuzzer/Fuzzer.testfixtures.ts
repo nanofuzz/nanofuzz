@@ -1,4 +1,3 @@
-import { FuzzTestResult } from "@nanofuzz/runtime";
 import { Result } from "./Types";
 
 /**
@@ -100,9 +99,9 @@ export function coverage(s: string): boolean {
   if (s === "moths") return true;
   return false;
 }
-export function coverageValidator(r: FuzzTestResult): boolean | undefined {
-  const s: string = r.in[0]; // the PUT's input
-  const out: boolean = r.out; // the PUT's output
+export function coverageValidator(r: Result): boolean | undefined {
+  const s: string = r.in[0] as string; // the PUT's input
+  const out: boolean = r.out as boolean; // the PUT's output
 
   if (s[0] === "z" || s === "bug!" || s === "moth") {
     return out; // expected : out === true
