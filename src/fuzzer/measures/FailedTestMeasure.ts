@@ -1,11 +1,13 @@
 import { FuzzTestResult } from "../Types";
 import { FuzzTestResults } from "fuzzer/Fuzzer";
 import { CoverageMeasure, CoverageMeasurement } from "./CoverageMeasure";
+import * as JSON5 from "json5";
+import { InputAndSource } from "fuzzer/generators/Types";
 
 // !!!!!!
 export class FailedTestMeasure extends CoverageMeasure {
-  private _pseudoBugsData: Record<number, Record<string, number>> = {};
-  private _pseudoBugsFound = 0;
+  private _pseudoBugsData: Record<number, Record<string, number>> = {}; // !!!!!!
+  private _pseudoBugsFound = 0; // !!!!!!
 
   /**
    * Don't generate any additional instrumentation for this measure.
@@ -13,12 +15,15 @@ export class FailedTestMeasure extends CoverageMeasure {
   public onAfterCompile(jsSrc: string, jsFileName: string): string {
     jsFileName;
     return jsSrc;
-  }
+  } // !!!!!!
 
   // !!!!!!
   // No ground truth for bugs so we approximate by coverage & validator
-  public measure(result: FuzzTestResult): FailedTestMeasurement {
-    const coverageMeasure = super.measure(result);
+  public measure(
+    input: InputAndSource,
+    result: FuzzTestResult
+  ): FailedTestMeasurement {
+    const coverageMeasure = super.measure(input, result);
     let pseudoBugsFound = 0;
     const newlyFailingValidators: number[] = [];
 
@@ -37,7 +42,7 @@ export class FailedTestMeasure extends CoverageMeasure {
 
     // Find validators and coverage combinations exhibiting failures
     const incrementMap = JSON.stringify(
-      coverageMeasure.coverageMeasure.current.map
+      coverageMeasure.coverageMeasure.current
     );
     let v: keyof typeof validators;
     for (v in validators) {
@@ -76,26 +81,31 @@ export class FailedTestMeasure extends CoverageMeasure {
     return {
       ...coverageMeasure,
       name: this.name,
-      total: this._pseudoBugsFound,
-      progress: pseudoBugsFound,
       failedTestMeasure: {
-        increment: {
+        current: {
           validators: newlyFailingValidators,
         },
       },
     };
-  }
+  } // !!!!!!
 
   // !!!!!!
   public onShutdown(results: FuzzTestResults): void {
-    results;
-  }
-}
+    super.onShutdown(results);
+  } // !!!!!!
+
+  // !!!!!!
+  public delta(a: FailedTestMeasurement, b?: FailedTestMeasurement): number {
+    a = JSON5.parse(JSON5.stringify(a));
+    b;
+    return 0; // !!!!!!!!
+  } // !!!!!!
+} // !!!!!!
 
 // !!!!!!
 type FailedTestMeasurement = CoverageMeasurement & {
   failedTestMeasure: {
-    increment: {
+    current: {
       validators: number[];
     };
   };

@@ -4,7 +4,7 @@ import * as JSON5 from "json5";
 export class Leaderboard<T> {
   private _leaders: { leader: T; score: number }[] = []; // !!!!!!
   private _leadersJson: string = JSON5.stringify(this._leaders); // !!!!!!
-  private _minScore = 0.001; // !!!!!!
+  private _minScore = 1; // !!!!!!
   private _slots = 200; // >= 1 !!!!!!
   private _isDirty = false; // !!!!!!
 
@@ -16,40 +16,32 @@ export class Leaderboard<T> {
     if (slots !== undefined) {
       this._slots = slots;
     }
-  }
+  } // !!!!!!
 
   /**
    * Returns the leaderboard's name
    */
   public get name(): string {
     return this.constructor.name;
-  }
+  } // !!!!!!
 
   // !!!!!!
   public get slots(): number {
     return this._slots;
-  }
+  } // !!!!!!
 
   // !!!!!!
   public postScore(leader: T, score: number): void {
-    console.debug(
-      `[${this.name}] got input: ${JSON5.stringify(
-        leader
-      )} score: ${score} (min score: ${this._minScore})`
-    ); // !!!!!!!
     // Only change the leaderboard if score is > the current minimum
-    if (score > this._minScore) {
+    if (score >= this._minScore) {
       // Add the score
-      this._leaders.push({
-        leader: JSON5.parse(JSON5.stringify(leader)),
-        score: score,
-      });
+      this._leaders.push(JSON5.parse(JSON5.stringify({ leader, score })));
 
       // Indicate that we need to update the leaderboard prior to
       // it being observed
       this._isDirty = true;
     }
-  }
+  } // !!!!!!
 
   // !!!!!!
   public getLeaders(): typeof this._leaders {
@@ -79,5 +71,5 @@ export class Leaderboard<T> {
 
     // Return a copy of the updated leaderboard
     return JSON5.parse(this._leadersJson);
-  }
-}
+  } // !!!!!!
+} // !!!!!!

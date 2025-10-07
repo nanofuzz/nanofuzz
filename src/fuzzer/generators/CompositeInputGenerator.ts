@@ -5,7 +5,7 @@ import { AbstractMeasure } from "../measures/AbstractMeasure";
 import { BaseMeasurement } from "../measures/Types";
 import { Leaderboard } from "./Leaderboard";
 import * as JSON5 from "json5";
-import { InputAndSource } from "./Types";
+import { InputAndSource, ScoredInput } from "./Types";
 
 // !!!!
 export class CompositeInputGenerator extends AbstractInputGenerator {
@@ -19,13 +19,15 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     cost: (number | undefined)[]; // cost by input tick (of L)
     currentIndex: number; // current index (of L) into last dimension of progress and cost
   }[]; // history for each input generator
+  private _scoredInputs: ScoredInput[] = []; // !!!!!!
   private _injectedInputs: ArgValueType[][] = []; // Inputs to force generate first
   private _selectedSubgenIndex = 0; // Selected subordinate input generator (e.g., by efficiency)
   private _leaderboard; // Interesting inputs
   private _lastInput?: InputAndSource; // Last input generated
+  private _lastMeasuredInputTick?: number; // Last input with measurements
   private readonly _L = 25; // Lookback window size for history !!!!!!! externalize
-  private readonly _chunkSize = 1; // Re-evaluate subgen after _chunkSize inputs generated
-  private readonly _P = 0.2; // Additional chance of subgen exploration
+  private readonly _chunkSize = 10; // Re-evaluate subgen after _chunkSize inputs generated
+  private readonly _P = 0.2; // Additional chance of subgen exploration !!!!!!! externalize
   public static readonly INJECTED = "injected";
 
   // !!!!!!
@@ -34,7 +36,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     rngSeed: string,
     subgens: AbstractInputGenerator[],
     measures: AbstractMeasure[],
-    leaderboard: Leaderboard<InputAndSource>
+    leaderboard: Leaderboard<ScoredInput>
   ) {
     super(specs, rngSeed);
 
@@ -70,8 +72,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       const injectedInput = this._injectedInputs.pop();
       if (injectedInput) {
         this._lastInput = {
-          input: injectedInput,
-          source: CompositeInputGenerator.INJECTED,
+          tick: this._tick,
+          value: injectedInput,
+          source: {
+            subgen: CompositeInputGenerator.INJECTED,
+          },
         };
         return this._lastInput;
       }
@@ -91,44 +96,79 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
 
     // Generate and return the input
-    this._lastInput = this._subgens[this._selectedSubgenIndex].next();
+    this._lastInput = {
+      ...this._subgens[this._selectedSubgenIndex].next(),
+      tick: this._tick,
+    };
     return JSON5.parse(JSON5.stringify(this._lastInput));
   } // !!!!!!
 
   // !!!!!!
-  public onInputSkipped(cost: number): void {
-    // history of current subgen
-    const h = this._history[this._selectedSubgenIndex];
-
-    // Update subgen history
-    let m: keyof typeof this._measures;
-    for (m in this._measures) {
-      h.progress[m][h.currentIndex] = 0; // no progress because: skipped
-      h.cost[h.currentIndex] = cost;
-    } // for: measure
-    h.currentIndex = (h.currentIndex + 1) % this._L; // !!!!!!
-  } // !!!!!!
-
-  // !!!!!!
+  // pre: this._lastInput !== undefined
   public onInputFeedback(measurements: BaseMeasurement[], cost: number): void {
+    let score = 0; // !!!!!!
+    const h = this._history[this._selectedSubgenIndex]; // history of current subgen
+
     // Ensure we actually generated something
     if (this._lastInput === undefined) {
       throw new Error("Input feedback provided prior to input generation");
     }
 
-    // Ensure we have a matching number of measures
-    if (measurements.length !== this._measures.length) {
+    // Ensure we have either no measures (e.g., input was a dupe not executed) or
+    // a matching number of measures
+    if (measurements.length && measurements.length !== this._measures.length) {
       throw new Error(
         `Number of feedback measures (${measurements.length}) differs from number of expected measures (${this._measures.length})`
       );
     }
 
-    let score = 0; // !!!!!!
-    const h = this._history[this._selectedSubgenIndex]; // history of current subgen
+    if (this._tick === 51) {
+      this._tick;
+    }
 
-    // Add each of the measurements to the history
+    // Prior inputs for measure comparison
+    const compInputs: ScoredInput[] = [];
+    if (this._lastInput.source.tick) {
+      compInputs.push(this._scoredInputs[this._lastInput.source.tick]);
+    } else if (this._lastMeasuredInputTick) {
+      compInputs.push(this._scoredInputs[this._lastMeasuredInputTick]);
+    }
+    console.debug(
+      `[${this.name}] Comparing this input ${JSON5.stringify(
+        this._lastInput
+      )} to ${JSON5.stringify(compInputs.map((e) => e.input))}`
+    ); // !!!!!!!
+
+    // Add progress and cost to the current subgen history
+    measurements.forEach((measurement, m) => {
+      const measure = this._measures[m]; // measure for this measurement
+
+      // Fail if we receive a different measurement than expected
+      if (measure.name !== measurement.name) {
+        throw new Error(
+          `Expected feedback for measure "${measure.name}" at offset ${String(
+            m
+          )} but received "${measurement.name}" instead.`
+        );
+      }
+
+      // Update history of current subgen
+      if (compInputs.length) {
+        h.progress[m][h.currentIndex] = Math.max(
+          ...compInputs.map((e) =>
+            measure.delta(measurement, e.measurements[m])
+          )
+        );
+      } else {
+        h.progress[m][h.currentIndex] = measure.delta(measurement);
+      }
+      h.cost[h.currentIndex] = cost;
+      score += h.progress[m][h.currentIndex] ?? 0 * measure.weight;
+    }); // !!!!!!
+
+    /*
     let m: keyof typeof this._measures;
-    for (m in this._measures) {
+    for (m in measurements) {
       const measure = this._measures[m]; // current measure
       const measurement = measurements[m]; // input measurement for current measure
 
@@ -141,10 +181,10 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         );
       }
 
-      // Update history
+      // Update subgen history
       h.progress[m][h.currentIndex] = measurement.progress;
       h.cost[h.currentIndex] = cost;
-      /*console.debug(
+      / *console.debug(
         `[${this.name} ] m: ${measurement.name} inProgress: ${
           measurement.progress
         }/${measurement.total} weight: ${measure.weight} currIdx: ${
@@ -154,16 +194,32 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         )} Cost: ${JSON5.stringify(h.cost)} for subGen: ${
           this._selectedSubgenIndex
         }`
-      ); // !!!!!!!*/
+      ); // !!!!!!!* /
 
       // Update score (progress only, ignore cost here)
-      score += measurement.progress * measure.weight;
-    } // !!!!!!
+    } // for: measure
+     */
+
     h.currentIndex = (h.currentIndex + 1) % this._L; // !!!!!!
 
-    // Update leaderboard
-    this._leaderboard.postScore(this._lastInput, score);
-  }
+    console.debug(`[${this.name}][${this._tick}] score: ${score}`); // !!!!!!!
+
+    // Update history of composite input generator
+    this._scoredInputs[this._tick] = {
+      input: this._lastInput,
+      tick: this._tick,
+      score,
+      cost,
+      measurements,
+    };
+
+    // Update leaderboard & last measured input if we have measures
+    // (e.g., the input was not a dupe and was actually executed)
+    if (measurements.length) {
+      this._leaderboard.postScore(this._scoredInputs[this._tick], score);
+      this._lastMeasuredInputTick = this._tick;
+    }
+  } // !!!!!!
 
   // !!!!!!
   private selectNextSubGen(): number {
@@ -202,6 +258,12 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // Randomly select an active subgen with a bias toward subgens
     // of higher productivity for the prior L generations
     const rnd = this._prng() * (totalProductivity + addlChanceSpace);
+    console.debug(
+      `[${this.name}] probability space. totPro: ${totalProductivity} addChnSpc: ${addlChanceSpace} rnd: ${rnd}`
+    ); // !!!!!!!
+    console.debug(
+      `[${this.name}] productivity: ${JSON5.stringify(productivity)}`
+    ); // !!!!!!!
     let lbound = 0;
     for (const g in this._subgens) {
       if (this._subgens[g].isAvailable()) {
@@ -234,12 +296,25 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._subgens.forEach((e) => {
       e.onShutdown();
     });
+
+    console.debug(`All inputs:`); // !!!!!!!
+    this._scoredInputs
+      .map((e) => [e.input, e.score])
+      .forEach((e) => {
+        console.debug(JSON5.stringify(e));
+      });
+
     const leaders = this._leaderboard.getLeaders();
     console.debug(
-      `Leaderboard: (${leaders.length} of max ${this._leaderboard.slots} entires)`
+      `Leaderboard: (${leaders.length} of max ${this._leaderboard.slots} entries)`
     ); // !!!!!!!
     leaders
-      .map((e) => [e.leader.input, e.leader.source, e.score])
+      .map((e) => [
+        e.leader.tick,
+        e.leader.input.value,
+        e.leader.input.source,
+        e.score,
+      ])
       .forEach((e) => {
         console.debug(JSON.stringify(e));
       }); // !!!!!!!

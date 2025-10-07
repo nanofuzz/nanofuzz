@@ -20,9 +20,8 @@ import { CoverageSummary } from "istanbul-lib-coverage"; // !!!!!!!! Don't want 
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
-import { BaseMeasurement } from "./measures/Types";
 import { Leaderboard } from "./generators/Leaderboard";
-import { InputAndSource } from "./generators/Types";
+import { ScoredInput } from "./generators/Types";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -100,7 +99,7 @@ export const fuzz = (
 
   // Setup the Composite Generator
   const argDefs = env.function.getArgDefs();
-  const leaderboard = new Leaderboard<InputAndSource>();
+  const leaderboard = new Leaderboard<ScoredInput>();
   const compositeInputGenerator = new CompositeInputGenerator(
     argDefs, // spec of inputs to generate
     env.options.seed ?? "", // prng seed
@@ -139,6 +138,14 @@ export const fuzz = (
 
   // Build a test runner for executing tests
   const runner = RunnerFactory(env, mod, env.function.getName());
+
+  // Runtime statistics
+  const times: {
+    gen: { [k: string]: number };
+    run: number;
+    validate: number;
+    score: number;
+  } = { gen: {}, run: 0, validate: 0, score: 0 };
 
   // Main test loop
   // We break out of this loop when any of the following are true:
@@ -186,9 +193,11 @@ export const fuzz = (
 
     // Generate and store the inputs
     const startGenTime = performance.now(); // start time: input generation
-    const { input, source } = compositeInputGenerator.next();
+    const genInput = compositeInputGenerator.next();
     const genTime = performance.now() - startGenTime; // total time: input generation
-    result.input = input.map((e, i) => {
+    times.gen[genInput.source.subgen] =
+      (times.gen[genInput.source.subgen] || 0) + genTime;
+    result.input = genInput.value.map((e, i) => {
       return {
         name: argDefs[i].getName(),
         offset: i,
@@ -199,7 +208,7 @@ export const fuzz = (
     // Handle pinned vs. generated tests differently, e.g.,
     // 1. pinned tests do not count against the maxTests limit
     // 2. pinned tests stay pinned and may have an expected result
-    if (source === CompositeInputGenerator.INJECTED) {
+    if (genInput.source.subgen === CompositeInputGenerator.INJECTED) {
       // Ensure the injected inputs are in the expected order
       const expectedInput = JSON5.stringify(pinnedTests[injectedCount].input);
       const returnedInput = JSON5.stringify(result.input);
@@ -230,7 +239,7 @@ export const fuzz = (
     if (inputHash in allInputs) {
       currentDupeCount++; // increment the dupe coynter
       totalDupeCount++; // incremement the total run dupe counter
-      compositeInputGenerator.onInputSkipped(genTime); // empty input generator feedback
+      compositeInputGenerator.onInputFeedback([], genTime); // empty input generator feedback
       continue; // skip this test
       // !!!!!!!! Make sure measures are calculated correctly for skipped inputs
     } else {
@@ -256,6 +265,7 @@ export const fuzz = (
         value: exeOutput as ArgValueType,
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
+      times.run += result.elapsedTime;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : JSON.stringify(e);
       const stack = e instanceof Error ? e.stack : "<no stack>";
@@ -269,6 +279,7 @@ export const fuzz = (
       }
     }
 
+    const startValTime = performance.now(); // start timer
     // IMPLICIT ORACLE --------------------------------------------
     // How can it fail ... let us count the ways...
     if (env.options.useImplicit) {
@@ -368,6 +379,7 @@ export const fuzz = (
           result.passedValidator && result.passedValidators[i];
       }
     } // if validator
+    times.validate += performance.now() - startValTime; // stop timer
 
     // (Re-)categorize the result
     result.category = categorizeResult(result);
@@ -382,29 +394,33 @@ export const fuzz = (
       results.results.push(result);
     }
 
+    const startScoreTime = performance.now(); // start timer
+
     // Take measurements for this test run
-    const measurements: BaseMeasurement[] = [];
-    let m: keyof typeof measures;
-    for (m in measures) {
-      // Take the post-validation measurement
-      measurements[m] = measures[m].measure(JSON.parse(JSON.stringify(result)));
-    }
+    const measurements = measures.map((e) =>
+      e.measure(
+        JSON.parse(JSON.stringify(genInput)),
+        JSON.parse(JSON.stringify(result))
+      )
+    );
 
     // Provide measures feedback to the composite input generator
     compositeInputGenerator.onInputFeedback(
       measurements,
       result.elapsedTime + genTime
     );
+
+    times.score += performance.now() - startScoreTime;
   } // for: Main test loop
 
-  // End-of-run processing for each measure and input generator
-  for (const measure of measures) {
-    measure.onShutdown(results);
-  }
+  // End-of-run processing for measures and input generators
+  measures.forEach((e) => {
+    e.onShutdown(results);
+  });
   compositeInputGenerator.onShutdown();
 
   console.debug(
-    `Fuzzer injected ${injectedCount} and generated ${results.inputsGenerated} inputs including ${results.dupesGenerated} dupes. Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}.`
+    `Fuzzer injected ${injectedCount} and generated ${results.inputsGenerated} inputs (${results.dupesGenerated} were dupes). Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}.`
   ); // !!!!!!!
   console.debug(
     `Tests with exceptions: ${
@@ -428,6 +444,7 @@ export const fuzz = (
       results.results.filter((e) => e.passedImplicit).length
     }, failed: ${results.results.filter((e) => !e.passedImplicit).length}`
   ); // !!!!!!!
+  console.debug(`Timing breakdown ${JSON5.stringify(times, null, 3)}`); // !!!!!!!
 
   // Persist to outfile, if requested
   if (env.options.outputFile) {

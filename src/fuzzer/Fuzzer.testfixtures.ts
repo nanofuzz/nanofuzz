@@ -1,3 +1,6 @@
+import { FuzzTestResult } from "@nanofuzz/runtime";
+import { Result } from "./Types";
+
 /**
  * Fuzz target that alters its input - used to verify
  * that recorded fuzzer input is not altered by the target
@@ -77,4 +80,33 @@ export const testArrowUnionArgs = (
 };
 export function testBoolean(a?: boolean): boolean {
   return true;
+}
+
+/**
+ * @param s is a string of length 4 of 256 1-byte characters
+ * @returns `true` if `s` begins with 'z '
+ * `true` if `s` in {"bug!" ,"moth"}
+ * `false` otherwise
+ **/
+export function coverage(s: string): boolean {
+  if (s.length !== 4) return false;
+  if (s[0] === "z") return true;
+  let count: number = 0;
+  if (s[0] === "b") count++;
+  if (s[1] === "u") count++;
+  if (s[2] === "g") count++;
+  if (s[3] === "s") count++;
+  if (count > 3) return true;
+  if (s === "moths") return true;
+  return false;
+}
+export function coverageValidator(r: FuzzTestResult): boolean | undefined {
+  const s: string = r.in[0]; // the PUT's input
+  const out: boolean = r.out; // the PUT's output
+
+  if (s[0] === "z" || s === "bug!" || s === "moth") {
+    return out; // expected : out === true
+  } else {
+    return !out; // expected : out === false
+  }
 }

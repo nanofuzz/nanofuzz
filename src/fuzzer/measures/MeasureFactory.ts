@@ -5,5 +5,5 @@ import { FailedTestMeasure } from "./FailedTestMeasure";
 
 export function MeasureFactory(env: FuzzEnv): AbstractMeasure[] {
   env; // !!!!!!! Base list of measures on FuzzEnv; measure weight
-  return [new CoverageMeasure(), new FailedTestMeasure()];
+  return [new CoverageMeasure() /* !!!!!!!!, new FailedTestMeasure()*/];
 }

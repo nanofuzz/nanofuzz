@@ -1,3 +1,4 @@
+import { InputAndSource } from "fuzzer/generators/Types";
 import { FuzzTestResults } from "../Fuzzer";
 import { FuzzTestResult, VmGlobals } from "../Types";
 import { BaseMeasurement } from "./Types";
@@ -52,14 +53,14 @@ export abstract class AbstractMeasure {
 
   // !!!!!!
   // Takes a measurement after execution of a test
-  public measure(result: FuzzTestResult): BaseMeasurement {
+  public measure(
+    input: InputAndSource,
+    result: FuzzTestResult
+  ): BaseMeasurement {
     result;
     return {
       type: "measure",
       name: this.name,
-      tick: this._tick,
-      total: 0,
-      progress: 0,
     };
   }
 
@@ -70,9 +71,5 @@ export abstract class AbstractMeasure {
   }
 
   // !!!!!!
-  public delta(first: BaseMeasurement, second: BaseMeasurement): number {
-    first;
-    second;
-    return 0;
-  }
+  public abstract delta(a: BaseMeasurement, b?: BaseMeasurement): number;
 }

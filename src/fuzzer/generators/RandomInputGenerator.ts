@@ -1,7 +1,8 @@
 import { ArgDef } from "../analysis/typescript/ArgDef";
-import { ArgType, ArgValueType } from "../analysis/typescript/Types";
+import { ArgType } from "../analysis/typescript/Types";
 import { ArgDefGenerator } from "../analysis/typescript/ArgDefGenerator";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
+import { InputAndSource } from "./Types";
 
 // !!!!!!
 export class RandomInputGenerator extends AbstractInputGenerator {
@@ -14,7 +15,7 @@ export class RandomInputGenerator extends AbstractInputGenerator {
   } // !!!!!!
 
   // !!!!!!
-  public next(): { input: ArgValueType[]; source: string } {
-    return { input: this._gen.next(), source: this.name };
+  public next(): InputAndSource {
+    return { tick: 0, value: this._gen.next(), source: { subgen: this.name } };
   } // !!!!!!
 } // !!!!!!

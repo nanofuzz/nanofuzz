@@ -449,4 +449,22 @@ describe("fuzzer:", () => {
     expect(fuzzResult.results.length).toBe(3);
     expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy();
   });
+
+  // !!!!!!!
+  it("Fuzz example - coverage", function () {
+    const fuzzResult = fuzz(
+      setup(
+        {
+          ...intOptions,
+          //useProperty: true, // !!!!!!!!
+          //suiteTimeout: 25000, // !!!!!!!!
+          //maxTests: 15000, // !!!!!!!!
+        },
+        "./Fuzzer.testfixtures.ts",
+        "coverage"
+      )
+    );
+    expect(fuzzResult.results.length).toBeGreaterThan(0); // !!!!!!!
+    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // !!!!!!!
+  });
 });

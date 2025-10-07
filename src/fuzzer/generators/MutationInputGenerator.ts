@@ -1,8 +1,8 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { ArgDef } from "../analysis/typescript/ArgDef";
-import { ArgType, ArgValueType } from "../analysis/typescript/Types";
+import { ArgType } from "../analysis/typescript/Types";
 import { Leaderboard } from "./Leaderboard";
-import { InputAndSource } from "./Types";
+import { InputAndSource, ScoredInput } from "./Types";
 import * as JSON5 from "json5";
 import { ArgDefMutator } from "../analysis/typescript/ArgDefMutator";
 
@@ -16,7 +16,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   public constructor(
     specs: ArgDef<ArgType>[],
     rngSeed: string,
-    leaderboard: Leaderboard<InputAndSource>
+    leaderboard: Leaderboard<ScoredInput>
   ) {
     super(specs, rngSeed);
     this._leaderboard = leaderboard;
@@ -33,11 +33,12 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   } // !!!!!!
 
   // !!!!!!
-  public next(): { input: ArgValueType[]; source: string } {
+  public next(): InputAndSource {
     // Get the set of interesting inputs & select one
     const leaders = this._leaderboard.getLeaders();
     const i = Math.floor(this._prng() * leaders.length);
-    const input = leaders[i].leader.input;
+    const input = leaders[i].leader.input.value;
+    const sourceTick = leaders[i].leader.tick;
 
     // Randomize the number of mutations (1.._maxMutations)
     let n = Math.floor(this._prng() * this._maxMutations) + 1;
@@ -61,10 +62,14 @@ export class MutationInputGenerator extends AbstractInputGenerator {
 
       // !!!!!! some kind of error here? seems pointless to return a duplicate input....?
       if (!mutators.length) {
-        return { input, source: this.name };
+        return {
+          tick: 0,
+          value: input,
+          source: { subgen: this.name, tick: sourceTick },
+        };
       }
 
-      // Randomly select & execute a mutation
+      // Randomly select & execute a mutator
       const m = Math.floor(this._prng() * mutators.length);
       mutators[m].fn();
       console.debug(
@@ -77,6 +82,10 @@ export class MutationInputGenerator extends AbstractInputGenerator {
     }
 
     // return the mutated input
-    return { input, source: this.name };
+    return {
+      tick: 0,
+      value: input,
+      source: { subgen: this.name, tick: sourceTick },
+    };
   } // !!!!!!
 } // !!!!!!

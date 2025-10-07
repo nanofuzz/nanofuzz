@@ -8,11 +8,14 @@ import {
 import { FuzzTestResult, VmGlobals } from "../Types";
 import { FuzzTestResults } from "fuzzer/Fuzzer";
 import { BaseMeasurement } from "./Types";
+import * as JSON5 from "json5";
+import { InputAndSource } from "fuzzer/generators/Types";
 
 // !!!!!!
 export class CoverageMeasure extends AbstractMeasure {
   private _coverageData?: CoverageMapData; // coverage data written to by instrumented code
-  private _totalCoverage: CoverageMap = createCoverageMap({}); // Aggregate coverage
+  private _globalCoverageMap: CoverageMap = createCoverageMap({}); // Aggregate coverage
+  private _history: CoverageMeasurement[] = [];
 
   // !!!!!!
   public onAfterCompile(jsSrc: string, jsFileName: string): string {
@@ -20,7 +23,7 @@ export class CoverageMeasure extends AbstractMeasure {
       produceSourceMap: true,
       coverageGlobalScope: "global",
     }).instrumentSync(jsSrc, jsFileName);
-  }
+  } // !!!!!!
 
   // !!!!!!
   public onAfterLoad(globals: VmGlobals): void {
@@ -36,98 +39,75 @@ export class CoverageMeasure extends AbstractMeasure {
         "Unable to retrieve global.__coverage__ code coverage object"
       );
     }
-  }
+  } // !!!!!!
 
   // !!!!!!
-  public measure(result: FuzzTestResult): CoverageMeasurement {
-    const measure = super.measure(result);
+  public measure(
+    input: InputAndSource,
+    result: FuzzTestResult
+  ): CoverageMeasurement {
+    const measure = super.measure(input, result);
 
     if (this._coverageData === undefined) {
       throw new Error(
         "Unable to retrieve global.__coverage__ code coverage object"
       );
     }
+    const coverageData = new ImmutableCoverageMapData(this._coverageData);
 
-    // Calculate prior total coverage before merging in the current coverage
-    const priorTotalMeasure = CoverageMeasure.toScore(this._totalCoverage);
+    // Build a coverage map from the coverage data
+    const currentCoverageMap = createCoverageMap(coverageData.data);
+    const current = this.toNumber(currentCoverageMap);
 
-    // Build a coverage map from a cloned copy of the
-    // coverage data
-    const incrementCoverageMap = createCoverageMap(
-      JSON.parse(JSON.stringify(this._coverageData))
-    );
-    this._totalCoverage.merge(incrementCoverageMap);
-    /*
-    if (this._tick < 11) {
-      console.debug(
-        `[CoverageMeasure][${this._tick}] Incremental `,
-        coverageMap.getCoverageSummary()
-      ); // !!!!!!!
-      console.debug(
-        `[CoverageMeasure][${this._tick}] Total `,
-        this._totalCoverage.getCoverageSummary()
-      ); // !!!!!!!
-    }
-    */
+    // Add the coverage from this run to its predecessor's accumulated
+    // coverage (if present)
+    console.debug(JSON5.stringify(input)); // !!!!!!!!
+    const pred =
+      input.source.tick === undefined
+        ? {}
+        : this._history[input.source.tick].coverageMeasure.accum.data;
+    const accumCoverageMap = createCoverageMap(pred);
+    const accumBefore = this.toNumber(accumCoverageMap);
+    accumCoverageMap.merge(coverageData.data);
 
-    // Summarize the coverage and return the progress measures,
-    // which are branches + statements + functions covered.
-    const total = this._totalCoverage.getCoverageSummary();
-    const totalMeasure = CoverageMeasure.toScore(this._totalCoverage);
-    const progress = totalMeasure - priorTotalMeasure;
-    /*console.debug(
-      `[${this.name}][cov] totalM: ${totalMeasure} priorTotalM: ${priorTotalMeasure} progress: ${progress}`
-    ); // !!!!!!!*/
-    const increment = incrementCoverageMap.getCoverageSummary();
-    return {
+    // Merge the coverage from this run into the global coverage map
+    const globalBefore = this.toNumber(this._globalCoverageMap);
+    this._globalCoverageMap.merge(coverageData.data);
+    console.debug(
+      `[${
+        this.name
+      }] total before: ${globalBefore} total after: ${this.toNumber(
+        this._globalCoverageMap
+      )} current: ${current}`
+    ); // !!!!!!!
+
+    // Update measure history
+    this._history[input.tick] = {
       ...measure,
       name: this.name,
-      total: totalMeasure,
-      progress: progress,
       coverageMeasure: {
-        current: {
-          lines: {
-            total: increment.data.lines.total,
-            covered: increment.data.lines.covered,
-          },
-          branches: {
-            total: increment.data.branches.total,
-            covered: increment.data.branches.covered,
-          },
-          functions: {
-            total: increment.data.functions.total,
-            covered: increment.data.functions.covered,
-          },
-          map: JSON.parse(JSON.stringify(incrementCoverageMap)),
-        },
-        total: {
-          lines: {
-            total: total.data.lines.total,
-            covered: total.data.lines.covered,
-          },
-          branches: {
-            total: total.data.branches.total,
-            covered: total.data.branches.covered,
-          },
-          functions: {
-            total: total.data.functions.total,
-            covered: total.data.functions.covered,
-          },
-          map: JSON.parse(JSON.stringify(this._totalCoverage)),
-        },
+        current: new ImmutableCoverageMapData(currentCoverageMap.data),
+        global: new ImmutableCoverageMapData(this._globalCoverageMap.data),
+        globalDelta: this.toNumber(this._globalCoverageMap) - globalBefore,
+        accum: new ImmutableCoverageMapData(accumCoverageMap.data),
+        accumDelta: this.toNumber(this._globalCoverageMap) - accumBefore,
       },
     };
-  }
+
+    // Return the measurement
+    return JSON5.parse(JSON5.stringify(this._history[input.tick]));
+  } // !!!!!!
 
   // !!!!!!
   public onBeforeNextTestExecution(): void {
     super.onBeforeNextTestExecution();
 
     // Zero out the coverage data so that we know the incremental
-    // coverage for just the present execution cycle.
+    // coverage for just the present execution
     if (this._coverageData) {
       let fileKey: keyof typeof this._coverageData;
       for (fileKey in this._coverageData) {
+        //delete this._coverageData[fileKey]; !!!!!!!!!
         const fileCoverage = this._coverageData[fileKey];
         let bKey: keyof typeof fileCoverage.b;
         for (bKey in fileCoverage.b) {
@@ -143,38 +123,81 @@ export class CoverageMeasure extends AbstractMeasure {
         }
       }
     }
-  }
+  } // !!!!!!
 
   // !!!!!!
   public onShutdown(results: FuzzTestResults): void {
-    results.aggregateCoverageSummary = this._totalCoverage.getCoverageSummary(); // !!!!!!
+    results.aggregateCoverageSummary =
+      this._globalCoverageMap.getCoverageSummary(); // !!!!!!
     console.debug(
       `[${this.name}][${this._tick}] `,
       results.aggregateCoverageSummary
     ); // !!!!!!!
-  }
+  } // !!!!!!
 
   // !!!!!!
   // return the progress measure,
   // which is total branches + statements + functions covered.
-  private static toScore(m: CoverageMap): number {
+  private toNumber(m: CoverageMap): number {
     const summ = m.getCoverageSummary();
     return (
       summ.branches.covered + summ.statements.covered + summ.functions.covered
     );
-  }
-}
+  } // !!!!!!
+
+  // !!!!!!
+  public delta(a: CoverageMeasurement, b?: CoverageMeasurement): number {
+    const globalDelta = a.coverageMeasure.globalDelta;
+
+    // If there is no predecessor (b), return its global delta
+    if (b === undefined) {
+      return globalDelta;
+    }
+
+    // Accumulated coverage
+    const bAccumMerge = createCoverageMap(b.coverageMeasure.accum.data);
+    const bAccumBefore = this.toNumber(bAccumMerge);
+    bAccumMerge.merge(a.coverageMeasure.accum.data);
+    const bAccumAfter = this.toNumber(bAccumMerge);
+    const accumDelta = bAccumAfter - bAccumBefore;
+
+    console.debug(`[${this.name}] globalDelta: ${globalDelta}`); // !!!!!!!
+    console.debug(
+      `[${this.name}] accumDelta: ${accumDelta} bAccumBefore: ${bAccumBefore} bAccumAfter: ${bAccumAfter}`
+    ); // !!!!!!!
+
+    // Return abs(globalDelta) + abs(currentDelta / total)
+    return a.coverageMeasure.globalDelta + accumDelta;
+  } // !!!!!!
+} // !!!!!!
 
 // !!!!!!
 export type CoverageMeasurement = BaseMeasurement & {
   name: string;
   coverageMeasure: {
-    current: CoverageMeasurementData;
-    total: CoverageMeasurementData;
+    current: ImmutableCoverageMapData; // !!!!!!
+    accum: ImmutableCoverageMapData; // !!!!!!
+    accumDelta: number; // !!!!!!
+    global: ImmutableCoverageMapData; // !!!!!!
+    globalDelta: number; // !!!!!!
   };
 };
 
 // !!!!!!
+class ImmutableCoverageMapData {
+  private _data: CoverageMapData; // !!!!!!
+
+  constructor(data: CoverageMapData) {
+    this._data = JSON5.parse(JSON5.stringify(data));
+  } // !!!!!!
+
+  public get data(): CoverageMapData {
+    return JSON5.parse(JSON5.stringify(this._data));
+  } // !!!!!!
+} // !!!!!!
+
+// !!!!!!
+/*!!!!!!!
 type CoverageMeasurementData = {
   lines: {
     total: number;
@@ -190,3 +213,4 @@ type CoverageMeasurementData = {
   };
   map: CoverageMap;
 };
+*/
