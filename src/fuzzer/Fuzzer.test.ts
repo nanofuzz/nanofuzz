@@ -292,6 +292,7 @@ describe("fuzzer:", () => {
       setup(intOptions, "nanofuzz-study/examples/14.ts", "modInv")
     );
     expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.some((e) => e.timeout)).toBe(true);
   });
 
   it("Counter-example mode 01", function () {
