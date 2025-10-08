@@ -10,7 +10,7 @@ import { ArgDefMutator } from "../analysis/typescript/ArgDefMutator";
 export class MutationInputGenerator extends AbstractInputGenerator {
   private _leaderboard; // !!!!!!
   private _isAvailable = false; // !!!!!!
-  private _maxMutations = 3; // !!!!!!
+  private _maxMutations = 2; // !!!!!!
 
   // !!!!!!
   public constructor(
@@ -52,13 +52,6 @@ export class MutationInputGenerator extends AbstractInputGenerator {
         input,
         this._prng
       );
-      /*console.debug(
-        `[${this.name}] ${mutators.length} mutators for input ${JSON5.stringify(
-          input
-        )}: ${mutators
-          .map((e) => `${e.name}@${JSON5.stringify(e.path)}`)
-          .join(", ")}`
-      ); // !!!!!!!*/
 
       // !!!!!! some kind of error here? seems pointless to return a duplicate input....?
       if (!mutators.length) {

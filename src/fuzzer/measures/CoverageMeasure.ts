@@ -14,8 +14,8 @@ import { InputAndSource } from "fuzzer/generators/Types";
 // !!!!!!
 export class CoverageMeasure extends AbstractMeasure {
   private _coverageData?: CoverageMapData; // coverage data written to by instrumented code
-  private _globalCoverageMap: CoverageMap = createCoverageMap({}); // Aggregate coverage
-  private _history: CoverageMeasurement[] = [];
+  private _globalCoverageMap = new ImmutableCoverageMapData({}); // Global code coverage
+  private _history: CoverageMeasurementNode[] = []; // !!!!!!
 
   // !!!!!!
   public onAfterCompile(jsSrc: string, jsFileName: string): string {
@@ -48,54 +48,69 @@ export class CoverageMeasure extends AbstractMeasure {
   ): CoverageMeasurement {
     const measure = super.measure(input, result);
 
+    // Sanity check that we have coverage data to ingest
     if (this._coverageData === undefined) {
-      throw new Error(
-        "Unable to retrieve global.__coverage__ code coverage object"
-      );
+      throw new Error("No current coverage data found");
     }
-    const coverageData = new ImmutableCoverageMapData(this._coverageData);
 
-    // Build a coverage map from the coverage data
-    const currentCoverageMap = createCoverageMap(coverageData.data);
-    const current = this.toNumber(currentCoverageMap);
+    // Make the current coverage data immutable
+    const currentCoverageData = new ImmutableCoverageMapData(
+      this._coverageData
+    );
 
-    // Add the coverage from this run to its predecessor's accumulated
-    // coverage (if present)
-    console.debug(JSON5.stringify(input)); // !!!!!!!!
+    // Merge the current coverage into all predecessors
     const pred =
       input.source.tick === undefined
-        ? {}
-        : this._history[input.source.tick].coverageMeasure.accum.data;
-    const accumCoverageMap = createCoverageMap(pred);
-    const accumBefore = this.toNumber(accumCoverageMap);
-    accumCoverageMap.merge(coverageData.data);
+        ? undefined
+        : this._history[input.source.tick];
+    let accumBefore = 0;
+    let accumAfter = 0;
+    let nextPred = pred;
+    while (nextPred) {
+      const accum = createCoverageMap(nextPred.meas.coverageMeasure.accum.data);
+      if (!nextPred.pred) accumBefore = this.toNumber(accum);
+      accum.merge(currentCoverageData.data);
+      if (!nextPred.pred) accumAfter = this.toNumber(accum);
+      nextPred.meas.coverageMeasure.accum = new ImmutableCoverageMapData(
+        accum.data
+      );
+      nextPred = nextPred.pred;
+    }
 
-    // Merge the coverage from this run into the global coverage map
-    const globalBefore = this.toNumber(this._globalCoverageMap);
-    this._globalCoverageMap.merge(coverageData.data);
-    console.debug(
-      `[${
-        this.name
-      }] total before: ${globalBefore} total after: ${this.toNumber(
-        this._globalCoverageMap
-      )} current: ${current}`
-    ); // !!!!!!!
+    // Merge the current coverage into the global coverage map
+    const globalCoverageMap = createCoverageMap(this._globalCoverageMap.data);
+    const globalBefore = this.toNumber(globalCoverageMap);
+    globalCoverageMap.merge(currentCoverageData.data);
+    this._globalCoverageMap = new ImmutableCoverageMapData(
+      globalCoverageMap.data
+    );
 
-    // Update measure history
-    this._history[input.tick] = {
+    // Build the measurement object
+    const meas = {
       ...measure,
       name: this.name,
       coverageMeasure: {
-        current: new ImmutableCoverageMapData(currentCoverageMap.data),
-        global: new ImmutableCoverageMapData(this._globalCoverageMap.data),
-        globalDelta: this.toNumber(this._globalCoverageMap) - globalBefore,
-        accum: new ImmutableCoverageMapData(accumCoverageMap.data),
-        accumDelta: this.toNumber(this._globalCoverageMap) - accumBefore,
+        current: new ImmutableCoverageMapData(currentCoverageData.data),
+        globalDelta: this.toNumber(globalCoverageMap) - globalBefore,
+        accum: new ImmutableCoverageMapData(currentCoverageData.data),
+        accumDelta: accumAfter - accumBefore,
       },
     };
 
+    // Update measure history
+    this._history[input.tick] = {
+      input,
+      pred,
+      meas,
+    };
+
     // Return the measurement
-    return JSON5.parse(JSON5.stringify(this._history[input.tick]));
+    return meas;
+  } // !!!!!!
+
+  // !!!!!!
+  public delta(a: CoverageMeasurement): number {
+    return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
   } // !!!!!!
 
   // !!!!!!
@@ -107,7 +122,6 @@ export class CoverageMeasure extends AbstractMeasure {
     if (this._coverageData) {
       let fileKey: keyof typeof this._coverageData;
       for (fileKey in this._coverageData) {
-        //delete this._coverageData[fileKey]; !!!!!!!!!
         const fileCoverage = this._coverageData[fileKey];
         let bKey: keyof typeof fileCoverage.b;
         for (bKey in fileCoverage.b) {
@@ -127,8 +141,9 @@ export class CoverageMeasure extends AbstractMeasure {
 
   // !!!!!!
   public onShutdown(results: FuzzTestResults): void {
-    results.aggregateCoverageSummary =
-      this._globalCoverageMap.getCoverageSummary(); // !!!!!!
+    results.aggregateCoverageSummary = createCoverageMap(
+      this._globalCoverageMap.data
+    ).getCoverageSummary(); // !!!!!!
     console.debug(
       `[${this.name}][${this._tick}] `,
       results.aggregateCoverageSummary
@@ -144,73 +159,35 @@ export class CoverageMeasure extends AbstractMeasure {
       summ.branches.covered + summ.statements.covered + summ.functions.covered
     );
   } // !!!!!!
-
-  // !!!!!!
-  public delta(a: CoverageMeasurement, b?: CoverageMeasurement): number {
-    const globalDelta = a.coverageMeasure.globalDelta;
-
-    // If there is no predecessor (b), return its global delta
-    if (b === undefined) {
-      return globalDelta;
-    }
-
-    // Accumulated coverage
-    const bAccumMerge = createCoverageMap(b.coverageMeasure.accum.data);
-    const bAccumBefore = this.toNumber(bAccumMerge);
-    bAccumMerge.merge(a.coverageMeasure.accum.data);
-    const bAccumAfter = this.toNumber(bAccumMerge);
-    const accumDelta = bAccumAfter - bAccumBefore;
-
-    console.debug(`[${this.name}] globalDelta: ${globalDelta}`); // !!!!!!!
-    console.debug(
-      `[${this.name}] accumDelta: ${accumDelta} bAccumBefore: ${bAccumBefore} bAccumAfter: ${bAccumAfter}`
-    ); // !!!!!!!
-
-    // Return abs(globalDelta) + abs(currentDelta / total)
-    return a.coverageMeasure.globalDelta + accumDelta;
-  } // !!!!!!
 } // !!!!!!
 
 // !!!!!!
 export type CoverageMeasurement = BaseMeasurement & {
   name: string;
   coverageMeasure: {
-    current: ImmutableCoverageMapData; // !!!!!!
-    accum: ImmutableCoverageMapData; // !!!!!!
+    current: ImmutableCoverageMapData; // current coverage of this input
+    accum: ImmutableCoverageMapData; // accumulated coverage of this plus successors
     accumDelta: number; // !!!!!!
-    global: ImmutableCoverageMapData; // !!!!!!
     globalDelta: number; // !!!!!!
   };
 };
 
 // !!!!!!
 class ImmutableCoverageMapData {
-  private _data: CoverageMapData; // !!!!!!
+  private _data: string; // !!!!!!
 
   constructor(data: CoverageMapData) {
-    this._data = JSON5.parse(JSON5.stringify(data));
+    this._data = JSON5.stringify(data);
   } // !!!!!!
 
   public get data(): CoverageMapData {
-    return JSON5.parse(JSON5.stringify(this._data));
+    return JSON5.parse(this._data);
   } // !!!!!!
 } // !!!!!!
 
 // !!!!!!
-/*!!!!!!!
-type CoverageMeasurementData = {
-  lines: {
-    total: number;
-    covered: number;
-  };
-  branches: {
-    total: number;
-    covered: number;
-  };
-  functions: {
-    total: number;
-    covered: number;
-  };
-  map: CoverageMap;
-};
-*/
+type CoverageMeasurementNode = {
+  input: InputAndSource;
+  pred: CoverageMeasurementNode | undefined;
+  meas: CoverageMeasurement;
+}; // !!!!!!

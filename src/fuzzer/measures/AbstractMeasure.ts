@@ -71,5 +71,5 @@ export abstract class AbstractMeasure {
   }
 
   // !!!!!!
-  public abstract delta(a: BaseMeasurement, b?: BaseMeasurement): number;
+  public abstract delta(a: BaseMeasurement): number;
 }

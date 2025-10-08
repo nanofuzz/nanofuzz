@@ -457,8 +457,15 @@ describe("fuzzer:", () => {
         {
           ...intOptions,
           //useProperty: true, // !!!!!!!!
-          //suiteTimeout: 25000, // !!!!!!!!
-          //maxTests: 15000, // !!!!!!!!
+          //suiteTimeout: 120000, // !!!!!!!!
+          //maxTests: 10000, // !!!!!!!!
+          argDefaults: {
+            ...intOptions.argDefaults,
+            strLength: {
+              min: 4,
+              max: 4,
+            },
+          },
         },
         "./Fuzzer.testfixtures.ts",
         "coverage"

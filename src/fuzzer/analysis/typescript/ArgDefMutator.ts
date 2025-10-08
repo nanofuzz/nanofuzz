@@ -197,6 +197,7 @@ export class ArgDefMutator {
                   value: `${value.slice(0, rPos)}${rChar}${value.slice(rPos)}`,
                   path: [...subInput.subPath],
                 },
+                /*
                 {
                   name: "string-reverse",
                   value: value.split("").reverse().join(""),
@@ -210,6 +211,7 @@ export class ArgDefMutator {
                     .join(""),
                   path: [...subInput.subPath],
                 },
+                */
               ].filter(
                 (e) =>
                   e.value !== value &&

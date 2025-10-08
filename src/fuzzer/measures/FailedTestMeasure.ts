@@ -95,9 +95,8 @@ export class FailedTestMeasure extends CoverageMeasure {
   } // !!!!!!
 
   // !!!!!!
-  public delta(a: FailedTestMeasurement, b?: FailedTestMeasurement): number {
-    a = JSON5.parse(JSON5.stringify(a));
-    b;
+  public delta(a: FailedTestMeasurement): number {
+    a;
     return 0; // !!!!!!!!
   } // !!!!!!
 } // !!!!!!
