@@ -24,10 +24,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   private _selectedSubgenIndex = 0; // Selected subordinate input generator (e.g., by efficiency)
   private _leaderboard; // Interesting inputs
   private _lastInput?: InputAndSource; // Last input generated
-  private _lastMeasuredInputTick?: number; // Last input with measurements
-  private readonly _L = 50; // Lookback window size for history !!!!!!! externalize
+  private readonly _L = 500; // Lookback window size for history !!!!!!! externalize
   private readonly _chunkSize = 10; // Re-evaluate subgen after _chunkSize inputs generated
-  private readonly _P = 0.2; // Additional chance of subgen exploration !!!!!!! externalize
+  private readonly _P = 0.05; // Additional chance of subgen exploration !!!!!!! externalize
   public static readonly INJECTED = "injected";
 
   // !!!!!!
@@ -137,7 +136,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
       // Update history of current subgen
       h.progress[m][h.currentIndex] = measure.delta(measurement);
-      h.cost[h.currentIndex] = cost;
+      h.cost[h.currentIndex] = 1; // !!!!!!!! cost;
       score += (h.progress[m][h.currentIndex] ?? 0) * measure.weight;
     }); // !!!!!!
 
@@ -156,7 +155,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // (e.g., the input was not a dupe and was actually executed)
     if (measurements.length) {
       this._leaderboard.postScore(this._lastInput, score);
-      this._lastMeasuredInputTick = this._tick;
     }
   } // !!!!!!
 

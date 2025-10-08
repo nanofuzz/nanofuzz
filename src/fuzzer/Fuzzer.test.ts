@@ -295,6 +295,31 @@ describe("fuzzer:", () => {
     expect(fuzzResult.results.some((e) => e.timeout)).toBe(true);
   });
 
+  // !!!!!!!
+  it("Fuzz example 15 - coverage", function () {
+    const fuzzResult = fuzz(
+      setup(
+        {
+          ...intOptions,
+          //useProperty: true, // !!!!!!!!
+          //suiteTimeout: 50000, // !!!!!!!!
+          //maxTests: 12000, // !!!!!!!!
+          argDefaults: {
+            ...intOptions.argDefaults,
+            strLength: {
+              min: 4,
+              max: 4,
+            },
+          },
+        },
+        "./Fuzzer.testfixtures.ts",
+        "coverage"
+      )
+    );
+    expect(fuzzResult.results.length).toBeGreaterThan(0); // !!!!!!!
+    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // !!!!!!!
+  });
+
   it("Counter-example mode 01", function () {
     const fuzzResult = fuzz(
       setup(counterExampleOptions, "nanofuzz-study/examples/14.ts", "modInv")
@@ -449,30 +474,5 @@ describe("fuzzer:", () => {
     );
     expect(fuzzResult.results.length).toBe(3);
     expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy();
-  });
-
-  // !!!!!!!
-  it("Fuzz example 15 - coverage", function () {
-    const fuzzResult = fuzz(
-      setup(
-        {
-          ...intOptions,
-          //useProperty: true, // !!!!!!!!
-          //suiteTimeout: 120000, // !!!!!!!!
-          //maxTests: 10000, // !!!!!!!!
-          argDefaults: {
-            ...intOptions.argDefaults,
-            strLength: {
-              min: 4,
-              max: 4,
-            },
-          },
-        },
-        "./Fuzzer.testfixtures.ts",
-        "coverage"
-      )
-    );
-    expect(fuzzResult.results.length).toBeGreaterThan(0); // !!!!!!!
-    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // !!!!!!!
   });
 });

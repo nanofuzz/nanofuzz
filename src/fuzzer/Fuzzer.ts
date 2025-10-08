@@ -242,7 +242,6 @@ export const fuzz = (
       totalDupeCount++; // incremement the total run dupe counter
       compositeInputGenerator.onInputFeedback([], genTime); // empty input generator feedback
       continue; // skip this test
-      // !!!!!!!! Make sure measures are calculated correctly for skipped inputs
     } else {
       currentDupeCount = 0; // reset the duplicate count
       // if the function accepts inputs, add test input

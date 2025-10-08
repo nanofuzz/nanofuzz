@@ -2,10 +2,12 @@ import * as JSON5 from "json5";
 
 // !!!!!!
 export class Leaderboard<T> {
-  private _leaders: { leader: T; score: number }[] = []; // !!!!!!
+  private _leaders: { leader: T; score: number; focus: number }[] = []; // !!!!!!
   private _minScore = 0.9999; // !!!!!!
   private _minScoreIdx = -1; // !!!!!!
   private _slots = 200; // >= 1 !!!!!!
+  private _initialFocus = 200; // !!!!!!
+  private _focusDecay = 1; // !!!!!!
 
   // !!!!!!
   public constructor(slots?: number) {
@@ -49,6 +51,7 @@ export class Leaderboard<T> {
       const thisLeader = {
         leader: JSON5.parse(JSON5.stringify(leader)),
         score,
+        focus: this._initialFocus,
       };
       // If the leaderboard is full...
       if (this._leaders.length === this._slots) {
@@ -69,12 +72,28 @@ export class Leaderboard<T> {
   } // !!!!!!
 
   // !!!!!!
+  // weighted by recentness
   public getRandomLeader(prng: seedrandom.prng): T {
     if (!this._leaders.length) {
       throw new Error("Leaderboard is empty");
     }
-    const i = Math.floor(prng() * this._leaders.length);
-    return JSON5.parse(JSON5.stringify(this._leaders[i].leader));
+    const totalScore = this._leaders
+      .map((l) => l.focus)
+      .reduce((a, b) => a + b);
+    let score = prng() * totalScore;
+    let leaderIdx: number | undefined;
+
+    this._leaders.forEach((l, i) => {
+      score -= l.focus;
+      if (leaderIdx === undefined && score <= 0) {
+        leaderIdx = i;
+      }
+      if (l.focus > this._focusDecay + 1) {
+        l.focus -= this._focusDecay;
+      }
+    });
+
+    return JSON5.parse(JSON5.stringify(this._leaders[leaderIdx ?? 0].leader));
   } // !!!!!!
 
   // !!!!!!
