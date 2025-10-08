@@ -2,7 +2,7 @@ import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { ArgDef } from "../analysis/typescript/ArgDef";
 import { ArgType } from "../analysis/typescript/Types";
 import { Leaderboard } from "./Leaderboard";
-import { InputAndSource, ScoredInput } from "./Types";
+import { InputAndSource } from "./Types";
 import * as JSON5 from "json5";
 import { ArgDefMutator } from "../analysis/typescript/ArgDefMutator";
 
@@ -16,7 +16,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   public constructor(
     specs: ArgDef<ArgType>[],
     rngSeed: string,
-    leaderboard: Leaderboard<ScoredInput>
+    leaderboard: Leaderboard<InputAndSource>
   ) {
     super(specs, rngSeed);
     this._leaderboard = leaderboard;
@@ -25,20 +25,15 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   // !!!!!!
   // Only available when "interesting" inputs are available to mutate.
   public isAvailable(): boolean {
-    if (!this._isAvailable && this._leaderboard.getLeaders().length) {
-      // !!!!!!!! performance: we just need the count
-      this._isAvailable = true;
-    }
-    return this._isAvailable;
+    return !!this._leaderboard.length;
   } // !!!!!!
 
   // !!!!!!
   public next(): InputAndSource {
     // Get the set of interesting inputs & select one
-    const leaders = this._leaderboard.getLeaders();
-    const i = Math.floor(this._prng() * leaders.length);
-    const input = leaders[i].leader.input.value;
-    const sourceTick = leaders[i].leader.tick;
+    const leader = this._leaderboard.getRandomLeader(this._prng);
+    const input = leader.value;
+    const sourceTick = leader.tick;
 
     // Randomize the number of mutations (1.._maxMutations)
     let n = Math.floor(this._prng() * this._maxMutations) + 1;

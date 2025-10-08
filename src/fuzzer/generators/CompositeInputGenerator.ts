@@ -36,7 +36,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     rngSeed: string,
     subgens: AbstractInputGenerator[],
     measures: AbstractMeasure[],
-    leaderboard: Leaderboard<ScoredInput>
+    leaderboard: Leaderboard<InputAndSource>
   ) {
     super(specs, rngSeed);
 
@@ -142,7 +142,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }); // !!!!!!
 
     h.currentIndex = (h.currentIndex + 1) % this._L; // !!!!!!
-    console.debug(`[${this.name}][${this._tick}] score: ${score}`); // !!!!!!!
 
     // Update history of composite input generator
     this._scoredInputs[this._tick] = {
@@ -156,7 +155,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // Update leaderboard & last measured input if we have measures
     // (e.g., the input was not a dupe and was actually executed)
     if (measurements.length) {
-      this._leaderboard.postScore(this._scoredInputs[this._tick], score);
+      this._leaderboard.postScore(this._lastInput, score);
       this._lastMeasuredInputTick = this._tick;
     }
   } // !!!!!!
@@ -249,12 +248,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       `Leaderboard: (${leaders.length} of max ${this._leaderboard.slots} entries)`
     ); // !!!!!!!
     leaders
-      .map((e) => [
-        e.leader.tick,
-        e.leader.input.value,
-        e.leader.input.source,
-        e.score,
-      ])
+      .map((e) => [e.leader.tick, e.leader.value, e.leader.source, e.score])
       .forEach((e) => {
         console.debug(JSON.stringify(e));
       }); // !!!!!!!

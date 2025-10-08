@@ -1,7 +1,6 @@
 import { FuzzTestResult } from "../Types";
 import { FuzzTestResults } from "fuzzer/Fuzzer";
 import { CoverageMeasure, CoverageMeasurement } from "./CoverageMeasure";
-import * as JSON5 from "json5";
 import { InputAndSource } from "fuzzer/generators/Types";
 
 // !!!!!!

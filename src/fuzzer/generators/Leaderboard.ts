@@ -3,10 +3,9 @@ import * as JSON5 from "json5";
 // !!!!!!
 export class Leaderboard<T> {
   private _leaders: { leader: T; score: number }[] = []; // !!!!!!
-  private _leadersJson: string = JSON5.stringify(this._leaders); // !!!!!!
-  private _minScore = 1; // !!!!!!
+  private _minScore = 0.9999; // !!!!!!
+  private _minScoreIdx = -1; // !!!!!!
   private _slots = 200; // >= 1 !!!!!!
-  private _isDirty = false; // !!!!!!
 
   // !!!!!!
   public constructor(slots?: number) {
@@ -31,45 +30,55 @@ export class Leaderboard<T> {
   } // !!!!!!
 
   // !!!!!!
-  public postScore(leader: T, score: number): void {
-    // Only change the leaderboard if score is > the current minimum
-    if (score >= this._minScore) {
-      // Add the score
-      this._leaders.push(JSON5.parse(JSON5.stringify({ leader, score })));
-
-      // Indicate that we need to update the leaderboard prior to
-      // it being observed
-      this._isDirty = true;
+  private updateMinScore() {
+    if (this._leaders.length === this._slots) {
+      this._minScore = Number.MAX_VALUE;
+      this._leaders.forEach((l, i) => {
+        if (l.score < this._minScore) {
+          this._minScore = l.score;
+          this._minScoreIdx = i;
+        }
+      });
     }
   } // !!!!!!
 
   // !!!!!!
-  public getLeaders(): typeof this._leaders {
-    // Only maintain the leaderboard if it's dirty and
-    // it's being observed
-    if (this._isDirty) {
-      // Sort the leaders in descending order
-      this._leaders.sort((a, b) => b.score - a.score);
-
-      // Remove entries beyond the maximum number of slots
-      if (this._slots && this._leaders.length > this._slots) {
-        this._leaders = this._leaders.slice(
-          0,
-          this._slots - this._leaders.length
-        );
+  public postScore(leader: T, score: number): void {
+    // Only post scores > minimum score
+    if (score > this._minScore) {
+      const thisLeader = {
+        leader: JSON5.parse(JSON5.stringify(leader)),
+        score,
+      };
+      // If the leaderboard is full...
+      if (this._leaders.length === this._slots) {
+        // ...replace the lowest score with the new, higher, one
+        this._leaders[this._minScoreIdx] = thisLeader;
+      } else {
+        // ...otherwise add the leader
+        this._leaders.push(thisLeader);
       }
-
-      // Update the minimum score & Json
-      if (this._leaders.length >= this._slots) {
-        this._minScore = this._leaders[this._leaders.length - 1].score;
-      }
-      this._leadersJson = JSON5.stringify(this._leaders);
-
-      // Mark the leaderboard as not dirty
-      this._isDirty = false;
+      // Re-calculate the minimum score, if necessary
+      this.updateMinScore();
     }
+  } // !!!!!!
 
-    // Return a copy of the updated leaderboard
-    return JSON5.parse(this._leadersJson);
+  // !!!!!!
+  public get length(): number {
+    return this._leaders.length;
+  } // !!!!!!
+
+  // !!!!!!
+  public getRandomLeader(prng: seedrandom.prng): T {
+    if (!this._leaders.length) {
+      throw new Error("Leaderboard is empty");
+    }
+    const i = Math.floor(prng() * this._leaders.length);
+    return JSON5.parse(JSON5.stringify(this._leaders[i].leader));
+  } // !!!!!!
+
+  // !!!!!!
+  public getLeaders(): { leader: T; score: number }[] {
+    return JSON5.parse(JSON5.stringify(this._leaders));
   } // !!!!!!
 } // !!!!!!

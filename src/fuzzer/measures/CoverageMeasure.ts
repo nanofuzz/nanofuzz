@@ -8,7 +8,6 @@ import {
 import { FuzzTestResult, VmGlobals } from "../Types";
 import { FuzzTestResults } from "fuzzer/Fuzzer";
 import { BaseMeasurement } from "./Types";
-import * as JSON5 from "json5";
 import { InputAndSource } from "fuzzer/generators/Types";
 
 // !!!!!!
@@ -174,14 +173,14 @@ export type CoverageMeasurement = BaseMeasurement & {
 
 // !!!!!!
 class ImmutableCoverageMapData {
-  private _data: string; // !!!!!!
+  private _data: string;
 
   constructor(data: CoverageMapData) {
-    this._data = JSON5.stringify(data);
+    this._data = JSON.stringify(data); // !!!!!!!
   } // !!!!!!
 
   public get data(): CoverageMapData {
-    return JSON5.parse(this._data);
+    return JSON.parse(this._data);
   } // !!!!!!
 } // !!!!!!
 

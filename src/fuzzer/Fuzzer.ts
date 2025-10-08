@@ -21,7 +21,7 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { ScoredInput } from "./generators/Types";
+import { InputAndSource } from "./generators/Types";
 import { isError } from "../Util";
 
 /**
@@ -100,7 +100,7 @@ export const fuzz = (
 
   // Setup the Composite Generator
   const argDefs = env.function.getArgDefs();
-  const leaderboard = new Leaderboard<ScoredInput>();
+  const leaderboard = new Leaderboard<InputAndSource>();
   const compositeInputGenerator = new CompositeInputGenerator(
     argDefs, // spec of inputs to generate
     env.options.seed ?? "", // prng seed

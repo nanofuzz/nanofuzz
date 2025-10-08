@@ -3,12 +3,12 @@ import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
-import { ScoredInput } from "./Types";
+import { InputAndSource } from "./Types";
 
 // !!!!!!
 export function InputGeneratorFactory(
   env: FuzzEnv,
-  leaderboard: Leaderboard<ScoredInput>
+  leaderboard: Leaderboard<InputAndSource>
 ): AbstractInputGenerator[] {
   env; // !!!!!!! Base list of generators on FuzzEnv
   leaderboard;

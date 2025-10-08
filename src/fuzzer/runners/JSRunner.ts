@@ -2,8 +2,9 @@ import { AbstractRunner } from "./AbstractRunner";
 import { VmGlobals } from "../Types";
 import vm from "vm";
 
+// !!!!!!
 export class JSRunner extends AbstractRunner {
-  protected _fnWrapper: any;
+  protected _fnWrapper: any; // !!!!!!
 
   // !!!!!!
   // Requires a compiled JS
@@ -31,7 +32,7 @@ export class JSRunner extends AbstractRunner {
     this._fnWrapper = this.functionTimeout((inputs: unknown[]): unknown => {
       return fnToCall(...inputs);
     });
-  }
+  } // !!!!!!
 
   // !!!!!!
   public run(
@@ -39,7 +40,7 @@ export class JSRunner extends AbstractRunner {
     timeout: number | undefined = 0
   ): [unknown, VmGlobals] {
     return this._fnWrapper(timeout, inputs);
-  }
+  } // !!!!!!
 
   /**
    * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
@@ -80,4 +81,4 @@ export class JSRunner extends AbstractRunner {
     // Return the wrapped function for calling
     return wrappedFunction;
   } // fn: functionTimeout()
-}
+} // !!!!!!
