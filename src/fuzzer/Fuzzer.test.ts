@@ -373,6 +373,7 @@ describe("fuzzer:", () => {
     fuzz(setup(intOptions, "nanofuzz-study/examples/14.ts", "modInv")).then(
       (fuzzResult) => {
         expect(fuzzResult.results.length).not.toBe(0);
+        expect(fuzzResult.results.some((e) => e.timeout)).toBe(true);
       }
     );
   });
