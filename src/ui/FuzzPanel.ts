@@ -6,6 +6,7 @@ import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
+import { isError } from "../Util";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -139,7 +140,7 @@ export class FuzzPanel {
         // It's possible the source code changed between restarting;
         // just log the exception and continue. Restoring these panels
         // is best effort anyway.
-        const msg = e instanceof Error ? e.message : JSON5.stringify(e);
+        const msg = isError(e) ? e.message : JSON5.stringify(e);
         console.error(`Unable to revive FuzzPanel: ${msg}`);
       }
     }
@@ -531,7 +532,7 @@ export class FuzzPanel {
     try {
       fs.writeFileSync(jsonFile, JSON5.stringify(fullSet)); // Update the file
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : JSON5.stringify(e);
+      const msg = isError(e) ? e.message : JSON5.stringify(e);
       vscode.window.showErrorMessage(
         `Unable to update json file: ${jsonFile} (${msg})`
       );
@@ -554,7 +555,7 @@ export class FuzzPanel {
       try {
         fs.writeFileSync(jestFile, jestTests);
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : JSON5.stringify(e);
+        const msg = isError(e) ? e.message : JSON5.stringify(e);
 
         vscode.window.showErrorMessage(
           `Unable to update Jest test file: ${jestFile} (${msg})`
@@ -565,7 +566,7 @@ export class FuzzPanel {
       try {
         fs.rmSync(jestFile);
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : JSON5.stringify(e);
+        const msg = isError(e) ? e.message : JSON5.stringify(e);
         vscode.window.showErrorMessage(
           `Unable to remove Jest test file: ${jestFile} (${msg})`
         );
@@ -685,10 +686,9 @@ export class FuzzPanel {
     try {
       program = ProgramDef.fromModule(module);
     } catch (e: unknown) {
-      this._errorMessage =
-        e instanceof Error
-          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-          : "Unknown error";
+      this._errorMessage = isError(e)
+        ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
+        : "Unknown error";
       vscode.window.showErrorMessage(
         `Unable to add the validator. TypeScript source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
       );
@@ -791,10 +791,9 @@ ${inArgConsts}
         const fn = ProgramDef.fromModule(module).getFunctions()[validatorName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (e: unknown) {
-        this._errorMessage =
-          e instanceof Error
-            ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-            : "Unknown error";
+        this._errorMessage = isError(e)
+          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
+          : "Unknown error";
         vscode.window.showErrorMessage(
           `Unable to navigate to the created validator '${validatorName}' in '${fn.getModule()}'`
         );
@@ -913,10 +912,9 @@ ${inArgConsts}
     try {
       program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
     } catch (e: unknown) {
-      this._errorMessage =
-        e instanceof Error
-          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-          : "Unknown error";
+      this._errorMessage = isError(e)
+        ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
+        : "Unknown error";
       vscode.commands.executeCommand(
         telemetry.commands.logTelemetry.name,
         new telemetry.LoggerEntry(
@@ -1059,10 +1057,9 @@ ${inArgConsts}
         this._putFuzzTestsForThisFn(testSet);
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
-        this._errorMessage =
-          e instanceof Error
-            ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-            : "Unknown error";
+        this._errorMessage = isError(e)
+          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
+          : "Unknown error";
         vscode.commands.executeCommand(
           telemetry.commands.logTelemetry.name,
           new telemetry.LoggerEntry(
@@ -1633,8 +1630,8 @@ ${inArgConsts}
         </html>
       `;
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Unknown error";
-      const stack = e instanceof Error ? e.stack : "<no stack>";
+      const msg = isError(e) ? e.message : "Unknown error";
+      const stack = isError(e) ? e.stack : "<no stack>";
       html = /*html*/ `
       <head></head>
       <body>
@@ -1994,7 +1991,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   try {
     fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : JSON.stringify(e);
+    const msg = isError(e) ? e.message : JSON.stringify(e);
     vscode.window.showErrorMessage(
       `${toolName} could not find or does not support this function. Message: "${msg}"`
     );
@@ -2050,7 +2047,7 @@ export function provideCodeLenses(
       });
     }
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : JSON.stringify(e);
+    const msg = isError(e) ? e.message : JSON.stringify(e);
     console.error(
       `Error parsing typescript file: ${document.fileName} error: ${msg}`
     );

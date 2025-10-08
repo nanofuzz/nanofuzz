@@ -30,6 +30,7 @@ import {
   ProgramImport,
   ArgType,
 } from "./Types";
+import { isError } from "../../../Util";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
@@ -160,7 +161,7 @@ export class ProgramDef {
             }
           }
         } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : JSON.stringify(e);
+          const msg = isError(e) ? e.message : JSON.stringify(e);
           console.debug(
             `Error resolving types for function '${fnRef.name}' argument '${
               lastArgName ?? "(unknown)"
@@ -187,7 +188,7 @@ export class ProgramDef {
           console.debug(
             `Error resolving return type for function '${
               fnRef.name
-            }'; Reason: ${e instanceof Error ? e.message : JSON.stringify(e)}`
+            }'; Reason: ${isError(e) ? e.message : JSON.stringify(e)}`
           );
         }
       }
@@ -1163,7 +1164,7 @@ export class ProgramDef {
               supported[name] = maybeFunction;
             }
           } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : JSON.stringify(e);
+            const msg = isError(e) ? e.message : JSON.stringify(e);
             console.debug(
               `Error processing function '${this._src.substring(
                 node.range[0],

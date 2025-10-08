@@ -17,6 +17,7 @@ import {
   FuzzStopReason,
 } from "./Types";
 import { FuzzOptions } from "./Types";
+import { isError } from "../Util";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -219,9 +220,9 @@ export const fuzz = async (
       });
       result.elapsedTime = performance.now() - startElapsedTime; // stop timer
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : JSON.stringify(e);
-      const stack = e instanceof Error ? e.stack : "<no stack>";
-      if (e instanceof Error && isTimeoutError(e)) {
+      const msg = isError(e) ? e.message : JSON.stringify(e);
+      const stack = isError(e) ? e.stack : "<no stack>";
+      if (isError(e) && isTimeoutError(e)) {
         result.timeout = true;
         result.elapsedTime = performance.now() - result.elapsedTime;
       } else {
@@ -291,8 +292,8 @@ export const fuzz = async (
                 passedValidators: [],
               };
             } catch (e: unknown) {
-              const msg = e instanceof Error ? e.message : JSON.stringify(e);
-              const stack = e instanceof Error ? e.stack : "<no stack>";
+              const msg = isError(e) ? e.message : JSON.stringify(e);
+              const stack = isError(e) ? e.stack : "<no stack>";
               return {
                 ...result,
                 validatorException: true,
@@ -448,7 +449,7 @@ export const implicitOracle = (x: unknown): boolean => {
  * @param param1
  * @returns
  */
-export default function functionTimeout(function_: any, timeout: number): any {
+export function functionTimeout(function_: any, timeout: number): any {
   const script = new vm.Script("returnValue = function_()");
 
   const wrappedFunction = (...arguments_: ArgValueType[]) => {
@@ -478,8 +479,12 @@ export default function functionTimeout(function_: any, timeout: number): any {
  * @param error exception
  * @returns true if the exeception is a timeout exception, false otherwise
  */
-export function isTimeoutError(error: Error): boolean {
-  return "code" in error && error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT";
+export function isTimeoutError(error: unknown): boolean {
+  return (
+    isError(error) &&
+    "code" in error &&
+    error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT"
+  );
 } // fn: isTimeoutError()
 
 /**
