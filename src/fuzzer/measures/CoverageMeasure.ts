@@ -12,8 +12,8 @@ import { InputAndSource } from "fuzzer/generators/Types";
 
 // !!!!!!
 export class CoverageMeasure extends AbstractMeasure {
-  private _coverageData?: CoverageMapData; // coverage data written to by instrumented code
-  private _globalCoverageMap = new ImmutableCoverageMapData({}); // Global code coverage
+  private _coverageData?: CoverageMapData; // coverage data maintained by instrumented code
+  private _globalCoverageMap = createCoverageMap({}); // Global code coverage map
   private _history: CoverageMeasurementNode[] = []; // !!!!!!
 
   // !!!!!!
@@ -52,12 +52,10 @@ export class CoverageMeasure extends AbstractMeasure {
       throw new Error("No current coverage data found");
     }
 
-    // Make the current coverage data immutable
-    const currentCoverageData = new ImmutableCoverageMapData(
-      this._coverageData
-    );
+    // Shwllow clone the raw current coverage data
+    const currentCoverageData = { ...this._coverageData };
 
-    // Merge the current coverage into all predecessors
+    // Merge the current coverage into root predecessor
     const pred =
       input.source.tick === undefined
         ? undefined
@@ -66,32 +64,26 @@ export class CoverageMeasure extends AbstractMeasure {
     let accumAfter = 0;
     let nextPred = pred;
     while (nextPred) {
-      const accum = createCoverageMap(nextPred.meas.coverageMeasure.accum.data);
-      if (!nextPred.pred) accumBefore = this.toNumber(accum);
-      accum.merge(currentCoverageData.data);
-      if (!nextPred.pred) accumAfter = this.toNumber(accum);
-      nextPred.meas.coverageMeasure.accum = new ImmutableCoverageMapData(
-        accum.data
-      );
+      if (!nextPred.pred) {
+        accumBefore = this.toNumber(nextPred.meas.coverageMeasure.accum);
+        nextPred.meas.coverageMeasure.accum.merge(currentCoverageData);
+        accumAfter = this.toNumber(nextPred.meas.coverageMeasure.accum);
+      }
       nextPred = nextPred.pred;
     }
 
     // Merge the current coverage into the global coverage map
-    const globalCoverageMap = createCoverageMap(this._globalCoverageMap.data);
-    const globalBefore = this.toNumber(globalCoverageMap);
-    globalCoverageMap.merge(currentCoverageData.data);
-    this._globalCoverageMap = new ImmutableCoverageMapData(
-      globalCoverageMap.data
-    );
+    const globalBefore = this.toNumber(this._globalCoverageMap);
+    this._globalCoverageMap.merge(currentCoverageData);
 
     // Build the measurement object
     const meas = {
       ...measure,
       name: this.name,
       coverageMeasure: {
-        current: new ImmutableCoverageMapData(currentCoverageData.data),
-        globalDelta: this.toNumber(globalCoverageMap) - globalBefore,
-        accum: new ImmutableCoverageMapData(currentCoverageData.data),
+        current: createCoverageMap(currentCoverageData),
+        globalDelta: this.toNumber(this._globalCoverageMap) - globalBefore,
+        accum: createCoverageMap(currentCoverageData),
         accumDelta: accumAfter - accumBefore,
       },
     };
@@ -121,19 +113,17 @@ export class CoverageMeasure extends AbstractMeasure {
     if (this._coverageData) {
       let fileKey: keyof typeof this._coverageData;
       for (fileKey in this._coverageData) {
+        this._coverageData[fileKey] = { ...this._coverageData[fileKey] };
         const fileCoverage = this._coverageData[fileKey];
-        let bKey: keyof typeof fileCoverage.b;
-        for (bKey in fileCoverage.b) {
+        Object.keys(fileCoverage.b).forEach((bKey) => {
           fileCoverage.b[bKey] = [0, 0];
-        }
-        let sKey: keyof typeof fileCoverage.s;
-        for (sKey in fileCoverage.s) {
+        });
+        Object.keys(fileCoverage.s).forEach((sKey) => {
           fileCoverage.s[sKey] = 0;
-        }
-        let fKey: keyof typeof fileCoverage.f;
-        for (fKey in fileCoverage.f) {
+        });
+        Object.keys(fileCoverage.f).forEach((fKey) => {
           fileCoverage.f[fKey] = 0;
-        }
+        });
       }
     }
   } // !!!!!!
@@ -164,25 +154,12 @@ export class CoverageMeasure extends AbstractMeasure {
 export type CoverageMeasurement = BaseMeasurement & {
   name: string;
   coverageMeasure: {
-    current: ImmutableCoverageMapData; // current coverage of this input
-    accum: ImmutableCoverageMapData; // accumulated coverage of this plus successors
+    current: CoverageMap; // current coverage of this input
+    accum: CoverageMap; // accumulated coverage of this plus successors
     accumDelta: number; // !!!!!!
     globalDelta: number; // !!!!!!
   };
 };
-
-// !!!!!!
-class ImmutableCoverageMapData {
-  private _data: string;
-
-  constructor(data: CoverageMapData) {
-    this._data = JSON.stringify(data); // !!!!!!!
-  } // !!!!!!
-
-  public get data(): CoverageMapData {
-    return JSON.parse(this._data);
-  } // !!!!!!
-} // !!!!!!
 
 // !!!!!!
 type CoverageMeasurementNode = {
