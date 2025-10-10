@@ -2,25 +2,43 @@ import seedrandom from "seedrandom";
 import { ArgDef } from "./ArgDef";
 import { ArgTag, ArgType, ArgValueType, ArgOptions, Interval } from "./Types";
 
-// !!!!!!
+/**
+ * Pseudo-randomly generates example values that conform to an ArgDef spec.
+ */
 export class ArgDefGenerator {
-  protected _gens: PublicRandFn[] = []; // !!!!!!
-  protected _prng; // !!!!!!
+  protected _gens: PublicRandFn[] = []; // functions that generate example values
+  protected _prng; // Pseudo random number generator
 
-  // !!!!!!
+  /**
+   * Creates a generator object
+   *
+   * @param `argDefs` array of ArgDef specs that describe the shape of values
+   * @param `prng` pseudo-random number generator
+   */
   public constructor(argDefs: ArgDef<ArgType>[], prng: seedrandom.prng) {
     this._prng = prng;
     this._gens = argDefs.map((argDef) =>
       generateRandomInputFn(argDef, this._prng)
     );
-  } // !!!!!!
+  } // fn: constructor
 
-  // !!!!!!
+  /**
+   * Generates the next example value.
+   *
+   * @returns value that conforms to the ArgDef specs
+   */
   public next(): ArgValueType[] {
     return this._gens.map((e) => e());
-  } // !!!!!!
+  } // fn: next
 
-  // !!!!!! one-shot generation
+  /**
+   * Static function that generates a single set of values in one call.
+   *
+   * @param `spec` ArgDef spec that describes the shape of the values
+   * @param `prng` pseudo random number generator
+   * @param `genDims` generate array dimensions? (default: `true`)
+   * @returns value that conforms to the ArgDef specs
+   */
   public static gen(
     spec: ArgDef<ArgType>,
     prng: seedrandom.prng,
@@ -28,21 +46,9 @@ export class ArgDefGenerator {
   ): ArgValueType {
     return generateRandomInputFn(spec, prng, genDims)();
   }
-} // !!!!!!
+} // class: ArgDefGenerator
 
-/**
- * Builds and returns a generator function that generates a pseudo-
- * random value of the given type within an ArgDef's input interval.
- *
- * @param arg the argument definition for which to generate an input
- * @param prng pseudo-random number generator
- * @returns a function that generates pseudo-random input values
- *
- * Throws an exception if the argument type is not supported.
- *
- * TODO: bias selection of input interval based on interval size
- */
-
+// Definition of a private random input generator function
 type PrivateRandFn = (
   prng: seedrandom.prng,
   min: ArgValueType,
@@ -50,8 +56,21 @@ type PrivateRandFn = (
   options: ArgOptions
 ) => ArgValueType;
 
+// Definition of a public random input generator function
 type PublicRandFn = () => ArgValueType;
 
+/**
+ * Builds and returns a generator function that generates a pseudo-
+ * random value of the given type within an ArgDef's input interval.
+ *
+ * @param `arg` the argument definition for which to generate an input
+ * @param `prng` pseudo-random number generator
+ * @returns a function that generates pseudo-random input values
+ *
+ * Throws an exception if the argument type is not supported.
+ *
+ * TODO: bias selection of input interval based on interval size
+ */
 function generateRandomInputFn<T extends ArgType>(
   arg: ArgDef<T>,
   prng: seedrandom.prng,
@@ -172,15 +191,15 @@ function generateRandomInputFn<T extends ArgType>(
         else return randArgValueWrapper();
       }
     : randArgValueWrapper; // mandatory arg
-} // GeneratorFactory()
+} // fn: generateRandomInput
 
 /**
  * Returns a random number >= min and <= max
  *
- * @param prng pseudo-random number generator
- * @param min minimum value allowed (inclusive)
- * @param max maximum value allowed (inclusive)
- * @param options argument option set
+ * @param `prng` pseudo-random number generator
+ * @param `min` minimum value allowed (inclusive)
+ * @param `max` maximum value allowed (inclusive)
+ * @param `options` argument option set
  * @returns random number >= min and <= max
  *
  * Throws an exception if min and max are not numbers
@@ -201,15 +220,15 @@ const getRandomNumber = (
   } else {
     return prng() * (max - min) + min; // Max and Min are inclusive
   }
-}; // getRandomNumber()
+}; // fn: getRandomNumber
 
 /**
  * Returns a random number >= min and <= max
  *
- * @param prng pesudo-random number generator
- * @param min minimum value allowed (inclusive)
- * @param max maximum value allowed (inclusive)
- * @param options argument option set
+ * @param `prng` pesudo-random number generator
+ * @param `min` minimum value allowed (inclusive)
+ * @param `max` maximum value allowed (inclusive)
+ * @param `options` argument option set
  * @returns random boolean >= min and <= max
  *
  * Throws an exception if min and max are not booleans
@@ -224,15 +243,15 @@ const getRandomBool: PrivateRandFn = (
   if (min && max) return true;
   if (!min && !max) return false;
   return prng() >= 0.5;
-}; // getRandomBool()
+}; // fn: getRandomBool
 
 /**
  * Returns a literal value
  *
- * @param prng pesudo-random number generator
- * @param min minimum value allowed (inclusive)
- * @param max maximum value allowed (inclusive)
- * @param options argument option set
+ * @param `prng` pesudo-random number generator
+ * @param `min` minimum value allowed (inclusive)
+ * @param `max` maximum value allowed (inclusive)
+ * @param `options` argument option set
  * @returns the constant
  *
  * Throws an exception if min and max are not the same
@@ -244,7 +263,7 @@ const getLiteral: PrivateRandFn = (
 ): ArgValueType => {
   if (min === max) return min;
   throw new Error("Min and max must be the same for literals");
-}; // getLiteral()
+}; // fn: getLiteral
 
 /**
  * Returns a random string >= min and <= max with
@@ -255,10 +274,10 @@ const getLiteral: PrivateRandFn = (
  * Likewise, if min or max length > options.strLength.max, min
  * and max are truncated to options.strLength.max.
  *
- * @param prng pseudo-random number generator
- * @param min minimum value allowed (inclusive)
- * @param max maximum value allowed (inclusive)
- * @param options argument option set
+ * @param `prng` pseudo-random number generator
+ * @param `min` minimum value allowed (inclusive)
+ * @param `max` maximum value allowed (inclusive)
+ * @param `options` argument option set
  * @returns random string >= min and <= max
  *
  * Throws an exception if min and max are not strings
@@ -297,7 +316,7 @@ const getRandomString: PrivateRandFn = (
   }
 
   return outStr;
-}; // getRandomString()
+}; // fn: getRandomString
 
 /**
  * Adapted from: https://stackoverflow.com/a/12588826
@@ -307,10 +326,10 @@ const getRandomString: PrivateRandFn = (
  * genFn function produces inputs with the appropriate type and
  * range for each array element.
  *
- * @param prng pseudo-random number generator
- * @param genFn generator for array element inputs
- * @param dimLength array of lengths for each n-dimension
- * @param options argument option set
+ * @param `prng` pseudo-random number generator
+ * @param `genFn` generator for array element inputs
+ * @param `dimLength` array of lengths for each n-dimension
+ * @param `options` argument option set
  * @returns n-dimensional array of random values
  */
 const nArray = (
@@ -335,4 +354,4 @@ const nArray = (
   } else {
     return genFn(); // Base case -- just an array of values
   }
-}; // nArray()
+}; // fn: nArray

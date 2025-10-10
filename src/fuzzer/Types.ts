@@ -1,4 +1,3 @@
-import { CoverageSummary } from "istanbul-lib-coverage";
 import { ArgOptions, ArgValueType } from "./analysis/typescript/Types";
 
 /**
@@ -23,7 +22,6 @@ export type FuzzTestResult = {
   elapsedTime: number; // elapsed time of test in ms
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: FuzzResultCategory; // the ResultCategory of the test result
-  coverageSummary?: CoverageSummary;
 };
 
 /**

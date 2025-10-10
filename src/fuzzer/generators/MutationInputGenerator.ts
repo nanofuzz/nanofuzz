@@ -3,16 +3,22 @@ import { ArgDef } from "../analysis/typescript/ArgDef";
 import { ArgType } from "../analysis/typescript/Types";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "./Types";
-import * as JSON5 from "json5";
 import { ArgDefMutator } from "../analysis/typescript/ArgDefMutator";
 
-// !!!!!!
+/**
+ * Generates new inputs by mutating prior "interesting" inputs
+ */
 export class MutationInputGenerator extends AbstractInputGenerator {
-  private _leaderboard; // !!!!!!
-  private _isAvailable = false; // !!!!!!
-  private _maxMutations = 2; // !!!!!!
+  private _leaderboard; // List of "interesting" inputs
+  private _maxMutations = 2; // Max mutations to apply to interesting inputs
 
-  // !!!!!!
+  /**
+   * Create a MutationInputGenerator
+   *
+   * @param `specs` ArgDef specification of inputs to generate
+   * @param `rngSeed` Random seed for input generation
+   * @param `leaderboard` Running list of "interesting" inputs
+   */
   public constructor(
     specs: ArgDef<ArgType>[],
     rngSeed: string,
@@ -20,16 +26,28 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   ) {
     super(specs, rngSeed);
     this._leaderboard = leaderboard;
-  } // !!!!!!
+  } // fn: constructor
 
-  // !!!!!!
-  // Only available when "interesting" inputs are available to mutate.
+  /**
+   * This generator requires a leaderboard with at least one
+   * "interesting" input to mutate.
+   *
+   * @returns true if generator is available, false otherwise
+   */
   public isAvailable(): boolean {
     return !!this._leaderboard.length;
-  } // !!!!!!
+  } // fn: isAvailable
 
-  // !!!!!!
+  /**
+   * Returns the next input using a mutation strategy.
+   *
+   * @returns mutated input
+   */
   public next(): InputAndSource {
+    if (!this._leaderboard.length) {
+      throw new Error(`${this.name} no interesting inputs to mutate yet`);
+    }
+
     // Get the set of interesting inputs & select one
     const leader = this._leaderboard.getRandomLeader(this._prng);
     const input = leader.value;
@@ -38,9 +56,6 @@ export class MutationInputGenerator extends AbstractInputGenerator {
     // Randomize the number of mutations (1.._maxMutations)
     let n = Math.floor(this._prng() * this._maxMutations) + 1;
     while (n-- > 0) {
-      // Save the unmutated input
-      const originalInput = JSON5.parse(JSON5.stringify(input));
-
       // Calculate possible mutations for the input
       const mutators = ArgDefMutator.getMutators(
         this._specs,
@@ -60,13 +75,6 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       // Randomly select & execute a mutator
       const m = Math.floor(this._prng() * mutators.length);
       mutators[m].fn();
-      console.debug(
-        `[${this.name}] - Applied: ${mutators[m].name}@${JSON5.stringify(
-          mutators[m].path
-        )} to: ${JSON5.stringify(originalInput)} result: ${JSON5.stringify(
-          input
-        )}`
-      ); // !!!!!!!
     }
 
     // return the mutated input
@@ -75,5 +83,5 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       value: input,
       source: { subgen: this.name, tick: sourceTick },
     };
-  } // !!!!!!
-} // !!!!!!
+  } // fn: next
+} // class: MutationInputGenerator

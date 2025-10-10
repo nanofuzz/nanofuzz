@@ -4,32 +4,47 @@ import { ArgDefValidator } from "./ArgDefValidator";
 import { ArgTag, ArgType, ArgValueType } from "./Types";
 import * as JSON5 from "json5";
 
-// !!!!!!
+/**
+ * Utilities for mutating values described by an ArgDef spec
+ */
 export class ArgDefMutator {
-  // !!!!!!
-  // mutators only work once
+  /**
+   * Returns a list of mutator functions for the provided value and
+   * ArgDef spec. To mutate the value, call one of the returned
+   * mutator functions.
+   *
+   * Note: A maximum of one mutation execution is allowed for each
+   * set of returned mutator functions. Trying to call more than one
+   * mutator function will raise an exception.
+   *
+   * @param `specs` ArgDef that describes the value to mutate
+   * @param `value`` Value to mutate
+   * @param `prng`` random number generator
+   * @returns array of mutator functions
+   */
   public static getMutators(
     specs: ArgDef<ArgType>[],
-    input: ArgValueType[],
+    value: ArgValueType[],
     prng: seedrandom.prng
   ): mutatorFn[] {
     // Sanity check: ensure we have specs to cover our inputs
-    if (ArgDef.length < input.length) {
+    if (ArgDef.length < value.length) {
       throw new Error(
-        `Different number of inputs (${input.length}) relative to ArgDefs (${
+        `Different number of inputs (${value.length}) relative to ArgDefs (${
           ArgDef.length
-        }) for input: ${JSON5.stringify(input)}`
+        }) for input: ${JSON5.stringify(value)}`
       );
     }
 
-    // !!!!!!
+    // Running list of mutator functions
     const mutations: {
       name: string;
       value: ArgValueType;
       path: (string | number)[];
     }[] = [];
 
-    // !!!!!!
+    // Utility function that determines mutators appropriate
+    // for a given array values and ArgDef spec.
     const mutateArray = (
       a: Array<ArgValueType>,
       path: (string | number)[],
@@ -65,7 +80,7 @@ export class ArgDefMutator {
         )
       );
 
-      // !!!!!!
+      // Process each element in this level of the array
       for (const i in a) {
         mutations.push(
           ...[
@@ -100,7 +115,7 @@ export class ArgDefMutator {
       subElement: ArgValueType;
       subSpec: ArgDef<ArgType>;
       inArray: boolean;
-    }[] = input.map((e, i) => {
+    }[] = value.map((e, i) => {
       return {
         subPath: [Number(i)],
         subElement: e,
@@ -332,7 +347,7 @@ export class ArgDefMutator {
                 ].filter(
                   (e) =>
                     JSON5.stringify(e.value) !== JSON5.stringify(value) &&
-                    !(e.value === undefined && isNull(value))
+                    !(e.value === undefined && this.isNull(value))
                 )
               );
             }
@@ -361,20 +376,28 @@ export class ArgDefMutator {
             );
           } else {
             wasMutated = true;
-            return this.mutateInputInPlace(input, e.path, e.value);
+            return this.mutateValueInPlace(value, e.path, e.value);
           }
         },
       };
     });
-  } // !!!!!!
+  } // fn: getMutators
 
-  // !!!!!!
-  protected static mutateInputInPlace(
-    input: ArgValueType,
+  /**
+   * Mutates a value **in place** by following a path to the
+   * appropriate value node and applying the new value.
+   *
+   * @param `value` the value to mutate in place
+   * @param `path`` path to the value node to mutate
+   * @param `newValue` the new value
+   * @returns the mutated input value
+   */
+  protected static mutateValueInPlace(
+    value: ArgValueType,
     path: (number | string)[],
     newValue: ArgValueType
   ): ArgValueType {
-    let element: ArgValueType = input;
+    let element: ArgValueType = value;
 
     // Follow the path to the value
     for (const step in path) {
@@ -389,7 +412,7 @@ export class ArgDefMutator {
           // !!!!!!!! Human-generated inputs might not be conformant...
           throw new Error(
             `Cannot follow path through non-array / non-object. Input: ${JSON5.stringify(
-              input
+              value
             )}, Element: ${JSON5.stringify(element)}, path: ${JSON5.stringify(
               path
             )} at step: ${step}`
@@ -405,7 +428,7 @@ export class ArgDefMutator {
           // !!!!!!!! Human-generated inputs might not be conformant...
           throw new Error(
             `Cannot mutate value through non-array / non-object. Input: ${JSON5.stringify(
-              input
+              value
             )}, Element: ${JSON5.stringify(element)}, Path: ${JSON5.stringify(
               path
             )} at step: ${step}`
@@ -413,18 +436,25 @@ export class ArgDefMutator {
         }
       }
     }
-    return input;
-  } // !!!!!!
-} // !!!!!!
+    return value;
+  } // fn: mutateValueInPlace
 
-// !!!!!!
+  /**
+   * Checks for `null` without raising type warnings.
+   *
+   * @param `value` value to check for null
+   * @returns true if null, false otherwise
+   */
+  public static isNull(value: unknown): boolean {
+    return value === null;
+  } // fn: isNull
+} // class: ArgDefMutator
+
+/**
+ * Type describing mutator functions
+ */
 export type mutatorFn = {
-  name: string;
-  path: (string | number)[];
-  fn: () => ArgValueType;
+  name: string; // mutator function name
+  path: (string | number)[]; // path to value node to mutate
+  fn: () => ArgValueType; // mutator function
 };
-
-// !!!!!!
-function isNull(value: unknown): boolean {
-  return value === null;
-} // !!!!!!!

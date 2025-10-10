@@ -1,7 +1,9 @@
-import { BaseMeasurement } from "../measures/Types";
+import { BaseMeasurement } from "../measures/AbstractMeasure";
 import { ArgValueType } from "../analysis/typescript/Types";
 
-// !!!!!!
+/**
+ * Concrete input values and their source
+ */
 export type InputAndSource = {
   tick: number;
   value: ArgValueType[];
@@ -11,7 +13,9 @@ export type InputAndSource = {
   };
 };
 
-// !!!!!!
+/**
+ * A scored input with its measurements
+ */
 export type ScoredInput = {
   tick: number;
   input: InputAndSource;

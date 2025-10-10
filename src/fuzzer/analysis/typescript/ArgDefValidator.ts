@@ -2,35 +2,53 @@ import { ArgDef } from "./ArgDef";
 import { ArgTag, ArgType, ArgValueType } from "./Types";
 import * as JSON5 from "json5";
 
-// !!!!!!
+/**
+ * Valides values against their corresponding ArgDef specs
+ */
 export class ArgDefValidator {
   protected _specs: ArgDef<ArgType>[];
 
-  // !!!!!!
+  /**
+   * Create an ArgDefValidator object
+   *
+   * @param `specs` ArgDef spec against which to check values
+   */
   constructor(specs: ArgDef<ArgType>[]) {
     this._specs = specs;
-  } // !!!!!!
+  } // fn: constructor
 
-  // !!!!!!
-  public validate(inputs: ArgValueType[]): boolean {
+  /**
+   * Valides inputs against the corresponding specs
+   *
+   * @param `values` array of values to validate against the specs.
+   * @returns true if the values conform to the ArgDef specs, false otherwise
+   */
+  public validate(values: ArgValueType[]): boolean {
     let i = 0;
     return (
-      inputs.length <= this._specs.length &&
-      inputs.every((e) => ArgDefValidator.validate(e, this._specs[i++]))
+      values.length <= this._specs.length &&
+      values.every((e) => ArgDefValidator.validate(e, this._specs[i++]))
     );
-  } // !!!!!!
+  } // fn: validate
 
-  // !!!!!! inArray
+  /**
+   * Validates an input against an ArgDef spec in a single shot.
+   *
+   * @param `value` value to validate against a spec
+   * @param `spec` ArgDef spec that describes the value
+   * @param `inArray` `true` if validating an array element value (default is false)
+   * @returns true if the value validates, false otherwise
+   */
   public static validate(
-    input: ArgValueType,
+    value: ArgValueType,
     spec: ArgDef<ArgType>,
     inArray = false
   ): boolean {
     const options = spec.getOptions();
 
     if (spec.getDim() && !inArray) {
-      if (Array.isArray(input)) {
-        return traverse(input, spec);
+      if (Array.isArray(value)) {
+        return traverse(value, spec);
       } else {
         return false;
       }
@@ -38,36 +56,36 @@ export class ArgDefValidator {
       switch (spec.getType()) {
         case ArgTag.NUMBER: {
           return (
-            typeof input === "number" &&
-            input <= Number(spec.getIntervals()[0].max) &&
-            input >= Number(spec.getIntervals()[0].min) &&
-            (Number.isInteger(input) || !options.numInteger)
+            typeof value === "number" &&
+            value <= Number(spec.getIntervals()[0].max) &&
+            value >= Number(spec.getIntervals()[0].min) &&
+            (Number.isInteger(value) || !options.numInteger)
           );
         }
         case ArgTag.STRING: {
           return (
-            typeof input === "string" &&
-            input.length <= options.strLength.max &&
-            input.length >= options.strLength.min &&
-            input.split("").every((e) => options.strCharset.includes(e))
+            typeof value === "string" &&
+            value.length <= options.strLength.max &&
+            value.length >= options.strLength.min &&
+            value.split("").every((e) => options.strCharset.includes(e))
           );
         }
         case ArgTag.BOOLEAN: {
           return (
-            typeof input === "boolean" &&
-            (input === Boolean(spec.getIntervals()[0].max) ||
-              input === Boolean(spec.getIntervals()[0].min))
+            typeof value === "boolean" &&
+            (value === Boolean(spec.getIntervals()[0].max) ||
+              value === Boolean(spec.getIntervals()[0].min))
           );
         }
         case ArgTag.LITERAL: {
-          return input === spec.getConstantValue();
+          return value === spec.getConstantValue();
         }
         case ArgTag.OBJECT: {
-          if (typeof input === "object" && !Array.isArray(input)) {
+          if (typeof value === "object" && !Array.isArray(value)) {
             const children = spec.getChildren();
             for (const c of children) {
               const name = c.getName();
-              const childValue = input[name];
+              const childValue = value[name];
               const isNoInput = c.isNoInput();
               const isOptional = c.isOptional();
               let valid = false; // assume invalid & look for cases of validity
@@ -95,7 +113,7 @@ export class ArgDefValidator {
         case ArgTag.UNION: {
           const children = spec.getChildren().filter((c) => !c.isNoInput());
           for (const c of children) {
-            if (ArgDefValidator.validate(input, c)) {
+            if (ArgDefValidator.validate(value, c)) {
               return true; // validated against one of the union specs
             }
           }
@@ -111,10 +129,17 @@ export class ArgDefValidator {
         `Cannot validate unsupported ArgDef type: ${JSON5.stringify(spec)}`
       );
     }
-  } // !!!!!!
-} // !!!!!!
+  } // fn: validate (static)
+} // class: ArgDefValidator
 
-// !!!!!!
+/**
+ * Utility function to traverse and validate an array of values
+ *
+ * @param `a` array of values to validate
+ * @param `spec` ArgDef spec for value
+ * @param `currDepth` current level/depth/dimension of validation within array
+ * @returns true if the values validate, false otherwise
+ */
 const traverse = (
   a: Array<ArgValueType>,
   spec: ArgDef<ArgType>,
@@ -143,4 +168,4 @@ const traverse = (
     }
   }
   return true; // no violations found
-}; // !!!!!!
+}; // fn: traverse

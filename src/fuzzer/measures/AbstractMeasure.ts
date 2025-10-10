@@ -1,11 +1,11 @@
 import { InputAndSource } from "fuzzer/generators/Types";
 import { FuzzTestResults } from "../Fuzzer";
 import { FuzzTestResult, VmGlobals } from "../Types";
-import { BaseMeasurement } from "./Types";
 
-// !!!!!!
+/**
+ * Abstract class of a measure
+ */
 export abstract class AbstractMeasure {
-  protected _tick = 0;
   protected _weight = 1;
 
   /**
@@ -13,46 +13,52 @@ export abstract class AbstractMeasure {
    */
   public get name(): string {
     return this.constructor.name;
-  }
+  } // property: get name
 
   /**
    * Returns the measure's weight
    */
   public get weight(): number {
     return this._weight;
-  }
+  } // property: get weight
 
   /**
    * Set the measure's weight
    */
   public set weight(inWeight: number) {
     this._weight = inWeight;
-  }
+  } // property: set weight
 
-  // !!!!!!
-  // Called after compilation but before load; useful for instrumenting code
-  public onAfterCompile(jsSrc: string, jsFileName: string): string {
-    jsFileName;
-    this._tick = 0;
-    return jsSrc;
-  }
+  /**
+   * Hook for instrumenting code after compilation but prior to load.
+   *
+   * @param `jsSrc` source code
+   * @param `jsFileName` location of source coe
+   * @returns modified source code
+   */
+  public abstract onAfterCompile(jsSrc: string, jsFileName: string): string;
 
-  // !!!!!!
-  // Called after load; useful for retrieving the context needed to
-  // extract instrumentation
-  public onAfterLoad(globals: VmGlobals): void {
-    globals;
-  }
+  /**
+   * Hook for extracting data from the context of the program after load.
+   * For example, to extract instrumentation data.
+   *
+   * @param `globals` context of the loaded program
+   */
+  public abstract onAfterLoad(globals: VmGlobals): void;
 
-  // !!!!!!
-  // Called before executing the next test. Useful for updating internal
-  // per-run variables.
-  public onBeforeNextTestExecution(): void {
-    this._tick++;
-  }
+  /**
+   * Hook for setting up the measure prior to executing each test.
+   * Useful for updating internal per-run variables.
+   */
+  public abstract onBeforeNextTestExecution(): void;
 
-  // !!!!!!
-  // Takes a measurement after execution of a test
+  /**
+   * Takes a measurement after each test execution
+   *
+   * @param `input` test input that was executed
+   * @param `result` results of the test
+   * @returns measurement data
+   */
   public measure(
     input: InputAndSource,
     result: FuzzTestResult
@@ -62,14 +68,29 @@ export abstract class AbstractMeasure {
       type: "measure",
       name: this.name,
     };
-  }
+  } // fn: measure
 
-  // !!!!!
-  // Called after testing has ended
-  public onShutdown(results: FuzzTestResults): void {
-    results;
-  }
+  /**
+   * Hook to perform cleanup activities when the fuzzer is shutting
+   * down and after testing has ended
+   *
+   * @param `results` all test results
+   */
+  public abstract onShutdown(results: FuzzTestResults): void;
 
-  // !!!!!!
+  /**
+   * Returns the progress measured for `a`
+   *
+   * @param `a` measurement
+   * @returns progress value
+   */
   public abstract delta(a: BaseMeasurement): number;
-}
+} // class: AbstractMeasure
+
+/**
+ * Base measurement data
+ */
+export type BaseMeasurement = {
+  type: "measure";
+  name: string;
+};

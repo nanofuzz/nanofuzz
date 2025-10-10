@@ -2,12 +2,18 @@ import { AbstractRunner } from "./AbstractRunner";
 import { VmGlobals } from "../Types";
 import vm from "vm";
 
-// !!!!!!
+/**
+ * Javascript test runner
+ */
 export class JSRunner extends AbstractRunner {
-  protected _fnWrapper: any; // !!!!!!
+  protected _fnWrapper: any; // wrapper function for calling `jsFn`
 
-  // !!!!!!
-  // Requires a compiled JS
+  /**
+   * Create a new Javascript function runner
+   *
+   * @param `module` loaded program module
+   * @param `jsFn` exported function within `module` to call
+   */
   public constructor(module: NodeJS.Module, jsFn: string) {
     super(module, jsFn);
 
@@ -24,7 +30,7 @@ export class JSRunner extends AbstractRunner {
     // Ensure that what's exported is a function
     if (typeof fnToCall !== "function") {
       throw new Error(
-        `Cannot fuzz exported member '${jsFn} in ${module.filename} because it is not a function`
+        `Cannot run '${jsFn} in ${module.filename} because it is not a function`
       );
     }
 
@@ -32,15 +38,21 @@ export class JSRunner extends AbstractRunner {
     this._fnWrapper = this.functionTimeout((inputs: unknown[]): unknown => {
       return fnToCall(...inputs);
     });
-  } // !!!!!!
+  } // fn: constructor
 
-  // !!!!!!
+  /**
+   * Run `jsFn` in `module` with `inputs`
+   *
+   * @param `inputs` inputs to function
+   * @param `timeout` stop and fail after `timeout` ms
+   * @returns
+   */
   public run(
     inputs: unknown[],
     timeout: number | undefined = 0
   ): [unknown, VmGlobals] {
     return this._fnWrapper(timeout, inputs);
-  } // !!!!!!
+  } // fn: run
 
   /**
    * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
@@ -81,4 +93,4 @@ export class JSRunner extends AbstractRunner {
     // Return the wrapped function for calling
     return wrappedFunction;
   } // fn: functionTimeout()
-} // !!!!!!
+} // class: JSRunner

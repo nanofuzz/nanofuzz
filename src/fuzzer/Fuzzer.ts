@@ -16,7 +16,6 @@ import {
   FuzzStopReason,
 } from "./Types";
 import { FuzzOptions } from "./Types";
-import { CoverageSummary } from "istanbul-lib-coverage"; // !!!!!!!! Don't want this dependency here
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
@@ -709,7 +708,6 @@ export type FuzzTestResults = {
   dupesGenerated: number; // number of duplicate inputs generated
   inputsSaved: number; // number of inputs saved
   results: FuzzTestResult[]; // fuzzing test results
-  aggregateCoverageSummary?: CoverageSummary; // !!!!!!! multiple measures
 };
 
 export * from "./analysis/typescript/ProgramDef";
