@@ -25,8 +25,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   private _leaderboard; // Interesting inputs
   private _lastInput?: InputAndSource; // Last input generated
   private readonly _L = 500; // Lookback window size for history !!!!!!! externalize
-  private readonly _chunkSize = 10; // Re-evaluate subgen after _chunkSize inputs generated
-  private readonly _P = 0.05; // Additional chance of subgen exploration !!!!!!! externalize
+  private readonly _chunkSize = 20; // Re-evaluate subgen after _chunkSize inputs generated
+  private readonly _P = 0.1; // Additional chance of subgen exploration !!!!!!! externalize
   public static readonly INJECTED = "injected";
 
   // !!!!!!
