@@ -295,15 +295,14 @@ describe("fuzzer:", () => {
     expect(fuzzResult.results.some((e) => e.timeout)).toBe(true);
   });
 
-  // !!!!!!!
   it("Fuzz example 15 - coverage", function () {
     const fuzzResult = fuzz(
       setup(
         {
           ...intOptions,
-          //useProperty: true, // !!!!!!!!
-          //suiteTimeout: 50000, // !!!!!!!!
-          //maxTests: 12000, // !!!!!!!!
+          useProperty: true,
+          suiteTimeout: 30000,
+          maxTests: 12000,
           argDefaults: {
             ...intOptions.argDefaults,
             strLength: {
@@ -316,8 +315,27 @@ describe("fuzzer:", () => {
         "coverage"
       )
     );
-    expect(fuzzResult.results.length).toBeGreaterThan(0); // !!!!!!!
-    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // !!!!!!!
+    expect(fuzzResult.results.length).toBeGreaterThan(0); // Expect some results
+    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // Expect all implicit validation to pass
+
+    // Expect that we generate input "bugs" within 12k input generations
+    expect(
+      fuzzResult.results.some((e) => e.input[0].value === "bugs")
+    ).toBeTruthy();
+
+    // Expect that most of the validtor tests will pass
+    expect(
+      fuzzResult.results.some((e) =>
+        e.passedValidators?.some((v) => v === true)
+      )
+    ).toBeTruthy();
+
+    // But expect that "bugs" should fail (as would "bug!" and "moth")
+    expect(
+      fuzzResult.results.some((e) =>
+        e.passedValidators?.some((v) => v === false)
+      )
+    ).toBeTruthy();
   });
 
   it("Counter-example mode 01", function () {
