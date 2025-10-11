@@ -6,7 +6,21 @@ import { Leaderboard } from "./Leaderboard";
 import * as JSON5 from "json5";
 import { InputAndSource, ScoredInput } from "./Types";
 
-// !!!!
+/**
+ * The Composite Input Generator subsumes multiple types of input generator and biases
+ * its selection of which generator to use next based on subsumed generators' progress
+ * toward certain measures, which the user weights according to their goals.
+ *
+ * Such self-adaptation is important because different input generator types have
+ * different trade-offs, and these trade-offs may change throughout a testing session.
+ * The primary advantage of such an arrangement is that the fuzzer can generate more
+ * interesting inputs without relying on the user to decide which particular input
+ * generator to use at any particular moment in time.
+ *
+ * Regardless of an input's generation source, inputs that make more progress toward
+ * measures are tracked on a leaderboard, which subsumed input generators may use as
+ * a source of interesting inputs to mutate.
+ */
 export class CompositeInputGenerator extends AbstractInputGenerator {
   private _subgens: AbstractInputGenerator[] = []; // Subordinate input generators
   private _tick = 0; // Number of inputs generated
