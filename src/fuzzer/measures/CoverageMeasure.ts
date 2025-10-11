@@ -13,16 +13,16 @@ import { InputAndSource } from "fuzzer/generators/Types";
  * Measures code coverage of test executions
  */
 export class CoverageMeasure extends AbstractMeasure {
-  private _coverageData?: CoverageMapData; // coverage data maintained by instrumented code
-  private _globalCoverageMap = createCoverageMap({}); // global code coverage map
-  private _history: CoverageMeasurementNode[] = []; // measurement history
+  protected _coverageData?: CoverageMapData; // coverage data maintained by instrumented code
+  protected _globalCoverageMap = createCoverageMap({}); // global code coverage map
+  protected _history: CoverageMeasurementNode[] = []; // measurement history
 
   /**
    * Instruments the program under test to capture code coverage data.
    * This runs after compilation (from TS to JS) but prior to load.
    *
-   * @param `jsSrc`
-   * @param `jsFileName`
+   * @param `jsSrc` input javascript source code
+   * @param `jsFileName` javascript source filename
    * @returns instrumented code
    */
   public onAfterCompile(jsSrc: string, jsFileName: string): string {
@@ -170,12 +170,35 @@ export class CoverageMeasure extends AbstractMeasure {
    * @param `m` a CoverageMap
    * @returns sum of branches, statements, and functions covered
    */
-  private toNumber(m: CoverageMap): number {
+  protected toNumber(m: CoverageMap): number {
     const summ = m.getCoverageSummary();
     return (
       summ.branches.covered + summ.statements.covered + summ.functions.covered
     );
   } // fn: toNumber
+
+  /**
+   * Returns whether coverage data exists for a particular tick
+   *
+   * @param `tick` input tick
+   * @returns true if coverage data exists for `tick`, false otherwise
+   */
+  public hasCoverage(tick: number): boolean {
+    return !!this._history[tick];
+  } // fn: hasCoverage
+
+  /**
+   * Returns the coverage measurement for `tick`
+   *
+   * @param `tick` input tick
+   * @returns the coverage measure for `tick`
+   */
+  public getCoverage(tick: number): CoverageMeasurement {
+    if (this.hasCoverage(tick)) {
+      return this._history[tick].meas; // rep leak !!!!!!!
+    }
+    throw new Error(`No coverahe data for "${tick}"`);
+  } // fn: getCoverage
 } // class: CoverageMeasure
 
 /**

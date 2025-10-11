@@ -1,28 +1,39 @@
 import { FuzzTestResult } from "../Types";
-import { FuzzTestResults } from "fuzzer/Fuzzer";
-import { CoverageMeasure, CoverageMeasurement } from "./CoverageMeasure";
 import { InputAndSource } from "fuzzer/generators/Types";
+import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
+import { CoverageMeasure } from "./CoverageMeasure";
 
-// !!!!!!
-export class FailedTestMeasure extends CoverageMeasure {
-  private _pseudoBugsData: Record<number, Record<string, number>> = {}; // !!!!!!
-  private _pseudoBugsFound = 0; // !!!!!!
+/**
+ * Measures the number of newly-failing tests. Because there is no ground truth for bugs,
+ * we use code coverage, if available, to approximate distinct bugs.
+ */
+export class FailedTestMeasure extends AbstractMeasure {
+  protected _covMeasure?: CoverageMeasure; // Code Coverage Measure
+  protected _pseudoBugsData: Record<number, Record<string, number>> = {}; // Number of pseudo bugs by validator# and coverage map
+  protected _pseudoBugsFound = 0; // total number of pseudo bugs found
 
   /**
-   * Don't generate any additional instrumentation for this measure.
+   * Creates a new FailedtestMeasure object
+   *
+   * @param `covMeasure` optional code coverage measurement object
    */
-  public onAfterCompile(jsSrc: string, jsFileName: string): string {
-    jsFileName;
-    return jsSrc;
-  } // !!!!!!
+  constructor(covMeasure?: CoverageMeasure) {
+    super();
+    this._covMeasure = covMeasure;
+  } // fn: constructor
 
-  // !!!!!!
-  // No ground truth for bugs so we approximate by coverage & validator
+  /**
+   * Measure the test failures of the most recent test execution.
+   *
+   * @param `input` test input
+   * @param `result` test result
+   * @returns a test failure measurement for the test execution
+   */
   public measure(
     input: InputAndSource,
     result: FuzzTestResult
   ): FailedTestMeasurement {
-    const coverageMeasure = super.measure(input, result);
+    const measure = super.measure(input, result);
     let pseudoBugsFound = 0;
     const newlyFailingValidators: number[] = [];
 
@@ -39,72 +50,74 @@ export class FailedTestMeasure extends CoverageMeasure {
       });
     }
 
-    // Find validators and coverage combinations exhibiting failures
-    const incrementMap = JSON.stringify(
-      coverageMeasure.coverageMeasure.current
-    );
-    let v: keyof typeof validators;
-    for (v in validators) {
-      if (validators[v] === false) {
-        if (!(incrementMap in this._pseudoBugsData[v])) {
-          this._pseudoBugsData[v][incrementMap] = 1;
-          newlyFailingValidators.push(Number(v));
+    // Get the coverage map for this tick
+    const coverageMap =
+      this._covMeasure && this._covMeasure.hasCoverage(input.tick)
+        ? JSON.stringify(
+            this._covMeasure.getCoverage(input.tick).coverageMeasure.current
+              .data
+          )
+        : "";
+
+    // Find new validator failures and coverage combinations exhibiting failures
+    validators.forEach((v, i) => {
+      if (v === false) {
+        if (!(coverageMap in this._pseudoBugsData[i])) {
+          this._pseudoBugsData[i][coverageMap] = 1;
+          newlyFailingValidators.push(Number(i));
           pseudoBugsFound++;
         } else {
-          this._pseudoBugsData[v][incrementMap]++;
+          this._pseudoBugsData[i][coverageMap]++;
         }
       }
-    }
+    });
 
     // If we found a new one, incremement the counter
     if (pseudoBugsFound) {
       this._pseudoBugsFound += pseudoBugsFound;
     }
 
-    /* !!!!!!!
-    if (this._tick < 11) {
+    if (input.tick < 11) {
       console.debug(
-        `[${this.name}][${this._tick}] Incremental ${
-          pseudoBugFound ? 1 : 0
+        `[${this.name}][${input.tick}] Incremental ${
+          pseudoBugsFound ? 1 : 0
         } ${JSON.stringify(newlyFailingValidators)}`
       ); // !!!!!!!
       console.debug(
-        `[${this.name}][${this._tick}] Total ${
+        `[${this.name}][${input.tick}] Total ${
           this._pseudoBugsFound
         } ${JSON.stringify(validators)}`
       ); // !!!!!!!
     }
-    */
 
     // Return the measurement
     return {
-      ...coverageMeasure,
+      ...measure,
       name: this.name,
       failedTestMeasure: {
-        current: {
-          validators: newlyFailingValidators,
-        },
+        current: [...newlyFailingValidators],
+        pseudoBugsDelta: pseudoBugsFound,
       },
     };
-  } // !!!!!!
+  } // fn: measure
 
-  // !!!!!!
-  public onShutdown(results: FuzzTestResults): void {
-    super.onShutdown(results);
-  } // !!!!!!
-
-  // !!!!!!
+  /**
+   * Calculates a numeric value representing the test execution's progress
+   *
+   * @param `a` failed test measurement
+   * @returns a numeric value representing the progress of the test execution
+   */
   public delta(a: FailedTestMeasurement): number {
-    a;
-    return 0; // !!!!!!!!
-  } // !!!!!!
-} // !!!!!!
+    return a.failedTestMeasure.pseudoBugsDelta;
+  } // fn: delta
+} // class: FailedTestMeasure
 
-// !!!!!!
-type FailedTestMeasurement = CoverageMeasurement & {
+/**
+ * Extends BaseMeasurement with test failure details
+ */
+type FailedTestMeasurement = BaseMeasurement & {
   failedTestMeasure: {
-    current: {
-      validators: number[];
-    };
+    current: number[]; // validation failures
+    pseudoBugsDelta: number; // number of new pseudo bugs found
   };
 };

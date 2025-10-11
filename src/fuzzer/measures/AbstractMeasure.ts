@@ -36,7 +36,10 @@ export abstract class AbstractMeasure {
    * @param `jsFileName` location of source coe
    * @returns modified source code
    */
-  public abstract onAfterCompile(jsSrc: string, jsFileName: string): string;
+  public onAfterCompile(jsSrc: string, jsFileName: string): string {
+    return jsSrc;
+    jsFileName;
+  }
 
   /**
    * Hook for extracting data from the context of the program after load.
@@ -44,13 +47,18 @@ export abstract class AbstractMeasure {
    *
    * @param `globals` context of the loaded program
    */
-  public abstract onAfterLoad(globals: VmGlobals): void;
+  public onAfterLoad(globals: VmGlobals): void {
+    return;
+    globals;
+  }
 
   /**
    * Hook for setting up the measure prior to executing each test.
    * Useful for updating internal per-run variables.
    */
-  public abstract onBeforeNextTestExecution(): void;
+  public onBeforeNextTestExecution(): void {
+    return;
+  }
 
   /**
    * Takes a measurement after each test execution
@@ -76,7 +84,10 @@ export abstract class AbstractMeasure {
    *
    * @param `results` all test results
    */
-  public abstract onShutdown(results: FuzzTestResults): void;
+  public onShutdown(results: FuzzTestResults): void {
+    return;
+    results;
+  }
 
   /**
    * Returns the progress measured for `a`
