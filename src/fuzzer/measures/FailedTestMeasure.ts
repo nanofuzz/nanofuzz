@@ -51,7 +51,7 @@ export class FailedTestMeasure extends AbstractMeasure {
     }
 
     // Get the coverage map for this tick
-    const coverageMap =
+    const coverageMapData =
       this._covMeasure && this._covMeasure.hasCoverage(input.tick)
         ? JSON.stringify(
             this._covMeasure.getCoverage(input.tick).coverageMeasure.current
@@ -62,12 +62,12 @@ export class FailedTestMeasure extends AbstractMeasure {
     // Find new validator failures and coverage combinations exhibiting failures
     validators.forEach((v, i) => {
       if (v === false) {
-        if (!(coverageMap in this._pseudoBugsData[i])) {
-          this._pseudoBugsData[i][coverageMap] = 1;
+        if (!(coverageMapData in this._pseudoBugsData[i])) {
+          this._pseudoBugsData[i][coverageMapData] = 1;
           newlyFailingValidators.push(Number(i));
           pseudoBugsFound++;
         } else {
-          this._pseudoBugsData[i][coverageMap]++;
+          this._pseudoBugsData[i][coverageMapData]++;
         }
       }
     });
@@ -75,19 +75,6 @@ export class FailedTestMeasure extends AbstractMeasure {
     // If we found a new one, incremement the counter
     if (pseudoBugsFound) {
       this._pseudoBugsFound += pseudoBugsFound;
-    }
-
-    if (input.tick < 11) {
-      console.debug(
-        `[${this.name}][${input.tick}] Incremental ${
-          pseudoBugsFound ? 1 : 0
-        } ${JSON.stringify(newlyFailingValidators)}`
-      ); // !!!!!!!
-      console.debug(
-        `[${this.name}][${input.tick}] Total ${
-          this._pseudoBugsFound
-        } ${JSON.stringify(validators)}`
-      ); // !!!!!!!
     }
 
     // Return the measurement
