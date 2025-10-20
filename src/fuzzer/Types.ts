@@ -19,9 +19,13 @@ export type FuzzTestResult = {
   validatorExceptionMessage?: string; // validator exception message
   validatorExceptionFunction?: string; // name of validator throwing exception
   validatorExceptionStack?: string; // validator stack trace if exception was thrown
-  elapsedTime: number; // elapsed time of test in ms
+  timers: {
+    gen: number; // time to generate the input in ms
+    run: number; // elapsed time of test in ms
+  };
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: FuzzResultCategory; // the ResultCategory of the test result
+  source: SupportedInputGenerators | "injected";
 };
 
 /**

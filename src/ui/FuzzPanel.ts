@@ -1335,8 +1335,6 @@ ${inArgConsts}
                     <vscode-text-field style="display:none" ${disabledFlag} size="3" id="fuzz-measures-CoverageMeasure-weight" name="fuzz-measures-CoverageMeasure-weight" value="${this._fuzzEnv.options.measures.FailedTestMeasure.weight}">
                       Weight of measure (&gt;=1)
                     </vscode-text-field>
-                  </div>
-                  <div class="fuzzInputControlGroup">
                     <vscode-checkbox ${disabledFlag} id="fuzz-measure-FailedTestMeasure-enabled" ${this._fuzzEnv.options.measures.FailedTestMeasure.enabled ? "checked" : ""}>
                       <span> 
                         Causes tests to fail
@@ -1491,14 +1489,52 @@ ${inArgConsts}
             }. This is the maximum number configured.`,
           [fuzzer.FuzzStopReason.MAXTESTS]: `because it reached the maximum number of new tests configured (${
               this._results.env.options.maxTests
-            }). This is in addition to the ${this._results.inputsSaved} saved test${
-              this._results.inputsSaved !== 1 ? "s" : ""
+            }). This is in addition to the ${this._results.stats.counters.inputsInjected} pinned test${
+              this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
             } ${toolName} also executed.`,
           [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the maximum number of sequentially-generated duplicate inputs configured (${
               this._results.env.options.maxDupeInputs
             }). This can mean that NaNofuzz is having difficulty generating further new inputs: the function's input space might be small or near exhaustion. You can change this setting in More Options.`,
           "": `because of an unknown reason.`,
         };
+
+        // Build the list of input generators
+        const genTextEnabled: string[] = [];
+        const genTextDisabled: string[] = [];
+        let g: keyof typeof env.options.generators;
+        for (g in env.options.generators) {
+          const shortName = g.replace("InputGenerator", "").toLowerCase();
+          if (env.options.generators[g].enabled) {
+            const genStats = this._results.stats.generators[g];
+            genTextEnabled.push(
+              `<strong><u>${shortName}</u></strong> produced ${
+                genStats.counters.inputsGenerated
+              } inputs (${
+                genStats.counters.dupesGenerated
+              } of which were duplicates) in ${genStats.timers.gen.toFixed(
+                2
+              )} ms (${(
+                genStats.timers.gen /
+                (genStats.counters.inputsGenerated +
+                  genStats.counters.dupesGenerated)
+              ).toFixed(2)} ms/input)`
+            );
+          } else {
+            genTextDisabled.push(`<strong><u>${shortName}</u></strong>`);
+          }
+        }
+
+        const generatorsText = `${toolName} generated inputs using the following strateg${
+          genTextEnabled.length === 1 ? "y" : "ies"
+        }: ${toPrettyList(genTextEnabled)}. ${
+          genTextDisabled.length
+            ? `The following strateg${
+                genTextDisabled.length === 1 ? "y was" : "ies were"
+              } not used because ${
+                genTextDisabled.length === 1 ? "it was" : "they were"
+              } disabled: `
+            : ``
+        }${toPrettyList(genTextDisabled)}${genTextDisabled.length ? "." : ""}`;
 
         // Build the list of validators used/not used
         const validatorsUsed: string[] = [];
@@ -1544,14 +1580,18 @@ ${inArgConsts}
 
           <div class="fuzzResultHeading">What did ${toolName} do?</div>
           <p>
-            ${toolName} ran for ${this._results.elapsedTime} ms, re-tested ${
-            this._results.inputsSaved
-          } saved input${
-            this._results.inputsSaved !== 1 ? "s" : ""
-          }, generated ${this._results.inputsGenerated} new input${
-            this._results.inputsGenerated !== 1 ? "s" : ""
-          } (${this._results.dupesGenerated} of which ${
-            this._results.dupesGenerated !== 1
+            ${toolName} ran for ${Math.round(
+            this._results.stats.timers.run
+          )} ms, re-tested ${
+            this._results.stats.counters.inputsInjected
+          } pinned input${
+            this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
+          }, generated ${
+            this._results.stats.counters.inputsGenerated
+          } new input${
+            this._results.stats.counters.inputsGenerated !== 1 ? "s" : ""
+          } (${this._results.stats.counters.dupesGenerated} of which ${
+            this._results.stats.counters.dupesGenerated !== 1
               ? "were duplicates"
               : "was a duplicate"
           } ${toolName} previously tested), and reported ${
@@ -1561,11 +1601,6 @@ ${inArgConsts}
           } before stopping.
           </p>
 
-          <div class="fuzzResultHeading">How were outputs categorized?</div>
-          <p>
-            ${validatorsUsedText} ${validatorsUsedText2}
-          </p>
-          
           <div class="fuzzResultHeading">Why did testing stop?</div>
           <p>
             ${toolName} stopped testing ${
@@ -1574,7 +1609,17 @@ ${inArgConsts}
               : textReason[""]
           }
           </p>
-          
+
+          <div class="fuzzResultHeading">How were inputs generated?</div>
+          <p>
+            ${generatorsText}
+          </p>
+
+          <div class="fuzzResultHeading">How were outputs categorized?</div>
+          <p>
+            ${validatorsUsedText} ${validatorsUsedText2}
+          </p>
+                    
           <div class="fuzzResultHeading">What was returned?</div>
           <p>
             ${toolName} is configured to return <strong>${
@@ -2293,6 +2338,7 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
  * @returns string The list in string form including 'and'
  */
 function toPrettyList(inList: string[]): string {
+  if (inList.length === 0) return "";
   return inList.length === 2
     ? inList.join(" and ")
     : inList.reduce(

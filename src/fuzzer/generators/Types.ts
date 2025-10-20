@@ -1,5 +1,6 @@
 import { BaseMeasurement } from "../measures/AbstractMeasure";
 import { ArgValueType } from "../analysis/typescript/Types";
+import { SupportedInputGenerators } from "fuzzer/Types";
 
 /**
  * Concrete input values and their source
@@ -8,7 +9,7 @@ export type InputAndSource = {
   tick: number;
   value: ArgValueType[];
   source: {
-    subgen: string;
+    subgen: SupportedInputGenerators | "injected";
     tick?: number;
   };
 };

@@ -75,11 +75,23 @@ export const fuzz = (
   const results: FuzzTestResults = {
     env,
     stopReason: FuzzStopReason.CRASH, // updated later
-    elapsedTime: 0, // updated later
-    inputsGenerated: 0, // updated later
-    dupesGenerated: 0, // updated later
-    inputsSaved: 0, // updated later
-    results: [],
+    stats: {
+      timers: {
+        total: 0, // updated later
+        run: 0, // updated later
+        val: 0, // updated later
+        gen: 0, // updated later
+        measure: 0, // updated later
+        compile: 0, // updated later
+      },
+      counters: {
+        inputsGenerated: 0, // updated later
+        dupesGenerated: 0, // updated later
+        inputsInjected: 0, // updated later
+      },
+      generators: {}, // updated later
+    },
+    results: [], // filled later
   };
   let injectedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
   let currentDupeCount = 0; // Number of duplicated tests since the last non-duplicated test
@@ -119,6 +131,8 @@ export const fuzz = (
     `\r\nFuzzing target: "${env.function.getName()}" of "${env.function.getModule()}"`
   ); // !!!!!!!
 
+  const startCompTime = performance.now(); // start time: compile & instrument
+
   // The module that includes the function to fuzz will
   // be a TypeScript source file, so we first must compile
   // it to JavaScript prior to execution.  This activates the
@@ -136,16 +150,10 @@ export const fuzz = (
   // Deactivate the TypeScript compiler
   compiler.deactivate();
 
+  results.stats.timers.compile = performance.now() - startCompTime;
+
   // Build a test runner for executing tests
   const runner = RunnerFactory(env, mod, env.function.getName());
-
-  // Runtime statistics
-  const times: {
-    gen: { [k: string]: number };
-    run: number;
-    validate: number;
-    score: number;
-  } = { gen: {}, run: 0, validate: 0, score: 0 };
 
   // Main test loop
   // We break out of this loop when any of the following are true:
@@ -171,10 +179,10 @@ export const fuzz = (
     );
     if (stopCondition !== undefined) {
       results.stopReason = stopCondition;
-      results.elapsedTime = new Date().getTime() - startTime; // TODO: non-monotonic time breakage possible !!!!!
-      results.inputsGenerated = inputsGenerated;
-      results.dupesGenerated = totalDupeCount;
-      results.inputsSaved = injectedCount;
+      results.stats.timers.total = new Date().getTime() - startTime; // TODO: non-monotonic time breakage possible !!!!!
+      results.stats.counters.inputsGenerated = inputsGenerated;
+      results.stats.counters.dupesGenerated = totalDupeCount;
+      results.stats.counters.inputsInjected = injectedCount;
       break;
     }
 
@@ -187,16 +195,18 @@ export const fuzz = (
       validatorException: false,
       timeout: false,
       passedImplicit: true,
-      elapsedTime: 0,
+      timers: {
+        run: 0,
+        gen: 0,
+      },
       category: "ok",
+      source: "injected",
     };
 
     // Generate and store the inputs
     const startGenTime = performance.now(); // start time: input generation
     const genInput = compositeInputGenerator.next();
-    const genTime = performance.now() - startGenTime; // total time: input generation
-    times.gen[genInput.source.subgen] =
-      (times.gen[genInput.source.subgen] || 0) + genTime;
+    result.timers.gen = performance.now() - startGenTime; // total time: input generation
     result.input = genInput.value.map((e, i) => {
       return {
         name: argDefs[i].getName(),
@@ -204,6 +214,26 @@ export const fuzz = (
         value: e,
       };
     });
+    result.source = genInput.source.subgen;
+
+    // Stats
+    if (!(genInput.source.subgen in results.stats.generators)) {
+      results.stats.generators[genInput.source.subgen] = {
+        timers: {
+          gen: 0, // updated below
+          run: 0, // updated later
+          val: 0, // updated later
+          measure: 0, // updated later
+        },
+        counters: {
+          dupesGenerated: 0, // updated later
+          inputsGenerated: 0, // updated later
+        },
+      };
+    }
+    const genStats = results.stats.generators[genInput.source.subgen];
+    genStats.timers.gen += result.timers.gen;
+    results.stats.timers.gen += result.timers.gen;
 
     // Handle pinned vs. generated tests differently, e.g.,
     // 1. pinned tests do not count against the maxTests limit
@@ -227,19 +257,27 @@ export const fuzz = (
     } else {
       // Increment the number of inputs generated
       inputsGenerated++;
+      genStats.counters.inputsGenerated++;
     }
 
     // Prepare measures for next test execution
-    for (const measure of measures) {
-      measure.onBeforeNextTestExecution();
+    {
+      const startMeasTime = performance.now(); // start time: input generation
+      measures.forEach((m) => {
+        m.onBeforeNextTestExecution();
+      });
+      const measureTime = performance.now() - startMeasTime;
+      results.stats.timers.measure += measureTime;
+      genStats.timers.measure += measureTime;
     }
 
     // Skip tests if we previously processed the input
     const inputHash = JSON5.stringify(result.input);
     if (inputHash in allInputs) {
-      currentDupeCount++; // increment the dupe coynter
+      currentDupeCount++; // increment the dupe counter
       totalDupeCount++; // incremement the total run dupe counter
-      compositeInputGenerator.onInputFeedback([], genTime); // empty input generator feedback
+      compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
+      genStats.counters.dupesGenerated++; // increment the generator's dupe counter
       continue; // skip this test
     } else {
       currentDupeCount = 0; // reset the duplicate count
@@ -251,9 +289,8 @@ export const fuzz = (
     }
 
     // Call the function via the wrapper
+    const startRunTime = performance.now(); // start timer
     try {
-      const startElapsedTime = performance.now(); // start timer
-      result.elapsedTime = startElapsedTime;
       const [exeOutput] = runner.run(
         JSON5.parse(JSON5.stringify(result.input.map((e) => e.value))),
         env.options.fnTimeout
@@ -263,20 +300,21 @@ export const fuzz = (
         offset: 0,
         value: exeOutput as ArgValueType,
       });
-      result.elapsedTime = performance.now() - startElapsedTime; // stop timer
-      times.run += result.elapsedTime;
+      result.timers.run = performance.now() - startRunTime; // stop timer
     } catch (e: unknown) {
+      result.timers.run = performance.now() - startRunTime; // stop timer
       const msg = isError(e) ? e.message : JSON.stringify(e);
       const stack = isError(e) ? e.stack : "<no stack>";
       if (isError(e) && isTimeoutError(e)) {
         result.timeout = true;
-        result.elapsedTime = performance.now() - result.elapsedTime;
       } else {
         result.exception = true;
         result.exceptionMessage = msg;
         result.stack = stack;
       }
     }
+    results.stats.timers.run += result.timers.run;
+    genStats.timers.run += result.timers.run;
 
     const startValTime = performance.now(); // start timer
     // IMPLICIT ORACLE --------------------------------------------
@@ -378,7 +416,11 @@ export const fuzz = (
           result.passedValidator && result.passedValidators[i];
       }
     } // if validator
-    times.validate += performance.now() - startValTime; // stop timer
+
+    // Validator stats
+    const valTime = performance.now() - startValTime; // stop timer
+    results.stats.timers.val += valTime;
+    genStats.timers.val += valTime;
 
     // (Re-)categorize the result
     result.category = categorizeResult(result);
@@ -393,23 +435,27 @@ export const fuzz = (
       results.results.push(result);
     }
 
-    const startScoreTime = performance.now(); // start timer
-
     // Take measurements for this test run
-    const measurements = measures.map((e) =>
-      e.measure(
-        JSON.parse(JSON.stringify(genInput)),
-        JSON.parse(JSON.stringify(result))
-      )
-    );
+    {
+      const startMeasureTime = performance.now(); // start timer
+      const measurements = measures.map((e) =>
+        e.measure(
+          JSON.parse(JSON.stringify(genInput)),
+          JSON.parse(JSON.stringify(result))
+        )
+      );
 
-    // Provide measures feedback to the composite input generator
-    compositeInputGenerator.onInputFeedback(
-      measurements,
-      result.elapsedTime + genTime
-    );
+      // Provide measures feedback to the composite input generator
+      compositeInputGenerator.onInputFeedback(
+        measurements,
+        result.timers.run + result.timers.gen
+      );
 
-    times.score += performance.now() - startScoreTime;
+      // Measurement stats
+      const measureTime = performance.now() - startMeasureTime;
+      results.stats.timers.measure += measureTime;
+      genStats.timers.measure += measureTime;
+    }
   } // for: Main test loop
 
   // End-of-run processing for measures and input generators
@@ -419,7 +465,7 @@ export const fuzz = (
   compositeInputGenerator.onShutdown();
 
   console.debug(
-    `Fuzzer injected ${injectedCount} and generated ${results.inputsGenerated} inputs (${results.dupesGenerated} were dupes). Executed ${results.results.length} tests in ${results.elapsedTime}ms. Stopped for reason: ${results.stopReason}.`
+    `Fuzzer injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes). Executed ${results.results.length} tests in ${results.stats.timers.run}ms. Stopped for reason: ${results.stopReason}.`
   ); // !!!!!!!
   console.debug(
     `Tests with exceptions: ${
@@ -443,7 +489,7 @@ export const fuzz = (
       results.results.filter((e) => e.passedImplicit).length
     }, failed: ${results.results.filter((e) => !e.passedImplicit).length}`
   ); // !!!!!!!
-  console.debug(`Timing breakdown ${JSON5.stringify(times, null, 3)}`); // !!!!!!!
+  console.debug(`Timing breakdown ${JSON5.stringify(results.stats, null, 3)}`); // !!!!!!!
 
   // Persist to outfile, if requested
   if (env.options.outputFile) {
@@ -708,11 +754,41 @@ export type FuzzEnv = {
 export type FuzzTestResults = {
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped
-  elapsedTime: number; // elapsed time the fuzzer ran
-  inputsGenerated: number; // number of inputs generated
-  dupesGenerated: number; // number of duplicate inputs generated
-  inputsSaved: number; // number of inputs saved
+  stats: FuzzTestStats; // fuzzer statistics
   results: FuzzTestResult[]; // fuzzing test results
+};
+
+/**
+ * Fuzzer Test Stats
+ */
+export type FuzzTestStats = {
+  timers: {
+    total: number; // elapsed time the fuzzer ran
+    compile: number; // elapsed time to compile & instrument PUT
+    run: number; // elapsed time the PUT ran
+    val: number; // elapsed time to categorize outputs
+    gen: number; // elapsed time to generate inputs
+    measure: number; // elapsed time to measure
+  };
+  counters: {
+    inputsGenerated: number; // number of inputs generated, including dupes
+    dupesGenerated: number; // number of duplicate inputs generated
+    inputsInjected: number; // number of inputs pinned
+  };
+  generators: {
+    [k: string]: {
+      timers: {
+        run: number; // elapsed time the PUT ran
+        val: number; // elapsed time to categorize outputs
+        gen: number; // elapsed time to generate inputs
+        measure: number; // elapsed time to measure
+      };
+      counters: {
+        inputsGenerated: number; // number of inputs generated, including dupes
+        dupesGenerated: number; // number of duplicate inputs generated
+      };
+    };
+  };
 };
 
 export * from "./analysis/typescript/ProgramDef";
