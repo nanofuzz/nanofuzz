@@ -511,7 +511,12 @@ const isOptionValid = (options: FuzzOptions): boolean => {
     options.maxTests >= 0 &&
     options.maxDupeInputs >= 0 &&
     options.maxFailures >= 0 &&
-    ArgDef.isOptionValid(options.argDefaults)
+    ArgDef.isOptionValid(options.argDefaults) &&
+    typeof options.generators === "object" &&
+    "RandomInputGenerator" in options.generators &&
+    "enabled" in options.generators.RandomInputGenerator &&
+    options.generators.RandomInputGenerator.enabled &&
+    typeof options.measures === "object"
   );
 }; // fn: isOptionValid()
 

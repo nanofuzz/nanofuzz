@@ -99,7 +99,19 @@ export type FuzzOptions = {
   useImplicit: boolean; // use implicit oracle
   useHuman: boolean; // use human oracle
   useProperty: boolean; // use property validator oracle
+  measures: { [k in SupportedMeasures]: BaseMeasureConfig }; // measure config
+  generators: { [k in SupportedInputGenerators]: BaseGeneratorConfig }; // generator config
 };
+
+/**
+ * Basic measurement configuration: on/off, weight
+ */
+export type BaseMeasureConfig = { enabled: boolean; weight: number };
+
+/**
+ * Basic measurement configuration: on/off
+ */
+export type BaseGeneratorConfig = { enabled: boolean };
 
 /**
  * Column sort orders by FuzzResultCategory and column name
@@ -154,3 +166,15 @@ export enum FuzzStopReason {
  * Global execution environment
  */
 export type VmGlobals = Record<string, unknown>;
+
+/**
+ * List of supported input generators
+ */
+export type SupportedInputGenerators =
+  | "RandomInputGenerator"
+  | "MutationInputGenerator";
+
+/**
+ * List of supported input generators
+ */
+export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";

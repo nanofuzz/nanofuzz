@@ -17,14 +17,26 @@ export function InputGeneratorFactory(
   env: FuzzEnv,
   leaderboard: Leaderboard<InputAndSource>
 ): AbstractInputGenerator[] {
-  env; // !!!!!!! Base list of generators on FuzzEnv
-  leaderboard;
-  return [
-    new RandomInputGenerator(env.function.getArgDefs(), env.options.seed ?? ""),
-    new MutationInputGenerator(
-      env.function.getArgDefs(),
-      env.options.seed ?? "",
-      leaderboard
-    ),
-  ];
+  const generators: AbstractInputGenerator[] = [];
+
+  if (env.options.generators["RandomInputGenerator"].enabled) {
+    generators.push(
+      new RandomInputGenerator(
+        env.function.getArgDefs(),
+        env.options.seed ?? ""
+      )
+    );
+  }
+
+  if (env.options.generators["MutationInputGenerator"].enabled) {
+    generators.push(
+      new MutationInputGenerator(
+        env.function.getArgDefs(),
+        env.options.seed ?? "",
+        leaderboard
+      )
+    );
+  }
+
+  return generators;
 } // fn: InputGeneratorFactory

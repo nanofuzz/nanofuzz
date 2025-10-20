@@ -111,9 +111,13 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       }
     }
 
-    // If the prior chunk of generated inputs is exhausted, start
-    // a new chunk and choose the subgen for that chunk
-    if (this._ticksLeftInChunk-- < 1) {
+    // If the prior chunk of generated inputs is exhausted or the
+    // subgen is no longer available, start a new chunk and choose
+    // the subgen for that chunk
+    if (
+      this._ticksLeftInChunk-- < 1 ||
+      !this._subgens[this._selectedSubgenIndex].isAvailable()
+    ) {
       this._ticksLeftInChunk = this._chunkSize;
       this._selectedSubgenIndex = this.selectNextSubGen();
     }

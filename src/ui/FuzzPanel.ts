@@ -458,6 +458,21 @@ export class FuzzPanel {
             inputTests = testSet;
             break;
           }
+          case "0.3.6": {
+            // v0.3.6 format -- add configuration for measures and generators
+            testSet = { ...inputTests, version: "0.3.9" };
+            for (const fn in testSet.functions) {
+              testSet.functions[fn].options.measures =
+                getDefaultFuzzOptions().measures;
+              testSet.functions[fn].options.generators =
+                getDefaultFuzzOptions().generators;
+            }
+            console.info(
+              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
+            );
+            inputTests = testSet;
+            break;
+          }
           default: {
             // unknown format; stop to avoid losing data
             throw new Error(
@@ -964,7 +979,7 @@ ${inArgConsts}
    */
   private async _doFuzzStartCmd(json: string): Promise<void> {
     const panelInput: {
-      fuzzer: Record<string, number | boolean>;
+      fuzzer: fuzzer.FuzzOptions;
       args: fuzzer.FuzzArgOverride[];
     } = JSON5.parse(json);
     const fn = this._fuzzEnv.function;
@@ -1002,6 +1017,10 @@ ${inArgConsts}
       }
     });
 
+    // Apply generator and measure settings
+    this._fuzzEnv.options.generators = panelInput.fuzzer.generators;
+    this._fuzzEnv.options.measures = panelInput.fuzzer.measures;
+
     // Apply the argument overrides from the front-end UI
     _applyArgOverrides(fn, panelInput.args, this._fuzzEnv.options.argDefaults);
 
@@ -1028,7 +1047,7 @@ ${inArgConsts}
       // Fuzz the function & store the results
       try {
         // Run the fuzzer
-        this._results = await fuzzer.fuzz(
+        this._results = fuzzer.fuzz(
           this._fuzzEnv,
           Object.values(this._getFuzzTestsForThisFn().tests)
         );
@@ -1240,6 +1259,7 @@ ${inArgConsts}
                 <!-- <vscode-panel-tab aria-label="Validating options tab">Validating</vscode-panel-tab> -->
                 <vscode-panel-tab aria-label="Reporting options tab">Reporting</vscode-panel-tab>
                 <vscode-panel-tab aria-label="Stopping options tab">Stopping</vscode-panel-tab>
+                <vscode-panel-tab aria-label="Input generation options tab">Generating Inputs</vscode-panel-tab>
 
 
                 <vscode-panel-view>
@@ -1285,6 +1305,48 @@ ${inArgConsts}
                       Test function timeout (ms)
                     </vscode-text-field>
                   </div>
+                </vscode-panel-view>
+
+                <vscode-panel-view>
+                  <p>
+                    Generate inputs:
+                  </p>
+                  <div class="fuzzInputControlGroup">
+                    <vscode-checkbox disabled id="fuzz-gen-RandomInputGenerator-enabled" checked>
+                      <span> 
+                        Randomly (aways enabled)
+                      </span>
+                    </vscode-checkbox>                    
+                    <vscode-checkbox ${disabledFlag} id="fuzz-gen-MutationInputGenerator-enabled" ${this._fuzzEnv.options.generators.MutationInputGenerator.enabled ? "checked" : ""}>
+                      <span> 
+                        By mutating "interesting" inputs
+                      </span>
+                    </vscode-checkbox>                    
+                  </div>
+                  <p>
+                    What makes an input "interesting"?
+                  </p>
+                  <div class="fuzzInputControlGroup">
+                    <vscode-checkbox ${disabledFlag} id="fuzz-measure-CoverageMeasure-enabled" ${this._fuzzEnv.options.measures.CoverageMeasure.enabled ? "checked" : ""}>
+                      <span> 
+                        Increases code coverage
+                      </span>
+                    </vscode-checkbox>
+                    <vscode-text-field style="display:none" ${disabledFlag} size="3" id="fuzz-measures-CoverageMeasure-weight" name="fuzz-measures-CoverageMeasure-weight" value="${this._fuzzEnv.options.measures.FailedTestMeasure.weight}">
+                      Weight of measure (&gt;=1)
+                    </vscode-text-field>
+                  </div>
+                  <div class="fuzzInputControlGroup">
+                    <vscode-checkbox ${disabledFlag} id="fuzz-measure-FailedTestMeasure-enabled" ${this._fuzzEnv.options.measures.FailedTestMeasure.enabled ? "checked" : ""}>
+                      <span> 
+                        Causes tests to fail
+                      </span>
+                    </vscode-checkbox>
+                    <vscode-text-field style="display:none" ${disabledFlag} size="3" id="fuzz-measures-FailedTestMeasure-weight" name="fuzz-measures-FailedTestMeasure-weight" value="${this._fuzzEnv.options.measures.FailedTestMeasure.weight}">
+                      Weight of measure (&gt;=1)
+                    </vscode-text-field>
+                  </div>
+
                 </vscode-panel-view>
                 </vscode-panels>
 
@@ -2198,6 +2260,28 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     useHuman: true,
     useImplicit: true,
     useProperty: false,
+    measures: {
+      FailedTestMeasure: {
+        // Externalize !!!!!!!
+        enabled: true,
+        weight: 1,
+      },
+      CoverageMeasure: {
+        // Externalize !!!!!!!
+        enabled: true,
+        weight: 1,
+      },
+    },
+    generators: {
+      RandomInputGenerator: {
+        // Externalize !!!!!!!
+        enabled: true,
+      },
+      MutationInputGenerator: {
+        // Externalize !!!!!!!
+        enabled: true,
+      },
+    },
   };
 }; // fn: getDefaultFuzzOptions()
 
@@ -2258,12 +2342,12 @@ export const languages = ["typescript", "typescriptreact"];
 /**
  * The Fuzzer State Version we currently support.
  */
-const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.6";
+const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.6"; // !!!!! Increment if fmt changes
 
 /**
  * Current file format version for persisting test sets / pinned test cases
  */
-const CURR_FILE_FMT_VER = "0.3.6"; // !!!! Increment if file format changes
+const CURR_FILE_FMT_VER = "0.3.9"; // !!!!! Increment if fmt changes
 
 // ----------------------------- Types ----------------------------- //
 

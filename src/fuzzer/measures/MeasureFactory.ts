@@ -4,7 +4,20 @@ import { CoverageMeasure } from "./CoverageMeasure";
 import { FailedTestMeasure } from "./FailedTestMeasure";
 
 export function MeasureFactory(env: FuzzEnv): AbstractMeasure[] {
-  env; // !!!!!!! Base list of measures on FuzzEnv; measure weight
-  const covMeasure = new CoverageMeasure();
-  return [covMeasure, new FailedTestMeasure(covMeasure)];
+  const measures: AbstractMeasure[] = [];
+  console.debug(
+    `[MeasureFactory] measures: ${JSON.stringify(env.options.measures)}`
+  ); // !!!!!!!
+
+  let covMeasure: CoverageMeasure | undefined;
+  if (env.options.measures["CoverageMeasure"].enabled) {
+    covMeasure = new CoverageMeasure();
+    measures.push(covMeasure);
+  }
+
+  if (env.options.measures["FailedTestMeasure"].enabled) {
+    measures.push(new FailedTestMeasure(covMeasure));
+  }
+
+  return measures;
 }

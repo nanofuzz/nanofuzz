@@ -2,6 +2,31 @@ import { ArgDef, setup, fuzz, implicitOracle } from "./Fuzzer";
 import { FuzzOptions } from "./Types";
 
 /**
+ * Fuzzer option for enabling all Measures
+ */
+const allMeasures = {
+  FailedTestMeasure: {
+    enabled: true,
+    weight: 1,
+  },
+  CoverageMeasure: {
+    enabled: true,
+    weight: 1,
+  },
+};
+
+/**
+ * Fuzzer option for enabling all Generators
+ */
+const allGenerators = {
+  RandomInputGenerator: {
+    enabled: true,
+  },
+  MutationInputGenerator: {
+    enabled: true,
+  },
+};
+/**
  * Fuzzer option for integer arguments and a seed for deterministic test execution.
  */
 const intOptions: FuzzOptions = {
@@ -16,6 +41,8 @@ const intOptions: FuzzOptions = {
   useImplicit: true,
   useHuman: true,
   useProperty: false,
+  measures: allMeasures,
+  generators: allGenerators,
 };
 
 /**

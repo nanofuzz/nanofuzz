@@ -1525,6 +1525,83 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
     }
   );
 
+  // Process generator fuzzer options
+  const MutationInputGeneratorEnabled = document.getElementById(
+    `${fuzzBase}-gen-MutationInputGenerator-enabled`
+  );
+  disableArr.push(...[MutationInputGeneratorEnabled].filter((e) => e !== null));
+  overrides.fuzzer.generators = {
+    RandomInputGenerator: {
+      enabled: true, // always enabled
+    },
+    MutationInputGenerator: {
+      enabled:
+        MutationInputGeneratorEnabled === null
+          ? true
+          : !!(
+              MutationInputGeneratorEnabled.getAttribute("value") ??
+              MutationInputGeneratorEnabled.getAttribute("current-checked") ===
+                "true"
+            ),
+    },
+  };
+
+  // Process measurement fuzzer options
+  const CoverageMeasureEnabled = document.getElementById(
+    `${fuzzBase}-measure-CoverageMeasure-enabled`
+  );
+  const CoverageMeasureWeight = document.getElementById(
+    `${fuzzBase}-measure-CoverageMeasure-weight`
+  );
+  const FailedTestMeasureEnabled = document.getElementById(
+    `${fuzzBase}-measure-FailedTestMeasure-enabled`
+  );
+  const FailedTestMeasureWeight = document.getElementById(
+    `${fuzzBase}-measure-FailedTestMeasure-enabled`
+  );
+  disableArr.push(
+    ...[
+      CoverageMeasureEnabled,
+      CoverageMeasureWeight,
+      FailedTestMeasureEnabled,
+      FailedTestMeasureWeight,
+    ].filter((e) => e !== null)
+  );
+  overrides.fuzzer.measures = {
+    CoverageMeasure: {
+      enabled:
+        CoverageMeasureEnabled === null
+          ? true
+          : !!(
+              CoverageMeasureEnabled.getAttribute("value") ??
+              CoverageMeasureEnabled.getAttribute("current-checked") === "true"
+            ),
+      weight:
+        CoverageMeasureWeight === null
+          ? 1
+          : Math.min(Number(CoverageMeasureWeight.getAttribute("value")), 1),
+    },
+    FailedTestMeasure: {
+      enabled:
+        FailedTestMeasureEnabled === null
+          ? true
+          : !!(
+              FailedTestMeasureEnabled.getAttribute("value") ??
+              FailedTestMeasureEnabled.getAttribute("current-checked") ===
+                "true"
+            ),
+      weight:
+        FailedTestMeasureWeight === null
+          ? 1
+          : Math.min(
+              Number.parseFloat(
+                FailedTestMeasureWeight.getAttribute("value") ?? "1"
+              ),
+              1
+            ),
+    },
+  };
+
   // Process all the argument overrides
   for (let i = 0; document.getElementById(getIdBase(i)) !== null; i++) {
     const idBase = getIdBase(i);
