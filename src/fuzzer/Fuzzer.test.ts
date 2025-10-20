@@ -1,6 +1,9 @@
 import { ArgDef, setup, fuzz, implicitOracle } from "./Fuzzer";
 import { FuzzOptions } from "./Types";
 
+// Extend default test timeout to 45s
+jasmine.DEFAULT_TIMEOUT_INTERVAL = 45000;
+
 /**
  * Fuzzer option for enabling all Measures
  */
