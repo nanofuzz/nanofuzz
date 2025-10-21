@@ -22,6 +22,7 @@ import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputAndSource, ScoredInput } from "./generators/Types";
 import { isError } from "../Util";
+import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 
 /**
  * Builds and returns the environment required by fuzz().
@@ -90,6 +91,7 @@ export const fuzz = (
         inputsInjected: 0, // updated later
       },
       generators: {}, // updated later
+      measures: {}, // updated later
     },
     interesting: {
       inputs: [],
@@ -798,6 +800,9 @@ export type FuzzTestStats = {
         dupesGenerated: number; // number of duplicate inputs generated
       };
     };
+  };
+  measures: {
+    CodeCoverageMeasure?: CodeCoverageMeasureStats;
   };
 };
 

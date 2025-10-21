@@ -82,15 +82,15 @@ export class CoverageMeasure extends AbstractMeasure {
     let nextPred = pred;
     while (nextPred) {
       if (!nextPred.pred) {
-        accumBefore = this.toNumber(nextPred.meas.coverageMeasure.accum);
+        accumBefore = this._toNumber(nextPred.meas.coverageMeasure.accum);
         nextPred.meas.coverageMeasure.accum.merge(currentCoverageData);
-        accumAfter = this.toNumber(nextPred.meas.coverageMeasure.accum);
+        accumAfter = this._toNumber(nextPred.meas.coverageMeasure.accum);
       }
       nextPred = nextPred.pred;
     }
 
     // Merge the current coverage into the global coverage map
-    const globalBefore = this.toNumber(this._globalCoverageMap);
+    const globalBefore = this._toNumber(this._globalCoverageMap);
     this._globalCoverageMap.merge(currentCoverageData);
 
     // Build the measurement object
@@ -99,7 +99,7 @@ export class CoverageMeasure extends AbstractMeasure {
       name: this.name,
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
-        globalDelta: this.toNumber(this._globalCoverageMap) - globalBefore,
+        globalDelta: this._toNumber(this._globalCoverageMap) - globalBefore,
         accum: createCoverageMap(currentCoverageData),
         accumDelta: accumAfter - accumBefore,
       },
@@ -154,12 +154,24 @@ export class CoverageMeasure extends AbstractMeasure {
   } // fn: onBeforeNextTestExecution
 
   /**
-   * Called prior to fuzzer shut down. Currently does nothing.
+   * Called prior to fuzzer shut down.
+   *
+   * Currently fills in global code coverage statistics.
    *
    * @param `results` all test results
    */
   public onShutdown(results: FuzzTestResults): void {
-    results;
+    const coverageSummary = this._globalCoverageMap.getCoverageSummary();
+    results.stats.measures.CodeCoverageMeasure = {
+      counters: {
+        functionsTotal: coverageSummary.functions.total,
+        functionsCovered: coverageSummary.functions.covered,
+        statementsTotal: coverageSummary.statements.total,
+        statementsCovered: coverageSummary.statements.covered,
+        branchesTotal: coverageSummary.branches.total,
+        branchesCovered: coverageSummary.branches.covered,
+      },
+    };
   } // fn: onShutdown
 
   /**
@@ -170,7 +182,7 @@ export class CoverageMeasure extends AbstractMeasure {
    * @param `m` a CoverageMap
    * @returns sum of branches, statements, and functions covered
    */
-  protected toNumber(m: CoverageMap): number {
+  protected _toNumber(m: CoverageMap): number {
     const summ = m.getCoverageSummary();
     return (
       summ.branches.covered + summ.statements.covered + summ.functions.covered
@@ -249,4 +261,18 @@ type CoverageMeasurementNode = {
   input: InputAndSource;
   pred: CoverageMeasurementNode | undefined;
   meas: CoverageMeasurement;
+};
+
+/**
+ * Code Coverage Statistics
+ */
+export type CodeCoverageMeasureStats = {
+  counters: {
+    functionsTotal: number;
+    functionsCovered: number;
+    statementsTotal: number;
+    statementsCovered: number;
+    branchesTotal: number;
+    branchesCovered: number;
+  };
 };

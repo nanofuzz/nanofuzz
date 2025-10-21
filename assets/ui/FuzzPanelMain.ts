@@ -135,20 +135,9 @@ function main() {
   );
 
   // Add event listener to toggle fuzz.options.interesting.inputs
-  [
-    "fuzz.options.interesting.inputs.show",
-    "fuzz.options.interesting.inputs.hide",
-  ].forEach((e) => {
-    getElementByIdOrThrow(e).addEventListener("click", () => {
-      toggleHidden(
-        getElementByIdOrThrow("fuzz.options.interesting.inputs.show")
-      );
-      toggleHidden(
-        getElementByIdOrThrow("fuzz.options.interesting.inputs.hide")
-      );
-      toggleHidden(getElementByIdOrThrow("fuzz.options.interesting.inputs"));
-    });
-  });
+  getElementByIdOrThrow(
+    "fuzz.options.interesting.inputs.button"
+  ).addEventListener("click", toggleInterestingInputs);
 
   // Add event listeners for all the union generate checkboxes
   document.querySelectorAll(".isNoInput vscode-checkbox").forEach((element) => {
@@ -504,6 +493,15 @@ function toggleFuzzOptions() {
   // Refresh the list of validators
   handleGetListOfValidators();
 } // fn: toggleFuzzOptions()
+
+/**
+ * Toggles whether interesting inputs are shown
+ */
+function toggleInterestingInputs(): void {
+  toggleHidden(getElementByIdOrThrow("fuzz.options.interesting.inputs.show"));
+  toggleHidden(getElementByIdOrThrow("fuzz.options.interesting.inputs.hide"));
+  toggleHidden(getElementByIdOrThrow("fuzz.options.interesting.inputs"));
+} // fn: toggleInterestingInputs
 
 /**
  * Sets whether the argument should generate inputs
