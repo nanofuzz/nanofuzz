@@ -508,21 +508,40 @@ export class FuzzPanel {
   } // fn: _initFuzzTestsForThisFn()
 
   /**
-   * Returns the pinned tests for just the current function.
+   * Returns the saved tests for just the current function.
    *
-   * @returns pinned tests for the current function
+   * @param `opt` optional parameters
+   * @returns saved tests for the current function
    */
-  private _getFuzzTestsForThisFn(): fuzzer.FuzzTestsFunction {
+  private _getFuzzTestsForThisFn(
+    opt: { interesting?: boolean } = {}
+  ): fuzzer.FuzzTestsFunction {
     // Get the tests for the entire module
     const moduleSet = this._getFuzzTestsForModule();
 
-    // Return the pinned tests for the function, if it exists
+    // Get the persistent tests for the function, if it exists
     const fnName = this._fuzzEnv.function.getName();
-    if (fnName in moduleSet.functions) {
-      return moduleSet.functions[fnName];
-    } else {
-      return this._initFuzzTestsForThisFn().functions[fnName];
+    const fnSet = // persistent tests
+      fnName in moduleSet.functions
+        ? moduleSet.functions[fnName]
+        : this._initFuzzTestsForThisFn().functions[fnName];
+
+    // add "interesting" inputs if not already persisted
+    if (opt.interesting && this._results) {
+      this._results.results
+        .filter((r) => r.interestingReasons.length)
+        .forEach((r) => {
+          const serializedInput = JSON5.stringify(r.input);
+          if (!(serializedInput in fnSet.tests)) {
+            fnSet.tests[serializedInput] = {
+              input: r.input,
+              output: r.output,
+              pinned: false,
+            };
+          }
+        });
     }
+    return fnSet;
   } // fn: _getFuzzTestsForThisFn()
 
   /**
@@ -1024,6 +1043,11 @@ ${inArgConsts}
     // Apply the argument overrides from the front-end UI
     _applyArgOverrides(fn, panelInput.args, this._fuzzEnv.options.argDefaults);
 
+    // Gather all inputs to inject, including "interesting" inputs
+    const testsToInject = this._getFuzzTestsForThisFn({
+      interesting: true,
+    }).tests;
+
     // Update the UI
     this._results = undefined;
     this._state = FuzzPanelState.busy;
@@ -1049,7 +1073,7 @@ ${inArgConsts}
         // Run the fuzzer
         this._results = fuzzer.fuzz(
           this._fuzzEnv,
-          Object.values(this._getFuzzTestsForThisFn().tests)
+          Object.values(testsToInject)
         );
 
         // Transition to done state
@@ -1309,21 +1333,6 @@ ${inArgConsts}
 
                 <vscode-panel-view>
                   <p>
-                    Generate inputs:
-                  </p>
-                  <div class="fuzzInputControlGroup">
-                    <vscode-checkbox disabled id="fuzz-gen-RandomInputGenerator-enabled" checked>
-                      <span> 
-                        Randomly (aways enabled)
-                      </span>
-                    </vscode-checkbox>                    
-                    <vscode-checkbox ${disabledFlag} id="fuzz-gen-MutationInputGenerator-enabled" ${this._fuzzEnv.options.generators.MutationInputGenerator.enabled ? "checked" : ""}>
-                      <span> 
-                        By mutating "interesting" inputs
-                      </span>
-                    </vscode-checkbox>                    
-                  </div>
-                  <p>
                     What makes an input "interesting"?
                   </p>
                   <div class="fuzzInputControlGroup">
@@ -1343,6 +1352,22 @@ ${inArgConsts}
                     <vscode-text-field style="display:none" ${disabledFlag} size="3" id="fuzz-measures-FailedTestMeasure-weight" name="fuzz-measures-FailedTestMeasure-weight" value="${this._fuzzEnv.options.measures.FailedTestMeasure.weight}">
                       Weight of measure (&gt;=1)
                     </vscode-text-field>
+                  </div>
+
+                  <p>
+                    Generate inputs:
+                  </p>
+                  <div class="fuzzInputControlGroup">
+                    <vscode-checkbox disabled id="fuzz-gen-RandomInputGenerator-enabled" checked>
+                      <span> 
+                        Randomly (aways enabled)
+                      </span>
+                    </vscode-checkbox>                    
+                    <vscode-checkbox ${disabledFlag} id="fuzz-gen-MutationInputGenerator-enabled" ${this._fuzzEnv.options.generators.MutationInputGenerator.enabled ? "checked" : ""}>
+                      <span> 
+                        By mutating "interesting" inputs
+                      </span>
+                    </vscode-checkbox>                    
                   </div>
 
                 </vscode-panel-view>
@@ -1614,7 +1639,7 @@ ${inArgConsts}
             this._results.stats.timers.run
           )} ms, re-tested ${
             this._results.stats.counters.inputsInjected
-          } pinned input${
+          } prior input${
             this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
           }, generated ${
             this._results.stats.counters.inputsGenerated
@@ -1644,15 +1669,15 @@ ${inArgConsts}
           <p>
             ${generatorsText}
           </p>
-          <p>
+          <p class="${coverageText !== "" ? "" : "hidden"}">
             ${coverageText}
+          </p>
+          <p class="${this._results.interesting.inputs.length ? "" : "hidden"}">
             The selected measures classified ${
               this._results.interesting.inputs.length
             } input${
             this._results.interesting.inputs.length > 1 ? "s" : ""
-          } as "interesting." <span class="${
-            this._results.interesting.inputs.length ? "" : "hidden"
-          }">(<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span> interesting inputs</a>)</span>
+          } as "interesting," and these inputs will be reused in the next test run. (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span> interesting inputs</a>)
             <table class="fuzzGrid hidden" id="fuzz.options.interesting.inputs">
               <thead>
                 <th><big>#</big></th>
