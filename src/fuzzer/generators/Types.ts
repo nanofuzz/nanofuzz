@@ -23,4 +23,5 @@ export type ScoredInput = {
   score: number;
   cost: number;
   measurements: BaseMeasurement[];
+  interestingReasons: string[];
 };

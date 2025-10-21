@@ -25,7 +25,8 @@ export type FuzzTestResult = {
   };
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: FuzzResultCategory; // the ResultCategory of the test result
-  source: SupportedInputGenerators | "injected";
+  source: SupportedInputGenerators | "injected"; // generator source of the input
+  interestingReasons: string[]; // reasons (measures) this input may be "interesting"
 };
 
 /**

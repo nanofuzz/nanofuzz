@@ -134,6 +134,22 @@ function main() {
     toggleFuzzOptions
   );
 
+  // Add event listener to toggle fuzz.options.interesting.inputs
+  [
+    "fuzz.options.interesting.inputs.show",
+    "fuzz.options.interesting.inputs.hide",
+  ].forEach((e) => {
+    getElementByIdOrThrow(e).addEventListener("click", () => {
+      toggleHidden(
+        getElementByIdOrThrow("fuzz.options.interesting.inputs.show")
+      );
+      toggleHidden(
+        getElementByIdOrThrow("fuzz.options.interesting.inputs.hide")
+      );
+      toggleHidden(getElementByIdOrThrow("fuzz.options.interesting.inputs"));
+    });
+  });
+
   // Add event listeners for all the union generate checkboxes
   document.querySelectorAll(".isNoInput vscode-checkbox").forEach((element) => {
     element.addEventListener("click", (e) => {

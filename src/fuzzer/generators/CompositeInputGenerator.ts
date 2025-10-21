@@ -119,7 +119,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       !this._subgens[this._selectedSubgenIndex].isAvailable()
     ) {
       this._ticksLeftInChunk = this._chunkSize;
-      this._selectedSubgenIndex = this.selectNextSubGen();
+      this._selectedSubgenIndex = this._selectNextSubGen();
     }
 
     // Generate and return the input
@@ -137,8 +137,14 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    *
    * @param `measurements` array of measurements that correspond to this._measures
    * @param `cost` cost of generating and executing the input (e.g., ms)
+   * @returns list of measures making the input interesting, if any
    */
-  public onInputFeedback(measurements: BaseMeasurement[], cost: number): void {
+  public onInputFeedback(
+    measurements: BaseMeasurement[],
+    cost: number
+  ): string[] {
+    const interestingReasons: string[] = []; // list of measures finding this input interesing
+
     let progress = 0; // progress of input, according to measures
     const h = this._history[this._selectedSubgenIndex]; // history of current subgen
 
@@ -172,8 +178,14 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       h.progress[m][h.currentIndex] = measure.delta(measurement);
       h.cost[h.currentIndex] = cost;
       progress += (h.progress[m][h.currentIndex] ?? 0) * measure.weight;
+
+      // If progress is reported by this measure, the input might be interesting
+      if (h.progress[m][h.currentIndex]) {
+        interestingReasons.push(measure.name);
+      }
     }); // foreach: measurements
 
+    // Roll over to the beginning if we reach the last slot
     h.currentIndex = (h.currentIndex + 1) % this._L;
 
     // Update history of composite input generator
@@ -183,12 +195,21 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       score: progress,
       cost,
       measurements,
+      interestingReasons,
     };
 
     // Update leaderboard & last measured input if we have measures
     // (e.g., the input was not a dupe and was actually executed)
-    if (measurements.length) {
-      this._leaderboard.postScore(this._lastInput, progress);
+    //
+    // If the input was added to the leaderboard, then return the
+    // measures that contributed to its interestingness.
+    if (
+      measurements.length &&
+      this._leaderboard.postScore(this._lastInput, progress)
+    ) {
+      return interestingReasons;
+    } else {
+      return [];
     }
   } // fn: onInputFeedback
 
@@ -198,7 +219,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    *
    * @returns the index of the selected subgen
    */
-  private selectNextSubGen(): number {
+  private _selectNextSubGen(): number {
     // Calculate cost and progress for each subgen's prior L generations
     const cost: number[] = []; // cost of subgen for L generations
     const progress: number[] = []; // progress of subgen for L generations
@@ -255,6 +276,19 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       )}`
     );
   } // fn: selectNextSubGen
+
+  /**
+   * Return interesting inputs, their sources, and their measures
+   *
+   * @returns interesting inputs
+   */
+  public getInterestingInputs(): ScoredInput[] {
+    return this._scoredInputs
+      .filter((i) => i.interestingReasons.length)
+      .map((i) => {
+        return { ...i };
+      });
+  } // fn: getInterestingInputs
 
   /**
    * Cleanup and reporting activities during fuzzer shutdown

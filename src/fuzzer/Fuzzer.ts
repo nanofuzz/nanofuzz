@@ -20,7 +20,7 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { InputAndSource } from "./generators/Types";
+import { InputAndSource, ScoredInput } from "./generators/Types";
 import { isError } from "../Util";
 
 /**
@@ -90,6 +90,9 @@ export const fuzz = (
         inputsInjected: 0, // updated later
       },
       generators: {}, // updated later
+    },
+    interesting: {
+      inputs: [],
     },
     results: [], // filled later
   };
@@ -201,6 +204,7 @@ export const fuzz = (
       },
       category: "ok",
       source: "injected",
+      interestingReasons: [],
     };
 
     // Generate and store the inputs
@@ -440,13 +444,13 @@ export const fuzz = (
       const startMeasureTime = performance.now(); // start timer
       const measurements = measures.map((e) =>
         e.measure(
-          JSON.parse(JSON.stringify(genInput)),
-          JSON.parse(JSON.stringify(result))
+          JSON5.parse(JSON5.stringify(genInput)),
+          JSON5.parse(JSON5.stringify(result))
         )
       );
 
       // Provide measures feedback to the composite input generator
-      compositeInputGenerator.onInputFeedback(
+      result.interestingReasons = compositeInputGenerator.onInputFeedback(
         measurements,
         result.timers.run + result.timers.gen
       );
@@ -458,14 +462,17 @@ export const fuzz = (
     }
   } // for: Main test loop
 
+  // Update interesting inputs
+  results.interesting.inputs = compositeInputGenerator.getInterestingInputs();
+
   // End-of-run processing for measures and input generators
   measures.forEach((e) => {
     e.onShutdown(results);
   });
-  compositeInputGenerator.onShutdown();
+  compositeInputGenerator.onShutdown(); // also handles shutdown for subgens
 
   console.debug(
-    `Fuzzer injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes). Executed ${results.results.length} tests in ${results.stats.timers.run}ms. Stopped for reason: ${results.stopReason}.`
+    `Fuzzer injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes). Executed ${results.results.length} tests in ${results.stats.timers.total}ms. Stopped for reason: ${results.stopReason}.`
   ); // !!!!!!!
   console.debug(
     `Tests with exceptions: ${
@@ -755,6 +762,9 @@ export type FuzzTestResults = {
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped
   stats: FuzzTestStats; // fuzzer statistics
+  interesting: {
+    inputs: ScoredInput[]; // interesting inputs
+  };
   results: FuzzTestResult[]; // fuzzing test results
 };
 

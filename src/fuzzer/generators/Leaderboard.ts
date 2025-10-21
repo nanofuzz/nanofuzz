@@ -43,7 +43,7 @@ export class Leaderboard<T> {
    * Updates the leaderboard's minimum score and the leaderboard
    * position with that minimum score.
    */
-  protected updateMinScore(): void {
+  protected _updateMinScore(): void {
     // Only update the minimum score if the leaderboard is full
     if (this._leaders.length === this._slots) {
       this._minScore = Number.MAX_VALUE;
@@ -62,8 +62,9 @@ export class Leaderboard<T> {
    *
    * @param `leader` the leader to post to the board
    * @param `score` the score of that leader
+   * @returns `true` if posted to leaderboard
    */
-  public postScore(leader: T, score: number): void {
+  public postScore(leader: T, score: number): boolean {
     // Only post scores > minimum score
     if (score > this._minScore) {
       const thisLeader = {
@@ -82,8 +83,14 @@ export class Leaderboard<T> {
       }
 
       // Re-calculate the minimum score, if necessary
-      this.updateMinScore();
+      this._updateMinScore();
+
+      // indicate this input was added to the leaderboard
+      return true;
     }
+
+    // not added to leaderboard
+    return false;
   } // fn: postScore
 
   /**

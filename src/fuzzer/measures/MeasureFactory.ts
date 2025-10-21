@@ -5,9 +5,6 @@ import { FailedTestMeasure } from "./FailedTestMeasure";
 
 export function MeasureFactory(env: FuzzEnv): AbstractMeasure[] {
   const measures: AbstractMeasure[] = [];
-  console.debug(
-    `[MeasureFactory] measures: ${JSON.stringify(env.options.measures)}`
-  ); // !!!!!!!
 
   let covMeasure: CoverageMeasure | undefined;
   if (env.options.measures["CoverageMeasure"].enabled) {

@@ -441,8 +441,6 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
     const gen = new ArgDefGenerator([h], prng);
     const val = new ArgDefValidator([h]);
     const input = gen.next();
-    console.debug(`Spec: ${abbrSpec(h)}`);
-    console.debug(`Input: ${JSON.stringify(input)}`);
     expect(val.validate(input)).toBeTrue();
   });
 

@@ -1505,20 +1505,26 @@ ${inArgConsts}
         for (g in env.options.generators) {
           const shortName = g.replace("InputGenerator", "").toLowerCase();
           if (env.options.generators[g].enabled) {
-            const genStats = this._results.stats.generators[g];
-            genTextEnabled.push(
-              `<strong><u>${shortName}</u></strong> produced ${
-                genStats.counters.inputsGenerated
-              } inputs (${
-                genStats.counters.dupesGenerated
-              } of which were duplicates) in ${genStats.timers.gen.toFixed(
-                2
-              )} ms (${(
-                genStats.timers.gen /
-                (genStats.counters.inputsGenerated +
-                  genStats.counters.dupesGenerated)
-              ).toFixed(2)} ms/input)`
-            );
+            if (g in this._results.stats.generators) {
+              const genStats = this._results.stats.generators[g];
+              genTextEnabled.push(
+                `<strong><u>${shortName}</u></strong> produced ${
+                  genStats.counters.inputsGenerated
+                } inputs (${
+                  genStats.counters.dupesGenerated
+                } of which were duplicates) in ${genStats.timers.gen.toFixed(
+                  2
+                )} ms (${(
+                  genStats.timers.gen /
+                  (genStats.counters.inputsGenerated +
+                    genStats.counters.dupesGenerated)
+                ).toFixed(2)} ms/input)`
+              );
+            } else {
+              genTextEnabled.push(
+                `<strong><u>${shortName}</u></strong> was enabled but did not produce any inputs`
+              );
+            }
           } else {
             genTextDisabled.push(`<strong><u>${shortName}</u></strong>`);
           }
@@ -1613,6 +1619,52 @@ ${inArgConsts}
           <div class="fuzzResultHeading">How were inputs generated?</div>
           <p>
             ${generatorsText}
+          </p>
+          <p>
+            The selected measures classified ${
+              this._results.interesting.inputs.length
+            } inputs as "interesting." (<a href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span>&nbsp;inputs</a>)
+            <table class="fuzzGrid hidden" id="fuzz.options.interesting.inputs">
+              <thead>
+                <th><big>#</big></th>
+                ${this._results.env.function
+                  .getArgDefs()
+                  .map((a) => `<th><big>input: ${a.getName()}</big></th>`)
+                  .join("\r\n")}
+                <th><big>input generator</big></th>
+                <th><big>why interesting</big></th>
+              </thead>
+              <tbody>
+                ${this._results.interesting.inputs
+                  .map(
+                    (i) =>
+                      `<tr><td>${htmlEscape(
+                        i.input.tick.toString()
+                      )}</td>${i.input.value
+                        .map(
+                          (i) =>
+                            `<td>${
+                              i === undefined
+                                ? "(no input)"
+                                : JSON5.stringify(i)
+                            }</td>`
+                        )
+                        .join("\r\n")}
+                      <td>${htmlEscape(
+                        i.input.source.subgen.replace("InputGenerator", "")
+                      )}${
+                        i.input.source.tick !== undefined
+                          ? ` from #${i.input.source.tick}`
+                          : ""
+                      }</td><td>${htmlEscape(
+                        i.interestingReasons
+                          .map((r) => r.replace("Measure", ""))
+                          .join(", ")
+                      )}</td></tr>`
+                  )
+                  .join("\r\n")}
+              </tbody>
+            </table>
           </p>
 
           <div class="fuzzResultHeading">How were outputs categorized?</div>
@@ -1743,7 +1795,7 @@ ${inArgConsts}
       <head></head>
       <body>
         <h1>:-(</h1>
-        <p>Unable to render this panel due to an internal error in FuzzPanel.updateHtml().</p>
+        <p>Unable to render this panel due to an internal error in FuzzPanel._updateHtml().</p>
         <p>Stack trace:</p>
         <pre>${stack}</pre>
       <body>`;
