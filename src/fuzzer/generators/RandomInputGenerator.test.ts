@@ -1,6 +1,5 @@
 import { ArgDef } from "../analysis/typescript/ArgDef";
-import { GeneratorFactory } from "./GeneratorFactory";
-import seedrandom from "seedrandom";
+import { RandomInputGenerator } from "./RandomInputGenerator";
 import { ProgramDef } from "../analysis/typescript/ProgramDef";
 import { ArgOptions, ArgValueType } from "../analysis/typescript/Types";
 
@@ -108,6 +107,8 @@ describe("fuzzer/generator/GeneratorFactory:", () => {
   it(`Random Bool >= true && <= true`, () => {
     testRandomBool(true, true);
   });
+
+  // !!!!!!! Need Composite Generator Tests Here
 });
 
 /**
@@ -117,16 +118,16 @@ describe("fuzzer/generator/GeneratorFactory:", () => {
  * @param intMax Maximim integer value
  */
 const testRandomInt = (intMin: number, intMax: number): void => {
-  const prng = seedrandom(seed);
   const program = ProgramDef.fromSource(() => tsFnWithNumberInput);
   const arg = program.getFunctions()["test"].getArgDefs();
   arg[0].setIntervals([{ min: intMin, max: intMax }]);
-  const gen = GeneratorFactory(arg[0], prng);
+  const gen = new RandomInputGenerator(arg, seed);
   for (let i = 0; i < 1000; i++) {
-    const result: ArgValueType = gen();
-    expect(typeof result === "number" && Number.isInteger(result)).toBeTruthy();
-    expect(result).toBeGreaterThanOrEqual(intMin);
-    expect(result).toBeLessThanOrEqual(intMax);
+    const { value: inputs } = gen.next();
+    const input = inputs[0];
+    expect(typeof input === "number" && Number.isInteger(input)).toBeTruthy();
+    expect(input).toBeGreaterThanOrEqual(intMin);
+    expect(input).toBeLessThanOrEqual(intMax);
   }
 };
 
@@ -149,16 +150,16 @@ const testRandomIntException = (intMin: number, intMax: number): void => {
  * @param floatMax Maximim float value
  */
 const testRandomFloat = (floatMin: number, floatMax: number): void => {
-  const prng = seedrandom(seed);
   const program = ProgramDef.fromSource(() => tsFnWithNumberInput);
   const arg = program.getFunctions()["test"].getArgDefs();
   arg[0].setIntervals([{ min: floatMin, max: floatMax }]);
-  const gen = GeneratorFactory(arg[0], prng);
+  const gen = new RandomInputGenerator(arg, seed);
   for (let i = 0; i < 1000; i++) {
-    const result: ArgValueType = gen();
-    expect(typeof result === "number").toBeTruthy();
-    expect(result).toBeGreaterThanOrEqual(floatMin);
-    expect(result).toBeLessThanOrEqual(floatMax);
+    const { value: inputs } = gen.next();
+    const input = inputs[0];
+    expect(typeof input === "number").toBeTruthy();
+    expect(input).toBeGreaterThanOrEqual(floatMin);
+    expect(input).toBeLessThanOrEqual(floatMax);
   }
 };
 
@@ -182,20 +183,21 @@ const testRandomFloatException = (floatMin: number, floatMax: number): void => {
  * @param boolMax Maximum boolean value
  */
 const testRandomBool = (boolMin: boolean, boolMax: boolean): void => {
-  const prng = seedrandom(seed);
   const program = ProgramDef.fromSource(() => tsFnWithBoolInput);
   const arg = program.getFunctions()["test"].getArgDefs();
   arg[0].setIntervals([{ min: boolMin, max: boolMax }]);
-  const gen = GeneratorFactory(arg[0], prng);
+  const gen = new RandomInputGenerator(arg, seed);
 
   // Test that the generator generates booleans within the bounds
-  const results: ArgValueType[] = [];
+  const inputs: ArgValueType[][] = [];
+  let input: ArgValueType;
   for (let i = 0; i < 1000; i++) {
-    results.push(gen());
+    ({ value: inputs[i] } = gen.next());
+    input = inputs[i];
   }
-  expect(results.every((e) => typeof e === "boolean")).toBeTruthy();
-  expect(results.some((e) => e === boolMin)).toBeTruthy();
-  expect(results.some((e) => e === boolMax)).toBeTruthy();
+  expect(inputs.every((e) => typeof e[0] === "boolean")).toBeTruthy();
+  expect(inputs.some((e) => e[0] === boolMin)).toBeTruthy();
+  expect(inputs.some((e) => e[0] === boolMax)).toBeTruthy();
 };
 
 /**
@@ -213,7 +215,6 @@ const testRandomString = (
   strLenMin: number,
   strLenMax: number
 ): void => {
-  const prng = seedrandom(seed);
   const options: ArgOptions = {
     ...ArgDef.getDefaultOptions(),
     strLength: { min: strLenMin, max: strLenMax },
@@ -226,26 +227,26 @@ const testRandomString = (
   const program = ProgramDef.fromSource(() => tsFnWithStringInput, options);
   const arg = program.getFunctions()["test"].getArgDefs();
   arg[0].setIntervals([{ min: strMin, max: strMax }]);
-  const gen = GeneratorFactory(arg[0], prng);
+  const gen = new RandomInputGenerator(arg, seed);
 
   // Test that the generator generates strings within the bounds
-  const results: ArgValueType[] = [];
+  const inputs: ArgValueType[][] = [];
   for (let i = 0; i < 1000; i++) {
-    results.push(gen());
-  }
-  //if (strMin !== strMax) {
-  //  expect(results.some((e) => e !== strMin)).toBeTruthy();
-  //  expect(results.some((e) => e !== strMax)).toBeTruthy();
-  //}
-  results.forEach((result) => {
-    expect(typeof result === "string").toBeTruthy();
-    if (typeof result === "string") {
-      expect(result.length).toBeGreaterThanOrEqual(strLenMin);
-      expect(result.length).toBeLessThanOrEqual(strLenMax);
-      //expect(result >= strMin).toBeTruthy();
-      //expect(result <= strMax).toBeTruthy();
+    ({ value: inputs[i] } = gen.next());
+    const input = inputs[i][0];
+    expect(typeof input === "string").toBeTruthy();
+    if (typeof input === "string") {
+      expect(input.length).toBeGreaterThanOrEqual(strLenMin);
+      expect(input.length).toBeLessThanOrEqual(strLenMax);
+
+      // expect(input >= strMin).toBeTruthy(); !!!! strMin/Max support
+      // expect(input <= strMax).toBeTruthy(); !!!! strMin/Max support
     }
-  });
+  }
+  if (strMin !== strMax) {
+    // expect(inputs.some((e) => e !== strMin)).toBeTruthy(); !!!! strMin/Max support
+    // expect(inputs.some((e) => e !== strMax)).toBeTruthy(); !!!! strMin/Max support
+  }
 };
 
 /**

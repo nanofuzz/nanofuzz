@@ -19,9 +19,14 @@ export type FuzzTestResult = {
   validatorExceptionMessage?: string; // validator exception message
   validatorExceptionFunction?: string; // name of validator throwing exception
   validatorExceptionStack?: string; // validator stack trace if exception was thrown
-  elapsedTime: number; // elapsed time of test
+  timers: {
+    gen: number; // time to generate the input in ms
+    run: number; // elapsed time of test in ms
+  };
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: FuzzResultCategory; // the ResultCategory of the test result
+  source: SupportedInputGenerators | "injected"; // generator source of the input
+  interestingReasons: string[]; // reasons (measures) this input may be "interesting"
 };
 
 /**
@@ -76,11 +81,11 @@ export type FuzzIoElement = {
  * Category of a test result
  */
 export type FuzzResultCategory =
-  | "ok"
-  | "badValue"
-  | "timeout"
-  | "exception"
-  | "disagree"
+  | "ok" // Judgment: passed
+  | "badValue" // Judgment: failed (not timeout or exception)
+  | "timeout" // Judgment: failed (timeout)
+  | "exception" // Judgment: failed (exception)
+  | "disagree" // Judgment: unknown
   | "failure"; // Validator failure (e.g., threw an exception)
 
 /**
@@ -99,7 +104,19 @@ export type FuzzOptions = {
   useImplicit: boolean; // use implicit oracle
   useHuman: boolean; // use human oracle
   useProperty: boolean; // use property validator oracle
+  measures: { [k in SupportedMeasures]: BaseMeasureConfig }; // measure config
+  generators: { [k in SupportedInputGenerators]: BaseGeneratorConfig }; // generator config
 };
+
+/**
+ * Basic measurement configuration: on/off, weight
+ */
+export type BaseMeasureConfig = { enabled: boolean; weight: number };
+
+/**
+ * Basic measurement configuration: on/off
+ */
+export type BaseGeneratorConfig = { enabled: boolean };
 
 /**
  * Column sort orders by FuzzResultCategory and column name
@@ -149,3 +166,20 @@ export enum FuzzStopReason {
   MAXTIME = "maxTime",
   MAXDUPES = "maxDupes",
 }
+
+/**
+ * Global execution environment
+ */
+export type VmGlobals = Record<string, unknown>;
+
+/**
+ * List of supported input generators
+ */
+export type SupportedInputGenerators =
+  | "RandomInputGenerator"
+  | "MutationInputGenerator";
+
+/**
+ * List of supported input generators
+ */
+export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";

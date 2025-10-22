@@ -16,7 +16,7 @@
   "license": "MIT",
   "scripts": {
     "checkver": "node checkVer.js",
-    "prebuild": "node prebuild.js",
+    "prebuild": "node checkVer.js && node prebuild.js",
     "build": "npx tsc --project tsconfig.cjs.json && npx tsc --project tsconfig.esm.json",
     "package": "npm publish --dry-run --access public",
     "publish": "npm publish --access public",
