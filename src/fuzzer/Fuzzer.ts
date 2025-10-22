@@ -132,9 +132,9 @@ export const fuzz = (
     pinnedTests.map((t) => t.input.map((i) => i.value))
   );
 
-  console.debug(
-    `\r\nFuzzing target: "${env.function.getName()}" of "${env.function.getModule()}"`
-  ); // !!!!!!!
+  console.log(
+    `\r\n\r\nTesting target: ${env.function.getName()} of ${env.function.getModule()}`
+  );
 
   const startCompTime = performance.now(); // start time: compile & instrument
 
@@ -170,6 +170,8 @@ export const fuzz = (
   // Note: Pinned tests are not counted against the maxTests limit
   const startTime = new Date().getTime();
   const allInputs: Record<string, boolean> = {};
+
+  console.log(`Testing in progress.`);
 
   // eslint-disable-next-line no-constant-condition, @typescript-eslint/no-unnecessary-condition
   while (true) {
@@ -473,36 +475,39 @@ export const fuzz = (
   });
   compositeInputGenerator.onShutdown(); // also handles shutdown for subgens
 
-  console.debug(
-    `Fuzzer injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes). Executed ${results.results.length} tests in ${results.stats.timers.total}ms. Stopped for reason: ${results.stopReason}.`
-  ); // !!!!!!!
-  console.debug(
-    `Tests with exceptions: ${
+  console.log(
+    `Testing complete. Executed ${results.results.length} tests in ${results.stats.timers.total}ms. Stopped for reason: ${results.stopReason}.`
+  );
+  console.log(
+    ` - Injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes).`
+  );
+  console.log(
+    ` - Tests with exceptions: ${
       results.results.filter((e) => e.exception).length
     }, timeouts: ${results.results.filter((e) => e.timeout).length}`
-  ); // !!!!!!
-  console.debug(
-    `Human validator passed: ${
+  );
+  console.log(
+    ` - Human validator passed: ${
       results.results.filter((e) => e.passedHuman === true).length
     }, failed: ${results.results.filter((e) => e.passedHuman === false).length}`
-  ); // !!!!!!!
-  console.debug(
-    `Property validator passed: ${
+  );
+  console.log(
+    ` - Property validator passed: ${
       results.results.filter((e) => e.passedValidator === true).length
     }, failed: ${
       results.results.filter((e) => e.passedValidator === false).length
     }`
-  ); // !!!!!!!
-  console.debug(
-    `Heuristic validator passed: ${
+  );
+  console.log(
+    ` - Heuristic validator passed: ${
       results.results.filter((e) => e.passedImplicit).length
     }, failed: ${results.results.filter((e) => !e.passedImplicit).length}`
-  ); // !!!!!!!
-  console.debug(`Timing breakdown ${JSON5.stringify(results.stats, null, 3)}`); // !!!!!!!
+  );
 
   // Persist to outfile, if requested
   if (env.options.outputFile) {
     fs.writeFileSync(env.options.outputFile, JSON5.stringify(results));
+    console.log(` - Wrote results to: ${env.options.outputFile}`);
   }
 
   // Return the result of the fuzzing activity

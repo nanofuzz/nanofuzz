@@ -325,7 +325,7 @@ describe("fuzzer:", () => {
     expect(fuzzResult.results.some((e) => e.timeout)).toBe(true);
   });
 
-  it("Fuzz example 15 - coverage", function () {
+  it("Fuzz example 15 - coverageOneFile", function () {
     const fuzzResult = fuzz(
       setup(
         {
@@ -342,7 +342,7 @@ describe("fuzzer:", () => {
           },
         },
         "./Fuzzer.testfixtures.ts",
-        "coverage"
+        "testCoverageOneFile"
       )
     );
     expect(fuzzResult.results.length).toBeGreaterThan(0); // Expect some results
@@ -355,17 +355,40 @@ describe("fuzzer:", () => {
 
     // Expect that most of the validtor tests will pass
     expect(
-      fuzzResult.results.some((e) =>
-        e.passedValidators?.some((v) => v === true)
-      )
+      fuzzResult.results.some((e) => e.passedValidators?.some((v) => v))
     ).toBeTruthy();
 
     // But expect that "bugs" should fail (as would "bug!" and "moth")
     expect(
-      fuzzResult.results.some((e) =>
-        e.passedValidators?.some((v) => v === false)
-      )
+      fuzzResult.results.some((e) => e.passedValidators?.some((v) => !v))
     ).toBeTruthy();
+  });
+
+  it("Fuzz example 16 - coverageMultiFile", function () {
+    const fuzzResult = fuzz(
+      setup(intOptions, "./Fuzzer.testfixtures.ts", "testCoverageMultiFile")
+    );
+    expect(fuzzResult.results.length).not.toBe(0); // Ensure we have results
+    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // Expect all implicit validation to pass
+    expect(fuzzResult.stats.measures.CodeCoverageMeasure).toBeDefined(); // Has coverage stats
+    if (fuzzResult.stats.measures.CodeCoverageMeasure) {
+      // Expect coverage of >1 source files
+      expect(
+        fuzzResult.stats.measures.CodeCoverageMeasure.files.length
+      ).toBeGreaterThan(1);
+      // Expect coverage of 2 functions (one in each source file)
+      expect(
+        fuzzResult.stats.measures.CodeCoverageMeasure.counters.functionsCovered
+      ).toBe(2);
+      // Expect coverage of 2 statements across 2 files, 2 functions
+      expect(
+        fuzzResult.stats.measures.CodeCoverageMeasure.counters.statementsCovered
+      ).toBeGreaterThan(1);
+      // Expect coverage of 1 branch across 2 files, 2 functions
+      expect(
+        fuzzResult.stats.measures.CodeCoverageMeasure.counters.branchesCovered
+      ).toBeGreaterThan(0);
+    }
   });
 
   it("Counter-example mode 01", function () {

@@ -37,13 +37,18 @@ export class CoverageMeasure extends AbstractMeasure {
    * maintained by the code coverage instrumentation. We use this
    * pointer during test execution to extract code coverage data.
    *
-   * @param `globals` context of the loaded program
+   * @param `context` context of the loaded program
    */
-  public onAfterLoad(globals: VmGlobals): void {
+  public onAfterLoad(context: VmGlobals): void {
     // Save the global context of the original module load because
     // that is where the instrumented code writes coverage data
-    if (isCoverageMapData(globals.__coverage__)) {
-      this._coverageData = globals.__coverage__;
+    if (
+      typeof context.global === "object" &&
+      context.global &&
+      "__coverage__" in context.global &&
+      isCoverageMapData(context.global.__coverage__)
+    ) {
+      this._coverageData = context.global.__coverage__;
     } else {
       throw new Error(
         "global.__coverage__ does not contain a valid CoverageMapData object"
@@ -156,7 +161,7 @@ export class CoverageMeasure extends AbstractMeasure {
   /**
    * Called prior to fuzzer shut down.
    *
-   * Currently fills in global code coverage statistics.
+   * Fills in global code coverage statistics.
    *
    * @param `results` all test results
    */
@@ -171,6 +176,7 @@ export class CoverageMeasure extends AbstractMeasure {
         branchesTotal: coverageSummary.branches.total,
         branchesCovered: coverageSummary.branches.covered,
       },
+      files: this._globalCoverageMap.files(),
     };
   } // fn: onShutdown
 
@@ -275,4 +281,5 @@ export type CodeCoverageMeasureStats = {
     branchesTotal: number;
     branchesCovered: number;
   };
+  files: string[];
 };

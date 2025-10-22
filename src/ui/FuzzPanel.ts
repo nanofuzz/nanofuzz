@@ -1360,7 +1360,7 @@ ${inArgConsts}
                   <div class="fuzzInputControlGroup">
                     <vscode-checkbox disabled id="fuzz-gen-RandomInputGenerator-enabled" checked>
                       <span> 
-                        Randomly (aways enabled)
+                        Randomly (always enabled)
                       </span>
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-MutationInputGenerator-enabled" ${this._fuzzEnv.options.generators.MutationInputGenerator.enabled ? "checked" : ""}>
@@ -1569,27 +1569,35 @@ ${inArgConsts}
 
         // Build code coverage information
         const coverageStats = this._results.stats.measures.CodeCoverageMeasure;
-        const fmtDiv = (n: number, d: number) =>
-          d === 0 ? "n/a" : ((n * 100) / d).toFixed(0).toString();
+        const fmtPct = (n: number, d: number) =>
+          d === 0 ? "na%" : ((n * 100) / d).toFixed(0).toString() + "%";
         const coverageText =
           coverageStats === undefined
             ? ""
             : `The executed inputs exercised ${
                 coverageStats.counters.functionsCovered
-              } of ${coverageStats.counters.functionsTotal} functions (${fmtDiv(
+              } of ${coverageStats.counters.functionsTotal} function${
+                coverageStats.counters.functionsTotal === 1 ? "" : "s"
+              } (${fmtPct(
                 coverageStats.counters.functionsCovered,
                 coverageStats.counters.functionsTotal
-              )}%), ${coverageStats.counters.statementsCovered} of ${
+              )}), ${coverageStats.counters.statementsCovered} of ${
                 coverageStats.counters.statementsTotal
-              } statements (${fmtDiv(
+              } statement${
+                coverageStats.counters.statementsTotal === 1 ? "" : "s"
+              } (${fmtPct(
                 coverageStats.counters.statementsCovered,
                 coverageStats.counters.statementsTotal
-              )}%), and ${coverageStats.counters.branchesCovered} of ${
+              )}), and ${coverageStats.counters.branchesCovered} of ${
                 coverageStats.counters.branchesTotal
-              } branches (${fmtDiv(
+              } branch${
+                coverageStats.counters.branchesTotal === 1 ? "" : "es"
+              } (${fmtPct(
                 coverageStats.counters.branchesCovered,
                 coverageStats.counters.branchesTotal
-              )}%) in the source files executed.`;
+              )}) in the ${coverageStats.files.length} source file${
+                coverageStats.files.length === 1 ? "" : "s"
+              } executed.`;
 
         // Build the list of validators used/not used
         const validatorsUsed: string[] = [];

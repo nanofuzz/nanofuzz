@@ -3,7 +3,8 @@
  *
  * This npm module has not been maintained for a long time and lacked
  * support for ES6+ modules. This adaptation adds ES2020 support,
- * allows better control over options, and adds basic type checking.
+ * allows better control over options, adds basic type checking, and
+ * provides an ability to instrument compiled code.
  */
 import vm from "vm";
 import fs from "fs";
@@ -21,6 +22,9 @@ const previousRequireExtensions: NodeJS.Dict<
   ((m: NodeJS.Module, filename: string) => unknown)[]
 > = {};
 const hookType = ".ts";
+
+// List of modules transpiled
+let transpiledModules: string[] = [];
 
 /**
  * Default compilation options
@@ -86,12 +90,27 @@ export function getOptions(): CompilerOptions {
  * Activate the TypeScript compiler hook
  */
 export function activate(measures: AbstractMeasure[]): void {
+  // Clear any previously-transpiled modules from the cache
+  // so that we have a consistent global context across all
+  // modules transpiled and loaded.
+  transpiledModules.forEach((m) => {
+    delete require.cache[m];
+  });
+  transpiledModules = [];
+
   // Save the previous extension, if it exists
   if (require.extensions[hookType] !== undefined) {
     if (previousRequireExtensions[hookType] === undefined) {
       previousRequireExtensions[hookType] = [];
     }
     previousRequireExtensions[hookType].push(require.extensions[hookType]);
+  }
+
+  // Build a new global context for this activation
+  const moduleVmGlobals: { [k: string]: unknown } = {};
+  let k: keyof typeof global;
+  for (k in global) {
+    moduleVmGlobals[k] = global[k];
   }
 
   // Add our new extension
@@ -106,12 +125,15 @@ export function activate(measures: AbstractMeasure[]): void {
     }
 
     // Load the module
-    const context: VmGlobals = runJS(jsname, module, src);
+    const context: VmGlobals = runJS(jsname, module, src, moduleVmGlobals);
 
     // Collect measurements from the initial load
     for (const measure of measures) {
       measure.onAfterLoad(context);
     }
+
+    // Add this module to the list of transpiled modules
+    transpiledModules.push(module.filename);
   };
 }
 
@@ -166,7 +188,8 @@ function compileTS(module: NodeJS.Module) {
     relativeFolder,
     path.basename(module.filename, ".ts") + ".js"
   );
-  console.log(`Transpiling: '${module.filename}' to '${jsname}'`);
+  console.log(` - Transpiling: ${module.filename}`);
+  console.log(`            to: ${jsname}`);
 
   // If the Javascript file is current, return it directly
   if (!isModified(module.filename, jsname)) {
@@ -268,19 +291,21 @@ function compileTS(module: NodeJS.Module) {
  * @param module Javqscript module
  * @returns The script result, if any
  */
-function runJS(jsname: string, module: NodeJS.Module, src: string) {
-  const context: { [k: string]: any } = {};
-  let k: keyof typeof global;
-  for (k in global) {
-    context[k] = global[k];
-  }
-  context.require = module.require.bind(module);
-  context.exports = module.exports;
-  context.__filename = jsname;
-  context.__dirname = path.dirname(module.filename);
-  context.module = module;
-  context.global = context;
-  context.root = global;
+function runJS(
+  jsname: string,
+  module: NodeJS.Module,
+  src: string,
+  globals: VmGlobals
+) {
+  const context: { [k: string]: unknown } = {
+    require: module.require.bind(module),
+    exports: module.exports,
+    __filename: jsname,
+    __dirname: path.dirname(module.filename),
+    module: module,
+    global: globals,
+    root: globals,
+  };
   vm.runInNewContext(src, context, {
     filename: jsname,
   });

@@ -298,16 +298,17 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._subgens.forEach((e) => {
       e.onShutdown();
     });
-
+    /*
     const leaders = this._leaderboard.getLeaders();
     console.debug(
       `Leaderboard: (${leaders.length} of max ${this._leaderboard.slots} entries)`
-    ); // !!!!!!!
+    ); 
     leaders
       .sort((a, b) => a.leader.tick - b.leader.tick)
       .map((e) => [e.leader.tick, e.leader.value, e.leader.source, e.score])
       .forEach((e) => {
         console.debug(JSON.stringify(e));
-      }); // !!!!!!!
+      }); 
+    */
   } // fn: onShutdown
 } // class: CompositeInputGenerator

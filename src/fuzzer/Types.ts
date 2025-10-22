@@ -81,11 +81,11 @@ export type FuzzIoElement = {
  * Category of a test result
  */
 export type FuzzResultCategory =
-  | "ok"
-  | "badValue"
-  | "timeout"
-  | "exception"
-  | "disagree"
+  | "ok" // Judgment: passed
+  | "badValue" // Judgment: failed (not timeout or exception)
+  | "timeout" // Judgment: failed (timeout)
+  | "exception" // Judgment: failed (exception)
+  | "disagree" // Judgment: unknown
   | "failure"; // Validator failure (e.g., threw an exception)
 
 /**
