@@ -152,10 +152,11 @@ function main() {
     toggleFuzzOptions
   );
 
-  // Add event listener to toggle fuzz.options.interesting.inputs
-  getElementByIdOrThrow(
-    "fuzz.options.interesting.inputs.button"
-  ).addEventListener("click", toggleInterestingInputs);
+  // Add event listener to toggle fuzz.options.interesting.inputs.button
+  // if it is present
+  document
+    .getElementById("fuzz.options.interesting.inputs.button")
+    ?.addEventListener("click", toggleInterestingInputs);
 
   // Add event listeners for all the union generate checkboxes
   document.querySelectorAll(".isNoInput vscode-checkbox").forEach((element) => {
@@ -237,7 +238,7 @@ function main() {
     let idx = 0;
     for (const e of resultsData.results) {
       // Indicate which tests are pinned
-      const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
+      const pinned = { [pinnedLabel]: !!e.pinned };
       const id = { [idLabel]: idx++ };
 
       // Implicit validation result
@@ -491,7 +492,27 @@ function main() {
         } // for i
       } // if data[type].length
     }); // for each type (e.g. bad output, passed)
-  }
+
+    // If we need to toast a result, do that now
+    const toastResultElement = document.getElementById("fuzzFocusInput");
+    if (toastResultElement) {
+      const toastResult: unknown = JSON5.parse(
+        htmlUnescape(toastResultElement.innerHTML)
+      );
+      if (
+        Array.isArray(toastResult) &&
+        toastResult.length === 2 &&
+        typeof toastResult[0] === "string" &&
+        typeof toastResult[1] === "number"
+      ) {
+        scrollAndToast(toastResult[1].toString(), `tab-${toastResult[0]}`);
+      } else {
+        throw new Error(
+          `Command to toast result ${JSON5.stringify(toastResult)} is invalid.`
+        );
+      }
+    }
+  } // if we have results data
 } // fn: main()
 
 /**
@@ -542,6 +563,7 @@ function handleAddTestInput() {
     const argType = argDef.querySelector(".argDef-type")?.id.split("-")[2];
     const argIsArray =
       argDef.querySelector(".argDef-isArray")?.id.split("-")[2] === "true";
+    // !!!!!!!! Figure out what the array logic is for
 
     const unparsedValue =
       getElementByIdOrThrow(`customArgDef-${i}-exact`).getAttribute(
@@ -582,24 +604,62 @@ function handleAddTestInput() {
     input.push(value);
   }
 
-  // Check for the input prior to calling the fuzzer !!!!!!!!
+  // Only call the fuzzer if the input is not already in the grid
+  const tick = resultsData.results.findIndex(
+    (r) =>
+      JSON5.stringify(r.input.map((i) => i.value)) === JSON5.stringify(input)
+  );
+  if (tick === -1) {
+    console.debug(`not found: ${JSON5.stringify(input)}`); // !!!!!!!!
+    // !!!!!!!! Persist UI state here
 
-  // Request the extension to run just this custom test.
-  vscode.postMessage({
-    command: "fuzz.addTestInput",
-    json: JSON5.stringify(input),
-  });
+    // Call the extension to run this one test.
+    vscode.postMessage({
+      command: "fuzz.addTestInput",
+      json: JSON5.stringify(input),
+    });
 
-  // Pin the new test input
-  /* !!!!!!!!
-  vscode.postMessage({
-    command: "test.pin",
-    json: JSON5.stringify(customTest),
-  });
-  */
+    // !!!!!!!!! toast & scroll here
 
-  // Toast new input !!!!!!!!
+    // Pin the new test input
+    /* !!!!!!!!
+    vscode.postMessage({
+      command: "test.pin",
+      json: JSON5.stringify(customTest),
+    });
+    */
+  } else {
+    toggleAddTestInputOptions(); // Hide the add input pane
+
+    // Switch to the tab containing the value, scroll, and toast
+    scrollAndToast(
+      tick.toString(),
+      `tab-${resultsData.results[tick].category}`
+    );
+  }
 } // fn: handleAddTestInputCase
+
+/**
+ * Scrolls to a particular id and switches tabs if needed.
+ *
+ * @param `id` element id to scroll to
+ * @param `tab` optional tab id to switch to
+ */
+function scrollAndToast(id: string, tabId?: string): void {
+  setTimeout(async () => {
+    // click the tab if needed
+    if (tabId) {
+      getElementByIdOrThrow(tabId).click();
+    }
+
+    // scroll the element into view
+    setTimeout(async () => {
+      getElementByIdOrThrow(id).scrollIntoView();
+    });
+  });
+
+  // !!!!!!!! toast here
+} // scrollAndToast
 
 /**
  * Toggles whether interesting inputs are shown

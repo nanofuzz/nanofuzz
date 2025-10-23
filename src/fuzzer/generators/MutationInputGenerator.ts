@@ -68,7 +68,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
         return {
           tick: 0,
           value: input,
-          source: { subgen: this.name, tick: sourceTick },
+          source: { subgen: "MutationInputGenerator", tick: sourceTick },
         };
       }
 
@@ -81,7 +81,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
     return {
       tick: 0,
       value: input,
-      source: { subgen: this.name, tick: sourceTick },
+      source: { subgen: "MutationInputGenerator", tick: sourceTick },
     };
   } // fn: next
 } // class: MutationInputGenerator

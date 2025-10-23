@@ -149,13 +149,13 @@ td.classErrorOn:active {
 
 /* Expected output panel */
 td.classErrorCell {
-  text-decoration: red underline wavy;
+  text-decoration: var(--vscode-editorError-foreground) underline wavy;
 }
 vscode-text-field.classErrorCell {
   opacity: 100%;
   outline-style: solid;
   outline-width: 0.05cm;
-  outline-color: red;
+  outline-color: var(--vscode-editorError-foreground);
 }
 tr.classGetExpectedOutputRow td,
 tr.classErrorExpectedOutputRow td {
@@ -172,7 +172,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   opacity: 80%;
 }
 .expectedOutputErrorMessage {
-  color: red;
+  color: var(--vscode-editorError-foreground);
   margin-left: 0.5em;
   font-weight: bold;
 }

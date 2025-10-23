@@ -27,6 +27,10 @@ export class RandomInputGenerator extends AbstractInputGenerator {
    * @returns next randomly-generated input
    */
   public next(): InputAndSource {
-    return { tick: 0, value: this._gen.next(), source: { subgen: this.name } };
+    return {
+      tick: 0,
+      value: this._gen.next(),
+      source: { subgen: "RandomInputGenerator" },
+    };
   } // fn: next
 } // class: RandomInputGenerator

@@ -41,6 +41,7 @@ export class FuzzPanel {
   private _fuzzEnv: fuzzer.FuzzEnv; // The Fuzz environment this panel represents
   private _state: FuzzPanelState = FuzzPanelState.init; // The current state of the fuzzer.
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
+  private _focusInput?: [string, number]; // Newly-added input to receive UI focus
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
@@ -279,7 +280,7 @@ export class FuzzPanel {
             this._doFuzzStartCmd(json);
             break;
           case "fuzz.addTestInput":
-            await this._addTestInputCmd(json);
+            this._doAddTestInputCmd(json);
             break;
           case "test.pin":
             this._doTestPinnedCmd(json, true);
@@ -1126,7 +1127,7 @@ ${inArgConsts}
    *
    * @param json serialized inputs
    */
-  private async _addTestInputCmd(json: string): Promise<void> {
+  private async _doAddTestInputCmd(json: string): Promise<void> {
     const input: fuzzer.ArgValueType[] = JSON5.parse(json);
     const specs = this._fuzzEnv.function.getArgDefs();
 
@@ -1178,14 +1179,8 @@ ${inArgConsts}
       );
 
       try {
-        // Run just the one custom test (all input generators & file output disabled)
-        this._results?.results.push(
-          fuzzer.fuzz(envNoGenerators, [injectedTest]).results[0]
-        );
-
-        // Transition to done state
-        this._errorMessage = undefined;
-        this._state = FuzzPanelState.done;
+        // Run just the one test input w/all input generators & file output disabled
+        const thisResult = fuzzer.fuzz(envNoGenerators, [injectedTest]);
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1196,6 +1191,25 @@ ${inArgConsts}
             [this.getFnRefKey(), JSON5.stringify(this._results)]
           )
         );
+
+        // Merge the results
+        if (!this._results) {
+          this._results = thisResult;
+        } else {
+          this._results.results.push(thisResult.results[0]);
+          // !!!!!!!! some error handling here if no result
+          // !!!!!!!! what about stats?
+        }
+
+        // Transition to done state
+        this._errorMessage = undefined;
+        this._state = FuzzPanelState.done;
+
+        // Give focus to the newInput
+        this._focusInput = [
+          thisResult.results[0].category,
+          this._results.results.length - 1,
+        ];
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
         this._errorMessage = isError(e)
@@ -1213,6 +1227,7 @@ ${inArgConsts}
 
       // Update the UI
       this._updateHtml();
+      this._focusInput = undefined;
     }); // setTimeout
   } // fn: _addTestInputCmd
 
@@ -1950,6 +1965,15 @@ ${inArgConsts}
       html += /*html*/ `
               </vscode-panels>
             </div>`;
+
+      if (this._focusInput) {
+        html += /*html*/ `
+            <!-- Fuzzer Result to receive UI focus -->
+            <div id="fuzzFocusInput" style="display:none">
+              ${htmlEscape(JSON5.stringify(this._focusInput))}
+            </div>
+        `;
+      }
 
       // Hidden data for the client script to process
       html += /*html*/ `
