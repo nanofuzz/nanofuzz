@@ -278,8 +278,8 @@ export class FuzzPanel {
             this._doGetValidators();
             this._doFuzzStartCmd(json);
             break;
-          case "fuzz.customTest":
-            await this._doCustomTestCmd(json);
+          case "fuzz.addTestInput":
+            await this._addTestInputCmd(json);
             break;
           case "test.pin":
             this._doTestPinnedCmd(json, true);
@@ -1118,25 +1118,104 @@ ${inArgConsts}
 
       // Update the UI
       this._updateHtml();
-    });
+    }); // setTimeout
   } // fn: _doFuzzStartCmd()
 
-  private async _doCustomTestCmd(json: string): Promise<void> {
-    const customTest: fuzzer.FuzzTestResult = JSON5.parse(json);
-    try {
-      // Run just the custom test
-      const results = await fuzzer.fuzz(this._fuzzEnv, [customTest]);
-      const testOutcome = results.results[0];
+  /**
+   * Adds and executes a test input
+   *
+   * @param json serialized inputs
+   */
+  private async _addTestInputCmd(json: string): Promise<void> {
+    const input: fuzzer.ArgValueType[] = JSON5.parse(json);
+    const specs = this._fuzzEnv.function.getArgDefs();
 
-      this._results?.results.push(testOutcome);
-      this._state = FuzzPanelState.done;
-    } catch (e: unknown) {
-      this._state = FuzzPanelState.error;
-      this._errorMessage = e instanceof Error ? e.message : "Unknown error";
+    // Build the test to inject
+    const injectedTest: fuzzer.FuzzPinnedTest = {
+      input: input.map((v, i) => {
+        return {
+          name: specs[i].getName(),
+          offset: i,
+          value: v,
+        };
+      }),
+      output: [], // the fuzzer fills this
+      pinned: false,
+    };
+
+    // Turn off input generation: execute just the single injected input
+    const noGenerators: typeof this._fuzzEnv.options.generators = JSON5.parse(
+      JSON5.stringify(this._fuzzEnv.options.generators)
+    );
+    let k: keyof typeof noGenerators;
+    for (k in noGenerators) {
+      noGenerators[k].enabled = false;
     }
+    const envNoGenerators: fuzzer.FuzzEnv = {
+      ...this._fuzzEnv,
+      options: {
+        ...this._fuzzEnv.options,
+        generators: noGenerators,
+      },
+    };
+    // don't generate an output file
+    delete envNoGenerators.options.outputFile;
 
+    // Make the FuzzPanel busy
+    this._state = FuzzPanelState.busy;
     this._updateHtml();
-  }
+
+    // Bounce off the stack to allow the UI to update
+    setTimeout(async () => {
+      // Log the start of Fuzzing
+      vscode.commands.executeCommand(
+        telemetry.commands.logTelemetry.name,
+        new telemetry.LoggerEntry(
+          "FuzzPanel.fuzz.start",
+          "Fuzzing started. Target: %s.",
+          [this.getFnRefKey()]
+        )
+      );
+
+      try {
+        // Run just the one custom test (all input generators & file output disabled)
+        this._results?.results.push(
+          fuzzer.fuzz(envNoGenerators, [injectedTest]).results[0]
+        );
+
+        // Transition to done state
+        this._errorMessage = undefined;
+        this._state = FuzzPanelState.done;
+
+        // Log the end of fuzzing
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "FuzzPanel.fuzz.done",
+            "Fuzzing completed successfully. Target: %s. Results: %s",
+            [this.getFnRefKey(), JSON5.stringify(this._results)]
+          )
+        );
+      } catch (e: unknown) {
+        this._state = FuzzPanelState.error;
+        this._errorMessage = isError(e)
+          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
+          : "Unknown error";
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "FuzzPanel.fuzz.error",
+            "Fuzzing failed. Target: %s. Message: %s",
+            [this.getFnRefKey(), this._errorMessage]
+          )
+        );
+      }
+
+      // Update the UI
+      this._updateHtml();
+    }); // setTimeout
+  } // fn: _addTestInputCmd
+
   /**
    * Disposes all objects used by this instance
    */
@@ -1407,20 +1486,19 @@ ${inArgConsts}
               <vscode-divider></vscode-divider>
             </div>
 
-            <!-- Add New Test Case Options -->
-            <div id="fuzzAddCustomTestOptions" class="hidden">
+            <!-- Add New Test Input -->
+            <div id="fuzzAddTestInputOptions-pane" class="hidden">
               <div class="panelButton">
-                <span class="codicon codicon-close" id="fuzzAddCustomTestOptions-close"></span>
+                <span class="codicon codicon-close" id="fuzzAddTestInputOptions-close"></span>
               </div>
-              <h2>Custom test case options</h2>
-
-              <div id="pane-nanofuzz"
-                <div id="argDefs">${customArgDefHtml}</div>
-                <br></br>
-                <vscode-button ${disabledFlag} id="fuzz.addCustomTest" appearance="primary">
-                  Add custom test
+              <h2>Add a test input manually</h2>
+              <div style="margin-left: 0.5em; margin-bottom: 0.75em;" id="argDefs">${customArgDefHtml}</div>
+              <div style="margin-top: 0.5em">
+                <vscode-button ${disabledFlag} id="fuzz.addTestInput" appearance="primary">
+                  Test this input
                 </vscode-button>
               </div>
+              <vscode-divider />
             </div>
 
             <!-- Button Bar -->
@@ -1440,12 +1518,13 @@ ${inArgConsts}
                 } id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
                 More options...
               </vscode-button>
+              &nbsp;&nbsp;
               <vscode-button ${disabledFlag} ${ 
                 (this._state === FuzzPanelState.done && this._results !== undefined)
                     ? ``
                     : `class="hidden" ` 
-                } id="fuzz.addCustomTestOptions" appearance="secondary" aria-label="Fuzzer Options">
-                Add custom test...
+                } id="fuzz.addTestInputOptions" appearance="secondary" aria-label="Fuzzer Options">
+                Add Input...
               </vscode-button>
             </div>
 
@@ -1575,6 +1654,7 @@ ${inArgConsts}
               this._results.env.options.maxDupeInputs
             }). This can mean that NaNofuzz is having difficulty generating further new inputs: the function's input space might be small or near exhaustion. You can change this setting in More Options.`,
           "": `because of an unknown reason.`,
+          [fuzzer.FuzzStopReason.NOMOREINPUTS]: `because it exhausted its sources of inputs.`,
         };
 
         // Build the list of input generators
@@ -1992,7 +2072,7 @@ ${inArgConsts}
     if (argName !== "unknown") {
       // prettier-ignore
       html += /*html*/ `
-          <strong>${arg.getName()}</strong>${optionalString}: 
+          <strong>${argName}</strong>${optionalString}: 
         `
     }
 

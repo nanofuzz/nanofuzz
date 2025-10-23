@@ -12,9 +12,8 @@ import {
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
-  FuzzTestResult,
 } from "fuzzer/Types";
-import { FuzzTestResults } from "fuzzer/Fuzzer";
+import { ArgValueType, FuzzTestResults } from "fuzzer/Fuzzer";
 
 const vscode = acquireVsCodeApi();
 
@@ -123,21 +122,22 @@ function main() {
     toggleFuzzOptions
   );
 
-  // Add event listener for the fuzz.options button
-  getElementByIdOrThrow("fuzz.addCustomTestOptions").addEventListener(
+  // Add event listener for the fuzz.addTestInputOptions button
+  getElementByIdOrThrow("fuzz.addTestInputOptions").addEventListener(
     "click",
-    toggleAddCustomTestOptions
+    toggleAddTestInputOptions
   );
 
-  // Add event listener for the fuzz.options close button
-  getElementByIdOrThrow("fuzzAddCustomTestOptions-close").addEventListener(
+  // Add event listener for the fuzz.addTestInputOptions close button
+  getElementByIdOrThrow("fuzzAddTestInputOptions-close").addEventListener(
     "click",
-    toggleAddCustomTestOptions
+    toggleAddTestInputOptions
   );
 
-  getElementByIdOrThrow("fuzz.addCustomTest").addEventListener(
+  // Add event listener for the fuzz.addTestInput button
+  getElementByIdOrThrow("fuzz.addTestInput").addEventListener(
     "click",
-    handleAddCustomTestCase
+    handleAddTestInput
   );
 
   // Add event listener for opening the function source code
@@ -515,45 +515,40 @@ function toggleFuzzOptions() {
 /**
  * Toggles whether add test case options are shown.
  */
-function toggleAddCustomTestOptions() {
-  const fuzzAddCustomTestOptions = getElementByIdOrThrow(
-    "fuzzAddCustomTestOptions"
+function toggleAddTestInputOptions() {
+  const fuzzAddTestInputOptionsPane = getElementByIdOrThrow(
+    "fuzzAddTestInputOptions-pane"
   );
-  const fuzzAddCustomTestOptionsButton = getElementByIdOrThrow(
-    "fuzz.addCustomTestOptions"
+  const fuzzAddTestInputOptionsButton = getElementByIdOrThrow(
+    "fuzz.addTestInputOptions"
   );
-  if (isHidden(fuzzAddCustomTestOptions)) {
-    toggleHidden(fuzzAddCustomTestOptions);
-    fuzzAddCustomTestOptionsButton.innerHTML = "Close custom test options";
+  if (isHidden(fuzzAddTestInputOptionsPane)) {
+    toggleHidden(fuzzAddTestInputOptionsPane);
+    fuzzAddTestInputOptionsButton.innerHTML = "Cancel Add Input";
   } else {
-    toggleHidden(fuzzAddCustomTestOptions);
-    fuzzAddCustomTestOptionsButton.innerHTML = "Add custom test...";
+    toggleHidden(fuzzAddTestInputOptionsPane);
+    fuzzAddTestInputOptionsButton.innerHTML = "Add Input...";
   }
-
-  // Refresh the list of validators !!!!!!!
-  // handleGetListOfValidators(); !!!!!!!!
-} // fn: toggleAddCustomTestOptions
+} // fn: toggleAddTestInputOptions
 
 /**
- * Add custom test to the test results table.
+ * Add custom test input to the test results table.
  */
-function handleAddCustomTestCase() {
-  const input: FuzzIoElement[] = [];
-  const output: FuzzIoElement[] = [];
+function handleAddTestInput() {
+  const input: ArgValueType[] = [];
 
   for (let i = 0; document.getElementById(`customArgDef-${i}`) !== null; i++) {
     const argDef = getElementByIdOrThrow(`customArgDef-${i}`);
     const argType = argDef.querySelector(".argDef-type")?.id.split("-")[2];
     const argIsArray =
       argDef.querySelector(".argDef-isArray")?.id.split("-")[2] === "true";
-    const name = argDef.querySelector(".argDef-name")?.textContent || "";
 
     const unparsedValue =
       getElementByIdOrThrow(`customArgDef-${i}-exact`).getAttribute(
         "current-value"
       ) || "";
 
-    let value: any;
+    let value: ArgValueType;
     if (argIsArray) {
       try {
         value = JSON5.parse(unparsedValue);
@@ -579,39 +574,32 @@ function handleAddCustomTestCase() {
           try {
             value = JSON5.parse(unparsedValue);
           } catch {
-            value = unparsedValue;
+            value = unparsedValue; // !!!!!!!! eating exception here
           }
       }
     }
 
-    input.push({ name, value, offset: 0 });
+    input.push(value);
   }
 
-  // Build the custom test object.
-  const customTest: FuzzTestResult = {
-    input,
-    output,
-    pinned: true,
-    category: "ok", // default category; may be changed based on the result
-    exception: false,
-    timeout: false,
-    validatorException: false,
-    elapsedTime: 0,
-    passedImplicit: true,
-  };
+  // Check for the input prior to calling the fuzzer !!!!!!!!
 
-  // Pin the new test case
+  // Request the extension to run just this custom test.
+  vscode.postMessage({
+    command: "fuzz.addTestInput",
+    json: JSON5.stringify(input),
+  });
+
+  // Pin the new test input
+  /* !!!!!!!!
   vscode.postMessage({
     command: "test.pin",
     json: JSON5.stringify(customTest),
   });
+  */
 
-  // Request the extension to run just this custom test.
-  vscode.postMessage({
-    command: "fuzz.customTest",
-    json: JSON5.stringify(customTest),
-  });
-} // fn: handleAddCustomTestCase
+  // Toast new input !!!!!!!!
+} // fn: handleAddTestInputCase
 
 /**
  * Toggles whether interesting inputs are shown

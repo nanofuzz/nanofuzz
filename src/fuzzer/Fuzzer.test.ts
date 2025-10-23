@@ -29,6 +29,7 @@ const allGenerators = {
     enabled: true,
   },
 };
+
 /**
  * Fuzzer option for integer arguments and a seed for deterministic test execution.
  */
