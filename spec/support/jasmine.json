@@ -1,0 +1,15 @@
+{
+  "spec_dir": "",
+  "spec_files": [
+    "src/**/*[sS]pec.ts",
+    "src/**/*[sS]pec.?(m)js",
+    "src/**/*[tT]est.ts",
+    "src/**/*[tT]est.?(m)js"
+  ],
+  "helpers": ["spec/helpers/babel.cjs", "spec/helpers/**/*.{js,ts}"],
+  "env": {
+    "stopSpecOnExpectationFailure": true,
+    "failSpecWithNoExpectations": true,
+    "forbidDuplicateNames": true
+  }
+}

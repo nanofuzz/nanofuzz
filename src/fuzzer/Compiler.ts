@@ -3,16 +3,28 @@
  *
  * This npm module has not been maintained for a long time and lacked
  * support for ES6+ modules. This adaptation adds ES2020 support,
- * allows better control over options, and adds basic type checking.
+ * allows better control over options, adds basic type checking, and
+ * provides an ability to instrument compiled code.
  */
 import vm from "vm";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { AbstractMeasure } from "./measures/AbstractMeasure";
+import { VmGlobals } from "./Types";
 
 // Load the TypeScript compiler script
-const tsc = path.join(path.dirname(require.resolve("typescript")), "tsc.js");
+const tsc = path.join(path.dirname(require.resolve("typescript")), "_tsc.js");
 const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8"));
+
+// Place to store previous ts hooks
+const previousRequireExtensions: NodeJS.Dict<
+  ((m: NodeJS.Module, filename: string) => unknown)[]
+> = {};
+const hookType = ".ts";
+
+// List of modules transpiled
+let transpiledModules: string[] = [];
 
 /**
  * Default compilation options
@@ -77,18 +89,62 @@ export function getOptions(): CompilerOptions {
 /**
  * Activate the TypeScript compiler hook
  */
-export function activate(): void {
-  require.extensions[".ts"] = function (module) {
+export function activate(measures: AbstractMeasure[]): void {
+  // Clear any previously-transpiled modules from the cache
+  // so that we have a consistent global context across all
+  // modules transpiled and loaded.
+  transpiledModules.forEach((m) => {
+    delete require.cache[m];
+  });
+  transpiledModules = [];
+
+  // Save the previous extension, if it exists
+  if (require.extensions[hookType] !== undefined) {
+    if (previousRequireExtensions[hookType] === undefined) {
+      previousRequireExtensions[hookType] = [];
+    }
+    previousRequireExtensions[hookType].push(require.extensions[hookType]);
+  }
+
+  // Build a new global context for this activation
+  const moduleVmGlobals: { [k: string]: unknown } = {};
+  let k: keyof typeof global;
+  for (k in global) {
+    moduleVmGlobals[k] = global[k];
+  }
+
+  // Add our new extension
+  require.extensions[hookType] = function (module) {
+    // Transpile the Typescript file
     const jsname = compileTS(module);
-    runJS(jsname, module);
+
+    // Apply measurement instrumentation
+    let src = fs.readFileSync(jsname, "utf8");
+    for (const measure of measures) {
+      src = measure.onAfterCompile(src, jsname);
+    }
+
+    // Load the module
+    const context: VmGlobals = runJS(jsname, module, src, moduleVmGlobals);
+
+    // Collect measurements from the initial load
+    for (const measure of measures) {
+      measure.onAfterLoad(context);
+    }
+
+    // Add this module to the list of transpiled modules
+    transpiledModules.push(module.filename);
   };
 }
 
 /**
- * De-activate the TypeScript compiler hook
+ * De-activate the TypeScript compiler hook & restore the previous hook
  */
 export function deactivate(): void {
-  require.extensions[".ts"] = undefined;
+  require.extensions[".ts"] =
+    previousRequireExtensions[hookType] === undefined
+      ? undefined
+      : previousRequireExtensions[hookType].pop();
 }
 
 /**
@@ -119,6 +175,8 @@ function isModified(tsname: string, jsname: string) {
  */
 function compileTS(module: NodeJS.Module) {
   let exitCode = 0;
+
+  // Determine the compiled name of the module we are about to compile
   const moduleDirName = path.dirname(module.filename);
   const relativeFolder =
     "." +
@@ -130,7 +188,8 @@ function compileTS(module: NodeJS.Module) {
     relativeFolder,
     path.basename(module.filename, ".ts") + ".js"
   );
-  console.log(`Transpiling: '${module.filename}' to '${jsname}'`);
+  console.log(` - Transpiling: ${module.filename}`);
+  console.log(`            to: ${jsname}`);
 
   // If the Javascript file is current, return it directly
   if (!isModified(module.filename, jsname)) {
@@ -211,6 +270,7 @@ function compileTS(module: NodeJS.Module) {
     setTimeout: setTimeout,
     clearTimeout: clearTimeout,
     __filename: tsc,
+    __dirname: path.dirname(tsc),
   };
 
   // Execute the module script
@@ -231,22 +291,25 @@ function compileTS(module: NodeJS.Module) {
  * @param module Javqscript module
  * @returns The script result, if any
  */
-function runJS(jsname: string, module: NodeJS.Module) {
-  const content = fs.readFileSync(jsname, "utf8");
-
-  const sandbox: { [k: string]: any } = {};
-  for (const k in global) {
-    sandbox[k] = global[k];
-  }
-  sandbox.require = module.require.bind(module);
-  sandbox.exports = module.exports;
-  sandbox.__filename = jsname;
-  sandbox.__dirname = path.dirname(module.filename);
-  sandbox.module = module;
-  sandbox.global = sandbox;
-  sandbox.root = global;
-
-  return vm.runInNewContext(content, sandbox, { filename: jsname });
+function runJS(
+  jsname: string,
+  module: NodeJS.Module,
+  src: string,
+  globals: VmGlobals
+) {
+  const context: { [k: string]: unknown } = {
+    require: module.require.bind(module),
+    exports: module.exports,
+    __filename: jsname,
+    __dirname: path.dirname(module.filename),
+    module: module,
+    global: globals,
+    root: globals,
+  };
+  vm.runInNewContext(src, context, {
+    filename: jsname,
+  });
+  return context;
 }
 
 function merge(a: any, b: any) {

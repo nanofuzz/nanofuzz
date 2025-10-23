@@ -30,6 +30,7 @@ import {
   ProgramImport,
   ArgType,
 } from "./Types";
+import { isError } from "../../../Util";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
@@ -160,7 +161,7 @@ export class ProgramDef {
             }
           }
         } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : JSON.stringify(e);
+          const msg = isError(e) ? e.message : JSON.stringify(e);
           console.debug(
             `Error resolving types for function '${fnRef.name}' argument '${
               lastArgName ?? "(unknown)"
@@ -187,7 +188,7 @@ export class ProgramDef {
           console.debug(
             `Error resolving return type for function '${
               fnRef.name
-            }'; Reason: ${e instanceof Error ? e.message : JSON.stringify(e)}`
+            }'; Reason: ${isError(e) ? e.message : JSON.stringify(e)}`
           );
         }
       }
@@ -208,7 +209,7 @@ export class ProgramDef {
     options?: ArgOptions,
     parent?: ProgramDef
   ): ProgramDef {
-    module = require.resolve(module);
+    if (module !== "") module = require.resolve(module);
     const getSource = () => fs.readFileSync(module).toString(); // Callback fn to read the source code
 
     return ProgramDef.fromModuleAndSource(module, getSource, options, parent);
@@ -245,7 +246,7 @@ export class ProgramDef {
     options?: ArgOptions,
     parent?: ProgramDef
   ): ProgramDef {
-    module = require.resolve(module);
+    if (module !== "") module = require.resolve(module);
 
     // If a ProgramDef already exists within this program hierarchy,
     // return it. Otherwise, create a new one
@@ -1163,7 +1164,7 @@ export class ProgramDef {
               supported[name] = maybeFunction;
             }
           } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : JSON.stringify(e);
+            const msg = isError(e) ? e.message : JSON.stringify(e);
             console.debug(
               `Error processing function '${this._src.substring(
                 node.range[0],
@@ -1239,7 +1240,7 @@ export class ProgramDef {
           : false,
         args: node.init.params
           .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
-          .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
+          .map((arg) => this._getTypeRefFromAstNode(arg)),
         returnType,
         isVoid,
       };
@@ -1274,7 +1275,7 @@ export class ProgramDef {
           : false,
         args: node.params
           .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
-          .map((arg) => this._getTypeRefFromAstNode(arg as Identifier)),
+          .map((arg) => this._getTypeRefFromAstNode(arg)),
         returnType,
         isVoid,
       };

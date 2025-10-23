@@ -37,7 +37,7 @@ function loadConfig(): void {
   };
 
   // Handle change in logging config
-  if (oldConfig === undefined || oldConfig.active !== config.active) {
+  if (oldConfig.active !== config.active) {
     if (config.active) {
       console.info("Telemetry is active");
       logger.setActive(true);
