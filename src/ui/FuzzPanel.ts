@@ -1159,8 +1159,6 @@ ${inArgConsts}
         generators: noGenerators,
       },
     };
-    // don't generate an output file
-    delete envNoGenerators.options.outputFile;
 
     // Make the FuzzPanel busy
     this._state = FuzzPanelState.busy;
@@ -1179,7 +1177,7 @@ ${inArgConsts}
       );
 
       try {
-        // Run just the one test input w/all input generators & file output disabled
+        // Run just the one test input w/all input generators
         const thisResult = fuzzer.fuzz(envNoGenerators, [injectedTest]);
 
         // Log the end of fuzzing
@@ -1193,12 +1191,10 @@ ${inArgConsts}
         );
 
         // Merge the results
-        if (!this._results) {
-          this._results = thisResult;
+        if (this._results) {
+          this._results = fuzzer.mergeTestResults(this._results, thisResult);
         } else {
-          this._results.results.push(thisResult.results[0]);
-          // !!!!!!!! some error handling here if no result
-          // !!!!!!!! what about stats?
+          this._results = thisResult;
         }
 
         // Transition to done state
@@ -1662,14 +1658,14 @@ ${inArgConsts}
             }. This is the maximum number configured.`,
           [fuzzer.FuzzStopReason.MAXTESTS]: `because it reached the maximum number of new tests configured (${
               this._results.env.options.maxTests
-            }). This is in addition to the ${this._results.stats.counters.inputsInjected} pinned test${
+            }). This is in addition to the ${this._results.stats.counters.inputsInjected} prior input${
               this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
             } ${toolName} also executed.`,
           [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the maximum number of sequentially-generated duplicate inputs configured (${
               this._results.env.options.maxDupeInputs
             }). This can mean that NaNofuzz is having difficulty generating further new inputs: the function's input space might be small or near exhaustion. You can change this setting in More Options.`,
           "": `because of an unknown reason.`,
-          [fuzzer.FuzzStopReason.NOMOREINPUTS]: `because it exhausted its sources of inputs.`,
+          [fuzzer.FuzzStopReason.NOMOREINPUTS]: `because it ran out of inputs to test (e.g., it was testing a single input).`,
         };
 
         // Build the list of input generators
@@ -1815,7 +1811,7 @@ ${inArgConsts}
 
           <div class="fuzzResultHeading">Why did testing stop?</div>
           <p>
-            ${toolName} stopped testing ${
+            ${toolName} most recently stopped testing ${
             this._results.stopReason in textReason
               ? textReason[this._results.stopReason]
               : textReason[""]

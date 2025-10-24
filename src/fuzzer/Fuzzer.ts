@@ -761,6 +761,101 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
 } // fn: categorizeResult()
 
 /**
+ * Merge the results of two fuzzer runs.
+ *
+ * See comments below for some of the current limitations.
+ *
+ * @param `a` earlier FuzzTestResults to merge
+ * @param `b` later FuzzTestResults to merge
+ * @returns a FuzzTestResults representing a merge of `a` and `b1
+ */
+export function mergeTestResults(
+  a: FuzzTestResults,
+  b: FuzzTestResults
+): FuzzTestResults {
+  // Create c from a
+  const c: FuzzTestResults = JSON5.parse(JSON5.stringify(a));
+  c.env.function = b.env.function;
+  c.stopReason = b.stopReason;
+  // !!!!!!!! merge interesting inputs after we retain measure
+  // context across fuzzer runs.
+
+  // Merge results
+  c.results.push(...b.results);
+
+  // Merge statistics
+  c.stats = {
+    timers: {
+      total: a.stats.timers.total + b.stats.timers.total,
+      compile: a.stats.timers.compile + b.stats.timers.compile,
+      run: a.stats.timers.run + b.stats.timers.run,
+      val: a.stats.timers.val + b.stats.timers.val,
+      gen: a.stats.timers.gen + b.stats.timers.gen,
+      measure: a.stats.timers.measure + b.stats.timers.measure,
+    },
+    counters: {
+      inputsGenerated:
+        a.stats.counters.inputsGenerated + b.stats.counters.inputsGenerated,
+      dupesGenerated:
+        a.stats.counters.dupesGenerated + b.stats.counters.dupesGenerated,
+      inputsInjected:
+        a.stats.counters.inputsInjected + b.stats.counters.inputsInjected,
+    },
+    generators: a.stats.generators, // no change here: generation disabled
+    measures: {},
+  };
+
+  // for measures, use one or the other (if only one is present) or merge (if both are present)
+  if (
+    a.stats.measures.CodeCoverageMeasure &&
+    b.stats.measures.CodeCoverageMeasure
+  ) {
+    // !!!!!!!! This won't be correct in all cases: should merge coverage maps & re-calc
+    c.stats.measures.CodeCoverageMeasure = {
+      counters: {
+        functionsTotal: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.functionsTotal,
+          b.stats.measures.CodeCoverageMeasure.counters.functionsTotal
+        ),
+        functionsCovered: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.functionsCovered,
+          b.stats.measures.CodeCoverageMeasure.counters.functionsCovered
+        ),
+        statementsTotal: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.statementsTotal,
+          b.stats.measures.CodeCoverageMeasure.counters.statementsTotal
+        ),
+        statementsCovered: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.statementsCovered,
+          b.stats.measures.CodeCoverageMeasure.counters.statementsCovered
+        ),
+        branchesTotal: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.branchesTotal,
+          b.stats.measures.CodeCoverageMeasure.counters.branchesTotal
+        ),
+        branchesCovered: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.branchesCovered,
+          b.stats.measures.CodeCoverageMeasure.counters.branchesCovered
+        ),
+      },
+      files: a.stats.measures.CodeCoverageMeasure.files,
+    };
+    // Add any files from b that are missing in a
+    c.stats.measures.CodeCoverageMeasure.files.push(
+      ...b.stats.measures.CodeCoverageMeasure.files.filter(
+        (fb) =>
+          !a.stats.measures.CodeCoverageMeasure?.files.find((fa) => fa === fb)
+      )
+    );
+  } else if (b.stats.measures.CodeCoverageMeasure) {
+    c.stats.measures.CodeCoverageMeasure = {
+      ...b.stats.measures.CodeCoverageMeasure,
+    };
+  }
+  return c;
+} // fn: mergeTestResults
+
+/**
  * Fuzzer Environment required to fuzz a function.
  */
 export type FuzzEnv = {
