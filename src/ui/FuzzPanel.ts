@@ -1585,7 +1585,7 @@ ${inArgConsts}
                 ? ""
                 : /*html*/ `style="display:none;"`
             }>
-              <vscode-panels aria-label="Test result tabs" class="fuzzTabStrip">`;
+              <vscode-panels aria-label="Test result tabs" class="fuzzTabStrip"${this._focusInput ? `activeId="tab-${this._focusInput[0]}"`:``}>`;
 
       // If we have results, render the output tabs to display the results.
       const tabs: (
