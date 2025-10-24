@@ -1660,7 +1660,7 @@ ${inArgConsts}
               this._results.env.options.maxTests
             }). This is in addition to the ${this._results.stats.counters.inputsInjected} prior input${
               this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
-            } ${toolName} also executed.`,
+            } ${toolName} also tested.`,
           [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the maximum number of sequentially-generated duplicate inputs configured (${
               this._results.env.options.maxDupeInputs
             }). This can mean that NaNofuzz is having difficulty generating further new inputs: the function's input space might be small or near exhaustion. You can change this setting in More Options.`,
@@ -1976,7 +1976,8 @@ ${inArgConsts}
             <!-- Fuzzer Result Payload: for the client script to process -->
             <div id="fuzzResultsData" style="display:none">
               ${
-                this._results === undefined
+                this._results === undefined ||
+                this._state !== FuzzPanelState.done
                   ? "{}"
                   : htmlEscape(JSON5.stringify(this._results))
               }
