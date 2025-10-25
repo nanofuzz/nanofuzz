@@ -1658,7 +1658,7 @@ ${inArgConsts}
             }. This is the maximum number configured.`,
           [fuzzer.FuzzStopReason.MAXTESTS]: `because it reached the maximum number of new tests configured (${
               this._results.env.options.maxTests
-            }). This is in addition to the ${this._results.stats.counters.inputsInjected} prior input${
+            }). This is in addition to the ${this._results.stats.counters.inputsInjected} interesting input${
               this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
             } ${toolName} also tested.`,
           [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the maximum number of sequentially-generated duplicate inputs configured (${
@@ -1790,9 +1790,9 @@ ${inArgConsts}
           <p>
             ${toolName} ran for ${Math.round(
             this._results.stats.timers.run
-          )} ms, re-tested ${
+          )} ms, tested ${
             this._results.stats.counters.inputsInjected
-          } prior input${
+          } interesting input${
             this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
           }, generated ${
             this._results.stats.counters.inputsGenerated
@@ -2007,6 +2007,7 @@ ${inArgConsts}
               ${htmlEscape(JSON5.stringify(this.getState()))}
             </div>
           </div>
+          <div id="snackbarRoot" class="hidden" />
           </body>
         </html>
       `;

@@ -9,6 +9,7 @@ import {
   FuzzArgOverride,
   FuzzIoElement,
   FuzzOptions,
+  FuzzPinnedTest,
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
@@ -505,7 +506,11 @@ function main() {
         typeof toastResult[0] === "string" &&
         typeof toastResult[1] === "number"
       ) {
-        scrollAndToast(toastResult[1].toString(), `tab-${toastResult[0]}`);
+        scrollAndToastResult(
+          toastResult[1].toString(),
+          `tab-${toastResult[0]}`,
+          "Input added and tested"
+        );
       } else {
         throw new Error(
           `Command to toast result ${JSON5.stringify(toastResult)} is invalid.`
@@ -575,10 +580,10 @@ function handleAddTestInput() {
       try {
         value = JSON5.parse(unparsedValue);
         if (!Array.isArray(value)) {
-          throw new Error("Expected an array input.");
+          throw new Error("Expected an array input."); // !!!!!!!!
         }
       } catch (error) {
-        throw new Error(`Invalid array input: ${unparsedValue}`);
+        throw new Error(`Invalid array input: ${unparsedValue}`); // !!!!!!!!
       }
     } else {
       switch (argType) {
@@ -610,31 +615,20 @@ function handleAddTestInput() {
       JSON5.stringify(r.input.map((i) => i.value)) === JSON5.stringify(input)
   );
   if (tick === -1) {
-    console.debug(`not found: ${JSON5.stringify(input)}`); // !!!!!!!!
-    // !!!!!!!! Persist UI state here
-
-    // Call the extension to run this one test.
+    // Call the extension to test this one input
     vscode.postMessage({
       command: "fuzz.addTestInput",
       json: JSON5.stringify(input),
     });
-
-    // !!!!!!!!! toast & scroll here
-
-    // Pin the new test input
-    /* !!!!!!!!
-    vscode.postMessage({
-      command: "test.pin",
-      json: JSON5.stringify(customTest),
-    });
-    */
   } else {
-    toggleAddTestInputOptions(); // Hide the add input pane
+    // Input already in the grid. Hide the add input pane.
+    toggleAddTestInputOptions();
 
     // Switch to the tab containing the value, scroll, and toast
-    scrollAndToast(
+    scrollAndToastResult(
       tick.toString(),
-      `tab-${resultsData.results[tick].category}`
+      `tab-${resultsData.results[tick].category}`,
+      "Input previously added"
     );
   }
 } // fn: handleAddTestInputCase
@@ -645,20 +639,59 @@ function handleAddTestInput() {
  * @param `id` element id to scroll to
  * @param `tab` optional tab id to switch to
  */
-function scrollAndToast(id: string, tabId?: string): void {
+function scrollAndToastResult(
+  id: string,
+  tabId?: string,
+  message?: string
+): void {
   setTimeout(async () => {
     // click the tab if needed
     if (tabId) {
       getElementByIdOrThrow(tabId).click();
     }
-
-    // scroll the element into view
     setTimeout(async () => {
-      getElementByIdOrThrow(id).scrollIntoView();
+      const focusRow = getElementByIdOrThrow(id);
+
+      // Scroll to the row
+      focusRow.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+
+      setTimeout(async () => {
+        // Throb the row
+        focusRow.classList.add("focus");
+        setTimeout(async () => {
+          focusRow.classList.remove("focus");
+        }, 4000);
+
+        // If we have a message, show it on a snackbar
+        if (message) {
+          setTimeout(async () => {
+            // Create the snackbar
+            const snackbarRoot = getElementByIdOrThrow("snackbarRoot");
+            const snackbar = document.createElement("div");
+            snackbar.classList.add("snackbar");
+            snackbarRoot.parentElement?.append(snackbar);
+
+            // Add the message
+            snackbar.innerHTML = `<big>${message}</big>`;
+
+            // Position the snackbar above the row & display it
+            const focusRowTop =
+              focusRow.getBoundingClientRect().top + window.scrollY;
+            snackbar.style.top = `${focusRowTop - snackbar.clientHeight - 2}px`;
+            snackbar.classList.add("snackbarShow");
+
+            // Remove the snackbar after 4s
+            setTimeout(async () => {
+              snackbar.remove();
+            }, 4000);
+          });
+        }
+      });
     });
   });
-
-  // !!!!!!!! toast here
 } // scrollAndToast
 
 /**
@@ -858,11 +891,10 @@ function handleCorrectToggle(
   const isPinned = pinCell.className === pinState.classPinned;
 
   // Get the test data for the test case
-  const testCase = {
+  const testCase: FuzzPinnedTest = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: isPinned,
-    implicit: true,
   };
 
   // Send the request to the extension

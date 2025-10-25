@@ -777,8 +777,7 @@ export function mergeTestResults(
   const c: FuzzTestResults = JSON5.parse(JSON5.stringify(a));
   c.env.function = b.env.function;
   c.stopReason = b.stopReason;
-  // !!!!!!!! merge interesting inputs after we retain measure
-  // context across fuzzer runs.
+  // !!!!!!!! merge interesting inputs when we retain measure context across runs.
 
   // Merge results
   c.results.push(...b.results);
