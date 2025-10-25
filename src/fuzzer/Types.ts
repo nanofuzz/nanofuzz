@@ -165,6 +165,7 @@ export enum FuzzStopReason {
   MAXFAILURES = "maxFailures",
   MAXTIME = "maxTime",
   MAXDUPES = "maxDupes",
+  NOMOREINPUTS = "noMoreInputs",
 }
 
 /**

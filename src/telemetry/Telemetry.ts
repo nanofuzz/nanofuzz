@@ -5,7 +5,7 @@ let currentWindow = ""; // Current editor window filename / uri
 let currentTerm = ""; // Current terminal window name
 let logger: Logger; // Telemetry logger
 let context: vscode.ExtensionContext; // Context of this extension
-let config: PurseConfig; // Configuration settings
+let config: PurseConfig | undefined; // Configuration settings
 let logFlusher: NodeJS.Timeout | undefined; // Interval to flush log data
 
 /**
@@ -37,7 +37,7 @@ function loadConfig(): void {
   };
 
   // Handle change in logging config
-  if (oldConfig.active !== config.active) {
+  if (!oldConfig || oldConfig.active !== config.active) {
     if (config.active) {
       console.info("Telemetry is active");
       logger.setActive(true);
@@ -126,7 +126,7 @@ export const listeners: Listener<any>[] = [
     event: vscode.workspace.onDidChangeConfiguration,
     fn: (): void => {
       // If the config is active, we need to log the change and re-load
-      if (config.active) {
+      if (config && config.active) {
         logger.push(new LoggerEntry("onDidChangeConfiguration"));
         loadConfig(); // Re-load config due to config change
       } else {

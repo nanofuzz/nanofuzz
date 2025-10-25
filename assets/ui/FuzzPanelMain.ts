@@ -9,11 +9,12 @@ import {
   FuzzArgOverride,
   FuzzIoElement,
   FuzzOptions,
+  FuzzPinnedTest,
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
 } from "fuzzer/Types";
-import { FuzzTestResults } from "fuzzer/Fuzzer";
+import { ArgValueType, FuzzTestResults } from "fuzzer/Fuzzer";
 
 const vscode = acquireVsCodeApi();
 
@@ -122,6 +123,24 @@ function main() {
     toggleFuzzOptions
   );
 
+  // Add event listener for the fuzz.addTestInputOptions button
+  getElementByIdOrThrow("fuzz.addTestInputOptions").addEventListener(
+    "click",
+    toggleAddTestInputOptions
+  );
+
+  // Add event listener for the fuzz.addTestInputOptions close button
+  getElementByIdOrThrow("fuzzAddTestInputOptions-close").addEventListener(
+    "click",
+    toggleAddTestInputOptions
+  );
+
+  // Add event listener for the fuzz.addTestInput button
+  getElementByIdOrThrow("fuzz.addTestInput").addEventListener(
+    "click",
+    handleAddTestInput
+  );
+
   // Add event listener for opening the function source code
   getElementByIdOrThrow("openSourceLink").addEventListener(
     "click",
@@ -134,10 +153,11 @@ function main() {
     toggleFuzzOptions
   );
 
-  // Add event listener to toggle fuzz.options.interesting.inputs
-  getElementByIdOrThrow(
-    "fuzz.options.interesting.inputs.button"
-  ).addEventListener("click", toggleInterestingInputs);
+  // Add event listener to toggle fuzz.options.interesting.inputs.button
+  // if it is present
+  document
+    .getElementById("fuzz.options.interesting.inputs.button")
+    ?.addEventListener("click", toggleInterestingInputs);
 
   // Add event listeners for all the union generate checkboxes
   document.querySelectorAll(".isNoInput vscode-checkbox").forEach((element) => {
@@ -219,7 +239,7 @@ function main() {
     let idx = 0;
     for (const e of resultsData.results) {
       // Indicate which tests are pinned
-      const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
+      const pinned = { [pinnedLabel]: !!e.pinned };
       const id = { [idLabel]: idx++ };
 
       // Implicit validation result
@@ -473,7 +493,31 @@ function main() {
         } // for i
       } // if data[type].length
     }); // for each type (e.g. bad output, passed)
-  }
+
+    // If we need to toast a result, do that now
+    const toastResultElement = document.getElementById("fuzzFocusInput");
+    if (toastResultElement) {
+      const toastResult: unknown = JSON5.parse(
+        htmlUnescape(toastResultElement.innerHTML)
+      );
+      if (
+        Array.isArray(toastResult) &&
+        toastResult.length === 2 &&
+        typeof toastResult[0] === "string" &&
+        typeof toastResult[1] === "number"
+      ) {
+        scrollAndToastResult(
+          toastResult[1].toString(),
+          `tab-${toastResult[0]}`,
+          "Input added and tested"
+        );
+      } else {
+        throw new Error(
+          `Command to toast result ${JSON5.stringify(toastResult)} is invalid.`
+        );
+      }
+    }
+  } // if we have results data
 } // fn: main()
 
 /**
@@ -493,6 +537,162 @@ function toggleFuzzOptions() {
   // Refresh the list of validators
   handleGetListOfValidators();
 } // fn: toggleFuzzOptions()
+
+/**
+ * Toggles whether add test case options are shown.
+ */
+function toggleAddTestInputOptions() {
+  const fuzzAddTestInputOptionsPane = getElementByIdOrThrow(
+    "fuzzAddTestInputOptions-pane"
+  );
+  const fuzzAddTestInputOptionsButton = getElementByIdOrThrow(
+    "fuzz.addTestInputOptions"
+  );
+  if (isHidden(fuzzAddTestInputOptionsPane)) {
+    toggleHidden(fuzzAddTestInputOptionsPane);
+    fuzzAddTestInputOptionsButton.innerHTML = "Cancel Add Input";
+  } else {
+    toggleHidden(fuzzAddTestInputOptionsPane);
+    fuzzAddTestInputOptionsButton.innerHTML = "Add Input...";
+  }
+} // fn: toggleAddTestInputOptions
+
+/**
+ * Add custom test input to the test results table.
+ */
+function handleAddTestInput() {
+  const input: ArgValueType[] = [];
+
+  for (let i = 0; document.getElementById(`customArgDef-${i}`) !== null; i++) {
+    const argDef = getElementByIdOrThrow(`customArgDef-${i}`);
+    const argType = argDef.querySelector(".argDef-type")?.id.split("-")[2];
+    const argIsArray =
+      argDef.querySelector(".argDef-isArray")?.id.split("-")[2] === "true";
+    // !!!!!!!! Figure out what the array logic is for
+
+    const unparsedValue =
+      getElementByIdOrThrow(`customArgDef-${i}-exact`).getAttribute(
+        "current-value"
+      ) || "";
+
+    let value: ArgValueType;
+    if (argIsArray) {
+      try {
+        value = JSON5.parse(unparsedValue);
+        if (!Array.isArray(value)) {
+          throw new Error("Expected an array input."); // !!!!!!!!
+        }
+      } catch (error) {
+        throw new Error(`Invalid array input: ${unparsedValue}`); // !!!!!!!!
+      }
+    } else {
+      switch (argType) {
+        case "number":
+          value = Number(unparsedValue);
+          break;
+        case "boolean":
+          value =
+            getElementByIdOrThrow(`customArgDef-${i}-true`).getAttribute(
+              "current-checked"
+            ) === "true";
+          break;
+        default:
+          // For string or any other type, try parsing; fallback to raw string
+          try {
+            value = JSON5.parse(unparsedValue);
+          } catch {
+            value = unparsedValue; // !!!!!!!! eating exception here
+          }
+      }
+    }
+
+    input.push(value);
+  }
+
+  // Only call the fuzzer if the input is not already in the grid
+  const tick = resultsData.results.findIndex(
+    (r) =>
+      JSON5.stringify(r.input.map((i) => i.value)) === JSON5.stringify(input)
+  );
+  if (tick === -1) {
+    // Call the extension to test this one input
+    vscode.postMessage({
+      command: "fuzz.addTestInput",
+      json: JSON5.stringify(input),
+    });
+  } else {
+    // Input already in the grid. Hide the add input pane.
+    toggleAddTestInputOptions();
+
+    // Switch to the tab containing the value, scroll, and toast
+    scrollAndToastResult(
+      tick.toString(),
+      `tab-${resultsData.results[tick].category}`,
+      "Input previously added"
+    );
+  }
+} // fn: handleAddTestInputCase
+
+/**
+ * Scrolls to a particular id and switches tabs if needed.
+ *
+ * @param `id` element id to scroll to
+ * @param `tab` optional tab id to switch to
+ */
+function scrollAndToastResult(
+  id: string,
+  tabId?: string,
+  message?: string
+): void {
+  setTimeout(async () => {
+    // click the tab if needed
+    if (tabId) {
+      getElementByIdOrThrow(tabId).click();
+    }
+    setTimeout(async () => {
+      const focusRow = getElementByIdOrThrow(id);
+
+      // Scroll to the row
+      focusRow.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+
+      setTimeout(async () => {
+        // Throb the row
+        focusRow.classList.add("focus");
+        setTimeout(async () => {
+          focusRow.classList.remove("focus");
+        }, 4000);
+
+        // If we have a message, show it on a snackbar
+        if (message) {
+          setTimeout(async () => {
+            // Create the snackbar
+            const snackbarRoot = getElementByIdOrThrow("snackbarRoot");
+            const snackbar = document.createElement("div");
+            snackbar.classList.add("snackbar");
+            snackbarRoot.parentElement?.append(snackbar);
+
+            // Add the message
+            snackbar.innerHTML = `<big>${message}</big>`;
+
+            // Position the snackbar above the row & display it
+            const focusRowTop =
+              focusRow.getBoundingClientRect().top + window.scrollY;
+            snackbar.style.top = `${focusRowTop - snackbar.clientHeight - 2}px`;
+            snackbar.classList.add("snackbarShow");
+
+            // Remove the snackbar after 4s
+            setTimeout(async () => {
+              snackbar.remove();
+            }, 4000);
+          });
+        }
+      });
+    });
+  });
+} // scrollAndToast
 
 /**
  * Toggles whether interesting inputs are shown
@@ -691,11 +891,10 @@ function handleCorrectToggle(
   const isPinned = pinCell.className === pinState.classPinned;
 
   // Get the test data for the test case
-  const testCase = {
+  const testCase: FuzzPinnedTest = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: isPinned,
-    expectedOutput: data[type][index][expectedLabel],
   };
 
   // Send the request to the extension

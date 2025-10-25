@@ -198,15 +198,11 @@
     "build": "node build.mjs",
     "test": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
     "docs": "typedoc --plugin none --out docs",
-    "coverage": "yarn test --coverage --watchAll=false",
     "lint": "eslint --ext js,ts,tsx src",
-    "build-decls": "tsc --declaration --outDir build/dist && tsc-alias -p tsconfig.json",
-    "vscode:prepublish": "yarn run compile",
+    "vscode:prepublish": "yarn build",
     "publish": "vsce publish --yarn",
     "package": "vsce package --yarn",
-    "compile": "yarn build",
-    "watch": "tsc -watch -p ./",
-    "pretest": "yarn run compile && yarn run lint"
+    "pretest": "yarn build && yarn run lint"
   },
   "babel": {
     "presets": [

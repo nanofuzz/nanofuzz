@@ -20,6 +20,10 @@ import { InputAndSource, ScoredInput } from "./Types";
  * Regardless of an input's generation source, inputs that make more progress toward
  * measures are tracked on a leaderboard, which subsumed input generators may use as
  * a source of interesting inputs to mutate.
+ *
+ * In the case where the Composite Input Generator is started with no subordinate
+ * generators (e.g., it can only produce injected inputs), isAvailable() will return
+ * false when the injected inputs are exhausted.
  */
 export class CompositeInputGenerator extends AbstractInputGenerator {
   private _subgens: AbstractInputGenerator[] = []; // Subordinate input generators
@@ -33,7 +37,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   }[]; // history for each input generator
   private _scoredInputs: ScoredInput[] = []; // List of scored inputs
   private _injectedInputs: ArgValueType[][] = []; // Inputs to force generate first
-  private _selectedSubgenIndex = 0; // Selected subordinate input generator (e.g., by efficiency)
+  private _selectedSubgenIndex = -1; // Selected subordinate input generator (e.g., by efficiency)
   private _leaderboard; // Interesting inputs
   private _lastInput?: InputAndSource; // Last input generated
   private readonly _L = 500; // Lookback window size for history !!!!!!! externalize
@@ -65,11 +69,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._measures = measures;
     this._leaderboard = leaderboard;
 
-    if (this._subgens.length === 0)
-      throw new Error(
-        "No input generators provided to CompositeInputGenerator."
-      );
-
     // Initialize measure history
     this._history = subgens.map(() => ({
       progress: measures.map(() => Array(this._L).fill(undefined)),
@@ -77,6 +76,16 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       currentIndex: 0,
     }));
   } // fn: constructor
+
+  /**
+   * Returns true if further inputs may be produced, false otherwise.
+   */
+  public isAvailable(): boolean {
+    return (
+      !!this._injectedInputs.length ||
+      this._subgens.some((g) => g.isAvailable())
+    );
+  } // fn: isAvailable
 
   /**
    * Inject predefined inputs into the queue. These inputs will be produced
@@ -143,11 +152,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     measurements: BaseMeasurement[],
     cost: number
   ): string[] {
-    const interestingReasons: string[] = []; // list of measures finding this input interesing
-
-    let progress = 0; // progress of input, according to measures
-    const h = this._history[this._selectedSubgenIndex]; // history of current subgen
-
     // Ensure we actually generated something
     if (this._lastInput === undefined) {
       throw new Error("Input feedback provided prior to input generation");
@@ -160,6 +164,10 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         `Number of feedback measures (${measurements.length}) differs from number of expected measures (${this._measures.length})`
       );
     }
+
+    const h = this._history[this._selectedSubgenIndex]; // history of current subgen
+    const interestingReasons: string[] = []; // list of measures finding this input interesing
+    let weightedProgress = 0; // weighted progress of input, according to measures
 
     // Add progress and cost to the current subgen history
     measurements.forEach((measurement, m) => {
@@ -174,25 +182,32 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         );
       }
 
-      // Update history of current subgen
-      h.progress[m][h.currentIndex] = measure.delta(measurement);
-      h.cost[h.currentIndex] = cost;
-      progress += (h.progress[m][h.currentIndex] ?? 0) * measure.weight;
+      // Calculate progress
+      const delta = measure.delta(measurement);
+      weightedProgress += delta * measure.weight;
 
       // If progress is reported by this measure, the input might be interesting
-      if (h.progress[m][h.currentIndex]) {
+      if (delta) {
         interestingReasons.push(measure.name);
+      }
+
+      // Update history of current subgen (-1 = no subgen)
+      if (this._selectedSubgenIndex >= 0) {
+        h.progress[m][h.currentIndex] = delta;
+        h.cost[h.currentIndex] = cost;
       }
     }); // foreach: measurements
 
     // Roll over to the beginning if we reach the last slot
-    h.currentIndex = (h.currentIndex + 1) % this._L;
+    if (this._selectedSubgenIndex >= 0) {
+      h.currentIndex = (h.currentIndex + 1) % this._L;
+    }
 
     // Update history of composite input generator
     this._scoredInputs[this._tick] = {
       input: this._lastInput,
       tick: this._tick,
-      score: progress,
+      score: weightedProgress,
       cost,
       measurements,
       interestingReasons,
@@ -205,7 +220,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // measures that contributed to its interestingness.
     if (
       measurements.length &&
-      this._leaderboard.postScore(this._lastInput, progress)
+      this._leaderboard.postScore(this._lastInput, weightedProgress)
     ) {
       return interestingReasons;
     } else {
@@ -220,6 +235,13 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * @returns the index of the selected subgen
    */
   private _selectNextSubGen(): number {
+    // At least one subgen needs to be available
+    if (!this._subgens.some((g) => g.isAvailable())) {
+      throw new Error(
+        `Cannot generate the next input: no subgens are available (out of ${this._subgens.length} subgens configured)`
+      );
+    }
+
     // Calculate cost and progress for each subgen's prior L generations
     const cost: number[] = []; // cost of subgen for L generations
     const progress: number[] = []; // progress of subgen for L generations
