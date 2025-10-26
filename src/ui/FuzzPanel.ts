@@ -43,6 +43,7 @@ export class FuzzPanel {
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
   private _focusInput?: [string, number]; // Newly-added input to receive UI focus
   private _lastFuzzRun: "none" | "one" | "gen" = "none"; // Type of last fuzzer run
+  private _lastTab: string | undefined; // Last tab that had focus
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
@@ -1005,8 +1006,12 @@ ${inArgConsts}
     const panelInput: {
       fuzzer: fuzzer.FuzzOptions;
       args: fuzzer.FuzzArgOverride[];
+      lastTab: string | undefined;
     } = JSON5.parse(json);
     const fn = this._fuzzEnv.function;
+
+    // Remember the selected tab
+    this._lastTab = panelInput.lastTab;
 
     // Apply numeric fuzzer option changes
     const numericOptions = [
@@ -1594,7 +1599,7 @@ ${inArgConsts}
                 ? ""
                 : /*html*/ `style="display:none;"`
             }>
-              <vscode-panels aria-label="Test result tabs" class="fuzzTabStrip"${this._focusInput ? `activeId="tab-${this._focusInput[0]}"`:``}>`;
+              <vscode-panels aria-label="Test result tabs" id="fuzzResultsTabStrip" class="fuzzTabStrip"${this._focusInput ? ` activeId="tab-${this._focusInput[0]}"` : (this._lastTab ? ` activeId="${this._lastTab}"` : ``)}>`;
 
       // If we have results, render the output tabs to display the results.
       const tabs: (

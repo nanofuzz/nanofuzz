@@ -1706,10 +1706,19 @@ export type DeepPartial<T> = {
  * @param eCurrTarget current target of onClick() event
  */
 function handleFuzzStart(eCurrTarget: EventTarget) {
+  // Fuzzer option overrides (from UI)
   const overrides: {
     fuzzer: Partial<FuzzOptions>;
     args: DeepPartial<FuzzArgOverride>[];
-  } = { fuzzer: {}, args: [] }; // Fuzzer option overrides (from UI)
+    lastTab: string | undefined;
+  } = {
+    fuzzer: {},
+    args: [],
+    lastTab:
+      document
+        .getElementById("fuzzResultsTabStrip")
+        ?.getAttribute("activeId") ?? undefined,
+  };
   const disableArr = [eCurrTarget]; // List of controls to disable while fuzzer is busy
   const fuzzBase = "fuzz"; // Base html id name
 
