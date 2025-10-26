@@ -135,6 +135,12 @@ function main() {
     toggleAddTestInputOptions
   );
 
+  // Add event listener for the fuzz.addTestInput.cancel button
+  getElementByIdOrThrow("fuzz.addTestInput.cancel").addEventListener(
+    "click",
+    toggleAddTestInputOptions
+  );
+
   // Add event listener for the fuzz.addTestInput button
   getElementByIdOrThrow("fuzz.addTestInput").addEventListener(
     "click",
@@ -550,10 +556,13 @@ function toggleAddTestInputOptions() {
   );
   if (isHidden(fuzzAddTestInputOptionsPane)) {
     toggleHidden(fuzzAddTestInputOptionsPane);
-    fuzzAddTestInputOptionsButton.innerHTML = "Cancel Add Input";
+    hide(fuzzAddTestInputOptionsButton);
+    getElementByIdOrThrow("customArgDef-0-exact").focus();
+    getElementByIdOrThrow("fuzz.start").setAttribute("appearance", "secondary");
   } else {
     toggleHidden(fuzzAddTestInputOptionsPane);
-    fuzzAddTestInputOptionsButton.innerHTML = "Add Input...";
+    show(fuzzAddTestInputOptionsButton);
+    getElementByIdOrThrow("fuzz.start").setAttribute("appearance", "primary");
   }
 } // fn: toggleAddTestInputOptions
 

@@ -1514,6 +1514,9 @@ ${inArgConsts}
                 <vscode-button ${disabledFlag} id="fuzz.addTestInput" appearance="primary">
                   Test this input
                 </vscode-button>
+                <vscode-button ${disabledFlag} id="fuzz.addTestInput.cancel" appearance="secondary">
+                  Cancel
+                </vscode-button>
               </div>
               <vscode-divider />
             </div>
@@ -1521,7 +1524,7 @@ ${inArgConsts}
             <!-- Button Bar -->
             <div style="padding-top: .25em;">
               <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
-                ${this._state === FuzzPanelState.busy ? "Testing..." : "Test"}
+                ${this._state === FuzzPanelState.busy ? "Testing..." : (this._state === FuzzPanelState.done ? "Re-test" : "Test")}
               </vscode-button>
               <vscode-button  ${disabledFlag} class="hidden" id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
                 Change Mode
@@ -1540,7 +1543,7 @@ ${inArgConsts}
                 (this._state === FuzzPanelState.done && this._results !== undefined)
                     ? ``
                     : `class="hidden" ` 
-                } id="fuzz.addTestInputOptions" appearance="secondary" aria-label="Fuzzer Options">
+                } id="fuzz.addTestInputOptions" appearance="secondary" aria-label="Add a test input">
                 Add Input...
               </vscode-button>
             </div>
