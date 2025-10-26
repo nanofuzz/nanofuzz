@@ -42,6 +42,7 @@ export class FuzzPanel {
   private _state: FuzzPanelState = FuzzPanelState.init; // The current state of the fuzzer.
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
   private _focusInput?: [string, number]; // Newly-added input to receive UI focus
+  private _lastFuzzRun: "none" | "one" | "gen" = "none"; // Type of last fuzzer run
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
@@ -1083,6 +1084,7 @@ ${inArgConsts}
         // Transition to done state
         this._errorMessage = undefined;
         this._state = FuzzPanelState.done;
+        this._lastFuzzRun = "gen";
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1179,6 +1181,7 @@ ${inArgConsts}
       try {
         // Run just the one test input w/all input generators
         const thisResult = fuzzer.fuzz(envNoGenerators, [injectedTest]);
+        this._lastFuzzRun = "one";
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1197,15 +1200,18 @@ ${inArgConsts}
           this._results = thisResult;
         }
 
+        // If we have a result then give the new result UI focus
+        if (thisResult.results.length) {
+          // Give focus to the newInput
+          this._focusInput = [
+            thisResult.results[0].category,
+            this._results.results.length - 1,
+          ];
+        }
+
         // Transition to done state
         this._errorMessage = undefined;
         this._state = FuzzPanelState.done;
-
-        // Give focus to the newInput
-        this._focusInput = [
-          thisResult.results[0].category,
-          this._results.results.length - 1,
-        ];
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
         this._errorMessage = isError(e)
@@ -1568,11 +1574,15 @@ ${inArgConsts}
 
             <!-- Fuzzer Info -->
             <div class="fuzzInfo${
-              this._state === FuzzPanelState.done && this._fuzzEnv.options.onlyFailures && this._results?.results.length === 0 
+              this._state === FuzzPanelState.done && this._fuzzEnv.options.onlyFailures
                 ? ""
                 : " hidden"
             }">
-              <p>All tests passed.</p>
+              <p>
+                Only failing tests are shown. You can change this in More options. 
+                <span ${this._results?.results.length === 0 ? `` : ` class="hidden"`}>Because all tests passed, no results are shown. </span>
+                <span ${!this._focusInput && this._lastFuzzRun === "one" ? `` : ` class="hidden"`}>The test you added passed, so it is not shown. </span>
+              </p>
             </div>
             
             <!-- Fuzzer Output -->
