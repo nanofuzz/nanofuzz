@@ -456,9 +456,12 @@ div.fuzzInputControlGroup {
   color: var(--vscode-notifications-foreground);
   text-align: center;
   border-radius: 2px;
+  border-style: solid;
   border-width: 2px;
-  border-color: var(--vscode-notifications-border);
-  padding: 0.5em;
+  border-color: rgb(
+    from var(--vscode-editor-hoverHighlightBackground) r g b / 1
+  );
+  padding: 0.25em;
   position: absolute;
   left: 50%;
   font-size: var(--vscode-font-size);

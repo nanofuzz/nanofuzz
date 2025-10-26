@@ -41,7 +41,6 @@ const intOptions: FuzzOptions = {
   seed: "qwertyuiop",
   maxDupeInputs: 1000,
   maxFailures: 0,
-  onlyFailures: false,
   useImplicit: true,
   useHuman: true,
   useProperty: false,
@@ -55,15 +54,6 @@ const intOptions: FuzzOptions = {
 const floatOptions: FuzzOptions = {
   ...intOptions,
   argDefaults: ArgDef.getDefaultFloatOptions(),
-};
-
-/**
- * Fuzzer options for counter-example mode
- */
-const counterExampleOptions: FuzzOptions = {
-  ...intOptions,
-  maxFailures: 1,
-  onlyFailures: true,
 };
 
 /**
@@ -390,14 +380,6 @@ describe("fuzzer:", () => {
         fuzzResult.stats.measures.CodeCoverageMeasure.counters.branchesCovered
       ).toBeGreaterThan(0);
     }
-  });
-
-  it("Counter-example mode 01", function () {
-    const fuzzResult = fuzz(
-      setup(counterExampleOptions, "nanofuzz-study/examples/14.ts", "modInv")
-    );
-    expect(fuzzResult.results.length).toBe(1);
-    expect(fuzzResult.results[0].category).not.toBe("ok");
   });
 
   /**

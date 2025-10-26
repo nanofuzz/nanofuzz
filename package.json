@@ -96,12 +96,6 @@
           "minimum": 0,
           "description": "Maximum time (in ms) to allow a test function to run before making it as a timeout."
         },
-        "nanofuzz.fuzzer.onlyFailures": {
-          "title": "Report only test failures?",
-          "type": "boolean",
-          "default": false,
-          "description": "Report only failing tests?"
-        },
         "nanofuzz.ui.hideMoreOptionsButton": {
           "title": "Hide the 'More options' button?",
           "type": "boolean",

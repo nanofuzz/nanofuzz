@@ -114,7 +114,7 @@ function main() {
     if (!e.currentTarget) {
       throw new Error("no currentTarget");
     }
-    handleFuzzStart(e.currentTarget);
+    handleFuzzStart();
   });
 
   // Add event listener for the fuzz.options button
@@ -570,7 +570,8 @@ function toggleAddTestInputOptions() {
  * Add custom test input to the test results table.
  */
 function handleAddTestInput() {
-  const input: ArgValueType[] = [];
+  const overrides = getConfigFromUi();
+  overrides.input = [];
 
   for (let i = 0; document.getElementById(`customArgDef-${i}`) !== null; i++) {
     const argDef = getElementByIdOrThrow(`customArgDef-${i}`);
@@ -615,19 +616,20 @@ function handleAddTestInput() {
       }
     }
 
-    input.push(value);
+    overrides.input.push(value);
   }
 
   // Only call the fuzzer if the input is not already in the grid
   const tick = resultsData.results.findIndex(
     (r) =>
-      JSON5.stringify(r.input.map((i) => i.value)) === JSON5.stringify(input)
+      JSON5.stringify(r.input.map((i) => i.value)) ===
+      JSON5.stringify(overrides.input)
   );
   if (tick === -1) {
     // Call the extension to test this one input
     vscode.postMessage({
       command: "fuzz.addTestInput",
-      json: JSON5.stringify(input),
+      json: JSON5.stringify(overrides),
     });
   } else {
     // Input already in the grid. Hide the add input pane.
@@ -637,7 +639,7 @@ function handleAddTestInput() {
     scrollAndToastResult(
       tick.toString(),
       `tab-${resultsData.results[tick].category}`,
-      "Input previously added"
+      "Input previously added &amp; tested"
     );
   }
 } // fn: handleAddTestInputCase
@@ -689,7 +691,7 @@ function scrollAndToastResult(
             // Position the snackbar above the row & display it
             const focusRowTop =
               focusRow.getBoundingClientRect().top + window.scrollY;
-            snackbar.style.top = `${focusRowTop - snackbar.clientHeight - 2}px`;
+            snackbar.style.top = `${focusRowTop - snackbar.clientHeight - 5}px`;
             snackbar.classList.add("snackbarShow");
 
             // Remove the snackbar after 4s
@@ -1669,7 +1671,7 @@ function buildExpectedTestCase(
     offset: number;
     isTimeout?: boolean;
     isException?: boolean;
-    value?: any;
+    value?: ArgValueType;
   } = {
     name: "0",
     offset: 0,
@@ -1691,13 +1693,6 @@ function buildExpectedTestCase(
   };
 } // fn: buildExpectedTestCase()
 
-// Copied from https://github.com/joonhocho/tsdef/blob/master/src/index.ts
-export type DeepPartial<T> = {
-  [P in keyof T]?: T[P] extends Array<infer I>
-    ? Array<DeepPartial<I>>
-    : DeepPartial<T[P]>;
-};
-
 /**
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
  * from the UI and sends them to the extension to start the fuzzer.
@@ -1705,13 +1700,41 @@ export type DeepPartial<T> = {
  * // e onClick() event
  * @param eCurrTarget current target of onClick() event
  */
-function handleFuzzStart(eCurrTarget: EventTarget) {
+function handleFuzzStart() {
+  // Send the fuzzer start command to the extension
+  vscode.postMessage({
+    command: "fuzz.start",
+    json: JSON5.stringify(getConfigFromUi()),
+  });
+} // fn: handleFuzzStart
+
+/**
+ * Disable UI controls
+ *
+ * @param disableArr list of controls to disable
+ */
+function disableUiControls(disableArr: EventTarget[]): void {
+  disableArr.forEach((e) => {
+    if (
+      "style" in e &&
+      typeof e.style === "object" &&
+      e.style &&
+      "disabled" in e.style
+    ) {
+      e.style.disabled = true;
+    }
+  });
+} // fn: disableUiControls
+
+/**
+ * Returns the on-screen fuzzer configuration.
+ * Also disables controls in preparation for calling fuzzer.
+ *
+ * @returns FuzzPanelFuzzStartMessage containing the configuration
+ */
+function getConfigFromUi(): FuzzPanelFuzzStartMessage {
   // Fuzzer option overrides (from UI)
-  const overrides: {
-    fuzzer: Partial<FuzzOptions>;
-    args: DeepPartial<FuzzArgOverride>[];
-    lastTab: string | undefined;
-  } = {
+  const overrides: FuzzPanelFuzzStartMessage = {
     fuzzer: {},
     args: [],
     lastTab:
@@ -1719,7 +1742,11 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
         .getElementById("fuzzResultsTabStrip")
         ?.getAttribute("activeId") ?? undefined,
   };
-  const disableArr = [eCurrTarget]; // List of controls to disable while fuzzer is busy
+  // List of controls to disable while fuzzer is busy
+  const disableArr = [
+    getElementByIdOrThrow("fuzz.start"),
+    getElementByIdOrThrow("fuzz.addTestInput"),
+  ];
   const fuzzBase = "fuzz"; // Base html id name
 
   // Process integer fuzzer options
@@ -1739,22 +1766,20 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
       if (currentValue === null) {
         throw new Error("current-value is null");
       }
-      overrides.fuzzer[e] = parseInt(currentValue);
+      overrides.fuzzer[e] = Math.max(parseInt(currentValue), 0);
     }
   });
 
   // Process boolean fuzzer options
-  (["onlyFailures", "useHuman", "useImplicit", "useProperty"] as const).forEach(
-    (e) => {
-      const item = document.getElementById(fuzzBase + "-" + e);
-      if (item !== null) {
-        disableArr.push(item);
-        overrides.fuzzer[e] =
-          (item.getAttribute("value") ??
-            item.getAttribute("current-checked")) === "true";
-      }
+  (["useHuman", "useImplicit", "useProperty"] as const).forEach((e) => {
+    const item = document.getElementById(fuzzBase + "-" + e);
+    if (item !== null) {
+      disableArr.push(item);
+      overrides.fuzzer[e] =
+        (item.getAttribute("value") ?? item.getAttribute("current-checked")) ===
+        "true";
     }
-  );
+  });
 
   // Process generator fuzzer options
   const MutationInputGeneratorEnabled = document.getElementById(
@@ -1936,29 +1961,9 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
   }
 
   // Disable input elements while the Fuzzer runs.
-  disableArr.forEach((e) => {
-    if (
-      "style" in e &&
-      typeof e.style === "object" &&
-      e.style &&
-      "disabled" in e.style
-    ) {
-      e.style.disabled = true;
-    }
-  });
-
-  // // Disable the validator controls while the Fuzzer runs.
-  // const validatorFnGrp = document.getElementById("validatorFunctions-radios");
-  // for (const e of validatorFnGrp.children) {
-  //   e.style.disabled = true;
-  // }
-
-  // Send the fuzzer start command to the extension
-  vscode.postMessage({
-    command: "fuzz.start",
-    json: JSON5.stringify(overrides),
-  });
-} // fn: handleFuzzStart
+  disableUiControls(disableArr);
+  return overrides;
+} // fn: getConfigFromUi
 
 /**
  * Refreshes the displayed list of validators based on a list of
@@ -2151,3 +2156,22 @@ function htmlEscape(str: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 } // fn: htmlEscape()
+
+/**
+ * Adapted from https://github.com/joonhocho/tsdef/blob/master/src/index.ts
+ */
+export type DeepPartial<T> = {
+  [P in keyof T]?: T[P] extends Array<infer I>
+    ? Array<DeepPartial<I>>
+    : DeepPartial<T[P]>;
+};
+
+/**
+ * Message to start Fuzzer
+ */
+export type FuzzPanelFuzzStartMessage = {
+  fuzzer: Partial<FuzzOptions>;
+  args: DeepPartial<FuzzArgOverride>[];
+  lastTab?: string;
+  input?: ArgValueType[];
+};

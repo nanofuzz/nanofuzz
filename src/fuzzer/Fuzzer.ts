@@ -441,9 +441,7 @@ export const fuzz = (
     }
 
     // Store the result for this iteration
-    if (!env.options.onlyFailures || result.category !== "ok") {
-      results.results.push(result);
-    }
+    results.results.push(result);
 
     // Take measurements for this test run
     {
