@@ -14,7 +14,11 @@ import {
   FuzzSortColumns,
   FuzzSortOrder,
 } from "fuzzer/Types";
-import { ArgValueType, FuzzTestResults } from "fuzzer/Fuzzer";
+import {
+  ArgValueType,
+  ArgValueTypeWrapped,
+  FuzzTestResults,
+} from "fuzzer/Fuzzer";
 
 const vscode = acquireVsCodeApi();
 
@@ -626,14 +630,14 @@ function handleAddTestInput() {
       }
     }
 
-    overrides.input.push(value);
+    overrides.input.push({ value: value });
   }
 
   // Only call the fuzzer if the input is not already in the grid
   const tick = resultsData.results.findIndex(
     (r) =>
       JSON5.stringify(r.input.map((i) => i.value)) ===
-      JSON5.stringify(overrides.input)
+      JSON5.stringify(overrides.input?.map((i) => i.value))
   );
   if (tick === -1) {
     // Call the extension to test this one input
@@ -2183,5 +2187,5 @@ export type FuzzPanelFuzzStartMessage = {
   fuzzer: Partial<FuzzOptions>;
   args: DeepPartial<FuzzArgOverride>[];
   lastTab?: string;
-  input?: ArgValueType[];
+  input?: ArgValueTypeWrapped[];
 };

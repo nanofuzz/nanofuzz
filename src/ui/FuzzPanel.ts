@@ -1102,7 +1102,7 @@ ${inArgConsts}
         return {
           name: specs[i].getName(),
           offset: i,
-          value: v,
+          value: v.value,
         };
       }),
       output: [], // the fuzzer fills this
@@ -1868,9 +1868,9 @@ ${inArgConsts}
                         .map(
                           (i) =>
                             `<td>${
-                              i === undefined
+                              i.value === undefined
                                 ? "(no input)"
-                                : JSON5.stringify(i)
+                                : JSON5.stringify(i.value)
                             }</td>`
                         )
                         .join("\r\n")}
@@ -2787,5 +2787,5 @@ export type FuzzPanelFuzzStartMessage = {
   fuzzer: fuzzer.FuzzOptions;
   args: fuzzer.FuzzArgOverride[];
   lastTab?: string;
-  input?: fuzzer.ArgValueType[];
+  input?: fuzzer.ArgValueTypeWrapped[];
 };

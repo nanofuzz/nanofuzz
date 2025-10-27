@@ -1,6 +1,13 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "./ArgDef";
-import { ArgTag, ArgType, ArgValueType, ArgOptions, Interval } from "./Types";
+import {
+  ArgTag,
+  ArgType,
+  ArgValueType,
+  ArgOptions,
+  Interval,
+  ArgValueTypeWrapped,
+} from "./Types";
 
 /**
  * Pseudo-randomly generates example values that conform to an ArgDef spec.
@@ -27,8 +34,10 @@ export class ArgDefGenerator {
    *
    * @returns value that conforms to the ArgDef specs
    */
-  public next(): ArgValueType[] {
-    return this._gens.map((e) => e());
+  public next(): ArgValueTypeWrapped[] {
+    return this._gens.map((e) => {
+      return { value: e() };
+    });
   } // fn: next
 
   /**

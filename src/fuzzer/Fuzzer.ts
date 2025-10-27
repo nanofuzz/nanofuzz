@@ -134,7 +134,11 @@ export const fuzz = (
   // first: we want the composite generator to know about these inputs so that
   // any "interesting" inputs might be further mutated by other generators.
   compositeInputGenerator.inject(
-    pinnedTests.map((t) => t.input.map((i) => i.value))
+    pinnedTests.map((t) =>
+      t.input.map((i) => {
+        return { value: i.value };
+      })
+    )
   );
 
   // The module that includes the function to fuzz will
@@ -219,7 +223,7 @@ export const fuzz = (
       return {
         name: argDefs[i].getName(),
         offset: i,
-        value: e,
+        value: e.value,
       };
     });
     result.source = genInput.source.subgen;

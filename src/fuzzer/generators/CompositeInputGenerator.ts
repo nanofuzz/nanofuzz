@@ -1,5 +1,5 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
-import { ArgType, ArgValueType } from "../analysis/typescript/Types";
+import { ArgType, ArgValueTypeWrapped } from "../analysis/typescript/Types";
 import { ArgDef } from "../analysis/typescript/ArgDef";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
@@ -36,7 +36,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     currentIndex: number; // current index (of L) into last dimension of progress and cost
   }[]; // history for each input generator
   private _scoredInputs: ScoredInput[] = []; // List of scored inputs
-  private _injectedInputs: ArgValueType[][] = []; // Inputs to force generate first
+  private _injectedInputs: ArgValueTypeWrapped[][] = []; // Inputs to force generate first
   private _selectedSubgenIndex = -1; // Selected subordinate input generator (e.g., by efficiency)
   private _leaderboard; // Interesting inputs
   private _lastInput?: InputAndSource; // Last input generated
@@ -93,8 +93,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    *
    * @param `inputs` array of input values to produce first
    */
-  public inject(inputs: ArgValueType[][]): void {
-    this._injectedInputs = JSON5.parse(JSON5.stringify(inputs.reverse()));
+  public inject(inputs: ArgValueTypeWrapped[][]): void {
+    this._injectedInputs = [...inputs].reverse();
   } // fn: inject
 
   /**
