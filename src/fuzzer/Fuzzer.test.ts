@@ -1,5 +1,6 @@
 import { ArgDef, setup, fuzz, implicitOracle } from "./Fuzzer";
 import { FuzzOptions } from "./Types";
+import * as JSON5 from "json5";
 
 // Extend default test timeout to 45s
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 45000;
@@ -528,5 +529,40 @@ describe("fuzzer:", () => {
     );
     expect(fuzzResult.results.length).toBe(3);
     expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy();
+
+    // Run the following tests on the raw and JSON5-cloned results
+    [
+      fuzzResult.results,
+      JSON5.parse(JSON5.stringify(fuzzResult.results)),
+    ].forEach((r) => {
+      // Every input should be true, false, or undefined
+      expect(
+        fuzzResult.results.every(
+          (e) =>
+            e.input.length &&
+            (e.input[0].value === undefined ||
+              e.input[0].value === true ||
+              e.input[0].value === false)
+        )
+      ).toBeTruthy();
+      // Some inputs should be undefined
+      expect(
+        fuzzResult.results.some(
+          (e) => e.input.length && e.input[0].value === undefined
+        )
+      ).toBeTruthy();
+      // Some inputs should be true
+      expect(
+        fuzzResult.results.some(
+          (e) => e.input.length && e.input[0].value === true
+        )
+      ).toBeTruthy();
+      // Some inputs should be false
+      expect(
+        fuzzResult.results.some(
+          (e) => e.input.length && e.input[0].value === false
+        )
+      ).toBeTruthy();
+    });
   });
 });
