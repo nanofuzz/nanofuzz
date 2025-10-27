@@ -487,11 +487,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
           let k = 100;
           while (k--) {
             const inputStringBefore = JSON5.stringify(input);
-            const muts = ArgDefMutator.getMutators(
-              spec,
-              input.map((i) => i.value),
-              prng
-            );
+            const muts = ArgDefMutator.getMutators(spec, input, prng);
             if (muts.length) {
               const index = Math.floor(prng() * (muts.length - 1));
               const mut = muts[index];
