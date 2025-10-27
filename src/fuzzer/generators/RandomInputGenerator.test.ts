@@ -124,7 +124,7 @@ const testRandomInt = (intMin: number, intMax: number): void => {
   const gen = new RandomInputGenerator(arg, seed);
   for (let i = 0; i < 1000; i++) {
     const { value: inputs } = gen.next();
-    const input = inputs[0];
+    const input = inputs[0].value;
     expect(typeof input === "number" && Number.isInteger(input)).toBeTruthy();
     expect(input).toBeGreaterThanOrEqual(intMin);
     expect(input).toBeLessThanOrEqual(intMax);
@@ -156,7 +156,7 @@ const testRandomFloat = (floatMin: number, floatMax: number): void => {
   const gen = new RandomInputGenerator(arg, seed);
   for (let i = 0; i < 1000; i++) {
     const { value: inputs } = gen.next();
-    const input = inputs[0];
+    const input = inputs[0].value;
     expect(typeof input === "number").toBeTruthy();
     expect(input).toBeGreaterThanOrEqual(floatMin);
     expect(input).toBeLessThanOrEqual(floatMax);
@@ -190,10 +190,8 @@ const testRandomBool = (boolMin: boolean, boolMax: boolean): void => {
 
   // Test that the generator generates booleans within the bounds
   const inputs: ArgValueType[][] = [];
-  let input: ArgValueType;
   for (let i = 0; i < 1000; i++) {
-    ({ value: inputs[i] } = gen.next());
-    input = inputs[i];
+    inputs.push(gen.next().value.map((i) => i.value));
   }
   expect(inputs.every((e) => typeof e[0] === "boolean")).toBeTruthy();
   expect(inputs.some((e) => e[0] === boolMin)).toBeTruthy();
@@ -232,7 +230,7 @@ const testRandomString = (
   // Test that the generator generates strings within the bounds
   const inputs: ArgValueType[][] = [];
   for (let i = 0; i < 1000; i++) {
-    ({ value: inputs[i] } = gen.next());
+    inputs.push(gen.next().value.map((i) => i.value));
     const input = inputs[i][0];
     expect(typeof input === "string").toBeTruthy();
     if (typeof input === "string") {

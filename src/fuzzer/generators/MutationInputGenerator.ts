@@ -59,7 +59,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       // Calculate possible mutations for the input
       const mutators = ArgDefMutator.getMutators(
         this._specs,
-        input,
+        input.map((i) => i.value),
         this._prng
       );
 
