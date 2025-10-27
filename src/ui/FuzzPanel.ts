@@ -1522,9 +1522,9 @@ ${inArgConsts}
               <div class="panelButton">
                 <span class="codicon codicon-close" id="fuzzAddTestInputOptions-close"></span>
               </div>
-              <h2>Add a test input manually</h2>
-              <div style="margin-left: 0.5em; margin-bottom: 0.75em;" id="argDefs">${customArgDefHtml}</div>
-              <div style="margin-top: 0.5em">
+              <h2 style="margin-bottom:.2em;">Add a test input manually</h2>
+              <div style="padding-bottom: 0.2em;" id="argDefs">${customArgDefHtml}</div>
+              <div style="padding-top: 0.2em; clear: both;">
                 <vscode-button ${disabledFlag} id="fuzz.addTestInput" appearance="primary">
                   Test this input
                 </vscode-button>
@@ -2064,7 +2064,9 @@ ${inArgConsts}
       this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
     const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
-    const htmlEllipsis = `<span class="hidden argDef-ellipsis">...</span>`;
+    const htmlEllipsis = `<span class="hidden argDef-ellipsis">${
+      isCustomArgDef ? "undefined;" : "..."
+    }</span>`;
     const isArgArray = arg.getDim() > 0; // Is this an array argument?
 
     let typeString: string; // Text indicating the type of argument
@@ -2133,11 +2135,12 @@ ${inArgConsts}
     // Give the option of suppressing generation of optional members
     if (
       parentTag === fuzzer.ArgTag.UNION ||
-      (parentTag === fuzzer.ArgTag.OBJECT && arg.isOptional())
+      (parentTag === fuzzer.ArgTag.OBJECT && arg.isOptional()) ||
+      (isCustomArgDef && arg.isOptional())
     ) {
       // prettier-ignore
       html += /*html*/ `
-        <div class="isNoInput tooltipped tooltipped-nw" aria-label="Generate inputs of this type?">
+        <div class="isNoInput tooltipped tooltipped-nw" aria-label="${isCustomArgDef ? "Include this optional parameter?" : "Generate inputs of this type?"}">
           <vscode-checkbox id="${idBase}-isNoInput" ${disabledFlag} ${arg.isNoInput() ? "" : "checked"} current-checked="${arg.isNoInput() ? "false" : "true"}"></vscode-checkbox>
         </div>`
     }
@@ -2167,7 +2170,7 @@ ${inArgConsts}
             isArgArray
               ? "[]"
               : htmlEscape(Number(arg.getIntervals()[0].min).toString())
-          }">Value</vscode-text-field>`;
+          }"></vscode-text-field>`;
         } else {
           // TODO: validate for ints and floats !!!
           html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
@@ -2199,7 +2202,7 @@ ${inArgConsts}
           // TODO: validate that this is a string
           html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-exact" name="${idBase}-exact" value="${
             isArgArray ? "[]" : ""
-          }">Value</vscode-text-field>`;
+          }"></vscode-text-field>`;
         } else {
           // TODO: validate for ints > 0 !!!
           html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
@@ -2258,7 +2261,7 @@ ${inArgConsts}
           // TODO: validate
           html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-exact" name="${idBase}-exact" value="${
             isArgArray ? "[]" : ""
-          }">Value</vscode-text-field>`;
+          }"></vscode-text-field>`;
         } else {
           // Output the array form prior to the child arguments.
           // This seems odd, but the screen reads better to the user this way.
@@ -2289,7 +2292,7 @@ ${inArgConsts}
           // TODO: validate
           html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-exact" name="${idBase}-exact" value="${
             isArgArray ? "[]" : "{}"
-          }">Value</vscode-text-field>`;
+          }"></vscode-text-field>`;
         } else {
           // Output the array form prior to the child arguments.
           // This seems odd, but the screen reads better to the user this way.

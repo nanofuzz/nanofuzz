@@ -578,6 +578,13 @@ function handleAddTestInput() {
     const argType = argDef.querySelector(".argDef-type")?.id.split("-")[2];
     const argIsArray =
       argDef.querySelector(".argDef-isArray")?.id.split("-")[2] === "true";
+    const argIsNoInput = document.getElementById(`customArgDef-${i}-isNoInput`);
+    const argIsNoInputValue =
+      argIsNoInput === null
+        ? false
+        : (argIsNoInput.getAttribute("value") ??
+            argIsNoInput.getAttribute("current-checked")) !== "true";
+
     // !!!!!!!! Figure out what the array logic is for
 
     const unparsedValue =
@@ -586,7 +593,9 @@ function handleAddTestInput() {
       ) || "";
 
     let value: ArgValueType;
-    if (argIsArray) {
+    if (argIsNoInputValue) {
+      value = undefined;
+    } else if (argIsArray) {
       try {
         value = JSON5.parse(unparsedValue);
         if (!Array.isArray(value)) {
@@ -601,10 +610,11 @@ function handleAddTestInput() {
           value = Number(unparsedValue);
           break;
         case "boolean":
-          value =
+          value = !!(
             getElementByIdOrThrow(`customArgDef-${i}-true`).getAttribute(
               "current-checked"
-            ) === "true";
+            ) === "true"
+          );
           break;
         default:
           // For string or any other type, try parsing; fallback to raw string
