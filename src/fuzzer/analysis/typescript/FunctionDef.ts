@@ -190,10 +190,9 @@ export class FunctionDef {
    * @param overrides
    */
   public applyOverrides(overrides: ArgOptionOverrides): void {
-    // Apply argument overrides
-    for (const argName of Object.keys(overrides.argOptions)) {
+    for (const argName of Object.keys(overrides)) {
       const arg = this._argDefs.find((arg) => arg.getName() === argName);
-      if (arg !== undefined) arg.setOptions(overrides.argOptions[argName]);
+      if (arg !== undefined) arg.setOptions(overrides[argName]);
     }
   } // fn: applyOverrides()
 
