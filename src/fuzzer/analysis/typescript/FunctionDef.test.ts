@@ -1045,4 +1045,84 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
       },
     ]);
   });
+
+   it("literal union type ref", () => {
+    //const src = `function $_f(union: "hello" | "bonjour"):void {}`;
+    const src = `function $_f(union: unionType):void {};type unionType = "hello" | "bonjour";`;
+    const thisProgram = dummyProgram.setSrc(() => src);
+
+    expect(thisProgram.getFunctions()["$_f"].getArgDefs()).toEqual([
+      makeArgDef(
+        dummyRef.module,
+        "union",
+        0,
+        ArgTag.UNION,
+        argOptions,
+        0,
+        undefined,
+        [
+          makeTypeRef(
+            dummyRef.module,
+            "unknown",
+            ArgTag.LITERAL,
+            0,
+            undefined,
+            undefined,
+            undefined,
+            "hello"
+          ),
+          makeTypeRef(
+            dummyRef.module,
+            "unknown",
+            ArgTag.LITERAL,
+            0,
+            undefined,
+            undefined,
+            undefined,
+            "bonjour"
+          ),
+        ],
+        "unionType"
+      ),
+    ]);
+  });
+
+  it("literal union literal type", () => {
+    const src = `function $_f(union: "hello" | "bonjour"):void {}`;
+    const thisProgram = dummyProgram.setSrc(() => src);
+
+    expect(thisProgram.getFunctions()["$_f"].getArgDefs()).toEqual([
+      makeArgDef(
+        dummyRef.module,
+        "union",
+        0,
+        ArgTag.UNION,
+        argOptions,
+        0,
+        undefined,
+        [
+          makeTypeRef(
+            dummyRef.module,
+            "unknown",
+            ArgTag.LITERAL,
+            0,
+            undefined,
+            undefined,
+            undefined,
+            "hello"
+          ),
+          makeTypeRef(
+            dummyRef.module,
+            "unknown",
+            ArgTag.LITERAL,
+            0,
+            undefined,
+            undefined,
+            undefined,
+            "bonjour"
+          ),
+        ]
+      ),
+    ]);
+  });
 });
