@@ -1538,7 +1538,10 @@ ${inArgConsts}
               <div class="panelButton">
                 <span class="codicon codicon-close" id="fuzzAddTestInputOptions-close"></span>
               </div>
-              <h2 style="margin-bottom:.2em;">Add a test input manually</h2>
+              <h2 style="margin-bottom:.3em;">Add a test input</h2>
+              <p class="fuzzPanelDescription">
+                Enter an input below. Click <strong>Add input</strong> to test it.
+              </p>
               <table class="fuzzGrid">
                 <thead>
                   <tr>
@@ -1563,7 +1566,7 @@ ${inArgConsts}
                       )
                       .join("\r\n")}
                     <td>
-                      <vscode-button disabled ${disabledFlag} id="fuzz.addTestInput" appearance="primary">
+                      <vscode-button ${disabledFlag} id="fuzz.addTestInput" appearance="primary">
                         Add input
                       </vscode-button>
                     </td>
