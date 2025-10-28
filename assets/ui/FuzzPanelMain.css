@@ -57,12 +57,10 @@ th.expandCollapseColumn {
   padding-bottom: 0px;
 }
 .fuzzGrid tbody tr {
-  transition: font-weight 1s ease, box-shadow 3s 3s ease,
-    background-color 3s 3s ease;
+  transition: box-shadow 3s 3s ease, background-color 3s 3s ease;
 }
 .fuzzGrid tbody tr.focus {
   transition: none;
-  font-weight: bold;
   background-color: var(--vscode-editor-hoverHighlightBackground);
   box-shadow: 0px 0px 1px 1px
     rgb(from var(--vscode-editor-hoverHighlightBackground) r g b / 1);
