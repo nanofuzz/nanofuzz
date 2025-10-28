@@ -903,28 +903,24 @@ function handleCorrectToggle(
   // Redraw table
   drawTableBody({ type, tbody, isClicking: true, button });
 
-  const onOffStr = button.getAttribute("onOff");
-  if (onOffStr !== "true" && onOffStr !== "false") {
-    throw new Error("invalid onOff value");
-  }
-  const onOff: boolean = JSON.parse(onOffStr);
-  const pinCell = getElementByIdWithTypeOrThrow(
+  // Get the pinned state
+  const isPinned = getElementByIdWithTypeOrThrow(
     `fuzzSaveToggle-${id}`,
     HTMLTableCellElement
-  );
-  const isPinned = pinCell.className === pinState.classPinned;
+  ).classList.contains(pinState.classPinned);
 
   // Get the test data for the test case
   const testCase: FuzzPinnedTest = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: isPinned,
+    expectedOutput: data[type][index][expectedLabel],
   };
 
   // Send the request to the extension
   window.setTimeout(() => {
     vscode.postMessage({
-      command: onOff ? "test.pin" : "test.unpin",
+      command: isPinned ? "test.pin" : "test.unpin",
       json: JSON5.stringify(testCase),
     });
   });
@@ -1355,22 +1351,23 @@ function drawTableBody({
         const cell1 = row.appendChild(document.createElement("td"));
         cell1.innerHTML = correctState.htmlCheck;
         cell1.setAttribute("correctType", "true");
-        cell1.addEventListener("click", () => {
-          handleCorrectToggle(cell1, row, type, tbody, cell1, cell2);
-        });
+        cell1.className = correctState.classCheckOff; // updated below
+        cell1.setAttribute("onOff", "false"); // updated below
+
         // Add X mark icon
         const cell2 = row.appendChild(document.createElement("td"));
         cell2.innerHTML = correctState.htmlError;
         cell2.setAttribute("correctType", "false");
+        cell2.className = correctState.classErrorOff; // updated below
+        cell2.setAttribute("onOff", "false"); // updated below
+
+        // Add event listeners
+        cell1.addEventListener("click", () => {
+          handleCorrectToggle(cell1, row, type, tbody, cell1, cell2);
+        });
         cell2.addEventListener("click", () => {
           handleCorrectToggle(cell2, row, type, tbody, cell1, cell2);
         });
-
-        // Defaults here; override in the switch below
-        cell1.className = correctState.classCheckOff;
-        cell1.setAttribute("onOff", "false");
-        cell2.className = correctState.classErrorOff;
-        cell2.setAttribute("onOff", "false");
 
         // Update the front-end buttons to match the back-end state
         switch (e[k] + "") {
@@ -1379,20 +1376,22 @@ function drawTableBody({
           case "true":
             cell1.className = correctState.classCheckOn;
             cell1.setAttribute("onOff", "true");
-            if (isClicking) {
-              handleExpectedOutput({ type, row, tbody, isClicking, button });
-            } else {
-              handleExpectedOutput({ type, row, tbody, isClicking, button });
-            }
+            handleExpectedOutput({
+              type,
+              row,
+              tbody,
+              ...(isClicking ? { isClicking, button } : { isClicking }),
+            });
             break;
           case "false":
             cell2.className = correctState.classErrorOn;
             cell2.setAttribute("onOff", "true");
-            if (isClicking) {
-              handleExpectedOutput({ type, row, tbody, isClicking, button });
-            } else {
-              handleExpectedOutput({ type, row, tbody, isClicking, button });
-            }
+            handleExpectedOutput({
+              type,
+              row,
+              tbody,
+              ...(isClicking ? { isClicking, button } : { isClicking }),
+            });
             break;
         }
         cell1.classList.add("colGroupStart", "clickable");
@@ -1641,7 +1640,7 @@ function buildExpectedTestCase(
   id: number,
   type: FuzzResultCategory,
   index: number
-) {
+): FuzzPinnedTest | undefined {
   const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
   const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
   const radioException = getElementByIdOrThrow(`fuzz-radioException${id}`);
@@ -1651,7 +1650,7 @@ function buildExpectedTestCase(
 
   // Check if the expected value is valid JSON
   const expectedValue = textField.getAttribute("current-value");
-  let parsedExpectedValue;
+  let parsedExpectedValue: ArgValueType;
   try {
     // Attempt to parse the expected value
     parsedExpectedValue =
@@ -1681,23 +1680,13 @@ function buildExpectedTestCase(
   show(okButton);
 
   // Build the expected output object
-  const expectedOutput: {
-    name: string;
-    offset: number;
-    isTimeout?: boolean;
-    isException?: boolean;
-    value?: ArgValueType;
-  } = {
+  const expectedOutput: FuzzIoElement = {
     name: "0",
     offset: 0,
+    isTimeout: !!("checked" in radioTimeout && radioTimeout.checked),
+    isException: !!("checked" in radioException && radioException.checked),
+    value: parsedExpectedValue,
   };
-  if ("checked" in radioTimeout && radioTimeout.checked) {
-    expectedOutput["isTimeout"] = true;
-  } else if ("checked" in radioException && radioException.checked) {
-    expectedOutput["isException"] = true;
-  } else {
-    expectedOutput["value"] = parsedExpectedValue;
-  }
 
   // Build & return the test case object
   return {

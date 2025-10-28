@@ -465,8 +465,8 @@ export class FuzzPanel {
             break;
           }
           case "0.3.6": {
-            // v0.3.6 format -- add configuration for measures and generators
-            testSet = { ...inputTests, version: "0.3.9" };
+            // v0.3.9 format -- add configuration for measures and generators
+            testSet = { ...inputTests, version: "0.3.9" }; // !!!!!!!!
             for (const fn in testSet.functions) {
               testSet.functions[fn].options.measures =
                 getDefaultFuzzOptions().measures;
@@ -489,8 +489,31 @@ export class FuzzPanel {
       }
     }
 
-    return testSet;
+    return this._pruneTestSet(testSet);
   } // fn: _getFuzzTestsForModule()
+
+  /**
+   * Removes tests from a test set that are neither pinned nor have
+   * an expected value.
+   *
+   * @param `testSet` unpruned test set
+   * @returns a copy of the `testSet` that only contains pinned tests of
+   *          tests with an expected output.
+   */
+  private _pruneTestSet(testSet: fuzzer.FuzzTests): fuzzer.FuzzTests {
+    const prunedTestSet: fuzzer.FuzzTests = JSON5.parse(
+      JSON5.stringify(testSet)
+    );
+    for (const fn in prunedTestSet.functions) {
+      for (const test in prunedTestSet.functions[fn].tests) {
+        const thisTest = prunedTestSet.functions[fn].tests[test];
+        if (!thisTest.pinned && thisTest.expectedOutput === undefined) {
+          delete prunedTestSet.functions[fn].tests[test];
+        }
+      }
+    }
+    return prunedTestSet;
+  } // fn: _pruneTestSet
 
   /**
    * Initializes and return a new FuzzTests structure for the current
@@ -557,10 +580,13 @@ export class FuzzPanel {
    */
   private _putFuzzTestsForThisFn(testSet: fuzzer.FuzzTestsFunction): void {
     const jsonFile = this._getFuzzTestsFilename();
-    const fullSet = this._getFuzzTestsForModule();
+    let fullSet = this._getFuzzTestsForModule();
 
     // Update the function in the dataset
     fullSet.functions[this._fuzzEnv.function.getName()] = testSet;
+
+    // Prune unused tests
+    fullSet = this._pruneTestSet(fullSet);
 
     // Count the number of pinned tests for the module
     let pinnedCount = 0;
@@ -1540,7 +1566,9 @@ ${inArgConsts}
               </div>
               <h2 style="margin-bottom:.3em;">Add a test input</h2>
               <p class="fuzzPanelDescription">
-                Enter an input below. Click <strong>Add input</strong> to test it.
+                Enter an input value below. 
+                It won't be type-checked.
+                Click <strong>+</strong> to test it.
               </p>
               <table class="fuzzGrid">
                 <thead>
@@ -1553,7 +1581,7 @@ ${inArgConsts}
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
+                  <tr style="vertical-align: top;">
                     ${this._results?.env.function.getArgDefs()
                       .map(
                         (arg,i) => /*html*/
@@ -1566,9 +1594,7 @@ ${inArgConsts}
                       )
                       .join("\r\n")}
                     <td>
-                      <vscode-button ${disabledFlag} id="fuzz.addTestInput" appearance="primary">
-                        Add input
-                      </vscode-button>
+                      <vscode-button ${disabledFlag} id="fuzz.addTestInput" appearance="primary">+</vscode-button>
                     </td>
                   </tr>
                 </tbody>
