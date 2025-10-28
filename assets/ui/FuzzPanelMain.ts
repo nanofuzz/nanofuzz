@@ -139,12 +139,6 @@ function main() {
     toggleAddTestInputOptions
   );
 
-  // Add event listener for the fuzz.addTestInput.cancel button
-  getElementByIdOrThrow("fuzz.addTestInput.cancel").addEventListener(
-    "click",
-    toggleAddTestInputOptions
-  );
-
   // Add event listener for the fuzz.addTestInput button
   getElementByIdOrThrow("fuzz.addTestInput").addEventListener(
     "click",
@@ -207,6 +201,16 @@ function main() {
     "click",
     handleGetListOfValidators
   );
+
+  // Add event listeners for the add input fields
+  for (let i = 0; document.getElementById(`addInputArg-${i}-value`); i++) {
+    getElementByIdOrThrow(`addInputArg-${i}-value`).addEventListener(
+      "change",
+      () => {
+        getInputValues();
+      }
+    );
+  }
 
   // Load & display the validator functions from the HTML
   validators = JSON5.parse(
@@ -560,13 +564,12 @@ function toggleAddTestInputOptions() {
   );
   if (isHidden(fuzzAddTestInputOptionsPane)) {
     toggleHidden(fuzzAddTestInputOptionsPane);
-    hide(fuzzAddTestInputOptionsButton);
-    getElementByIdOrThrow("customArgDef-0-exact").focus();
-    getElementByIdOrThrow("fuzz.start").setAttribute("appearance", "secondary");
+    fuzzAddTestInputOptionsButton.innerHTML = "Cancel Add Input";
+    getElementByIdOrThrow("addInputArg-0-value").focus();
   } else {
     toggleHidden(fuzzAddTestInputOptionsPane);
     show(fuzzAddTestInputOptionsButton);
-    getElementByIdOrThrow("fuzz.start").setAttribute("appearance", "primary");
+    fuzzAddTestInputOptionsButton.innerHTML = "Add Input...";
   }
 } // fn: toggleAddTestInputOptions
 
@@ -575,62 +578,11 @@ function toggleAddTestInputOptions() {
  */
 function handleAddTestInput() {
   const overrides = getConfigFromUi();
-  overrides.input = [];
+  overrides.input = getInputValues();
 
-  for (let i = 0; document.getElementById(`customArgDef-${i}`) !== null; i++) {
-    const argDef = getElementByIdOrThrow(`customArgDef-${i}`);
-    const argType = argDef.querySelector(".argDef-type")?.id.split("-")[2];
-    const argIsArray =
-      argDef.querySelector(".argDef-isArray")?.id.split("-")[2] === "true";
-    const argIsNoInput = document.getElementById(`customArgDef-${i}-isNoInput`);
-    const argIsNoInputValue =
-      argIsNoInput === null
-        ? false
-        : (argIsNoInput.getAttribute("value") ??
-            argIsNoInput.getAttribute("current-checked")) !== "true";
-
-    // !!!!!!!! Figure out what the array logic is for
-
-    const unparsedValue =
-      getElementByIdOrThrow(`customArgDef-${i}-exact`).getAttribute(
-        "current-value"
-      ) || "";
-
-    let value: ArgValueType;
-    if (argIsNoInputValue) {
-      value = undefined;
-    } else if (argIsArray) {
-      try {
-        value = JSON5.parse(unparsedValue);
-        if (!Array.isArray(value)) {
-          throw new Error("Expected an array input."); // !!!!!!!!
-        }
-      } catch (error) {
-        throw new Error(`Invalid array input: ${unparsedValue}`); // !!!!!!!!
-      }
-    } else {
-      switch (argType) {
-        case "number":
-          value = Number(unparsedValue);
-          break;
-        case "boolean":
-          value = !!(
-            getElementByIdOrThrow(`customArgDef-${i}-true`).getAttribute(
-              "current-checked"
-            ) === "true"
-          );
-          break;
-        default:
-          // For string or any other type, try parsing; fallback to raw string
-          try {
-            value = JSON5.parse(unparsedValue);
-          } catch {
-            value = unparsedValue; // !!!!!!!! eating exception here
-          }
-      }
-    }
-
-    overrides.input.push({ value: value });
+  // Return if the inputs are unavaiable
+  if (!overrides.input) {
+    return;
   }
 
   // Only call the fuzzer if the input is not already in the grid
@@ -657,6 +609,53 @@ function handleAddTestInput() {
     );
   }
 } // fn: handleAddTestInputCase
+
+/**
+ * Gets a single input value.
+ *
+ * Note: Also maintains the error state of the input fields.
+ *
+ * @returns an `ArgValueTypeWrapped` if successful, undefined otherwise
+ */
+function getInputValues(): ArgValueTypeWrapped[] | undefined {
+  const inputs: ArgValueTypeWrapped[] = [];
+  let errors = false;
+
+  for (let i = 0; document.getElementById(`addInputArg-${i}-value`); i++) {
+    const e = getElementByIdOrThrow(`addInputArg-${i}-value`);
+    const message = getElementByIdOrThrow(`addInputArg-${i}-message`);
+    const unparsedValue = e.getAttribute("current-value");
+    try {
+      e.classList.remove("classErrorCell");
+      message.classList.remove("expectedOutputErrorMessage");
+      message.innerHTML = "";
+      // Attempt to parse & add the input value
+      inputs.push({
+        value:
+          unparsedValue === null ||
+          unparsedValue === "undefined" ||
+          unparsedValue === ""
+            ? undefined
+            : JSON5.parse(unparsedValue),
+      });
+    } catch (err) {
+      // Error feedback
+      e.classList.add("classErrorCell");
+      message.classList.add("expectedOutputErrorMessage");
+      message.innerHTML = " (invalid value)";
+      errors = true;
+    }
+  }
+
+  const testButton = getElementByIdOrThrow("fuzz.addTestInput");
+  if (errors) {
+    testButton.setAttribute("disabled", "true");
+    return undefined;
+  } else {
+    testButton.removeAttribute("disabled");
+    return inputs;
+  }
+} // fn: getInputValue
 
 /**
  * Scrolls to a particular id and switches tabs if needed.
@@ -1475,9 +1474,9 @@ function handleExpectedOutput({
 
       // Event handler for text field
       const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
-      textField.addEventListener("change", () =>
-        buildExpectedTestCase(id, type, index)
-      );
+      textField.addEventListener("change", () => {
+        buildExpectedTestCase(id, type, index);
+      });
 
       // Event handler for timeout radio button
       const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
@@ -1656,7 +1655,9 @@ function buildExpectedTestCase(
   try {
     // Attempt to parse the expected value
     parsedExpectedValue =
-      expectedValue === null || expectedValue === "undefined"
+      expectedValue === null ||
+      expectedValue === "undefined" ||
+      expectedValue === ""
         ? undefined
         : JSON5.parse(expectedValue);
   } catch (e) {
