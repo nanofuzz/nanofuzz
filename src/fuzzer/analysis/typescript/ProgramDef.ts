@@ -1101,6 +1101,9 @@ export class ProgramDef {
               `Internal Error: Unable to find type reference '${typeName}' in program`
             );
           }
+          case AST_NODE_TYPES.TSUnionType: {
+            return this._getChildrenFromNode(node.typeAnnotation);
+          }
           case AST_NODE_TYPES.TSTypeLiteral: {
             return node.typeAnnotation.members.map((member) => {
               if (member.type === AST_NODE_TYPES.TSPropertySignature)
