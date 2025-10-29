@@ -8,7 +8,7 @@ NaNofuzz proposes an initial set of tests with a single button click. You then i
 
 ## Tutorial and Playground
 
-Our [NaNofuzz examples](https://github.com/nanofuzz/nanofuzz-examples/) repository, provides a 10-minute NaNofuzz tutorial and several example buggy programs that you can use to get familiar with NaNofuzz. Within the `nanofuzz-examples` repo on GitHub, click `Code`->`Codespaces`->`Create` to immediately get started!
+Our [NaNofuzz examples](https://github.com/nanofuzz/nanofuzz-examples/) repository provides a 10-minute NaNofuzz tutorial and several example buggy programs that you can use to get familiar with NaNofuzz. Within the `nanofuzz-examples` repo on GitHub, click `Code`->`Codespaces`->`Create` to immediately get started!
 
 ## Getting started
 
