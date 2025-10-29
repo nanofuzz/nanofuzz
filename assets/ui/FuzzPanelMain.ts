@@ -1743,6 +1743,9 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
   const MutationInputGeneratorEnabled = getElementByIdOrThrow(
     `${fuzzBase}-gen-MutationInputGenerator-enabled`
   );
+  const AiInputGeneratorEnabled = getElementByIdOrThrow(
+    `${fuzzBase}-gen-AiInputGenerator-enabled`
+  );
   const CoverageMeasureEnabled = getElementByIdOrThrow(
     `${fuzzBase}-measure-CoverageMeasure-enabled`
   );
@@ -1831,6 +1834,12 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
           enabled:
             (MutationInputGeneratorEnabled.getAttribute("value") ??
               MutationInputGeneratorEnabled.getAttribute("current-checked")) ===
+            "true",
+        },
+        AiInputGenerator: {
+          enabled:
+            (AiInputGeneratorEnabled.getAttribute("value") ??
+              AiInputGeneratorEnabled.getAttribute("current-checked")) ===
             "true",
         },
       },
@@ -1956,10 +1965,12 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
  */
 function refreshValidators(validatorList: { validators: string[] }) {
   const validatorFnList = getElementByIdOrThrow("validator-functionList");
+  const validatorFnCount = getElementByIdOrThrow("validator-functionCount");
   validatorFnList.setAttribute(
     "aria-label",
     listForValidatorFnTooltip(validatorList)
   );
+  validatorFnCount.innerText = String(validatorList.validators.length);
 } // fn: refreshValidators
 
 /**

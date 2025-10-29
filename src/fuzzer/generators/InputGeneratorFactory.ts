@@ -3,7 +3,9 @@ import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
+import { AiInputGenerator } from "./AiInputGenerator";
 import { InputAndSource } from "./Types";
+import { ProgramModelFactory } from "src/models/ProgramModelFactory";
 
 /**
  * Produces a set of concrete input generators appropriate for
@@ -19,7 +21,7 @@ export function InputGeneratorFactory(
 ): AbstractInputGenerator[] {
   const generators: AbstractInputGenerator[] = [];
 
-  if (env.options.generators["RandomInputGenerator"].enabled) {
+  if (env.options.generators.RandomInputGenerator.enabled) {
     generators.push(
       new RandomInputGenerator(
         env.function.getArgDefs(),
@@ -28,7 +30,7 @@ export function InputGeneratorFactory(
     );
   }
 
-  if (env.options.generators["MutationInputGenerator"].enabled) {
+  if (env.options.generators.MutationInputGenerator.enabled) {
     generators.push(
       new MutationInputGenerator(
         env.function.getArgDefs(),
@@ -36,6 +38,18 @@ export function InputGeneratorFactory(
         leaderboard
       )
     );
+  }
+
+  if (env.options.generators.AiInputGenerator.enabled) {
+    if (ProgramModelFactory.isConfigured()) {
+      generators.push(
+        new AiInputGenerator(
+          env.function.getArgDefs(),
+          env.options.seed ?? "",
+          ProgramModelFactory.create(env.function)
+        )
+      );
+    }
   }
 
   return generators;

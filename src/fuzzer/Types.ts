@@ -177,7 +177,8 @@ export type VmGlobals = Record<string, unknown>;
  */
 export type SupportedInputGenerators =
   | "RandomInputGenerator"
-  | "MutationInputGenerator";
+  | "MutationInputGenerator"
+  | "AiInputGenerator";
 
 /**
  * List of supported input generators

@@ -693,7 +693,18 @@ function actualEqualsExpectedOutput(
   } else if (result.exception) {
     return expectedOutput.length > 0 && expectedOutput[0].isException === true;
   } else {
-    return JSON5.stringify(result.output) === JSON5.stringify(expectedOutput);
+    return (
+      JSON5.stringify(
+        result.output.map((output) => {
+          return { value: output.value };
+        })
+      ) ===
+      JSON5.stringify(
+        expectedOutput.map((output) => {
+          return { value: output.value };
+        })
+      )
+    );
   }
 }
 
@@ -707,12 +718,6 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   if (result.validatorException) {
     return "failure"; // Validator failed
   }
-
-  const implicit = result.passedImplicit ? true : false;
-  const human =
-    "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
-  const property =
-    "passedValidator" in result ? result.passedValidator : undefined;
 
   // Returns the type of bad value: execption, timeout, or badvalue
   const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
@@ -730,30 +735,34 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
     return result.passedValidator ? "ok" : "badValue"; // PUT returned bad value
   };
 
-  // Either the human oracle or the validator may take precedence
-  // over the implicit oracle if they exist. However, if both the
-  // validator and the human oracle are present, then they must
-  // agree. If the human and validator are present yet disagree,
-  // then the disagreement is another error.
-  if (human === true) {
-    if (property === false) {
+  // Setup the Composite Oracle -- we describe this in the TerzoN paper
+  const implicit =
+    "passedImplicit" in result ? (result.passedImplicit ? 1 : -1) : 0;
+  const human = "passedHuman" in result ? (result.passedHuman ? 1 : -1) : 0;
+  const property =
+    "passedValidator" in result ? (result.passedValidator ? 1 : -1) : 0;
+
+  if (human > 0) {
+    if (property < 0) {
       return "disagree";
     } else {
       return "ok";
     }
-  } else if (human === false) {
-    if (property === true) {
+  } else if (human < 0) {
+    if (property > 0) {
       return "disagree";
     } else {
       return getBadValueType(result);
     }
   } else {
-    if (property === true) {
+    // human === 0
+    if (property > 0) {
       return "ok";
-    } else if (property === false) {
+    } else if (property < 0) {
       return getBadValueTypeProperty(result);
     } else {
-      if (implicit) {
+      // human === 0 && property === 0
+      if (implicit >= 0) {
         return "ok";
       } else {
         return getBadValueType(result);
