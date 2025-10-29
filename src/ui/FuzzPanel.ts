@@ -7,8 +7,8 @@ import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
 import { isError } from "../Util";
-import { AbstractProgramModel } from "src/models/AbstractProgramModel";
-import { ProgramModelFactory } from "src/models/ProgramModelFactory";
+import { AbstractProgramModel } from "../models/AbstractProgramModel";
+import { ProgramModelFactory } from "../models/ProgramModelFactory";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];

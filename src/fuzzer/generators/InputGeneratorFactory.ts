@@ -5,7 +5,7 @@ import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
 import { InputAndSource } from "./Types";
-import { ProgramModelFactory } from "src/models/ProgramModelFactory";
+import { ProgramModelFactory } from "../../models/ProgramModelFactory";
 
 /**
  * Produces a set of concrete input generators appropriate for

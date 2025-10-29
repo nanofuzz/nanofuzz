@@ -4,7 +4,7 @@ import { ArgType, ArgValueTypeWrapped } from "../analysis/typescript/Types";
 import { InputAndSource } from "./Types";
 import { ArgDefValidator } from "../analysis/typescript/ArgDefValidator";
 import * as JSON5 from "json5";
-import { AbstractProgramModel } from "src/models/AbstractProgramModel";
+import { AbstractProgramModel } from "../../models/AbstractProgramModel";
 
 /**
  * Generates new inputs using a large language model
