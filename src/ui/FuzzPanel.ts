@@ -42,7 +42,6 @@ export class FuzzPanel {
   private _state: FuzzPanelState = FuzzPanelState.init; // The current state of the fuzzer.
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
   private _focusInput?: [string, number]; // Newly-added input to receive UI focus
-  private _lastFuzzRun: "none" | "one" | "gen" = "none"; // Type of last fuzzer run
   private _lastTab: string | undefined; // Last tab that had focus
 
   // State-dependent instance variables
@@ -1068,7 +1067,6 @@ ${inArgConsts}
         // Transition to done state
         this._errorMessage = undefined;
         this._state = FuzzPanelState.done;
-        this._lastFuzzRun = "gen";
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1174,7 +1172,6 @@ ${inArgConsts}
       try {
         // Run just the one test input w/all input generators
         const thisResult = fuzzer.fuzz(envNoGenerators, [injectedTest]);
-        this._lastFuzzRun = "one";
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1241,14 +1238,15 @@ ${inArgConsts}
     this._lastTab = panelInput.lastTab;
 
     // Apply numeric fuzzer option changes
-    const numericOptions = [
-      "suiteTimeout",
-      "maxDupeInputs",
-      "maxTests",
-      "maxFailures",
-      "fnTimeout",
-    ] as const;
-    numericOptions.forEach((e) => {
+    (
+      [
+        "suiteTimeout",
+        "maxDupeInputs",
+        "maxTests",
+        "maxFailures",
+        "fnTimeout",
+      ] as const
+    ).forEach((e) => {
       if (e in panelInput.fuzzer) {
         const inputOption = panelInput.fuzzer[e];
         if (typeof inputOption === "number") {
@@ -1258,8 +1256,7 @@ ${inArgConsts}
     });
 
     // Apply boolean fuzzer option changes
-    const booleanOptions = ["useImplicit", "useHuman", "useProperty"] as const;
-    booleanOptions.forEach((e) => {
+    (["useImplicit", "useHuman", "useProperty"] as const).forEach((e) => {
       if (e in panelInput.fuzzer) {
         const inputOption = panelInput.fuzzer[e];
         if (typeof inputOption === "boolean") {
@@ -1359,6 +1356,7 @@ ${inArgConsts}
       ]); // URI to client-side panel script
       const env = this._fuzzEnv; // Fuzzer environment
       const fn = env.function; // Function under test
+      const argDefs = fn.getArgDefs();
       const counterArgDef = { id: 0 }; // Unique counter for argument ids
       let argDefHtml = ""; // HTML representing argument definitions
       const heuristicValidatorDescription = fn.isVoid()
@@ -1372,13 +1370,13 @@ ${inArgConsts}
         });
       } // if: results are available
 
-      fn.getArgDefs().forEach((arg, i) => {
+      argDefs.forEach((arg, i) => {
         // Render the HTML for each generator argument
         argDefHtml += this._argDefToHtmlForm(
           arg,
           counterArgDef,
           "",
-          i === fn.getArgDefs().length - 1 ? "" : ",",
+          i === argDefs.length - 1 ? "" : ",",
           undefined
         );
       });
@@ -1496,7 +1494,7 @@ ${inArgConsts}
                         Increases code coverage
                       </span>
                     </vscode-checkbox>
-                    <vscode-text-field style="display:none" ${disabledFlag} size="3" id="fuzz-measures-CoverageMeasure-weight" name="fuzz-measures-CoverageMeasure-weight" value="${this._fuzzEnv.options.measures.FailedTestMeasure.weight}">
+                    <vscode-text-field style="display:none" ${disabledFlag} size="3" id="fuzz-measure-CoverageMeasure-weight" name="fuzz-measures-CoverageMeasure-weight" value="${this._fuzzEnv.options.measures.FailedTestMeasure.weight}">
                       Weight of measure (&gt;=1)
                     </vscode-text-field>
                     <vscode-checkbox ${disabledFlag} id="fuzz-measure-FailedTestMeasure-enabled" ${this._fuzzEnv.options.measures.FailedTestMeasure.enabled ? "checked" : ""}>
@@ -1566,9 +1564,9 @@ ${inArgConsts}
               </div>
               <h2 style="margin-bottom:.3em;">Add a test input</h2>
               <p class="fuzzPanelDescription">
-                Enter an input value below. 
-                It won't be type-checked.
-                Click <strong>+</strong> to test it.
+                Enter Javascript input value${ argDefs.length ===1 ? "" : "s"} below. 
+                ${ argDefs.length ===1 ? "It" : "They"} won't be type-checked.
+                Click <strong>+</strong> to test.
               </p>
               <table class="fuzzGrid">
                 <thead>
@@ -1585,11 +1583,7 @@ ${inArgConsts}
                     ${this._results?.env.function.getArgDefs()
                       .map(
                         (arg,i) => /*html*/
-                          `<td><vscode-text-field ${disabledFlag} id="addInputArg-${i}-value" name="addInputArg-${i}-value" placeholder="Literal value (JSON)" value="${
-                            arg.getDim()
-                              ? "[]"
-                              : (arg.getType()===fuzzer.ArgTag.OBJECT ? "{}" : "") 
-                          }"></vscode-text-field>
+                          `<td><vscode-text-field ${disabledFlag} id="addInputArg-${i}-value" name="addInputArg-${i}-value" placeholder="Literal value (JSON)" value=""></vscode-text-field>
                           </td>`
                       )
                       .join("\r\n")}
@@ -1626,7 +1620,7 @@ ${inArgConsts}
                 ? ""
                 : " hidden"
             }">
-              <p>No property validators were found, so the property validator column is blank. Click (+) to add a property validator.</p>
+              <p>No property validators were found, so the property validator column is blank.</p>
             </div>
 
             <!-- Fuzzer Info -->
@@ -2720,7 +2714,7 @@ export const languages = ["typescript", "typescriptreact"];
 /**
  * The Fuzzer State Version we currently support.
  */
-const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.6"; // !!!!! Increment if fmt changes
+const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.9"; // !!!!!!! Increment if fmt changes
 
 /**
  * Current file format version for persisting test sets / pinned test cases
@@ -2768,7 +2762,7 @@ export type FunctionMatch = {
  * Message to start Fuzzer
  */
 export type FuzzPanelFuzzStartMessage = {
-  fuzzer: fuzzer.FuzzOptions;
+  fuzzer: Omit<fuzzer.FuzzOptions, "argDefaults">;
   args: fuzzer.FuzzArgOverride[];
   lastTab?: string;
   input?: fuzzer.ArgValueTypeWrapped[];

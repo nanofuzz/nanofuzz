@@ -8,7 +8,6 @@ import {
 import {
   FuzzArgOverride,
   FuzzIoElement,
-  FuzzOptions,
   FuzzPinnedTest,
   FuzzResultCategory,
   FuzzSortColumns,
@@ -19,6 +18,7 @@ import {
   ArgValueTypeWrapped,
   FuzzTestResults,
 } from "fuzzer/Fuzzer";
+import { FuzzPanelFuzzStartMessage } from "ui/FuzzPanel";
 
 const vscode = acquireVsCodeApi();
 
@@ -1737,135 +1737,115 @@ function disableUiControls(disableArr: EventTarget[]): void {
  * @returns FuzzPanelFuzzStartMessage containing the configuration
  */
 function getConfigFromUi(): FuzzPanelFuzzStartMessage {
+  const fuzzBase = "fuzz"; // Base html id name
+
+  // Get input elements
+  const MutationInputGeneratorEnabled = getElementByIdOrThrow(
+    `${fuzzBase}-gen-MutationInputGenerator-enabled`
+  );
+  const CoverageMeasureEnabled = getElementByIdOrThrow(
+    `${fuzzBase}-measure-CoverageMeasure-enabled`
+  );
+  const CoverageMeasureWeight = getElementByIdOrThrow(
+    `${fuzzBase}-measure-CoverageMeasure-weight`
+  );
+  const FailedTestMeasureEnabled = getElementByIdOrThrow(
+    `${fuzzBase}-measure-FailedTestMeasure-enabled`
+  );
+  const FailedTestMeasureWeight = getElementByIdOrThrow(
+    `${fuzzBase}-measure-FailedTestMeasure-enabled`
+  );
+
+  // List of controls to disable while fuzzer is busy
+  const disableArr = [
+    getElementByIdOrThrow("fuzz.start"),
+    getElementByIdOrThrow("fuzz.addTestInput"),
+    MutationInputGeneratorEnabled,
+    CoverageMeasureEnabled,
+    CoverageMeasureWeight,
+    FailedTestMeasureEnabled,
+    FailedTestMeasureWeight,
+  ];
+
+  // Helper: integer values
+  const getIntValue = (e: string): number => {
+    const item = getElementByIdOrThrow(fuzzBase + "-" + e);
+    disableArr.push(item);
+    const currentValue = item.getAttribute("current-value");
+    if (currentValue === null) {
+      throw new Error("current-value is null");
+    }
+    return Math.max(parseInt(currentValue), 0);
+  };
+
+  // Helper: boolean values boolean
+  const getBooleanValue = (e: string): boolean => {
+    const item = getElementByIdOrThrow(fuzzBase + "-" + e);
+    disableArr.push(item);
+    return (
+      (item.getAttribute("value") ?? item.getAttribute("current-checked")) ===
+      "true"
+    );
+  };
+
   // Fuzzer option overrides (from UI)
   const overrides: FuzzPanelFuzzStartMessage = {
-    fuzzer: {},
+    fuzzer: {
+      maxTests: getIntValue("maxTests"),
+      maxDupeInputs: getIntValue("maxDupeInputs"),
+      maxFailures: getIntValue("maxFailures"),
+      fnTimeout: getIntValue("fnTimeout"),
+      suiteTimeout: getIntValue("suiteTimeout"),
+      useImplicit: getBooleanValue("useImplicit"),
+      useHuman: true, // always active
+      useProperty: getBooleanValue("useProperty"),
+      measures: {
+        CoverageMeasure: {
+          enabled:
+            (CoverageMeasureEnabled.getAttribute("value") ??
+              CoverageMeasureEnabled.getAttribute("current-checked")) ===
+            "true",
+          weight: Math.min(
+            Number(CoverageMeasureWeight.getAttribute("value")),
+            1
+          ),
+        },
+        FailedTestMeasure: {
+          enabled:
+            (FailedTestMeasureEnabled.getAttribute("value") ??
+              FailedTestMeasureEnabled.getAttribute("current-checked")) ===
+            "true",
+          weight: Math.min(
+            Number.parseFloat(
+              FailedTestMeasureWeight.getAttribute("value") ?? "1"
+            ),
+            1
+          ),
+        },
+      },
+      generators: {
+        RandomInputGenerator: {
+          enabled: true, // always enabled
+        },
+        MutationInputGenerator: {
+          enabled:
+            (MutationInputGeneratorEnabled.getAttribute("value") ??
+              MutationInputGeneratorEnabled.getAttribute("current-checked")) ===
+            "true",
+        },
+      },
+    },
     args: [],
     lastTab:
       document
         .getElementById("fuzzResultsTabStrip")
         ?.getAttribute("activeId") ?? undefined,
   };
-  // List of controls to disable while fuzzer is busy
-  const disableArr = [
-    getElementByIdOrThrow("fuzz.start"),
-    getElementByIdOrThrow("fuzz.addTestInput"),
-  ];
-  const fuzzBase = "fuzz"; // Base html id name
-
-  // Process integer fuzzer options
-  (
-    [
-      "suiteTimeout",
-      "maxTests",
-      "fnTimeout",
-      "maxDupeInputs",
-      "maxFailures",
-    ] as const
-  ).forEach((e) => {
-    const item = document.getElementById(fuzzBase + "-" + e);
-    if (item !== null) {
-      disableArr.push(item);
-      const currentValue = item.getAttribute("current-value");
-      if (currentValue === null) {
-        throw new Error("current-value is null");
-      }
-      overrides.fuzzer[e] = Math.max(parseInt(currentValue), 0);
-    }
-  });
-
-  // Process boolean fuzzer options
-  (["useHuman", "useImplicit", "useProperty"] as const).forEach((e) => {
-    const item = document.getElementById(fuzzBase + "-" + e);
-    if (item !== null) {
-      disableArr.push(item);
-      overrides.fuzzer[e] =
-        (item.getAttribute("value") ?? item.getAttribute("current-checked")) ===
-        "true";
-    }
-  });
-
-  // Process generator fuzzer options
-  const MutationInputGeneratorEnabled = document.getElementById(
-    `${fuzzBase}-gen-MutationInputGenerator-enabled`
-  );
-  disableArr.push(...[MutationInputGeneratorEnabled].filter((e) => e !== null));
-  overrides.fuzzer.generators = {
-    RandomInputGenerator: {
-      enabled: true, // always enabled
-    },
-    MutationInputGenerator: {
-      enabled:
-        MutationInputGeneratorEnabled === null
-          ? true
-          : !!(
-              MutationInputGeneratorEnabled.getAttribute("value") ??
-              MutationInputGeneratorEnabled.getAttribute("current-checked") ===
-                "true"
-            ),
-    },
-  };
-
-  // Process measurement fuzzer options
-  const CoverageMeasureEnabled = document.getElementById(
-    `${fuzzBase}-measure-CoverageMeasure-enabled`
-  );
-  const CoverageMeasureWeight = document.getElementById(
-    `${fuzzBase}-measure-CoverageMeasure-weight`
-  );
-  const FailedTestMeasureEnabled = document.getElementById(
-    `${fuzzBase}-measure-FailedTestMeasure-enabled`
-  );
-  const FailedTestMeasureWeight = document.getElementById(
-    `${fuzzBase}-measure-FailedTestMeasure-enabled`
-  );
-  disableArr.push(
-    ...[
-      CoverageMeasureEnabled,
-      CoverageMeasureWeight,
-      FailedTestMeasureEnabled,
-      FailedTestMeasureWeight,
-    ].filter((e) => e !== null)
-  );
-  overrides.fuzzer.measures = {
-    CoverageMeasure: {
-      enabled:
-        CoverageMeasureEnabled === null
-          ? true
-          : !!(
-              CoverageMeasureEnabled.getAttribute("value") ??
-              CoverageMeasureEnabled.getAttribute("current-checked") === "true"
-            ),
-      weight:
-        CoverageMeasureWeight === null
-          ? 1
-          : Math.min(Number(CoverageMeasureWeight.getAttribute("value")), 1),
-    },
-    FailedTestMeasure: {
-      enabled:
-        FailedTestMeasureEnabled === null
-          ? true
-          : !!(
-              FailedTestMeasureEnabled.getAttribute("value") ??
-              FailedTestMeasureEnabled.getAttribute("current-checked") ===
-                "true"
-            ),
-      weight:
-        FailedTestMeasureWeight === null
-          ? 1
-          : Math.min(
-              Number.parseFloat(
-                FailedTestMeasureWeight.getAttribute("value") ?? "1"
-              ),
-              1
-            ),
-    },
-  };
 
   // Process all the argument overrides
   for (let i = 0; document.getElementById(getIdBase(i)) !== null; i++) {
     const idBase = getIdBase(i);
-    const thisOverride: DeepPartial<FuzzArgOverride> = {};
+    const thisOverride: FuzzArgOverride = {};
     overrides.args.push(thisOverride);
 
     // Get all the possible controls for this argument
@@ -1881,27 +1861,22 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
     const isNoInput = document.getElementById(idBase + "-isNoInput");
 
     // Process numeric overrides
-    if (numInteger !== null) {
-      disableArr.push(numInteger);
-      thisOverride["number"] = {
+    if (numInteger && min && max) {
+      disableArr.push(numInteger, min, max);
+      const minVal = Number(min.getAttribute("current-value"));
+      const maxVal = Number(max.getAttribute("current-value"));
+      thisOverride.number = {
         numInteger:
           numInteger.getAttribute("current-checked") === "true" ? true : false,
+        min: Math.min(minVal, maxVal),
+        max: Math.max(minVal, maxVal),
       };
-      if (min !== null && max !== null) {
-        disableArr.push(min, max);
-        const minVal = min.getAttribute("current-value");
-        const maxVal = max.getAttribute("current-value");
-        if (minVal !== null && maxVal !== null) {
-          thisOverride.number["min"] = Math.min(Number(minVal), Number(maxVal));
-          thisOverride.number["max"] = Math.max(Number(minVal), Number(maxVal));
-        }
-      }
     } // TODO: Validation !!!
 
     // Process boolean overrides
     if (trueFalse !== null && trueOnly !== null && falseOnly !== null) {
       disableArr.push(trueFalse, trueOnly, falseOnly);
-      thisOverride["boolean"] = {
+      thisOverride.boolean = {
         min: trueOnly.getAttribute("current-checked") === "true" ? true : false,
         max:
           falseOnly.getAttribute("current-checked") === "true" ? false : true,
@@ -1909,22 +1884,23 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
     } // TODO: Validation !!!
 
     // Process string overrides
-    if (minStrLen !== null && maxStrLen !== null) {
+    if (minStrLen && maxStrLen && strCharset) {
       disableArr.push(minStrLen, maxStrLen);
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
-      if (strCharset === null) {
-        throw new Error("strCharset is null");
-      }
       const strCharsetVal = strCharset.getAttribute("current-value");
-      if (minStrLenVal !== null && maxStrLenVal !== null) {
+      if (
+        minStrLenVal !== null &&
+        maxStrLenVal !== null &&
+        strCharsetVal !== null
+      ) {
         thisOverride.string = {
           minStrLen: Math.max(
             0,
             Math.min(Number(minStrLenVal), Number(maxStrLenVal))
           ),
           maxStrLen: Math.max(Number(minStrLenVal), Number(maxStrLenVal), 0),
-          strCharset: strCharsetVal ?? undefined,
+          strCharset: strCharsetVal,
         };
       }
     } // TODO: Validation !!!
@@ -2160,22 +2136,3 @@ function htmlEscape(str: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 } // fn: htmlEscape()
-
-/**
- * Adapted from https://github.com/joonhocho/tsdef/blob/master/src/index.ts
- */
-export type DeepPartial<T> = {
-  [P in keyof T]?: T[P] extends Array<infer I>
-    ? Array<DeepPartial<I>>
-    : DeepPartial<T[P]>;
-};
-
-/**
- * Message to start Fuzzer
- */
-export type FuzzPanelFuzzStartMessage = {
-  fuzzer: Partial<FuzzOptions>;
-  args: DeepPartial<FuzzArgOverride>[];
-  lastTab?: string;
-  input?: ArgValueTypeWrapped[];
-};
