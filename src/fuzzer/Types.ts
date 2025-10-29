@@ -98,7 +98,6 @@ export type FuzzOptions = {
   maxTests: number; // number of fuzzing tests to execute (>= 0)
   maxDupeInputs: number; // maximum number of duplicate inputs before stopping (>=0)
   maxFailures: number; // maximum number of failures to report (>=0)
-  onlyFailures: boolean; // only report tests that do not pass
   fnTimeout: number; // timeout threshold in ms per test
   suiteTimeout: number; // timeout for the entire test suite
   useImplicit: boolean; // use implicit oracle
@@ -165,6 +164,7 @@ export enum FuzzStopReason {
   MAXFAILURES = "maxFailures",
   MAXTIME = "maxTime",
   MAXDUPES = "maxDupes",
+  NOMOREINPUTS = "noMoreInputs",
 }
 
 /**

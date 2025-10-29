@@ -56,6 +56,15 @@ th.expandCollapseColumn {
   padding-right: 0px;
   padding-bottom: 0px;
 }
+.fuzzGrid tbody tr {
+  transition: box-shadow 3s 3s ease, background-color 3s 3s ease;
+}
+.fuzzGrid tbody tr.focus {
+  transition: none;
+  background-color: var(--vscode-editor-hoverHighlightBackground);
+  box-shadow: 0px 0px 1px 1px
+    rgb(from var(--vscode-editor-hoverHighlightBackground) r g b / 1);
+}
 
 /* Validator icons */
 td.classCheckOff,
@@ -149,13 +158,13 @@ td.classErrorOn:active {
 
 /* Expected output panel */
 td.classErrorCell {
-  text-decoration: red underline wavy;
+  text-decoration: var(--vscode-editorError-foreground) underline wavy;
 }
 vscode-text-field.classErrorCell {
   opacity: 100%;
   outline-style: solid;
   outline-width: 0.05cm;
-  outline-color: red;
+  outline-color: var(--vscode-editorError-foreground);
 }
 tr.classGetExpectedOutputRow td,
 tr.classErrorExpectedOutputRow td {
@@ -172,7 +181,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   opacity: 80%;
 }
 .expectedOutputErrorMessage {
-  color: red;
+  color: var(--vscode-editorError-foreground);
   margin-left: 0.5em;
   font-weight: bold;
 }
@@ -434,4 +443,45 @@ div.fuzzInputControlGroup {
   font-size: var(--vscode-font-size);
   line-height: normal;
   margin-bottom: 2px;
+}
+
+/** Snackbar: adapted from https://www.w3schools.com/howto/howto_js_snackbar.asp **/
+.snackbar {
+  visibility: hidden;
+  min-width: 18em;
+  margin-left: -9.25em;
+  background-color: var(--vscode-notifications-background);
+  color: var(--vscode-notifications-foreground);
+  text-align: center;
+  border-radius: 2px;
+  border-style: solid;
+  border-width: 2px;
+  border-color: rgb(
+    from var(--vscode-editor-hoverHighlightBackground) r g b / 1
+  );
+  padding: 0.25em;
+  position: absolute;
+  left: 50%;
+  font-size: var(--vscode-font-size);
+  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+.snackbarShow {
+  visibility: visible;
+  animation: fadein 0.5s, fadeout 0.5s 3.6s;
+}
+@keyframes fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fadeout {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }

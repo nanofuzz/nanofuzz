@@ -89,6 +89,7 @@ export type ArgValueType =
     }
   | ArgValueType[]
   | undefined;
+export type ArgValueTypeWrapped = { value: ArgValueType }; // Use for arrays
 
 /**
  * The set of options for an argument.  This option set is used to "fill in" information

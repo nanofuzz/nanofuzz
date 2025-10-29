@@ -1,5 +1,5 @@
 import { ArgDef } from "./ArgDef";
-import { ArgTag, ArgType, ArgValueType } from "./Types";
+import { ArgTag, ArgType, ArgValueType, ArgValueTypeWrapped } from "./Types";
 import * as JSON5 from "json5";
 
 /**
@@ -23,11 +23,11 @@ export class ArgDefValidator {
    * @param `values` array of values to validate against the specs.
    * @returns true if the values conform to the ArgDef specs, false otherwise
    */
-  public validate(values: ArgValueType[]): boolean {
+  public validate(values: ArgValueTypeWrapped[]): boolean {
     let i = 0;
     return (
       values.length <= this._specs.length &&
-      values.every((e) => ArgDefValidator.validate(e, this._specs[i++]))
+      values.every((e) => ArgDefValidator.validate(e.value, this._specs[i++]))
     );
   } // fn: validate
 

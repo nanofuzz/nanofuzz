@@ -1,7 +1,7 @@
 import { ArgDef } from "./ArgDef";
 import { ArgDefGenerator } from "./ArgDefGenerator";
 import { ArgDefValidator } from "./ArgDefValidator";
-import { ArgTag, ArgType, ArgValueType } from "./Types";
+import { ArgTag, ArgType, ArgValueType, ArgValueTypeWrapped } from "./Types";
 import * as JSON5 from "json5";
 
 /**
@@ -24,7 +24,7 @@ export class ArgDefMutator {
    */
   public static getMutators(
     specs: ArgDef<ArgType>[],
-    value: ArgValueType[],
+    value: ArgValueTypeWrapped[],
     prng: seedrandom.prng
   ): mutatorFn[] {
     // Sanity check: ensure we have specs to cover our inputs
@@ -44,7 +44,7 @@ export class ArgDefMutator {
     }[] = [];
 
     // Utility function that determines mutators appropriate
-    // for a given array values and ArgDef spec.
+    // for a given array of values and ArgDef spec.
     const mutateArray = (
       a: Array<ArgValueType>,
       path: (string | number)[],
@@ -117,8 +117,8 @@ export class ArgDefMutator {
       inArray: boolean;
     }[] = value.map((e, i) => {
       return {
-        subPath: [Number(i)],
-        subElement: e,
+        subPath: [Number(i), "value"],
+        subElement: e.value,
         subSpec: specs[i],
         inArray: false,
       };
@@ -376,7 +376,7 @@ export class ArgDefMutator {
             );
           } else {
             wasMutated = true;
-            return this.mutateValueInPlace(value, e.path, e.value);
+            return this._mutateValueInPlace(value, e.path, e.value);
           }
         },
       };
@@ -392,8 +392,8 @@ export class ArgDefMutator {
    * @param `newValue` the new value
    * @returns the mutated input value
    */
-  protected static mutateValueInPlace(
-    value: ArgValueType,
+  protected static _mutateValueInPlace(
+    value: ArgValueTypeWrapped[],
     path: (number | string)[],
     newValue: ArgValueType
   ): ArgValueType {
@@ -409,7 +409,6 @@ export class ArgDefMutator {
         } else if (typeof element === "object") {
           element = element[String(key)];
         } else {
-          // !!!!!!!! Human-generated inputs might not be conformant...
           throw new Error(
             `Cannot follow path through non-array / non-object. Input: ${JSON5.stringify(
               value
@@ -425,7 +424,6 @@ export class ArgDefMutator {
         } else if (typeof element === "object") {
           element[String(key)] = newValue;
         } else {
-          // !!!!!!!! Human-generated inputs might not be conformant...
           throw new Error(
             `Cannot mutate value through non-array / non-object. Input: ${JSON5.stringify(
               value

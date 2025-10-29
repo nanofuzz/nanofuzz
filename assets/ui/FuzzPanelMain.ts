@@ -8,12 +8,17 @@ import {
 import {
   FuzzArgOverride,
   FuzzIoElement,
-  FuzzOptions,
+  FuzzPinnedTest,
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
 } from "fuzzer/Types";
-import { FuzzTestResults } from "fuzzer/Fuzzer";
+import {
+  ArgValueType,
+  ArgValueTypeWrapped,
+  FuzzTestResults,
+} from "fuzzer/Fuzzer";
+import { FuzzPanelFuzzStartMessage } from "ui/FuzzPanel";
 
 const vscode = acquireVsCodeApi();
 
@@ -113,13 +118,31 @@ function main() {
     if (!e.currentTarget) {
       throw new Error("no currentTarget");
     }
-    handleFuzzStart(e.currentTarget);
+    handleFuzzStart();
   });
 
   // Add event listener for the fuzz.options button
   getElementByIdOrThrow("fuzz.options").addEventListener(
     "click",
     toggleFuzzOptions
+  );
+
+  // Add event listener for the fuzz.addTestInputOptions button
+  getElementByIdOrThrow("fuzz.addTestInputOptions").addEventListener(
+    "click",
+    toggleAddTestInputOptions
+  );
+
+  // Add event listener for the fuzz.addTestInputOptions close button
+  getElementByIdOrThrow("fuzzAddTestInputOptions-close").addEventListener(
+    "click",
+    toggleAddTestInputOptions
+  );
+
+  // Add event listener for the fuzz.addTestInput button
+  getElementByIdOrThrow("fuzz.addTestInput").addEventListener(
+    "click",
+    handleAddTestInput
   );
 
   // Add event listener for opening the function source code
@@ -134,10 +157,11 @@ function main() {
     toggleFuzzOptions
   );
 
-  // Add event listener to toggle fuzz.options.interesting.inputs
-  getElementByIdOrThrow(
-    "fuzz.options.interesting.inputs.button"
-  ).addEventListener("click", toggleInterestingInputs);
+  // Add event listener to toggle fuzz.options.interesting.inputs.button
+  // if it is present
+  document
+    .getElementById("fuzz.options.interesting.inputs.button")
+    ?.addEventListener("click", toggleInterestingInputs);
 
   // Add event listeners for all the union generate checkboxes
   document.querySelectorAll(".isNoInput vscode-checkbox").forEach((element) => {
@@ -177,6 +201,16 @@ function main() {
     "click",
     handleGetListOfValidators
   );
+
+  // Add event listeners for the add input fields
+  for (let i = 0; document.getElementById(`addInputArg-${i}-value`); i++) {
+    getElementByIdOrThrow(`addInputArg-${i}-value`).addEventListener(
+      "change",
+      () => {
+        getInputValues();
+      }
+    );
+  }
 
   // Load & display the validator functions from the HTML
   validators = JSON5.parse(
@@ -219,7 +253,7 @@ function main() {
     let idx = 0;
     for (const e of resultsData.results) {
       // Indicate which tests are pinned
-      const pinned = { [pinnedLabel]: !!(e.pinned ?? false) };
+      const pinned = { [pinnedLabel]: !!e.pinned };
       const id = { [idLabel]: idx++ };
 
       // Implicit validation result
@@ -473,7 +507,31 @@ function main() {
         } // for i
       } // if data[type].length
     }); // for each type (e.g. bad output, passed)
-  }
+
+    // If we need to toast a result, do that now
+    const toastResultElement = document.getElementById("fuzzFocusInput");
+    if (toastResultElement) {
+      const toastResult: unknown = JSON5.parse(
+        htmlUnescape(toastResultElement.innerHTML)
+      );
+      if (
+        Array.isArray(toastResult) &&
+        toastResult.length === 2 &&
+        typeof toastResult[0] === "string" &&
+        typeof toastResult[1] === "number"
+      ) {
+        scrollAndToastResult(
+          toastResult[1].toString(),
+          `tab-${toastResult[0]}`,
+          "Input added and tested"
+        );
+      } else {
+        throw new Error(
+          `Command to toast result ${JSON5.stringify(toastResult)} is invalid.`
+        );
+      }
+    }
+  } // if we have results data
 } // fn: main()
 
 /**
@@ -493,6 +551,172 @@ function toggleFuzzOptions() {
   // Refresh the list of validators
   handleGetListOfValidators();
 } // fn: toggleFuzzOptions()
+
+/**
+ * Toggles whether add test case options are shown.
+ */
+function toggleAddTestInputOptions() {
+  const fuzzAddTestInputOptionsPane = getElementByIdOrThrow(
+    "fuzzAddTestInputOptions-pane"
+  );
+  const fuzzAddTestInputOptionsButton = getElementByIdOrThrow(
+    "fuzz.addTestInputOptions"
+  );
+  if (isHidden(fuzzAddTestInputOptionsPane)) {
+    toggleHidden(fuzzAddTestInputOptionsPane);
+    fuzzAddTestInputOptionsButton.innerHTML = "Cancel Add Input";
+    getElementByIdOrThrow("addInputArg-0-value").focus();
+  } else {
+    toggleHidden(fuzzAddTestInputOptionsPane);
+    show(fuzzAddTestInputOptionsButton);
+    fuzzAddTestInputOptionsButton.innerHTML = "Add Input...";
+  }
+} // fn: toggleAddTestInputOptions
+
+/**
+ * Add custom test input to the test results table.
+ */
+function handleAddTestInput() {
+  const overrides = getConfigFromUi();
+  overrides.input = getInputValues();
+
+  // Return if the inputs are unavaiable
+  if (!overrides.input) {
+    return;
+  }
+
+  // Only call the fuzzer if the input is not already in the grid
+  const tick = resultsData.results.findIndex(
+    (r) =>
+      JSON5.stringify(r.input.map((i) => i.value)) ===
+      JSON5.stringify(overrides.input?.map((i) => i.value))
+  );
+  if (tick === -1) {
+    // Call the extension to test this one input
+    vscode.postMessage({
+      command: "fuzz.addTestInput",
+      json: JSON5.stringify(overrides),
+    });
+  } else {
+    // Input already in the grid. Hide the add input pane.
+    toggleAddTestInputOptions();
+
+    // Switch to the tab containing the value, scroll, and toast
+    scrollAndToastResult(
+      tick.toString(),
+      `tab-${resultsData.results[tick].category}`,
+      "Input previously added &amp; tested"
+    );
+  }
+} // fn: handleAddTestInputCase
+
+/**
+ * Gets a single input value.
+ *
+ * Note: Also maintains the error state of the input fields.
+ *
+ * @returns an `ArgValueTypeWrapped` if successful, undefined otherwise
+ */
+function getInputValues(): ArgValueTypeWrapped[] | undefined {
+  const inputs: ArgValueTypeWrapped[] = [];
+  let errors = false;
+
+  for (let i = 0; document.getElementById(`addInputArg-${i}-value`); i++) {
+    const e = getElementByIdOrThrow(`addInputArg-${i}-value`);
+    const message = getElementByIdOrThrow(`addInputArg-${i}-message`);
+    const unparsedValue = e.getAttribute("current-value");
+    try {
+      e.classList.remove("classErrorCell");
+      message.classList.remove("expectedOutputErrorMessage");
+      message.innerHTML = "";
+      // Attempt to parse & add the input value
+      inputs.push({
+        value:
+          unparsedValue === null ||
+          unparsedValue === "undefined" ||
+          unparsedValue === ""
+            ? undefined
+            : JSON5.parse(unparsedValue),
+      });
+    } catch (err) {
+      // Error feedback
+      e.classList.add("classErrorCell");
+      message.classList.add("expectedOutputErrorMessage");
+      message.innerHTML = " (invalid value)";
+      errors = true;
+    }
+  }
+
+  const testButton = getElementByIdOrThrow("fuzz.addTestInput");
+  if (errors) {
+    testButton.setAttribute("disabled", "true");
+    return undefined;
+  } else {
+    testButton.removeAttribute("disabled");
+    return inputs;
+  }
+} // fn: getInputValue
+
+/**
+ * Scrolls to a particular id and switches tabs if needed.
+ *
+ * @param `id` element id to scroll to
+ * @param `tab` optional tab id to switch to
+ */
+function scrollAndToastResult(
+  id: string,
+  tabId?: string,
+  message?: string
+): void {
+  setTimeout(async () => {
+    // click the tab if needed
+    if (tabId) {
+      getElementByIdOrThrow(tabId).click();
+    }
+    setTimeout(async () => {
+      const focusRow = getElementByIdOrThrow(id);
+
+      // Scroll to the row
+      focusRow.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+
+      setTimeout(async () => {
+        // Throb the row
+        focusRow.classList.add("focus");
+        setTimeout(async () => {
+          focusRow.classList.remove("focus");
+        }, 4000);
+
+        // If we have a message, show it on a snackbar
+        if (message) {
+          setTimeout(async () => {
+            // Create the snackbar
+            const snackbarRoot = getElementByIdOrThrow("snackbarRoot");
+            const snackbar = document.createElement("div");
+            snackbar.classList.add("snackbar");
+            snackbarRoot.parentElement?.append(snackbar);
+
+            // Add the message
+            snackbar.innerHTML = `<big>${message}</big>`;
+
+            // Position the snackbar above the row & display it
+            const focusRowTop =
+              focusRow.getBoundingClientRect().top + window.scrollY;
+            snackbar.style.top = `${focusRowTop - snackbar.clientHeight - 5}px`;
+            snackbar.classList.add("snackbarShow");
+
+            // Remove the snackbar after 4s
+            setTimeout(async () => {
+              snackbar.remove();
+            }, 4000);
+          });
+        }
+      });
+    });
+  });
+} // scrollAndToast
 
 /**
  * Toggles whether interesting inputs are shown
@@ -679,19 +903,14 @@ function handleCorrectToggle(
   // Redraw table
   drawTableBody({ type, tbody, isClicking: true, button });
 
-  const onOffStr = button.getAttribute("onOff");
-  if (onOffStr !== "true" && onOffStr !== "false") {
-    throw new Error("invalid onOff value");
-  }
-  const onOff: boolean = JSON.parse(onOffStr);
-  const pinCell = getElementByIdWithTypeOrThrow(
+  // Get the pinned state
+  const isPinned = getElementByIdWithTypeOrThrow(
     `fuzzSaveToggle-${id}`,
     HTMLTableCellElement
-  );
-  const isPinned = pinCell.className === pinState.classPinned;
+  ).classList.contains(pinState.classPinned);
 
   // Get the test data for the test case
-  const testCase = {
+  const testCase: FuzzPinnedTest = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: isPinned,
@@ -701,7 +920,7 @@ function handleCorrectToggle(
   // Send the request to the extension
   window.setTimeout(() => {
     vscode.postMessage({
-      command: onOff ? "test.pin" : "test.unpin",
+      command: isPinned ? "test.pin" : "test.unpin",
       json: JSON5.stringify(testCase),
     });
   });
@@ -1132,22 +1351,23 @@ function drawTableBody({
         const cell1 = row.appendChild(document.createElement("td"));
         cell1.innerHTML = correctState.htmlCheck;
         cell1.setAttribute("correctType", "true");
-        cell1.addEventListener("click", () => {
-          handleCorrectToggle(cell1, row, type, tbody, cell1, cell2);
-        });
+        cell1.className = correctState.classCheckOff; // updated below
+        cell1.setAttribute("onOff", "false"); // updated below
+
         // Add X mark icon
         const cell2 = row.appendChild(document.createElement("td"));
         cell2.innerHTML = correctState.htmlError;
         cell2.setAttribute("correctType", "false");
+        cell2.className = correctState.classErrorOff; // updated below
+        cell2.setAttribute("onOff", "false"); // updated below
+
+        // Add event listeners
+        cell1.addEventListener("click", () => {
+          handleCorrectToggle(cell1, row, type, tbody, cell1, cell2);
+        });
         cell2.addEventListener("click", () => {
           handleCorrectToggle(cell2, row, type, tbody, cell1, cell2);
         });
-
-        // Defaults here; override in the switch below
-        cell1.className = correctState.classCheckOff;
-        cell1.setAttribute("onOff", "false");
-        cell2.className = correctState.classErrorOff;
-        cell2.setAttribute("onOff", "false");
 
         // Update the front-end buttons to match the back-end state
         switch (e[k] + "") {
@@ -1156,20 +1376,22 @@ function drawTableBody({
           case "true":
             cell1.className = correctState.classCheckOn;
             cell1.setAttribute("onOff", "true");
-            if (isClicking) {
-              handleExpectedOutput({ type, row, tbody, isClicking, button });
-            } else {
-              handleExpectedOutput({ type, row, tbody, isClicking, button });
-            }
+            handleExpectedOutput({
+              type,
+              row,
+              tbody,
+              ...(isClicking ? { isClicking, button } : { isClicking }),
+            });
             break;
           case "false":
             cell2.className = correctState.classErrorOn;
             cell2.setAttribute("onOff", "true");
-            if (isClicking) {
-              handleExpectedOutput({ type, row, tbody, isClicking, button });
-            } else {
-              handleExpectedOutput({ type, row, tbody, isClicking, button });
-            }
+            handleExpectedOutput({
+              type,
+              row,
+              tbody,
+              ...(isClicking ? { isClicking, button } : { isClicking }),
+            });
             break;
         }
         cell1.classList.add("colGroupStart", "clickable");
@@ -1251,9 +1473,9 @@ function handleExpectedOutput({
 
       // Event handler for text field
       const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
-      textField.addEventListener("change", () =>
-        buildExpectedTestCase(id, type, index)
-      );
+      textField.addEventListener("change", () => {
+        buildExpectedTestCase(id, type, index);
+      });
 
       // Event handler for timeout radio button
       const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
@@ -1418,7 +1640,7 @@ function buildExpectedTestCase(
   id: number,
   type: FuzzResultCategory,
   index: number
-) {
+): FuzzPinnedTest | undefined {
   const textField = getElementByIdOrThrow(`fuzz-expectedOutput${id}`);
   const radioTimeout = getElementByIdOrThrow(`fuzz-radioTimeout${id}`);
   const radioException = getElementByIdOrThrow(`fuzz-radioException${id}`);
@@ -1428,11 +1650,13 @@ function buildExpectedTestCase(
 
   // Check if the expected value is valid JSON
   const expectedValue = textField.getAttribute("current-value");
-  let parsedExpectedValue;
+  let parsedExpectedValue: ArgValueType;
   try {
     // Attempt to parse the expected value
     parsedExpectedValue =
-      expectedValue === null || expectedValue === "undefined"
+      expectedValue === null ||
+      expectedValue === "undefined" ||
+      expectedValue === ""
         ? undefined
         : JSON5.parse(expectedValue);
   } catch (e) {
@@ -1456,23 +1680,13 @@ function buildExpectedTestCase(
   show(okButton);
 
   // Build the expected output object
-  const expectedOutput: {
-    name: string;
-    offset: number;
-    isTimeout?: boolean;
-    isException?: boolean;
-    value?: any;
-  } = {
+  const expectedOutput: FuzzIoElement = {
     name: "0",
     offset: 0,
+    isTimeout: !!("checked" in radioTimeout && radioTimeout.checked),
+    isException: !!("checked" in radioException && radioException.checked),
+    value: parsedExpectedValue,
   };
-  if ("checked" in radioTimeout && radioTimeout.checked) {
-    expectedOutput["isTimeout"] = true;
-  } else if ("checked" in radioException && radioException.checked) {
-    expectedOutput["isException"] = true;
-  } else {
-    expectedOutput["value"] = parsedExpectedValue;
-  }
 
   // Build & return the test case object
   return {
@@ -1483,13 +1697,6 @@ function buildExpectedTestCase(
   };
 } // fn: buildExpectedTestCase()
 
-// Copied from https://github.com/joonhocho/tsdef/blob/master/src/index.ts
-export type DeepPartial<T> = {
-  [P in keyof T]?: T[P] extends Array<infer I>
-    ? Array<DeepPartial<I>>
-    : DeepPartial<T[P]>;
-};
-
 /**
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
  * from the UI and sends them to the extension to start the fuzzer.
@@ -1497,129 +1704,148 @@ export type DeepPartial<T> = {
  * // e onClick() event
  * @param eCurrTarget current target of onClick() event
  */
-function handleFuzzStart(eCurrTarget: EventTarget) {
-  const overrides: {
-    fuzzer: Partial<FuzzOptions>;
-    args: DeepPartial<FuzzArgOverride>[];
-  } = { fuzzer: {}, args: [] }; // Fuzzer option overrides (from UI)
-  const disableArr = [eCurrTarget]; // List of controls to disable while fuzzer is busy
-  const fuzzBase = "fuzz"; // Base html id name
+function handleFuzzStart() {
+  // Send the fuzzer start command to the extension
+  vscode.postMessage({
+    command: "fuzz.start",
+    json: JSON5.stringify(getConfigFromUi()),
+  });
+} // fn: handleFuzzStart
 
-  // Process integer fuzzer options
-  (
-    [
-      "suiteTimeout",
-      "maxTests",
-      "fnTimeout",
-      "maxDupeInputs",
-      "maxFailures",
-    ] as const
-  ).forEach((e) => {
-    const item = document.getElementById(fuzzBase + "-" + e);
-    if (item !== null) {
-      disableArr.push(item);
-      const currentValue = item.getAttribute("current-value");
-      if (currentValue === null) {
-        throw new Error("current-value is null");
-      }
-      overrides.fuzzer[e] = parseInt(currentValue);
+/**
+ * Disable UI controls
+ *
+ * @param disableArr list of controls to disable
+ */
+function disableUiControls(disableArr: EventTarget[]): void {
+  disableArr.forEach((e) => {
+    if (
+      "style" in e &&
+      typeof e.style === "object" &&
+      e.style &&
+      "disabled" in e.style
+    ) {
+      e.style.disabled = true;
     }
   });
+} // fn: disableUiControls
 
-  // Process boolean fuzzer options
-  (["onlyFailures", "useHuman", "useImplicit", "useProperty"] as const).forEach(
-    (e) => {
-      const item = document.getElementById(fuzzBase + "-" + e);
-      if (item !== null) {
-        disableArr.push(item);
-        overrides.fuzzer[e] =
-          (item.getAttribute("value") ??
-            item.getAttribute("current-checked")) === "true";
-      }
-    }
-  );
+/**
+ * Returns the on-screen fuzzer configuration.
+ * Also disables controls in preparation for calling fuzzer.
+ *
+ * @returns FuzzPanelFuzzStartMessage containing the configuration
+ */
+function getConfigFromUi(): FuzzPanelFuzzStartMessage {
+  const fuzzBase = "fuzz"; // Base html id name
 
-  // Process generator fuzzer options
-  const MutationInputGeneratorEnabled = document.getElementById(
+  // Get input elements
+  const MutationInputGeneratorEnabled = getElementByIdOrThrow(
     `${fuzzBase}-gen-MutationInputGenerator-enabled`
   );
-  disableArr.push(...[MutationInputGeneratorEnabled].filter((e) => e !== null));
-  overrides.fuzzer.generators = {
-    RandomInputGenerator: {
-      enabled: true, // always enabled
-    },
-    MutationInputGenerator: {
-      enabled:
-        MutationInputGeneratorEnabled === null
-          ? true
-          : !!(
-              MutationInputGeneratorEnabled.getAttribute("value") ??
-              MutationInputGeneratorEnabled.getAttribute("current-checked") ===
-                "true"
-            ),
-    },
-  };
-
-  // Process measurement fuzzer options
-  const CoverageMeasureEnabled = document.getElementById(
+  const CoverageMeasureEnabled = getElementByIdOrThrow(
     `${fuzzBase}-measure-CoverageMeasure-enabled`
   );
-  const CoverageMeasureWeight = document.getElementById(
+  const CoverageMeasureWeight = getElementByIdOrThrow(
     `${fuzzBase}-measure-CoverageMeasure-weight`
   );
-  const FailedTestMeasureEnabled = document.getElementById(
+  const FailedTestMeasureEnabled = getElementByIdOrThrow(
     `${fuzzBase}-measure-FailedTestMeasure-enabled`
   );
-  const FailedTestMeasureWeight = document.getElementById(
+  const FailedTestMeasureWeight = getElementByIdOrThrow(
     `${fuzzBase}-measure-FailedTestMeasure-enabled`
   );
-  disableArr.push(
-    ...[
-      CoverageMeasureEnabled,
-      CoverageMeasureWeight,
-      FailedTestMeasureEnabled,
-      FailedTestMeasureWeight,
-    ].filter((e) => e !== null)
-  );
-  overrides.fuzzer.measures = {
-    CoverageMeasure: {
-      enabled:
-        CoverageMeasureEnabled === null
-          ? true
-          : !!(
-              CoverageMeasureEnabled.getAttribute("value") ??
-              CoverageMeasureEnabled.getAttribute("current-checked") === "true"
+
+  // List of controls to disable while fuzzer is busy
+  const disableArr = [
+    getElementByIdOrThrow("fuzz.start"),
+    getElementByIdOrThrow("fuzz.addTestInput"),
+    MutationInputGeneratorEnabled,
+    CoverageMeasureEnabled,
+    CoverageMeasureWeight,
+    FailedTestMeasureEnabled,
+    FailedTestMeasureWeight,
+  ];
+
+  // Helper: integer values
+  const getIntValue = (e: string): number => {
+    const item = getElementByIdOrThrow(fuzzBase + "-" + e);
+    disableArr.push(item);
+    const currentValue = item.getAttribute("current-value");
+    if (currentValue === null) {
+      throw new Error("current-value is null");
+    }
+    return Math.max(parseInt(currentValue), 0);
+  };
+
+  // Helper: boolean values boolean
+  const getBooleanValue = (e: string): boolean => {
+    const item = getElementByIdOrThrow(fuzzBase + "-" + e);
+    disableArr.push(item);
+    return (
+      (item.getAttribute("value") ?? item.getAttribute("current-checked")) ===
+      "true"
+    );
+  };
+
+  // Fuzzer option overrides (from UI)
+  const overrides: FuzzPanelFuzzStartMessage = {
+    fuzzer: {
+      maxTests: getIntValue("maxTests"),
+      maxDupeInputs: getIntValue("maxDupeInputs"),
+      maxFailures: getIntValue("maxFailures"),
+      fnTimeout: getIntValue("fnTimeout"),
+      suiteTimeout: getIntValue("suiteTimeout"),
+      useImplicit: getBooleanValue("useImplicit"),
+      useHuman: true, // always active
+      useProperty: getBooleanValue("useProperty"),
+      measures: {
+        CoverageMeasure: {
+          enabled:
+            (CoverageMeasureEnabled.getAttribute("value") ??
+              CoverageMeasureEnabled.getAttribute("current-checked")) ===
+            "true",
+          weight: Math.min(
+            Number(CoverageMeasureWeight.getAttribute("value")),
+            1
+          ),
+        },
+        FailedTestMeasure: {
+          enabled:
+            (FailedTestMeasureEnabled.getAttribute("value") ??
+              FailedTestMeasureEnabled.getAttribute("current-checked")) ===
+            "true",
+          weight: Math.min(
+            Number.parseFloat(
+              FailedTestMeasureWeight.getAttribute("value") ?? "1"
             ),
-      weight:
-        CoverageMeasureWeight === null
-          ? 1
-          : Math.min(Number(CoverageMeasureWeight.getAttribute("value")), 1),
+            1
+          ),
+        },
+      },
+      generators: {
+        RandomInputGenerator: {
+          enabled: true, // always enabled
+        },
+        MutationInputGenerator: {
+          enabled:
+            (MutationInputGeneratorEnabled.getAttribute("value") ??
+              MutationInputGeneratorEnabled.getAttribute("current-checked")) ===
+            "true",
+        },
+      },
     },
-    FailedTestMeasure: {
-      enabled:
-        FailedTestMeasureEnabled === null
-          ? true
-          : !!(
-              FailedTestMeasureEnabled.getAttribute("value") ??
-              FailedTestMeasureEnabled.getAttribute("current-checked") ===
-                "true"
-            ),
-      weight:
-        FailedTestMeasureWeight === null
-          ? 1
-          : Math.min(
-              Number.parseFloat(
-                FailedTestMeasureWeight.getAttribute("value") ?? "1"
-              ),
-              1
-            ),
-    },
+    args: [],
+    lastTab:
+      document
+        .getElementById("fuzzResultsTabStrip")
+        ?.getAttribute("activeId") ?? undefined,
   };
 
   // Process all the argument overrides
   for (let i = 0; document.getElementById(getIdBase(i)) !== null; i++) {
     const idBase = getIdBase(i);
-    const thisOverride: DeepPartial<FuzzArgOverride> = {};
+    const thisOverride: FuzzArgOverride = {};
     overrides.args.push(thisOverride);
 
     // Get all the possible controls for this argument
@@ -1635,27 +1861,22 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
     const isNoInput = document.getElementById(idBase + "-isNoInput");
 
     // Process numeric overrides
-    if (numInteger !== null) {
-      disableArr.push(numInteger);
-      thisOverride["number"] = {
+    if (numInteger && min && max) {
+      disableArr.push(numInteger, min, max);
+      const minVal = Number(min.getAttribute("current-value"));
+      const maxVal = Number(max.getAttribute("current-value"));
+      thisOverride.number = {
         numInteger:
           numInteger.getAttribute("current-checked") === "true" ? true : false,
+        min: Math.min(minVal, maxVal),
+        max: Math.max(minVal, maxVal),
       };
-      if (min !== null && max !== null) {
-        disableArr.push(min, max);
-        const minVal = min.getAttribute("current-value");
-        const maxVal = max.getAttribute("current-value");
-        if (minVal !== null && maxVal !== null) {
-          thisOverride.number["min"] = Math.min(Number(minVal), Number(maxVal));
-          thisOverride.number["max"] = Math.max(Number(minVal), Number(maxVal));
-        }
-      }
     } // TODO: Validation !!!
 
     // Process boolean overrides
     if (trueFalse !== null && trueOnly !== null && falseOnly !== null) {
       disableArr.push(trueFalse, trueOnly, falseOnly);
-      thisOverride["boolean"] = {
+      thisOverride.boolean = {
         min: trueOnly.getAttribute("current-checked") === "true" ? true : false,
         max:
           falseOnly.getAttribute("current-checked") === "true" ? false : true,
@@ -1663,22 +1884,23 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
     } // TODO: Validation !!!
 
     // Process string overrides
-    if (minStrLen !== null && maxStrLen !== null) {
+    if (minStrLen && maxStrLen && strCharset) {
       disableArr.push(minStrLen, maxStrLen);
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
-      if (strCharset === null) {
-        throw new Error("strCharset is null");
-      }
       const strCharsetVal = strCharset.getAttribute("current-value");
-      if (minStrLenVal !== null && maxStrLenVal !== null) {
+      if (
+        minStrLenVal !== null &&
+        maxStrLenVal !== null &&
+        strCharsetVal !== null
+      ) {
         thisOverride.string = {
           minStrLen: Math.max(
             0,
             Math.min(Number(minStrLenVal), Number(maxStrLenVal))
           ),
           maxStrLen: Math.max(Number(minStrLenVal), Number(maxStrLenVal), 0),
-          strCharset: strCharsetVal ?? undefined,
+          strCharset: strCharsetVal,
         };
       }
     } // TODO: Validation !!!
@@ -1719,29 +1941,9 @@ function handleFuzzStart(eCurrTarget: EventTarget) {
   }
 
   // Disable input elements while the Fuzzer runs.
-  disableArr.forEach((e) => {
-    if (
-      "style" in e &&
-      typeof e.style === "object" &&
-      e.style &&
-      "disabled" in e.style
-    ) {
-      e.style.disabled = true;
-    }
-  });
-
-  // // Disable the validator controls while the Fuzzer runs.
-  // const validatorFnGrp = document.getElementById("validatorFunctions-radios");
-  // for (const e of validatorFnGrp.children) {
-  //   e.style.disabled = true;
-  // }
-
-  // Send the fuzzer start command to the extension
-  vscode.postMessage({
-    command: "fuzz.start",
-    json: JSON5.stringify(overrides),
-  });
-} // fn: handleFuzzStart
+  disableUiControls(disableArr);
+  return overrides;
+} // fn: getConfigFromUi
 
 /**
  * Refreshes the displayed list of validators based on a list of

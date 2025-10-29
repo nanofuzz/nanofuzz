@@ -105,10 +105,15 @@ export const fuzz = (
   let failureCount = 0; // Number of failed tests encountered so far
 
   // Ensure we have a valid set of Fuzz options
-  if (!isOptionValid(env.options))
+  if (!isOptionValid(env.options)) {
     throw new Error(
       `Invalid options provided: ${JSON5.stringify(env.options, null, 2)}`
     );
+  }
+
+  console.log(
+    `\r\n\r\nTesting target: ${env.function.getName()} of ${env.function.getModule()}`
+  );
 
   // Get the active measures, which will take various measurements
   // during execution that guide the composite generator
@@ -129,19 +134,18 @@ export const fuzz = (
   // first: we want the composite generator to know about these inputs so that
   // any "interesting" inputs might be further mutated by other generators.
   compositeInputGenerator.inject(
-    pinnedTests.map((t) => t.input.map((i) => i.value))
+    pinnedTests.map((t) =>
+      t.input.map((i) => {
+        return { value: i.value };
+      })
+    )
   );
-
-  console.log(
-    `\r\n\r\nTesting target: ${env.function.getName()} of ${env.function.getModule()}`
-  );
-
-  const startCompTime = performance.now(); // start time: compile & instrument
 
   // The module that includes the function to fuzz will
   // be a TypeScript source file, so we first must compile
   // it to JavaScript prior to execution.  This activates the
   // TypeScript compiler that hooks into the require() function.
+  const startCompTime = performance.now(); // start time: compile & instrument
   compiler.activate(measures);
 
   // The fuzz target is likely under development, so
@@ -154,7 +158,6 @@ export const fuzz = (
 
   // Deactivate the TypeScript compiler
   compiler.deactivate();
-
   results.stats.timers.compile = performance.now() - startCompTime;
 
   // Build a test runner for executing tests
@@ -182,7 +185,8 @@ export const fuzz = (
       currentDupeCount,
       totalDupeCount,
       failureCount,
-      startTime
+      startTime,
+      compositeInputGenerator.isAvailable()
     );
     if (stopCondition !== undefined) {
       results.stopReason = stopCondition;
@@ -219,7 +223,7 @@ export const fuzz = (
       return {
         name: argDefs[i].getName(),
         offset: i,
-        value: e,
+        value: e.value,
       };
     });
     result.source = genInput.source.subgen;
@@ -243,21 +247,23 @@ export const fuzz = (
     genStats.timers.gen += result.timers.gen;
     results.stats.timers.gen += result.timers.gen;
 
-    // Handle pinned vs. generated tests differently, e.g.,
-    // 1. pinned tests do not count against the maxTests limit
-    // 2. pinned tests stay pinned and may have an expected result
+    // Handle injected vs. generated tests differently, e.g.,
+    // 1. injected tests do not count against the maxTests limit
+    // 2. injected tests may or may not have an expected result
+    // 3. pinned tests stay pinned
     if (genInput.source.subgen === CompositeInputGenerator.INJECTED) {
       // Ensure the injected inputs are in the expected order
       const expectedInput = JSON5.stringify(pinnedTests[injectedCount].input);
       const returnedInput = JSON5.stringify(result.input);
       if (expectedInput !== returnedInput) {
         throw new Error(
-          `Injected inputs in unexpected order at injected input# ${injectedCount}. Expected: "${expectedInput}". Got: "${returnedInput}".`
+          `Injected inputs in unexpected order at injected input# ${injectedCount}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
+            JSON5.stringify(pinnedTests, null, 3) // !!!!!!!!
         );
       }
 
       // Map the pinned test information to the new result
-      result.pinned = pinnedTests[injectedCount].pinned;
+      result.pinned = !!pinnedTests[injectedCount].pinned;
       if (pinnedTests[injectedCount].expectedOutput) {
         result.expectedOutput = pinnedTests[injectedCount].expectedOutput;
       }
@@ -439,9 +445,7 @@ export const fuzz = (
     }
 
     // Store the result for this iteration
-    if (!env.options.onlyFailures || result.category !== "ok") {
-      results.results.push(result);
-    }
+    results.results.push(result);
 
     // Take measurements for this test run
     {
@@ -531,7 +535,8 @@ const _checkStopCondition = (
   currentDupeCount: number,
   totalDupeCount: number,
   failureCount: number,
-  startTime: number
+  startTime: number,
+  moreInputs: boolean
 ): FuzzStopReason | undefined => {
   // End testing if we exceed the suite timeout
   if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
@@ -556,6 +561,11 @@ const _checkStopCondition = (
     return FuzzStopReason.MAXDUPES;
   }
 
+  // End testing if the source of inputs is exhausted
+  if (!moreInputs) {
+    return FuzzStopReason.NOMOREINPUTS;
+  }
+
   // No stop condition found
   return undefined;
 }; // fn: _checkStopCondition()
@@ -575,7 +585,6 @@ const isOptionValid = (options: FuzzOptions): boolean => {
     typeof options.generators === "object" &&
     "RandomInputGenerator" in options.generators &&
     "enabled" in options.generators.RandomInputGenerator &&
-    options.generators.RandomInputGenerator.enabled &&
     typeof options.measures === "object"
   );
 }; // fn: isOptionValid()
@@ -752,6 +761,100 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
     }
   }
 } // fn: categorizeResult()
+
+/**
+ * Merge the results of two fuzzer runs.
+ *
+ * See comments below for some of the current limitations.
+ *
+ * @param `a` earlier FuzzTestResults to merge
+ * @param `b` later FuzzTestResults to merge
+ * @returns a FuzzTestResults representing a merge of `a` and `b1
+ */
+export function mergeTestResults(
+  a: FuzzTestResults,
+  b: FuzzTestResults
+): FuzzTestResults {
+  // Create c from a
+  const c: FuzzTestResults = JSON5.parse(JSON5.stringify(a));
+  c.env.function = b.env.function;
+  c.stopReason = b.stopReason;
+  // !!!!!!!! merge interesting inputs when we retain measure context across runs.
+
+  // Merge results
+  c.results.push(...b.results);
+
+  // Merge statistics
+  c.stats = {
+    timers: {
+      total: a.stats.timers.total + b.stats.timers.total,
+      compile: a.stats.timers.compile + b.stats.timers.compile,
+      run: a.stats.timers.run + b.stats.timers.run,
+      val: a.stats.timers.val + b.stats.timers.val,
+      gen: a.stats.timers.gen + b.stats.timers.gen,
+      measure: a.stats.timers.measure + b.stats.timers.measure,
+    },
+    counters: {
+      inputsGenerated:
+        a.stats.counters.inputsGenerated + b.stats.counters.inputsGenerated,
+      dupesGenerated:
+        a.stats.counters.dupesGenerated + b.stats.counters.dupesGenerated,
+      inputsInjected:
+        a.stats.counters.inputsInjected + b.stats.counters.inputsInjected,
+    },
+    generators: a.stats.generators, // no change here: generation disabled
+    measures: {},
+  };
+
+  // for measures, use one or the other (if only one is present) or merge (if both are present)
+  if (
+    a.stats.measures.CodeCoverageMeasure &&
+    b.stats.measures.CodeCoverageMeasure
+  ) {
+    // !!!!!!!! This won't be correct in all cases: should merge coverage maps & re-calc
+    c.stats.measures.CodeCoverageMeasure = {
+      counters: {
+        functionsTotal: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.functionsTotal,
+          b.stats.measures.CodeCoverageMeasure.counters.functionsTotal
+        ),
+        functionsCovered: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.functionsCovered,
+          b.stats.measures.CodeCoverageMeasure.counters.functionsCovered
+        ),
+        statementsTotal: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.statementsTotal,
+          b.stats.measures.CodeCoverageMeasure.counters.statementsTotal
+        ),
+        statementsCovered: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.statementsCovered,
+          b.stats.measures.CodeCoverageMeasure.counters.statementsCovered
+        ),
+        branchesTotal: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.branchesTotal,
+          b.stats.measures.CodeCoverageMeasure.counters.branchesTotal
+        ),
+        branchesCovered: Math.max(
+          a.stats.measures.CodeCoverageMeasure.counters.branchesCovered,
+          b.stats.measures.CodeCoverageMeasure.counters.branchesCovered
+        ),
+      },
+      files: a.stats.measures.CodeCoverageMeasure.files,
+    };
+    // Add any files from b that are missing in a
+    c.stats.measures.CodeCoverageMeasure.files.push(
+      ...b.stats.measures.CodeCoverageMeasure.files.filter(
+        (fb) =>
+          !a.stats.measures.CodeCoverageMeasure?.files.find((fa) => fa === fb)
+      )
+    );
+  } else if (b.stats.measures.CodeCoverageMeasure) {
+    c.stats.measures.CodeCoverageMeasure = {
+      ...b.stats.measures.CodeCoverageMeasure,
+    };
+  }
+  return c;
+} // fn: mergeTestResults
 
 /**
  * Fuzzer Environment required to fuzz a function.

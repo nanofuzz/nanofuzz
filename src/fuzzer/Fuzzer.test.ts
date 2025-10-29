@@ -1,5 +1,6 @@
 import { ArgDef, setup, fuzz, implicitOracle } from "./Fuzzer";
 import { FuzzOptions } from "./Types";
+import * as JSON5 from "json5";
 
 // Extend default test timeout to 45s
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 45000;
@@ -29,6 +30,7 @@ const allGenerators = {
     enabled: true,
   },
 };
+
 /**
  * Fuzzer option for integer arguments and a seed for deterministic test execution.
  */
@@ -40,7 +42,6 @@ const intOptions: FuzzOptions = {
   seed: "qwertyuiop",
   maxDupeInputs: 1000,
   maxFailures: 0,
-  onlyFailures: false,
   useImplicit: true,
   useHuman: true,
   useProperty: false,
@@ -54,15 +55,6 @@ const intOptions: FuzzOptions = {
 const floatOptions: FuzzOptions = {
   ...intOptions,
   argDefaults: ArgDef.getDefaultFloatOptions(),
-};
-
-/**
- * Fuzzer options for counter-example mode
- */
-const counterExampleOptions: FuzzOptions = {
-  ...intOptions,
-  maxFailures: 1,
-  onlyFailures: true,
 };
 
 /**
@@ -391,14 +383,6 @@ describe("fuzzer:", () => {
     }
   });
 
-  it("Counter-example mode 01", function () {
-    const fuzzResult = fuzz(
-      setup(counterExampleOptions, "nanofuzz-study/examples/14.ts", "modInv")
-    );
-    expect(fuzzResult.results.length).toBe(1);
-    expect(fuzzResult.results[0].category).not.toBe("ok");
-  });
-
   /**
    * Ensure fuzz targets that mutate their inputs cannot alter
    * the input the fuzzer recorded for the function.
@@ -545,5 +529,40 @@ describe("fuzzer:", () => {
     );
     expect(fuzzResult.results.length).toBe(3);
     expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy();
+
+    // Run the following tests on the raw and JSON5-cloned results
+    [
+      fuzzResult.results,
+      JSON5.parse(JSON5.stringify(fuzzResult.results)),
+    ].forEach((r) => {
+      // Every input should be true, false, or undefined
+      expect(
+        fuzzResult.results.every(
+          (e) =>
+            e.input.length &&
+            (e.input[0].value === undefined ||
+              e.input[0].value === true ||
+              e.input[0].value === false)
+        )
+      ).toBeTruthy();
+      // Some inputs should be undefined
+      expect(
+        fuzzResult.results.some(
+          (e) => e.input.length && e.input[0].value === undefined
+        )
+      ).toBeTruthy();
+      // Some inputs should be true
+      expect(
+        fuzzResult.results.some(
+          (e) => e.input.length && e.input[0].value === true
+        )
+      ).toBeTruthy();
+      // Some inputs should be false
+      expect(
+        fuzzResult.results.some(
+          (e) => e.input.length && e.input[0].value === false
+        )
+      ).toBeTruthy();
+    });
   });
 });
