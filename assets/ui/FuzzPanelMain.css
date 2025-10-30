@@ -486,3 +486,15 @@ div.fuzzInputControlGroup {
     opacity: 0;
   }
 }
+
+#fuzzBusyMessage {
+  font-size: 0.9em;
+}
+#fuzzBusyMessageMilestone {
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+#fuzzBusyMessageNonMilestone {
+  margin-top: 0;
+  padding-top: 0;
+}

@@ -7,6 +7,7 @@ import {
 } from "./utils";
 import {
   FuzzArgOverride,
+  FuzzBusyStatusMessage,
   FuzzIoElement,
   FuzzPinnedTest,
   FuzzResultCategory,
@@ -233,6 +234,21 @@ function main() {
       case "validator.list":
         refreshValidators(JSON5.parse(json));
         break;
+      case "busy.message": {
+        const payload: FuzzBusyStatusMessage = JSON5.parse(json);
+        const milestone = getElementByIdOrThrow("fuzzBusyMessageMilestone");
+        const nonMilestone = getElementByIdOrThrow(
+          "fuzzBusyMessageNonMilestone"
+        );
+        if (payload.milestone) {
+          milestone.innerHTML =
+            milestone.innerHTML + "\r\n" + htmlEscape(payload.msg);
+          nonMilestone.innerHTML = "";
+        } else {
+          nonMilestone.innerHTML = htmlEscape(payload.msg);
+        }
+        break;
+      }
     }
   });
 

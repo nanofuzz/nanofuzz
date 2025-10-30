@@ -184,3 +184,11 @@ export type SupportedInputGenerators =
  * List of supported input generators
  */
 export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
+
+/**
+ * Message about how busy the fuzzer is
+ */
+export type FuzzBusyStatusMessage = {
+  msg: string;
+  milestone?: boolean;
+};

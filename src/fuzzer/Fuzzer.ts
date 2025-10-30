@@ -14,6 +14,7 @@ import {
   Result,
   FuzzResultCategory,
   FuzzStopReason,
+  FuzzBusyStatusMessage,
 } from "./Types";
 import { FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
@@ -68,10 +69,18 @@ export const setup = (
  *
  * Throws an exception if the fuzz options are invalid
  */
-export const fuzz = (
+export const fuzz = async (
   env: FuzzEnv,
-  pinnedTests: FuzzPinnedTest[] = []
-): FuzzTestResults => {
+  pinnedTests: FuzzPinnedTest[] = [],
+  updateFn?: (msg: FuzzBusyStatusMessage) => void
+): Promise<FuzzTestResults> => {
+  const update = (msg: FuzzBusyStatusMessage): void => {
+    if (updateFn) {
+      updateFn({ msg: msg.msg, milestone: msg.milestone });
+    } else if (msg.milestone) {
+      console.log(msg.msg);
+    }
+  };
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
@@ -111,9 +120,11 @@ export const fuzz = (
     );
   }
 
-  console.log(
-    `\r\n\r\nTesting target: ${env.function.getName()} of ${env.function.getModule()}`
-  );
+  if (!updateFn) console.log("\r\n\r\n");
+  update({
+    msg: `Target: ${env.function.getName()} of ${env.function.getModule()}`,
+    milestone: true,
+  });
 
   // Get the active measures, which will take various measurements
   // during execution that guide the composite generator
@@ -146,7 +157,7 @@ export const fuzz = (
   // it to JavaScript prior to execution.  This activates the
   // TypeScript compiler that hooks into the require() function.
   const startCompTime = performance.now(); // start time: compile & instrument
-  compiler.activate(measures);
+  compiler.activate(measures, update);
 
   // The fuzz target is likely under development, so
   // invalidate the cache to get the latest copy.
@@ -174,7 +185,7 @@ export const fuzz = (
   const startTime = new Date().getTime();
   const allInputs: Record<string, boolean> = {};
 
-  console.log(`Testing in progress.`);
+  update({ msg: `Target ready to test.`, milestone: true });
 
   // eslint-disable-next-line no-constant-condition, @typescript-eslint/no-unnecessary-condition
   while (true) {
@@ -302,10 +313,19 @@ export const fuzz = (
       }
     }
 
+    // Front-end status update
+    update({
+      msg: `Testing input# ${
+        results.results.length + 1
+      }: ${env.function.getName()}(${result.input
+        .map((i) => JSON5.stringify(i.value))
+        .join(",")})`,
+    });
+
     // Call the function via the wrapper
     const startRunTime = performance.now(); // start timer
     try {
-      const [exeOutput] = runner.run(
+      const [exeOutput] = await runner.run(
         JSON5.parse(JSON5.stringify(result.input.map((e) => e.value))),
         env.options.fnTimeout
       ); // <-- Runner (protect the input)
@@ -470,6 +490,8 @@ export const fuzz = (
     }
   } // for: Main test loop
 
+  update({ msg: "Testing finished.", milestone: true });
+
   // Update interesting inputs
   results.interesting.inputs = compositeInputGenerator.getInterestingInputs();
 
@@ -480,10 +502,10 @@ export const fuzz = (
   compositeInputGenerator.onShutdown(); // also handles shutdown for subgens
 
   console.log(
-    `Testing complete. Executed ${results.results.length} tests in ${results.stats.timers.total}ms. Stopped for reason: ${results.stopReason}.`
+    ` - Executed ${results.results.length} tests in ${results.stats.timers.total}ms. Stopped for reason: ${results.stopReason}.`
   );
   console.log(
-    ` - Injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes).`
+    ` - Injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes)`
   );
   console.log(
     ` - Tests with exceptions: ${
@@ -511,7 +533,10 @@ export const fuzz = (
   // Persist to outfile, if requested
   if (env.options.outputFile) {
     fs.writeFileSync(env.options.outputFile, JSON5.stringify(results));
-    console.log(` - Wrote results to: ${env.options.outputFile}`);
+    update({
+      msg: ` - Wrote results to: ${env.options.outputFile}`,
+      milestone: true,
+    });
   }
 
   // Return the result of the fuzzing activity

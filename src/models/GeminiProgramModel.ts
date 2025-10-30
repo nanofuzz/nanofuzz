@@ -39,7 +39,7 @@ export class GeminiProgramModel extends AbstractProgramModel {
   /** !!!!!! */
   public override async generateExampleInputs(): Promise<FuzzIoElement[][]> {
     const inputs: FuzzIoElement[][] = JSON5.parse(
-      await this._query([this._prompts.exampleInputs])
+      await this._query([this._prompts.exampleInputs], undefined, true)
     );
     /* !!!!!!!!
     inputs.forEach((test) => {
@@ -54,7 +54,7 @@ export class GeminiProgramModel extends AbstractProgramModel {
     });
     */
     console.debug(
-      `got these tests from the llm: ${JSON5.stringify(inputs, null, 2)}`
+      `got these inputs from the llm: ${JSON5.stringify(inputs, null, 2)}`
     ); // !!!!!!
     return inputs;
   } // !!!!!!
@@ -146,8 +146,9 @@ export class GeminiProgramModel extends AbstractProgramModel {
         });
       }); // !!!!!! move to initializer
 
+      const timer = Date.now();
       const result = (await model.generateContent(promptParts)).response.text();
-      console.debug(`gemini(+CACHE)>>>${result}`); // !!!!!!
+      console.debug(`(${Date.now() - timer} ms) gemini(+CACHE)>>>${result}`); // !!!!!!
       GeminiProgramModel._promptCache[promptSerialized] = result;
       return result;
     }

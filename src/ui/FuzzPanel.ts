@@ -1140,9 +1140,15 @@ ${inArgConsts}
       // Fuzz the function & store the results
       try {
         // Run the fuzzer
-        this._results = fuzzer.fuzz(
+        this._results = await fuzzer.fuzz(
           this._fuzzEnv,
-          Object.values(testsToInject)
+          Object.values(testsToInject),
+          (msg: fuzzer.FuzzBusyStatusMessage): void => {
+            this._panel.webview.postMessage({
+              command: "busy.message",
+              json: JSON5.stringify(msg),
+            });
+          }
         );
 
         // Transition to done state
@@ -1252,7 +1258,7 @@ ${inArgConsts}
 
       try {
         // Run just the one test input w/all input generators
-        const thisResult = fuzzer.fuzz(envNoGenerators, [injectedTest]);
+        const thisResult = await fuzzer.fuzz(envNoGenerators, [injectedTest]);
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1839,7 +1845,7 @@ ${inArgConsts}
               );
             } else {
               genTextEnabled.push(
-                `<strong><u>${shortName}</u></strong> was enabled but did not produce any inputs`
+                `<strong><u>${shortName}</u></strong> was enabled but did not produce any inputs before testing stopped`
               );
             }
           } else {
@@ -1936,7 +1942,7 @@ ${inArgConsts}
           <div class="fuzzResultHeading">What did ${toolName} do?</div>
           <p>
             ${toolName} ran for ${Math.round(
-            this._results.stats.timers.run
+            this._results.stats.timers.total
           )} ms, tested ${
             this._results.stats.counters.inputsInjected
           } interesting input${
@@ -1954,6 +1960,27 @@ ${inArgConsts}
           } test result${
             this._results.results.length !== 1 ? "s" : ""
           } before stopping.
+          </p>
+          <p>
+            Compiling and instrumenting the program used ${Math.round(
+              this._results.stats.timers.compile
+            )} ms, generating inputs used ${Math.round(
+            this._results.stats.timers.gen
+          )} ms, executing the program used ${Math.round(
+            this._results.stats.timers.run
+          )} ms (${(
+            this._results.stats.timers.run / this._results.results.length
+          ).toFixed(2)} ms/input),
+            validating outputs used ${Math.round(
+              this._results.stats.timers.val
+            )} ms (${(
+            this._results.stats.timers.val / this._results.results.length
+          ).toFixed(2)} ms/input),
+            and measuring execution results used ${Math.round(
+              this._results.stats.timers.measure
+            )} ms (${(
+            this._results.stats.timers.measure / this._results.results.length
+          ).toFixed(2)} ms/input).
           </p>
 
           <div class="fuzzResultHeading">Why did testing stop?</div>
@@ -2101,6 +2128,16 @@ ${inArgConsts}
       html += /*html*/ `
               </vscode-panels>
             </div>`;
+
+      if (this._state === FuzzPanelState.busyTesting) {
+        html += /*html*/ `
+            <!-- Fuzzer Busy Status Message -->
+            <div id="fuzzBusyMessage">
+              <pre id="fuzzBusyMessageMilestone"> </pre>
+              <pre id="fuzzBusyMessageNonMilestone"> </pre>
+            </div>
+        `;
+      }
 
       if (this._focusInput) {
         html += /*html*/ `
