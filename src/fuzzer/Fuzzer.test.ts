@@ -29,6 +29,9 @@ const allGenerators = {
   MutationInputGenerator: {
     enabled: true,
   },
+  AiInputGenerator: {
+    enabled: true,
+  },
 };
 
 /**

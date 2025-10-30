@@ -4,7 +4,6 @@ import {
   ArgValueType,
   FunctionRef,
 } from "../fuzzer/analysis/typescript/Types";
-import * as vscode from "vscode";
 import * as JSON5 from "json5";
 import { ModelArgOverrides } from "./Types";
 import { ArgDef } from "fuzzer/analysis/typescript/ArgDef";
@@ -18,6 +17,7 @@ export abstract class AbstractProgramModel {
   protected _state: "notready" | "ready" = "notready"; // !!!!!!
   protected _inputSchema;
   protected _overrides;
+  protected _vscode;
 
   /** !!!!!! */
   protected constructor(fn: FunctionDef, cfgCategory: string) {
@@ -26,13 +26,21 @@ export abstract class AbstractProgramModel {
     this._fnRef = fn.getRef();
     this._inputSchema = AbstractProgramModel.getFuzzInputElements(this._fn);
     this._overrides = AbstractProgramModel.getModelArgOverrides(this._fn);
+
+    try {
+      this._vscode = require("vscode");
+    } catch (e) {
+      console.error(`Unable to load vscode module: not running in vscode?`);
+    }
   } // !!!!!!
 
   /** !!!!!! */
   protected _getConfig<T>(section: string, dft: T): T {
-    return vscode.workspace
-      .getConfiguration("nanofuzz.ai." + this._cfgCategory)
-      .get(section, dft);
+    return this._vscode !== undefined
+      ? this._vscode.workspace
+          .getConfiguration("nanofuzz.ai." + this._cfgCategory)
+          .get(section, dft)
+      : dft;
   } // !!!!!!
 
   /** !!!!!! */
