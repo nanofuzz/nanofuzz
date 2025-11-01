@@ -7,6 +7,7 @@ import {
 } from "./utils";
 import {
   FuzzArgOverride,
+  FuzzBusyStatusMessage,
   FuzzIoElement,
   FuzzPinnedTest,
   FuzzResultCategory,
@@ -212,6 +213,14 @@ function main() {
     );
   }
 
+  // Add event listeners for the stop button
+  getElementByIdOrThrow("fuzz.stop").addEventListener("click", () => {
+    vscode.postMessage({
+      command: "fuzz.stop",
+    });
+    getElementByIdOrThrow("fuzz.stop").setAttribute("disabled", "true");
+  });
+
   // Load & display the validator functions from the HTML
   validators = JSON5.parse(
     htmlUnescape(getElementByIdOrThrow("validators").innerHTML)
@@ -227,12 +236,26 @@ function main() {
   }
 
   // Listen for messages from the extension
-  window.addEventListener("message", (event) => {
+  window.addEventListener("message", async (event) => {
     const { command, json } = event.data;
     switch (command) {
       case "validator.list":
         refreshValidators(JSON5.parse(json));
         break;
+      case "busy.message": {
+        const payload: FuzzBusyStatusMessage = JSON5.parse(json);
+        const nonMilestone = getElementByIdOrThrow(
+          "fuzzBusyMessageNonMilestone"
+        );
+        nonMilestone.innerHTML = htmlEscape(payload.msg);
+        if (payload.pct) {
+          payload.pct = Math.min(payload.pct, 100);
+          const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
+          progressBar.style.width = payload.pct + "%";
+          progressBar.innerHTML = Math.floor(payload.pct) + "%";
+        }
+        break;
+      }
     }
   });
 
@@ -1743,6 +1766,9 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
   const MutationInputGeneratorEnabled = getElementByIdOrThrow(
     `${fuzzBase}-gen-MutationInputGenerator-enabled`
   );
+  const AiInputGeneratorEnabled = getElementByIdOrThrow(
+    `${fuzzBase}-gen-AiInputGenerator-enabled`
+  );
   const CoverageMeasureEnabled = getElementByIdOrThrow(
     `${fuzzBase}-measure-CoverageMeasure-enabled`
   );
@@ -1831,6 +1857,12 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
           enabled:
             (MutationInputGeneratorEnabled.getAttribute("value") ??
               MutationInputGeneratorEnabled.getAttribute("current-checked")) ===
+            "true",
+        },
+        AiInputGenerator: {
+          enabled:
+            (AiInputGeneratorEnabled.getAttribute("value") ??
+              AiInputGeneratorEnabled.getAttribute("current-checked")) ===
             "true",
         },
       },
@@ -1956,10 +1988,12 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
  */
 function refreshValidators(validatorList: { validators: string[] }) {
   const validatorFnList = getElementByIdOrThrow("validator-functionList");
+  const validatorFnCount = getElementByIdOrThrow("validator-functionCount");
   validatorFnList.setAttribute(
     "aria-label",
     listForValidatorFnTooltip(validatorList)
   );
+  validatorFnCount.innerText = String(validatorList.validators.length);
 } // fn: refreshValidators
 
 /**

@@ -14,6 +14,7 @@ import {
   Result,
   FuzzResultCategory,
   FuzzStopReason,
+  FuzzBusyStatusMessage,
 } from "./Types";
 import { FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
@@ -60,7 +61,57 @@ export const setup = (
   };
 }; // fn: setup()
 
-/**
+// !!!!!!
+export function fuzz(
+  env: FuzzEnv,
+  pinnedTests: FuzzPinnedTest[] = [],
+  updateFn?: (payload: FuzzBusyStatusMessage) => void,
+  cancelFn?: () => boolean
+): FuzzTestResults {
+  let result: FuzzTestResults | undefined;
+  const gen = TestGenerator(env, pinnedTests, updateFn, cancelFn);
+  while (!result) {
+    result = gen.next().value;
+  }
+  return result;
+}
+
+// !!!!!!
+export function fuzzAsync(
+  env: FuzzEnv,
+  pinnedTests: FuzzPinnedTest[] = [],
+  updateFn: (payload: FuzzBusyStatusMessage) => void = (msg) => {
+    msg;
+  },
+  cancelFn: () => boolean = () => false,
+  callbackFn: (result: FuzzTestResults) => void
+): void {
+  const gen = TestGenerator(env, pinnedTests, updateFn, cancelFn);
+
+  const nextBatch = (): void => {
+    let result: FuzzTestResults | undefined;
+    const timer = Date.now();
+
+    while (!result && Date.now() - timer < 125) {
+      try {
+        result = gen.next().value;
+        if (result) {
+          callbackFn(result);
+          return;
+        }
+      } catch (e) {
+        // !!!!!!!!
+      }
+    }
+    if (!result)
+      setTimeout(() => {
+        nextBatch();
+      });
+  };
+
+  nextBatch();
+}
+/** !!!!!!!!!
  * Fuzzes the function specified in the fuzz environment and returns the test results.
  *
  * @param env fuzz environment (created by calling setup())
@@ -68,10 +119,24 @@ export const setup = (
  *
  * Throws an exception if the fuzz options are invalid
  */
-export const fuzz = (
+// !!!!!!
+function* TestGenerator(
   env: FuzzEnv,
-  pinnedTests: FuzzPinnedTest[] = []
-): FuzzTestResults => {
+  pinnedTests: FuzzPinnedTest[] = [],
+  updateFn?: (payload: FuzzBusyStatusMessage) => void,
+  cancelFn?: () => boolean
+): Generator<undefined, FuzzTestResults, undefined> {
+  const update = (payload: FuzzBusyStatusMessage): void => {
+    if (updateFn) {
+      updateFn({
+        msg: payload.msg,
+        milestone: payload.milestone,
+        pct: payload.pct,
+      });
+    } else if (payload.milestone) {
+      console.log(payload.msg);
+    }
+  };
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
@@ -111,9 +176,11 @@ export const fuzz = (
     );
   }
 
-  console.log(
-    `\r\n\r\nTesting target: ${env.function.getName()} of ${env.function.getModule()}`
-  );
+  if (!updateFn) console.log("\r\n\r\n");
+  update({
+    msg: `Target: ${env.function.getName()} of ${env.function.getModule()}`,
+    milestone: true,
+  });
 
   // Get the active measures, which will take various measurements
   // during execution that guide the composite generator
@@ -146,7 +213,7 @@ export const fuzz = (
   // it to JavaScript prior to execution.  This activates the
   // TypeScript compiler that hooks into the require() function.
   const startCompTime = performance.now(); // start time: compile & instrument
-  compiler.activate(measures);
+  compiler.activate(measures, update);
 
   // The fuzz target is likely under development, so
   // invalidate the cache to get the latest copy.
@@ -174,19 +241,20 @@ export const fuzz = (
   const startTime = new Date().getTime();
   const allInputs: Record<string, boolean> = {};
 
-  console.log(`Testing in progress.`);
+  update({ msg: `Target ready to test.`, milestone: true });
 
   // eslint-disable-next-line no-constant-condition, @typescript-eslint/no-unnecessary-condition
   while (true) {
     // Stop fuzzing when we encounter a stop condition
-    const stopCondition = _checkStopCondition(
+    const { stopCondition, pct } = _checkStopCondition(
       env,
       inputsGenerated,
       currentDupeCount,
       totalDupeCount,
       failureCount,
       startTime,
-      compositeInputGenerator.isAvailable()
+      compositeInputGenerator.isAvailable(),
+      !!cancelFn && cancelFn()
     );
     if (stopCondition !== undefined) {
       results.stopReason = stopCondition;
@@ -301,6 +369,18 @@ export const fuzz = (
         allInputs[inputHash] = true;
       }
     }
+
+    // Front-end status update
+    update({
+      msg: `Testing input# ${
+        results.results.length + 1
+      }: ${env.function.getName()}(${result.input
+        .map((i) => JSON5.stringify(i.value))
+        .join(",")})\r\n  Tests passed: ${
+        results.results.length - failureCount
+      }\r\n  Tests failed: ${failureCount}`,
+      pct,
+    });
 
     // Call the function via the wrapper
     const startRunTime = performance.now(); // start timer
@@ -468,7 +548,19 @@ export const fuzz = (
       results.stats.timers.measure += measureTime;
       genStats.timers.measure += measureTime;
     }
+
+    yield undefined;
   } // for: Main test loop
+
+  update({
+    msg: `Testing ${
+      cancelFn && cancelFn() ? "stopped" : "finished"
+    }.\r\n  Tests passed: ${
+      results.results.length - failureCount
+    }\r\n  Tests failed: ${failureCount}`,
+    milestone: true,
+    pct: 100,
+  });
 
   // Update interesting inputs
   results.interesting.inputs = compositeInputGenerator.getInterestingInputs();
@@ -480,10 +572,10 @@ export const fuzz = (
   compositeInputGenerator.onShutdown(); // also handles shutdown for subgens
 
   console.log(
-    `Testing complete. Executed ${results.results.length} tests in ${results.stats.timers.total}ms. Stopped for reason: ${results.stopReason}.`
+    ` - Executed ${results.results.length} tests in ${results.stats.timers.total} ms. Stopped for reason: ${results.stopReason}.`
   );
   console.log(
-    ` - Injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes).`
+    ` - Injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes)`
   );
   console.log(
     ` - Tests with exceptions: ${
@@ -511,12 +603,15 @@ export const fuzz = (
   // Persist to outfile, if requested
   if (env.options.outputFile) {
     fs.writeFileSync(env.options.outputFile, JSON5.stringify(results));
-    console.log(` - Wrote results to: ${env.options.outputFile}`);
+    update({
+      msg: ` - Wrote results to: ${env.options.outputFile}`,
+      milestone: true,
+    });
   }
 
   // Return the result of the fuzzing activity
   return results;
-}; // fn: fuzz()
+} // fn*: gen()
 
 /**
  * Checks whether the fuzzer should stop fuzzing. If so, return the reason.
@@ -536,38 +631,53 @@ const _checkStopCondition = (
   totalDupeCount: number,
   failureCount: number,
   startTime: number,
-  moreInputs: boolean
-): FuzzStopReason | undefined => {
-  // End testing if we exceed the suite timeout
-  if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
-    return FuzzStopReason.MAXTIME;
+  moreInputs: boolean,
+  userCancel: boolean
+): { stopCondition: FuzzStopReason | undefined; pct?: number } => {
+  const pcts: number[] = [0];
+  const now = Date.now();
+
+  // End testing if the user cancels it exceed the suite timeou
+  if (userCancel) {
+    return { stopCondition: FuzzStopReason.CANCEL };
   }
 
-  // End testing if we exceed the maximum number of tests
-  if (inputsGenerated - totalDupeCount >= env.options.maxTests) {
-    return FuzzStopReason.MAXTESTS;
+  // End testing if we exceed the suite timeout
+  if (now - startTime >= env.options.suiteTimeout) {
+    return { stopCondition: FuzzStopReason.MAXTIME, pct: 100 };
   }
+  pcts.push((now - startTime) / env.options.suiteTimeout);
+
+  // End testing if we exceed the maximum number of generated tests
+  if (inputsGenerated - totalDupeCount >= env.options.maxTests) {
+    return { stopCondition: FuzzStopReason.MAXTESTS, pct: 100 };
+  }
+  pcts.push((inputsGenerated - totalDupeCount) / env.options.maxTests);
 
   // End testing if we exceed the maximum number of failures
-  if (
-    env.options.maxFailures !== 0 &&
-    failureCount >= env.options.maxFailures
-  ) {
-    return FuzzStopReason.MAXFAILURES;
+  if (env.options.maxFailures !== 0) {
+    if (failureCount >= env.options.maxFailures) {
+      return { stopCondition: FuzzStopReason.MAXFAILURES, pct: 100 };
+    }
+    pcts.push(failureCount / env.options.maxFailures);
   }
 
-  // End testing if we exceed the maximum number of duplicates generated
+  // End testing if we exceed the maximum number of sequential duplicates generated
   if (currentDupeCount >= env.options.maxDupeInputs) {
-    return FuzzStopReason.MAXDUPES;
+    return { stopCondition: FuzzStopReason.MAXDUPES, pct: 100 };
   }
+  // We don't do a pct because one non-dupe resets this counter
 
   // End testing if the source of inputs is exhausted
   if (!moreInputs) {
-    return FuzzStopReason.NOMOREINPUTS;
+    return { stopCondition: FuzzStopReason.NOMOREINPUTS, pct: 100 };
   }
 
   // No stop condition found
-  return undefined;
+  return {
+    stopCondition: undefined,
+    pct: Math.max(0, Math.floor(Math.max(...pcts) * 100)),
+  };
 }; // fn: _checkStopCondition()
 
 /**
@@ -693,7 +803,18 @@ function actualEqualsExpectedOutput(
   } else if (result.exception) {
     return expectedOutput.length > 0 && expectedOutput[0].isException === true;
   } else {
-    return JSON5.stringify(result.output) === JSON5.stringify(expectedOutput);
+    return (
+      JSON5.stringify(
+        result.output.map((output) => {
+          return { value: output.value };
+        })
+      ) ===
+      JSON5.stringify(
+        expectedOutput.map((output) => {
+          return { value: output.value };
+        })
+      )
+    );
   }
 }
 
@@ -707,12 +828,6 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   if (result.validatorException) {
     return "failure"; // Validator failed
   }
-
-  const implicit = result.passedImplicit ? true : false;
-  const human =
-    "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
-  const property =
-    "passedValidator" in result ? result.passedValidator : undefined;
 
   // Returns the type of bad value: execption, timeout, or badvalue
   const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
@@ -730,30 +845,34 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
     return result.passedValidator ? "ok" : "badValue"; // PUT returned bad value
   };
 
-  // Either the human oracle or the validator may take precedence
-  // over the implicit oracle if they exist. However, if both the
-  // validator and the human oracle are present, then they must
-  // agree. If the human and validator are present yet disagree,
-  // then the disagreement is another error.
-  if (human === true) {
-    if (property === false) {
+  // Setup the Composite Oracle -- we describe this in the TerzoN paper
+  const implicit =
+    "passedImplicit" in result ? (result.passedImplicit ? 1 : -1) : 0;
+  const human = "passedHuman" in result ? (result.passedHuman ? 1 : -1) : 0;
+  const property =
+    "passedValidator" in result ? (result.passedValidator ? 1 : -1) : 0;
+
+  if (human > 0) {
+    if (property < 0) {
       return "disagree";
     } else {
       return "ok";
     }
-  } else if (human === false) {
-    if (property === true) {
+  } else if (human < 0) {
+    if (property > 0) {
       return "disagree";
     } else {
       return getBadValueType(result);
     }
   } else {
-    if (property === true) {
+    // human === 0
+    if (property > 0) {
       return "ok";
-    } else if (property === false) {
+    } else if (property < 0) {
       return getBadValueTypeProperty(result);
     } else {
-      if (implicit) {
+      // human === 0 && property === 0
+      if (implicit >= 0) {
         return "ok";
       } else {
         return getBadValueType(result);

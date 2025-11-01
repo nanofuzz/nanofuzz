@@ -7,6 +7,8 @@ import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
 import { isError } from "../Util";
+import { AbstractProgramModel } from "../models/AbstractProgramModel";
+import { ProgramModelFactory } from "../models/ProgramModelFactory";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -43,11 +45,14 @@ export class FuzzPanel {
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
   private _focusInput?: [string, number]; // Newly-added input to receive UI focus
   private _lastTab: string | undefined; // Last tab that had focus
+  private _disposed = false; // Indicates whether this panel is disposed
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
   private _errorMessage?: string; // error state: the error message
   private _sortColumns?: fuzzer.FuzzSortColumns; // column sort orders
+  private _model?: AbstractProgramModel; // !!!!!!
+  private _stopTesting = false; // indicates that testing should stop
 
   // ------------------------ Static Methods ------------------------ //
 
@@ -221,18 +226,71 @@ export class FuzzPanel {
     this._argOverrides = testSet.argOverrides ?? [];
     this._sortColumns = testSet.sortColumns;
 
-    // Apply argument ranges, etc. over the defaults
-    _applyArgOverrides(
-      this._fuzzEnv.function,
-      this._argOverrides,
-      this._fuzzEnv.options.argDefaults
-    );
-
-    // Set the webview's initial html content
-    this._updateHtml();
-
     // Register the new panel
     FuzzPanel.currentPanels[this.getFnRefKey()] = this;
+
+    // Post-analysis callback function
+    const onInit = (): void => {
+      // Apply argument ranges, etc. over the defaults
+      _applyArgOverrides(
+        this._fuzzEnv.function,
+        this._argOverrides,
+        this._fuzzEnv.options.argDefaults
+      );
+
+      // Set the webview's initial html content
+      this._state = FuzzPanelState.init;
+      this._updateHtml();
+    };
+
+    // !!!!!!!
+    if (ProgramModelFactory.isConfigured()) {
+      // Program Model is configured and we do not have any overrides yet
+      // ...which means we are encountering the function for the first time
+      // and should use our program model to analyze it
+      this._state = FuzzPanelState.busyAnalyzing;
+      this._updateHtml();
+
+      // Bounce off the stack and perform the model-driven analyses
+      setTimeout(async () => {
+        try {
+          // Get the program model
+          const model = this._getModel();
+          if (!this._argOverrides.length) {
+            await model.getSpec();
+            const overrides = await model.getFuzzerArgOverrides();
+            console.debug(
+              `Applying overrides from analysis: ${JSON5.stringify(
+                overrides,
+                null,
+                2
+              )}`
+            ); // !!!!!!
+            this._argOverrides = overrides;
+          }
+          onInit();
+
+          // Bounce off the stack and have the model suggest test cases
+          // The main purpose of doing it at this point is to prime the cache
+          /* !!!!!!!!
+          setTimeout(async () => {
+            this._getSuggestedInputs();
+          });
+          */
+        } catch (e: unknown) {
+          if (!this._disposed) {
+            const msg = `Failed to perform AI analysis of function. Message: ${
+              e instanceof Error ? e.message : JSON5.stringify(e)
+            }`;
+            vscode.window.showWarningMessage(msg);
+            console.debug(msg); // !!!!!!!
+            // !!!!!!! telemetry
+          }
+        }
+      });
+    } else {
+      onInit();
+    }
   } // fn: constructor
 
   /**
@@ -262,6 +320,21 @@ export class FuzzPanel {
     });
   }
 
+  /** !!!!!! */
+  private _getModel(): AbstractProgramModel {
+    if (!this._model) {
+      this._model = ProgramModelFactory.create(this._fuzzEnv.function);
+    }
+    return this._model;
+  } // fn: _getModel
+
+  /** !!!!!! */
+  private _updateModel(): void {
+    if (this._model) {
+      this._model = ProgramModelFactory.create(this._fuzzEnv.function);
+    }
+  } // fn: _updateModel
+
   // ----------------------- Message Handling ----------------------- //
 
   /**
@@ -283,6 +356,9 @@ export class FuzzPanel {
           case "fuzz.addTestInput":
             this._doGetValidators();
             this._doAddTestInputCmd(json);
+            break;
+          case "fuzz.stop":
+            this._stopTesting = true;
             break;
           case "test.pin":
             this._doTestPinnedCmd(json, true);
@@ -472,6 +548,7 @@ export class FuzzPanel {
               testSet.functions[fn].options.generators =
                 getDefaultFuzzOptions().generators;
             }
+            /* !!!!!!!! Origin / Source + FuzzPanel._getPinnedTestKey */
             console.info(
               `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
             );
@@ -534,6 +611,14 @@ export class FuzzPanel {
       },
     };
   } // fn: _initFuzzTestsForThisFn()
+
+  /** !!!!!! */
+  private static _getPinnedTestKey(test: fuzzer.FuzzPinnedTest): string {
+    const inputs: fuzzer.ArgValueType[] = test.input.map(
+      (input) => input.value
+    );
+    return JSON5.stringify(inputs);
+  } // fn: _getPinnedTestKey
 
   /**
    * Returns the saved tests for just the current function.
@@ -655,7 +740,7 @@ export class FuzzPanel {
   ): boolean {
     let changed = false;
     const currTest: fuzzer.FuzzPinnedTest = JSON5.parse(json);
-    const currInputsJson = JSON5.stringify(currTest.input);
+    const currInputsJson = FuzzPanel._getPinnedTestKey(currTest);
 
     // If input is already in pinnedSet, is not pinned, and does not have
     // an expected value assigned, then delete it
@@ -679,7 +764,7 @@ export class FuzzPanel {
    */
   private _saveColumnSortOrders(json: string) {
     this._sortColumns = JSON5.parse(json);
-  }
+  } // fn: _saveColumnSortOrders
 
   /**
    * Shows the open text editor at the desired position. If an
@@ -1038,7 +1123,7 @@ ${inArgConsts}
 
     // Update the UI
     this._results = undefined;
-    this._state = FuzzPanelState.busy;
+    this._state = FuzzPanelState.busyTesting;
     this._updateHtml();
 
     // Save the argument overrides
@@ -1059,27 +1144,41 @@ ${inArgConsts}
       // Fuzz the function & store the results
       try {
         // Run the fuzzer
-        this._results = fuzzer.fuzz(
+        this._stopTesting = false;
+        fuzzer.fuzzAsync(
           this._fuzzEnv,
-          Object.values(testsToInject)
+          Object.values(testsToInject),
+          (payload: fuzzer.FuzzBusyStatusMessage): void => {
+            this._panel.webview.postMessage({
+              command: "busy.message",
+              json: JSON5.stringify(payload),
+            });
+          },
+          () => this._stopTesting,
+          (results: fuzzer.FuzzTestResults) => {
+            this._results = results;
+
+            // Transition to done state
+            this._errorMessage = undefined;
+            this._state = FuzzPanelState.done;
+
+            // Log the end of fuzzing
+            vscode.commands.executeCommand(
+              telemetry.commands.logTelemetry.name,
+              new telemetry.LoggerEntry(
+                "FuzzPanel.fuzz.done",
+                "Fuzzing completed successfully. Target: %s. Results: %s",
+                [this.getFnRefKey(), JSON5.stringify(this._results)]
+              )
+            );
+
+            // Persist the fuzz test run settings (!!! validation)
+            this._updateFuzzTests();
+
+            // Update the UI
+            this._updateHtml();
+          }
         );
-
-        // Transition to done state
-        this._errorMessage = undefined;
-        this._state = FuzzPanelState.done;
-
-        // Log the end of fuzzing
-        vscode.commands.executeCommand(
-          telemetry.commands.logTelemetry.name,
-          new telemetry.LoggerEntry(
-            "FuzzPanel.fuzz.done",
-            "Fuzzing completed successfully. Target: %s. Results: %s",
-            [this.getFnRefKey(), JSON5.stringify(this._results)]
-          )
-        );
-
-        // Persist the fuzz test run settings (!!! validation)
-        this._updateFuzzTests();
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
         this._errorMessage = isError(e)
@@ -1093,10 +1192,9 @@ ${inArgConsts}
             [this.getFnRefKey(), this._errorMessage]
           )
         );
+        // Update the UI
+        this._updateHtml();
       }
-
-      // Update the UI
-      this._updateHtml();
     }); // setTimeout
   } // fn: _doFuzzStartCmd()
 
@@ -1151,7 +1249,7 @@ ${inArgConsts}
     };
 
     // Make the FuzzPanel busy
-    this._state = FuzzPanelState.busy;
+    this._state = FuzzPanelState.busyTesting;
     this._updateHtml();
 
     // Save the argument overrides
@@ -1171,7 +1269,19 @@ ${inArgConsts}
 
       try {
         // Run just the one test input w/all input generators
-        const thisResult = fuzzer.fuzz(envNoGenerators, [injectedTest]);
+        this._stopTesting = false;
+        const thisResult = await fuzzer.fuzz(
+          envNoGenerators,
+          [injectedTest],
+          undefined /*
+          (msg: fuzzer.FuzzBusyStatusMessage): void => {
+            this._panel.webview.postMessage({
+              command: "busy.message",
+              json: JSON5.stringify(msg),
+            });
+          }*/,
+          () => this._stopTesting
+        );
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1290,6 +1400,9 @@ ${inArgConsts}
    * Disposes all objects used by this instance
    */
   public dispose(): void {
+    // Set the disposed flag
+    this._disposed = true;
+
     // Remove this panel from the list of current panels.
     delete FuzzPanel.currentPanels[this.getFnRefKey()];
 
@@ -1315,7 +1428,10 @@ ${inArgConsts}
       const webview: vscode.Webview = this._panel.webview; // Current webview
       const extensionUri: vscode.Uri = this._extensionUri; // Extension URI
       const disabledFlag =
-        this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
+        this._state === FuzzPanelState.busyTesting ||
+        this._state === FuzzPanelState.busyAnalyzing
+          ? ` disabled `
+          : ""; // Disable inputs if busy
       const resultSummary = {
         failure: 0,
         timeout: 0,
@@ -1400,9 +1516,9 @@ ${inArgConsts}
             
           <!-- ${toolName} pane -->
           <div id="pane-nanofuzz"> 
-            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;"> ${this._state === FuzzPanelState.busy ? "Testing..." : "Test: "+htmlEscape(
+            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing..." : this._state === FuzzPanelState.busyAnalyzing ? "Analyzing..." : "Test: "+htmlEscape(
               fn.getName())+"()"} 
-              <div title="Open soure code" id="openSourceLink" class='codicon codicon-file-text clickable'></div>
+              <div title="Open soure code" id="openSourceLink" class='codicon codicon-link clickable'></div>
             </h2>
 
             <!-- Function Arguments -->
@@ -1414,25 +1530,29 @@ ${inArgConsts}
             <div style="padding-left: .76em;">
               <!-- Checkboxes -->
               <div class="fuzzInputControlGroup">
+                <!-- Heuristic Validator -->
                 <vscode-checkbox ${disabledFlag} id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>
                   <span class="tooltipped tooltipped-ne" aria-label="${heuristicValidatorDescription}">
                   Heuristic validator 
                   </span>
                 </vscode-checkbox>
+
+                <!-- Property Validator -->
                 <span style="padding-left:1.3em;"> </span>
                 <span style="display:inline-block;">
                   <vscode-checkbox ${disabledFlag} id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>
                     <span id="validator-functionList" class="tooltipped tooltipped-ne" aria-label=""> 
-                    Property validator(s) </span>
+                      Property validator${this._fuzzEnv.validators.length===1 ? "" : "s"}
+                    </span> (<span id="validator-functionCount">${this._fuzzEnv.validators.length}</span>)
                   </vscode-checkbox>
                   <span id="validator.add" class="tooltipped tooltipped-nw" aria-label="Add new property validator">
                     <span class="classAddRefreshValidator">
-                      <span class="codicon codicon-add" style="padding-left:.2em; padding-right:-.1em;"></span>
+                      <span class="codicon codicon-add" style="padding-left:0.1em; padding-right:0.1em;"></span>
                     </span>
                   </span>
                   <span id="validator.getList" class="tooltipped tooltipped-nw" aria-label="Refresh list">
                     <span class="classAddRefreshValidator">
-                      <span class="codicon codicon-refresh" style="padding-left:.1em;"></span>
+                      <span class="codicon codicon-refresh" style="padding-left:0.1em;"></span>
                     </span>
                   </span>
                 </span>
@@ -1521,6 +1641,11 @@ ${inArgConsts}
                         By mutating "interesting" inputs
                       </span>
                     </vscode-checkbox>                    
+                    <vscode-checkbox ${disabledFlag} id="fuzz-gen-AiInputGenerator-enabled" ${this._fuzzEnv.options.generators.AiInputGenerator.enabled ? "checked" : ""}>
+                      <span> 
+                        Using an LLM
+                      </span>
+                    </vscode-checkbox>                    
                   </div>
 
                 </vscode-panel-view>
@@ -1530,9 +1655,12 @@ ${inArgConsts}
             </div>
 
             <!-- Button Bar -->
-            <div style="padding-top: .25em;">
-              <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
-                ${this._state === FuzzPanelState.busy ? "Testing..." : (this._state === FuzzPanelState.done ? "Re-test" : "Test")}
+            <div>
+              <vscode-button ${disabledFlag} ${this._state===FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.start" appearance="primary">
+                ${this._state === FuzzPanelState.done ? "Retest" : "Test"}
+              </vscode-button>
+              <vscode-button ${this._state!==FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.stop" appearance="primary">
+                Stop testing
               </vscode-button>
               <vscode-button  ${disabledFlag} class="hidden" id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
                 Change Mode
@@ -1564,7 +1692,7 @@ ${inArgConsts}
               </div>
               <h2 style="margin-bottom:.3em;">Add a test input</h2>
               <p class="fuzzPanelDescription">
-                Enter Javascript input value${ argDefs.length ===1 ? "" : "s"} below. 
+                Enter literal Javascript input value${ argDefs.length ===1 ? "" : "s"} below in JSON format. 
                 ${ argDefs.length ===1 ? "It" : "They"} won't be type-checked.
                 Click <strong>+</strong> to test.
               </p>
@@ -1698,6 +1826,7 @@ ${inArgConsts}
       if (this._results) {
         // prettier-ignore
         const textReason = {
+          [fuzzer.FuzzStopReason.CANCEL]: `because the user stopped testing.`,
           [fuzzer.FuzzStopReason.CRASH]: `because it crashed.`,
           [fuzzer.FuzzStopReason.MAXTIME]: `because it exceeded the maximum time configured (${
               this._results.env.options.suiteTimeout
@@ -1743,7 +1872,7 @@ ${inArgConsts}
               );
             } else {
               genTextEnabled.push(
-                `<strong><u>${shortName}</u></strong> was enabled but did not produce any inputs`
+                `<strong><u>${shortName}</u></strong> was enabled but did not produce any inputs before testing stopped`
               );
             }
           } else {
@@ -1840,7 +1969,7 @@ ${inArgConsts}
           <div class="fuzzResultHeading">What did ${toolName} do?</div>
           <p>
             ${toolName} ran for ${Math.round(
-            this._results.stats.timers.run
+            this._results.stats.timers.total
           )} ms, tested ${
             this._results.stats.counters.inputsInjected
           } interesting input${
@@ -1858,6 +1987,27 @@ ${inArgConsts}
           } test result${
             this._results.results.length !== 1 ? "s" : ""
           } before stopping.
+          </p>
+          <p>
+            Compiling and instrumenting the program used ${Math.round(
+              this._results.stats.timers.compile
+            )} ms, generating inputs used ${Math.round(
+            this._results.stats.timers.gen
+          )} ms, executing the program used ${Math.round(
+            this._results.stats.timers.run
+          )} ms (${(
+            this._results.stats.timers.run / this._results.results.length
+          ).toFixed(2)} ms/input),
+            validating outputs used ${Math.round(
+              this._results.stats.timers.val
+            )} ms (${(
+            this._results.stats.timers.val / this._results.results.length
+          ).toFixed(2)} ms/input),
+            and measuring execution results used ${Math.round(
+              this._results.stats.timers.measure
+            )} ms (${(
+            this._results.stats.timers.measure / this._results.results.length
+          ).toFixed(2)} ms/input).
           </p>
 
           <div class="fuzzResultHeading">Why did testing stop?</div>
@@ -2006,6 +2156,18 @@ ${inArgConsts}
               </vscode-panels>
             </div>`;
 
+      if (this._state === FuzzPanelState.busyTesting) {
+        html += /*html*/ `
+            <!-- Fuzzer Busy Status Message -->
+            <div id="fuzzBusyStatusBarContainer">
+              <div id="fuzzBusyStatusBar" style="width: 0%;">0%</div>
+            </div>
+            <div id="fuzzBusyMessage">
+              <pre id="fuzzBusyMessageNonMilestone"> </pre>
+            </div>
+        `;
+      }
+
       if (this._focusInput) {
         html += /*html*/ `
             <!-- Fuzzer Result to receive UI focus -->
@@ -2094,7 +2256,10 @@ ${inArgConsts}
     const argType = arg.getType(); // type of argument
     const argName = arg.getName(); // name of the argument
     const disabledFlag =
-      this._state === FuzzPanelState.busy ? ` disabled ` : ""; // Disable inputs if busy
+      this._state === FuzzPanelState.busyTesting ||
+      this._state === FuzzPanelState.busyAnalyzing
+        ? ` disabled `
+        : ""; // Disable inputs if busy
     const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
     const htmlEllipsis = `<span class="hidden argDef-ellipsis">...</span>`;
@@ -2652,6 +2817,10 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
         // Externalize !!!!!!!
         enabled: true,
       },
+      AiInputGenerator: {
+        // Externalize !!!!!!!
+        enabled: true,
+      },
     },
   };
 }; // fn: getDefaultFuzzOptions()
@@ -2736,9 +2905,10 @@ export type FuzzPanelMessage = {
  */
 export enum FuzzPanelState {
   init = "init", // Nothing has been fuzzed yet
-  busy = "busy", // Fuzzing is in progress
-  done = "done", // Fuzzing is done
-  error = "error", // Fuzzing stopped due to an error
+  busyAnalyzing = "busyAnalyzing", // Busy analyzing
+  busyTesting = "busyTesting", // Testing is in progress
+  done = "done", // Testing is done
+  error = "error", // Testing stopped due to an error
 }
 
 /**

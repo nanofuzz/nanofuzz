@@ -159,6 +159,7 @@ export type FuzzArgOverride = {
  * Reason the fuzzer stopped
  */
 export enum FuzzStopReason {
+  CANCEL = "cancel",
   CRASH = "crash",
   MAXTESTS = "maxTests",
   MAXFAILURES = "maxFailures",
@@ -177,9 +178,19 @@ export type VmGlobals = Record<string, unknown>;
  */
 export type SupportedInputGenerators =
   | "RandomInputGenerator"
-  | "MutationInputGenerator";
+  | "MutationInputGenerator"
+  | "AiInputGenerator";
 
 /**
  * List of supported input generators
  */
 export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
+
+/**
+ * Message about how busy the fuzzer is
+ */
+export type FuzzBusyStatusMessage = {
+  msg: string;
+  milestone?: boolean;
+  pct?: number;
+};

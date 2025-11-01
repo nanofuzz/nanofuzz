@@ -16,6 +16,10 @@ import {
   TSPropertySignature,
   TypeNode,
   Node,
+  Comment,
+  VariableDeclaration,
+  FunctionDeclaration,
+  AST_TOKEN_TYPES,
 } from "@typescript-eslint/types/dist/ast-spec";
 import path from "path";
 import fs from "fs";
@@ -118,7 +122,7 @@ export class ProgramDef {
     }
 
     // Parse the program source to generate the AST
-    const ast = parse(this._src, { range: true });
+    const ast = parse(this._src, { comment: true, range: true, loc: true });
 
     // Retrieve the imports defined in this program
     this._imports = this._findImports(ast);
@@ -1141,6 +1145,8 @@ export class ProgramDef {
   private _findFunctions(
     ast: AST<{
       range: true;
+      comment: true;
+      loc: true;
     }>
   ): {
     supported: Record<IdentifierName, FunctionRef>;
@@ -1162,7 +1168,12 @@ export class ProgramDef {
           const name = node.id.name;
 
           try {
-            const maybeFunction = this._getFunctionFromNode(name, node, parent);
+            const maybeFunction = this._getFunctionFromNode(
+              name,
+              node,
+              parent,
+              ast.comments
+            );
             if (maybeFunction) {
               supported[name] = maybeFunction;
             }
@@ -1179,9 +1190,9 @@ export class ProgramDef {
               node: node,
             };
           }
-        },
+        }, // enter
         // TODO: Add support for class methods
-      }, // enter
+      },
       true // set parent pointers
     ); // traverse AST
 
@@ -1204,8 +1215,31 @@ export class ProgramDef {
   private _getFunctionFromNode(
     name: string,
     node: Node,
-    parent: Node | undefined
+    parent: Node | undefined,
+    comments: Comment[]
   ): FunctionRef | undefined {
+    // Internal function to retrieve docstring comment immediately preceding the function
+    const getComments = (
+      node: VariableDeclaration | FunctionDeclaration
+    ): string | undefined => {
+      const nodeLine = node.loc.start.line;
+      const cmts = comments.filter(
+        (thisCmt) =>
+          thisCmt.type === AST_TOKEN_TYPES.Block && // Block comment
+          thisCmt.loc.end.line - thisCmt.loc.start.line > 0 && // > 1 line long
+          thisCmt.loc.end.line <= nodeLine && // Prior to function
+          thisCmt.loc.end.line >= nodeLine - 1 // But not too prior
+      );
+      // If we found a matching comment, return its source.
+      // Otherwise, return undefined (not found)
+      return cmts.length
+        ? this._src.substring(
+            cmts[cmts.length - 1].range[0],
+            cmts[cmts.length - 1].range[1]
+          )
+        : undefined;
+    }; // fn: getComments
+
     if (
       // Arrow Function Definition: const xyz = (): void => { ... }
       node.type === AST_NODE_TYPES.VariableDeclarator &&
@@ -1281,6 +1315,7 @@ export class ProgramDef {
           .map((arg) => this._getTypeRefFromAstNode(arg)),
         returnType,
         isVoid,
+        cmt: getComments(node),
       };
     }
   } // fn: _getFunctionFromNode()

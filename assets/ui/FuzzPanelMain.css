@@ -1,6 +1,7 @@
 /** Body Styles **/
 body {
-  padding-right: 0px;
+  padding-right: 10px;
+  padding-left: 10px;
 }
 
 /** Grid Styles **/
@@ -484,4 +485,23 @@ div.fuzzInputControlGroup {
   to {
     opacity: 0;
   }
+}
+
+#fuzzBusyStatusBar {
+  background-color: var(--button-primary-background);
+  color: var(--button-primary-foreground);
+  content: "";
+  display: table;
+  clear: both;
+  text-align: center;
+  padding: 0.02em 0em;
+  margin-top: 1.5em;
+  margin-bottom: 1.25em;
+}
+#fuzzBusyMessageNonMilestone {
+  margin-top: 0.75em;
+  margin-bottom: 0.5em;
+}
+#fuzzBusyMessage {
+  font-size: 0.9em;
 }
