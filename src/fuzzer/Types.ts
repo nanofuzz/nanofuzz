@@ -159,6 +159,7 @@ export type FuzzArgOverride = {
  * Reason the fuzzer stopped
  */
 export enum FuzzStopReason {
+  CANCEL = "cancel",
   CRASH = "crash",
   MAXTESTS = "maxTests",
   MAXFAILURES = "maxFailures",
@@ -191,4 +192,5 @@ export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
 export type FuzzBusyStatusMessage = {
   msg: string;
   milestone?: boolean;
+  pct?: number;
 };

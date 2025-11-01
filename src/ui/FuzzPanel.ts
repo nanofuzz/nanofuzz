@@ -52,6 +52,7 @@ export class FuzzPanel {
   private _errorMessage?: string; // error state: the error message
   private _sortColumns?: fuzzer.FuzzSortColumns; // column sort orders
   private _model?: AbstractProgramModel; // !!!!!!
+  private _stopTesting = false; // indicates that testing should stop
 
   // ------------------------ Static Methods ------------------------ //
 
@@ -355,6 +356,9 @@ export class FuzzPanel {
           case "fuzz.addTestInput":
             this._doGetValidators();
             this._doAddTestInputCmd(json);
+            break;
+          case "fuzz.stop":
+            this._stopTesting = true;
             break;
           case "test.pin":
             this._doTestPinnedCmd(json, true);
@@ -1140,33 +1144,41 @@ ${inArgConsts}
       // Fuzz the function & store the results
       try {
         // Run the fuzzer
-        this._results = await fuzzer.fuzz(
+        this._stopTesting = false;
+        fuzzer.fuzzAsync(
           this._fuzzEnv,
           Object.values(testsToInject),
-          (msg: fuzzer.FuzzBusyStatusMessage): void => {
+          (payload: fuzzer.FuzzBusyStatusMessage): void => {
             this._panel.webview.postMessage({
               command: "busy.message",
-              json: JSON5.stringify(msg),
+              json: JSON5.stringify(payload),
             });
+          },
+          () => this._stopTesting,
+          (results: fuzzer.FuzzTestResults) => {
+            this._results = results;
+
+            // Transition to done state
+            this._errorMessage = undefined;
+            this._state = FuzzPanelState.done;
+
+            // Log the end of fuzzing
+            vscode.commands.executeCommand(
+              telemetry.commands.logTelemetry.name,
+              new telemetry.LoggerEntry(
+                "FuzzPanel.fuzz.done",
+                "Fuzzing completed successfully. Target: %s. Results: %s",
+                [this.getFnRefKey(), JSON5.stringify(this._results)]
+              )
+            );
+
+            // Persist the fuzz test run settings (!!! validation)
+            this._updateFuzzTests();
+
+            // Update the UI
+            this._updateHtml();
           }
         );
-
-        // Transition to done state
-        this._errorMessage = undefined;
-        this._state = FuzzPanelState.done;
-
-        // Log the end of fuzzing
-        vscode.commands.executeCommand(
-          telemetry.commands.logTelemetry.name,
-          new telemetry.LoggerEntry(
-            "FuzzPanel.fuzz.done",
-            "Fuzzing completed successfully. Target: %s. Results: %s",
-            [this.getFnRefKey(), JSON5.stringify(this._results)]
-          )
-        );
-
-        // Persist the fuzz test run settings (!!! validation)
-        this._updateFuzzTests();
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
         this._errorMessage = isError(e)
@@ -1180,10 +1192,9 @@ ${inArgConsts}
             [this.getFnRefKey(), this._errorMessage]
           )
         );
+        // Update the UI
+        this._updateHtml();
       }
-
-      // Update the UI
-      this._updateHtml();
     }); // setTimeout
   } // fn: _doFuzzStartCmd()
 
@@ -1258,7 +1269,19 @@ ${inArgConsts}
 
       try {
         // Run just the one test input w/all input generators
-        const thisResult = await fuzzer.fuzz(envNoGenerators, [injectedTest]);
+        this._stopTesting = false;
+        const thisResult = await fuzzer.fuzz(
+          envNoGenerators,
+          [injectedTest],
+          undefined /*
+          (msg: fuzzer.FuzzBusyStatusMessage): void => {
+            this._panel.webview.postMessage({
+              command: "busy.message",
+              json: JSON5.stringify(msg),
+            });
+          }*/,
+          () => this._stopTesting
+        );
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1633,8 +1656,11 @@ ${inArgConsts}
 
             <!-- Button Bar -->
             <div>
-              <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
-                ${this._state === FuzzPanelState.busyTesting ? "Testing..." : (this._state === FuzzPanelState.done ? "Re-test" : "Test")}
+              <vscode-button ${disabledFlag} ${this._state===FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.start" appearance="primary">
+                ${this._state === FuzzPanelState.done ? "Retest" : "Test"}
+              </vscode-button>
+              <vscode-button ${this._state!==FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.stop" appearance="primary">
+                Stop testing
               </vscode-button>
               <vscode-button  ${disabledFlag} class="hidden" id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
                 Change Mode
@@ -1800,6 +1826,7 @@ ${inArgConsts}
       if (this._results) {
         // prettier-ignore
         const textReason = {
+          [fuzzer.FuzzStopReason.CANCEL]: `because the user stopped testing.`,
           [fuzzer.FuzzStopReason.CRASH]: `because it crashed.`,
           [fuzzer.FuzzStopReason.MAXTIME]: `because it exceeded the maximum time configured (${
               this._results.env.options.suiteTimeout
@@ -2132,8 +2159,10 @@ ${inArgConsts}
       if (this._state === FuzzPanelState.busyTesting) {
         html += /*html*/ `
             <!-- Fuzzer Busy Status Message -->
+            <div id="fuzzBusyStatusBarContainer">
+              <div id="fuzzBusyStatusBar" style="width: 0%;">0%</div>
+            </div>
             <div id="fuzzBusyMessage">
-              <pre id="fuzzBusyMessageMilestone"> </pre>
               <pre id="fuzzBusyMessageNonMilestone"> </pre>
             </div>
         `;

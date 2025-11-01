@@ -213,6 +213,14 @@ function main() {
     );
   }
 
+  // Add event listeners for the stop button
+  getElementByIdOrThrow("fuzz.stop").addEventListener("click", () => {
+    vscode.postMessage({
+      command: "fuzz.stop",
+    });
+    getElementByIdOrThrow("fuzz.stop").setAttribute("disabled", "true");
+  });
+
   // Load & display the validator functions from the HTML
   validators = JSON5.parse(
     htmlUnescape(getElementByIdOrThrow("validators").innerHTML)
@@ -228,7 +236,7 @@ function main() {
   }
 
   // Listen for messages from the extension
-  window.addEventListener("message", (event) => {
+  window.addEventListener("message", async (event) => {
     const { command, json } = event.data;
     switch (command) {
       case "validator.list":
@@ -236,16 +244,15 @@ function main() {
         break;
       case "busy.message": {
         const payload: FuzzBusyStatusMessage = JSON5.parse(json);
-        const milestone = getElementByIdOrThrow("fuzzBusyMessageMilestone");
         const nonMilestone = getElementByIdOrThrow(
           "fuzzBusyMessageNonMilestone"
         );
-        if (payload.milestone) {
-          milestone.innerHTML =
-            milestone.innerHTML + "\r\n" + htmlEscape(payload.msg);
-          nonMilestone.innerHTML = "";
-        } else {
-          nonMilestone.innerHTML = htmlEscape(payload.msg);
+        nonMilestone.innerHTML = htmlEscape(payload.msg);
+        if (payload.pct) {
+          payload.pct = Math.min(payload.pct, 100);
+          const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
+          progressBar.style.width = payload.pct + "%";
+          progressBar.innerHTML = Math.floor(payload.pct) + "%";
         }
         break;
       }

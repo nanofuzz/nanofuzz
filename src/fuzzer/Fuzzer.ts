@@ -61,7 +61,57 @@ export const setup = (
   };
 }; // fn: setup()
 
-/**
+// !!!!!!
+export function fuzz(
+  env: FuzzEnv,
+  pinnedTests: FuzzPinnedTest[] = [],
+  updateFn?: (payload: FuzzBusyStatusMessage) => void,
+  cancelFn?: () => boolean
+): FuzzTestResults {
+  let result: FuzzTestResults | undefined;
+  const gen = TestGenerator(env, pinnedTests, updateFn, cancelFn);
+  while (!result) {
+    result = gen.next().value;
+  }
+  return result;
+}
+
+// !!!!!!
+export function fuzzAsync(
+  env: FuzzEnv,
+  pinnedTests: FuzzPinnedTest[] = [],
+  updateFn: (payload: FuzzBusyStatusMessage) => void = (msg) => {
+    msg;
+  },
+  cancelFn: () => boolean = () => false,
+  callbackFn: (result: FuzzTestResults) => void
+): void {
+  const gen = TestGenerator(env, pinnedTests, updateFn, cancelFn);
+
+  const nextBatch = (): void => {
+    let result: FuzzTestResults | undefined;
+    const timer = Date.now();
+
+    while (!result && Date.now() - timer < 125) {
+      try {
+        result = gen.next().value;
+        if (result) {
+          callbackFn(result);
+          return;
+        }
+      } catch (e) {
+        // !!!!!!!!
+      }
+    }
+    if (!result)
+      setTimeout(() => {
+        nextBatch();
+      });
+  };
+
+  nextBatch();
+}
+/** !!!!!!!!!
  * Fuzzes the function specified in the fuzz environment and returns the test results.
  *
  * @param env fuzz environment (created by calling setup())
@@ -69,16 +119,22 @@ export const setup = (
  *
  * Throws an exception if the fuzz options are invalid
  */
-export const fuzz = async (
+// !!!!!!
+function* TestGenerator(
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = [],
-  updateFn?: (msg: FuzzBusyStatusMessage) => void
-): Promise<FuzzTestResults> => {
-  const update = (msg: FuzzBusyStatusMessage): void => {
+  updateFn?: (payload: FuzzBusyStatusMessage) => void,
+  cancelFn?: () => boolean
+): Generator<undefined, FuzzTestResults, undefined> {
+  const update = (payload: FuzzBusyStatusMessage): void => {
     if (updateFn) {
-      updateFn({ msg: msg.msg, milestone: msg.milestone });
-    } else if (msg.milestone) {
-      console.log(msg.msg);
+      updateFn({
+        msg: payload.msg,
+        milestone: payload.milestone,
+        pct: payload.pct,
+      });
+    } else if (payload.milestone) {
+      console.log(payload.msg);
     }
   };
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
@@ -190,14 +246,15 @@ export const fuzz = async (
   // eslint-disable-next-line no-constant-condition, @typescript-eslint/no-unnecessary-condition
   while (true) {
     // Stop fuzzing when we encounter a stop condition
-    const stopCondition = _checkStopCondition(
+    const { stopCondition, pct } = _checkStopCondition(
       env,
       inputsGenerated,
       currentDupeCount,
       totalDupeCount,
       failureCount,
       startTime,
-      compositeInputGenerator.isAvailable()
+      compositeInputGenerator.isAvailable(),
+      !!cancelFn && cancelFn()
     );
     if (stopCondition !== undefined) {
       results.stopReason = stopCondition;
@@ -319,13 +376,16 @@ export const fuzz = async (
         results.results.length + 1
       }: ${env.function.getName()}(${result.input
         .map((i) => JSON5.stringify(i.value))
-        .join(",")})`,
+        .join(",")})\r\n  Tests passed: ${
+        results.results.length - failureCount
+      }\r\n  Tests failed: ${failureCount}`,
+      pct,
     });
 
     // Call the function via the wrapper
     const startRunTime = performance.now(); // start timer
     try {
-      const [exeOutput] = await runner.run(
+      const [exeOutput] = runner.run(
         JSON5.parse(JSON5.stringify(result.input.map((e) => e.value))),
         env.options.fnTimeout
       ); // <-- Runner (protect the input)
@@ -488,9 +548,19 @@ export const fuzz = async (
       results.stats.timers.measure += measureTime;
       genStats.timers.measure += measureTime;
     }
+
+    yield undefined;
   } // for: Main test loop
 
-  update({ msg: "Testing finished.", milestone: true });
+  update({
+    msg: `Testing ${
+      cancelFn && cancelFn() ? "stopped" : "finished"
+    }.\r\n  Tests passed: ${
+      results.results.length - failureCount
+    }\r\n  Tests failed: ${failureCount}`,
+    milestone: true,
+    pct: 100,
+  });
 
   // Update interesting inputs
   results.interesting.inputs = compositeInputGenerator.getInterestingInputs();
@@ -502,7 +572,7 @@ export const fuzz = async (
   compositeInputGenerator.onShutdown(); // also handles shutdown for subgens
 
   console.log(
-    ` - Executed ${results.results.length} tests in ${results.stats.timers.total}ms. Stopped for reason: ${results.stopReason}.`
+    ` - Executed ${results.results.length} tests in ${results.stats.timers.total} ms. Stopped for reason: ${results.stopReason}.`
   );
   console.log(
     ` - Injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes)`
@@ -541,7 +611,7 @@ export const fuzz = async (
 
   // Return the result of the fuzzing activity
   return results;
-}; // fn: fuzz()
+} // fn*: gen()
 
 /**
  * Checks whether the fuzzer should stop fuzzing. If so, return the reason.
@@ -561,38 +631,53 @@ const _checkStopCondition = (
   totalDupeCount: number,
   failureCount: number,
   startTime: number,
-  moreInputs: boolean
-): FuzzStopReason | undefined => {
-  // End testing if we exceed the suite timeout
-  if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
-    return FuzzStopReason.MAXTIME;
+  moreInputs: boolean,
+  userCancel: boolean
+): { stopCondition: FuzzStopReason | undefined; pct?: number } => {
+  const pcts: number[] = [0];
+  const now = Date.now();
+
+  // End testing if the user cancels it exceed the suite timeou
+  if (userCancel) {
+    return { stopCondition: FuzzStopReason.CANCEL };
   }
 
-  // End testing if we exceed the maximum number of tests
-  if (inputsGenerated - totalDupeCount >= env.options.maxTests) {
-    return FuzzStopReason.MAXTESTS;
+  // End testing if we exceed the suite timeout
+  if (now - startTime >= env.options.suiteTimeout) {
+    return { stopCondition: FuzzStopReason.MAXTIME, pct: 100 };
   }
+  pcts.push((now - startTime) / env.options.suiteTimeout);
+
+  // End testing if we exceed the maximum number of generated tests
+  if (inputsGenerated - totalDupeCount >= env.options.maxTests) {
+    return { stopCondition: FuzzStopReason.MAXTESTS, pct: 100 };
+  }
+  pcts.push((inputsGenerated - totalDupeCount) / env.options.maxTests);
 
   // End testing if we exceed the maximum number of failures
-  if (
-    env.options.maxFailures !== 0 &&
-    failureCount >= env.options.maxFailures
-  ) {
-    return FuzzStopReason.MAXFAILURES;
+  if (env.options.maxFailures !== 0) {
+    if (failureCount >= env.options.maxFailures) {
+      return { stopCondition: FuzzStopReason.MAXFAILURES, pct: 100 };
+    }
+    pcts.push(failureCount / env.options.maxFailures);
   }
 
-  // End testing if we exceed the maximum number of duplicates generated
+  // End testing if we exceed the maximum number of sequential duplicates generated
   if (currentDupeCount >= env.options.maxDupeInputs) {
-    return FuzzStopReason.MAXDUPES;
+    return { stopCondition: FuzzStopReason.MAXDUPES, pct: 100 };
   }
+  // We don't do a pct because one non-dupe resets this counter
 
   // End testing if the source of inputs is exhausted
   if (!moreInputs) {
-    return FuzzStopReason.NOMOREINPUTS;
+    return { stopCondition: FuzzStopReason.NOMOREINPUTS, pct: 100 };
   }
 
   // No stop condition found
-  return undefined;
+  return {
+    stopCondition: undefined,
+    pct: Math.max(0, Math.floor(Math.max(...pcts) * 100)),
+  };
 }; // fn: _checkStopCondition()
 
 /**
