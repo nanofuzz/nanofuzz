@@ -189,18 +189,14 @@ export abstract class AbstractProgramModel {
     return fn.getArgDefs().map((arg) => getModelArgOverrideInner(arg));
   } // !!!!!!
 
+  // !!!!!!
+  public abstract isAvailable(): boolean;
+
   /** !!!!!! */
   public async getFuzzerArgOverrides(): Promise<FuzzArgOverride[]> {
-    console.debug(
-      `Raw overrides: ${JSON5.stringify(
-        await this.predictArgOverrides(),
-        null,
-        2
-      )}`
-    ); // !!!!!!
-    return AbstractProgramModel.toArgOverrides(
-      await this.predictArgOverrides()
-    );
+    const overrides = await this.predictArgOverrides();
+    console.debug(`Raw overrides: ${JSON5.stringify(overrides, null, 2)}`); // !!!!!!
+    return AbstractProgramModel.toArgOverrides(overrides);
   } // !!!!!!
 
   /** !!!!!! */
@@ -288,16 +284,21 @@ The "<fn-name>" program:
 The “<fn-name>” specification in docstring format:
 <fn-spec>`,
 
-    /*L3*/ predictRanges: `Use the "<fn-name>" TypeScript specification below to understand any minimum and maximum values, lengths, array lengths, and character sets for the tree of function arguments.
+    /*L3*/ predictRanges: `IMPORTANT! Respond with ONLY raw JSON (no markdown, no backticks, no explanation). Return ONLY the raw JSON object. Output must EXACTLY match this shape: <fn-overrides>
+
+Use the "<fn-name>" TypeScript specification below to understand any minimum and maximum values, lengths, array lengths, and character sets for the tree of function arguments.
     
-Compare the specification to the values for the tree of arguments in this JSON object. Only update "minValue" "maxValue" "minLength" "maxLength" "onlyIntegers" or "charSet" properties if necessary for each argument or subargument in the JSON to agree with the specification for that argument or subargument. If the specification does not specify, assume what is presently in the JSON object is correct and leave the property unchanged. Omit any undefined values (e.g., optional inputs). Provide only literal values. Do not add any new fields to this schema.
-<fn-overrides>
+Compare the specification to the values for the tree of arguments in the above JSON5 example. Only update "minValue" "maxValue" "minLength" "maxLength" "onlyIntegers" or "charSet" properties if necessary for each argument or subargument in the JSON to agree with the specification for that argument or subargument. If the specification does not specify, assume what is presently in the JSON object is correct and leave the property unchanged. Omit any undefined values (e.g., optional inputs). Provide only literal values. Do not add any new fields to the JSON5 schema. Do not use values: Infinity, -Infinity, or NaN.
 
 The "<fn-name>" program:
+\`\`\`
 <fn-source>
+\`\`\`
 
 The “<fn-name>” specification in docstring format:
-<fn-spec>`,
+\`\`\`
+<fn-spec>
+\`\`\``,
 
     /*L6*/ predictOutput: `For the following "<fn-name>" TypeScript program and specification, predict the expected output for the following inputs: 
 <fn-input>

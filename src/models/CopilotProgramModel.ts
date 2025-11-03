@@ -1,34 +1,19 @@
 import { AbstractProgramModel } from "./AbstractProgramModel";
 import * as JSON5 from "json5";
-import * as gemini from "@google/generative-ai";
 import { ModelArgOverrides } from "./Types";
 import { FuzzIoElement } from "fuzzer/Types";
 import { FunctionDef } from "fuzzer/Fuzzer";
+import * as vscode from "vscode";
 
-export class GeminiProgramModel extends AbstractProgramModel {
-  private _apiToken: string;
-  private _modelName: string;
+export class CopilotProgramModel extends AbstractProgramModel {
   private _promptCache: Record<string, string> = {};
-  private _model: gemini.GenerativeModel;
+  private _model?: vscode.LanguageModelChat;
 
   /** !!!!!! */
   constructor(fn: FunctionDef) {
-    super(fn, "gemini");
-    this._apiToken = this._getConfig("apitoken", "");
-    this._modelName = this._getConfig("model", "");
-    if (this._apiToken === "") {
-      throw new Error("No Gemini API token is configured");
-    }
-    if (this._modelName === "") {
-      throw new Error("No Gemini model name is configured");
-    }
-
-    this._model = new gemini.GoogleGenerativeAI(
-      this._apiToken
-    ).getGenerativeModel({
-      model: this._modelName,
-      systemInstruction: this._prompts.system,
-      generationConfig: { responseMimeType: `application/json` },
+    super(fn, "copilot");
+    process.nextTick(() => {
+      this._initModel();
     });
   } // !!!!!!
 
@@ -36,6 +21,54 @@ export class GeminiProgramModel extends AbstractProgramModel {
   public isAvailable(): boolean {
     return !!this._model;
   } // !!!!!!
+
+  // !!!!!!
+  public async _initModel(): Promise<void> {
+    if (this._model) return;
+
+    /*
+    const allModels = await vscode.lm.selectChatModels({});
+    console.debug(
+      `All available models: ${JSON5.stringify(
+        allModels.map(
+          (m) =>
+            `v=${m.vendor},f=${m.family},id=${m.id},name=${m.name},mtoken=${m.maxInputTokens}`
+        ),
+        null,
+        2
+      )}`
+    ); // !!!!!!!
+    */
+
+    const model =
+      (
+        await vscode.lm.selectChatModels({
+          vendor: "copilot",
+          family: "gpt-4o-mini",
+        })
+      ).at(0) ??
+      (
+        await vscode.lm.selectChatModels({
+          vendor: "copilot",
+          family: "gpt-4o",
+        })
+      ).at(0) ??
+      (
+        await vscode.lm.selectChatModels({
+          vendor: "copilot",
+          family: "Gemini",
+          id: "models/gemini-2.5-flash", // "models/gemini-2.5-pro"
+        })
+      ).at(0) ??
+      (await vscode.lm.selectChatModels({})).at(0);
+
+    if (model && !this._model) {
+      this._model = model;
+      console.debug(
+        `Selected model: v=${this._model.vendor};f=${this._model.family};id=${this._model.id}`
+      );
+    }
+  }
 
   /** !!!!!! */
   public override async getSpec(): Promise<string | undefined> {
@@ -123,6 +156,7 @@ export class GeminiProgramModel extends AbstractProgramModel {
         */
       },
     ];
+    // !!!!!!!! validation
     console.debug(
       `got these outputs from the llm: ${JSON5.stringify(output, null, 2)}`
     );
@@ -135,29 +169,61 @@ export class GeminiProgramModel extends AbstractProgramModel {
     bypassCache = false,
     variables: Record<string, string> = {}
   ): Promise<string> {
+    if (!this._model) {
+      await this._initModel();
+    }
+    if (!this._model) {
+      throw new Error("Copilot models unavailable");
+    }
+
     const prompt = inPrompt.map((p) => this._concretizePrompt(p, variables));
     const promptSerialized = JSON5.stringify(prompt);
 
     if (promptSerialized in this._promptCache && !bypassCache) {
       const cachedResponse = this._promptCache[promptSerialized];
-      console.debug(`gemini(CACHE)<<<${prompt.join(", ")}`); // !!!!!!
-      console.debug(`gemini(CACHE)>>>${cachedResponse}`); // !!!!!!
+      console.debug(`copilot(CACHE)<<<${prompt.join(", ")}`); // !!!!!!
+      console.debug(`copilot(CACHE)>>>${cachedResponse}`); // !!!!!!
       return cachedResponse;
     } else {
-      console.debug(`gemini<<<${prompt.join(", ")}`); // !!!!!!
-
-      const promptParts: gemini.Part[] = [];
+      console.debug(`copilot<<<${prompt.join(", ")}`); // !!!!!!
+      const promptParts: vscode.LanguageModelChatMessage[] = [];
       prompt.forEach((e) => {
-        promptParts.push({
-          text: e,
-        });
+        promptParts.push(vscode.LanguageModelChatMessage.User(e));
       }); // !!!!!! move to initializer
-
+      vscode.lm.tools;
       const timer = Date.now();
-      const result = (
-        await this._model.generateContent(promptParts)
-      ).response.text();
-      console.debug(`(${Date.now() - timer} ms) gemini(+CACHE)>>>${result}`); // !!!!!!
+      const stream = (
+        await this._model.sendRequest(
+          promptParts,
+          {
+            modelOptions: {} /*this._model.family === "Gemini"
+                ? {
+              generationConfig: {
+                response_mime_type: `application/json`,
+                responseMimeType: `application/json`,
+              },
+            },
+            : */ /* {
+              response_format: {
+                type: "json_object",
+              },
+            },*/,
+          },
+          new vscode.CancellationTokenSource().token
+        )
+      ).text;
+      const fragments: string[] = [];
+      for await (const fragment of stream) {
+        fragments.push(fragment);
+      }
+      let result = fragments.join("");
+      const lines = result.split(`\n`);
+      if (lines.at(0)?.startsWith("```") && lines.at(-1)?.endsWith("```")) {
+        result = lines.slice(1, -1).join("\n").trim();
+      } else {
+        console.debug(`No markdown bullshit?? mkay: ${result}`); // !!!!!!!!
+      }
+      console.debug(`(${Date.now() - timer} ms) copilot(+CACHE)>>>${result}`); // !!!!!!
       this._promptCache[promptSerialized] = result;
       return result;
     }
