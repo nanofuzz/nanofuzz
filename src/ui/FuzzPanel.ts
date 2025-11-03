@@ -279,12 +279,16 @@ export class FuzzPanel {
           */
         } catch (e: unknown) {
           if (!this._disposed) {
-            const msg = `Failed to perform AI analysis of function. Message: ${
+            const msg = `AI analysis of function failed. Message: ${
               e instanceof Error ? e.message : JSON5.stringify(e)
             }`;
             vscode.window.showWarningMessage(msg);
             console.debug(msg); // !!!!!!!
             // !!!!!!! telemetry
+
+            // Fall back to normal init
+            this._state = FuzzPanelState.init;
+            this._updateHtml();
           }
         }
       });

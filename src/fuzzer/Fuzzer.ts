@@ -371,6 +371,7 @@ function* TestGenerator(
     }
 
     // Front-end status update
+    /* !!!!!!!! Return values rather than text here. Also "failed" is unclear. */
     update({
       msg: `Testing input# ${
         results.results.length + 1
