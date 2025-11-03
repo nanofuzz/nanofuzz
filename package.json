@@ -248,7 +248,7 @@
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
     "@types/seedrandom": "^2.4.28",
-    "@types/vscode": "^1.69.0",
+    "@types/vscode": "^1.75.0",
     "@typescript-eslint/eslint-plugin": "^4.5.0",
     "@typescript-eslint/eslint-plugin-tslint": "^4.5.0",
     "@typescript-eslint/parser": "^4.5.0",
