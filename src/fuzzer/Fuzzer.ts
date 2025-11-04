@@ -84,7 +84,8 @@ export function fuzzAsync(
     msg;
   },
   cancelFn: () => boolean = () => false,
-  callbackFn: (result: FuzzTestResults) => void
+  callbackFn: (result: FuzzTestResults) => void,
+  errorFn: (e: Error) => void
 ): void {
   const gen = TestGenerator(env, pinnedTests, updateFn, cancelFn);
 
@@ -100,7 +101,12 @@ export function fuzzAsync(
           return;
         }
       } catch (e) {
-        // !!!!!!!!
+        errorFn(
+          isError(e)
+            ? e
+            : { name: "unknown error", message: JSON5.stringify(e) }
+        );
+        return;
       }
     }
     if (!result)

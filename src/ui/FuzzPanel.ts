@@ -1176,8 +1176,26 @@ ${inArgConsts}
               )
             );
 
-            // Persist the fuzz test run settings (!!! validation)
+            // Persist the fuzz test run settings (!!!!!!! validation)
             this._updateFuzzTests();
+
+            // Update the UI
+            this._updateHtml();
+          },
+          (e: Error) => {
+            // Transition to error state
+            this._errorMessage = `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`;
+            this._state = FuzzPanelState.error;
+
+            // Log the end of fuzzing
+            vscode.commands.executeCommand(
+              telemetry.commands.logTelemetry.name,
+              new telemetry.LoggerEntry(
+                "FuzzPanel.fuzz.error",
+                "Fuzzing failed. Target: %s. Message: %s",
+                [this.getFnRefKey(), this._errorMessage]
+              )
+            );
 
             // Update the UI
             this._updateHtml();
