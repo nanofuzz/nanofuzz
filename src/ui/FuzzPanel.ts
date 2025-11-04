@@ -1586,7 +1586,7 @@ ${inArgConsts}
             <!-- Fuzzer Options -->
             <div id="fuzzOptions" class="hidden">
               <div class="panelButton">
-                <span class="codicon codicon-close" id="fuzzOptions-close"></span>
+                <span class="clickable codicon codicon-close" id="fuzzOptions-close"></span>
               </div>
               <h2>More options</h2>
 
@@ -1710,7 +1710,7 @@ ${inArgConsts}
             <div id="fuzzAddTestInputOptions-pane" class="hidden">
               <vscode-divider></vscode-divider>
               <div class="panelButton">
-                <span class="codicon codicon-close" id="fuzzAddTestInputOptions-close"></span>
+                <span class="clickable codicon codicon-close" id="fuzzAddTestInputOptions-close"></span>
               </div>
               <h2 style="margin-bottom:.3em;">Add a test input</h2>
               <p class="fuzzPanelDescription">
