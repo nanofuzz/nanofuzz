@@ -1,7 +1,7 @@
 import seedrandom from "seedrandom";
 import { ArgType } from "../analysis/typescript/Types";
 import { ArgDef } from "../analysis/typescript/ArgDef";
-import { InputAndSource } from "./Types";
+import { InputAndSource } from "./../Types";
 
 /**
  * Abstract class of an input generator

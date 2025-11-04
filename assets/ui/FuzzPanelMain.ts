@@ -1709,6 +1709,7 @@ function buildExpectedTestCase(
     isTimeout: !!("checked" in radioTimeout && radioTimeout.checked),
     isException: !!("checked" in radioException && radioException.checked),
     value: parsedExpectedValue,
+    origin: { origin: "user" },
   };
 
   // Build & return the test case object

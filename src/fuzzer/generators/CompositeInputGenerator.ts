@@ -1,10 +1,11 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
-import { ArgType, ArgValueTypeWrapped } from "../analysis/typescript/Types";
+import { ArgType } from "../analysis/typescript/Types";
 import { ArgDef } from "../analysis/typescript/ArgDef";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
 import * as JSON5 from "json5";
-import { InputAndSource, ScoredInput } from "./Types";
+import { ScoredInput } from "./Types";
+import { InputAndSource } from "./../Types";
 
 /**
  * The Composite Input Generator subsumes multiple types of input generator and biases
@@ -36,7 +37,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     currentIndex: number; // current index (of L) into last dimension of progress and cost
   }[]; // history for each input generator
   private _scoredInputs: ScoredInput[] = []; // List of scored inputs
-  private _injectedInputs: ArgValueTypeWrapped[][] = []; // Inputs to force generate first
+  private _injectedInputs: Omit<InputAndSource, "tick">[] = []; // Inputs to force generate first
   private _selectedSubgenIndex = -1; // Selected subordinate input generator (e.g., by efficiency)
   private _leaderboard; // Interesting inputs
   private _lastInput?: InputAndSource; // Last input generated
@@ -93,7 +94,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    *
    * @param `inputs` array of input values to produce first
    */
-  public inject(inputs: ArgValueTypeWrapped[][]): void {
+  public inject(inputs: Omit<InputAndSource, "tick">[]): void {
     this._injectedInputs = [...inputs].reverse();
   } // fn: inject
 
@@ -111,10 +112,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       if (injectedInput) {
         this._lastInput = {
           tick: this._tick,
-          value: injectedInput,
-          source: {
-            subgen: CompositeInputGenerator.INJECTED,
-          },
+          value: injectedInput.value,
+          source: injectedInput.source,
+          injected: true,
         };
         return this._lastInput;
       }

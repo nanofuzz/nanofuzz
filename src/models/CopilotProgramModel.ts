@@ -30,6 +30,13 @@ export class CopilotProgramModel extends AbstractProgramModel {
   } // !!!!!!
 
   // !!!!!!
+  public get id(): string | undefined {
+    return this._model
+      ? `o=CopilotProgramModel,v=${this._model.vendor},f=${this._model.family},n=${this._model.name},id=${this._model.id},v=${this._model.version}`
+      : undefined;
+  }
+
+  // !!!!!!
   public isAvailable(): boolean {
     return !!this._model;
   } // !!!!!!
@@ -79,9 +86,7 @@ export class CopilotProgramModel extends AbstractProgramModel {
 
     if (model && !this._model) {
       this._model = model;
-      console.debug(
-        `Selected model: v=${this._model.vendor};f=${this._model.family};id=${this._model.id}`
-      );
+      console.debug(`Selected model: ${this.id && "unknown"}`);
     }
   }
 

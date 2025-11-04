@@ -16,12 +16,12 @@ import {
   FuzzStopReason,
   FuzzBusyStatusMessage,
 } from "./Types";
-import { FuzzOptions } from "./Types";
+import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { InputAndSource, ScoredInput } from "./generators/Types";
+import { ScoredInput } from "./generators/Types";
 import { isError } from "../Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 
@@ -207,10 +207,20 @@ function* TestGenerator(
   // first: we want the composite generator to know about these inputs so that
   // any "interesting" inputs might be further mutated by other generators.
   compositeInputGenerator.inject(
-    pinnedTests.map((t) =>
-      t.input.map((i) => {
-        return { value: i.value };
-      })
+    pinnedTests.map(
+      (t): Omit<InputAndSource, "tick"> => {
+        return {
+          value: t.input.map((i) => {
+            return {
+              value: i.value,
+            };
+          }),
+          source: t.input.length ? t.input[0].origin : { origin: "unknown" }, // !!!!!!!! case of zero inputs
+        };
+      }
+      //value: t.input.map((i) => {
+      //  return { value: i.value };
+      //})
     )
   );
 
@@ -285,7 +295,6 @@ function* TestGenerator(
         gen: 0,
       },
       category: "ok",
-      source: "injected",
       interestingReasons: [],
     };
 
@@ -298,13 +307,18 @@ function* TestGenerator(
         name: argDefs[i].getName(),
         offset: i,
         value: e.value,
+        origin: genInput.source,
       };
     });
-    result.source = genInput.source.subgen;
 
     // Stats
-    if (!(genInput.source.subgen in results.stats.generators)) {
-      results.stats.generators[genInput.source.subgen] = {
+    const statKey = genInput.injected
+      ? `injected`
+      : genInput.source.origin === "generator"
+      ? `${genInput.source.origin}.${genInput.source.generator}`
+      : `${genInput.source.origin}`;
+    if (!(statKey in results.stats.generators)) {
+      results.stats.generators[statKey] = {
         timers: {
           gen: 0, // updated below
           run: 0, // updated later
@@ -317,7 +331,7 @@ function* TestGenerator(
         },
       };
     }
-    const genStats = results.stats.generators[genInput.source.subgen];
+    const genStats = results.stats.generators[statKey];
     genStats.timers.gen += result.timers.gen;
     results.stats.timers.gen += result.timers.gen;
 
@@ -325,7 +339,7 @@ function* TestGenerator(
     // 1. injected tests do not count against the maxTests limit
     // 2. injected tests may or may not have an expected result
     // 3. pinned tests stay pinned
-    if (genInput.source.subgen === CompositeInputGenerator.INJECTED) {
+    if (genInput.injected) {
       // Ensure the injected inputs are in the expected order
       const expectedInput = JSON5.stringify(pinnedTests[injectedCount].input);
       const returnedInput = JSON5.stringify(result.input);
@@ -360,7 +374,7 @@ function* TestGenerator(
     }
 
     // Skip tests if we previously processed the input
-    const inputHash = JSON5.stringify(result.input);
+    const inputHash = getIoKey(result.input);
     if (inputHash in allInputs) {
       currentDupeCount++; // increment the dupe counter
       totalDupeCount++; // incremement the total run dupe counter
@@ -400,6 +414,7 @@ function* TestGenerator(
         name: "0",
         offset: 0,
         value: exeOutput as ArgValueType,
+        origin: { origin: "put" },
       });
       result.timers.run = performance.now() - startRunTime; // stop timer
     } catch (e: unknown) {
@@ -981,6 +996,15 @@ export function mergeTestResults(
   }
   return c;
 } // fn: mergeTestResults
+
+// !!!!!!
+export function getIoKey(io: FuzzIoElement[]): string {
+  return JSON5.stringify(
+    io.map((input) => {
+      return { value: input.value };
+    })
+  );
+} // fn: getIoKey
 
 /**
  * Fuzzer Environment required to fuzz a function.

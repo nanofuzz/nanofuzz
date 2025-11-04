@@ -269,14 +269,6 @@ export class FuzzPanel {
             this._argOverrides = overrides;
           }
           onInit();
-
-          // Bounce off the stack and have the model suggest test cases
-          // The main purpose of doing it at this point is to prime the cache
-          /* !!!!!!!!
-          setTimeout(async () => {
-            this._getSuggestedInputs();
-          });
-          */
         } catch (e: unknown) {
           if (!this._disposed) {
             const msg = `AI analysis of function failed. Message: ${
@@ -544,15 +536,35 @@ export class FuzzPanel {
             break;
           }
           case "0.3.6": {
-            // v0.3.9 format -- add configuration for measures and generators
+            // v0.3.9 format -- add configuration for measures and generators,
+            //        re-key and add origin info to saved test inputs
             testSet = { ...inputTests, version: "0.3.9" }; // !!!!!!!!
             for (const fn in testSet.functions) {
-              testSet.functions[fn].options.measures =
-                getDefaultFuzzOptions().measures;
-              testSet.functions[fn].options.generators =
-                getDefaultFuzzOptions().generators;
+              const thisFn = testSet.functions[fn];
+              thisFn.options.measures = getDefaultFuzzOptions().measures;
+              thisFn.options.generators = getDefaultFuzzOptions().generators;
+
+              const oldTestSet = thisFn.tests;
+              thisFn.tests = {};
+              for (const oldKey in oldTestSet) {
+                const newKey = fuzzer.getIoKey(oldTestSet[oldKey].input);
+                const thisTest = (thisFn.tests[newKey] = oldTestSet[oldKey]);
+                for (const input of thisTest.input) {
+                  input.origin = {
+                    origin: "generator",
+                    generator: "RandomInputGenerator",
+                  };
+                }
+                for (const output of thisTest.output) {
+                  output.origin = { origin: "put" };
+                }
+                if (thisTest.expectedOutput) {
+                  for (const expectedOutput of thisTest.expectedOutput) {
+                    expectedOutput.origin = { origin: "user" };
+                  }
+                }
+              }
             }
-            /* !!!!!!!! Origin / Source + FuzzPanel._getPinnedTestKey */
             console.info(
               `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
             );
@@ -617,12 +629,6 @@ export class FuzzPanel {
   } // fn: _initFuzzTestsForThisFn()
 
   /** !!!!!! */
-  private static _getPinnedTestKey(test: fuzzer.FuzzPinnedTest): string {
-    const inputs: fuzzer.ArgValueType[] = test.input.map(
-      (input) => input.value
-    );
-    return JSON5.stringify(inputs);
-  } // fn: _getPinnedTestKey
 
   /**
    * Returns the saved tests for just the current function.
@@ -744,7 +750,7 @@ export class FuzzPanel {
   ): boolean {
     let changed = false;
     const currTest: fuzzer.FuzzPinnedTest = JSON5.parse(json);
-    const currInputsJson = FuzzPanel._getPinnedTestKey(currTest);
+    const currInputsJson = fuzzer.getIoKey(currTest.input);
 
     // If input is already in pinnedSet, is not pinned, and does not have
     // an expected value assigned, then delete it
@@ -1247,6 +1253,7 @@ ${inArgConsts}
           name: specs[i].getName(),
           offset: i,
           value: v.value,
+          origin: { origin: "user" },
         };
       }),
       output: [], // the fuzzer fills this
@@ -2081,9 +2088,12 @@ ${inArgConsts}
                         )
                         .join("\r\n")}
                       <td>${htmlEscape(
-                        i.input.source.subgen
-                          .replace("InputGenerator", "")
-                          .toLowerCase()
+                        JSON5.stringify(i.input.source)
+                        //i.input.source.origin === "generator"
+                        //  ? i.input.source.generator
+                        //      .replace("InputGenerator", "")
+                        //      .toLowerCase()
+                        //  : "???" // !!!!!!!!!! i.input.source.origin.toLowerCase()
                       )}${
                         i.input.source.tick !== undefined
                           ? ` from #${i.input.source.tick}`

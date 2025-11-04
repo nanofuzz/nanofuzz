@@ -34,6 +34,9 @@ export abstract class AbstractProgramModel {
     }
   } // !!!!!!
 
+  // !!!!!!
+  public abstract get id(): string | undefined;
+
   /** !!!!!! */
   protected _getConfig<T>(section: string, dft: T): T {
     return this._vscode !== undefined

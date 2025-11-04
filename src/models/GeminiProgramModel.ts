@@ -33,6 +33,11 @@ export class GeminiProgramModel extends AbstractProgramModel {
   } // !!!!!!
 
   // !!!!!!
+  public get id(): string | undefined {
+    return `o=GeminiProgramModel,v=google,f=gemini,n=${this._modelName}`;
+  }
+
+  // !!!!!!
   public isAvailable(): boolean {
     return !!this._model;
   } // !!!!!!
