@@ -3,20 +3,15 @@ import { CopilotProgramModel } from "./CopilotProgramModel";
 import { GeminiProgramModel } from "./GeminiProgramModel";
 import { FunctionDef } from "fuzzer/Fuzzer";
 import * as JSON5 from "json5";
+import type * as Vscode from "vscode";
 
-let vscode:
-  | {
-      workspace: {
-        getConfiguration: (arg0: string) => {
-          get: { (arg0: string, arg1: string): string };
-        };
-      };
-    }
-  | undefined;
+let vscode: typeof Vscode | undefined;
 try {
   vscode = require("vscode");
 } catch (e) {
-  console.warn(`Unable to load vscode module: not running in vscode?`);
+  console.warn(
+    `[ProgramModelFactory] Unable to load vscode module: not running in vscode?`
+  );
 }
 
 // !!!!!!
@@ -44,10 +39,10 @@ export const ProgramModelFactory = {
 
   /** !!!!!! */
   isConfigured: (): boolean => {
-    return vscode !== undefined
+    return vscode
       ? vscode.workspace
           .getConfiguration("nanofuzz.ai.gemini") // !!!!!!!!!
-          .get("apitoken", "") !== ""
+          .get<string>("apitoken", "") !== ""
       : false;
   }, // !!!!!!
 };

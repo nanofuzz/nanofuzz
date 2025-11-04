@@ -3,15 +3,27 @@ import * as JSON5 from "json5";
 import { ModelArgOverrides } from "./Types";
 import { FuzzIoElement } from "fuzzer/Types";
 import { FunctionDef } from "fuzzer/Fuzzer";
-import * as vscode from "vscode";
+import type * as Vscode from "vscode";
+
+let vscode: typeof Vscode | undefined;
+try {
+  vscode = require("vscode");
+} catch (e) {
+  console.warn(
+    `[CopilorProgramModel] Unable to load vscode module: not running in vscode?`
+  );
+}
 
 export class CopilotProgramModel extends AbstractProgramModel {
-  private _promptCache: Record<string, string> = {};
-  private _model?: vscode.LanguageModelChat;
+  protected _promptCache: Record<string, string> = {};
+  protected _model?: Vscode.LanguageModelChat;
 
   /** !!!!!! */
   constructor(fn: FunctionDef) {
     super(fn, "copilot");
+    if (!vscode) {
+      throw new Error("copilot not available: running outsie vscode?");
+    }
     process.nextTick(() => {
       this._initModel();
     });
@@ -24,6 +36,9 @@ export class CopilotProgramModel extends AbstractProgramModel {
 
   // !!!!!!
   public async _initModel(): Promise<void> {
+    if (!vscode) {
+      throw new Error("copilot not available: running outsie vscode?");
+    }
     if (this._model) return;
 
     /*
@@ -169,6 +184,9 @@ export class CopilotProgramModel extends AbstractProgramModel {
     bypassCache = false,
     variables: Record<string, string> = {}
   ): Promise<string> {
+    if (!vscode) {
+      throw new Error("copilot not available: running outsie vscode?");
+    }
     if (!this._model) {
       await this._initModel();
     }
@@ -186,7 +204,7 @@ export class CopilotProgramModel extends AbstractProgramModel {
       return cachedResponse;
     } else {
       console.debug(`copilot<<<${prompt.join(", ")}`); // !!!!!!
-      const promptParts: vscode.LanguageModelChatMessage[] = [];
+      const promptParts: Vscode.LanguageModelChatMessage[] = [];
       prompt.forEach((e) => {
         promptParts.push(vscode.LanguageModelChatMessage.User(e));
       }); // !!!!!! move to initializer
