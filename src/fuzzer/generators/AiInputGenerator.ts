@@ -84,7 +84,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
                   };
                 }),
                 source: {
-                  origin: "generator",
+                  type: "generator",
                   generator: "AiInputGenerator",
                   model: this._model.id ?? "unknown model",
                 },

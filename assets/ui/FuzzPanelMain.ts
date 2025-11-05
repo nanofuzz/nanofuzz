@@ -13,6 +13,7 @@ import {
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
+  FuzzValueOrigin,
 } from "fuzzer/Types";
 import {
   ArgValueType,
@@ -39,6 +40,7 @@ const gridTypes = [
 // Column name labels
 const pinnedLabel = "pinned";
 const idLabel = "id";
+const srcLabel = "src";
 const correctLabel = "correct output?";
 const expectedLabel = "expectedOutput";
 const validatorLabel = "validator";
@@ -279,6 +281,48 @@ function main() {
       const pinned = { [pinnedLabel]: !!e.pinned };
       const id = { [idLabel]: idx++ };
 
+      // Input Source
+      const inputSrc: FuzzValueOrigin = e.input.length
+        ? e.input[0].origin
+        : { type: "unknown" };
+      let src: { [srcLabel]: string };
+      switch (inputSrc.type) {
+        case "unknown":
+          src = { [srcLabel]: "n/a" };
+          break;
+        case "user":
+          src = { [srcLabel]: "usr" };
+          break;
+        case "put":
+          src = { [srcLabel]: "pgm" };
+          break;
+        case "generator":
+          switch (inputSrc.generator) {
+            case "AiInputGenerator":
+              src = { [srcLabel]: "ai" };
+              break;
+            case "MutationInputGenerator":
+              src = { [srcLabel]: "mut" };
+              break;
+            case "RandomInputGenerator":
+              src = { [srcLabel]: "rnd" };
+              break;
+            default:
+              throw new Error(
+                `Unexpected FuzzValueOrigin generator at input# ${idx}: ${JSON5.stringify(
+                  inputSrc
+                )}`
+              );
+          }
+          break;
+        default:
+          throw new Error(
+            `Unexpected FuzzValueOrigin at input# ${idx}: ${JSON5.stringify(
+              inputSrc
+            )}`
+          );
+      }
+
       // Implicit validation result
       const passedImplicit = resultsData.env.options.useImplicit
         ? { [implicitLabel]: e.passedImplicit }
@@ -340,12 +384,14 @@ function main() {
       if (e.category === "failure") {
         data[e.category].push({
           ...id,
+          ...src,
           ...inputs,
           ...outputs, // Exception message contained in outputs
         });
       } else {
         data[e.category].push({
           ...id,
+          ...src,
           ...inputs,
           ...outputs,
           //...elapsedTimes,
@@ -501,12 +547,24 @@ function main() {
             cell.addEventListener("click", () => {
               handleColumnSort(cell, type, k, tbody, true);
             });
+          } else if (k === srcLabel) {
+            const cell = hRow.appendChild(document.createElement("th"));
+            const label = k;
+            cell.id = type + "-" + k;
+            cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
+            cell.innerHTML = /*html*/ `
+              <span class="tooltipped tooltipped-ne" aria-label="Input source: Random, Mutation, AI, User">
+                <big>${htmlEscape(label)}</big>
+              </span>`;
+            cell.addEventListener("click", () => {
+              handleColumnSort(cell, type, k, tbody, true);
+            });
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             const label =
               type === "failure" && k === "output" ? "exception" : k;
             cell.id = type + "-" + k;
-            cell.classList.add("clickable");
+            cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
             cell.innerHTML = `<big>${htmlEscape(label)}</big>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, type, k, tbody, true);
@@ -1421,7 +1479,8 @@ function drawTableBody({
         cell2.classList.add("colGroupEnd", "clickable");
       } else {
         const cell = row.appendChild(document.createElement("td"));
-        cell.innerHTML = htmlEscape(e[k]);
+        cell.classList.add(`tableCol-${k.replace(" ", "")}`, `editorFont`);
+        cell.textContent = e[k];
       }
     });
   });
@@ -1709,7 +1768,7 @@ function buildExpectedTestCase(
     isTimeout: !!("checked" in radioTimeout && radioTimeout.checked),
     isException: !!("checked" in radioException && radioException.checked),
     value: parsedExpectedValue,
-    origin: { origin: "user" },
+    origin: { type: "user" },
   };
 
   // Build & return the test case object

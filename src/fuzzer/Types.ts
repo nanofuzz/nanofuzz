@@ -96,19 +96,19 @@ export type InputAndSource = {
 // !!!!!!
 export type FuzzValueOrigin =
   | {
-      origin: "user" | "put" | "unknown";
+      type: "user" | "put" | "unknown";
     }
   | {
-      origin: "generator";
+      type: "generator";
       generator: "RandomInputGenerator";
     }
   | {
-      origin: "generator";
+      type: "generator";
       generator: "MutationInputGenerator";
       tick?: number;
     }
   | {
-      origin: "generator";
+      type: "generator";
       generator: "AiInputGenerator";
       model: string;
     };

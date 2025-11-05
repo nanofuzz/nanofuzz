@@ -18,6 +18,18 @@ vscode-panel-view.fuzzGridPanel {
   word-break: break-word;
   padding: 4px 6px;
 }
+.editorFont {
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size);
+  font-weight: var(--vscode-editor-font-weight);
+}
+.fuzzGrid td.tableCol-src {
+  text-align: center;
+  color: rgb(from var(--vscode-foreground) r g b / 0.35);
+}
+.fuzzGrid th.tableCol-src {
+  text-align: center;
+}
 .fuzzGrid th {
   text-align: left;
   padding: 4px 6px;

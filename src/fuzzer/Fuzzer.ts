@@ -215,7 +215,7 @@ function* TestGenerator(
               value: i.value,
             };
           }),
-          source: t.input.length ? t.input[0].origin : { origin: "unknown" }, // !!!!!!!! case of zero inputs
+          source: t.input.length ? t.input[0].origin : { type: "unknown" },
         };
       }
       //value: t.input.map((i) => {
@@ -314,9 +314,9 @@ function* TestGenerator(
     // Stats
     const statKey = genInput.injected
       ? `injected`
-      : genInput.source.origin === "generator"
-      ? `${genInput.source.origin}.${genInput.source.generator}`
-      : `${genInput.source.origin}`;
+      : genInput.source.type === "generator"
+      ? `${genInput.source.type}.${genInput.source.generator}`
+      : `${genInput.source.type}`;
     if (!(statKey in results.stats.generators)) {
       results.stats.generators[statKey] = {
         timers: {
@@ -414,7 +414,7 @@ function* TestGenerator(
         name: "0",
         offset: 0,
         value: exeOutput as ArgValueType,
-        origin: { origin: "put" },
+        origin: { type: "put" },
       });
       result.timers.run = performance.now() - startRunTime; // stop timer
     } catch (e: unknown) {

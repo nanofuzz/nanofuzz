@@ -30,7 +30,7 @@ export class RandomInputGenerator extends AbstractInputGenerator {
     return {
       tick: 0,
       value: this._gen.next(),
-      source: { origin: "generator", generator: "RandomInputGenerator" },
+      source: { type: "generator", generator: "RandomInputGenerator" },
     };
   } // fn: next
 } // class: RandomInputGenerator

@@ -69,7 +69,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
           tick: 0,
           value: input,
           source: {
-            origin: "generator",
+            type: "generator",
             generator: "MutationInputGenerator",
             tick: sourceTick,
           },
@@ -86,7 +86,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       tick: 0,
       value: input,
       source: {
-        origin: "generator",
+        type: "generator",
         generator: "MutationInputGenerator",
         tick: sourceTick,
       },

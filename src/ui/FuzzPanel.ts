@@ -551,16 +551,16 @@ export class FuzzPanel {
                 const thisTest = (thisFn.tests[newKey] = oldTestSet[oldKey]);
                 for (const input of thisTest.input) {
                   input.origin = {
-                    origin: "generator",
+                    type: "generator",
                     generator: "RandomInputGenerator",
                   };
                 }
                 for (const output of thisTest.output) {
-                  output.origin = { origin: "put" };
+                  output.origin = { type: "put" };
                 }
                 if (thisTest.expectedOutput) {
                   for (const expectedOutput of thisTest.expectedOutput) {
-                    expectedOutput.origin = { origin: "user" };
+                    expectedOutput.origin = { type: "user" };
                   }
                 }
               }
@@ -1253,7 +1253,7 @@ ${inArgConsts}
           name: specs[i].getName(),
           offset: i,
           value: v.value,
-          origin: { origin: "user" },
+          origin: { type: "user" },
         };
       }),
       output: [], // the fuzzer fills this
@@ -1884,8 +1884,8 @@ ${inArgConsts}
         for (g in env.options.generators) {
           const shortName = g.replace("InputGenerator", "").toLowerCase();
           if (env.options.generators[g].enabled) {
-            if (g in this._results.stats.generators) {
-              const genStats = this._results.stats.generators[g];
+            if (`generator.${g}` in this._results.stats.generators) {
+              const genStats = this._results.stats.generators[`generator.${g}`];
               genTextEnabled.push(
                 `<strong><u>${shortName}</u></strong> produced ${
                   genStats.counters.inputsGenerated
@@ -2088,11 +2088,11 @@ ${inArgConsts}
                         )
                         .join("\r\n")}
                       <td>${htmlEscape(
-                        i.input.source.origin === "generator"
+                        i.input.source.type === "generator"
                           ? i.input.source.generator
                               .replace("InputGenerator", "")
                               .toLowerCase()
-                          : i.input.source.origin.toLowerCase()
+                          : i.input.source.type.toLowerCase()
                       )}${
                         i.input.source.tick !== undefined
                           ? ` from #${i.input.source.tick}`
