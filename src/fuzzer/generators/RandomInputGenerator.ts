@@ -2,7 +2,7 @@ import { ArgDef } from "../analysis/typescript/ArgDef";
 import { ArgType } from "../analysis/typescript/Types";
 import { ArgDefGenerator } from "../analysis/typescript/ArgDefGenerator";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
-import { InputAndSource } from "./Types";
+import { InputAndSource } from "../Types";
 
 /**
  * Generates new inputs pseudo-randomly
@@ -30,7 +30,7 @@ export class RandomInputGenerator extends AbstractInputGenerator {
     return {
       tick: 0,
       value: this._gen.next(),
-      source: { subgen: "RandomInputGenerator" },
+      source: { origin: "generator", generator: "RandomInputGenerator" },
     };
   } // fn: next
 } // class: RandomInputGenerator

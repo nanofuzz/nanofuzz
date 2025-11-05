@@ -1,6 +1,5 @@
-import { InputAndSource } from "fuzzer/generators/Types";
 import { FuzzTestResults } from "../Fuzzer";
-import { FuzzTestResult, VmGlobals } from "../Types";
+import { FuzzTestResult, VmGlobals, InputAndSource } from "../Types";
 
 /**
  * Abstract class of a measure
