@@ -101,14 +101,14 @@ export const toString = (testSet: FuzzTests, module: string): string => {
           // Expected exception
           jestData.push(
             `  // Expect thrown exception`,
-            `  test("${fn}.${i}.human", () => {expect( () => {themodule.${fn}(${inputStr})}).toThrow();},${timeout});`,
+            `  it("${fn}.${i}.human", () => {expect(() => {themodule.${fn}(${inputStr})}).toThrow();},${timeout});`,
             ``
           );
         } else {
           // Expected output value
           jestData.push(
             `  // Expect output value`,
-            `  test("${fn}.${i}.human", () => {expect(themodule.${fn}(${inputStr})).toStrictEqual(${JSON5.stringify(
+            `  it("${fn}.${i}.human", () => {expect(themodule.${fn}(${inputStr})).toStrictEqual(${JSON5.stringify(
               expectedOutput[0].value
             )});},${timeout});`,
             ``
@@ -120,12 +120,12 @@ export const toString = (testSet: FuzzTests, module: string): string => {
         for (const validator of thisFn.validators) {
           // prettier-ignore
           jestData.push(
-          `  // Expect property validator to not return false`,
-          `  test("${fn}.${i}.${validator}", () => {`,
-          `    expect(runPropertyValidator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toBeFalsy();`,
-          `  });`,
-          ``,
-        );
+            `  // Expect property validator to not return false`,
+            `  it("${fn}.${i}.${validator}", () => {`,
+            `    expect(runPropertyValidator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toBeFalsy();`,
+            `  });`,
+            ``,
+          );
         }
       }
 
@@ -138,13 +138,13 @@ export const toString = (testSet: FuzzTests, module: string): string => {
         if (thisFn.isVoid) {
           jestData.push(
             `  // As a void function, expect only undefined and no timeout or exception`,
-            `  test("${fn}.${i}.heuristic", () => {expect(themodule.${fn}(${inputStr})).toBeUndefined();},${timeout});`,
+            `  it("${fn}.${i}.heuristic", () => {expect(themodule.${fn}(${inputStr})).toBeUndefined();},${timeout});`,
             ``
           );
         } else {
           jestData.push(
             `  // Expect no timeout, exception, NaN, null, undefined, or infinity`,
-            `  test("${fn}.${i}.heuristic", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);},${timeout});`,
+            `  it("${fn}.${i}.heuristic", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);},${timeout});`,
             ``
           );
         }
