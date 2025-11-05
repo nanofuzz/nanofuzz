@@ -30,8 +30,8 @@ export const ProgramModelFactory = {
     if (fnRefString in modelCache) {
       return modelCache[fnRefString];
     } else {
-      const model = new CopilotProgramModel(fn); // !!!!!!!!
-      //const model= new GeminiProgramModel(fn); // !!!!!!
+      //const model = new CopilotProgramModel(fn); // !!!!!!!!
+      const model = new GeminiProgramModel(fn); // !!!!!!
       modelCache[fnRefString] = model;
       return model;
     }
