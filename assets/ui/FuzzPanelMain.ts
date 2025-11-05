@@ -1617,7 +1617,7 @@ function handleExpectedOutput({
       });
     } else {
       // Marked X but not currently being edited; display expected output
-      row.cells[numInputs].className = "classErrorCell"; // red wavy underline
+      row.cells[numInputs + 1].className = "classErrorCell"; // red wavy underline
       expectedRow.className = "classErrorExpectedOutputRow";
 
       // Display the expected outout
