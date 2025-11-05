@@ -1296,72 +1296,76 @@ ${inArgConsts}
         )
       );
 
-      try {
-        // Run just the one test input w/all input generators
-        this._stopTesting = false;
-        const thisResult = await fuzzer.fuzz(
-          envNoGenerators,
-          [injectedTest],
-          undefined /*
-          (msg: fuzzer.FuzzBusyStatusMessage): void => {
-            this._panel.webview.postMessage({
-              command: "busy.message",
-              json: JSON5.stringify(msg),
-            });
-          }*/,
-          () => this._stopTesting
-        );
+      // Run just the one test input w/all input generators
+      this._stopTesting = false;
+      fuzzer.fuzzAsync(
+        envNoGenerators,
+        [injectedTest],
+        (msg: fuzzer.FuzzBusyStatusMessage): void => {
+          this._panel.webview.postMessage({
+            command: "busy.message",
+            json: JSON5.stringify(msg),
+          });
+        },
+        () => this._stopTesting,
+        (results: fuzzer.FuzzTestResults) => {
+          const thisResult = results;
 
-        // Log the end of fuzzing
-        vscode.commands.executeCommand(
-          telemetry.commands.logTelemetry.name,
-          new telemetry.LoggerEntry(
-            "FuzzPanel.fuzz.done",
-            "Fuzzing completed successfully. Target: %s. Results: %s",
-            [this.getFnRefKey(), JSON5.stringify(this._results)]
-          )
-        );
+          // Log the end of fuzzing
+          vscode.commands.executeCommand(
+            telemetry.commands.logTelemetry.name,
+            new telemetry.LoggerEntry(
+              "FuzzPanel.fuzz.done",
+              "Fuzzing completed successfully. Target: %s. Results: %s",
+              [this.getFnRefKey(), JSON5.stringify(thisResult)]
+            )
+          );
 
-        // Merge the results
-        if (this._results) {
-          this._results = fuzzer.mergeTestResults(this._results, thisResult);
-        } else {
-          this._results = thisResult;
+          // Merge the results
+          if (this._results) {
+            this._results = fuzzer.mergeTestResults(this._results, thisResult);
+          } else {
+            this._results = thisResult;
+          }
+
+          // If we have a result then give the new result UI focus
+          if (thisResult.results.length) {
+            // Give focus to the newInput
+            this._focusInput = [
+              thisResult.results[0].category,
+              this._results.results.length - 1,
+            ];
+          }
+
+          // Transition to done state
+          this._errorMessage = undefined;
+          this._state = FuzzPanelState.done;
+
+          // Persist the fuzz test run settings
+          this._updateFuzzTests();
+
+          // Update the UI
+          this._updateHtml();
+          this._focusInput = undefined;
+        },
+        (e: Error) => {
+          this._state = FuzzPanelState.error;
+          this._errorMessage = isError(e)
+            ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
+            : "Unknown error";
+          vscode.commands.executeCommand(
+            telemetry.commands.logTelemetry.name,
+            new telemetry.LoggerEntry(
+              "FuzzPanel.fuzz.error",
+              "Fuzzing failed. Target: %s. Message: %s",
+              [this.getFnRefKey(), this._errorMessage]
+            )
+          );
+
+          // Update the UI
+          this._updateHtml();
         }
-
-        // If we have a result then give the new result UI focus
-        if (thisResult.results.length) {
-          // Give focus to the newInput
-          this._focusInput = [
-            thisResult.results[0].category,
-            this._results.results.length - 1,
-          ];
-        }
-
-        // Transition to done state
-        this._errorMessage = undefined;
-        this._state = FuzzPanelState.done;
-
-        // Persist the fuzz test run settings
-        this._updateFuzzTests();
-      } catch (e: unknown) {
-        this._state = FuzzPanelState.error;
-        this._errorMessage = isError(e)
-          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-          : "Unknown error";
-        vscode.commands.executeCommand(
-          telemetry.commands.logTelemetry.name,
-          new telemetry.LoggerEntry(
-            "FuzzPanel.fuzz.error",
-            "Fuzzing failed. Target: %s. Message: %s",
-            [this.getFnRefKey(), this._errorMessage]
-          )
-        );
-      }
-
-      // Update the UI
-      this._updateHtml();
-      this._focusInput = undefined;
+      );
     }); // setTimeout
   } // fn: _addTestInputCmd
 
@@ -2075,7 +2079,7 @@ ${inArgConsts}
                 ${this._results.interesting.inputs
                   .map(
                     (i) =>
-                      `<tr><td>${htmlEscape(
+                      `<tr class="editorFont"><td>${htmlEscape(
                         i.input.tick.toString()
                       )}</td>${i.input.value
                         .map(
