@@ -1893,11 +1893,11 @@ ${inArgConsts}
               genTextEnabled.push(
                 `<strong><u>${shortName}</u></strong> produced ${
                   genStats.counters.inputsGenerated
-                } inputs (${
-                  genStats.counters.dupesGenerated
-                } of which were duplicates) in ${genStats.timers.gen.toFixed(
-                  2
-                )} ms (${(
+                } inputs (${genStats.counters.dupesGenerated} of which ${
+                  genStats.counters.dupesGenerated === 1
+                    ? "was a duplicate"
+                    : "were duplicates"
+                }) in ${genStats.timers.gen.toFixed(2)} ms (${(
                   genStats.timers.gen /
                   (genStats.counters.inputsGenerated +
                     genStats.counters.dupesGenerated)
