@@ -22,7 +22,7 @@ import { RunnerFactory } from "./runners/RunnerFactory";
 import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { ScoredInput } from "./generators/Types";
-import { isError } from "../Util";
+import { isError } from "./Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 
 /**
@@ -76,47 +76,6 @@ export function fuzz(
   return result;
 }
 
-// !!!!!!
-export function fuzzAsync(
-  env: FuzzEnv,
-  pinnedTests: FuzzPinnedTest[] = [],
-  updateFn: (payload: FuzzBusyStatusMessage) => void = (msg) => {
-    msg;
-  },
-  cancelFn: () => boolean = () => false,
-  callbackFn: (result: FuzzTestResults) => void,
-  errorFn: (e: Error) => void
-): void {
-  const gen = TestGenerator(env, pinnedTests, updateFn, cancelFn);
-
-  const nextBatch = (): void => {
-    let result: FuzzTestResults | undefined;
-    const timer = Date.now();
-
-    while (!result && Date.now() - timer < 125) {
-      try {
-        result = gen.next().value;
-        if (result) {
-          callbackFn(result);
-          return;
-        }
-      } catch (e) {
-        errorFn(
-          isError(e)
-            ? e
-            : { name: "unknown error", message: JSON5.stringify(e) }
-        );
-        return;
-      }
-    }
-    if (!result)
-      setTimeout(() => {
-        nextBatch();
-      });
-  };
-
-  nextBatch();
-}
 /** !!!!!!!!!
  * Fuzzes the function specified in the fuzz environment and returns the test results.
  *
@@ -126,7 +85,7 @@ export function fuzzAsync(
  * Throws an exception if the fuzz options are invalid
  */
 // !!!!!!
-function* TestGenerator(
+export function* TestGenerator(
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = [],
   updateFn?: (payload: FuzzBusyStatusMessage) => void,
@@ -274,7 +233,7 @@ function* TestGenerator(
     );
     if (stopCondition !== undefined) {
       results.stopReason = stopCondition;
-      results.stats.timers.total = new Date().getTime() - startTime; // TODO: non-monotonic time breakage possible !!!!!
+      results.stats.timers.total = Date.now() - startTime;
       results.stats.counters.inputsGenerated = inputsGenerated;
       results.stats.counters.dupesGenerated = totalDupeCount;
       results.stats.counters.inputsInjected = injectedCount;
@@ -575,12 +534,17 @@ function* TestGenerator(
   } // for: Main test loop
 
   update({
+    msg: `Testing ${cancelFn && cancelFn() ? "stopped" : "finished"}.`,
+    milestone: true,
+    pct: 100,
+  });
+  update({
     msg: `Testing ${
       cancelFn && cancelFn() ? "stopped" : "finished"
     }.\r\n  Tests passed: ${
       results.results.length - failureCount
     }\r\n  Tests failed: ${failureCount}`,
-    milestone: true,
+    milestone: false,
     pct: 100,
   });
 

@@ -34,7 +34,7 @@ import {
   ProgramImport,
   ArgType,
 } from "./Types";
-import { isError } from "../../../Util";
+import { isError } from "../../Util";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source

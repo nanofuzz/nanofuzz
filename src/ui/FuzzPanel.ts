@@ -6,7 +6,7 @@ import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
-import { isError } from "../Util";
+import { isError } from "../fuzzer/Util";
 import { AbstractProgramModel } from "../models/AbstractProgramModel";
 import { ProgramModelFactory } from "../models/ProgramModelFactory";
 
@@ -46,6 +46,7 @@ export class FuzzPanel {
   private _focusInput?: [string, number]; // Newly-added input to receive UI focus
   private _lastTab: string | undefined; // Last tab that had focus
   private _disposed = false; // Indicates whether this panel is disposed
+  private _gen?: ReturnType<typeof fuzzer.TestGenerator>; // The test generator
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
@@ -347,11 +348,11 @@ export class FuzzPanel {
         switch (command) {
           case "fuzz.start":
             this._doGetValidators();
-            this._doFuzzStartCmd(json);
+            this._testAll(json);
             break;
           case "fuzz.addTestInput":
             this._doGetValidators();
-            this._doAddTestInputCmd(json);
+            this._testOne(json);
             break;
           case "fuzz.stop":
             this._stopTesting = true;
@@ -1108,6 +1109,51 @@ ${inArgConsts}
     }
   } // fn: _doGetValidators()
 
+  // !!!!!!
+  protected test(
+    env: fuzzer.FuzzEnv,
+    pinnedTests: fuzzer.FuzzPinnedTest[] = [],
+    callbackFn: (result: fuzzer.FuzzTestResults | Error) => void,
+    statusFn: (payload: fuzzer.FuzzBusyStatusMessage) => void = (msg) => {
+      msg;
+    },
+    cancelFn: () => boolean = () => this._stopTesting
+  ): void {
+    const gen = this._gen
+      ? this._gen
+      : fuzzer.TestGenerator(env, pinnedTests, statusFn, cancelFn);
+
+    // !!!!!!!! rationalize changed env and stop criteria
+
+    const nextBatch = (): void => {
+      let result: fuzzer.FuzzTestResults | undefined;
+      const timer = Date.now();
+
+      while (!result && Date.now() - timer < 125) {
+        try {
+          result = gen.next().value;
+          if (result) {
+            callbackFn(result);
+            return;
+          }
+        } catch (e) {
+          callbackFn(
+            isError(e)
+              ? e
+              : { name: "unknown error", message: JSON5.stringify(e) }
+          );
+          return;
+        }
+      }
+      if (!result)
+        setTimeout(() => {
+          nextBatch();
+        });
+    };
+
+    nextBatch();
+  }
+
   /**
    * Message handler for the `fuzz.start` command.
    *
@@ -1122,7 +1168,7 @@ ${inArgConsts}
    *
    * @param json JSON input
    */
-  private async _doFuzzStartCmd(json: string): Promise<void> {
+  private async _testAll(json: string): Promise<void> {
     const panelInput: FuzzPanelFuzzStartMessage = JSON5.parse(json);
     this._getConfigFromUi(panelInput);
 
@@ -1151,61 +1197,63 @@ ${inArgConsts}
         )
       );
 
-      // Fuzz the function & store the results
       try {
-        // Run the fuzzer
+        // Test the function & store the results
         this._stopTesting = false;
-        fuzzer.fuzzAsync(
+        this.test(
           this._fuzzEnv,
           Object.values(testsToInject),
+          (result: fuzzer.FuzzTestResults | Error) => {
+            if (isError(result)) {
+              /* Error */
+              // Transition to error state
+              this._errorMessage = `${result.message}<vscode-divider></vscode-divider><small><pre>${result.stack}</pre></small>`;
+              this._state = FuzzPanelState.error;
+
+              // Log the end of fuzzing
+              vscode.commands.executeCommand(
+                telemetry.commands.logTelemetry.name,
+                new telemetry.LoggerEntry(
+                  "FuzzPanel.fuzz.error",
+                  "Fuzzing failed. Target: %s. Message: %s",
+                  [this.getFnRefKey(), this._errorMessage]
+                )
+              );
+
+              // Update the UI
+              this._updateHtml();
+            } else {
+              /* Success */
+              this._results = result;
+
+              // Transition to done state
+              this._errorMessage = undefined;
+              this._state = FuzzPanelState.done;
+
+              // Log the end of fuzzing
+              vscode.commands.executeCommand(
+                telemetry.commands.logTelemetry.name,
+                new telemetry.LoggerEntry(
+                  "FuzzPanel.fuzz.done",
+                  "Fuzzing completed successfully. Target: %s. Results: %s",
+                  [this.getFnRefKey(), JSON5.stringify(this._results)]
+                )
+              );
+
+              // Persist the fuzz test run settings (!!!!!!! validation)
+              this._updateFuzzTests();
+
+              // Update the UI
+              this._updateHtml();
+            }
+          },
           (payload: fuzzer.FuzzBusyStatusMessage): void => {
             this._panel.webview.postMessage({
               command: "busy.message",
               json: JSON5.stringify(payload),
             });
           },
-          () => this._stopTesting,
-          (results: fuzzer.FuzzTestResults) => {
-            this._results = results;
-
-            // Transition to done state
-            this._errorMessage = undefined;
-            this._state = FuzzPanelState.done;
-
-            // Log the end of fuzzing
-            vscode.commands.executeCommand(
-              telemetry.commands.logTelemetry.name,
-              new telemetry.LoggerEntry(
-                "FuzzPanel.fuzz.done",
-                "Fuzzing completed successfully. Target: %s. Results: %s",
-                [this.getFnRefKey(), JSON5.stringify(this._results)]
-              )
-            );
-
-            // Persist the fuzz test run settings (!!!!!!! validation)
-            this._updateFuzzTests();
-
-            // Update the UI
-            this._updateHtml();
-          },
-          (e: Error) => {
-            // Transition to error state
-            this._errorMessage = `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`;
-            this._state = FuzzPanelState.error;
-
-            // Log the end of fuzzing
-            vscode.commands.executeCommand(
-              telemetry.commands.logTelemetry.name,
-              new telemetry.LoggerEntry(
-                "FuzzPanel.fuzz.error",
-                "Fuzzing failed. Target: %s. Message: %s",
-                [this.getFnRefKey(), this._errorMessage]
-              )
-            );
-
-            // Update the UI
-            this._updateHtml();
-          }
+          () => this._stopTesting
         );
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
@@ -1232,7 +1280,7 @@ ${inArgConsts}
    *
    * @param json serialized inputs
    */
-  private async _doAddTestInputCmd(json: string): Promise<void> {
+  private async _testOne(json: string): Promise<void> {
     const panelInput: FuzzPanelFuzzStartMessage = JSON5.parse(json);
 
     // Make sure we have an input to add
@@ -1298,73 +1346,82 @@ ${inArgConsts}
 
       // Run just the one test input w/all input generators
       this._stopTesting = false;
-      fuzzer.fuzzAsync(
+      this.test(
         envNoGenerators,
         [injectedTest],
+        (result: fuzzer.FuzzTestResults | Error) => {
+          if (isError(result)) {
+            /* Error */
+            this._state = FuzzPanelState.error;
+            this._errorMessage = `${result.message}<vscode-divider></vscode-divider><small><pre>${result.stack}</pre></small>`;
+            vscode.commands.executeCommand(
+              telemetry.commands.logTelemetry.name,
+              new telemetry.LoggerEntry(
+                "FuzzPanel.fuzz.error",
+                "Fuzzing failed. Target: %s. Message: %s",
+                [this.getFnRefKey(), this._errorMessage]
+              )
+            );
+
+            // Update the UI
+            this._updateHtml();
+          } else {
+            /* Success */
+            const thisResult = result;
+
+            // Log the end of fuzzing
+            vscode.commands.executeCommand(
+              telemetry.commands.logTelemetry.name,
+              new telemetry.LoggerEntry(
+                "FuzzPanel.fuzz.done",
+                "Fuzzing completed successfully. Target: %s. Results: %s",
+                [this.getFnRefKey(), JSON5.stringify(thisResult)]
+              )
+            );
+
+            // Merge the results !!!!!!!! This code needs to go away
+            if (this._results) {
+              this._results = fuzzer.mergeTestResults(
+                this._results,
+                thisResult
+              );
+            } else {
+              this._results = thisResult;
+            }
+
+            // If we have a matching result then give the new result UI focus
+            if (
+              thisResult.results.length &&
+              JSON5.stringify(
+                thisResult.results[thisResult.results.length - 1].input
+              ) === JSON5.stringify(injectedTest.input)
+            ) {
+              // Give focus to the newInput
+              this._focusInput = [
+                thisResult.results[0].category,
+                this._results.results.length - 1,
+              ];
+            }
+
+            // Transition to done state
+            this._errorMessage = undefined;
+            this._state = FuzzPanelState.done;
+
+            // Persist the fuzz test run settings
+            this._updateFuzzTests();
+
+            // Update the UI
+            this._updateHtml();
+            this._focusInput = undefined;
+          }
+        },
         (msg: fuzzer.FuzzBusyStatusMessage): void => {
           this._panel.webview.postMessage({
             command: "busy.message",
             json: JSON5.stringify(msg),
           });
         },
-        () => this._stopTesting,
-        (results: fuzzer.FuzzTestResults) => {
-          const thisResult = results;
-
-          // Log the end of fuzzing
-          vscode.commands.executeCommand(
-            telemetry.commands.logTelemetry.name,
-            new telemetry.LoggerEntry(
-              "FuzzPanel.fuzz.done",
-              "Fuzzing completed successfully. Target: %s. Results: %s",
-              [this.getFnRefKey(), JSON5.stringify(thisResult)]
-            )
-          );
-
-          // Merge the results
-          if (this._results) {
-            this._results = fuzzer.mergeTestResults(this._results, thisResult);
-          } else {
-            this._results = thisResult;
-          }
-
-          // If we have a result then give the new result UI focus
-          if (thisResult.results.length) {
-            // Give focus to the newInput
-            this._focusInput = [
-              thisResult.results[0].category,
-              this._results.results.length - 1,
-            ];
-          }
-
-          // Transition to done state
-          this._errorMessage = undefined;
-          this._state = FuzzPanelState.done;
-
-          // Persist the fuzz test run settings
-          this._updateFuzzTests();
-
-          // Update the UI
-          this._updateHtml();
-          this._focusInput = undefined;
-        },
-        (e: Error) => {
-          this._state = FuzzPanelState.error;
-          this._errorMessage = isError(e)
-            ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-            : "Unknown error";
-          vscode.commands.executeCommand(
-            telemetry.commands.logTelemetry.name,
-            new telemetry.LoggerEntry(
-              "FuzzPanel.fuzz.error",
-              "Fuzzing failed. Target: %s. Message: %s",
-              [this.getFnRefKey(), this._errorMessage]
-            )
-          );
-
-          // Update the UI
-          this._updateHtml();
-        }
+        () => this._stopTesting
       );
     }); // setTimeout
   } // fn: _addTestInputCmd
@@ -2923,7 +2980,7 @@ const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.9"; // !!!!!!! Increment
 /**
  * Current file format version for persisting test sets / pinned test cases
  */
-const CURR_FILE_FMT_VER = "0.3.9"; // !!!!! Increment if fmt changes
+const CURR_FILE_FMT_VER = "0.3.9"; // !!!!!!! Increment if fmt changes
 
 // ----------------------------- Types ----------------------------- //
 
