@@ -158,11 +158,13 @@ export class GeminiProgramModel extends AbstractProgramModel {
         });
       }); // !!!!!! move to initializer
 
-      const timer = Date.now();
+      const timer = performance.now();
       const result = (
         await this._model.generateContent(promptParts)
       ).response.text();
-      console.debug(`(${Date.now() - timer} ms) gemini(+CACHE)>>>${result}`); // !!!!!!
+      console.debug(
+        `(${performance.now() - timer} ms) gemini(+CACHE)>>>${result}`
+      ); // !!!!!!
       this._promptCache[promptSerialized] = result;
       return result;
     }

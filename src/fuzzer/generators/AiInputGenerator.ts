@@ -65,12 +65,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
   private _getMoreInputs() {
     if (this._gensLeft) {
       console.debug(`Calling the LLM for test inputs`); // !!!!!!!
-      const timer = Date.now();
+      const timer = performance.now();
       process.nextTick(async () => {
         const inputs = await this._model.generateExampleInputs();
         console.debug(
           `Got test inputs from LLM: ${JSON5.stringify(inputs, null, 2)} in ${
-            Date.now() - timer
+            performance.now() - timer
           } ms`
         ); // !!!!!!!
         this._inputCache.push(

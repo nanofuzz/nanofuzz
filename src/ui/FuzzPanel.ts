@@ -1127,9 +1127,9 @@ ${inArgConsts}
 
     const nextBatch = (): void => {
       let result: fuzzer.FuzzTestResults | undefined;
-      const timer = Date.now();
+      const timer = performance.now();
 
-      while (!result && Date.now() - timer < 125) {
+      while (!result && performance.now() - timer < 125) {
         try {
           result = gen.next().value;
           if (result) {

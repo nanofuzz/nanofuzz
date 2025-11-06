@@ -214,7 +214,7 @@ export class CopilotProgramModel extends AbstractProgramModel {
         promptParts.push(vscode.LanguageModelChatMessage.User(e));
       }); // !!!!!! move to initializer
       vscode.lm.tools;
-      const timer = Date.now();
+      const timer = performance.now();
       const stream = (
         await this._model.sendRequest(
           promptParts,
@@ -246,7 +246,9 @@ export class CopilotProgramModel extends AbstractProgramModel {
       } else {
         console.debug(`No markdown bullshit?? mkay: ${result}`); // !!!!!!!!
       }
-      console.debug(`(${Date.now() - timer} ms) copilot(+CACHE)>>>${result}`); // !!!!!!
+      console.debug(
+        `(${performance.now() - timer} ms) copilot(+CACHE)>>>${result}`
+      ); // !!!!!!
       this._promptCache[promptSerialized] = result;
       return result;
     }
