@@ -56,7 +56,6 @@ export const setup = (
   return {
     options: { ...options },
     function: fnList[fnName],
-    //validator: ... FuzzPanel loads this and adds it to FuzzEnv later
     validators: getValidators(program, fnList[fnName]),
   };
 }; // fn: setup()
@@ -74,7 +73,7 @@ export function fuzz(
     result = gen.next().value;
   }
   return result;
-}
+} // !!!!!!
 
 /** !!!!!!!!!
  * Fuzzes the function specified in the fuzz environment and returns the test results.
@@ -166,21 +165,16 @@ export function* TestGenerator(
   // first: we want the composite generator to know about these inputs so that
   // any "interesting" inputs might be further mutated by other generators.
   compositeInputGenerator.inject(
-    pinnedTests.map(
-      (t): Omit<InputAndSource, "tick"> => {
-        return {
-          value: t.input.map((i) => {
-            return {
-              value: i.value,
-            };
-          }),
-          source: t.input.length ? t.input[0].origin : { type: "unknown" },
-        };
-      }
-      //value: t.input.map((i) => {
-      //  return { value: i.value };
-      //})
-    )
+    pinnedTests.map((t): Omit<InputAndSource, "tick"> => {
+      return {
+        value: t.input.map((i) => {
+          return {
+            value: i.value,
+          };
+        }),
+        source: t.input.length ? t.input[0].origin : { type: "unknown" },
+      };
+    })
   );
 
   // The module that includes the function to fuzz will
@@ -233,7 +227,7 @@ export function* TestGenerator(
     );
     if (stopCondition !== undefined) {
       results.stopReason = stopCondition;
-      results.stats.timers.total = Date.now() - startTime;
+      results.stats.timers.total = performance.now() - startTime;
       results.stats.counters.inputsGenerated = inputsGenerated;
       results.stats.counters.dupesGenerated = totalDupeCount;
       results.stats.counters.inputsInjected = injectedCount;
@@ -466,7 +460,7 @@ export function* TestGenerator(
           env.options.fnTimeout
         );
 
-        // Categorize the results (so it's not stale)
+        // Categorize the result (so it's not stale)
         result.category = categorizeResult(result);
 
         // Call the validator function wrapper
@@ -621,7 +615,7 @@ const _checkStopCondition = (
   userCancel: boolean
 ): { stopCondition: FuzzStopReason | undefined; pct?: number } => {
   const pcts: number[] = [0];
-  const now = Date.now();
+  const now = performance.now();
 
   // End testing if the user cancels it exceed the suite timeou
   if (userCancel) {
@@ -867,7 +861,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   }
 } // fn: categorizeResult()
 
-/**
+/** !!!!!!!! code needs to go away
  * Merge the results of two fuzzer runs.
  *
  * See comments below for some of the current limitations.
