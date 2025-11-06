@@ -2,8 +2,7 @@ import { AbstractProgramModel } from "./AbstractProgramModel";
 import * as JSON5 from "json5";
 import * as gemini from "@google/generative-ai";
 import { ModelArgOverrides } from "./Types";
-import { FuzzIoElement } from "fuzzer/Types";
-import { FunctionDef } from "fuzzer/Fuzzer";
+import { FunctionDef, FuzzIoElement } from "../fuzzer/Fuzzer";
 
 export class GeminiProgramModel extends AbstractProgramModel {
   private _apiToken: string;

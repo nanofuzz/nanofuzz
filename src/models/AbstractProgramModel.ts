@@ -6,9 +6,9 @@ import {
 } from "../fuzzer/analysis/typescript/Types";
 import * as JSON5 from "json5";
 import { ModelArgOverrides } from "./Types";
-import { ArgDef } from "fuzzer/analysis/typescript/ArgDef";
-import { FunctionDef } from "fuzzer/analysis/typescript/FunctionDef";
-import { FuzzArgOverride, FuzzIoElement } from "fuzzer/Types";
+import { ArgDef } from "../fuzzer/analysis/typescript/ArgDef";
+import { FunctionDef } from "../fuzzer/analysis/typescript/FunctionDef";
+import { FuzzArgOverride, FuzzIoElement } from "../fuzzer/Types";
 
 export abstract class AbstractProgramModel {
   protected readonly _cfgCategory: string;

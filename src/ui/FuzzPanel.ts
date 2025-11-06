@@ -5,7 +5,7 @@ import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
-import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
+import { ProgramDef } from "../fuzzer/analysis/typescript/ProgramDef";
 import { isError } from "../fuzzer/Util";
 import { AbstractProgramModel } from "../models/AbstractProgramModel";
 import { ProgramModelFactory } from "../models/ProgramModelFactory";

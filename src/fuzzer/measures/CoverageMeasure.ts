@@ -5,9 +5,12 @@ import {
   CoverageMapData,
   createCoverageMap,
 } from "istanbul-lib-coverage";
-import { FuzzTestResult, VmGlobals } from "../Types";
-import { FuzzTestResults } from "fuzzer/Fuzzer";
-import { InputAndSource } from "fuzzer/generators/Types";
+import {
+  VmGlobals,
+  InputAndSource,
+  FuzzTestResult,
+  FuzzTestResults,
+} from "../Fuzzer";
 
 /**
  * Measures code coverage of test executions

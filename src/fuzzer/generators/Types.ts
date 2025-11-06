@@ -1,5 +1,5 @@
 import { BaseMeasurement } from "../measures/AbstractMeasure";
-import { InputAndSource } from "fuzzer/Types";
+import { InputAndSource } from "../Types";
 
 /**
  * A scored input with its measurements

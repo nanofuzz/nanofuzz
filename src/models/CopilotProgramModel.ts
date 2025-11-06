@@ -1,8 +1,7 @@
 import { AbstractProgramModel } from "./AbstractProgramModel";
 import * as JSON5 from "json5";
 import { ModelArgOverrides } from "./Types";
-import { FuzzIoElement } from "fuzzer/Types";
-import { FunctionDef } from "fuzzer/Fuzzer";
+import { FunctionDef, FuzzIoElement } from "../fuzzer/Fuzzer";
 import type * as Vscode from "vscode";
 
 let vscode: typeof Vscode | undefined;
