@@ -42,9 +42,9 @@ export abstract class AbstractInputGenerator {
   } // fn: isAvailable
 
   /**
-   * Executes any cleanup tasks during fuzzer shutdown
+   * Executes any tasks when the test run ends
    */
-  public onShutdown(): void {
+  public onRunEnd(): void {
     return;
-  } // fn: onShutdown
+  } // fn: onRunEnd
 }

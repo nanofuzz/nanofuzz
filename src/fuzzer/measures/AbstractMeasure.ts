@@ -78,15 +78,14 @@ export abstract class AbstractMeasure {
   } // fn: measure
 
   /**
-   * Hook to perform cleanup activities when the fuzzer is shutting
-   * down and after testing has ended
+   * Hook to finalize results when the test run is ending.
    *
    * @param `results` all test results
    */
-  public onShutdown(results: FuzzTestResults): void {
+  public onRunEnd(results: FuzzTestResults): void {
     return;
     results;
-  }
+  } // fn: onRunEnd
 
   /**
    * Returns the progress measured for `a`

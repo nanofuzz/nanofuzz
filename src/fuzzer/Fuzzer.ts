@@ -89,7 +89,11 @@ export function* TestGenerator(
   pinnedTests: FuzzPinnedTest[] = [],
   updateFn?: (payload: FuzzBusyStatusMessage) => void,
   cancelFn?: () => boolean
-): Generator<undefined, FuzzTestResults, undefined> {
+): Generator<
+  FuzzTestResults | undefined,
+  FuzzTestResults,
+  FuzzTestResults | undefined
+> {
   const update = (payload: FuzzBusyStatusMessage): void => {
     if (updateFn) {
       updateFn({
@@ -127,11 +131,23 @@ export function* TestGenerator(
     },
     results: [], // filled later
   };
-  let injectedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
-  let currentDupeCount = 0; // Number of duplicated tests since the last non-duplicated test
-  let totalDupeCount = 0; // Total number of duplicates generated in the fuzzing session
-  let inputsGenerated = 0; // Number of inputs generated so far
-  let failureCount = 0; // Number of failed tests encountered so far
+  const resetRunStats = (): CurrentRunStats => {
+    return {
+      counters: {
+        inputsInjected: 0, // number of inputs injected for testing
+        inputsGenerated: 0, // number of inputs generated so far
+        dupesGenerated: 0, // number of duplicate inputs generated so far
+        dupesSequential: 0, // current number of duplicate inputs generated in a row
+        failedTests: 0, // number of failed tests encountered so far
+        passedTests: 0, // number of passed tests encountered so far
+      },
+      timers: {
+        startTime: 0, // time the tester started in this run
+      },
+    };
+  };
+  let runStats: CurrentRunStats = resetRunStats();
+  runStats.timers.startTime = performance.now();
 
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(env.options)) {
@@ -207,34 +223,108 @@ export function* TestGenerator(
   //  (3) We have reached the time limit for the test suite to run
   //  (4) We have reached the maximum number of failed tests
   // Note: Pinned tests are not counted against the maxTests limit
-  const startTime = new Date().getTime();
   const allInputs: Record<string, boolean> = {};
 
   update({ msg: `Target ready to test.`, milestone: true });
 
   // eslint-disable-next-line no-constant-condition, @typescript-eslint/no-unnecessary-condition
   while (true) {
-    // Stop fuzzing when we encounter a stop condition
-    const { stopCondition, pct } = _checkStopCondition(
+    // End the testing run when we encounter a stop condition
+    const stopCondition = _checkStopCondition(
       env,
-      inputsGenerated,
-      currentDupeCount,
-      totalDupeCount,
-      failureCount,
-      startTime,
       compositeInputGenerator.isAvailable(),
-      !!cancelFn && cancelFn()
+      !!cancelFn && cancelFn(),
+      runStats
     );
-    if (stopCondition !== undefined) {
+    if (typeof stopCondition !== "number") {
+      // Calculate final stats
       results.stopReason = stopCondition;
-      results.stats.timers.total = performance.now() - startTime;
-      results.stats.counters.inputsGenerated = inputsGenerated;
-      results.stats.counters.dupesGenerated = totalDupeCount;
-      results.stats.counters.inputsInjected = injectedCount;
-      break;
+      results.stats.timers.total +=
+        performance.now() - runStats.timers.startTime;
+      results.stats.counters.inputsGenerated +=
+        runStats.counters.inputsGenerated;
+      results.stats.counters.dupesGenerated += runStats.counters.dupesGenerated;
+      results.stats.counters.inputsInjected += runStats.counters.inputsInjected;
+      update({
+        msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
+        milestone: true,
+        pct: 100,
+      });
+      update({
+        msg: `Testing ${
+          cancelFn && cancelFn() ? "paused" : "finished"
+        }.\r\n  Tests passed: ${
+          runStats.counters.passedTests
+        }\r\n  Tests failed: ${runStats.counters.failedTests}`,
+        milestone: false,
+        pct: 100,
+      });
+
+      // Update interesting inputs
+      results.interesting.inputs =
+        compositeInputGenerator.getInterestingInputs();
+
+      // End-of-run processing for measures and input generators
+      measures.forEach((e) => {
+        e.onRunEnd(results);
+      });
+      compositeInputGenerator.onRunEnd(); // also handles shutdown for subgens
+
+      console.log(
+        ` - Executed ${
+          runStats.counters.passedTests + runStats.counters.failedTests
+        } tests in ${
+          performance.now() - runStats.timers.startTime
+        } ms. Stopped for reason: ${results.stopReason}.`
+      );
+      console.log(
+        ` - Injected ${runStats.counters.inputsInjected} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes)`
+      );
+      // fix these results.length calculations !!!!!!!!
+      console.log(
+        ` - Tests with exceptions: ${
+          results.results.filter((e) => e.exception).length
+        }, timeouts: ${results.results.filter((e) => e.timeout).length}`
+      );
+      console.log(
+        ` - Human validator passed: ${
+          results.results.filter((e) => e.passedHuman === true).length
+        }, failed: ${
+          results.results.filter((e) => e.passedHuman === false).length
+        }`
+      );
+      console.log(
+        ` - Property validator passed: ${
+          results.results.filter((e) => e.passedValidator === true).length
+        }, failed: ${
+          results.results.filter((e) => e.passedValidator === false).length
+        }`
+      );
+      console.log(
+        ` - Heuristic validator passed: ${
+          results.results.filter((e) => e.passedImplicit).length
+        }, failed: ${results.results.filter((e) => !e.passedImplicit).length}`
+      );
+
+      // Persist to outfile, if requested
+      if (env.options.outputFile) {
+        fs.writeFileSync(env.options.outputFile, JSON5.stringify(results));
+        update({
+          msg: ` - Wrote results to: ${env.options.outputFile}`,
+          milestone: true,
+        });
+      }
+
+      runStats = resetRunStats();
+      yield results;
     }
 
-    // Initial set of results - overwritten below
+    // If starting a new run, record the start time
+    if (runStats.timers.startTime === 0) {
+      runStats.timers.startTime = performance.now();
+    }
+
+    // Initialized test result - overwritten below
     const result: FuzzTestResult = {
       pinned: false,
       input: [],
@@ -294,24 +384,27 @@ export function* TestGenerator(
     // 3. pinned tests stay pinned
     if (genInput.injected) {
       // Ensure the injected inputs are in the expected order
-      const expectedInput = JSON5.stringify(pinnedTests[injectedCount].input);
+      const expectedInput = JSON5.stringify(
+        pinnedTests[runStats.counters.inputsInjected].input
+      );
       const returnedInput = JSON5.stringify(result.input);
       if (expectedInput !== returnedInput) {
         throw new Error(
-          `Injected inputs in unexpected order at injected input# ${injectedCount}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
+          `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
             JSON5.stringify(pinnedTests, null, 3) // !!!!!!!!
         );
       }
 
       // Map the pinned test information to the new result
-      result.pinned = !!pinnedTests[injectedCount].pinned;
-      if (pinnedTests[injectedCount].expectedOutput) {
-        result.expectedOutput = pinnedTests[injectedCount].expectedOutput;
+      const pinnedTest = pinnedTests[runStats.counters.inputsInjected];
+      result.pinned = !!pinnedTest.pinned;
+      if (pinnedTest.expectedOutput) {
+        result.expectedOutput = pinnedTest.expectedOutput;
       }
-      injectedCount++; // increment the number of pinned tests injected
+      runStats.counters.inputsInjected++; // increment the number of pinned tests injected
     } else {
       // Increment the number of inputs generated
-      inputsGenerated++;
+      runStats.counters.inputsGenerated++;
       genStats.counters.inputsGenerated++;
     }
 
@@ -329,13 +422,13 @@ export function* TestGenerator(
     // Skip tests if we previously processed the input
     const inputHash = getIoKey(result.input);
     if (inputHash in allInputs) {
-      currentDupeCount++; // increment the dupe counter
-      totalDupeCount++; // incremement the total run dupe counter
+      runStats.counters.dupesSequential++; // increment the dupe counter
+      runStats.counters.dupesGenerated++; // incremement the total run dupe counter
       compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
       genStats.counters.dupesGenerated++; // increment the generator's dupe counter
       continue; // skip this test
     } else {
-      currentDupeCount = 0; // reset the duplicate count
+      runStats.counters.dupesSequential = 0; // reset the duplicate count
       // if the function accepts inputs, add test input
       // to the list so we don't test it again,
       if (env.function.getArgDefs().length) {
@@ -347,13 +440,13 @@ export function* TestGenerator(
     /* !!!!!!!! Return values rather than text here. Also "failed" is unclear. */
     update({
       msg: `Testing input# ${
-        results.results.length + 1
+        runStats.counters.passedTests + runStats.counters.failedTests + 1
       }: ${env.function.getName()}(${result.input
         .map((i) => JSON5.stringify(i.value))
         .join(",")})\r\n  Tests passed: ${
-        results.results.length - failureCount
-      }\r\n  Tests failed: ${failureCount}`,
-      pct,
+        runStats.counters.passedTests
+      }\r\n  Tests failed: ${runStats.counters.failedTests}`,
+      pct: typeof stopCondition === "number" ? stopCondition : 100,
     });
 
     // Call the function via the wrapper
@@ -494,9 +587,11 @@ export function* TestGenerator(
     // (Re-)categorize the result
     result.category = categorizeResult(result);
 
-    // Increment the failure counter if this test had a failing result
-    if (result.category !== "ok") {
-      failureCount++;
+    // Increment the test counters
+    if (result.category === "ok") {
+      runStats.counters.passedTests++;
+    } else {
+      runStats.counters.failedTests++;
     }
 
     // Store the result for this iteration
@@ -526,138 +621,84 @@ export function* TestGenerator(
 
     yield undefined;
   } // for: Main test loop
-
-  update({
-    msg: `Testing ${cancelFn && cancelFn() ? "stopped" : "finished"}.`,
-    milestone: true,
-    pct: 100,
-  });
-  update({
-    msg: `Testing ${
-      cancelFn && cancelFn() ? "stopped" : "finished"
-    }.\r\n  Tests passed: ${
-      results.results.length - failureCount
-    }\r\n  Tests failed: ${failureCount}`,
-    milestone: false,
-    pct: 100,
-  });
-
-  // Update interesting inputs
-  results.interesting.inputs = compositeInputGenerator.getInterestingInputs();
-
-  // End-of-run processing for measures and input generators
-  measures.forEach((e) => {
-    e.onShutdown(results);
-  });
-  compositeInputGenerator.onShutdown(); // also handles shutdown for subgens
-
-  console.log(
-    ` - Executed ${results.results.length} tests in ${results.stats.timers.total} ms. Stopped for reason: ${results.stopReason}.`
-  );
-  console.log(
-    ` - Injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes)`
-  );
-  console.log(
-    ` - Tests with exceptions: ${
-      results.results.filter((e) => e.exception).length
-    }, timeouts: ${results.results.filter((e) => e.timeout).length}`
-  );
-  console.log(
-    ` - Human validator passed: ${
-      results.results.filter((e) => e.passedHuman === true).length
-    }, failed: ${results.results.filter((e) => e.passedHuman === false).length}`
-  );
-  console.log(
-    ` - Property validator passed: ${
-      results.results.filter((e) => e.passedValidator === true).length
-    }, failed: ${
-      results.results.filter((e) => e.passedValidator === false).length
-    }`
-  );
-  console.log(
-    ` - Heuristic validator passed: ${
-      results.results.filter((e) => e.passedImplicit).length
-    }, failed: ${results.results.filter((e) => !e.passedImplicit).length}`
-  );
-
-  // Persist to outfile, if requested
-  if (env.options.outputFile) {
-    fs.writeFileSync(env.options.outputFile, JSON5.stringify(results));
-    update({
-      msg: ` - Wrote results to: ${env.options.outputFile}`,
-      milestone: true,
-    });
-  }
-
-  // Return the result of the fuzzing activity
-  return results;
 } // fn*: gen()
+
+// !!!!!!
+export type CurrentRunStats = {
+  counters: {
+    inputsInjected: number; // number of inputs injected for testing
+    inputsGenerated: number; // number of inputs generated so far
+    dupesGenerated: number; // number of duplicate inputs generated so far
+    dupesSequential: number; // current number of duplicate inputs generated in a row
+    failedTests: number; // number of failed tests encountered so far
+    passedTests: number; // number of passed tests encountered so far
+  };
+  timers: {
+    startTime: number; // time the tester started in this run
+  };
+};
 
 /**
  * Checks whether the fuzzer should stop fuzzing. If so, return the reason.
  *
- * @param env fuzz environment
- * @param inputsGenerated number of inputs generated so far
- * @param currentDupeCount number of duplicate tests since the last non-duplicated test
- * @param totalDupeCount number of duplicate tests since the last non-duplicated test
- * @param failureCount number of failed tests encountered so far
- * @param startTime time the fuzzer started
- * @returns the reason the fuzzer stopped, if any
+ * @param `env` fuzz environment
+ * @param `moreInputs` indicates whether more inputs can be produced
+ * @param `userCancel` indicates whether the user cancelled testing
+ * @returns either the stop reason or percentage complete
  */
 const _checkStopCondition = (
   env: FuzzEnv,
-  inputsGenerated: number,
-  currentDupeCount: number,
-  totalDupeCount: number,
-  failureCount: number,
-  startTime: number,
   moreInputs: boolean,
-  userCancel: boolean
-): { stopCondition: FuzzStopReason | undefined; pct?: number } => {
+  userCancel: boolean,
+  stats: CurrentRunStats
+): FuzzStopReason | number => {
   const pcts: number[] = [0];
   const now = performance.now();
 
   // End testing if the user cancels it exceed the suite timeou
   if (userCancel) {
-    return { stopCondition: FuzzStopReason.CANCEL };
+    return FuzzStopReason.CANCEL;
   }
 
   // End testing if we exceed the suite timeout
-  if (now - startTime >= env.options.suiteTimeout) {
-    return { stopCondition: FuzzStopReason.MAXTIME, pct: 100 };
+  if (now - stats.timers.startTime >= env.options.suiteTimeout) {
+    return FuzzStopReason.MAXTIME;
   }
-  pcts.push((now - startTime) / env.options.suiteTimeout);
+  pcts.push((now - stats.timers.startTime) / env.options.suiteTimeout);
 
   // End testing if we exceed the maximum number of generated tests
-  if (inputsGenerated - totalDupeCount >= env.options.maxTests) {
-    return { stopCondition: FuzzStopReason.MAXTESTS, pct: 100 };
+  if (
+    stats.counters.inputsGenerated - stats.counters.dupesGenerated >=
+    env.options.maxTests
+  ) {
+    return FuzzStopReason.MAXTESTS;
   }
-  pcts.push((inputsGenerated - totalDupeCount) / env.options.maxTests);
+  pcts.push(
+    (stats.counters.inputsGenerated - stats.counters.dupesGenerated) /
+      env.options.maxTests
+  );
 
   // End testing if we exceed the maximum number of failures
   if (env.options.maxFailures !== 0) {
-    if (failureCount >= env.options.maxFailures) {
-      return { stopCondition: FuzzStopReason.MAXFAILURES, pct: 100 };
+    if (stats.counters.failedTests >= env.options.maxFailures) {
+      return FuzzStopReason.MAXFAILURES;
     }
-    pcts.push(failureCount / env.options.maxFailures);
+    pcts.push(stats.counters.failedTests / env.options.maxFailures);
   }
 
   // End testing if we exceed the maximum number of sequential duplicates generated
-  if (currentDupeCount >= env.options.maxDupeInputs) {
-    return { stopCondition: FuzzStopReason.MAXDUPES, pct: 100 };
+  if (stats.counters.dupesSequential >= env.options.maxDupeInputs) {
+    return FuzzStopReason.MAXDUPES;
   }
   // We don't do a pct because one non-dupe resets this counter
 
   // End testing if the source of inputs is exhausted
   if (!moreInputs) {
-    return { stopCondition: FuzzStopReason.NOMOREINPUTS, pct: 100 };
+    return FuzzStopReason.NOMOREINPUTS;
   }
 
-  // No stop condition found
-  return {
-    stopCondition: undefined,
-    pct: Math.max(0, Math.floor(Math.max(...pcts) * 100)),
-  };
+  // No stop condition found; return pct complete
+  return Math.max(0, Math.floor(Math.max(...pcts) * 100));
 }; // fn: _checkStopCondition()
 
 /**

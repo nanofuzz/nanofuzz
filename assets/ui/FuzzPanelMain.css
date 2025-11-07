@@ -26,7 +26,7 @@ vscode-panel-view.fuzzGridPanel {
 }
 .fuzzGrid td.tableCol-src {
   text-align: center;
-  color: rgb(from var(--vscode-foreground) r g b / 0.35);
+  color: rgb(from var(--vscode-foreground) r g b / 0.5);
 }
 .fuzzGrid th.tableCol-src {
   text-align: center;
@@ -78,6 +78,16 @@ th.expandCollapseColumn {
   background-color: var(--vscode-editor-hoverHighlightBackground);
   box-shadow: 0px 0px 1px 1px
     rgb(from var(--vscode-editor-hoverHighlightBackground) r g b / 1);
+}
+#fuzz\.options\.interesting\.inputs thead tr th:first-child {
+  text-align: center;
+}
+#fuzz\.options\.interesting\.inputs tbody tr td:first-child {
+  text-align: center;
+  color: rgb(from var(--vscode-foreground) r g b / 0.35);
+}
+#fuzzAddTestInputOptions-pane .fuzzGrid {
+  width: auto;
 }
 
 /* Validator icons */
@@ -168,6 +178,18 @@ td.classErrorOn:active {
 .faded {
   background-color: var(--vscode-list-inactiveSelectionBackground);
   opacity: 50%;
+}
+
+/* Fix for vscode ui toolkit secondary icon buttons */
+[appearance="secondary icon"] {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+[appearance="secondary icon depressed"] {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  box-shadow: inset 1px 1px var(--vscode-button-background),
+    inset -1px -1px var(--vscode-button-background);
 }
 
 /* Expected output panel */
@@ -409,7 +431,7 @@ h2 {
 /* Float panel buttons to the upper-right */
 .panelButton {
   float: right;
-  padding-top: 0.25em;
+  padding-top: 0;
   padding-right: 0.5em;
 }
 /* Make the panel buttons larger */
@@ -457,6 +479,11 @@ div.fuzzInputControlGroup {
   font-size: var(--vscode-font-size);
   line-height: normal;
   margin-bottom: 2px;
+}
+
+/* VS Code icons in paragraphs should be the size of normal text */
+p span.codicon {
+  font-size: var(--vscode-font-size) !important;
 }
 
 /** Snackbar: adapted from https://www.w3schools.com/howto/howto_js_snackbar.asp **/

@@ -47,6 +47,13 @@ export class FuzzPanel {
   private _lastTab: string | undefined; // Last tab that had focus
   private _disposed = false; // Indicates whether this panel is disposed
   private _gen?: ReturnType<typeof fuzzer.TestGenerator>; // The test generator
+  private _statusFn = (payload: fuzzer.FuzzBusyStatusMessage): void => {
+    this._panel.webview.postMessage({
+      command: "busy.message",
+      json: JSON5.stringify(payload),
+    });
+  }; // Fn that provides test status feedback to the panel => {
+  private _cancelFn: () => boolean = () => this._stopTesting; // Fn to cancel testing
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
@@ -1113,25 +1120,26 @@ ${inArgConsts}
   protected test(
     env: fuzzer.FuzzEnv,
     pinnedTests: fuzzer.FuzzPinnedTest[] = [],
-    callbackFn: (result: fuzzer.FuzzTestResults | Error) => void,
-    statusFn: (payload: fuzzer.FuzzBusyStatusMessage) => void = (msg) => {
-      msg;
-    },
-    cancelFn: () => boolean = () => this._stopTesting
+    callbackFn: (result: fuzzer.FuzzTestResults | Error) => void
   ): void {
-    const gen = this._gen
-      ? this._gen
-      : fuzzer.TestGenerator(env, pinnedTests, statusFn, cancelFn);
+    if (!this._gen) {
+      this._gen = fuzzer.TestGenerator(
+        env,
+        pinnedTests,
+        this._statusFn,
+        this._cancelFn
+      );
+    }
 
-    // !!!!!!!! rationalize changed env and stop criteria
+    // !!!!!!!! rationalize changed env
 
     const nextBatch = (): void => {
       let result: fuzzer.FuzzTestResults | undefined;
       const timer = performance.now();
 
-      while (!result && performance.now() - timer < 125) {
+      while (!result && performance.now() - timer < 125 && this._gen) {
         try {
-          result = gen.next().value;
+          result = this._gen.next().value;
           if (result) {
             callbackFn(result);
             return;
@@ -1246,14 +1254,7 @@ ${inArgConsts}
               // Update the UI
               this._updateHtml();
             }
-          },
-          (payload: fuzzer.FuzzBusyStatusMessage): void => {
-            this._panel.webview.postMessage({
-              command: "busy.message",
-              json: JSON5.stringify(payload),
-            });
-          },
-          () => this._stopTesting
+          }
         );
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
@@ -1367,7 +1368,7 @@ ${inArgConsts}
             this._updateHtml();
           } else {
             /* Success */
-            const thisResult = result;
+            this._results = result;
 
             // Log the end of fuzzing
             vscode.commands.executeCommand(
@@ -1375,31 +1376,21 @@ ${inArgConsts}
               new telemetry.LoggerEntry(
                 "FuzzPanel.fuzz.done",
                 "Fuzzing completed successfully. Target: %s. Results: %s",
-                [this.getFnRefKey(), JSON5.stringify(thisResult)]
+                [this.getFnRefKey(), JSON5.stringify(result)]
               )
             );
 
-            // Merge the results !!!!!!!! This code needs to go away
-            if (this._results) {
-              this._results = fuzzer.mergeTestResults(
-                this._results,
-                thisResult
-              );
-            } else {
-              this._results = thisResult;
-            }
-
             // If we have a matching result then give the new result UI focus
             if (
-              thisResult.results.length &&
+              result.results.length &&
               JSON5.stringify(
-                thisResult.results[thisResult.results.length - 1].input
+                result.results[result.results.length - 1].input
               ) === JSON5.stringify(injectedTest.input)
             ) {
               // Give focus to the newInput
               this._focusInput = [
-                thisResult.results[0].category,
-                this._results.results.length - 1,
+                result.results[result.results.length - 1].category,
+                result.results.length - 1,
               ];
             }
 
@@ -1414,14 +1405,7 @@ ${inArgConsts}
             this._updateHtml();
             this._focusInput = undefined;
           }
-        },
-        (msg: fuzzer.FuzzBusyStatusMessage): void => {
-          this._panel.webview.postMessage({
-            command: "busy.message",
-            json: JSON5.stringify(msg),
-          });
-        },
-        () => this._stopTesting
+        }
       );
     }); // setTimeout
   } // fn: _addTestInputCmd
@@ -1606,7 +1590,7 @@ ${inArgConsts}
             
           <!-- ${toolName} pane -->
           <div id="pane-nanofuzz"> 
-            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing..." : this._state === FuzzPanelState.busyAnalyzing ? "Analyzing..." : "Test: "+htmlEscape(
+            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing:" : this._state === FuzzPanelState.busyAnalyzing ? "Analyzing:" : "Test: "+htmlEscape(
               fn.getName())+"()"} 
               <div title="Open soure code" id="openSourceLink" class='codicon codicon-link clickable'></div>
             </h2>
@@ -1746,31 +1730,43 @@ ${inArgConsts}
 
             <!-- Button Bar -->
             <div>
-              <vscode-button ${disabledFlag} ${this._state===FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.start" appearance="primary">
-                ${this._state === FuzzPanelState.done ? "Retest" : "Test"}
+              <vscode-button ${disabledFlag} ${this._state===FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.start" appearance="primary icon" aria-label="${this._results ? "Generate more tests": "Generate tests"}">
+                <span class="codicon codicon-${this._results ? "debug-continue" : "play"}"></span>
               </vscode-button>
-              <vscode-button ${this._state!==FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.stop" appearance="primary">
-                Stop testing
+              <vscode-button ${this._state!==FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.stop" appearance="primary icon" aria-label="Pause testing">
+                <span class="codicon codicon-debug-pause"></span>
               </vscode-button>
-              <vscode-button  ${disabledFlag} class="hidden" id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
-                Change Mode
-              </vscode-button>
+              <span ${ 
+                (this._results !== undefined)
+                    ? ``
+                    : `class="hidden" ` 
+                }>
+                <vscode-button ${disabledFlag}  id="fuzz.rerun" appearance="secondary icon" aria-label="Re-test these results">
+                  <span class="codicon codicon-debug-rerun"></span>
+                </vscode-button>
+                <vscode-button ${disabledFlag}  id="fuzz.addTestInputOptions.open" appearance="secondary icon" aria-label="Add a test input">
+                  <span class="codicon codicon-add"></span>
+                </vscode-button>
+                <vscode-button ${disabledFlag} class="hidden" id="fuzz.addTestInputOptions.close" appearance="secondary icon depressed" aria-label="Add a test input">
+                  <span class="codicon codicon-add"></span>
+                </vscode-button>
+                &nbsp;
+                <vscode-button ${disabledFlag}  id="fuzz.clear" appearance="secondary icon" aria-label="Clear unused tests">
+                  <span class="codicon codicon-clear-all"></span>
+                </vscode-button>
+              </span>
+              &nbsp;
               <vscode-button ${disabledFlag} ${ 
                 vscode.workspace
                   .getConfiguration("nanofuzz.ui")
                   .get("hideMoreOptionsButton")
                     ? `class="hidden" ` 
                     : ``
-                } id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
-                More options...
+                } id="fuzz.options.open" appearance="secondary icon" aria-label="Open settings">
+                <span class="codicon codicon-settings-gear"></span>
               </vscode-button>
-              &nbsp;&nbsp;
-              <vscode-button ${disabledFlag} ${ 
-                (this._state === FuzzPanelState.done && this._results !== undefined)
-                    ? ``
-                    : `class="hidden" ` 
-                } id="fuzz.addTestInputOptions" appearance="secondary" aria-label="Add a test input">
-                Add Input...
+              <vscode-button ${disabledFlag} id="fuzz.options.close" class="hidden" appearance="secondary icon depressed" aria-label="Close settings">
+                <span class="codicon codicon-settings-gear"></span>
               </vscode-button>
             </div>
 
@@ -1784,13 +1780,12 @@ ${inArgConsts}
               <p class="fuzzPanelDescription">
                 Enter literal Javascript input value${ argDefs.length ===1 ? "" : "s"} below in JSON format. 
                 ${ argDefs.length ===1 ? "It" : "They"} won't be type-checked.
-                Click <strong>+</strong> to test.
+                Click <span class="codicon codicon-run-below"></span> to test.
               </p>
               <table class="fuzzGrid">
                 <thead>
                   <tr>
-                    ${this._results?.env.function
-                      .getArgDefs()
+                    ${argDefs
                       .map((a,i) => `<th><big>input: ${a.getName()}</big><span id="addInputArg-${i}-message"></span></th>`)
                       .join("\r\n")}
                     <th></th>
@@ -1798,16 +1793,19 @@ ${inArgConsts}
                 </thead>
                 <tbody>
                   <tr style="vertical-align: top;">
-                    ${this._results?.env.function.getArgDefs()
+                    ${argDefs
                       .map(
                         (arg,i) => /*html*/
-                          `<td><vscode-text-field ${disabledFlag} id="addInputArg-${i}-value" name="addInputArg-${i}-value" placeholder="Literal value (JSON)" value=""></vscode-text-field>
+                          `<td>
+                            <vscode-text-field ${disabledFlag} id="addInputArg-${i}-value" name="addInputArg-${i}-value" placeholder="Literal value (JSON)" value=""></vscode-text-field>
                           </td>`
                       )
                       .join("\r\n")}
-                    <td>
-                      <vscode-button ${disabledFlag} id="fuzz.addTestInput" appearance="primary">+</vscode-button>
-                    </td>
+                      <td>
+                        <vscode-button ${disabledFlag} id="fuzz.addTestInput" appearance="primary icon" ariaLabel="Test this input">
+                          <span class="codicon codicon-run-below"></span>
+                        </vscode-button>
+                      </td>
                   </tr>
                 </tbody>
               </table>
