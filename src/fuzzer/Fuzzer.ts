@@ -21,7 +21,7 @@ import { RunnerFactory } from "./runners/RunnerFactory";
 import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputAndSource, ScoredInput } from "./generators/Types";
-import { isError } from "../Util";
+import { isError, getErrorMessageOrJson } from "../Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 
 /**
@@ -317,9 +317,9 @@ export const fuzz = (
       result.timers.run = performance.now() - startRunTime; // stop timer
     } catch (e: unknown) {
       result.timers.run = performance.now() - startRunTime; // stop timer
-      const msg = isError(e) ? e.message : JSON.stringify(e);
+      const msg = getErrorMessageOrJson(e);
       const stack = isError(e) ? e.stack : "<no stack>";
-      if (isError(e) && isTimeoutError(e)) {
+      if (isTimeoutError(e)) {
         result.timeout = true;
       } else {
         result.exception = true;
@@ -391,7 +391,7 @@ export const fuzz = (
                 passedValidators: [],
               };
             } catch (e: unknown) {
-              const msg = isError(e) ? e.message : JSON.stringify(e);
+              const msg = getErrorMessageOrJson(e);
               const stack = isError(e) ? e.stack : "<no stack>";
               return {
                 ...result,

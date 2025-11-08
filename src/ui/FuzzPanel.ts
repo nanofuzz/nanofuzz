@@ -6,7 +6,7 @@ import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
-import { isError } from "../Util";
+import { isError, getErrorMessageOrJson } from "../Util";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -143,7 +143,7 @@ export class FuzzPanel {
         // It's possible the source code changed between restarting;
         // just log the exception and continue. Restoring these panels
         // is best effort anyway.
-        const msg = isError(e) ? e.message : JSON5.stringify(e);
+        const msg = getErrorMessageOrJson(e);
         console.error(`Unable to revive FuzzPanel: ${msg}`);
       }
     }
@@ -617,7 +617,7 @@ export class FuzzPanel {
     try {
       fs.writeFileSync(jsonFile, JSON5.stringify(fullSet)); // Update the file
     } catch (e: unknown) {
-      const msg = isError(e) ? e.message : JSON5.stringify(e);
+      const msg = getErrorMessageOrJson(e);
       vscode.window.showErrorMessage(
         `Unable to update json file: ${jsonFile} (${msg})`
       );
@@ -640,7 +640,7 @@ export class FuzzPanel {
       try {
         fs.writeFileSync(jestFile, jestTests);
       } catch (e: unknown) {
-        const msg = isError(e) ? e.message : JSON5.stringify(e);
+        const msg = getErrorMessageOrJson(e);
 
         vscode.window.showErrorMessage(
           `Unable to update Jest test file: ${jestFile} (${msg})`
@@ -651,7 +651,7 @@ export class FuzzPanel {
       try {
         fs.rmSync(jestFile);
       } catch (e: unknown) {
-        const msg = isError(e) ? e.message : JSON5.stringify(e);
+        const msg = getErrorMessageOrJson(e);
         vscode.window.showErrorMessage(
           `Unable to remove Jest test file: ${jestFile} (${msg})`
         );
@@ -2443,7 +2443,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   try {
     fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
   } catch (e: unknown) {
-    const msg = isError(e) ? e.message : JSON.stringify(e);
+    const msg = getErrorMessageOrJson(e);
     vscode.window.showErrorMessage(
       `${toolName} could not find or does not support this function. Message: "${msg}"`
     );
@@ -2499,7 +2499,7 @@ export function provideCodeLenses(
       });
     }
   } catch (e: unknown) {
-    const msg = isError(e) ? e.message : JSON.stringify(e);
+    const msg = getErrorMessageOrJson(e);
     console.error(
       `Error parsing typescript file: ${document.fileName} error: ${msg}`
     );

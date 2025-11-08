@@ -1,3 +1,5 @@
+import JSON5 from "json5";
+
 /**
  * Type guard function that returns true if the input object
  * has properties "message" and "stack" typed as string.
@@ -21,3 +23,17 @@ export function isError(
     typeof obj.stack === "string"
   );
 } // fn: isError
+
+/**
+ * Extracts an error message from an unknown exception value.
+ *
+ * If the value is an Error-like object (has message and stack),
+ * returns the message. Otherwise, stringifies the value using JSON5.
+ *
+ * @param e the exception value to extract a message from
+ *
+ * @returns the error message string
+ */
+export function getErrorMessageOrJson(e: unknown): string {
+  return isError(e) ? e.message : JSON5.stringify(e);
+} // fn: getErrorMessageOrJson
