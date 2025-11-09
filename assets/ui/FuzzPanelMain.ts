@@ -253,7 +253,11 @@ function main() {
           payload.pct = Math.min(payload.pct, 100);
           const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
           progressBar.style.width = payload.pct + "%";
-          progressBar.innerHTML = Math.floor(payload.pct) + "%";
+          if (payload.pct > 0) {
+            progressBar.innerHTML = Math.floor(payload.pct) + "%";
+          } else {
+            progressBar.innerHTML = "";
+          }
         }
         break;
       }

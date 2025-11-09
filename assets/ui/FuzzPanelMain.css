@@ -526,7 +526,7 @@ p span.codicon {
     opacity: 0;
   }
 }
-
+/* Busy Feedback */
 #fuzzBusyStatusBar {
   background-color: var(--button-primary-background);
   color: var(--button-primary-foreground);

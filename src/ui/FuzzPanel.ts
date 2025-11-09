@@ -1649,7 +1649,7 @@ ${inArgConsts}
 
                 <vscode-panel-view>
                   <p>
-                    These settings control how long testing runs. Testing stops when any limit is reached.  
+                    These settings control how long testing runs. Testing pauses and results are returned when any limit is reached.  
                     Saved or pinned tests count against the maximum runtime and number of failures but do not count against the maximum number of tests. 
                     For max runtime and number of failed tests, 0 indicates no limit.
                   </p>
@@ -2250,7 +2250,7 @@ ${inArgConsts}
         html += /*html*/ `
             <!-- Fuzzer Busy Status Message -->
             <div id="fuzzBusyStatusBarContainer">
-              <div id="fuzzBusyStatusBar" style="width: 0%;">0%</div>
+              <div id="fuzzBusyStatusBar" style="width: 0%;"></div>
             </div>
             <div id="fuzzBusyMessage">
               <pre id="fuzzBusyMessageNonMilestone"> </pre>
