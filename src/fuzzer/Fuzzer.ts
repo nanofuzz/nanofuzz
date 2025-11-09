@@ -273,9 +273,9 @@ export function* TestGenerator(
       console.log(
         ` - Executed ${
           runStats.counters.passedTests + runStats.counters.failedTests
-        } tests in ${
-          performance.now() - runStats.timers.startTime
-        } ms. Stopped for reason: ${results.stopReason}.`
+        } tests in ${(performance.now() - runStats.timers.startTime).toFixed(
+          0
+        )} ms. Stopped for reason: ${results.stopReason}.`
       );
       console.log(
         ` - Injected ${runStats.counters.inputsInjected} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes)`
