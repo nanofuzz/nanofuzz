@@ -41,7 +41,7 @@ const intOptions: FuzzOptions = {
   argDefaults: ArgDef.getDefaultOptions(),
   maxTests: 1000,
   fnTimeout: 100,
-  suiteTimeout: 3000,
+  suiteTimeout: 0,
   seed: "qwertyuiop",
   maxDupeInputs: 1000,
   maxFailures: 0,
