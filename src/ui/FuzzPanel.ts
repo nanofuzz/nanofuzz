@@ -994,13 +994,11 @@ ${inArgConsts}
       program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
     } catch (e: unknown) {
       const [errorMessage, errorStack] = this._setErrorFromException(e);
+      const formattedMessage = `Parsing program failed. Target: ${this.getFnRefKey()}. Message: ${errorMessage}. Stack: ${errorStack}`;
+      vscode.window.showErrorMessage(formattedMessage);
       vscode.commands.executeCommand(
         telemetry.commands.logTelemetry.name,
-        new telemetry.LoggerEntry(
-          "FuzzPanel.parse.error",
-          "Parsing program failed. Target: %s. Message: %s. Stack: %s",
-          [this.getFnRefKey(), errorMessage, errorStack]
-        )
+        new telemetry.LoggerEntry("FuzzPanel.parse.error", formattedMessage, [])
       );
       return;
     }
