@@ -6,7 +6,7 @@ import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
-import { isError } from "../Util";
+import { isError, getErrorMessageOrJson } from "../Util";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -47,6 +47,7 @@ export class FuzzPanel {
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
   private _errorMessage?: string; // error state: the error message
+  private _errorStack?: string; // error state: the error stack trace
   private _sortColumns?: fuzzer.FuzzSortColumns; // column sort orders
 
   // ------------------------ Static Methods ------------------------ //
@@ -142,7 +143,7 @@ export class FuzzPanel {
         // It's possible the source code changed between restarting;
         // just log the exception and continue. Restoring these panels
         // is best effort anyway.
-        const msg = isError(e) ? e.message : JSON5.stringify(e);
+        const msg = getErrorMessageOrJson(e);
         console.error(`Unable to revive FuzzPanel: ${msg}`);
       }
     }
@@ -260,6 +261,25 @@ export class FuzzPanel {
       module: this._fuzzEnv.function.getModule(),
       fnName: this._fuzzEnv.function.getName(),
     });
+  }
+
+  /**
+   * Extracts error information from an unknown error object and sets
+   * the _errorMessage and _errorStack fields.
+   *
+   * @param error the error object to extract information from
+   *
+   * @returns a tuple containing the error message and stack trace
+   */
+  private _setErrorFromException(error: unknown): [string, string] {
+    if (isError(error)) {
+      this._errorMessage = error.message;
+      this._errorStack = error.stack;
+    } else {
+      this._errorMessage = "Unknown error";
+      this._errorStack = "<no stack>";
+    }
+    return [this._errorMessage, this._errorStack];
   }
 
   // ----------------------- Message Handling ----------------------- //
@@ -597,7 +617,7 @@ export class FuzzPanel {
     try {
       fs.writeFileSync(jsonFile, JSON5.stringify(fullSet)); // Update the file
     } catch (e: unknown) {
-      const msg = isError(e) ? e.message : JSON5.stringify(e);
+      const msg = getErrorMessageOrJson(e);
       vscode.window.showErrorMessage(
         `Unable to update json file: ${jsonFile} (${msg})`
       );
@@ -620,7 +640,7 @@ export class FuzzPanel {
       try {
         fs.writeFileSync(jestFile, jestTests);
       } catch (e: unknown) {
-        const msg = isError(e) ? e.message : JSON5.stringify(e);
+        const msg = getErrorMessageOrJson(e);
 
         vscode.window.showErrorMessage(
           `Unable to update Jest test file: ${jestFile} (${msg})`
@@ -631,7 +651,7 @@ export class FuzzPanel {
       try {
         fs.rmSync(jestFile);
       } catch (e: unknown) {
-        const msg = isError(e) ? e.message : JSON5.stringify(e);
+        const msg = getErrorMessageOrJson(e);
         vscode.window.showErrorMessage(
           `Unable to remove Jest test file: ${jestFile} (${msg})`
         );
@@ -751,9 +771,7 @@ export class FuzzPanel {
     try {
       program = ProgramDef.fromModule(module);
     } catch (e: unknown) {
-      this._errorMessage = isError(e)
-        ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-        : "Unknown error";
+      this._setErrorFromException(e);
       vscode.window.showErrorMessage(
         `Unable to add the validator. TypeScript source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
       );
@@ -856,9 +874,7 @@ ${inArgConsts}
         const fn = ProgramDef.fromModule(module).getFunctions()[validatorName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (e: unknown) {
-        this._errorMessage = isError(e)
-          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-          : "Unknown error";
+        this._setErrorFromException(e);
         vscode.window.showErrorMessage(
           `Unable to navigate to the created validator '${validatorName}' in '${fn.getModule()}'`
         );
@@ -977,16 +993,12 @@ ${inArgConsts}
     try {
       program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
     } catch (e: unknown) {
-      this._errorMessage = isError(e)
-        ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-        : "Unknown error";
+      const [errorMessage, errorStack] = this._setErrorFromException(e);
+      const formattedMessage = `Parsing program failed. Target: ${this.getFnRefKey()}. Message: ${errorMessage}. Stack: ${errorStack}`;
+      vscode.window.showErrorMessage(formattedMessage);
       vscode.commands.executeCommand(
         telemetry.commands.logTelemetry.name,
-        new telemetry.LoggerEntry(
-          "FuzzPanel.parse.error",
-          "Parsing program failed. Target: %s. Message: %s",
-          [this.getFnRefKey(), this._errorMessage]
-        )
+        new telemetry.LoggerEntry("FuzzPanel.parse.error", formattedMessage, [])
       );
       return;
     }
@@ -1066,6 +1078,7 @@ ${inArgConsts}
 
         // Transition to done state
         this._errorMessage = undefined;
+        this._errorStack = undefined;
         this._state = FuzzPanelState.done;
 
         // Log the end of fuzzing
@@ -1082,15 +1095,13 @@ ${inArgConsts}
         this._updateFuzzTests();
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
-        this._errorMessage = isError(e)
-          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-          : "Unknown error";
+        const [errorMessage, errorStack] = this._setErrorFromException(e);
         vscode.commands.executeCommand(
           telemetry.commands.logTelemetry.name,
           new telemetry.LoggerEntry(
             "FuzzPanel.fuzz.error",
-            "Fuzzing failed. Target: %s. Message: %s",
-            [this.getFnRefKey(), this._errorMessage]
+            "Fuzzing failed. Target: %s. Message: %s. Stack: %s",
+            [this.getFnRefKey(), errorMessage, errorStack]
           )
         );
       }
@@ -1113,6 +1124,7 @@ ${inArgConsts}
     if (panelInput.input === undefined) {
       this._state = FuzzPanelState.error;
       this._errorMessage = `No single input was provided to add and test`;
+      this._errorStack = undefined;
       this._updateHtml();
       return;
     }
@@ -1201,21 +1213,20 @@ ${inArgConsts}
 
         // Transition to done state
         this._errorMessage = undefined;
+        this._errorStack = undefined;
         this._state = FuzzPanelState.done;
 
         // Persist the fuzz test run settings
         this._updateFuzzTests();
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
-        this._errorMessage = isError(e)
-          ? `${e.message}<vscode-divider></vscode-divider><small><pre>${e.stack}</pre></small>`
-          : "Unknown error";
+        const [errorMessage, errorStack] = this._setErrorFromException(e);
         vscode.commands.executeCommand(
           telemetry.commands.logTelemetry.name,
           new telemetry.LoggerEntry(
             "FuzzPanel.fuzz.error",
-            "Fuzzing failed. Target: %s. Message: %s",
-            [this.getFnRefKey(), this._errorMessage]
+            "Fuzzing failed. Target: %s. Message: %s. Stack: %s",
+            [this.getFnRefKey(), errorMessage, errorStack]
           )
         );
       }
@@ -1604,6 +1615,9 @@ ${inArgConsts}
             }">
               <h3>Testing stopped with this error:</h3>
               <p>${this._errorMessage ?? "Unknown error"}</p>
+              ${this._errorStack
+                ? /*html*/ `<vscode-divider></vscode-divider><small><pre>${this._errorStack}</pre><small>`
+                : ""}
             </div>
 
             <!-- Fuzzer Warnings -->
@@ -2427,7 +2441,7 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   try {
     fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
   } catch (e: unknown) {
-    const msg = isError(e) ? e.message : JSON.stringify(e);
+    const msg = getErrorMessageOrJson(e);
     vscode.window.showErrorMessage(
       `${toolName} could not find or does not support this function. Message: "${msg}"`
     );
@@ -2483,7 +2497,7 @@ export function provideCodeLenses(
       });
     }
   } catch (e: unknown) {
-    const msg = isError(e) ? e.message : JSON.stringify(e);
+    const msg = getErrorMessageOrJson(e);
     console.error(
       `Error parsing typescript file: ${document.fileName} error: ${msg}`
     );
