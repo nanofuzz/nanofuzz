@@ -145,6 +145,12 @@ function main() {
     handleAddTestInput
   );
 
+  // Add event listener for the fuzz.toggleCoverageHeatmap button
+  getElementByIdOrThrow("fuzz.toggleCoverageHeatmap").addEventListener(
+    "click",
+    handleToggleCoverageHeatmap
+  );
+
   // Add event listener for opening the function source code
   getElementByIdOrThrow("openSourceLink").addEventListener(
     "click",
@@ -609,6 +615,16 @@ function handleAddTestInput() {
     );
   }
 } // fn: handleAddTestInputCase
+
+/**
+ *
+ */
+function handleToggleCoverageHeatmap() {
+  vscode.postMessage({
+    command: "fuzz.toggleCoverageHeatmap",
+    // json: JSON5.stringify(overrides),
+  });
+} // fn: handleToggleCoverageHeatmap
 
 /**
  * Gets a single input value.

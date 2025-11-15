@@ -8,6 +8,10 @@ import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
 import { isError } from "../Util";
 
+import { applyCoverageHeatmap, clearCoverageHeatmap } from "./CoverageHeatmap";
+
+import { normalizePathForKey } from "src/Util";
+
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
 const maxResultArgSuffix = 1000;
@@ -283,6 +287,9 @@ export class FuzzPanel {
           case "fuzz.addTestInput":
             this._doGetValidators();
             this._doAddTestInputCmd(json);
+            break;
+          case "fuzz.toggleCoverageHeatmap":
+            this._doToggleCoverageHeatmapCmd();
             break;
           case "test.pin":
             this._doTestPinnedCmd(json, true);
@@ -1226,6 +1233,40 @@ ${inArgConsts}
     }); // setTimeout
   } // fn: _addTestInputCmd
 
+  private _doToggleCoverageHeatmapCmd(): void {
+    this._refreshHeatmapDecorations();
+  }
+
+  private _refreshHeatmapDecorations() {
+    const editors = vscode.window.visibleTextEditors;
+    const files = this._results?.stats.measures.CodeCoverageMeasure?.files;
+    if (!files) return;
+
+    for (const editor of editors) {
+      const fsPath = normalizePathForKey(editor.document.uri.fsPath);
+      const hits = files.find((f) => f.path === fsPath)?.lineHits;
+
+      console.log("hits", hits, "fsPath", fsPath, "files", files);
+
+      // TODO: replace true with isHeatMapEnabled flag, which we will negate on toggle
+      if (true && hits) {
+        applyCoverageHeatmap(editor, hits);
+      } else {
+        clearCoverageHeatmap(editor);
+      }
+    }
+  }
+
+  //   private _updateCoverageForRun(
+  //   newCoverage: { [fsPath: string]: LineHits }
+  // ) {
+  //   coverageByFile.clear();
+  //   for (const [fsPath, hits] of Object.entries(newCoverage)) {
+  //     coverageByFile.set(fsPath, hits);
+  //   }
+  //   refreshHeatmapDecorations();
+  // }
+
   /**
    * Updates the fuzzer configuration from the front-end UI message.
    *
@@ -1554,6 +1595,10 @@ ${inArgConsts}
                 } id="fuzz.addTestInputOptions" appearance="secondary" aria-label="Add a test input">
                 Add Input...
               </vscode-button>
+              &nbsp;&nbsp;
+              <vscode-button id="fuzz.toggleCoverageHeatmap" appearance="secondary" aria-label="Toggle coverage heatmap">
+                (dev-only) toggle coverage heatmap
+              </vscode-button>  
             </div>
 
             <!-- Add New Test Input -->

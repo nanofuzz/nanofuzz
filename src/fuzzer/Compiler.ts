@@ -242,6 +242,11 @@ function compileTS(module: NodeJS.Module) {
     options.typeRoots.length ? "--typeRoots" : "",
     options.typeRoots.length ? options.typeRoots.join(",") : "",
 
+    // We need these two options to map the compiled JS line
+    // numbers back to the original TS line numbers.
+    "--sourceMap",
+    "--inlineSources",
+
     module.filename,
   ];
 

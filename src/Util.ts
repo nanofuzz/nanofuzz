@@ -1,3 +1,6 @@
+import * as path from "path";
+import * as vscode from "vscode";
+
 /**
  * Type guard function that returns true if the input object
  * has properties "message" and "stack" typed as string.
@@ -21,3 +24,17 @@ export function isError(
     typeof obj.stack === "string"
   );
 } // fn: isError
+
+/**
+ * Normalizes a file path string for use as a key (in maps) to avoid cross-platform issues.
+ */
+export function normalizePathForKey(rawPath: string): string {
+  const fsPath = vscode.Uri.file(rawPath).fsPath;
+  const normalized = path.normalize(fsPath);
+
+  // On Windows, treat paths case-insensitively, but on POSIX, keep case,
+  // since it usually matters.
+  if (process.platform === "win32") return normalized.toLowerCase();
+
+  return normalized;
+}
