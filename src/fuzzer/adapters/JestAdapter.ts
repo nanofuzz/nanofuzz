@@ -108,7 +108,7 @@ export const toString = (testSet: FuzzTests, module: string): string => {
           // Expected output value
           jestData.push(
             `  // Expect output value`,
-            `  it("${fn}.${i}.human", () => {expect(themodule.${fn}(${inputStr})).toStrictEqual(${JSON5.stringify(
+            `  it("${fn}.${i}.human", () => {expect(themodule.${fn}(${inputStr})).toEqual(${JSON5.stringify(
               expectedOutput[0].value
             )});},${timeout});`,
             ``
