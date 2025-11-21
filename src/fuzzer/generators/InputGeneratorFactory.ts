@@ -1,10 +1,10 @@
-import { FuzzEnv } from "../Fuzzer";
+import { FunctionDef } from "../Fuzzer";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
-import { InputAndSource } from "./Types";
+import { FuzzOptions, InputAndSource } from "../Types";
 import { ProgramModelFactory } from "../../models/ProgramModelFactory";
 
 /**
@@ -16,37 +16,30 @@ import { ProgramModelFactory } from "../../models/ProgramModelFactory";
  * @returns array of concrete input generators
  */
 export function InputGeneratorFactory(
-  env: FuzzEnv,
+  options: FuzzOptions["generators"],
+  fn: FunctionDef,
+  rngSeed: string | undefined,
   leaderboard: Leaderboard<InputAndSource>
 ): AbstractInputGenerator[] {
   const generators: AbstractInputGenerator[] = [];
 
-  if (env.options.generators.RandomInputGenerator.enabled) {
+  if (options.RandomInputGenerator.enabled) {
+    generators.push(new RandomInputGenerator(fn.getArgDefs(), rngSeed));
+  }
+
+  if (options.MutationInputGenerator.enabled) {
     generators.push(
-      new RandomInputGenerator(
-        env.function.getArgDefs(),
-        env.options.seed ?? ""
-      )
+      new MutationInputGenerator(fn.getArgDefs(), rngSeed, leaderboard)
     );
   }
 
-  if (env.options.generators.MutationInputGenerator.enabled) {
-    generators.push(
-      new MutationInputGenerator(
-        env.function.getArgDefs(),
-        env.options.seed ?? "",
-        leaderboard
-      )
-    );
-  }
-
-  if (env.options.generators.AiInputGenerator.enabled) {
+  if (options.AiInputGenerator.enabled) {
     if (ProgramModelFactory.isConfigured()) {
       generators.push(
         new AiInputGenerator(
-          env.function.getArgDefs(),
-          env.options.seed ?? "",
-          ProgramModelFactory.create(env.function)
+          fn.getArgDefs(),
+          rngSeed,
+          ProgramModelFactory.create(fn)
         )
       );
     }

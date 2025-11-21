@@ -20,7 +20,7 @@ import {
   ArgValueTypeWrapped,
   FuzzTestResults,
 } from "fuzzer/Fuzzer";
-import { FuzzPanelFuzzStartMessage } from "ui/FuzzPanel";
+import { FuzzPanelFuzzStartMessage, FuzzPanelPinMessage } from "ui/FuzzPanel";
 
 const vscode = acquireVsCodeApi();
 
@@ -117,11 +117,13 @@ let validators: { validators: string[] };
  */
 function main() {
   // Add event listener for the fuzz.start button
-  getElementByIdOrThrow("fuzz.start").addEventListener("click", (e) => {
-    if (!e.currentTarget) {
-      throw new Error("no currentTarget");
-    }
+  getElementByIdOrThrow("fuzz.start").addEventListener("click", () => {
     handleFuzzStart();
+  });
+
+  // Add event listener for the fuzz.rerun button
+  getElementByIdOrThrow("fuzz.rerun").addEventListener("click", () => {
+    handleFuzzRerun();
   });
 
   // Add event listener for the fuzz.options buttons
@@ -866,12 +868,7 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   data[type][index][pinnedLabel] = pinning;
 
   // Get the test data for the test case
-  const testCase: {
-    input: FuzzIoElement[];
-    output: FuzzIoElement[];
-    pinned: boolean;
-    expectedOutput?: any;
-  } = {
+  const testCase: FuzzPinnedTest = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: data[type][index][pinnedLabel],
@@ -881,10 +878,14 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   }
 
   // Send the request to the extension
+  const msg: FuzzPanelPinMessage = {
+    id,
+    test: testCase,
+  };
   window.setTimeout(() => {
     vscode.postMessage({
       command: pinning ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(testCase),
+      json: JSON5.stringify(msg),
     });
 
     // Update the control state
@@ -984,19 +985,22 @@ function handleCorrectToggle(
     HTMLTableCellElement
   ).classList.contains(pinState.classPinned);
 
-  // Get the test data for the test case
-  const testCase: FuzzPinnedTest = {
-    input: resultsData.results[id].input,
-    output: resultsData.results[id].output,
-    pinned: isPinned,
-    expectedOutput: data[type][index][expectedLabel],
+  // Build the test case for the back-end
+  const msg: FuzzPanelPinMessage = {
+    id,
+    test: {
+      input: resultsData.results[id].input,
+      output: resultsData.results[id].output,
+      pinned: isPinned,
+      expectedOutput: data[type][index][expectedLabel],
+    },
   };
 
   // Send the request to the extension
   window.setTimeout(() => {
     vscode.postMessage({
       command: isPinned ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(testCase),
+      json: JSON5.stringify(msg),
     });
   });
 }
@@ -1587,11 +1591,17 @@ function handleExpectedOutput({
           // Update the front-end data structure
           data[type][index][expectedLabel] = testCase.expectedOutput;
 
+          // Back-end message
+          const msg: FuzzPanelPinMessage = {
+            id,
+            test: testCase,
+          };
+
           // Send the test case to the back-end
           window.setTimeout(() => {
             vscode.postMessage({
               command: "test.pin",
-              json: JSON5.stringify(testCase),
+              json: JSON5.stringify(msg),
             });
           });
 
@@ -1777,9 +1787,6 @@ function buildExpectedTestCase(
 /**
  * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
  * from the UI and sends them to the extension to start the fuzzer.
- *
- * // e onClick() event
- * @param eCurrTarget current target of onClick() event
  */
 function handleFuzzStart() {
   // Send the fuzzer start command to the extension
@@ -1788,6 +1795,18 @@ function handleFuzzStart() {
     json: JSON5.stringify(getConfigFromUi()),
   });
 } // fn: handleFuzzStart
+
+/**
+ * Handles the fuzz.rerun button onClick() event: retrieves the fuzzer options
+ * from the UI and sends them to the extension to start the fuzzer.
+ */
+function handleFuzzRerun() {
+  // Send the fuzzer rerun command to the extension
+  vscode.postMessage({
+    command: "fuzz.rerun",
+    json: JSON5.stringify(getConfigFromUi()),
+  });
+} // fn: handleFuzzRerun
 
 /**
  * Disable UI controls

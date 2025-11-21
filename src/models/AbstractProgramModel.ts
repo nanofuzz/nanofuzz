@@ -56,7 +56,7 @@ export abstract class AbstractProgramModel {
       "fn-source": this._fnRef.src,
       "fn-spec": this._fn.getCmt() ?? "",
       "fn-schema": this._inputSchema,
-      "fn-overrides": JSON5.stringify(this._overrides),
+      "fn-overrides": JSON5.stringify(this._overrides, null, 2),
       ...(translations ?? {}),
     };
 
@@ -262,18 +262,27 @@ export abstract class AbstractProgramModel {
   protected _prompts: Record<string, string> = {
     /*L0*/ system: `You are writing correct, secure, understandable, efficient TypeScript code and are aware of the important differences among TypeScript’s === and == operators.`,
 
-    /*L1*/ specFromCode: `Generate a natural language specification for the “<fn-name>” program in docstring format using TypeDoc annotations such as @param and @returns. Include remarks but do not include the @remarks annotation. Do not include the source code of the "<fn-name>" program. Do not include the function signature. Return the specification in this JSON schema format: {spec: string[]}
+    /*L1*/ specFromCode: `Generate a natural language specification for the “<fn-name>” program in docstring format using TypeDoc annotations such as @param and @returns. Include remarks but do not include the @remarks annotation. Do not include the source code of the "<fn-name>" program. Do not include the function signature. Return the specification in this JSON schema format: 
+\`\`\`
+{spec: string[]}
+\`\`\`
 
 A JSON Schema descrbing the concrete inputs and outputs:
+\`\`\`
 <fn-schema>
+\`\`\`
 
 The "<fn-name>" program:
-<fn-source>`,
+\`\`\`
+<fn-source>
+\`\`\``,
 
     /*L2*/ exampleInputs: `To evaluate whether the following TypeScript program "<fn-name>" satisfies its specification, generate several test cases for testing the program. Each test case includes all the inputs needed to call the program. Choose 5-15 test cases that are important to determine whether the program satisfies its specification.
 
 For each argument of each unit test, you must satisfy the constraints for each argument and subargument. This includes min and max ranges (numbers, booleans), min and max lengths of each string and array dimension, character set restrictions (strings), and whether floats are allowed or only integers (numbers), as defined here:
+\`\`\`
 <fn-overrides>
+\`\`\`
 
 Each unit test must be in the following JSON schema format ("testCase"). You will only change the "value" fields. In each unit test, omit any undefined values (e.g., optional inputs). Provide only literal values that are compatible with the type annotations. 
 testCase = <fn-schema>
@@ -282,12 +291,19 @@ Return an array of unit tests in the following JSON format such that you return 
 testCase[]
 
 The "<fn-name>" program:
+\`\`\`
 <fn-source>
+\`\`\`
     
 The “<fn-name>” specification in docstring format:
-<fn-spec>`,
+\`\`\`
+<fn-spec>
+\`\`\``,
 
-    /*L3*/ predictRanges: `IMPORTANT! Respond with ONLY raw JSON (no markdown, no backticks, no explanation). Return ONLY the raw JSON object. Output must EXACTLY match this shape: <fn-overrides>
+    /*L3*/ predictRanges: `IMPORTANT! Respond with ONLY raw JSON (no markdown, no backticks, no explanation). Return ONLY the raw JSON object. Output must EXACTLY match this shape: 
+\`\`\`
+<fn-overrides>
+\`\`\`
 
 Use the "<fn-name>" TypeScript specification below to understand any minimum and maximum values, lengths, array lengths, and character sets for the tree of function arguments.
     
@@ -304,7 +320,9 @@ The “<fn-name>” specification in docstring format:
 \`\`\``,
 
     /*L6*/ predictOutput: `For the following "<fn-name>" TypeScript program and specification, predict the expected output for the following inputs: 
+\`\`\`
 <fn-input>
+\`\`\`
 
 Output the prediction in the following JSON format:
 {
@@ -313,10 +331,13 @@ Output the prediction in the following JSON format:
 }
 
 The "<fn-name>" program:
+\`\`\`
 <fn-source>
+\`\`\`
 
 The “<fn-name>” specification in TypeDoc docstring format:
+\`\`\`
 <fn-spec>
-`,
+\`\`\``,
   };
 } // !!!!!!

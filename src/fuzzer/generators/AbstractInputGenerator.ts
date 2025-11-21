@@ -16,7 +16,7 @@ export abstract class AbstractInputGenerator {
    * @param `specs` ArgDef specs that describe the inputs to generate
    * @param `rngSeed` seed for pseudo random nunber generator
    */
-  protected constructor(specs: ArgDef<ArgType>[], rngSeed: string) {
+  protected constructor(specs: ArgDef<ArgType>[], rngSeed: string | undefined) {
     this._specs = specs;
     this._prng = seedrandom(rngSeed);
   } // fn: constructor

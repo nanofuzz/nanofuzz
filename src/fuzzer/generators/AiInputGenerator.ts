@@ -10,11 +10,11 @@ import { AbstractProgramModel } from "../../models/AbstractProgramModel";
  * Generates new inputs using a large language model
  */
 export class AiInputGenerator extends AbstractInputGenerator {
-  private _inputCache: InputAndSource[] = [];
-  private _usedInputs: InputAndSource[] = [];
-  private _validator: ArgDefValidator;
-  private _model: AbstractProgramModel;
-  private _gensLeft = 2; //
+  private _inputCache: InputAndSource[] = []; // !!!!!!
+  private _usedInputs: InputAndSource[] = []; // !!!!!!
+  private _validator: ArgDefValidator; // !!!!!!
+  private _model: AbstractProgramModel; // !!!!!!
+  private _gensLeft = 2; // !!!!!!!
 
   /**
    * Create a MutationInputGenerator
@@ -25,7 +25,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   public constructor(
     specs: ArgDef<ArgType>[],
-    rngSeed: string,
+    rngSeed: string | undefined,
     model: AbstractProgramModel
   ) {
     super(specs, rngSeed);

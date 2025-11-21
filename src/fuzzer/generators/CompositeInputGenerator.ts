@@ -1,11 +1,11 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
-import { ArgType } from "../analysis/typescript/Types";
-import { ArgDef } from "../analysis/typescript/ArgDef";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
 import * as JSON5 from "json5";
 import { ScoredInput } from "./Types";
-import { InputAndSource } from "./../Types";
+import { FuzzOptions, InputAndSource } from "./../Types";
+import { FunctionDef } from "fuzzer/Fuzzer";
+import { InputGeneratorFactory } from "./InputGeneratorFactory";
 
 /**
  * The Composite Input Generator subsumes multiple types of input generator and biases
@@ -27,7 +27,8 @@ import { InputAndSource } from "./../Types";
  * false when the injected inputs are exhausted.
  */
 export class CompositeInputGenerator extends AbstractInputGenerator {
-  private _subgens: AbstractInputGenerator[] = []; // Subordinate input generators
+  private _subgens; // Subordinate input generators
+  private _activeSubgens: boolean[] = []; // boolean array of whether subgen is active
   private _tick = 0; // Number of inputs generated
   private _ticksLeftInChunk = 0; // Number of input generations remaining in this chunk
   private _measures: AbstractMeasure[]; // Measures that provide feedback
@@ -42,7 +43,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   private _leaderboard; // Interesting inputs
   private _lastInput?: InputAndSource; // Last input generated
   private readonly _L = 500; // Lookback window size for history !!!!!!! externalize
-  private readonly _chunkSize = 20; // Re-evaluate subgen after _chunkSize inputs generated
+  private readonly _chunkSize = 20; // Re-evaluate subgen after _chunkSize inputs generated !!!!!!! externalize
   private readonly _P = 0.1; // Additional chance of subgen exploration !!!!!!! externalize
   public static readonly INJECTED = "injected";
 
@@ -51,31 +52,33 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * generators (subgens) and selects which subgen to use next based on each subgen's
    * recent productivity relative to other subgens, as calculated by various measures.
    *
-   * @param `specs` ArgDef specs that describe the inputs to generate
+   * @param `options` generator options
    * @param `rngSeed` seed for pseudo random number generator
    * @param `subgens` array of concrete input generators to subsume
    * @param `measures` array of measures used to evaluate relative productivity of the subgens
    * @param `leaderboard` running list of "interesting" inputs, according to the measures
    */
   public constructor(
-    specs: ArgDef<ArgType>[],
-    rngSeed: string,
-    subgens: AbstractInputGenerator[],
+    options: FuzzOptions["generators"],
+    fn: FunctionDef,
+    rngSeed: string | undefined,
     measures: AbstractMeasure[],
     leaderboard: Leaderboard<InputAndSource>
   ) {
-    super(specs, rngSeed);
+    super([], rngSeed);
 
-    this._subgens = subgens;
+    this._subgens = InputGeneratorFactory(options, fn, rngSeed, leaderboard);
     this._measures = measures;
     this._leaderboard = leaderboard;
 
     // Initialize measure history
-    this._history = subgens.map(() => ({
+    this._history = this._subgens.map(() => ({
       progress: measures.map(() => Array(this._L).fill(undefined)),
       cost: Array(this._L).fill(undefined),
       currentIndex: 0,
     }));
+
+    this.options = options;
   } // fn: constructor
 
   /**
@@ -84,9 +87,25 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   public isAvailable(): boolean {
     return (
       !!this._injectedInputs.length ||
-      this._subgens.some((g) => g.isAvailable())
+      this._subgens.some((g, i) => this._activeSubgens[i] && g.isAvailable())
     );
   } // fn: isAvailable
+
+  // !!!!!!
+  public noGenerators(): boolean {
+    return !this._subgens.some(
+      (g, i) => this._activeSubgens[i] && g.isAvailable()
+    );
+  } // !!!!!!
+
+  // !!!!!!
+  public set options(options: FuzzOptions["generators"]) {
+    const _options: Record<string, typeof options.RandomInputGenerator> =
+      options; // happify the type checker
+    this._activeSubgens = this._subgens.map((m) =>
+      m.name in _options ? _options[m.name].enabled : false
+    );
+  } // !!!!!!
 
   /**
    * Inject predefined inputs into the queue. These inputs will be produced
@@ -125,7 +144,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // the subgen for that chunk
     if (
       this._ticksLeftInChunk-- < 1 ||
-      !this._subgens[this._selectedSubgenIndex].isAvailable()
+      !this._subgens[this._selectedSubgenIndex].isAvailable() ||
+      !this._activeSubgens[this._selectedSubgenIndex]
     ) {
       this._ticksLeftInChunk = this._chunkSize;
       this._selectedSubgenIndex = this._selectNextSubGen();
@@ -266,7 +286,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
     // All active subgens have a minimum chance of being selected,
     // which is determined by _P
-    const activeSubgens = this._subgens.filter((e) => e.isAvailable());
+    const activeSubgens = this._subgens.filter(
+      (e, i) => this._activeSubgens[i] && e.isAvailable()
+    );
     const addlChanceSpace = totalProductivity ? totalProductivity * this._P : 1;
     const addlChance = addlChanceSpace / activeSubgens.length;
 

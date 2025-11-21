@@ -21,7 +21,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    */
   public constructor(
     specs: ArgDef<ArgType>[],
-    rngSeed: string,
+    rngSeed: string | undefined,
     leaderboard: Leaderboard<InputAndSource>
   ) {
     super(specs, rngSeed);

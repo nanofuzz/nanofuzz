@@ -1,5 +1,5 @@
 import { AbstractProgramModel } from "./AbstractProgramModel";
-import { CopilotProgramModel } from "./CopilotProgramModel";
+//import { CopilotProgramModel } from "./CopilotProgramModel";
 import { GeminiProgramModel } from "./GeminiProgramModel";
 import { FunctionDef } from "../fuzzer/Fuzzer";
 import * as JSON5 from "json5";
