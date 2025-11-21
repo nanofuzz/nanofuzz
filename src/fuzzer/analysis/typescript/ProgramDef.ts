@@ -34,7 +34,7 @@ import {
   ProgramImport,
   ArgType,
 } from "./Types";
-import { getErrorMessageOrJson } from "../../../Util";
+import { getErrorMessageOrJson } from "../../Util";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
