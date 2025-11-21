@@ -663,7 +663,7 @@ export class Tester {
                 };
               }
             },
-            this.options.fnTimeout
+            this._options.fnTimeout
           );
 
           // Categorize the result (so it's not stale)
