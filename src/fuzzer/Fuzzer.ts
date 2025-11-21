@@ -22,7 +22,7 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { ScoredInput } from "./generators/Types";
-import { isError } from "./Util";
+import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 
 // !!!!!!
@@ -576,9 +576,9 @@ export class Tester {
         result.timers.run = performance.now() - startRunTime; // stop timer
       } catch (e: unknown) {
         result.timers.run = performance.now() - startRunTime; // stop timer
-        const msg = isError(e) ? e.message : JSON.stringify(e);
+        const msg = getErrorMessageOrJson(e);
         const stack = isError(e) ? e.stack : "<no stack>";
-        if (isError(e) && isTimeoutError(e)) {
+        if (isTimeoutError(e)) {
           result.timeout = true;
         } else {
           result.exception = true;
@@ -663,7 +663,7 @@ export class Tester {
                 };
               }
             },
-            this._options.fnTimeout
+            this.options.fnTimeout
           );
 
           // Categorize the result (so it's not stale)
