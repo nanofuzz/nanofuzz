@@ -40,6 +40,7 @@ export type FunctionRef = {
   isVoid: boolean; // True if the function is void; false, otherwise
   args?: TypeRef[]; // Array of argument types
   returnType?: TypeRef; // Return type of the function
+  cmt?: string; // Docstring comment of the function
 };
 
 /**
@@ -59,6 +60,50 @@ export type TypeRef = {
     resolved?: boolean; // True if the type's children have been resolved; false, otherwise
   };
   isExported: boolean; // True if the type is exported; false, otherwise
+};
+
+/** !!!!!!! */
+export type FunctionSignature = {
+  inputs: ArgSignature[];
+  output?: ArgSignature;
+};
+
+/** !!!!!!! */
+export type ArgSignature =
+  | ArgSignatureNumber
+  | ArgSignatureString
+  | ArgSignatureBoolean
+  | ArgSignatureObject
+  | ArgSignatureLiteral;
+
+export type ArgSignatureBase = {
+  optional: boolean;
+  dimensions: number;
+};
+export type ArgSignatureBaseMan = ArgSignatureBase & {
+  optional: false;
+};
+export type ArgSignatureBaseOpt = ArgSignatureBase & {
+  optional: true;
+};
+
+export type ArgSignatureNumber =
+  | (ArgSignatureBaseMan & { value: number })
+  | (ArgSignatureBaseOpt & { value?: number });
+export type ArgSignatureString =
+  | (ArgSignatureBaseMan & { value: string })
+  | (ArgSignatureBaseOpt & { value?: string });
+export type ArgSignatureBoolean =
+  | (ArgSignatureBaseMan & { value: boolean })
+  | (ArgSignatureBaseOpt & { value?: boolean });
+export type ArgSignatureObject = ArgSignatureBase & {
+  children: Record<string, ArgSignature>;
+};
+export type ArgSignatureUnion = ArgSignatureBase & {
+  children: Record<string, ArgSignature>;
+};
+export type ArgSignatureLiteral = ArgSignatureBase & {
+  value?: string;
 };
 
 /**
@@ -138,6 +183,16 @@ export type ArgOptionOverride = {
   strCharset?: string;
   children?: ArgOptionOverrides;
   isNoInput?: boolean;
+};
+
+/** !!!!!!! */
+export type TypeAnnotationOptions = {
+  useTypeRefs?: true;
+  useOptionality?: true;
+};
+export const TypeAnnotationOptionDefaults: TypeAnnotationOptions = {
+  useTypeRefs: true,
+  useOptionality: true,
 };
 
 /**

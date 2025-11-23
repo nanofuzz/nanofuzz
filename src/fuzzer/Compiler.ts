@@ -11,7 +11,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
-import { VmGlobals } from "./Types";
+import { FuzzBusyStatusMessage, VmGlobals } from "./Types";
 
 // Load the TypeScript compiler script
 const tsc = path.join(path.dirname(require.resolve("typescript")), "_tsc.js");
@@ -89,7 +89,10 @@ export function getOptions(): CompilerOptions {
 /**
  * Activate the TypeScript compiler hook
  */
-export function activate(measures: AbstractMeasure[]): void {
+export function activate(
+  measures: AbstractMeasure[],
+  update: (msg: FuzzBusyStatusMessage) => void
+): void {
   // Clear any previously-transpiled modules from the cache
   // so that we have a consistent global context across all
   // modules transpiled and loaded.
@@ -116,7 +119,7 @@ export function activate(measures: AbstractMeasure[]): void {
   // Add our new extension
   require.extensions[hookType] = function (module) {
     // Transpile the Typescript file
-    const jsname = compileTS(module);
+    const jsname = compileTS(module, update);
 
     // Apply measurement instrumentation
     let src = fs.readFileSync(jsname, "utf8");
@@ -173,7 +176,10 @@ function isModified(tsname: string, jsname: string) {
  *
  * @return {string} js file path
  */
-function compileTS(module: NodeJS.Module) {
+function compileTS(
+  module: NodeJS.Module,
+  update: (msg: FuzzBusyStatusMessage) => void
+) {
   let exitCode = 0;
 
   // Determine the compiled name of the module we are about to compile
@@ -188,8 +194,7 @@ function compileTS(module: NodeJS.Module) {
     relativeFolder,
     path.basename(module.filename, ".ts") + ".js"
   );
-  console.log(` - Transpiling: ${module.filename}`);
-  console.log(`            to: ${jsname}`);
+  update({ msg: `Compiling: ${module.filename}`, milestone: true });
 
   // If the Javascript file is current, return it directly
   if (!isModified(module.filename, jsname)) {
