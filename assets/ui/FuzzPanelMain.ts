@@ -126,6 +126,11 @@ function main() {
     handleFuzzRerun();
   });
 
+  // Add event listener for the fuzz.clear button
+  getElementByIdOrThrow("fuzz.clear").addEventListener("click", () => {
+    handleFuzzClear();
+  });
+
   // Add event listener for the fuzz.options buttons
   getElementByIdOrThrow("fuzz.options.open").addEventListener(
     "click",
@@ -1807,6 +1812,18 @@ function handleFuzzRerun() {
     json: JSON5.stringify(getConfigFromUi()),
   });
 } // fn: handleFuzzRerun
+
+/**
+ * Handles the fuzz.clear button onClick() event: retrieves the fuzzer options
+ * from the UI and sends them to the extension to clear the FuzzPanel
+ */
+function handleFuzzClear() {
+  // Send the fuzzer rerun command to the extension
+  vscode.postMessage({
+    command: "fuzz.clear",
+    json: JSON5.stringify(getConfigFromUi()),
+  });
+} // fn: handleFuzzClear
 
 /**
  * Disable UI controls

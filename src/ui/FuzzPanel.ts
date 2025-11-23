@@ -383,6 +383,10 @@ export class FuzzPanel {
             this._doGetValidators();
             this._testRerun(json);
             break;
+          case "fuzz.clear":
+            this._doGetValidators();
+            this._testClear(json);
+            break;
           case "fuzz.addTestInput":
             this._doGetValidators();
             this._testOne(json);
@@ -1520,6 +1524,56 @@ ${inArgConsts}
   } // fn: _testRerun()
 
   /**
+   * Message handler for the `fuzz.clear` command.
+   *
+   * This handler:
+   *  1. Accepts a JSON object containing an updated set
+   *     of fuzzer and argument options as input
+   *  2. Creates a new back-end tester
+   *  4. Resets the webvire to init status
+   *
+   * @param json JSON input
+   */
+  private _testClear(json: string): void {
+    type responses = "Clear generated tests";
+    type responsesWithUndefined = responses | undefined;
+    vscode.window
+      .showWarningMessage<responses>(
+        "Clear unpinned tests that lack an expected output?",
+        { modal: true },
+        "Clear generated tests"
+      )
+      .then<responsesWithUndefined>(
+        (value: responsesWithUndefined): responsesWithUndefined => {
+          if (value === "Clear generated tests") {
+            // Start over with a new tester
+            this._tester = new fuzzer.Tester(
+              this._fuzzEnv.function.getModule(),
+              this._fuzzEnv.function.getName(),
+              this._fuzzEnv.options
+            );
+            this._fuzzEnv = this._tester.env;
+
+            // Get the panel input
+            const panelInput: FuzzPanelFuzzStartMessage = JSON5.parse(json);
+            this._getConfigFromUi(panelInput);
+
+            // Update the UI
+            this._results = undefined;
+            this._state = FuzzPanelState.init;
+            this._errorMessage = undefined;
+            this._errorStack = undefined;
+            this._updateHtml();
+
+            // Save the argument overrides
+            this._argOverrides = panelInput.args;
+            return value;
+          }
+        }
+      );
+  } // fn: _testClear
+
+  /**
    * Updates the fuzzer configuration from the front-end UI message.
    *
    * @param panelInput a FuzzPanelFuzzStartMessage input
@@ -1839,7 +1893,7 @@ ${inArgConsts}
 
             <!-- Button Bar -->
             <div>
-              <vscode-button ${disabledFlag} ${this._state===FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.start" appearance="primary icon" aria-label="${this._results ? "Generate more tests": "Generate tests"}">
+              <vscode-button ${disabledFlag} ${this._state===FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.start" class="tooltipped tooltipped-ne" appearance="primary icon" aria-label="${this._results ? "Generate more tests": "Generate tests"}">
                 <span class="codicon codicon-${this._results ? "debug-continue" : "play"}"></span>
               </vscode-button>
               <vscode-button ${this._state!==FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.stop" appearance="primary icon" aria-label="Pause testing">
@@ -1850,17 +1904,17 @@ ${inArgConsts}
                     ? ``
                     : `class="hidden" ` 
                 }>
-                <vscode-button ${disabledFlag}  id="fuzz.rerun" appearance="secondary icon" aria-label="Re-test these results">
+                <vscode-button ${disabledFlag}  id="fuzz.rerun" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Re-test these results">
                   <span class="codicon codicon-debug-rerun"></span>
                 </vscode-button>
-                <vscode-button ${disabledFlag}  id="fuzz.addTestInputOptions.open" appearance="secondary icon" aria-label="Add a test input">
+                <vscode-button ${disabledFlag}  id="fuzz.addTestInputOptions.open" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Add a test input">
                   <span class="codicon codicon-add"></span>
                 </vscode-button>
-                <vscode-button ${disabledFlag} class="hidden" id="fuzz.addTestInputOptions.close" appearance="secondary icon depressed" aria-label="Add a test input">
+                <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Add a test input (close)">
                   <span class="codicon codicon-add"></span>
                 </vscode-button>
                 &nbsp;
-                <vscode-button ${disabledFlag}  id="fuzz.clear" appearance="secondary icon" aria-label="Clear unused tests">
+                <vscode-button ${disabledFlag} id="fuzz.clear" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Clear tests">
                   <span class="codicon codicon-clear-all"></span>
                 </vscode-button>
               </span>
@@ -1871,10 +1925,10 @@ ${inArgConsts}
                   .get("hideMoreOptionsButton")
                     ? `class="hidden" ` 
                     : ``
-                } id="fuzz.options.open" appearance="secondary icon" aria-label="Open settings">
+                } id="fuzz.options.open" appearance="secondary icon" class="tooltipped tooltipped-n" aria-label="More options">
                 <span class="codicon codicon-settings-gear"></span>
               </vscode-button>
-              <vscode-button ${disabledFlag} id="fuzz.options.close" class="hidden" appearance="secondary icon depressed" aria-label="Close settings">
+              <vscode-button ${disabledFlag} id="fuzz.options.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Close more options">
                 <span class="codicon codicon-settings-gear"></span>
               </vscode-button>
             </div>
