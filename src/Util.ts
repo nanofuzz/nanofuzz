@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
+import JSON5 from "json5";
 
 /**
  * Type guard function that returns true if the input object
@@ -27,6 +28,8 @@ export function isError(
 
 /**
  * Normalizes a file path string for use as a key (in maps) to avoid cross-platform issues.
+ *
+ * !!!!!!!! move this dependency on vscode into part of the UI codebase
  */
 export function normalizePathForKey(rawPath: string): string {
   const fsPath = vscode.Uri.file(rawPath).fsPath;
@@ -37,4 +40,18 @@ export function normalizePathForKey(rawPath: string): string {
   if (process.platform === "win32") return normalized.toLowerCase();
 
   return normalized;
-}
+} // fn: normalizePathForKey
+
+/*
+ * Extracts an error message from an unknown exception value.
+ *
+ * If the value is an Error-like object (has message and stack),
+ * returns the message. Otherwise, stringifies the value using JSON5.
+ *
+ * @param e the exception value to extract a message from
+ *
+ * @returns the error message string
+ */
+export function getErrorMessageOrJson(e: unknown): string {
+  return isError(e) ? e.message : JSON5.stringify(e);
+} // fn: getErrorMessageOrJson

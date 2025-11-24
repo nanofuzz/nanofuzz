@@ -7,9 +7,9 @@ import {
   createCoverageMap,
 } from "istanbul-lib-coverage";
 import { FuzzTestResult, VmGlobals } from "../Types";
-import { FuzzTestResults } from "fuzzer/Fuzzer";
-import { InputAndSource } from "fuzzer/generators/Types";
-import { normalizePathForKey } from "src/Util";
+import { FuzzTestResults } from "../Fuzzer";
+import { InputAndSource } from "../generators/Types";
+import { normalizePathForKey } from "../../Util";
 
 import * as fs from "fs";
 
