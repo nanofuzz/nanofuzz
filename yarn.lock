@@ -969,7 +969,7 @@
 
 "@types/istanbul-lib-source-maps@^4.0.4":
   version "4.0.4"
-  resolved "https://r.cnpmjs.org/@types/istanbul-lib-source-maps/-/istanbul-lib-source-maps-4.0.4.tgz#d38c02a3a1a55f9e75438dc34a896c3bf3ecb81c"
+  resolved "https://registry.yarnpkg.com/@types/istanbul-lib-source-maps/-/istanbul-lib-source-maps-4.0.4.tgz#d38c02a3a1a55f9e75438dc34a896c3bf3ecb81c"
   integrity sha512-p+nSH0hBMLvuqgnT0rbBnDcfO3IuOZrLU+Yf4x0BhGVmXynB+gm9D35gAvWeMuk+riik5Rj12NBQm8rnzIPH3g==
   dependencies:
     "@types/istanbul-lib-coverage" "*"
@@ -3005,7 +3005,7 @@ istanbul-lib-instrument@6.0.3:
 
 istanbul-lib-source-maps@^5.0.6:
   version "5.0.6"
-  resolved "https://r.cnpmjs.org/istanbul-lib-source-maps/-/istanbul-lib-source-maps-5.0.6.tgz#acaef948df7747c8eb5fbf1265cb980f6353a441"
+  resolved "https://registry.yarnpkg.com/istanbul-lib-source-maps/-/istanbul-lib-source-maps-5.0.6.tgz#acaef948df7747c8eb5fbf1265cb980f6353a441"
   integrity sha512-yg2d+Em4KizZC5niWhQaIomgf5WlL4vOOjZ5xGCmF8SnPE/mDWWXgvRExdcpCgh9lLRRa1/fSYp2ymmbJ1pI+A==
   dependencies:
     "@jridgewell/trace-mapping" "^0.3.23"
