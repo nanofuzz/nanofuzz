@@ -97,7 +97,7 @@ export class CoverageMeasure extends AbstractMeasure {
       throw new Error("No current coverage data found");
     }
 
-    // Shwllow clone the raw current coverage data
+    // Shallow clone the raw current coverage data
     const currentCoverageData = { ...this._coverageData };
 
     // Merge the current coverage into root predecessor
@@ -229,7 +229,7 @@ export class CoverageMeasure extends AbstractMeasure {
         };
       });
 
-    console.log(files);
+    console.log(files); // !!!!!!!
 
     results.stats.measures.CodeCoverageMeasure = {
       counters: {

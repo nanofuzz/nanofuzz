@@ -47,6 +47,7 @@ export class FuzzPanel {
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
   private _focusInput?: [string, number]; // Newly-added input to receive UI focus
   private _lastTab: string | undefined; // Last tab that had focus
+  private _showingCoverage = false; // Currently showing code coverage?
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
@@ -301,10 +302,12 @@ export class FuzzPanel {
 
         switch (command) {
           case "fuzz.start":
+            this._refreshCoverageHeatmap(false);
             this._doGetValidators();
             this._doFuzzStartCmd(json);
             break;
           case "fuzz.addTestInput":
+            this._refreshCoverageHeatmap(false);
             this._doGetValidators();
             this._doAddTestInputCmd(json);
             break;
@@ -1253,8 +1256,15 @@ ${inArgConsts}
 
   // !!!!!!
   private _refreshCoverageHeatmap(show: boolean) {
+    if (this._showingCoverage === show) {
+      return;
+    }
+
     const editors = vscode.window.visibleTextEditors;
     const files = this._results?.stats.measures.CodeCoverageMeasure?.files;
+
+    this._showingCoverage = show;
+
     if (!files) return; // !!!!!!! error feedback
 
     for (const editor of editors) {
@@ -1346,6 +1356,11 @@ ${inArgConsts}
    * Disposes all objects used by this instance
    */
   public dispose(): void {
+    // Turn off code coverage decorations
+    if (this._showingCoverage) {
+      this._refreshCoverageHeatmap(false);
+    }
+
     // Remove this panel from the list of current panels.
     delete FuzzPanel.currentPanels[this.getFnRefKey()];
 

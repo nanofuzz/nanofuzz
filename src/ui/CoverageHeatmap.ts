@@ -4,8 +4,10 @@ import { LineHits } from "../fuzzer/measures/CoverageMeasure";
 // The number of different heat levels to visualize
 const GRANULARITY = 20;
 
+// !!!!!!
 let gradientDecorationTypes: vscode.TextEditorDecorationType[] | null = null;
 
+// !!!!!!
 function _initGradientDecorationTypes() {
   if (gradientDecorationTypes) return;
   gradientDecorationTypes = [];
@@ -27,14 +29,16 @@ function _initGradientDecorationTypes() {
       })
     );
   }
-}
+} // !!!!!!
 
+// !!!!!!
 function _gradientLevelForRatio(ratio: number): number {
   if (!Number.isFinite(ratio) || ratio <= 0) return 0;
   if (ratio >= 1) return GRANULARITY;
   return Math.max(1, Math.min(GRANULARITY, Math.round(ratio * GRANULARITY)));
-}
+} // !!!!!!
 
+// !!!!!!
 export function applyCoverageHeatmap(
   editor: vscode.TextEditor,
   lineHits: LineHits
@@ -75,11 +79,12 @@ export function applyCoverageHeatmap(
   for (let i = 0; i <= GRANULARITY; i++) {
     editor.setDecorations(gradientDecorationTypes[i], rangesByGradientLevel[i]);
   }
-}
+} // !!!!!!
 
+// !!!!!!
 export function clearCoverageHeatmap(editor: vscode.TextEditor): void {
   if (!gradientDecorationTypes) return;
   for (const type of gradientDecorationTypes) {
     editor.setDecorations(type, []);
   }
-}
+} // !!!!!!
