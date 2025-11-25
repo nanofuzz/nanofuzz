@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { LineHits } from "fuzzer/measures/CoverageMeasure";
+import { LineHits } from "../fuzzer/measures/CoverageMeasure";
 
 // The number of different heat levels to visualize
 const GRANULARITY = 20;

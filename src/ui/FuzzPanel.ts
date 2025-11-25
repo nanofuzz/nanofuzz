@@ -308,8 +308,15 @@ export class FuzzPanel {
             this._doGetValidators();
             this._doAddTestInputCmd(json);
             break;
-          case "fuzz.toggleCoverageHeatmap":
-            this._doToggleCoverageHeatmapCmd();
+          case "fuzz.coverage.show":
+            this._doShowCoverage();
+            this._navigateToSource(
+              this._fuzzEnv.function.getModule(),
+              this._fuzzEnv.function.getRef().startOffset
+            );
+            break;
+          case "fuzz.coverage.hide":
+            // !!!!!!! not implemented
             break;
           case "test.pin":
             this._doTestPinnedCmd(json, true);
@@ -1244,10 +1251,12 @@ ${inArgConsts}
     }); // setTimeout
   } // fn: _addTestInputCmd
 
-  private _doToggleCoverageHeatmapCmd(): void {
+  // !!!!!!
+  private _doShowCoverage(): void {
     this._refreshHeatmapDecorations();
-  }
+  } // !!!!!!
 
+  // !!!!!!
   private _refreshHeatmapDecorations() {
     const editors = vscode.window.visibleTextEditors;
     const files = this._results?.stats.measures.CodeCoverageMeasure?.files;
@@ -1257,16 +1266,16 @@ ${inArgConsts}
       const fsPath = normalizePathForKey(editor.document.uri.fsPath);
       const hits = files.find((f) => f.path === fsPath)?.lineHits;
 
-      console.log("hits", hits, "fsPath", fsPath, "files", files);
+      console.log("hits", hits, "fsPath", fsPath, "files", files); // !!!!!!!
 
-      // TODO: replace true with isHeatMapEnabled flag, which we will negate on toggle
+      // TODO: replace true with isHeatMapEnabled flag, which we will negate on toggle !!!!!!!
       if (true && hits) {
         applyCoverageHeatmap(editor, hits);
       } else {
         clearCoverageHeatmap(editor);
       }
     }
-  }
+  } // !!!!!!
 
   //   private _updateCoverageForRun(
   //   newCoverage: { [fsPath: string]: LineHits }
@@ -1583,33 +1592,50 @@ ${inArgConsts}
 
             <!-- Button Bar -->
             <div style="padding-top: .25em;">
-              <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
-                ${this._state === FuzzPanelState.busy ? "Testing..." : (this._state === FuzzPanelState.done ? "Re-test" : "Test")}
+              <vscode-button ${disabledFlag} ${this._state===FuzzPanelState.busy ? `class="hidden"` : ""} id="fuzz.start" class="tooltipped tooltipped-ne" appearance="primary icon" aria-label="${this._results ? "Generate more tests": "Generate tests"}">
+                <span class="codicon codicon-${this._results ? "debug-continue" : "play"}"></span>
               </vscode-button>
-              <vscode-button  ${disabledFlag} class="hidden" id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
-                Change Mode
+              <vscode-button ${this._state!==FuzzPanelState.busy ? `class="hidden"` : ""} id="fuzz.stop" appearance="primary icon" aria-label="Pause testing">
+                <span class="codicon codicon-debug-pause"></span>
               </vscode-button>
-              <vscode-button ${disabledFlag} ${ 
+              <span ${ 
+                (this._results !== undefined)
+                    ? ``
+                    : `class="hidden" ` 
+                }>
+                <vscode-button ${disabledFlag} id="fuzz.rerun" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Re-test these results">
+                  <span class="codicon codicon-debug-rerun"></span>
+                </vscode-button>
+                <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.open" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Add a test input">
+                  <span class="codicon codicon-add"></span>
+                </vscode-button>
+                <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Add a test input (close)">
+                  <span class="codicon codicon-add"></span>
+                </vscode-button>
+                &nbsp;
+                <vscode-button ${disabledFlag} id="fuzz.clear" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Clear tests">
+                  <span class="codicon codicon-clear-all"></span>
+                </vscode-button>
+                <vscode-button ${disabledFlag} id="fuzz.coverage.show" appearance="secondary icon" class="tooltipped tooltipped-n" aria-label="Show coverage heatmap">
+                  <span class="codicon codicon-coverage"></span>
+                </vscode-button>  
+                <vscode-button ${disabledFlag} id="fuzz.coverage.hide" appearance="secondary icon depressed" class="hidden tooltipped tooltipped-n" aria-label="Hide coverage heatmap">
+                  <span class="codicon codicon-coverage"></span>
+                </vscode-button>  
+              </span>
+              &nbsp;
+              <vscode-button ${disabledFlag} class="${ 
                 vscode.workspace
                   .getConfiguration("nanofuzz.ui")
                   .get("hideMoreOptionsButton")
-                    ? `class="hidden" ` 
+                    ? `hidden `
                     : ``
-                } id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
-                More options...
+                }tooltipped tooltipped-n" id="fuzz.options.open" appearance="secondary icon" aria-label="More options">
+                <span class="codicon codicon-settings-gear"></span>
               </vscode-button>
-              &nbsp;&nbsp;
-              <vscode-button ${disabledFlag} ${ 
-                (this._state === FuzzPanelState.done && this._results !== undefined)
-                    ? ``
-                    : `class="hidden" ` 
-                } id="fuzz.addTestInputOptions" appearance="secondary" aria-label="Add a test input">
-                Add Input...
+              <vscode-button ${disabledFlag} id="fuzz.options.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Close more options">
+                <span class="codicon codicon-settings-gear"></span>
               </vscode-button>
-              &nbsp;&nbsp;
-              <vscode-button id="fuzz.toggleCoverageHeatmap" appearance="secondary" aria-label="Toggle coverage heatmap">
-                (dev-only) toggle coverage heatmap
-              </vscode-button>  
             </div>
 
             <!-- Add New Test Input -->
