@@ -309,14 +309,14 @@ export class FuzzPanel {
             this._doAddTestInputCmd(json);
             break;
           case "fuzz.coverage.show":
-            this._doShowCoverage();
+            this._refreshCoverageHeatmap(true);
             this._navigateToSource(
               this._fuzzEnv.function.getModule(),
               this._fuzzEnv.function.getRef().startOffset
             );
             break;
           case "fuzz.coverage.hide":
-            // !!!!!!! not implemented
+            this._refreshCoverageHeatmap(false);
             break;
           case "test.pin":
             this._doTestPinnedCmd(json, true);
@@ -1252,15 +1252,10 @@ ${inArgConsts}
   } // fn: _addTestInputCmd
 
   // !!!!!!
-  private _doShowCoverage(): void {
-    this._refreshHeatmapDecorations();
-  } // !!!!!!
-
-  // !!!!!!
-  private _refreshHeatmapDecorations() {
+  private _refreshCoverageHeatmap(show: boolean) {
     const editors = vscode.window.visibleTextEditors;
     const files = this._results?.stats.measures.CodeCoverageMeasure?.files;
-    if (!files) return;
+    if (!files) return; // !!!!!!! error feedback
 
     for (const editor of editors) {
       const fsPath = normalizePathForKey(editor.document.uri.fsPath);
@@ -1269,7 +1264,7 @@ ${inArgConsts}
       console.log("hits", hits, "fsPath", fsPath, "files", files); // !!!!!!!
 
       // TODO: replace true with isHeatMapEnabled flag, which we will negate on toggle !!!!!!!
-      if (true && hits) {
+      if (show && hits) {
         applyCoverageHeatmap(editor, hits);
       } else {
         clearCoverageHeatmap(editor);
