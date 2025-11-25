@@ -214,7 +214,7 @@
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
     "@types/vscode-webview": "^1.57.5",
-    "@vscode/codicons": "^0.0.32",
+    "@vscode/codicons": "^0.0.43",
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "eslint": "^7.3.2",
     "immutable": "^4.1.0",
@@ -233,6 +233,7 @@
     "@babel/register": "^7.27.1",
     "@types/istanbul-lib-hook": "^2.0.4",
     "@types/istanbul-lib-instrument": "^1.7.7",
+    "@types/istanbul-lib-source-maps": "^4.0.4",
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
     "@types/seedrandom": "^2.4.28",

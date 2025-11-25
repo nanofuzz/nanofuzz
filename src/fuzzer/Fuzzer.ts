@@ -845,7 +845,9 @@ export function mergeTestResults(
     c.stats.measures.CodeCoverageMeasure.files.push(
       ...b.stats.measures.CodeCoverageMeasure.files.filter(
         (fb) =>
-          !a.stats.measures.CodeCoverageMeasure?.files.find((fa) => fa === fb)
+          !a.stats.measures.CodeCoverageMeasure?.files.find(
+            (fa) => fa.path === fb.path
+          )
       )
     );
   } else if (b.stats.measures.CodeCoverageMeasure) {

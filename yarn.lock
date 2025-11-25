@@ -967,6 +967,14 @@
     "@types/istanbul-lib-coverage" "*"
     source-map "^0.6.1"
 
+"@types/istanbul-lib-source-maps@^4.0.4":
+  version "4.0.4"
+  resolved "https://registry.yarnpkg.com/@types/istanbul-lib-source-maps/-/istanbul-lib-source-maps-4.0.4.tgz#d38c02a3a1a55f9e75438dc34a896c3bf3ecb81c"
+  integrity sha512-p+nSH0hBMLvuqgnT0rbBnDcfO3IuOZrLU+Yf4x0BhGVmXynB+gm9D35gAvWeMuk+riik5Rj12NBQm8rnzIPH3g==
+  dependencies:
+    "@types/istanbul-lib-coverage" "*"
+    source-map "^0.6.1"
+
 "@types/jasmine@^5.1.8":
   version "5.1.8"
   resolved "https://registry.yarnpkg.com/@types/jasmine/-/jasmine-5.1.8.tgz#b20f78ca416d7a2a8e726f8321e0b2827a78ceaa"
@@ -1101,10 +1109,10 @@
     https-proxy-agent "^7.0.0"
     tslib "^2.6.2"
 
-"@vscode/codicons@^0.0.32":
-  version "0.0.32"
-  resolved "https://registry.yarnpkg.com/@vscode/codicons/-/codicons-0.0.32.tgz#9e27de90d509c69762b073719ba3bf46c3cd2530"
-  integrity sha512-3lgSTWhAzzWN/EPURoY4ZDBEA80OPmnaknNujA3qnI4Iu7AONWd9xF3iE4L+4prIe8E3TUnLQ4pxoaFTEEZNwg==
+"@vscode/codicons@^0.0.43":
+  version "0.0.43"
+  resolved "https://registry.yarnpkg.com/@vscode/codicons/-/codicons-0.0.43.tgz#14a3bc218544b381c54917697b802d6d89ae083d"
+  integrity sha512-8sf8WOBoZkyUi8ogCm5ycHJJGhwOEG3E9b64+JIx+m6bCExdkc30VwCwr94cXUU1opmRD0CTCWLcN46I8WLJIg==
 
 "@vscode/vsce-sign-alpine-arm64@2.0.6":
   version "2.0.6"
