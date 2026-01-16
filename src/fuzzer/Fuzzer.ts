@@ -449,7 +449,6 @@ export const fuzz = async (
 
     // Take measurements for this test run
     {
-      console.log("is this being called?");
       const startMeasureTime = performance.now(); // start timer
       const measurements = await Promise.all(
         measures.map(async (e) => {
