@@ -1088,7 +1088,7 @@ ${inArgConsts}
       // Fuzz the function & store the results
       try {
         // Run the fuzzer
-        this._results = fuzzer.fuzz(
+        this._results = await fuzzer.fuzz(
           this._fuzzEnv,
           Object.values(testsToInject)
         );
@@ -1200,7 +1200,7 @@ ${inArgConsts}
 
       try {
         // Run just the one test input w/all input generators
-        const thisResult = fuzzer.fuzz(envNoGenerators, [injectedTest]);
+        const thisResult = await fuzzer.fuzz(envNoGenerators, [injectedTest]);
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1271,9 +1271,6 @@ ${inArgConsts}
       const fsPath = normalizePathForKey(editor.document.uri.fsPath);
       const hits = files.find((f) => f.path === fsPath)?.lineHits;
 
-      console.log("hits", hits, "fsPath", fsPath, "files", files); // !!!!!!!
-
-      // TODO: replace true with isHeatMapEnabled flag, which we will negate on toggle !!!!!!!
       if (show && hits) {
         applyCoverageHeatmap(editor, hits);
       } else {

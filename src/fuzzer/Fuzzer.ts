@@ -68,10 +68,10 @@ export const setup = (
  *
  * Throws an exception if the fuzz options are invalid
  */
-export const fuzz = (
+export const fuzz = async (
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = []
-): FuzzTestResults => {
+): Promise<FuzzTestResults> => {
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
@@ -449,12 +449,15 @@ export const fuzz = (
 
     // Take measurements for this test run
     {
+      console.log("is this being called?");
       const startMeasureTime = performance.now(); // start timer
-      const measurements = measures.map((e) =>
-        e.measure(
-          JSON5.parse(JSON5.stringify(genInput)),
-          JSON5.parse(JSON5.stringify(result))
-        )
+      const measurements = await Promise.all(
+        measures.map(async (e) => {
+          return await e.measure(
+            JSON5.parse(JSON5.stringify(genInput)),
+            JSON5.parse(JSON5.stringify(result))
+          );
+        })
       );
 
       // Provide measures feedback to the composite input generator

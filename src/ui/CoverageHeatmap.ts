@@ -72,7 +72,6 @@ export function applyCoverageHeatmap(
 
     const ratio = hits / maxHits;
     const gradientLevel = _gradientLevelForRatio(ratio);
-    console.log(ratio, gradientLevel);
     rangesByGradientLevel[gradientLevel].push(range);
   }
 
