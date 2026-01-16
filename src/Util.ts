@@ -32,14 +32,16 @@ export function isError(
  * !!!!!!!! move this dependency on vscode into part of the UI codebase
  */
 export function normalizePathForKey(rawPath: string): string {
-  const fsPath = vscode.Uri.file(rawPath).fsPath;
-  const normalized = path.normalize(fsPath);
+  let p = rawPath.trim();
+  p = path.normalize(p);
 
   // On Windows, treat paths case-insensitively, but on POSIX, keep case,
   // since it usually matters.
-  if (process.platform === "win32") return normalized.toLowerCase();
+  if (process.platform === "win32") {
+    p = p.toLowerCase();
+  }
 
-  return normalized;
+  return p;
 } // fn: normalizePathForKey
 
 /*
