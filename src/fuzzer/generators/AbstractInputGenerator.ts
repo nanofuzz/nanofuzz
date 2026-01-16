@@ -1,7 +1,7 @@
 import seedrandom from "seedrandom";
 import { ArgType } from "../analysis/typescript/Types";
 import { ArgDef } from "../analysis/typescript/ArgDef";
-import { InputAndSource } from "./Types";
+import { InputAndSource } from "./../Types";
 
 /**
  * Abstract class of an input generator
@@ -16,7 +16,7 @@ export abstract class AbstractInputGenerator {
    * @param `specs` ArgDef specs that describe the inputs to generate
    * @param `rngSeed` seed for pseudo random nunber generator
    */
-  protected constructor(specs: ArgDef<ArgType>[], rngSeed: string) {
+  protected constructor(specs: ArgDef<ArgType>[], rngSeed: string | undefined) {
     this._specs = specs;
     this._prng = seedrandom(rngSeed);
   } // fn: constructor
@@ -42,9 +42,9 @@ export abstract class AbstractInputGenerator {
   } // fn: isAvailable
 
   /**
-   * Executes any cleanup tasks during fuzzer shutdown
+   * Executes any tasks when the test run ends
    */
-  public onShutdown(): void {
+  public onRunEnd(): void {
     return;
-  } // fn: onShutdown
+  } // fn: onRunEnd
 }

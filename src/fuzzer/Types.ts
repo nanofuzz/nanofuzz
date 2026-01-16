@@ -1,4 +1,8 @@
-import { ArgOptions, ArgValueType } from "./analysis/typescript/Types";
+import {
+  ArgOptions,
+  ArgValueType,
+  ArgValueTypeWrapped,
+} from "./analysis/typescript/Types";
 
 /**
  * Single Fuzzer Test Result
@@ -25,7 +29,6 @@ export type FuzzTestResult = {
   };
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: FuzzResultCategory; // the ResultCategory of the test result
-  source: SupportedInputGenerators | "injected"; // generator source of the input
   interestingReasons: string[]; // reasons (measures) this input may be "interesting"
 };
 
@@ -75,7 +78,40 @@ export type FuzzIoElement = {
   isException?: boolean; // true if element is an exception
   isTimeout?: boolean; // true if element is a timeout
   value: ArgValueType; // value of element
+  origin: FuzzValueOrigin; // origin of value
 };
+
+/**
+ * Concrete input values and their source
+ */
+export type InputAndSource = {
+  tick: number;
+  value: ArgValueTypeWrapped[];
+  source: FuzzValueOrigin & {
+    tick?: number;
+  };
+  injected?: true;
+};
+
+// !!!!!!
+export type FuzzValueOrigin =
+  | {
+      type: "user" | "put" | "unknown";
+    }
+  | {
+      type: "generator";
+      generator: "RandomInputGenerator";
+    }
+  | {
+      type: "generator";
+      generator: "MutationInputGenerator";
+      tick?: number;
+    }
+  | {
+      type: "generator";
+      generator: "AiInputGenerator";
+      model: string;
+    };
 
 /**
  * Category of a test result
@@ -159,6 +195,7 @@ export type FuzzArgOverride = {
  * Reason the fuzzer stopped
  */
 export enum FuzzStopReason {
+  CANCEL = "cancel",
   CRASH = "crash",
   MAXTESTS = "maxTests",
   MAXFAILURES = "maxFailures",
@@ -177,9 +214,19 @@ export type VmGlobals = Record<string, unknown>;
  */
 export type SupportedInputGenerators =
   | "RandomInputGenerator"
-  | "MutationInputGenerator";
+  | "MutationInputGenerator"
+  | "AiInputGenerator";
 
 /**
  * List of supported input generators
  */
 export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
+
+/**
+ * Message about how busy the fuzzer is
+ */
+export type FuzzBusyStatusMessage = {
+  msg: string;
+  milestone?: boolean;
+  pct?: number;
+};

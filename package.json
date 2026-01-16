@@ -114,6 +114,17 @@
           "default": "",
           "description": "Regex of files for NaNofuzz to ignore"
         },
+        "nanofuzz.ai.gemini.apitoken": {
+          "title": "Gemini API Token",
+          "type": "string",
+          "description": "API key for accessing Gemini LLM"
+        },
+        "nanofuzz.ai.gemini.model": {
+          "title": "Gemini Model Name",
+          "type": "string",
+          "default": "gemini-2.0-flash-exp",
+          "description": "Gemini model name to query"
+        },
         "nanofuzz.argdef.strCharset": {
           "title": "String character set",
           "type": "string",
@@ -213,6 +224,7 @@
   },
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
+    "@google/generative-ai": "^0.24.1",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/codicons": "^0.0.32",
     "@vscode/webview-ui-toolkit": "^1.2.2",
@@ -236,7 +248,7 @@
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
     "@types/seedrandom": "^2.4.28",
-    "@types/vscode": "^1.69.0",
+    "@types/vscode": "^1.75.0",
     "@typescript-eslint/eslint-plugin": "^4.5.0",
     "@typescript-eslint/eslint-plugin-tslint": "^4.5.0",
     "@typescript-eslint/parser": "^4.5.0",

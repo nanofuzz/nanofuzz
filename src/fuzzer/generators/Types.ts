@@ -1,18 +1,5 @@
 import { BaseMeasurement } from "../measures/AbstractMeasure";
-import { ArgValueTypeWrapped } from "../analysis/typescript/Types";
-import { SupportedInputGenerators } from "fuzzer/Types";
-
-/**
- * Concrete input values and their source
- */
-export type InputAndSource = {
-  tick: number;
-  value: ArgValueTypeWrapped[];
-  source: {
-    subgen: SupportedInputGenerators | "injected";
-    tick?: number;
-  };
-};
+import { InputAndSource } from "../Types";
 
 /**
  * A scored input with its measurements
