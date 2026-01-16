@@ -188,8 +188,6 @@ function compileTS(module: NodeJS.Module) {
     relativeFolder,
     path.basename(module.filename, ".ts") + ".js"
   );
-  console.log(` - Transpiling: ${module.filename}`);
-  console.log(`            to: ${jsname}`);
 
   // If the Javascript file is current, return it directly
   if (!isModified(module.filename, jsname)) {
