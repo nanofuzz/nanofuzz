@@ -68,10 +68,10 @@ export const setup = (
  *
  * Throws an exception if the fuzz options are invalid
  */
-export const fuzz = (
+export const fuzz = async (
   env: FuzzEnv,
   pinnedTests: FuzzPinnedTest[] = []
-): FuzzTestResults => {
+): Promise<FuzzTestResults> => {
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
     env,
@@ -450,11 +450,13 @@ export const fuzz = (
     // Take measurements for this test run
     {
       const startMeasureTime = performance.now(); // start timer
-      const measurements = measures.map((e) =>
-        e.measure(
-          JSON5.parse(JSON5.stringify(genInput)),
-          JSON5.parse(JSON5.stringify(result))
-        )
+      const measurements = await Promise.all(
+        measures.map(async (e) => {
+          return await e.measure(
+            JSON5.parse(JSON5.stringify(genInput)),
+            JSON5.parse(JSON5.stringify(result))
+          );
+        })
       );
 
       // Provide measures feedback to the composite input generator
@@ -474,9 +476,12 @@ export const fuzz = (
   results.interesting.inputs = compositeInputGenerator.getInterestingInputs();
 
   // End-of-run processing for measures and input generators
-  measures.forEach((e) => {
-    e.onShutdown(results);
-  });
+  await Promise.all(
+    measures.map(async (e) => {
+      // eslint-disable-next-line
+      await e.onShutdown(results);
+    })
+  );
   compositeInputGenerator.onShutdown(); // also handles shutdown for subgens
 
   console.log(
@@ -845,7 +850,9 @@ export function mergeTestResults(
     c.stats.measures.CodeCoverageMeasure.files.push(
       ...b.stats.measures.CodeCoverageMeasure.files.filter(
         (fb) =>
-          !a.stats.measures.CodeCoverageMeasure?.files.find((fa) => fa === fb)
+          !a.stats.measures.CodeCoverageMeasure?.files.find(
+            (fa) => fa.path === fb.path
+          )
       )
     );
   } else if (b.stats.measures.CodeCoverageMeasure) {

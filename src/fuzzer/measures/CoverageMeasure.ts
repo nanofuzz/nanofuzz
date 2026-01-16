@@ -1,13 +1,17 @@
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 import { createInstrumenter } from "istanbul-lib-instrument";
+import { createSourceMapStore, MapStore } from "istanbul-lib-source-maps";
 import {
   CoverageMap,
   CoverageMapData,
   createCoverageMap,
 } from "istanbul-lib-coverage";
 import { FuzzTestResult, VmGlobals } from "../Types";
-import { FuzzTestResults } from "fuzzer/Fuzzer";
-import { InputAndSource } from "fuzzer/generators/Types";
+import { FuzzTestResults } from "../Fuzzer";
+import { InputAndSource } from "../generators/Types";
+import { normalizePathForKey } from "../../Util";
+
+import * as fs from "fs";
 
 /**
  * Measures code coverage of test executions
@@ -16,6 +20,8 @@ export class CoverageMeasure extends AbstractMeasure {
   protected _coverageData?: CoverageMapData; // coverage data maintained by instrumented code
   protected _globalCoverageMap = createCoverageMap({}); // global code coverage map
   protected _history: CoverageMeasurementNode[] = []; // measurement history
+  protected _sourceMapStore: MapStore = createSourceMapStore();
+  protected _lineHitCounts: Map<string, Map<number, number>> = new Map(); // tracks per-line hit counts across test runs
 
   /**
    * Instruments the program under test to capture code coverage data.
@@ -26,10 +32,28 @@ export class CoverageMeasure extends AbstractMeasure {
    * @returns instrumented code
    */
   public onAfterCompile(jsSrc: string, jsFileName: string): string {
-    return createInstrumenter({
+    const mapPath = jsFileName + ".map";
+    let sourceMap: any | undefined;
+
+    if (fs.existsSync(mapPath)) {
+      sourceMap = JSON.parse(fs.readFileSync(mapPath, "utf8"));
+    }
+
+    const instrumenter = createInstrumenter({
       produceSourceMap: true,
       coverageGlobalScope: "global",
-    }).instrumentSync(jsSrc, jsFileName);
+    });
+
+    const instrumented = instrumenter.instrumentSync(
+      jsSrc,
+      jsFileName,
+      sourceMap
+    );
+
+    const combinedSourceMap = instrumenter.lastSourceMap();
+    this._sourceMapStore.registerMap(jsFileName, combinedSourceMap);
+
+    return instrumented;
   } // fn: onAfterCompile
 
   /**
@@ -63,18 +87,18 @@ export class CoverageMeasure extends AbstractMeasure {
    * @param `result` test result
    * @returns a code coverage measurement for the test execution
    */
-  public measure(
+  public async measure(
     input: InputAndSource,
     result: FuzzTestResult
-  ): CoverageMeasurement {
-    const measure = super.measure(input, result);
+  ): Promise<CoverageMeasurement> {
+    const measure = await super.measure(input, result);
 
     // Sanity check that we have coverage data to ingest
     if (this._coverageData === undefined) {
       throw new Error("No current coverage data found");
     }
 
-    // Shwllow clone the raw current coverage data
+    // Shallow clone the raw current coverage data
     const currentCoverageData = { ...this._coverageData };
 
     // Merge the current coverage into root predecessor
@@ -117,7 +141,17 @@ export class CoverageMeasure extends AbstractMeasure {
       meas,
     };
 
-    // Return the measurement
+    // We need to transform the global coverage map using the source maps
+    // to get correct line numbers (and not the compiled JS line numbers).
+    // TODO: async call here. im wondering if this will cause issues. if we
+    // notice issues, we can look into not having to do this call each time we measure.
+    const tsCoverageMap = await this._sourceMapStore.transformCoverage(
+      createCoverageMap(currentCoverageData)
+    );
+
+    // Track which lines were hit in this test run (binary: hit or not hit)
+    this._accumulateLineHitsForTestRun(tsCoverageMap);
+
     return meas;
   } // fn: measure
 
@@ -159,14 +193,90 @@ export class CoverageMeasure extends AbstractMeasure {
   } // fn: onBeforeNextTestExecution
 
   /**
+   * Accumulates line hit counts for a single test run into the
+   * _lineHitCounts map. This is a binary +1 or +0 (whether a line was hit during
+   *  the test run or not).
+   *
+   * @param `tsCoverageMap` js-to-ts transformed coverage map from a single test run
+   */
+  protected _accumulateLineHitsForTestRun(tsCoverageMap: CoverageMap): void {
+    for (const filePath of tsCoverageMap.files()) {
+      const fileKey = normalizePathForKey(filePath);
+
+      let lineHitCounts = this._lineHitCounts.get(fileKey);
+      if (!lineHitCounts) {
+        lineHitCounts = new Map<number, number>();
+        this._lineHitCounts.set(fileKey, lineHitCounts);
+      }
+
+      const fileCoverage = tsCoverageMap.fileCoverageFor(filePath);
+      const lineCoverage = fileCoverage.getLineCoverage();
+
+      for (const [lineStr, hits] of Object.entries(lineCoverage)) {
+        if (hits > 0) {
+          const lineNum = Number(lineStr);
+          lineHitCounts.set(lineNum, (lineHitCounts.get(lineNum) ?? 0) + 1);
+        }
+      }
+
+      // Functions are not accounted for in the above line coverage,
+      // so let us account for it here.
+      for (const funcId in fileCoverage.f) {
+        const funcMap = fileCoverage.fnMap[funcId];
+        if (fileCoverage.f[funcId] > 0) {
+          const lineNum = funcMap.loc.start.line;
+          lineHitCounts.set(lineNum, (lineHitCounts.get(lineNum) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  /**
    * Called prior to fuzzer shut down.
    *
    * Fills in global code coverage statistics.
    *
    * @param `results` all test results
    */
-  public onShutdown(results: FuzzTestResults): void {
-    const coverageSummary = this._globalCoverageMap.getCoverageSummary();
+  public async onShutdown(results: FuzzTestResults): Promise<void> {
+    // We need to transform the global coverage map using the source maps
+    // to get correct line numbers (and not the compiled JS line numbers).
+    const tsCoverageMap = await this._sourceMapStore.transformCoverage(
+      this._globalCoverageMap
+    );
+    const coverageSummary = tsCoverageMap.getCoverageSummary();
+
+    const files: CodeCoverageFileStats[] = tsCoverageMap
+      .files()
+      .map((filePath) => {
+        const filePathKey = normalizePathForKey(filePath);
+        const accumulatedLineHits = this._lineHitCounts.get(filePathKey);
+
+        const lineHits: LineHits = {};
+        if (accumulatedLineHits) {
+          for (const [lineNum, count] of accumulatedLineHits) {
+            lineHits[lineNum] = count;
+          }
+        }
+
+        // TODO: re-add if needed. these are just per-file coverage counters
+        // const fileSummary = fileCoverage.toSummary();
+        // const counters: CodeCoverageCounters = {
+        //   functionsTotal: fileSummary.functions.total,
+        //   functionsCovered: fileSummary.functions.covered,
+        //   statementsTotal: fileSummary.statements.total,
+        //   statementsCovered: fileSummary.statements.covered,
+        //   branchesTotal: fileSummary.branches.total,
+        //   branchesCovered: fileSummary.branches.covered,
+        // };
+
+        return {
+          path: normalizePathForKey(filePath),
+          // counters,
+          lineHits,
+        };
+      });
+
     results.stats.measures.CodeCoverageMeasure = {
       counters: {
         functionsTotal: coverageSummary.functions.total,
@@ -176,7 +286,7 @@ export class CoverageMeasure extends AbstractMeasure {
         branchesTotal: coverageSummary.branches.total,
         branchesCovered: coverageSummary.branches.covered,
       },
-      files: this._globalCoverageMap.files(),
+      files,
     };
   } // fn: onShutdown
 
@@ -269,17 +379,35 @@ type CoverageMeasurementNode = {
   meas: CoverageMeasurement;
 };
 
+type CodeCoverageCounters = {
+  functionsTotal: number;
+  functionsCovered: number;
+  statementsTotal: number;
+  statementsCovered: number;
+  branchesTotal: number;
+  branchesCovered: number;
+};
+
+export type LineHits = { [line: number]: number };
+
+/**
+ * Per-file Code Coverage Statistics. Includes line-level hit counts, which necessitates
+ * per-file stats since line numbers are file-specific.
+ */
+type CodeCoverageFileStats = {
+  path: string;
+  // counters: CodeCoverageCounters; // TODO: re-add if needed
+  lineHits: LineHits;
+  // lineHitsFromFailedTests: LineHits;
+};
+
 /**
  * Code Coverage Statistics
  */
 export type CodeCoverageMeasureStats = {
-  counters: {
-    functionsTotal: number;
-    functionsCovered: number;
-    statementsTotal: number;
-    statementsCovered: number;
-    branchesTotal: number;
-    branchesCovered: number;
-  };
-  files: string[];
+  // Global counters
+  counters: CodeCoverageCounters;
+
+  // Per-file breakdown, including line-level hit counts
+  files: CodeCoverageFileStats[];
 };

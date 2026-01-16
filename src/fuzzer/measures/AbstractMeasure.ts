@@ -70,7 +70,7 @@ export abstract class AbstractMeasure {
   public measure(
     input: InputAndSource,
     result: FuzzTestResult
-  ): BaseMeasurement {
+  ): BaseMeasurement | Promise<BaseMeasurement> {
     result;
     return {
       type: "measure",

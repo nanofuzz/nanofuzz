@@ -122,39 +122,58 @@ function main() {
   });
 
   // Add event listener for the fuzz.options button
-  getElementByIdOrThrow("fuzz.options").addEventListener(
+  getElementByIdOrThrow("fuzz.options.open").addEventListener(
+    "click",
+    toggleFuzzOptions
+  );
+  getElementByIdOrThrow("fuzz.options.close").addEventListener(
+    "click",
+    toggleFuzzOptions
+  );
+  getElementByIdOrThrow("fuzzOptions-close").addEventListener(
     "click",
     toggleFuzzOptions
   );
 
-  // Add event listener for the fuzz.addTestInputOptions button
-  getElementByIdOrThrow("fuzz.addTestInputOptions").addEventListener(
+  // Add event listeners for the fuzz.addTestInputOptions controls
+  getElementByIdOrThrow("fuzz.addTestInputOptions.open").addEventListener(
     "click",
     toggleAddTestInputOptions
   );
-
-  // Add event listener for the fuzz.addTestInputOptions close button
+  getElementByIdOrThrow("fuzz.addTestInputOptions.close").addEventListener(
+    "click",
+    toggleAddTestInputOptions
+  );
   getElementByIdOrThrow("fuzzAddTestInputOptions-close").addEventListener(
     "click",
     toggleAddTestInputOptions
   );
+  document
+    .getElementById("fuzz.addTestInput")
+    ?.addEventListener("click", handleAddTestInput);
+  for (let i = 0; document.getElementById(`addInputArg-${i}-value`); i++) {
+    getElementByIdOrThrow(`addInputArg-${i}-value`).addEventListener(
+      "change",
+      () => {
+        getInputValues();
+      }
+    );
+  }
 
-  // Add event listener for the fuzz.addTestInput button
-  getElementByIdOrThrow("fuzz.addTestInput").addEventListener(
+  // Add event listeners for the fuzz.coverage buttons
+  getElementByIdOrThrow("fuzz.coverage.show").addEventListener(
     "click",
-    handleAddTestInput
+    handleToggleCoverageHeatmap
+  );
+  getElementByIdOrThrow("fuzz.coverage.hide").addEventListener(
+    "click",
+    handleToggleCoverageHeatmap
   );
 
   // Add event listener for opening the function source code
   getElementByIdOrThrow("openSourceLink").addEventListener(
     "click",
     handleOpenSource
-  );
-
-  // Add event listener for the fuzz.options close button
-  getElementByIdOrThrow("fuzzOptions-close").addEventListener(
-    "click",
-    toggleFuzzOptions
   );
 
   // Add event listener to toggle fuzz.options.interesting.inputs.button
@@ -538,15 +557,9 @@ function main() {
  * Toggles whether more fuzzer options are shown.
  */
 function toggleFuzzOptions() {
-  const fuzzOptions = getElementByIdOrThrow("fuzzOptions");
-  const fuzzOptionsButton = getElementByIdOrThrow("fuzz.options");
-  if (isHidden(fuzzOptions)) {
-    toggleHidden(fuzzOptions);
-    fuzzOptionsButton.innerHTML = "Fewer options";
-  } else {
-    toggleHidden(fuzzOptions);
-    fuzzOptionsButton.innerHTML = "More options...";
-  }
+  toggleHidden(getElementByIdOrThrow("fuzzOptions"));
+  toggleHidden(getElementByIdOrThrow("fuzz.options.open"));
+  toggleHidden(getElementByIdOrThrow("fuzz.options.close"));
 
   // Refresh the list of validators
   handleGetListOfValidators();
@@ -556,20 +569,17 @@ function toggleFuzzOptions() {
  * Toggles whether add test case options are shown.
  */
 function toggleAddTestInputOptions() {
+  toggleHidden(getElementByIdOrThrow("fuzz.addTestInputOptions.open"));
+  toggleHidden(getElementByIdOrThrow("fuzz.addTestInputOptions.close"));
+
   const fuzzAddTestInputOptionsPane = getElementByIdOrThrow(
     "fuzzAddTestInputOptions-pane"
   );
-  const fuzzAddTestInputOptionsButton = getElementByIdOrThrow(
-    "fuzz.addTestInputOptions"
-  );
   if (isHidden(fuzzAddTestInputOptionsPane)) {
     toggleHidden(fuzzAddTestInputOptionsPane);
-    fuzzAddTestInputOptionsButton.innerHTML = "Cancel Add Input";
     getElementByIdOrThrow("addInputArg-0-value").focus();
   } else {
     toggleHidden(fuzzAddTestInputOptionsPane);
-    show(fuzzAddTestInputOptionsButton);
-    fuzzAddTestInputOptionsButton.innerHTML = "Add Input...";
   }
 } // fn: toggleAddTestInputOptions
 
@@ -609,6 +619,21 @@ function handleAddTestInput() {
     );
   }
 } // fn: handleAddTestInputCase
+
+/**
+ *
+ */
+function handleToggleCoverageHeatmap() {
+  toggleHidden(getElementByIdOrThrow("fuzz.coverage.show"));
+  toggleHidden(getElementByIdOrThrow("fuzz.coverage.hide"));
+
+  vscode.postMessage({
+    command: `fuzz.coverage.${
+      isHidden(getElementByIdOrThrow("fuzz.coverage.show")) ? "show" : "hide"
+    }`,
+    // json: JSON5.stringify(overrides),
+  });
+} // fn: handleToggleCoverageHeatmap
 
 /**
  * Gets a single input value.

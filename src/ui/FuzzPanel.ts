@@ -8,6 +8,10 @@ import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "fuzzer/analysis/typescript/ProgramDef";
 import { isError, getErrorMessageOrJson } from "../Util";
 
+import { applyCoverageHeatmap, clearCoverageHeatmap } from "./CoverageHeatmap";
+
+import { normalizePathForKey } from "src/Util";
+
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
 const maxResultArgSuffix = 1000;
@@ -43,6 +47,7 @@ export class FuzzPanel {
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
   private _focusInput?: [string, number]; // Newly-added input to receive UI focus
   private _lastTab: string | undefined; // Last tab that had focus
+  private _showingCoverage = false; // Currently showing code coverage?
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
@@ -297,12 +302,24 @@ export class FuzzPanel {
 
         switch (command) {
           case "fuzz.start":
+            this._refreshCoverageHeatmap(false);
             this._doGetValidators();
             this._doFuzzStartCmd(json);
             break;
           case "fuzz.addTestInput":
+            this._refreshCoverageHeatmap(false);
             this._doGetValidators();
             this._doAddTestInputCmd(json);
+            break;
+          case "fuzz.coverage.show":
+            this._refreshCoverageHeatmap(true);
+            this._navigateToSource(
+              this._fuzzEnv.function.getModule(),
+              this._fuzzEnv.function.getRef().startOffset
+            );
+            break;
+          case "fuzz.coverage.hide":
+            this._refreshCoverageHeatmap(false);
             break;
           case "test.pin":
             this._doTestPinnedCmd(json, true);
@@ -1071,7 +1088,7 @@ ${inArgConsts}
       // Fuzz the function & store the results
       try {
         // Run the fuzzer
-        this._results = fuzzer.fuzz(
+        this._results = await fuzzer.fuzz(
           this._fuzzEnv,
           Object.values(testsToInject)
         );
@@ -1183,7 +1200,7 @@ ${inArgConsts}
 
       try {
         // Run just the one test input w/all input generators
-        const thisResult = fuzzer.fuzz(envNoGenerators, [injectedTest]);
+        const thisResult = await fuzzer.fuzz(envNoGenerators, [injectedTest]);
 
         // Log the end of fuzzing
         vscode.commands.executeCommand(
@@ -1236,6 +1253,41 @@ ${inArgConsts}
       this._focusInput = undefined;
     }); // setTimeout
   } // fn: _addTestInputCmd
+
+  // !!!!!!
+  private _refreshCoverageHeatmap(show: boolean) {
+    if (this._showingCoverage === show) {
+      return;
+    }
+
+    const editors = vscode.window.visibleTextEditors;
+    const files = this._results?.stats.measures.CodeCoverageMeasure?.files;
+
+    this._showingCoverage = show;
+
+    if (!files) return; // !!!!!!! error feedback
+
+    for (const editor of editors) {
+      const fsPath = normalizePathForKey(editor.document.uri.fsPath);
+      const hits = files.find((f) => f.path === fsPath)?.lineHits;
+
+      if (show && hits) {
+        applyCoverageHeatmap(editor, hits);
+      } else {
+        clearCoverageHeatmap(editor);
+      }
+    }
+  } // !!!!!!
+
+  //   private _updateCoverageForRun(
+  //   newCoverage: { [fsPath: string]: LineHits }
+  // ) {
+  //   coverageByFile.clear();
+  //   for (const [fsPath, hits] of Object.entries(newCoverage)) {
+  //     coverageByFile.set(fsPath, hits);
+  //   }
+  //   refreshHeatmapDecorations();
+  // }
 
   /**
    * Updates the fuzzer configuration from the front-end UI message.
@@ -1301,6 +1353,11 @@ ${inArgConsts}
    * Disposes all objects used by this instance
    */
   public dispose(): void {
+    // Turn off code coverage decorations
+    if (this._showingCoverage) {
+      this._refreshCoverageHeatmap(false);
+    }
+
     // Remove this panel from the list of current panels.
     delete FuzzPanel.currentPanels[this.getFnRefKey()];
 
@@ -1542,28 +1599,49 @@ ${inArgConsts}
 
             <!-- Button Bar -->
             <div style="padding-top: .25em;">
-              <vscode-button ${disabledFlag} id="fuzz.start" appearance="primary">
-                ${this._state === FuzzPanelState.busy ? "Testing..." : (this._state === FuzzPanelState.done ? "Re-test" : "Test")}
+              <vscode-button ${disabledFlag} ${this._state===FuzzPanelState.busy ? `class="hidden"` : ""} id="fuzz.start" class="tooltipped tooltipped-ne" appearance="primary icon" aria-label="${this._results ? "Generate more tests": "Generate tests"}">
+                <span class="codicon codicon-${this._results ? "debug-continue" : "play"}"></span>
               </vscode-button>
-              <vscode-button  ${disabledFlag} class="hidden" id="fuzz.changeMode" appearance="secondary" aria-label="Change Mode">
-                Change Mode
+              <vscode-button ${this._state!==FuzzPanelState.busy ? `class="hidden"` : ""} id="fuzz.stop" appearance="primary icon" aria-label="Pause testing">
+                <span class="codicon codicon-debug-pause"></span>
               </vscode-button>
-              <vscode-button ${disabledFlag} ${ 
+              <span ${ 
+                (this._results !== undefined)
+                    ? ``
+                    : `class="hidden" ` 
+                }>
+                <vscode-button ${disabledFlag} id="fuzz.rerun" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Re-test these results">
+                  <span class="codicon codicon-debug-rerun"></span>
+                </vscode-button>
+                <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.open" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Add a test input">
+                  <span class="codicon codicon-add"></span>
+                </vscode-button>
+                <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Add a test input (close)">
+                  <span class="codicon codicon-add"></span>
+                </vscode-button>
+                &nbsp;
+                <vscode-button ${disabledFlag} id="fuzz.clear" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Clear tests">
+                  <span class="codicon codicon-clear-all"></span>
+                </vscode-button>
+                <vscode-button ${disabledFlag} id="fuzz.coverage.show" appearance="secondary icon" class="tooltipped tooltipped-n" aria-label="Show coverage heatmap">
+                  <span class="codicon codicon-coverage"></span>
+                </vscode-button>  
+                <vscode-button ${disabledFlag} id="fuzz.coverage.hide" appearance="secondary icon depressed" class="hidden tooltipped tooltipped-n" aria-label="Hide coverage heatmap">
+                  <span class="codicon codicon-coverage"></span>
+                </vscode-button>  
+              </span>
+              &nbsp;
+              <vscode-button ${disabledFlag} class="${ 
                 vscode.workspace
                   .getConfiguration("nanofuzz.ui")
                   .get("hideMoreOptionsButton")
-                    ? `class="hidden" ` 
+                    ? `hidden `
                     : ``
-                } id="fuzz.options" appearance="secondary" aria-label="Fuzzer Options">
-                More options...
+                }tooltipped tooltipped-n" id="fuzz.options.open" appearance="secondary icon" aria-label="More options">
+                <span class="codicon codicon-settings-gear"></span>
               </vscode-button>
-              &nbsp;&nbsp;
-              <vscode-button ${disabledFlag} ${ 
-                (this._state === FuzzPanelState.done && this._results !== undefined)
-                    ? ``
-                    : `class="hidden" ` 
-                } id="fuzz.addTestInputOptions" appearance="secondary" aria-label="Add a test input">
-                Add Input...
+              <vscode-button ${disabledFlag} id="fuzz.options.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Close more options">
+                <span class="codicon codicon-settings-gear"></span>
               </vscode-button>
             </div>
 
