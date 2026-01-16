@@ -476,9 +476,12 @@ export const fuzz = async (
   results.interesting.inputs = compositeInputGenerator.getInterestingInputs();
 
   // End-of-run processing for measures and input generators
-  measures.forEach((e) => {
-    e.onShutdown(results);
-  });
+  await Promise.all(
+    measures.map(async (e) => {
+      // eslint-disable-next-line
+      await e.onShutdown(results);
+    })
+  );
   compositeInputGenerator.onShutdown(); // also handles shutdown for subgens
 
   console.log(
