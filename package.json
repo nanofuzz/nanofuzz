@@ -216,7 +216,7 @@
     "@types/vscode-webview": "^1.57.5",
     "@vscode/codicons": "^0.0.32",
     "@vscode/webview-ui-toolkit": "^1.2.2",
-    "eslint": "^7.3.2",
+    "eslint": "^9.26.0",
     "immutable": "^4.1.0",
     "istanbul-lib-coverage": "^3.2.2",
     "istanbul-lib-hook": "^3.0.0",
