@@ -183,6 +183,15 @@ export class FunctionDef {
   } // fn: isValidator()
 
   /**
+   * Returns true if the function is an input transformer; false, otherwise.
+   *
+   * @returns true if the function is an input transformer; false, otherwise.
+   */
+  public isInputTransformer(): boolean {
+    return this.isExported() && this._ref.name.endsWith("InputTransformer");
+  } // fn: isInputTransformer()
+
+  /**
    * Applies option overrides to the function definition --
    * including to its arguments -- that influence how the function
    * analysis is interpreted.

@@ -57,6 +57,7 @@ export const setup = (
     function: fnList[fnName],
     //validator: ... FuzzPanel loads this and adds it to FuzzEnv later
     validators: getValidators(program, fnList[fnName]),
+    transformers: getTransformers(program, fnList[fnName])
   };
 }; // fn: setup()
 
@@ -251,6 +252,7 @@ export const fuzz = (
     // 1. injected tests do not count against the maxTests limit
     // 2. injected tests may or may not have an expected result
     // 3. pinned tests stay pinned
+    // 4. input transformers only apply to generated tests
     if (genInput.source.subgen === CompositeInputGenerator.INJECTED) {
       // Ensure the injected inputs are in the expected order
       const expectedInput = JSON5.stringify(pinnedTests[injectedCount].input);
@@ -269,6 +271,47 @@ export const fuzz = (
       }
       injectedCount++; // increment the number of pinned tests injected
     } else {
+      // Apply input transformers to generated inputs (before dedup)
+      let skipThisInput = false;
+      if (env.transformers.length > 0) {
+        try {
+          let transformedInputValues = result.input.map((i) => i.value);
+
+          for (const transformerRef of env.transformers) {
+            const transformerFn = mod[transformerRef.name];
+            if (transformerFn) {
+              const transformResult = transformerFn(...transformedInputValues);
+
+              // If transformer returns null, then input was rejected so skip this input
+              if (transformResult === null) {
+                compositeInputGenerator.onInputFeedback([], result.timers.gen);
+                skipThisInput = true;
+                break; // Exit transformer loop
+              }
+
+              // Update with transformed values
+              transformedInputValues = transformResult;
+            }
+          }
+
+          // If any transformer rejected this input, skip to next input
+          if (skipThisInput) continue;
+
+          // Update result.input with transformed values
+          result.input = transformedInputValues.map((value, i) => {
+            return {
+              name: argDefs[i].getName(),
+              offset: i,
+              value: value,
+            };
+          });
+        } catch (e: unknown) {
+          // If transformer throws, treat as rejected input
+          compositeInputGenerator.onInputFeedback([], result.timers.gen);
+          continue;
+        }
+      }
+
       // Increment the number of inputs generated
       inputsGenerated++;
       genStats.counters.inputsGenerated++;
@@ -678,6 +721,25 @@ export function getValidators(
 } // fn: getValidators()
 
 /**
+ * Returns a list of input transformer functions for the function under test.
+ *
+ * @param program the program to search
+ * @param fnUnderTest the function under test
+ * @returns an array of transformer FunctionRefs
+ */
+export function getTransformers(
+  program: ProgramDef,
+  fnUnderTest: FunctionDef,
+): FunctionRef[] {
+  return Object.values(program.getExportedFunctions())
+    .filter(
+      (fn) =>
+        fn.isInputTransformer() && fn.getName().startsWith(fnUnderTest.getName()),
+    )
+    .map((fn) => fn.getRef());
+} // fn: getTransformers()
+
+/**
  * Compares the actual output to the expected output.
  *
  * @param fuzz testing result
@@ -863,6 +925,7 @@ export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
   validators: FunctionRef[]; // list of the module's validator functions
+  transformers: FunctionRef[]; // list of the module's input transformer functions
 };
 
 /**

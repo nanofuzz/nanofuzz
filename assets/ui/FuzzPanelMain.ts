@@ -202,6 +202,12 @@ function main() {
     handleGetListOfValidators
   );
 
+  // Add event listener for the transformer button
+  getElementByIdOrThrow("inputTransformer.add").addEventListener(
+    "click",
+    handleAddInputTransformer
+  );
+
   // Add event listeners for the add input fields
   for (let i = 0; document.getElementById(`addInputArg-${i}-value`); i++) {
     getElementByIdOrThrow(`addInputArg-${i}-value`).addEventListener(
@@ -1972,6 +1978,16 @@ function handleAddValidator() {
     json: JSON5.stringify(""),
   });
 } // fn: handleAddValidator()
+
+/**
+ * Send message to back-end to add input transformer code skeleton
+ */
+function handleAddInputTransformer() {
+  vscode.postMessage({
+    command: "inputTransformer.add",
+    json: JSON5.stringify(""),
+  });
+} // fn: handleAddInputTransformer()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the

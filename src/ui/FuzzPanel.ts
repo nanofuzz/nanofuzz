@@ -297,11 +297,11 @@ export class FuzzPanel {
 
         switch (command) {
           case "fuzz.start":
-            this._doGetValidators();
+            this._doGetValidatorsAndTransformers();
             this._doFuzzStartCmd(json);
             break;
           case "fuzz.addTestInput":
-            this._doGetValidators();
+            this._doGetValidatorsAndTransformers();
             this._doAddTestInputCmd(json);
             break;
           case "test.pin":
@@ -315,15 +315,18 @@ export class FuzzPanel {
             break;
           case "validator.add":
             this._doAddValidatorCmd();
-            this._doGetValidators();
+            this._doGetValidatorsAndTransformers();
+            break;
+          case "inputTransformer.add":
+            this._doAddInputTransformerCmd();
             break;
           case "validator.getList":
-            this._doGetValidators();
+            this._doGetValidatorsAndTransformers();
             break;
           case "open.source": {
             this._navigateToSource(
               this._fuzzEnv.function.getModule(),
-              this._fuzzEnv.function.getRef().startOffset
+              this._fuzzEnv.function.getRef().startOffset,
             );
             break;
           }
@@ -888,6 +891,96 @@ ${inArgConsts}
   }
 
   /**
+   * Add an input transformer code skeleton to the source code
+   */
+  private async _doAddInputTransformerCmd() {
+    const fn = this._fuzzEnv.function; // Function under test
+    const module = this._fuzzEnv.function.getModule();
+    const transformerPrefix = fn.getName() + "InputTransformer";
+    let fnCounter = 0;
+    let program: ProgramDef;
+
+    try {
+      program = ProgramDef.fromModule(module);
+    } catch (e: unknown) {
+      this._setErrorFromException(e);
+      vscode.window.showErrorMessage(
+        `Unable to add the input transformer. TypeScript source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`,
+      );
+      return;
+    }
+
+    // TODO: could refactor into utility function since also used in _doAddValidatorCmd()
+    // Determine the next available transformer name
+    Object.keys(program.getFunctions())
+      .filter((e) => e.startsWith(transformerPrefix))
+      .forEach((e) => {
+        if (e.endsWith(transformerPrefix)) {
+          fnCounter++;
+        } else {
+          const suffix = e.substring(transformerPrefix.length);
+          if (suffix.match(/^[0-9]+$/)) {
+            fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
+          }
+        }
+      });
+
+    const inArgs = fn.getArgDefs();
+
+    const inputsTypeName = `${fn.getName()}Inputs`;
+    const transformerName = `${transformerPrefix}${
+      fnCounter === 0 ? "" : fnCounter
+    }`;
+
+    // Build the destructuring assignment for the args tuple
+    const argDestructuring = inArgs
+      .map((argDef) => argDef.getName())
+      .join(", ");
+
+    // prettier-ignore
+    const skeleton = `
+type ${inputsTypeName} = Parameters<typeof ${fn.getName()}>;
+
+export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName} | null {
+  const [${argDestructuring}] = args;
+  // Return null to reject this input
+  // Return the transformed inputs otherwise
+  return [${argDestructuring}];
+}`;
+
+    // Save the editor
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (editor.document.fileName === module && editor.document.isDirty) {
+        await editor.document.save();
+      }
+    }
+
+    // Append the code skeleton to the source file
+    try {
+      const fd = fs.openSync(module, "as+");
+      fs.writeFileSync(fd, skeleton);
+      fs.closeSync(fd);
+
+      // Change focus to the generated transformer
+      try {
+        const fn =
+          ProgramDef.fromModule(module).getFunctions()[transformerName];
+        this._navigateToSource(fn.getModule(), fn.getStartOffset());
+      } catch (e: unknown) {
+        this._setErrorFromException(e);
+        vscode.window.showErrorMessage(
+          `Unable to navigate to the created transformer '${transformerName}' in '${fn.getModule()}'`,
+        );
+        return;
+      }
+    } catch {
+      vscode.window.showErrorMessage(
+        `Unable to write input transformer code skeleton to source file`,
+      );
+    }
+  }
+
+  /**
    * Choose a name for an identifier that doesn't conflict with the input arguments
    *
    * @param inArgs The input arguments
@@ -988,7 +1081,7 @@ ${inArgConsts}
    * of validators from the program source code and sends it back to the
    * front-end.
    */
-  private _doGetValidators() {
+  private _doGetValidatorsAndTransformers() {
     let program: ProgramDef;
     try {
       program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
@@ -1010,6 +1103,14 @@ ${inArgConsts}
     const newValidators = fuzzer.getValidators(program, fn);
     const newValidatorNames = JSON5.stringify(newValidators.map((e) => e.name));
 
+    const oldTransformerNames = JSON5.stringify(
+      this._fuzzEnv.transformers.map((e) => e.name),
+    );
+    const newTransformers = fuzzer.getTransformers(program, fn);
+    const newTransformerNames = JSON5.stringify(
+      newTransformers.map((e) => e.name),
+    );
+
     // Only send the message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
       // Update the Fuzzer Environment
@@ -1023,7 +1124,12 @@ ${inArgConsts}
         }),
       });
     }
-  } // fn: _doGetValidators()
+
+    // Update transformers if there has been a change
+    if (oldTransformerNames !== newTransformerNames) {
+      this._fuzzEnv.transformers = fuzzer.getTransformers(program, fn);
+    }
+  } // fn: _doGetValidatorsAndTransformers()
 
   /**
    * Message handler for the `fuzz.start` command.
@@ -1441,6 +1547,11 @@ ${inArgConsts}
                       <span class="codicon codicon-add" style="padding-left:.2em; padding-right:-.1em;"></span>
                     </span>
                   </span>
+                  <span id="inputTransformer.add" class="tooltipped tooltipped-nw" aria-label="Add input transformer">
+                    <span class="classAddRefreshValidator">
+                      <span class="codicon codicon-add" style="padding-left:.2em; padding-right:-.1em;"></span>
+                    </span>
+                  </span>
                   <span id="validator.getList" class="tooltipped tooltipped-nw" aria-label="Refresh list">
                     <span class="classAddRefreshValidator">
                       <span class="codicon codicon-refresh" style="padding-left:.1em;"></span>
@@ -1694,8 +1805,8 @@ ${inArgConsts}
             this._fuzzEnv.options.useProperty // if using property validator
               ? `The property or human validator categorized these outputs as failed.`
               : this._fuzzEnv.options.useImplicit // if using heuristic validator
-              ? `The heuristic or human validator categorized these outputs as failed.`
-              : `The human validator categorized these outputs as failed.`
+                ? `The heuristic or human validator categorized these outputs as failed.`
+                : `The human validator categorized these outputs as failed.`
           }`,
           // description: `A validator categorized these outputs as failed. The heuristic validator by default fails outputs that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
           hasGrid: true,
@@ -1832,8 +1943,8 @@ ${inArgConsts}
         if (validatorsUsed.length) {
           validatorsUsedText = `
             ${toolName} categorized outputs using the ${toPrettyList(
-            validatorsUsed
-          )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
+              validatorsUsed
+            )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
           if (validatorsNotUsed.length) {
             validatorsUsedText += `The ${toPrettyList(
               validatorsNotUsed
@@ -1854,33 +1965,33 @@ ${inArgConsts}
           <div class="fuzzResultHeading">What did ${toolName} do?</div>
           <p>
             ${toolName} ran for ${Math.round(
-            this._results.stats.timers.run
-          )} ms, tested ${
-            this._results.stats.counters.inputsInjected
-          } interesting input${
-            this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
-          }, generated ${
-            this._results.stats.counters.inputsGenerated
-          } new input${
-            this._results.stats.counters.inputsGenerated !== 1 ? "s" : ""
-          } (${this._results.stats.counters.dupesGenerated} of which ${
-            this._results.stats.counters.dupesGenerated !== 1
-              ? "were duplicates"
-              : "was a duplicate"
-          } ${toolName} previously tested), and reported ${
-            this._results.results.length
-          } test result${
-            this._results.results.length !== 1 ? "s" : ""
-          } before stopping.
+              this._results.stats.timers.run
+            )} ms, tested ${
+              this._results.stats.counters.inputsInjected
+            } interesting input${
+              this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
+            }, generated ${
+              this._results.stats.counters.inputsGenerated
+            } new input${
+              this._results.stats.counters.inputsGenerated !== 1 ? "s" : ""
+            } (${this._results.stats.counters.dupesGenerated} of which ${
+              this._results.stats.counters.dupesGenerated !== 1
+                ? "were duplicates"
+                : "was a duplicate"
+            } ${toolName} previously tested), and reported ${
+              this._results.results.length
+            } test result${
+              this._results.results.length !== 1 ? "s" : ""
+            } before stopping.
           </p>
 
           <div class="fuzzResultHeading">Why did testing stop?</div>
           <p>
             ${toolName} most recently stopped testing ${
-            this._results.stopReason in textReason
-              ? textReason[this._results.stopReason]
-              : textReason[""]
-          }
+              this._results.stopReason in textReason
+                ? textReason[this._results.stopReason]
+                : textReason[""]
+            }
           </p>
 
           <div class="fuzzResultHeading">How were inputs generated?</div>
@@ -1894,8 +2005,8 @@ ${inArgConsts}
             The selected measures classified ${
               this._results.interesting.inputs.length
             } input${
-            this._results.interesting.inputs.length > 1 ? "s" : ""
-          } as "interesting," and these inputs will be reused in the next test run. (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span> interesting inputs</a>)
+              this._results.interesting.inputs.length > 1 ? "s" : ""
+            } as "interesting," and these inputs will be reused in the next test run. (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span> interesting inputs</a>)
             <table class="fuzzGrid hidden" id="fuzz.options.interesting.inputs">
               <thead>
                 <th><big>#</big></th>
@@ -1952,12 +2063,12 @@ ${inArgConsts}
           <div class="fuzzResultHeading">What was returned?</div>
           <p>
             ${toolName} returned ${this._results.results.length} test result${
-            this._results.results.length === 1 ? "" : "s"
-          }. ${
-            this._results.results.length
-              ? "You can view these returned results in the other tabs."
-              : ""
-          }
+              this._results.results.length === 1 ? "" : "s"
+            }. ${
+              this._results.results.length
+                ? "You can view these returned results in the other tabs."
+                : ""
+            }
           </p>
           
           <p ${
@@ -2192,8 +2303,8 @@ ${inArgConsts}
       <div class="argDef-isArray argDef-isArray-${htmlEscape(
         isArgArray ? "true" : "false"
       )}" id="${idBase}-${
-      isArgArray ? "true" : "false"
-    }" style="padding-left: 1em;"></div>`;
+        isArgArray ? "true" : "false"
+      }" style="padding-left: 1em;"></div>`;
 
     html += /*html*/ `
       <!-- Argument Type -->
@@ -2219,11 +2330,11 @@ ${inArgConsts}
           /*html*/
           `<vscode-radio-group style="display: inline-block;">
             <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
-            arg.getOptions().numInteger ? " checked " : ""
-          }>Integer</vscode-radio>
+              arg.getOptions().numInteger ? " checked " : ""
+            }>Integer</vscode-radio>
             <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
-            !arg.getOptions().numInteger ? " checked " : ""
-          }>Float</vscode-radio>
+              !arg.getOptions().numInteger ? " checked " : ""
+            }>Float</vscode-radio>
           </vscode-radio-group>`;
         break;
       }
@@ -2256,14 +2367,14 @@ ${inArgConsts}
           `<vscode-radio-group>
             <!--<label slot="label">Values</label>-->
             <vscode-radio ${disabledFlag} id="${idBase}-trueFalse" name="${idBase}-trueFalse" ${
-            intervals[0].min !== intervals[0].max ? " checked " : ""
-          }>True and false</vscode-radio>
+              intervals[0].min !== intervals[0].max ? " checked " : ""
+            }>True and false</vscode-radio>
             <vscode-radio ${disabledFlag} id="${idBase}-trueOnly" name="${idBase}-trueOnly" ${
-            intervals[0].min && intervals[0].max ? " checked " : ""
-          }>True</vscode-radio>
+              intervals[0].min && intervals[0].max ? " checked " : ""
+            }>True</vscode-radio>
             <vscode-radio ${disabledFlag} id="${idBase}-falseOnly" name="${idBase}-falseOnly" ${
-            !intervals[0].min && !intervals[0].max ? " checked " : ""
-          }>False</vscode-radio>
+              !intervals[0].min && !intervals[0].max ? " checked " : ""
+            }>False</vscode-radio>
           </vscode-radio-group>`;
         break;
       }
@@ -2363,12 +2474,12 @@ ${inArgConsts}
         /*html*/
         `<div class="argDef-array">
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
-          minValue.toString()
-        )}">Array${"[]".repeat(dim + 1)}: Min 
+            minValue.toString()
+          )}">Array${"[]".repeat(dim + 1)}: Min 
           </vscode-text-field>
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${htmlEscape(
-          maxValue.toString()
-        )}">Max length
+            maxValue.toString()
+          )}">Max length
           </vscode-text-field>
         </div>`;
     }
