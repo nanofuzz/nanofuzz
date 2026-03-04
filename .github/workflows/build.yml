@@ -4,13 +4,22 @@ on:
   push:
     branches:
       - main
+      - v0.3-maint
 jobs:
   buildandtest:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.runner }}
     steps:
       # Visual Studio Code Extension
       - name: Checkout
         uses: actions/checkout@v2
+      - name: Install node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 16
+          cache: yarn
       - name: Install packages
         run: yarn
       - name: Run all builds

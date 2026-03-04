@@ -98,6 +98,7 @@ export const fuzz = async (
   // be a TypeScript source file, so we first must compile
   // it to JavaScript prior to execution.  This activates the
   // TypeScript compiler that hooks into the require() function.
+  compiler.inferOptionsFromModule(fqSrcFile);
   compiler.activate();
 
   // The fuzz target is likely under development, so
