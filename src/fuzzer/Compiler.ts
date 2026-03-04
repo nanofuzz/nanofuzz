@@ -14,8 +14,9 @@ import { AbstractMeasure } from "./measures/AbstractMeasure";
 import { VmGlobals } from "./Types";
 
 // Load the TypeScript compiler script
+// TODO: we should try to use the project's compiler, if it exists
 const tsc = path.join(path.dirname(require.resolve("typescript")), "_tsc.js");
-const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8"));
+const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8")); // TODO: encoding
 
 // Place to store previous ts hooks
 const previousRequireExtensions: NodeJS.Dict<
@@ -29,15 +30,16 @@ let transpiledModules: string[] = [];
 /**
  * Default compilation options
  */
-let options: CompilerOptions = {
+const defaultOptions: CompilerOptions = {
   nodeLib: false,
   target: "ES2020", // default to ES2020
   moduleKind: "commonjs",
   emitOnError: false,
   tmpDir: path.join(os.tmpdir(), "tsreq"),
   lib: ["DOM", "ScriptHost", "ES2020"], // default to ES2020
-  types: [],
-  typeRoots: ["./node_modules/@types"],
+  types: [""],
+  typeRoots: [],
+  baseUrl: "./",
   skipLibCheck: true,
   moduleResolution: "node",
   allowSyntheticDefaultImports: true,
@@ -46,6 +48,8 @@ let options: CompilerOptions = {
   resolveJsonModule: true,
   traceResolution: false,
 };
+let options: CompilerOptions;
+setOptions(defaultOptions);
 
 /**
  * Compiler Options
@@ -53,6 +57,7 @@ let options: CompilerOptions = {
 export type CompilerOptions = {
   nodeLib: boolean;
   target: string;
+  baseUrl: string;
   moduleKind: string;
   emitOnError: boolean;
   tmpDir: string;
@@ -74,7 +79,7 @@ export type CompilerOptions = {
  * @param opts CompilerOptions to set
  */
 export function setOptions(opts: CompilerOptions): void {
-  options = { ...opts };
+  options = JSON.parse(JSON.stringify(opts));
 }
 
 /**
@@ -83,7 +88,86 @@ export function setOptions(opts: CompilerOptions): void {
  * @returns current set of compiler options
  */
 export function getOptions(): CompilerOptions {
-  return { ...options };
+  return JSON.parse(JSON.stringify(options));
+}
+
+/**
+ * Resets the compiler options to the default
+ */
+export function resetOptions(): void {
+  setOptions(defaultOptions);
+}
+
+/**
+ * Infers compiler settings for a module
+ *
+ * @param module fully-qualified module path from which to infer compiler settings
+ */
+export function inferOptionsFromModule(moduleFilename: string): void {
+  resetOptions();
+  try {
+    const tsConfigFilename = findInAncestor(moduleFilename, "tsconfig.json");
+    const tsConfig = JSON.parse(fs.readFileSync(tsConfigFilename, "utf8")); // TODO: encoding
+    const projectDir = path.dirname(tsConfigFilename);
+
+    if ("compilerOptions" in tsConfig) {
+      // typeRoots
+      if ("typeRoots" in tsConfig.compilerOptions) {
+        options.typeRoots = tsConfig.compilerOptions.typeRoots.map(
+          (e: string) =>
+            // Replace relative paths because our cwd is not the project
+            path.isAbsolute(e) ? e : path.resolve(path.join(projectDir, e)),
+        );
+      } else {
+        options.typeRoots = [
+          path.resolve(path.join(projectDir, "node_modules", "@types")),
+        ];
+      }
+
+      // types -- ignore types that do not exist in any root
+      if ("types" in tsConfig.compilerOptions) {
+        options.types = tsConfig.compilerOptions.types.filter((t: string) =>
+          options.typeRoots.some((tr) =>
+            fs.existsSync(path.resolve(path.join(tr, t))),
+          ),
+        );
+      }
+      if (options.types.length === 0) {
+        options.types = [""];
+      }
+
+      // libs
+      if ("lib" in tsConfig.compilerOptions) {
+        options.lib = tsConfig.compilerOptions.lib;
+      }
+
+      // target
+      if ("target" in tsConfig.compilerOptions) {
+        options.target = String(tsConfig.compilerOptions.target);
+      }
+
+      // moduleResolution
+      if ("moduleResolution" in tsConfig.compilerOptions) {
+        options.moduleResolution = String(
+          tsConfig.compilerOptions.moduleResolution,
+        );
+      }
+
+      // baseUrl
+      if ("baseUrl" in tsConfig.compilerOptions) {
+        options.baseUrl = path.resolve(
+          path.join(projectDir, String(tsConfig.compilerOptions.baseUrl)),
+        );
+      } else {
+        options.baseUrl = projectDir;
+      }
+
+      // TODO: there is more that we could infer here
+    }
+  } catch {
+    // no tsconfig found; use defaults
+    console.debug(`no tsconfig.json found for module: ${moduleFilename}`);
+  }
 }
 
 /**
@@ -186,7 +270,7 @@ function compileTS(module: NodeJS.Module) {
   const jsname = path.join(
     options.tmpDir,
     relativeFolder,
-    path.basename(module.filename, ".ts") + ".js"
+    path.basename(module.filename, ".ts") + ".js",
   );
   console.log(` - Transpiling: ${module.filename}`);
   console.log(`            to: ${jsname}`);
@@ -199,7 +283,7 @@ function compileTS(module: NodeJS.Module) {
   // Construct tsc args
   const argv = [
     "node",
-    "tsc.js",
+    tsc,
 
     options.emitOnError ? "" : "--noEmitOnError",
 
@@ -214,6 +298,9 @@ function compileTS(module: NodeJS.Module) {
 
     "--outDir",
     path.join(options.tmpDir, relativeFolder),
+
+    "--baseUrl",
+    options.baseUrl,
 
     "--lib",
     Array.isArray(options.lib) ? options.lib.join(",") : options.lib,
@@ -277,7 +364,7 @@ function compileTS(module: NodeJS.Module) {
   tscScript.runInNewContext(sandbox);
   if (exitCode !== 0) {
     throw new Error(
-      `Unable to compile TypeScript file. Please check it for errors.<br /><br />File: ${module.filename}`
+      `Unable to compile TypeScript file. Please check it for errors.<br /><br />File: ${module.filename}`,
     );
   }
 
@@ -295,7 +382,7 @@ function runJS(
   jsname: string,
   module: NodeJS.Module,
   src: string,
-  globals: VmGlobals
+  globals: VmGlobals,
 ) {
   const context: { [k: string]: unknown } = {
     require: module.require.bind(module),
@@ -327,4 +414,25 @@ function compact<T>(arr: T[]) {
     if (data) narr.push(data);
   });
   return narr;
+}
+
+/**
+ * Returns `dir`'s nearest item by traversing ancestor paths. Throws exception if none found.
+ *
+ * Adapted from: https://github.com/joshrtay/find-mod/blob/master/lib/index.js
+ *
+ * @param dir path
+ * @param item what to find
+ * @returns path to closest item (or exception if not found)
+ */
+function findInAncestor(dir: string, item: string) {
+  const firstDir = dir;
+  while (!fs.existsSync(path.join(dir, item))) {
+    dir = path.resolve(path.join(dir, "..")); // ascend to parent
+    if (dir === path.dirname(dir)) {
+      // reached root
+      throw new Error(`"${item}" not found below: ${firstDir}`);
+    }
+  }
+  return path.resolve(path.join(dir, item));
 }
