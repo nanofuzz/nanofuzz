@@ -273,8 +273,20 @@ export class FuzzPanel {
    */
   private _setErrorFromException(error: unknown): [string, string] {
     if (isError(error)) {
-      this._errorMessage = error.message;
-      this._errorStack = error.stack;
+      this._errorMessage = htmlEscape(error.message);
+      this._errorStack = htmlEscape(error.stack);
+
+      // Compiler-specific detailed messages
+      if (error instanceof fuzzer.TscCompilerError) {
+        this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Source file</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.inputFile)}</pre></small>`;
+        if (error.details.output && error.details.output.length) {
+          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Compiler output</strong></p><small><pre style="margin-top:0;">${error.details.output.map((e) => htmlEscape(e)).join("")}</pre></small>`;
+        }
+        if (error.details.tscConfigFilename) {
+          this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>tscconfig.json</strong></p><small><pre style="margin-top:0;">${error.details.tscConfigFilename}</pre></small>`;
+        }
+        this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Command line</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.tscCli)}</pre></small>`;
+      }
     } else {
       this._errorMessage = "Unknown error";
       this._errorStack = "<no stack>";
@@ -1694,8 +1706,8 @@ ${inArgConsts}
             this._fuzzEnv.options.useProperty // if using property validator
               ? `The property or human validator categorized these outputs as failed.`
               : this._fuzzEnv.options.useImplicit // if using heuristic validator
-              ? `The heuristic or human validator categorized these outputs as failed.`
-              : `The human validator categorized these outputs as failed.`
+                ? `The heuristic or human validator categorized these outputs as failed.`
+                : `The human validator categorized these outputs as failed.`
           }`,
           // description: `A validator categorized these outputs as failed. The heuristic validator by default fails outputs that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
           hasGrid: true,
@@ -1832,8 +1844,8 @@ ${inArgConsts}
         if (validatorsUsed.length) {
           validatorsUsedText = `
             ${toolName} categorized outputs using the ${toPrettyList(
-            validatorsUsed
-          )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
+              validatorsUsed
+            )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
           if (validatorsNotUsed.length) {
             validatorsUsedText += `The ${toPrettyList(
               validatorsNotUsed
@@ -1854,33 +1866,33 @@ ${inArgConsts}
           <div class="fuzzResultHeading">What did ${toolName} do?</div>
           <p>
             ${toolName} ran for ${Math.round(
-            this._results.stats.timers.run
-          )} ms, tested ${
-            this._results.stats.counters.inputsInjected
-          } interesting input${
-            this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
-          }, generated ${
-            this._results.stats.counters.inputsGenerated
-          } new input${
-            this._results.stats.counters.inputsGenerated !== 1 ? "s" : ""
-          } (${this._results.stats.counters.dupesGenerated} of which ${
-            this._results.stats.counters.dupesGenerated !== 1
-              ? "were duplicates"
-              : "was a duplicate"
-          } ${toolName} previously tested), and reported ${
-            this._results.results.length
-          } test result${
-            this._results.results.length !== 1 ? "s" : ""
-          } before stopping.
+              this._results.stats.timers.run
+            )} ms, tested ${
+              this._results.stats.counters.inputsInjected
+            } interesting input${
+              this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
+            }, generated ${
+              this._results.stats.counters.inputsGenerated
+            } new input${
+              this._results.stats.counters.inputsGenerated !== 1 ? "s" : ""
+            } (${this._results.stats.counters.dupesGenerated} of which ${
+              this._results.stats.counters.dupesGenerated !== 1
+                ? "were duplicates"
+                : "was a duplicate"
+            } ${toolName} previously tested), and reported ${
+              this._results.results.length
+            } test result${
+              this._results.results.length !== 1 ? "s" : ""
+            } before stopping.
           </p>
 
           <div class="fuzzResultHeading">Why did testing stop?</div>
           <p>
             ${toolName} most recently stopped testing ${
-            this._results.stopReason in textReason
-              ? textReason[this._results.stopReason]
-              : textReason[""]
-          }
+              this._results.stopReason in textReason
+                ? textReason[this._results.stopReason]
+                : textReason[""]
+            }
           </p>
 
           <div class="fuzzResultHeading">How were inputs generated?</div>
@@ -1894,8 +1906,8 @@ ${inArgConsts}
             The selected measures classified ${
               this._results.interesting.inputs.length
             } input${
-            this._results.interesting.inputs.length > 1 ? "s" : ""
-          } as "interesting," and these inputs will be reused in the next test run. (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span> interesting inputs</a>)
+              this._results.interesting.inputs.length > 1 ? "s" : ""
+            } as "interesting," and these inputs will be reused in the next test run. (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span> interesting inputs</a>)
             <table class="fuzzGrid hidden" id="fuzz.options.interesting.inputs">
               <thead>
                 <th><big>#</big></th>
@@ -1952,12 +1964,12 @@ ${inArgConsts}
           <div class="fuzzResultHeading">What was returned?</div>
           <p>
             ${toolName} returned ${this._results.results.length} test result${
-            this._results.results.length === 1 ? "" : "s"
-          }. ${
-            this._results.results.length
-              ? "You can view these returned results in the other tabs."
-              : ""
-          }
+              this._results.results.length === 1 ? "" : "s"
+            }. ${
+              this._results.results.length
+                ? "You can view these returned results in the other tabs."
+                : ""
+            }
           </p>
           
           <p ${
@@ -2192,8 +2204,8 @@ ${inArgConsts}
       <div class="argDef-isArray argDef-isArray-${htmlEscape(
         isArgArray ? "true" : "false"
       )}" id="${idBase}-${
-      isArgArray ? "true" : "false"
-    }" style="padding-left: 1em;"></div>`;
+        isArgArray ? "true" : "false"
+      }" style="padding-left: 1em;"></div>`;
 
     html += /*html*/ `
       <!-- Argument Type -->
@@ -2219,11 +2231,11 @@ ${inArgConsts}
           /*html*/
           `<vscode-radio-group style="display: inline-block;">
             <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
-            arg.getOptions().numInteger ? " checked " : ""
-          }>Integer</vscode-radio>
+              arg.getOptions().numInteger ? " checked " : ""
+            }>Integer</vscode-radio>
             <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
-            !arg.getOptions().numInteger ? " checked " : ""
-          }>Float</vscode-radio>
+              !arg.getOptions().numInteger ? " checked " : ""
+            }>Float</vscode-radio>
           </vscode-radio-group>`;
         break;
       }
@@ -2256,14 +2268,14 @@ ${inArgConsts}
           `<vscode-radio-group>
             <!--<label slot="label">Values</label>-->
             <vscode-radio ${disabledFlag} id="${idBase}-trueFalse" name="${idBase}-trueFalse" ${
-            intervals[0].min !== intervals[0].max ? " checked " : ""
-          }>True and false</vscode-radio>
+              intervals[0].min !== intervals[0].max ? " checked " : ""
+            }>True and false</vscode-radio>
             <vscode-radio ${disabledFlag} id="${idBase}-trueOnly" name="${idBase}-trueOnly" ${
-            intervals[0].min && intervals[0].max ? " checked " : ""
-          }>True</vscode-radio>
+              intervals[0].min && intervals[0].max ? " checked " : ""
+            }>True</vscode-radio>
             <vscode-radio ${disabledFlag} id="${idBase}-falseOnly" name="${idBase}-falseOnly" ${
-            !intervals[0].min && !intervals[0].max ? " checked " : ""
-          }>False</vscode-radio>
+              !intervals[0].min && !intervals[0].max ? " checked " : ""
+            }>False</vscode-radio>
           </vscode-radio-group>`;
         break;
       }
@@ -2363,12 +2375,12 @@ ${inArgConsts}
         /*html*/
         `<div class="argDef-array">
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-min" name="${arrayBase}-min" value="${htmlEscape(
-          minValue.toString()
-        )}">Array${"[]".repeat(dim + 1)}: Min 
+            minValue.toString()
+          )}">Array${"[]".repeat(dim + 1)}: Min 
           </vscode-text-field>
           <vscode-text-field size="3" ${disabledFlag} id="${arrayBase}-max" name="${arrayBase}-max" value="${htmlEscape(
-          maxValue.toString()
-        )}">Max length
+            maxValue.toString()
+          )}">Max length
           </vscode-text-field>
         </div>`;
     }

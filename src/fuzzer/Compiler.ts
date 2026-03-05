@@ -10,12 +10,16 @@ import vm from "vm";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import JSON5 from "json5";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
-import { VmGlobals } from "./Types";
+import { TscCompilerError, VmGlobals } from "./Types";
+import { getErrorMessageOrJson } from "src/Util";
 
 // Load the TypeScript compiler script
 // TODO: we should try to use the project's compiler, if it exists
-const tsc = path.join(path.dirname(require.resolve("typescript")), "_tsc.js");
+const tsc = path.resolve(
+  path.join(path.dirname(require.resolve("typescript")), "_tsc.js"),
+);
 const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8")); // TODO: encoding
 
 // Place to store previous ts hooks
@@ -55,6 +59,7 @@ setOptions(defaultOptions);
  * Compiler Options
  */
 export type CompilerOptions = {
+  tscConfigFilename?: string;
   nodeLib: boolean;
   target: string;
   baseUrl: string;
@@ -105,68 +110,95 @@ export function resetOptions(): void {
  */
 export function inferOptionsFromModule(moduleFilename: string): void {
   resetOptions();
+  let tsConfigFilename: string;
   try {
-    const tsConfigFilename = findInAncestor(moduleFilename, "tsconfig.json");
-    const tsConfig = JSON.parse(fs.readFileSync(tsConfigFilename, "utf8")); // TODO: encoding
-    const projectDir = path.dirname(tsConfigFilename);
+    tsConfigFilename = findInAncestor(
+      path.dirname(moduleFilename),
+      "tsconfig.json",
+    );
+  } catch (e: unknown) {
+    console.debug(`Unable to find tsconfig.json for module: ${moduleFilename}`);
+    return;
+  }
 
-    if ("compilerOptions" in tsConfig) {
-      // typeRoots
-      if ("typeRoots" in tsConfig.compilerOptions) {
-        options.typeRoots = tsConfig.compilerOptions.typeRoots.map(
-          (e: string) =>
-            // Replace relative paths because our cwd is not the project
-            path.isAbsolute(e) ? e : path.resolve(path.join(projectDir, e)),
-        );
-      } else {
-        options.typeRoots = [
-          path.resolve(path.join(projectDir, "node_modules", "@types")),
-        ];
-      }
+  let tsConfigData: string;
+  try {
+    tsConfigData = fs.readFileSync(tsConfigFilename, { encoding: "utf8" }); // TODO: encoding
+  } catch (e: unknown) {
+    console.debug(`Unable to read tsconfig.json for module: ${moduleFilename}`);
+    console.debug(`Error: ${getErrorMessageOrJson(e)}`);
+    return;
+  }
 
-      // types -- ignore types that do not exist in any root
-      if ("types" in tsConfig.compilerOptions) {
-        options.types = tsConfig.compilerOptions.types.filter((t: string) =>
-          options.typeRoots.some((tr) =>
-            fs.existsSync(path.resolve(path.join(tr, t))),
-          ),
-        );
-      }
-      if (options.types.length === 0) {
-        options.types = [""];
-      }
+  try {
+    const tsConfig = JSON5.parse(tsConfigData);
+    options.tscConfigFilename = tsConfigFilename;
+    try {
+      const projectDir = path.dirname(tsConfigFilename);
 
-      // libs
-      if ("lib" in tsConfig.compilerOptions) {
-        options.lib = tsConfig.compilerOptions.lib;
-      }
+      if ("compilerOptions" in tsConfig) {
+        // typeRoots
+        if ("typeRoots" in tsConfig.compilerOptions) {
+          options.typeRoots = tsConfig.compilerOptions.typeRoots.map(
+            (e: string) =>
+              // Replace relative paths because our cwd is not the project
+              path.isAbsolute(e) ? e : path.resolve(path.join(projectDir, e)),
+          );
+        } else {
+          options.typeRoots = [
+            path.resolve(path.join(projectDir, "node_modules", "@types")),
+          ];
+        }
 
-      // target
-      if ("target" in tsConfig.compilerOptions) {
-        options.target = String(tsConfig.compilerOptions.target);
-      }
+        // types -- ignore types that do not exist in any root
+        if ("types" in tsConfig.compilerOptions) {
+          options.types = tsConfig.compilerOptions.types.filter((t: string) =>
+            options.typeRoots.some((tr) =>
+              fs.existsSync(path.resolve(path.join(tr, t))),
+            ),
+          );
+        }
+        if (options.types.length === 0) {
+          options.types = [""];
+        }
 
-      // moduleResolution
-      if ("moduleResolution" in tsConfig.compilerOptions) {
-        options.moduleResolution = String(
-          tsConfig.compilerOptions.moduleResolution,
-        );
-      }
+        // libs
+        if ("lib" in tsConfig.compilerOptions) {
+          options.lib = tsConfig.compilerOptions.lib;
+        }
 
-      // baseUrl
-      if ("baseUrl" in tsConfig.compilerOptions) {
-        options.baseUrl = path.resolve(
-          path.join(projectDir, String(tsConfig.compilerOptions.baseUrl)),
-        );
-      } else {
-        options.baseUrl = projectDir;
-      }
+        // target
+        if ("target" in tsConfig.compilerOptions) {
+          options.target = String(tsConfig.compilerOptions.target);
+        }
 
-      // TODO: there is more that we could infer here
+        // moduleResolution
+        if ("moduleResolution" in tsConfig.compilerOptions) {
+          options.moduleResolution = String(
+            tsConfig.compilerOptions.moduleResolution,
+          );
+        }
+
+        // baseUrl
+        if ("baseUrl" in tsConfig.compilerOptions) {
+          options.baseUrl = path.resolve(
+            path.join(projectDir, String(tsConfig.compilerOptions.baseUrl)),
+          );
+        } else {
+          options.baseUrl = projectDir;
+        }
+
+        // TODO: there is more that we could infer here
+      }
+    } catch (e: unknown) {
+      console.debug(
+        `Unable to interpret tsconfig.json settings for module: ${moduleFilename}`,
+      );
+      console.debug(`Error: ${getErrorMessageOrJson(e)}`);
     }
-  } catch {
-    // no tsconfig found; use defaults
-    console.debug(`no tsconfig.json found for module: ${moduleFilename}`);
+  } catch (e: unknown) {
+    console.debug(`Unable to parse: ${tsConfigFilename}`);
+    console.debug(`${getErrorMessageOrJson(e)}`); // !!!!!!!!
   }
 }
 
@@ -203,7 +235,7 @@ export function activate(measures: AbstractMeasure[]): void {
     const jsname = compileTS(module);
 
     // Apply measurement instrumentation
-    let src = fs.readFileSync(jsname, "utf8");
+    let src = fs.readFileSync(jsname, "utf8"); // TODO: encoding
     for (const measure of measures) {
       src = measure.onAfterCompile(src, jsname);
     }
@@ -257,7 +289,7 @@ function isModified(tsname: string, jsname: string) {
  *
  * @return {string} js file path
  */
-function compileTS(module: NodeJS.Module) {
+function compileTS(module: NodeJS.Module): string {
   let exitCode = 0;
 
   // Determine the compiled name of the module we are about to compile
@@ -267,10 +299,12 @@ function compileTS(module: NodeJS.Module) {
     (moduleDirName.charAt(1) === ":"
       ? moduleDirName.substring(2)
       : moduleDirName);
-  const jsname = path.join(
-    options.tmpDir,
-    relativeFolder,
-    path.basename(module.filename, ".ts") + ".js",
+  const jsname = path.resolve(
+    path.join(
+      options.tmpDir,
+      relativeFolder,
+      path.basename(module.filename, ".ts") + ".js",
+    ),
   );
   console.log(` - Transpiling: ${module.filename}`);
   console.log(`            to: ${jsname}`);
@@ -297,7 +331,7 @@ function compileTS(module: NodeJS.Module) {
     options.moduleKind ? options.moduleKind : "",
 
     "--outDir",
-    path.join(options.tmpDir, relativeFolder),
+    path.resolve(path.join(options.tmpDir, relativeFolder)),
 
     "--baseUrl",
     options.baseUrl,
@@ -331,13 +365,15 @@ function compileTS(module: NodeJS.Module) {
 
     module.filename,
   ];
+  const tscCall = compact(argv).join(" ");
 
   /*
   console.debug(`outfile: ${path.join(options.tmpDir, relativeFolder)}`);
   console.debug(`cwd: ${process.cwd()}`);
-  console.debug(`tsc call: ${compact(argv).join(" ")}`);
+  console.debug(`tsc call: ${tscCall}`);
   */
 
+  const logData: string[] = []; // Record compiler output
   const proc = merge(merge({}, process), {
     argv: compact(argv),
     exit: function (code: number) {
@@ -346,10 +382,26 @@ function compileTS(module: NodeJS.Module) {
       }
       exitCode = code;
     },
+    // Wrap stdout.write()---only for this context
+    stdout: {
+      ...process.stdout,
+      write: function () {
+        logData.push(String(arguments[0]));
+        process.stdout.write.apply(process.stdout, arguments as any);
+      },
+    },
+    // Wrap stderr.write()---only for this context
+    stderr: {
+      ...process.stderr,
+      write: function () {
+        logData.push(String(arguments[0]));
+        process.stderr.write.apply(process.stderr, arguments as any);
+      },
+    },
   });
 
-  // Create the context for the sandbox
-  const sandbox = {
+  // Create the context for the compiler and run it // TODO: encoding
+  const sandbox = vm.runInNewContext(fs.readFileSync(tsc, "utf8"), {
     process: proc,
     require: require,
     module: module,
@@ -358,14 +410,24 @@ function compileTS(module: NodeJS.Module) {
     clearTimeout: clearTimeout,
     __filename: tsc,
     __dirname: path.dirname(tsc),
-  };
+  });
 
-  // Execute the module script
-  tscScript.runInNewContext(sandbox);
   if (exitCode !== 0) {
-    throw new Error(
-      `Unable to compile TypeScript file. Please check it for errors.<br /><br />File: ${module.filename}`,
+    const e = new TscCompilerError(
+      `Unable to compile TypeScript file. Please check it for errors.`,
+      {
+        inputFile: module.filename,
+        outputFile: jsname,
+        tscCli: tscCall,
+      },
     );
+    if (logData.length) {
+      e.details.output = [logData.join("")];
+    }
+    if (options.tscConfigFilename) {
+      e.details.tscConfigFilename = options.tscConfigFilename;
+    }
+    throw e;
   }
 
   return jsname;
@@ -427,7 +489,7 @@ function compact<T>(arr: T[]) {
  */
 function findInAncestor(dir: string, item: string) {
   const firstDir = dir;
-  while (!fs.existsSync(path.join(dir, item))) {
+  while (!fs.existsSync(path.resolve(path.join(dir, item)))) {
     dir = path.resolve(path.join(dir, "..")); // ascend to parent
     if (dir === path.dirname(dir)) {
       // reached root

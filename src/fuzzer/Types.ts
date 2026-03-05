@@ -183,3 +183,21 @@ export type SupportedInputGenerators =
  * List of supported input generators
  */
 export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
+
+/**
+ * Exception class for TypeScript compiler errors
+ */
+export type TscCompilerErrorDetails = {
+  inputFile: string;
+  outputFile: string;
+  output?: string[];
+  tscConfigFilename?: string;
+  tscCli: string;
+};
+export class TscCompilerError extends Error {
+  public details: TscCompilerErrorDetails;
+  constructor(message: string, details: TscCompilerErrorDetails) {
+    super(message);
+    this.details = details;
+  }
+}
