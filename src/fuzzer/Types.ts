@@ -230,3 +230,21 @@ export type FuzzBusyStatusMessage = {
   milestone?: boolean;
   pct?: number;
 };
+
+/**
+ * Exception class for TypeScript compiler errors
+ */
+export type TscCompilerErrorDetails = {
+  inputFile: string;
+  outputFile: string;
+  output?: string[];
+  tscConfigFilename?: string;
+  tscCli: string;
+};
+export class TscCompilerError extends Error {
+  public details: TscCompilerErrorDetails;
+  constructor(message: string, details: TscCompilerErrorDetails) {
+    super(message);
+    this.details = details;
+  }
+}

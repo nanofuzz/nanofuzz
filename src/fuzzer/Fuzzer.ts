@@ -296,12 +296,13 @@ export class Tester {
     // be a TypeScript source file, so we first must compile
     // it to JavaScript prior to execution.  This activates the
     // TypeScript compiler that hooks into the require() function.
+    const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
+    compiler.inferOptionsFromModule(fqSrcFile);
     compiler.activate(this._measures /*!!!!!!! active*/, update);
 
     // The fuzz target is likely under development, so
     // invalidate the cache to get the latest copy.
-    const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     delete require.cache[require.resolve(fqSrcFile)];
 
     /* eslint eslint-comments/no-use: off */
@@ -465,8 +466,8 @@ export class Tester {
       const statKey = genInput.injected
         ? `injected`
         : genInput.source.type === "generator"
-        ? `${genInput.source.type}.${genInput.source.generator}`
-        : `${genInput.source.type}`;
+          ? `${genInput.source.type}.${genInput.source.generator}`
+          : `${genInput.source.type}`;
       if (!(statKey in this._results.stats.generators)) {
         this._results.stats.generators[statKey] = {
           timers: {

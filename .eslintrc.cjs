@@ -49,6 +49,8 @@ module.exports = {
     "import/no-cycle": 2,
     "no-fallthrough": 2,
     "no-template-curly-in-string": 2,
+    "prefer-rest-params": 0,
+    "prefer-spread": 0,
   },
   ignorePatterns: [
     "**/*.test.ts",
