@@ -1904,10 +1904,10 @@ ${inArgConsts}
                     ? ``
                     : `class="hidden" ` 
                 }>
-                <vscode-button ${disabledFlag}  id="fuzz.rerun" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Re-test these results">
+                <vscode-button ${disabledFlag} id="fuzz.rerun" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Re-test these results">
                   <span class="codicon codicon-debug-rerun"></span>
                 </vscode-button>
-                <vscode-button ${disabledFlag}  id="fuzz.addTestInputOptions.open" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Add a test input">
+                <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.open" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Add a test input">
                   <span class="codicon codicon-add"></span>
                 </vscode-button>
                 <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Add a test input (close)">
