@@ -13,14 +13,13 @@ import os from "os";
 import JSON5 from "json5";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
 import { TscCompilerError, VmGlobals } from "./Types";
-import { getErrorMessageOrJson } from "src/Util";
+import { getErrorMessageOrJson } from "../Util";
 
 // Load the TypeScript compiler script
 // TODO: we should try to use the project's compiler, if it exists
 const tsc = path.resolve(
-  path.join(path.dirname(require.resolve("typescript")), "_tsc.js"),
+  path.join(path.dirname(require.resolve("typescript")), "_tsc.js")
 );
-const tscScript = new vm.Script(fs.readFileSync(tsc, "utf8")); // TODO: encoding
 
 // Place to store previous ts hooks
 const previousRequireExtensions: NodeJS.Dict<
@@ -114,7 +113,7 @@ export function inferOptionsFromModule(moduleFilename: string): void {
   try {
     tsConfigFilename = findInAncestor(
       path.dirname(moduleFilename),
-      "tsconfig.json",
+      "tsconfig.json"
     );
   } catch (e: unknown) {
     console.debug(`Unable to find tsconfig.json for module: ${moduleFilename}`);
@@ -142,7 +141,7 @@ export function inferOptionsFromModule(moduleFilename: string): void {
           options.typeRoots = tsConfig.compilerOptions.typeRoots.map(
             (e: string) =>
               // Replace relative paths because our cwd is not the project
-              path.isAbsolute(e) ? e : path.resolve(path.join(projectDir, e)),
+              path.isAbsolute(e) ? e : path.resolve(path.join(projectDir, e))
           );
         } else {
           options.typeRoots = [
@@ -154,8 +153,8 @@ export function inferOptionsFromModule(moduleFilename: string): void {
         if ("types" in tsConfig.compilerOptions) {
           options.types = tsConfig.compilerOptions.types.filter((t: string) =>
             options.typeRoots.some((tr) =>
-              fs.existsSync(path.resolve(path.join(tr, t))),
-            ),
+              fs.existsSync(path.resolve(path.join(tr, t)))
+            )
           );
         }
         if (options.types.length === 0) {
@@ -175,14 +174,14 @@ export function inferOptionsFromModule(moduleFilename: string): void {
         // moduleResolution
         if ("moduleResolution" in tsConfig.compilerOptions) {
           options.moduleResolution = String(
-            tsConfig.compilerOptions.moduleResolution,
+            tsConfig.compilerOptions.moduleResolution
           );
         }
 
         // baseUrl
         if ("baseUrl" in tsConfig.compilerOptions) {
           options.baseUrl = path.resolve(
-            path.join(projectDir, String(tsConfig.compilerOptions.baseUrl)),
+            path.join(projectDir, String(tsConfig.compilerOptions.baseUrl))
           );
         } else {
           options.baseUrl = projectDir;
@@ -192,7 +191,7 @@ export function inferOptionsFromModule(moduleFilename: string): void {
       }
     } catch (e: unknown) {
       console.debug(
-        `Unable to interpret tsconfig.json settings for module: ${moduleFilename}`,
+        `Unable to interpret tsconfig.json settings for module: ${moduleFilename}`
       );
       console.debug(`Error: ${getErrorMessageOrJson(e)}`);
     }
@@ -303,8 +302,8 @@ function compileTS(module: NodeJS.Module): string {
     path.join(
       options.tmpDir,
       relativeFolder,
-      path.basename(module.filename, ".ts") + ".js",
-    ),
+      path.basename(module.filename, ".ts") + ".js"
+    )
   );
   console.log(` - Transpiling: ${module.filename}`);
   console.log(`            to: ${jsname}`);
@@ -401,7 +400,7 @@ function compileTS(module: NodeJS.Module): string {
   });
 
   // Create the context for the compiler and run it // TODO: encoding
-  const sandbox = vm.runInNewContext(fs.readFileSync(tsc, "utf8"), {
+  vm.runInNewContext(fs.readFileSync(tsc, "utf8"), {
     process: proc,
     require: require,
     module: module,
@@ -419,7 +418,7 @@ function compileTS(module: NodeJS.Module): string {
         inputFile: module.filename,
         outputFile: jsname,
         tscCli: tscCall,
-      },
+      }
     );
     if (logData.length) {
       e.details.output = [logData.join("")];
@@ -444,7 +443,7 @@ function runJS(
   jsname: string,
   module: NodeJS.Module,
   src: string,
-  globals: VmGlobals,
+  globals: VmGlobals
 ) {
   const context: { [k: string]: unknown } = {
     require: module.require.bind(module),
