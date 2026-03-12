@@ -240,64 +240,16 @@ export class FuzzPanel {
     // Register the new panel
     FuzzPanel.currentPanels[this.getFnRefKey()] = this;
 
-    // Post-analysis callback function
-    const onInit = (): void => {
-      // Apply argument ranges, etc. over the defaults
-      _applyArgOverrides(
-        this._fuzzEnv.function,
-        this._argOverrides,
-        this._fuzzEnv.options.argDefaults
-      );
+    // Apply argument ranges, etc. over the defaults
+    _applyArgOverrides(
+      this._fuzzEnv.function,
+      this._argOverrides,
+      this._fuzzEnv.options.argDefaults
+    );
 
-      // Set the webview's initial html content
-      this._state = FuzzPanelState.init;
-      this._updateHtml();
-    };
-
-    // !!!!!!!
-    if (ProgramModelFactory.isConfigured()) {
-      // Program Model is configured and we do not have any overrides yet
-      // ...which means we are encountering the function for the first time
-      // and should use our program model to analyze it
-      this._state = FuzzPanelState.busyAnalyzing;
-      this._updateHtml();
-
-      // Bounce off the stack and perform the model-driven analyses
-      setTimeout(async () => {
-        try {
-          // Get the program model
-          const model = this._getModel();
-          if (!this._argOverrides.length) {
-            await model.getSpec();
-            const overrides = await model.getFuzzerArgOverrides();
-            console.debug(
-              `Applying overrides from analysis: ${JSON5.stringify(
-                overrides,
-                null,
-                2
-              )}`
-            ); // !!!!!!
-            this._argOverrides = overrides;
-          }
-          onInit();
-        } catch (e: unknown) {
-          if (!this._disposed) {
-            const msg = `AI analysis of function failed. Message: ${
-              e instanceof Error ? e.message : JSON5.stringify(e)
-            }`;
-            vscode.window.showWarningMessage(msg);
-            console.debug(msg); // !!!!!!!
-            // !!!!!!! telemetry
-
-            // Fall back to normal init
-            this._state = FuzzPanelState.init;
-            this._updateHtml();
-          }
-        }
-      });
-    } else {
-      onInit();
-    }
+    // Set the webview's initial html content
+    this._state = FuzzPanelState.init;
+    this._updateHtml();
   } // fn: constructor
 
   /**
@@ -1680,10 +1632,7 @@ ${inArgConsts}
       const webview: vscode.Webview = this._panel.webview; // Current webview
       const extensionUri: vscode.Uri = this._extensionUri; // Extension URI
       const disabledFlag =
-        this._state === FuzzPanelState.busyTesting ||
-        this._state === FuzzPanelState.busyAnalyzing
-          ? ` disabled `
-          : ""; // Disable inputs if busy
+        this._state === FuzzPanelState.busyTesting ? ` disabled ` : ""; // Disable inputs if busy
       const resultSummary = {
         failure: 0,
         timeout: 0,
@@ -1768,7 +1717,7 @@ ${inArgConsts}
             
           <!-- ${toolName} pane -->
           <div id="pane-nanofuzz"> 
-            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing:" : this._state === FuzzPanelState.busyAnalyzing ? "Analyzing:" : "Test:"}
+            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing:" : "Test:"}
               ${htmlEscape(fn.getName())+"()"} 
               <div title="Open soure code" id="openSourceLink" class='codicon codicon-link clickable'></div>
             </h2>
@@ -2596,10 +2545,7 @@ ${inArgConsts}
     const argType = arg.getType(); // type of argument
     const argName = arg.getName(); // name of the argument
     const disabledFlag =
-      this._state === FuzzPanelState.busyTesting ||
-      this._state === FuzzPanelState.busyAnalyzing
-        ? ` disabled `
-        : ""; // Disable inputs if busy
+      this._state === FuzzPanelState.busyTesting ? ` disabled ` : ""; // Disable inputs if busy
     const dimString = "[]".repeat(arg.getDim()); // Text indicating array dimensions
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
     const htmlEllipsis = `<span class="hidden argDef-ellipsis">...</span>`;
@@ -3259,7 +3205,6 @@ export type FuzzPanelMessage = {
  */
 export enum FuzzPanelState {
   init = "init", // Nothing has been fuzzed yet
-  busyAnalyzing = "busyAnalyzing", // Busy analyzing
   busyTesting = "busyTesting", // Testing is in progress
   done = "done", // Testing is done
   error = "error", // Testing stopped due to an error
