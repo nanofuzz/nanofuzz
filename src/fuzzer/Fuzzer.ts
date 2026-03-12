@@ -32,7 +32,8 @@ export class Tester {
   protected _leaderboard = new Leaderboard<InputAndSource>();
   protected _measures; // !!!!!!
   protected _allInputs: Record<string, true> = {}; // !!!!!!
-  protected _state: "init" | "running" | "paused" | "crashed" = "init"; // !!!!!!
+  protected _state: "init" | "ready" | "running" | "paused" | "crashed" =
+    "init"; // !!!!!!
 
   protected _options: FuzzOptions; // !!!!!!
   protected _program: ProgramDef; // !!!!!!
@@ -178,7 +179,9 @@ export class Tester {
       }
       return result;
     } catch (e: unknown) {
-      this._state = "crashed";
+      if (this._state === "running") {
+        this._state = "crashed";
+      }
       throw e;
     }
   } // !!!!!!
@@ -209,7 +212,9 @@ export class Tester {
           return;
         }
       } catch (e) {
-        this._state = "crashed";
+        if (this._state === "running") {
+          this._state = "crashed";
+        }
         callbackFn(
           isError(e)
             ? e
@@ -240,7 +245,6 @@ export class Tester {
         `Testing cannot be started or resumed from state ${state}`
       );
     }
-    this._state = "running";
     this._results.stats.counters.testingRuns++;
 
     const update = (payload: FuzzBusyStatusMessage): void => {
@@ -317,6 +321,7 @@ export class Tester {
     const runner = RunnerFactory(this.env, mod, this._function.getName());
 
     update({ msg: `Target ready to test.`, milestone: true });
+    this._state = "ready";
 
     // Main test loop
     // We break out of this loop when any of the following are true:
@@ -328,6 +333,7 @@ export class Tester {
     // Note: Pinned tests are not counted against the maxTests limit
     // eslint-disable-next-line no-constant-condition, @typescript-eslint/no-unnecessary-condition
     while (true) {
+      this._state = "running";
       // End the testing run when we encounter a stop condition
       const stopCondition = _checkStopCondition(
         this._options,

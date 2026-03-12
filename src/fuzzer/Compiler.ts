@@ -307,7 +307,7 @@ function compileTS(
       path.basename(module.filename, ".ts") + ".js"
     )
   );
-  update({ msg: `Compiling: ${module.filename}`, milestone: true });
+  update({ msg: `Compiling: ${module.filename}`, milestone: true, pct: 0.01 });
 
   // If the Javascript file is current, return it directly
   if (!isModified(module.filename, jsname)) {

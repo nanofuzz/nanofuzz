@@ -1176,8 +1176,9 @@ ${inArgConsts}
       : this._getFuzzTestsForThisFn().tests;
 
     // Update the UI
-    this._results = undefined;
     this._state = FuzzPanelState.busyTesting;
+    this._errorMessage = undefined;
+    this._errorStack = undefined;
     this._updateHtml();
 
     // Save the argument overrides
@@ -1205,8 +1206,7 @@ ${inArgConsts}
             if (isError(result)) {
               /* Error */
               // Transition to error state
-              this._errorMessage = result.message;
-              this._errorStack = result.stack;
+              this._setErrorFromException(result);
               this._state = FuzzPanelState.error;
 
               // Log the end of fuzzing
@@ -1217,7 +1217,7 @@ ${inArgConsts}
                   "Fuzzing failed. Target: %s. Message: %s. Stack: %s.",
                   [
                     this.getFnRefKey(),
-                    this._errorMessage,
+                    this._errorMessage ?? "unknown error",
                     this._errorStack ?? "<no stack>",
                   ]
                 )
@@ -1308,6 +1308,8 @@ ${inArgConsts}
 
     // Make the FuzzPanel busy
     this._state = FuzzPanelState.busyTesting;
+    this._errorMessage = undefined;
+    this._errorStack = undefined;
     this._updateHtml();
 
     // Save the argument overrides
@@ -1440,8 +1442,9 @@ ${inArgConsts}
     this._getConfigFromUi(panelInput);
 
     // Update the UI
-    this._results = undefined;
     this._state = FuzzPanelState.busyTesting;
+    this._errorMessage = undefined;
+    this._errorStack = undefined;
     this._updateHtml();
 
     // Save the argument overrides
@@ -1542,7 +1545,7 @@ ${inArgConsts}
    *  1. Accepts a JSON object containing an updated set
    *     of fuzzer and argument options as input
    *  2. Creates a new back-end tester
-   *  4. Resets the webvire to init status
+   *  4. Resets the webview to init status
    *
    * @param json JSON input
    */
@@ -1765,8 +1768,8 @@ ${inArgConsts}
             
           <!-- ${toolName} pane -->
           <div id="pane-nanofuzz"> 
-            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing:" : this._state === FuzzPanelState.busyAnalyzing ? "Analyzing:" : "Test: "+htmlEscape(
-              fn.getName())+"()"} 
+            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing:" : this._state === FuzzPanelState.busyAnalyzing ? "Analyzing:" : "Test:"}
+              ${htmlEscape(fn.getName())+"()"} 
               <div title="Open soure code" id="openSourceLink" class='codicon codicon-link clickable'></div>
             </h2>
 
@@ -1901,51 +1904,107 @@ ${inArgConsts}
                 </vscode-panels>
 
               <vscode-divider></vscode-divider>
-            </div>
+            </div>`;
 
+      // Determine button states
+      const activeButtons: {
+        run?: true;
+        pause?: true;
+        rerun?: true;
+        clear?: true;
+        add?: true;
+        options?: true;
+      } = {};
+      if (this._state === FuzzPanelState.busyTesting) {
+        activeButtons.pause = true;
+      } else {
+        switch (this._tester.state) {
+          case "init":
+          case "ready": {
+            activeButtons.run = true;
+            activeButtons.options = true;
+            break;
+          }
+          case "paused": {
+            activeButtons.run = true;
+            activeButtons.rerun = true;
+            activeButtons.clear = true;
+            activeButtons.add = true;
+            activeButtons.options = true;
+            break;
+          }
+          case "running": {
+            activeButtons.pause = true;
+            break;
+          }
+          case "crashed": {
+            activeButtons.run = true;
+            if (this._results) {
+              activeButtons.rerun = true;
+              activeButtons.clear = true;
+            }
+            activeButtons.options = true;
+            break;
+          }
+        }
+      }
+      // Always hide the options button if it's disabled via configuration
+      if (
+        activeButtons.options &&
+        vscode.workspace
+          .getConfiguration("nanofuzz.ui")
+          .get("hideMoreOptionsButton") === true
+      ) {
+        delete activeButtons.options;
+      }
+      // Always hide the add button if there are no inputs
+      if (activeButtons.add && !argDefs.length) {
+        delete activeButtons.add;
+      }
+
+      // Prettier abhorrently butchers this HTML, so disable prettier here
+      // prettier-ignore
+      html += /*html*/ `
             <!-- Button Bar -->
             <div>
-              <vscode-button ${disabledFlag} ${this._state===FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.start" class="tooltipped tooltipped-ne" appearance="primary icon" aria-label="${this._results ? "Generate more tests": "Generate tests"}">
+              <vscode-button ${disabledFlag} ${!activeButtons.run ? `class="hidden"` : ""} id="fuzz.start" class="tooltipped tooltipped-ne" appearance="primary icon" aria-label="${this._results ? "Generate more tests": "Generate tests"}">
                 <span class="codicon codicon-${this._results ? "debug-continue" : "play"}"></span>
               </vscode-button>
-              <vscode-button ${this._state!==FuzzPanelState.busyTesting ? `class="hidden"` : ""} id="fuzz.stop" appearance="primary icon" aria-label="Pause testing">
+              <vscode-button ${!activeButtons.pause ? `class="hidden"` : ""} id="fuzz.stop" appearance="primary icon" aria-label="Pause testing">
                 <span class="codicon codicon-debug-pause"></span>
               </vscode-button>
-              <span ${ 
-                (this._results !== undefined)
-                    ? ``
-                    : `class="hidden" ` 
-                }>
-                <vscode-button ${disabledFlag} id="fuzz.rerun" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Re-test these results">
-                  <span class="codicon codicon-debug-rerun"></span>
-                </vscode-button>
+              <vscode-button ${disabledFlag} ${!activeButtons.rerun ? `class="hidden"` : ""} id="fuzz.rerun" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Re-test these results">
+                <span class="codicon codicon-debug-rerun"></span>
+              </vscode-button>
+              <span ${!activeButtons.add ? `class="hidden"` : ""}>
                 <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.open" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Add a test input">
                   <span class="codicon codicon-add"></span>
                 </vscode-button>
                 <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Add a test input (close)">
                   <span class="codicon codicon-add"></span>
                 </vscode-button>
-                &nbsp;
+              </span>
+              ${activeButtons.run || activeButtons.pause || activeButtons.rerun || activeButtons.add ? `&nbsp;` : ""}
+
+              <span ${!activeButtons.clear ? `class="hidden"` : ""}>
                 <vscode-button ${disabledFlag} id="fuzz.clear" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Clear tests">
                   <span class="codicon codicon-clear-all"></span>
                 </vscode-button>
+                &nbsp;
               </span>
-              &nbsp;
-              <vscode-button ${disabledFlag} ${ 
-                vscode.workspace
-                  .getConfiguration("nanofuzz.ui")
-                  .get("hideMoreOptionsButton")
-                    ? `class="hidden" ` 
-                    : ``
-                } id="fuzz.options.open" appearance="secondary icon" class="tooltipped tooltipped-n" aria-label="More options">
-                <span class="codicon codicon-settings-gear"></span>
-              </vscode-button>
-              <vscode-button ${disabledFlag} id="fuzz.options.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Close more options">
-                <span class="codicon codicon-settings-gear"></span>
-              </vscode-button>
-            </div>
 
-            <!-- Add New Test Input -->
+              <span ${!activeButtons.options ? `class="hidden"` : ""}>
+                <vscode-button ${disabledFlag} id="fuzz.options.open" class="tooltipped tooltipped-n" appearance="secondary icon"  aria-label="More options">
+                  <span class="codicon codicon-settings-gear"></span>
+                </vscode-button>
+                <vscode-button ${disabledFlag} id="fuzz.options.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Close more options">
+                  <span class="codicon codicon-settings-gear"></span>
+                </vscode-button>
+              </span>
+            </div>
+            <!-- End Button Bar -->
+
+            <!-- Add New Test Input Pane -->
             <div id="fuzzAddTestInputOptions-pane" class="hidden">
               <vscode-divider></vscode-divider>
               <div class="panelButton">
@@ -1996,7 +2055,7 @@ ${inArgConsts}
               <h3>Testing stopped with this error:</h3>
               <p>${this._errorMessage ?? "Unknown error"}</p>
               ${this._errorStack
-                ? /*html*/ `<vscode-divider></vscode-divider><small><pre>${this._errorStack}</pre><small>`
+                ? /*html*/ `<vscode-divider></vscode-divider><small><pre>${this._errorStack}</pre></small>`
                 : ""}
             </div>
 
@@ -2028,407 +2087,410 @@ ${inArgConsts}
             }>
               <vscode-panels aria-label="Test result tabs" id="fuzzResultsTabStrip" class="fuzzTabStrip"${this._focusInput ? ` activeId="tab-${this._focusInput[0]}"` : (this._lastTab ? ` activeId="${this._lastTab}"` : ``)}>`;
 
-      // If we have results, render the output tabs to display the results.
-      const tabs: (
-        | {
-            id: fuzzer.FuzzResultCategory;
-            name: string;
-            description: string;
-            hasGrid: boolean;
-          }
-        | {
-            id: "runInfo";
-            name: string;
-            description: string;
-            hasGrid: false;
-          }
-      )[] = [
-        {
-          id: "failure",
-          name: "Validator Error",
-          description: `A property validator threw an exception for these inputs. Fix the bug in the property validator and re-test.`,
-          hasGrid: true,
-        },
-        {
-          id: "disagree",
-          name: "Disagree",
-          description: `The property and human validators disagreed about how to categorize these outputs. Correct one of the validators and re-test.`,
-          hasGrid: true,
-        },
-        {
-          id: "timeout",
-          name: "Timeouts",
-          description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator categorized them as passed.`,
-          hasGrid: true,
-        },
-        {
-          id: "exception",
-          name: "Exceptions",
-          description: `These inputs resulted in a runtime exception, and no validator categorized them as passed.`,
-          hasGrid: true,
-        },
-        {
-          id: "badValue",
-          name: "Failed",
-          description: `${
-            this._fuzzEnv.options.useProperty // if using property validator
-              ? `The property or human validator categorized these outputs as failed.`
-              : this._fuzzEnv.options.useImplicit // if using heuristic validator
-                ? `The heuristic or human validator categorized these outputs as failed.`
-                : `The human validator categorized these outputs as failed.`
-          }`,
-          // description: `A validator categorized these outputs as failed. The heuristic validator by default fails outputs that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
-          hasGrid: true,
-        },
-        {
-          id: "ok",
-          name: "Passed",
-          description: `A validator categorized these outputs as passed, or no validator categorized them as failed.`,
-          // description: `Passed. No validator categorized these outputs as failed.`,
-          // description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
-          hasGrid: true,
-        },
-      ];
-      if (this._results) {
-        // prettier-ignore
-        const textReason = {
-          [fuzzer.FuzzStopReason.CANCEL]: `because the user stopped testing.`,
-          [fuzzer.FuzzStopReason.CRASH]: `because it crashed.`,
-          [fuzzer.FuzzStopReason.MAXTIME]: `because it exceeded the maximum time configured (${
-              this._results.env.options.suiteTimeout
-            } ms) for it to run.`,
-          [fuzzer.FuzzStopReason.MAXFAILURES]: `because it found ${
-              this._results.env.options.maxFailures
-            } failing test${
-              this._results.env.options.maxFailures !== 1 ? "s" : ""
-            }. This is the maximum number configured.`,
-          [fuzzer.FuzzStopReason.MAXTESTS]: `because it reached the maximum number of new tests configured (${
-              this._results.env.options.maxTests
-            }). This is in addition to the ${this._results.stats.counters.inputsInjected} prior input${
-              this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
-            } ${toolName} re-tested.`,
-          [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the maximum number of sequentially-generated duplicate inputs configured (${
-              this._results.env.options.maxDupeInputs
-            }). This can mean that NaNofuzz is having difficulty generating further new inputs: the function's input space might be small or near exhaustion. You can change this setting in More Options.`,
-          "": `because of an unknown reason.`,
-          [fuzzer.FuzzStopReason.NOMOREINPUTS]: `because it ran out of inputs to test (e.g., it was retesting prior inputs or testing a single additional input).`,
-        };
+      // If we have results & the fuzzer is done running, render the output tabs to display the results.
+      if (this._state === FuzzPanelState.done) {
+        const tabs: (
+          | {
+              id: fuzzer.FuzzResultCategory;
+              name: string;
+              description: string;
+              hasGrid: boolean;
+            }
+          | {
+              id: "runInfo";
+              name: string;
+              description: string;
+              hasGrid: false;
+            }
+        )[] = [
+          {
+            id: "failure",
+            name: "Validator Error",
+            description: `A property validator threw an exception for these inputs. Fix the bug in the property validator and re-test.`,
+            hasGrid: true,
+          },
+          {
+            id: "disagree",
+            name: "Disagree",
+            description: `The property and human validators disagreed about how to categorize these outputs. Correct one of the validators and re-test.`,
+            hasGrid: true,
+          },
+          {
+            id: "timeout",
+            name: "Timeouts",
+            description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator categorized them as passed.`,
+            hasGrid: true,
+          },
+          {
+            id: "exception",
+            name: "Exceptions",
+            description: `These inputs resulted in a runtime exception, and no validator categorized them as passed.`,
+            hasGrid: true,
+          },
+          {
+            id: "badValue",
+            name: "Failed",
+            description: `${
+              this._fuzzEnv.options.useProperty // if using property validator
+                ? `The property or human validator categorized these outputs as failed.`
+                : this._fuzzEnv.options.useImplicit // if using heuristic validator
+                  ? `The heuristic or human validator categorized these outputs as failed.`
+                  : `The human validator categorized these outputs as failed.`
+            }`,
+            // description: `A validator categorized these outputs as failed. The heuristic validator by default fails outputs that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
+            hasGrid: true,
+          },
+          {
+            id: "ok",
+            name: "Passed",
+            description: `A validator categorized these outputs as passed, or no validator categorized them as failed.`,
+            // description: `Passed. No validator categorized these outputs as failed.`,
+            // description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
+            hasGrid: true,
+          },
+        ];
+        if (this._results) {
+          // prettier-ignore
+          const textReason = {
+            [fuzzer.FuzzStopReason.CANCEL]: `because the user stopped testing.`,
+            [fuzzer.FuzzStopReason.CRASH]: `because it crashed.`,
+            [fuzzer.FuzzStopReason.MAXTIME]: `because it exceeded the maximum time configured (${
+                this._results.env.options.suiteTimeout
+              } ms) for it to run.`,
+            [fuzzer.FuzzStopReason.MAXFAILURES]: `because it found ${
+                this._results.env.options.maxFailures
+              } failing test${
+                this._results.env.options.maxFailures !== 1 ? "s" : ""
+              }. This is the maximum number configured.`,
+            [fuzzer.FuzzStopReason.MAXTESTS]: `because it reached the maximum number of new tests configured (${
+                this._results.env.options.maxTests
+              }). This is in addition to the ${this._results.stats.counters.inputsInjected} prior input${
+                this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
+              } ${toolName} re-tested.`,
+            [fuzzer.FuzzStopReason.MAXDUPES]: `because it reached the maximum number of sequentially-generated duplicate inputs configured (${
+                this._results.env.options.maxDupeInputs
+              }). This can mean that ${toolName} is having difficulty generating further new inputs: the function's input space might be small or near exhaustion. You can change this setting in More Options.`,
+            "": `because of an unknown reason.`,
+            [fuzzer.FuzzStopReason.NOMOREINPUTS]: `because it ran out of inputs to test (e.g., it was retesting prior inputs or testing a single additional input).`,
+          };
 
-        // Build the list of input generators
-        const genTextEnabled: string[] = [];
-        const genTextDisabled: string[] = [];
-        let g: keyof typeof this._results.env.options.generators;
-        for (g in this._results.env.options.generators) {
-          const shortName = g.replace("InputGenerator", "").toLowerCase();
+          // Build the list of input generators
+          const genTextEnabled: string[] = [];
+          const genTextDisabled: string[] = [];
+          let g: keyof typeof this._results.env.options.generators;
+          for (g in this._results.env.options.generators) {
+            const shortName = g.replace("InputGenerator", "").toLowerCase();
 
-          if (`generator.${g}` in this._results.stats.generators) {
-            const genStats = this._results.stats.generators[`generator.${g}`];
-            genTextEnabled.push(
-              `<strong><u>${shortName}</u></strong> produced ${
-                genStats.counters.inputsGenerated
-              } inputs (${genStats.counters.dupesGenerated} of which ${
-                genStats.counters.dupesGenerated === 1
-                  ? "was a duplicate"
-                  : "were duplicates"
-              }) in ${genStats.timers.gen.toFixed(2)} ms (${(
-                genStats.timers.gen /
-                (genStats.counters.inputsGenerated +
-                  genStats.counters.dupesGenerated)
-              ).toFixed(2)} ms/input)`
-            );
-          } else {
-            if (this._results.env.options.generators[g].enabled) {
+            if (`generator.${g}` in this._results.stats.generators) {
+              const genStats = this._results.stats.generators[`generator.${g}`];
               genTextEnabled.push(
-                `<strong><u>${shortName}</u></strong> was enabled but did not produce any inputs before testing stopped`
+                `<strong><u>${shortName}</u></strong> produced ${
+                  genStats.counters.inputsGenerated
+                } inputs (${genStats.counters.dupesGenerated} of which ${
+                  genStats.counters.dupesGenerated === 1
+                    ? "was a duplicate"
+                    : "were duplicates"
+                }) in ${genStats.timers.gen.toFixed(2)} ms (${(
+                  genStats.timers.gen /
+                  (genStats.counters.inputsGenerated +
+                    genStats.counters.dupesGenerated)
+                ).toFixed(2)} ms/input)`
               );
             } else {
-              genTextDisabled.push(`<strong><u>${shortName}</u></strong>`);
+              if (this._results.env.options.generators[g].enabled) {
+                genTextEnabled.push(
+                  `<strong><u>${shortName}</u></strong> was enabled but did not produce any inputs before testing stopped`
+                );
+              } else {
+                genTextDisabled.push(`<strong><u>${shortName}</u></strong>`);
+              }
             }
           }
-        }
 
-        const generatorsText =
-          genTextEnabled.length === 0 &&
-          this._results.stats.counters.inputsGenerated === 0
-            ? `${toolName} did not generate any new inputs.`
-            : `${toolName} generated inputs using the following strateg${
-                genTextEnabled.length === 1 ? "y" : "ies"
-              }: ${toPrettyList(genTextEnabled)}. ${
-                genTextDisabled.length
-                  ? `The following strateg${
-                      genTextDisabled.length === 1 ? "y was" : "ies were"
-                    } not used because ${
-                      genTextDisabled.length === 1 ? "it was" : "they were"
-                    } disabled: `
-                  : ``
-              }${toPrettyList(genTextDisabled)}${
-                genTextDisabled.length ? "." : ""
-              }`;
+          const generatorsText =
+            genTextEnabled.length === 0 &&
+            this._results.stats.counters.inputsGenerated === 0
+              ? `${toolName} did not generate any new inputs.`
+              : `${toolName} generated inputs using the following strateg${
+                  genTextEnabled.length === 1 ? "y" : "ies"
+                }: ${toPrettyList(genTextEnabled)}. ${
+                  genTextDisabled.length
+                    ? `The following strateg${
+                        genTextDisabled.length === 1 ? "y was" : "ies were"
+                      } not used because ${
+                        genTextDisabled.length === 1 ? "it was" : "they were"
+                      } disabled: `
+                    : ``
+                }${toPrettyList(genTextDisabled)}${
+                  genTextDisabled.length ? "." : ""
+                }`;
 
-        // Build code coverage information
-        const coverageStats = this._results.stats.measures.CodeCoverageMeasure;
-        const fmtPct = (n: number, d: number) =>
-          d === 0 ? "na%" : ((n * 100) / d).toFixed(0).toString() + "%";
-        const coverageText =
-          coverageStats === undefined
-            ? ""
-            : `The executed tests exercised ${
-                coverageStats.counters.functionsCovered
-              } of ${coverageStats.counters.functionsTotal} function${
-                coverageStats.counters.functionsTotal === 1 ? "" : "s"
-              } (${fmtPct(
-                coverageStats.counters.functionsCovered,
-                coverageStats.counters.functionsTotal
-              )}), ${coverageStats.counters.statementsCovered} of ${
-                coverageStats.counters.statementsTotal
-              } statement${
-                coverageStats.counters.statementsTotal === 1 ? "" : "s"
-              } (${fmtPct(
-                coverageStats.counters.statementsCovered,
-                coverageStats.counters.statementsTotal
-              )}), and ${coverageStats.counters.branchesCovered} of ${
-                coverageStats.counters.branchesTotal
-              } branch${
-                coverageStats.counters.branchesTotal === 1 ? "" : "es"
-              } (${fmtPct(
-                coverageStats.counters.branchesCovered,
-                coverageStats.counters.branchesTotal
-              )}) in the ${coverageStats.files.length} source file${
-                coverageStats.files.length === 1 ? "" : "s"
-              } executed.`;
+          // Build code coverage information
+          const coverageStats =
+            this._results.stats.measures.CodeCoverageMeasure;
+          const fmtPct = (n: number, d: number) =>
+            d === 0 ? "na%" : ((n * 100) / d).toFixed(0).toString() + "%";
+          const coverageText =
+            coverageStats === undefined
+              ? ""
+              : `The executed tests exercised ${
+                  coverageStats.counters.functionsCovered
+                } of ${coverageStats.counters.functionsTotal} function${
+                  coverageStats.counters.functionsTotal === 1 ? "" : "s"
+                } (${fmtPct(
+                  coverageStats.counters.functionsCovered,
+                  coverageStats.counters.functionsTotal
+                )}), ${coverageStats.counters.statementsCovered} of ${
+                  coverageStats.counters.statementsTotal
+                } statement${
+                  coverageStats.counters.statementsTotal === 1 ? "" : "s"
+                } (${fmtPct(
+                  coverageStats.counters.statementsCovered,
+                  coverageStats.counters.statementsTotal
+                )}), and ${coverageStats.counters.branchesCovered} of ${
+                  coverageStats.counters.branchesTotal
+                } branch${
+                  coverageStats.counters.branchesTotal === 1 ? "" : "es"
+                } (${fmtPct(
+                  coverageStats.counters.branchesCovered,
+                  coverageStats.counters.branchesTotal
+                )}) in the ${coverageStats.files.length} source file${
+                  coverageStats.files.length === 1 ? "" : "s"
+                } executed.`;
 
-        // Build the list of validators used/not used
-        const validatorsUsed: string[] = [];
-        const validatorsNotUsed: string[] = [];
-        let validatorsUsedText: string;
-        let validatorsUsedText2 = "";
-        (env.options.useImplicit ? validatorsUsed : validatorsNotUsed).push(
-          "<strong><u>heuristic</u></strong>"
-        );
-        (env.options.useHuman ? validatorsUsed : validatorsNotUsed).push(
-          "<strong><u>human</u></strong>"
-        );
-        if (env.validators.length && env.options.useProperty) {
-          env.validators.forEach((e) => {
-            validatorsUsed.push(`<strong><u>property:${e.name}</u></strong>`);
-          });
-        } else if (!env.options.useProperty) {
-          validatorsNotUsed.push(`<strong><u>property</u></strong>`);
-        } else {
-          validatorsUsedText2 = `The <strong><u>property</u></strong> validator was active, but no property validators were found, so ${toolName} raised an on-screen warning.`;
-        }
-        if (validatorsUsed.length) {
-          validatorsUsedText = `
-            ${toolName} categorized outputs using the ${toPrettyList(
-              validatorsUsed
-            )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
-          if (validatorsNotUsed.length) {
-            validatorsUsedText += `The ${toPrettyList(
-              validatorsNotUsed
-            )} validator${
-              validatorsNotUsed.length > 1 ? "s were" : " was"
-            } not configured.`;
+          // Build the list of validators used/not used
+          const validatorsUsed: string[] = [];
+          const validatorsNotUsed: string[] = [];
+          let validatorsUsedText: string;
+          let validatorsUsedText2 = "";
+          (env.options.useImplicit ? validatorsUsed : validatorsNotUsed).push(
+            "<strong><u>heuristic</u></strong>"
+          );
+          (env.options.useHuman ? validatorsUsed : validatorsNotUsed).push(
+            "<strong><u>human</u></strong>"
+          );
+          if (env.validators.length && env.options.useProperty) {
+            env.validators.forEach((e) => {
+              validatorsUsed.push(`<strong><u>property:${e.name}</u></strong>`);
+            });
+          } else if (!env.options.useProperty) {
+            validatorsNotUsed.push(`<strong><u>property</u></strong>`);
+          } else {
+            validatorsUsedText2 = `The <strong><u>property</u></strong> validator was active, but no property validators were found, so ${toolName} raised an on-screen warning.`;
           }
-        } else {
-          validatorsUsedText = `${toolName} did not use any validators in this test. This means that all tests were categorized as passed.`;
-        }
-
-        // Add the run info tab to the panel
-        tabs.push({
-          id: "runInfo",
-          name: `<div class="codicon codicon-info"></div>`,
-          description: /*html*/ `
-
-          <div class="fuzzResultHeading">What did ${toolName} do?</div>
-          <p>
-            ${toolName} ran ${this._results.stats.counters.testingRuns} time${
-              this._results.stats.counters.testingRuns === 1 ? "" : "s"
-            } for a total of ${Math.round(
-              this._results.stats.timers.total
-            )} ms, re-tested ${
-              this._results.stats.counters.inputsInjected
-            } prior input${
-              this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
-            }, generated ${
-              this._results.stats.counters.inputsGenerated
-            } new input${
-              this._results.stats.counters.inputsGenerated !== 1 ? "s" : ""
-            } (${this._results.stats.counters.dupesGenerated} of which ${
-              this._results.stats.counters.dupesGenerated !== 1
-                ? "were duplicates"
-                : "was a duplicate"
-            } ${toolName} previously tested), and reported ${
-              this._results.results.length
-            } test result${
-              this._results.results.length !== 1 ? "s" : ""
-            } before stopping.
-          </p>
-          <p>
-            Compiling and instrumenting the program used ${Math.round(
-              this._results.stats.timers.compile
-            )} ms, generating inputs used ${Math.round(
-              this._results.stats.timers.gen
-            )} ms, executing the program used ${Math.round(
-              this._results.stats.timers.put
-            )} ms (${(
-              this._results.stats.timers.put / this._results.results.length
-            ).toFixed(2)} ms/input),
-            validating outputs used ${Math.round(
-              this._results.stats.timers.val
-            )} ms (${(
-              this._results.stats.timers.val / this._results.results.length
-            ).toFixed(2)} ms/input),
-            and measuring execution results used ${Math.round(
-              this._results.stats.timers.measure
-            )} ms (${(
-              this._results.stats.timers.measure / this._results.results.length
-            ).toFixed(2)} ms/input).
-          </p>
-          <p class="${coverageText !== "" ? "" : "hidden"}">
-            ${coverageText}
-          </p>
-
-          <div class="fuzzResultHeading">Why did testing stop?</div>
-          <p>
-            ${toolName} most recently stopped testing ${
-              this._results.stopReason in textReason
-                ? textReason[this._results.stopReason]
-                : textReason[""]
+          if (validatorsUsed.length) {
+            validatorsUsedText = `
+              ${toolName} categorized outputs using the ${toPrettyList(
+                validatorsUsed
+              )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
+            if (validatorsNotUsed.length) {
+              validatorsUsedText += `The ${toPrettyList(
+                validatorsNotUsed
+              )} validator${
+                validatorsNotUsed.length > 1 ? "s were" : " was"
+              } not configured.`;
             }
-          </p>
+          } else {
+            validatorsUsedText = `${toolName} did not use any validators in this test. This means that all tests were categorized as passed.`;
+          }
 
-          <div class="fuzzResultHeading">How were inputs generated?</div>
-          <p>
-            ${generatorsText}
-          </p>
-          <p class="${this._results.interesting.inputs.length ? "" : "hidden"}">
-            The selected measures classified ${
-              this._results.interesting.inputs.length
-            } input${
-              this._results.interesting.inputs.length > 1 ? "s" : ""
-            } as "interesting." (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span></a>)
-            <table class="fuzzGrid hidden" id="fuzz.options.interesting.inputs">
-              <thead>
-                <th><big>#</big></th>
-                ${this._results.env.function
-                  .getArgDefs()
-                  .map((a) => `<th><big>input: ${a.getName()}</big></th>`)
-                  .join("\r\n")}
-                <th><big>source</big></th>
-                <th><big>why interesting</big></th>
-              </thead>
-              <tbody>
-                ${this._results.interesting.inputs
-                  .map(
-                    (i) =>
-                      `<tr class="editorFont"><td>${htmlEscape(
-                        i.input.tick.toString()
-                      )}</td>${i.input.value
-                        .map(
-                          (i) =>
-                            `<td>${
-                              i.value === undefined
-                                ? "(no input)"
-                                : JSON5.stringify(i.value)
-                            }</td>`
-                        )
-                        .join("\r\n")}
-                      <td>${htmlEscape(
-                        i.input.source.type === "generator"
-                          ? i.input.source.generator
-                              .replace("InputGenerator", "")
-                              .toLowerCase()
-                          : i.input.source.type.toLowerCase()
-                      )}${
-                        i.input.source.tick !== undefined
-                          ? ` from #${i.input.source.tick}`
-                          : ""
-                      }</td><td>${htmlEscape(
-                        i.interestingReasons
-                          .map((r) => r.replace("Measure", "").toLowerCase())
-                          .join(", ")
-                      )}</td></tr>`
-                  )
-                  .join("\r\n")}
-              </tbody>
-            </table>
-          </p>
-          <p>
+          // Add the run info tab to the panel
+          tabs.push({
+            id: "runInfo",
+            name: `<div class="codicon codicon-info"></div>`,
+            description: /*html*/ `
+
+            <div class="fuzzResultHeading">What did ${toolName} do?</div>
+            <p>
+              ${toolName} ran ${this._results.stats.counters.testingRuns} time${
+                this._results.stats.counters.testingRuns === 1 ? "" : "s"
+              } for a total of ${Math.round(
+                this._results.stats.timers.total
+              )} ms, re-tested ${
+                this._results.stats.counters.inputsInjected
+              } prior input${
+                this._results.stats.counters.inputsInjected !== 1 ? "s" : ""
+              }, generated ${
+                this._results.stats.counters.inputsGenerated
+              } new input${
+                this._results.stats.counters.inputsGenerated !== 1 ? "s" : ""
+              } (${this._results.stats.counters.dupesGenerated} of which ${
+                this._results.stats.counters.dupesGenerated !== 1
+                  ? "were duplicates"
+                  : "was a duplicate"
+              } ${toolName} previously tested), and reported ${
+                this._results.results.length
+              } test result${
+                this._results.results.length !== 1 ? "s" : ""
+              } before stopping.
+            </p>
+            <p>
+              Compiling and instrumenting the program used ${Math.round(
+                this._results.stats.timers.compile
+              )} ms, generating inputs used ${Math.round(
+                this._results.stats.timers.gen
+              )} ms, executing the program used ${Math.round(
+                this._results.stats.timers.put
+              )} ms (${(
+                this._results.stats.timers.put / this._results.results.length
+              ).toFixed(2)} ms/input),
+              validating outputs used ${Math.round(
+                this._results.stats.timers.val
+              )} ms (${(
+                this._results.stats.timers.val / this._results.results.length
+              ).toFixed(2)} ms/input),
+              and measuring execution results used ${Math.round(
+                this._results.stats.timers.measure
+              )} ms (${(
+                this._results.stats.timers.measure /
+                this._results.results.length
+              ).toFixed(2)} ms/input).
+            </p>
+            <p class="${coverageText !== "" ? "" : "hidden"}">
+              ${coverageText}
+            </p>
+
+            <div class="fuzzResultHeading">Why did testing stop?</div>
+            <p>
+              ${toolName} most recently stopped testing ${
+                this._results.stopReason in textReason
+                  ? textReason[this._results.stopReason]
+                  : textReason[""]
+              }
+            </p>
+
+            <div class="fuzzResultHeading">How were inputs generated?</div>
+            <p>
+              ${generatorsText}
+            </p>
+            <p class="${this._results.interesting.inputs.length ? "" : "hidden"}">
+              The selected measures classified ${
+                this._results.interesting.inputs.length
+              } input${
+                this._results.interesting.inputs.length > 1 ? "s" : ""
+              } as "interesting." (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span></a>)
+              <table class="fuzzGrid hidden" id="fuzz.options.interesting.inputs">
+                <thead>
+                  <th><big>#</big></th>
+                  ${this._results.env.function
+                    .getArgDefs()
+                    .map((a) => `<th><big>input: ${a.getName()}</big></th>`)
+                    .join("\r\n")}
+                  <th><big>source</big></th>
+                  <th><big>why interesting</big></th>
+                </thead>
+                <tbody>
+                  ${this._results.interesting.inputs
+                    .map(
+                      (i) =>
+                        `<tr class="editorFont"><td>${htmlEscape(
+                          i.input.tick.toString()
+                        )}</td>${i.input.value
+                          .map(
+                            (i) =>
+                              `<td>${
+                                i.value === undefined
+                                  ? "(no input)"
+                                  : JSON5.stringify(i.value)
+                              }</td>`
+                          )
+                          .join("\r\n")}
+                        <td>${htmlEscape(
+                          i.input.source.type === "generator"
+                            ? i.input.source.generator
+                                .replace("InputGenerator", "")
+                                .toLowerCase()
+                            : i.input.source.type.toLowerCase()
+                        )}${
+                          i.input.source.tick !== undefined
+                            ? ` from #${i.input.source.tick}`
+                            : ""
+                        }</td><td>${htmlEscape(
+                          i.interestingReasons
+                            .map((r) => r.replace("Measure", "").toLowerCase())
+                            .join(", ")
+                        )}</td></tr>`
+                    )
+                    .join("\r\n")}
+                </tbody>
+              </table>
+            </p>
+            <p>
+              
+            </p>
+
+            <div class="fuzzResultHeading">How were outputs categorized?</div>
+            <p>
+              ${validatorsUsedText} ${validatorsUsedText2}
+            </p>
+                      
+            <div class="fuzzResultHeading">What was returned?</div>
+            <p>
+              ${toolName} returned ${this._results.results.length} test result${
+                this._results.results.length === 1 ? "" : "s"
+              }. ${
+                this._results.results.length
+                  ? "You can view these returned results in the other tabs."
+                  : ""
+              }
+            </p>
             
-          </p>
-
-          <div class="fuzzResultHeading">How were outputs categorized?</div>
-          <p>
-            ${validatorsUsedText} ${validatorsUsedText2}
-          </p>
-                    
-          <div class="fuzzResultHeading">What was returned?</div>
-          <p>
-            ${toolName} returned ${this._results.results.length} test result${
-              this._results.results.length === 1 ? "" : "s"
-            }. ${
-              this._results.results.length
-                ? "You can view these returned results in the other tabs."
-                : ""
+            <p ${
+              vscode.workspace
+                .getConfiguration("nanofuzz.ui")
+                .get("hideMoreOptionsButton")
+                ? `class="hidden" `
+                : ``
+            }>
+              You may change the configuration using the <strong>More options</strong> button, or the options at the top of the screen.
+            </p>
+    `,
+            hasGrid: false,
+          });
+        }
+        tabs.forEach((e) => {
+          if (!e.hasGrid || resultSummary[e.id] > 0) {
+            // prettier-ignore
+            html += /*html*/ `
+                  <vscode-panel-tab id="tab-${e.id}" style="font-size:1.15em;">
+                    ${e.name}`;
+            if (e.hasGrid) {
+              // prettier-ignore
+              html += /*html*/ `
+                    <vscode-badge appearance="secondary">${
+                      resultSummary[e.id]
+                    }</vscode-badge>`;
             }
-          </p>
-          
-          <p ${
-            vscode.workspace
-              .getConfiguration("nanofuzz.ui")
-              .get("hideMoreOptionsButton")
-              ? `class="hidden" `
-              : ``
-          }>
-            You may change the configuration using the <strong>More options</strong> button, or the options at the top of the screen.
-          </p>
-  `,
-          hasGrid: false,
+            // prettier-ignore
+            html += /*html*/ `
+                  </vscode-panel-tab>`;
+          }
+        });
+
+        tabs.forEach((e) => {
+          if (!e.hasGrid || resultSummary[e.id] > 0) {
+            html += /*html*/ `
+                  <vscode-panel-view class="fuzzGridPanel" id="view-${e.id}">
+                    <section>
+                      <div class="fuzzPanelDescription">${e.description}</div>`;
+            if (e.hasGrid) {
+              // prettier-ignore
+              html += /*html*/ `
+                      <div id="fuzzResultsGrid-${e.id}">
+                        <table class="fuzzGrid">
+                          <thead class="columnSortOrder" id="fuzzResultsGrid-${e.id}-thead" /> 
+                          <tbody id="fuzzResultsGrid-${e.id}-tbody" />
+                        </table>
+                      </div>`;
+            }
+            // prettier-ignore
+            html += /*html*/ `
+                    </section>
+                  </vscode-panel-view>`;
+          }
         });
       }
-      tabs.forEach((e) => {
-        if (!e.hasGrid || resultSummary[e.id] > 0) {
-          // prettier-ignore
-          html += /*html*/ `
-                <vscode-panel-tab id="tab-${e.id}" style="font-size:1.15em;">
-                  ${e.name}`;
-          if (e.hasGrid) {
-            // prettier-ignore
-            html += /*html*/ `
-                  <vscode-badge appearance="secondary">${
-                    resultSummary[e.id]
-                  }</vscode-badge>`;
-          }
-          // prettier-ignore
-          html += /*html*/ `
-                </vscode-panel-tab>`;
-        }
-      });
-
-      tabs.forEach((e) => {
-        if (!e.hasGrid || resultSummary[e.id] > 0) {
-          html += /*html*/ `
-                <vscode-panel-view class="fuzzGridPanel" id="view-${e.id}">
-                  <section>
-                    <div class="fuzzPanelDescription">${e.description}</div>`;
-          if (e.hasGrid) {
-            // prettier-ignore
-            html += /*html*/ `
-                    <div id="fuzzResultsGrid-${e.id}">
-                      <table class="fuzzGrid">
-                        <thead class="columnSortOrder" id="fuzzResultsGrid-${e.id}-thead" /> 
-                        <tbody id="fuzzResultsGrid-${e.id}-tbody" />
-                      </table>
-                    </div>`;
-          }
-          // prettier-ignore
-          html += /*html*/ `
-                  </section>
-                </vscode-panel-view>`;
-        }
-      });
-
-      // prettier-ignore
+      // prettier-ignorex
       html += /*html*/ `
               </vscode-panels>
             </div>`;
@@ -2502,8 +2564,9 @@ ${inArgConsts}
       <body>
         <h1>:-(</h1>
         <p>Unable to render this panel due to an internal error in FuzzPanel._updateHtml().</p>
+        <p>You may want to delete ${htmlEscape(this._getFuzzTestsFilename())} then close and re-open this panel.
         <p>Stack trace:</p>
-        <pre>${stack}</pre>
+        <small><pre>${stack}</pre></small>
       <body>`;
       console.debug(`Exception in updateHtml(): ${msg} stack: ${stack}`);
     }
