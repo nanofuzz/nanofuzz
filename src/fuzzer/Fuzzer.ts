@@ -36,7 +36,7 @@ import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 export const setup = (
   options: FuzzOptions,
   module: string,
-  fnName: string,
+  fnName: string
 ): FuzzEnv => {
   module = require.resolve(module);
   const program = ProgramDef.fromModule(module, options.argDefaults);
@@ -45,7 +45,7 @@ export const setup = (
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(options))
     throw new Error(
-      `Invalid options provided: ${JSON5.stringify(options, null, 2)}`,
+      `Invalid options provided: ${JSON5.stringify(options, null, 2)}`
     );
 
   // Ensure we found a function to fuzz
@@ -70,7 +70,7 @@ export const setup = (
  */
 export const fuzz = (
   env: FuzzEnv,
-  pinnedTests: FuzzPinnedTest[] = [],
+  pinnedTests: FuzzPinnedTest[] = []
 ): FuzzTestResults => {
   const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
   const results: FuzzTestResults = {
@@ -107,12 +107,12 @@ export const fuzz = (
   // Ensure we have a valid set of Fuzz options
   if (!isOptionValid(env.options)) {
     throw new Error(
-      `Invalid options provided: ${JSON5.stringify(env.options, null, 2)}`,
+      `Invalid options provided: ${JSON5.stringify(env.options, null, 2)}`
     );
   }
 
   console.log(
-    `\r\n\r\nTesting target: ${env.function.getName()} of ${env.function.getModule()}`,
+    `\r\n\r\nTesting target: ${env.function.getName()} of ${env.function.getModule()}`
   );
 
   // Get the active measures, which will take various measurements
@@ -127,7 +127,7 @@ export const fuzz = (
     env.options.seed ?? "", // prng seed
     InputGeneratorFactory(env, leaderboard), // set of subordinate input generators
     measures, // measures
-    leaderboard,
+    leaderboard
   );
 
   // Inject pinned tests into the composite generator so that they generate
@@ -137,8 +137,8 @@ export const fuzz = (
     pinnedTests.map((t) =>
       t.input.map((i) => {
         return { value: i.value };
-      }),
-    ),
+      })
+    )
   );
 
   // The module that includes the function to fuzz will
@@ -187,7 +187,7 @@ export const fuzz = (
       totalDupeCount,
       failureCount,
       startTime,
-      compositeInputGenerator.isAvailable(),
+      compositeInputGenerator.isAvailable()
     );
     if (stopCondition !== undefined) {
       results.stopReason = stopCondition;
@@ -259,7 +259,7 @@ export const fuzz = (
       if (expectedInput !== returnedInput) {
         throw new Error(
           `Injected inputs in unexpected order at injected input# ${injectedCount}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
-            JSON5.stringify(pinnedTests, null, 3), // !!!!!!!!
+            JSON5.stringify(pinnedTests, null, 3) // !!!!!!!!
         );
       }
 
@@ -308,7 +308,7 @@ export const fuzz = (
     try {
       const [exeOutput] = runner.run(
         JSON5.parse(JSON5.stringify(result.input.map((e) => e.value))),
-        env.options.fnTimeout,
+        env.options.fnTimeout
       ); // <-- Runner (protect the input)
       result.output.push({
         name: "0",
@@ -341,7 +341,7 @@ export const fuzz = (
       } else if (env.function.isVoid()) {
         // Functions with a void return type should only return undefined
         result.passedImplicit = !result.output.some(
-          (e) => e.value !== undefined,
+          (e) => e.value !== undefined
         );
       } else {
         // Non-void functions should not contain disallowed values
@@ -354,7 +354,7 @@ export const fuzz = (
     if (env.options.useHuman && result.expectedOutput) {
       result.passedHuman = actualEqualsExpectedOutput(
         result,
-        result.expectedOutput,
+        result.expectedOutput
       );
     }
 
@@ -403,7 +403,7 @@ export const fuzz = (
               };
             }
           },
-          env.options.fnTimeout,
+          env.options.fnTimeout
         );
 
         // Categorize the results (so it's not stale)
@@ -411,7 +411,7 @@ export const fuzz = (
 
         // Call the validator function wrapper
         const validatorResult = validatorFnWrapper(
-          JSON5.parse(JSON5.stringify(result)),
+          JSON5.parse(JSON5.stringify(result))
         ); // <-- Wrapper (protect the input)
 
         // Store the validator results
@@ -454,14 +454,14 @@ export const fuzz = (
       const measurements = measures.map((e) =>
         e.measure(
           JSON5.parse(JSON5.stringify(genInput)),
-          JSON5.parse(JSON5.stringify(result)),
-        ),
+          JSON5.parse(JSON5.stringify(result))
+        )
       );
 
       // Provide measures feedback to the composite input generator
       result.interestingReasons = compositeInputGenerator.onInputFeedback(
         measurements,
-        result.timers.run + result.timers.gen,
+        result.timers.run + result.timers.gen
       );
 
       // Measurement stats
@@ -481,32 +481,32 @@ export const fuzz = (
   compositeInputGenerator.onShutdown(); // also handles shutdown for subgens
 
   console.log(
-    `Testing complete. Executed ${results.results.length} tests in ${results.stats.timers.total}ms. Stopped for reason: ${results.stopReason}.`,
+    `Testing complete. Executed ${results.results.length} tests in ${results.stats.timers.total}ms. Stopped for reason: ${results.stopReason}.`
   );
   console.log(
-    ` - Injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes).`,
+    ` - Injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes).`
   );
   console.log(
     ` - Tests with exceptions: ${
       results.results.filter((e) => e.exception).length
-    }, timeouts: ${results.results.filter((e) => e.timeout).length}`,
+    }, timeouts: ${results.results.filter((e) => e.timeout).length}`
   );
   console.log(
     ` - Human validator passed: ${
       results.results.filter((e) => e.passedHuman === true).length
-    }, failed: ${results.results.filter((e) => e.passedHuman === false).length}`,
+    }, failed: ${results.results.filter((e) => e.passedHuman === false).length}`
   );
   console.log(
     ` - Property validator passed: ${
       results.results.filter((e) => e.passedValidator === true).length
     }, failed: ${
       results.results.filter((e) => e.passedValidator === false).length
-    }`,
+    }`
   );
   console.log(
     ` - Heuristic validator passed: ${
       results.results.filter((e) => e.passedImplicit).length
-    }, failed: ${results.results.filter((e) => !e.passedImplicit).length}`,
+    }, failed: ${results.results.filter((e) => !e.passedImplicit).length}`
   );
 
   // Persist to outfile, if requested
@@ -537,7 +537,7 @@ const _checkStopCondition = (
   totalDupeCount: number,
   failureCount: number,
   startTime: number,
-  moreInputs: boolean,
+  moreInputs: boolean
 ): FuzzStopReason | undefined => {
   // End testing if we exceed the suite timeout
   if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
@@ -662,19 +662,21 @@ export function isTimeoutError(error: unknown): boolean {
 } // fn: isTimeoutError()
 
 /**
- * Returns a list of validator FunctionRefs found within the program
+ * Returns a list of validator FunctionRefs found within the ProgramDef
+ * associated with a FunctionDef
  *
- * @param program the program to search
+ * @param program the ProgramDef to search
  * @returns an array of validator FunctionRefs
  */
 export function getValidators(
   program: ProgramDef,
-  fnUnderTest: FunctionDef,
+  fnUnderTest: FunctionDef
 ): FunctionRef[] {
+  const fnUnderTestName = fnUnderTest.getName();
   return Object.values(program.getExportedFunctions())
     .filter(
       (fn) =>
-        fn.isValidator() && fn.getName().startsWith(fnUnderTest.getName()),
+        fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName
     )
     .map((fn) => fn.getRef());
 } // fn: getValidators()
@@ -688,7 +690,7 @@ export function getValidators(
  */
 function actualEqualsExpectedOutput(
   result: FuzzTestResult,
-  expectedOutput: FuzzIoElement[],
+  expectedOutput: FuzzIoElement[]
 ): boolean {
   if (result.timeout) {
     return expectedOutput.length > 0 && expectedOutput[0].isTimeout === true;
@@ -727,7 +729,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
     }
   };
   const getBadValueTypeProperty = (
-    result: FuzzTestResult,
+    result: FuzzTestResult
   ): FuzzResultCategory => {
     return result.passedValidator ? "ok" : "badValue"; // PUT returned bad value
   };
@@ -775,7 +777,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
  */
 export function mergeTestResults(
   a: FuzzTestResults,
-  b: FuzzTestResults,
+  b: FuzzTestResults
 ): FuzzTestResults {
   // Create c from a
   const c: FuzzTestResults = JSON5.parse(JSON5.stringify(a));
@@ -818,27 +820,27 @@ export function mergeTestResults(
       counters: {
         functionsTotal: Math.max(
           a.stats.measures.CodeCoverageMeasure.counters.functionsTotal,
-          b.stats.measures.CodeCoverageMeasure.counters.functionsTotal,
+          b.stats.measures.CodeCoverageMeasure.counters.functionsTotal
         ),
         functionsCovered: Math.max(
           a.stats.measures.CodeCoverageMeasure.counters.functionsCovered,
-          b.stats.measures.CodeCoverageMeasure.counters.functionsCovered,
+          b.stats.measures.CodeCoverageMeasure.counters.functionsCovered
         ),
         statementsTotal: Math.max(
           a.stats.measures.CodeCoverageMeasure.counters.statementsTotal,
-          b.stats.measures.CodeCoverageMeasure.counters.statementsTotal,
+          b.stats.measures.CodeCoverageMeasure.counters.statementsTotal
         ),
         statementsCovered: Math.max(
           a.stats.measures.CodeCoverageMeasure.counters.statementsCovered,
-          b.stats.measures.CodeCoverageMeasure.counters.statementsCovered,
+          b.stats.measures.CodeCoverageMeasure.counters.statementsCovered
         ),
         branchesTotal: Math.max(
           a.stats.measures.CodeCoverageMeasure.counters.branchesTotal,
-          b.stats.measures.CodeCoverageMeasure.counters.branchesTotal,
+          b.stats.measures.CodeCoverageMeasure.counters.branchesTotal
         ),
         branchesCovered: Math.max(
           a.stats.measures.CodeCoverageMeasure.counters.branchesCovered,
-          b.stats.measures.CodeCoverageMeasure.counters.branchesCovered,
+          b.stats.measures.CodeCoverageMeasure.counters.branchesCovered
         ),
       },
       files: a.stats.measures.CodeCoverageMeasure.files,
@@ -847,8 +849,8 @@ export function mergeTestResults(
     c.stats.measures.CodeCoverageMeasure.files.push(
       ...b.stats.measures.CodeCoverageMeasure.files.filter(
         (fb) =>
-          !a.stats.measures.CodeCoverageMeasure?.files.find((fa) => fa === fb),
-      ),
+          !a.stats.measures.CodeCoverageMeasure?.files.find((fa) => fa === fb)
+      )
     );
   } else if (b.stats.measures.CodeCoverageMeasure) {
     c.stats.measures.CodeCoverageMeasure = {

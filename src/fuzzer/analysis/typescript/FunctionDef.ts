@@ -178,9 +178,25 @@ export class FunctionDef {
     return (
       this.isExported() &&
       this._argDefs.length === 1 &&
-      this._argDefs[0].getTypeRef() === "FuzzTestResult"
+      this._argDefs[0].getTypeRef() === "FuzzTestResult" &&
+      this._ref.name.includes("Validator", 1)
     );
   } // fn: isValidator()
+
+  /**
+   * Returns the validator's target function name if isValidator()===true
+   *
+   * Throws an exception if the function is not a validator.
+   *
+   * @returns the name of the validator's target function.
+   */
+  public getValidatorTargetName(): string {
+    if (!this.isValidator())
+      throw new Error(
+        `Function ${this.getName()} is not a validator and does not have a validation target`
+      );
+    return this._ref.name.substring(0, this._ref.name.indexOf("Validator", 1));
+  } // fn: getValidatorTargetName()
 
   /**
    * Applies option overrides to the function definition --

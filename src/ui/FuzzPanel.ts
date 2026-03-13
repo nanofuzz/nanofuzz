@@ -2537,8 +2537,6 @@ export async function handleFuzzWithValidatorCommand(
 
 /**
  * Finds the function under test (FUT) for a given validator function.
- * Uses the naming convention that the validator name must start with FUT name.
- * Returns the longest matching function name (most specific).
  *
  * @param validator The validator function
  * @param allFunctions All exported functions in the module
@@ -2549,15 +2547,13 @@ function findFunctionUnderTest(
   allFunctions: fuzzer.FunctionDef[]
 ): fuzzer.FunctionDef | undefined {
   const validatorName = validator.getName();
-
-  // Find all non-validator functions whose name the validator starts with
-  const candidates = allFunctions
-    .filter((fn) => !fn.isValidator() && validatorName.startsWith(fn.getName()))
-    // Sort by name length descending (longest = most specific)
-    .sort((a, b) => b.getName().length - a.getName().length);
-
-  // Return the longest match (most specific)
-  return candidates.length > 0 ? candidates[0] : undefined;
+  const validatorTarget = validator.getValidatorTargetName();
+  for (const fn of allFunctions) {
+    if (fn.getName() === validatorTarget) {
+      return fn; // validator target found
+    }
+  }
+  return undefined; // no matching validator target found
 }
 
 /**
