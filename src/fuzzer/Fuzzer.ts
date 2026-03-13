@@ -425,10 +425,15 @@ export const fuzz = (
           validatorResult.validatorExceptionStack;
       } // for: valFn in env.validators
 
-      result.passedValidator = true; // initialize
+      result.passedValidator = undefined; // initialize
       for (const i in result.passedValidators) {
-        result.passedValidator =
-          result.passedValidator && result.passedValidators[i];
+        const thisJudgment = result.passedValidators[i];
+        if (thisJudgment !== null) {
+          result.passedValidator =
+            result.passedValidator === undefined
+              ? thisJudgment
+              : result.passedValidator && thisJudgment;
+        }
       }
     } // if validator
 
