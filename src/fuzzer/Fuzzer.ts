@@ -428,11 +428,11 @@ export const fuzz = (
       result.passedValidator = undefined; // initialize
       for (const i in result.passedValidators) {
         const thisJudgment = result.passedValidators[i];
-        if (thisJudgment !== null) {
+        if (thisJudgment !== null && thisJudgment !== undefined) {
           result.passedValidator =
             result.passedValidator === undefined
-              ? thisJudgment
-              : result.passedValidator && thisJudgment;
+              ? !!thisJudgment
+              : result.passedValidator && !!thisJudgment;
         }
       }
     } // if validator
