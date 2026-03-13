@@ -2467,6 +2467,188 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
 } // fn: handleFuzzCommand()
 
 /**
+ * Handles the "nanofuzz.FuzzWithValidator" command by testing the associated
+ * function with property validators enabled.
+ *
+ * @param match a reference to the validator and its associated FUT
+ * @returns void
+ */
+export async function handleFuzzWithValidatorCommand(
+  match?: ValidatorMatch
+): Promise<void> {
+  if (!match) {
+    vscode.window.showErrorMessage(
+      "No function matching the given validator provided."
+    );
+    return;
+  }
+
+  const document = match.document;
+  const editor = vscode.window.activeTextEditor;
+
+  if (!editor) {
+    vscode.window.showErrorMessage(
+      "Please select a function to test in the editor."
+    );
+    return;
+  }
+
+  // Save the file if dirty
+  if (document.isDirty) {
+    await document.save();
+  }
+
+  // Get the current active editor filename
+  const srcFile = document.uri.fsPath; // full path of the file which contains the function
+  const fnName = match.fut.name;
+
+  // Call the fuzzer to analyze the FUT
+  const fuzzOptions = getDefaultFuzzOptions();
+  fuzzOptions.useProperty = true; // Enable property oracle by default
+
+  let fuzzSetup: fuzzer.FuzzEnv;
+  try {
+    fuzzSetup = fuzzer.setup(fuzzOptions, srcFile, fnName);
+  } catch (e: unknown) {
+    const msg = getErrorMessageOrJson(e);
+    vscode.window.showErrorMessage(
+      `${toolName} could not find or does not support this function. Message: "${msg}"`
+    );
+    return;
+  }
+
+  // Verify the validator is actually associated with this FUT
+  const validatorName = match.validator.name;
+  const hasValidator = fuzzSetup.validators.some(
+    (v) => v.name === validatorName
+  );
+
+  if (!hasValidator) {
+    vscode.window.showWarningMessage(
+      `Validator ${validatorName} not found for ${fnName}.`
+    );
+  }
+
+  // Load the fuzz panel (brings it to foreground)
+  FuzzPanel.render(FuzzPanel.context.extensionUri, fuzzSetup);
+
+  return;
+} // fn: handleFuzzWithValidatorCommand()
+
+/**
+ * Finds the function under test (FUT) for a given validator function.
+ * Uses the naming convention that the validator name must start with FUT name.
+ * Returns the longest matching function name (most specific).
+ *
+ * @param validator The validator function
+ * @param allFunctions All exported functions in the module
+ * @returns The associated FUT, or undefined if not found
+ */
+function findFunctionUnderTest(
+  validator: fuzzer.FunctionDef,
+  allFunctions: fuzzer.FunctionDef[]
+): fuzzer.FunctionDef | undefined {
+  const validatorName = validator.getName();
+
+  // Find all non-validator functions whose name the validator starts with
+  const candidates = allFunctions
+    .filter((fn) => !fn.isValidator() && validatorName.startsWith(fn.getName()))
+    // Sort by name length descending (longest = most specific)
+    .sort((a, b) => b.getName().length - a.getName().length);
+
+  // Return the longest match (most specific)
+  return candidates.length > 0 ? candidates[0] : undefined;
+}
+
+/**
+ * Creates a standard CodeLens for a non-validator function.
+ *
+ * @param document The document containing the function
+ * @param fn The function definition
+ * @returns A CodeLens object
+ */
+function createStandardCodeLens(
+  document: vscode.TextDocument,
+  fn: fuzzer.FunctionDef
+): vscode.CodeLens {
+  return new vscode.CodeLens(
+    new vscode.Range(
+      document.positionAt(fn.getRef().startOffset),
+      document.positionAt(fn.getRef().endOffset)
+    ),
+    {
+      title: `${toolName}...`,
+      command: commands.fuzz.name,
+      arguments: [{ document, ref: fn.getRef() }],
+    }
+  );
+}
+
+/**
+ * Creates a CodeLens for testing the FUT with property validators enabled.
+ *
+ * @param document The document containing the validator
+ * @param validator The validator function
+ * @param fut The function under test
+ * @returns A CodeLens object
+ */
+function createFutTestCodeLens(
+  document: vscode.TextDocument,
+  validator: fuzzer.FunctionDef,
+  fut: fuzzer.FunctionDef | undefined
+): vscode.CodeLens {
+  let title;
+  let argument;
+  if (fut) {
+    title = `${toolName} (${fut.getName()})...`;
+    argument = {
+      document,
+      validator: validator.getRef(),
+      fut: fut.getRef(),
+    };
+  } else {
+    title = `${toolName} (no associated function found)...`;
+    argument = undefined;
+  }
+
+  return new vscode.CodeLens(
+    new vscode.Range(
+      document.positionAt(validator.getRef().startOffset),
+      document.positionAt(validator.getRef().endOffset)
+    ),
+    {
+      title,
+      command: commands.fuzzWithValidator.name,
+      arguments: [argument],
+    }
+  );
+}
+
+/**
+ * Creates a CodeLens for testing the validator itself.
+ *
+ * @param document The document containing the validator
+ * @param validator The validator function
+ * @returns A CodeLens object
+ */
+function createValidatorTestCodeLens(
+  document: vscode.TextDocument,
+  validator: fuzzer.FunctionDef
+): vscode.CodeLens {
+  return new vscode.CodeLens(
+    new vscode.Range(
+      document.positionAt(validator.getRef().startOffset),
+      document.positionAt(validator.getRef().endOffset)
+    ),
+    {
+      title: `${toolName} (${validator.getName()})...`,
+      command: commands.fuzz.name,
+      arguments: [{ document, ref: validator.getRef() }],
+    }
+  );
+}
+
+/**
  * Returns an array of FuzzPanel CodeLens objects for the given document.
  *
  * Note: Only exported functions are returned.
@@ -2478,12 +2660,12 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
 export function provideCodeLenses(
   document: vscode.TextDocument
 ): vscode.CodeLens[] {
-  // Use the TypeScript analyzer to find all fn declarations in the module
-  const matches: FunctionMatch[] = [];
+  const codeLenses: vscode.CodeLens[] = [];
   try {
     const program = ProgramDef.fromModuleAndSource(document.fileName, () =>
       document.getText()
     );
+
     // Skip analyzing files that we are configured to ignore
     const fuzzIgnore: string = vscode.workspace
       .getConfiguration("nanofuzz.ui.codeLens")
@@ -2496,17 +2678,26 @@ export function provideCodeLenses(
     const fuzzValidators = vscode.workspace
       .getConfiguration("nanofuzz.ui.codeLens")
       .get("includeValidators");
+    const allFunctions = Object.values(program.getExportedFunctions());
     const functions = (fuzzValidators === undefined ? true : fuzzValidators)
-      ? Object.values(program.getExportedFunctions())
-      : Object.values(program.getExportedFunctions()).filter(
-          (fn) => !fn.isValidator()
-        );
+      ? allFunctions
+      : allFunctions.filter((fn) => !fn.isValidator());
 
     for (const fn of functions) {
-      matches.push({
-        document,
-        ref: fn.getRef(),
-      });
+      {
+        if (!fn.isValidator()) {
+          // Regular function: single button for testing the function itself
+          codeLenses.push(createStandardCodeLens(document, fn));
+        } else {
+          // Validator: find the FUT and create one button for testing the FUT,
+          // and one button for testing the validator itself
+          const fut = findFunctionUnderTest(fn, functions);
+          codeLenses.push(
+            createFutTestCodeLens(document, fn, fut),
+            createValidatorTestCodeLens(document, fn)
+          );
+        }
+      }
     }
   } catch (e: unknown) {
     const msg = getErrorMessageOrJson(e);
@@ -2515,21 +2706,7 @@ export function provideCodeLenses(
     );
   }
 
-  // Build the map of CodeLens objects at each function location
-  return matches.map(
-    (match) =>
-      new vscode.CodeLens(
-        new vscode.Range(
-          document.positionAt(match.ref.startOffset),
-          document.positionAt(match.ref.endOffset)
-        ),
-        {
-          title: `${toolName}...`,
-          command: commands.fuzz.name,
-          arguments: [match],
-        }
-      )
-  );
+  return codeLenses;
 } // fn: provideCodeLenses()
 
 /**
@@ -2723,6 +2900,10 @@ export function deinit(): void {
  */
 export const commands = {
   fuzz: { name: "nanofuzz.Fuzz", fn: handleFuzzCommand },
+  fuzzWithValidator: {
+    name: "nanofuzz.FuzzWithValidator",
+    fn: handleFuzzWithValidatorCommand,
+  },
 };
 
 /**
@@ -2782,6 +2963,15 @@ export type FuzzPanelStateSerialized = {
 export type FunctionMatch = {
   document: vscode.TextDocument;
   ref: fuzzer.FunctionRef;
+};
+
+/**
+ * Represents a link between a validator and its function under test
+ */
+export type ValidatorMatch = {
+  document: vscode.TextDocument;
+  validator: fuzzer.FunctionRef;
+  fut: fuzzer.FunctionRef;
 };
 
 /**
