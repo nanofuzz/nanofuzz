@@ -303,9 +303,8 @@ function main() {
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
       if (e.validatorException) {
-        outputs[
-          `output`
-        ] = `(${e.validatorExceptionFunction} exception) ${e.validatorExceptionMessage}`;
+        outputs[`output`] =
+          `(${e.validatorExceptionFunction} exception) ${e.validatorExceptionMessage}`;
       } else if (e.exception) {
         outputs[`output`] = "(exception) " + e.exceptionMessage;
       }
@@ -1012,7 +1011,8 @@ function handleColumnSort(
       return 0; // no need to sort
     } else if (columnSortOrders[type][thisCol] === FuzzSortOrder.desc) {
       const temp = a;
-      (a = b), (b = temp); // swap a and b
+      a = b;
+      b = temp; // swap a and b
     }
     // Determine type of object
     let aType;
@@ -1042,15 +1042,18 @@ function handleColumnSort(
       switch (aType) {
         case "number":
           // Sort numerically
-          (a = Number(a[thisCol])), (b = Number(b[thisCol]));
+          a = Number(a[thisCol]);
+          b = Number(b[thisCol]);
           break;
         case "object":
           // Sort by length
           if (a[thisCol].length) {
-            (a = a[thisCol].length), (b = b[thisCol].length);
+            a = a[thisCol].length;
+            b = b[thisCol].length;
             // If numerical values, break ties based on number
             try {
-              (aVal = JSON.parse(a[thisCol])), (bVal = JSON.parse(b[thisCol]));
+              aVal = JSON.parse(a[thisCol]);
+              bVal = JSON.parse(b[thisCol]);
             } catch (error) {
               // noop; if not numerical, break ties alphabetically
             }
@@ -1061,7 +1064,8 @@ function handleColumnSort(
           break;
         default:
           // Sort as string by length, break ties alphabetically
-          (a = (a[thisCol] ?? "").length), (b = (b[thisCol] ?? "").length);
+          a = (a[thisCol] ?? "").length;
+          b = (b[thisCol] ?? "").length;
           break;
       } // switch
     }
@@ -1289,7 +1293,9 @@ function drawTableBody({
             cell.style.paddingRight = "0px"; // close to twistie column if multiple validators
           }
           if (e[k] === undefined) {
-            cell.innerHTML = "";
+            cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-circle-large");
           } else if (e[k]) {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
@@ -1317,8 +1323,10 @@ function drawTableBody({
           // Individual property validator column
           const cell = row.appendChild(document.createElement("td"));
           cell.style.textAlign = "right";
-          if (e[k] === undefined) {
-            cell.innerHTML = "";
+          if (e[k] === undefined || e[k] === null) {
+            cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
+            const span = cell.appendChild(document.createElement("span"));
+            span.classList.add("codicon", "codicon-circle-large");
           } else if (e[k]) {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
