@@ -2,7 +2,7 @@ import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { ArgDef } from "../analysis/typescript/ArgDef";
 import { ArgType } from "../analysis/typescript/Types";
 import { Leaderboard } from "./Leaderboard";
-import { InputAndSource } from "./Types";
+import { InputAndSource } from "../Types";
 import { ArgDefMutator } from "../analysis/typescript/ArgDefMutator";
 
 /**
@@ -21,7 +21,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    */
   public constructor(
     specs: ArgDef<ArgType>[],
-    rngSeed: string,
+    rngSeed: string | undefined,
     leaderboard: Leaderboard<InputAndSource>
   ) {
     super(specs, rngSeed);
@@ -68,7 +68,11 @@ export class MutationInputGenerator extends AbstractInputGenerator {
         return {
           tick: 0,
           value: input,
-          source: { subgen: "MutationInputGenerator", tick: sourceTick },
+          source: {
+            type: "generator",
+            generator: "MutationInputGenerator",
+            tick: sourceTick,
+          },
         };
       }
 
@@ -81,7 +85,11 @@ export class MutationInputGenerator extends AbstractInputGenerator {
     return {
       tick: 0,
       value: input,
-      source: { subgen: "MutationInputGenerator", tick: sourceTick },
+      source: {
+        type: "generator",
+        generator: "MutationInputGenerator",
+        tick: sourceTick,
+      },
     };
   } // fn: next
 } // class: MutationInputGenerator

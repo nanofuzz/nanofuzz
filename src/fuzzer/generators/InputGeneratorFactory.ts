@@ -1,9 +1,11 @@
-import { FuzzEnv } from "../Fuzzer";
+import { FunctionDef } from "../Fuzzer";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
-import { InputAndSource } from "./Types";
+import { AiInputGenerator } from "./AiInputGenerator";
+import { FuzzOptions, InputAndSource } from "../Types";
+import { ProgramModelFactory } from "../../models/ProgramModelFactory";
 
 /**
  * Produces a set of concrete input generators appropriate for
@@ -14,28 +16,33 @@ import { InputAndSource } from "./Types";
  * @returns array of concrete input generators
  */
 export function InputGeneratorFactory(
-  env: FuzzEnv,
+  options: FuzzOptions["generators"],
+  fn: FunctionDef,
+  rngSeed: string | undefined,
   leaderboard: Leaderboard<InputAndSource>
 ): AbstractInputGenerator[] {
   const generators: AbstractInputGenerator[] = [];
 
-  if (env.options.generators["RandomInputGenerator"].enabled) {
+  if (options.RandomInputGenerator.enabled) {
+    generators.push(new RandomInputGenerator(fn.getArgDefs(), rngSeed));
+  }
+
+  if (options.MutationInputGenerator.enabled) {
     generators.push(
-      new RandomInputGenerator(
-        env.function.getArgDefs(),
-        env.options.seed ?? ""
-      )
+      new MutationInputGenerator(fn.getArgDefs(), rngSeed, leaderboard)
     );
   }
 
-  if (env.options.generators["MutationInputGenerator"].enabled) {
-    generators.push(
-      new MutationInputGenerator(
-        env.function.getArgDefs(),
-        env.options.seed ?? "",
-        leaderboard
-      )
-    );
+  if (options.AiInputGenerator.enabled) {
+    if (ProgramModelFactory.isConfigured()) {
+      generators.push(
+        new AiInputGenerator(
+          fn.getArgDefs(),
+          rngSeed,
+          ProgramModelFactory.create(fn)
+        )
+      );
+    }
   }
 
   return generators;

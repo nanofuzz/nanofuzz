@@ -9,9 +9,7 @@ import JSON5 from "json5";
  * @param obj the object to check
  * @returns type guard if `obj` has `message` and `stack` properties of type `string`
  */
-export function isError(
-  obj: unknown
-): obj is { message: string; stack: string } {
+export function isError(obj: unknown): obj is Error {
   return (
     obj !== undefined &&
     obj !== null &&
@@ -19,8 +17,10 @@ export function isError(
     !Array.isArray(obj) &&
     "message" in obj &&
     "stack" in obj &&
+    "name" in obj &&
     typeof obj.message === "string" &&
-    typeof obj.stack === "string"
+    typeof obj.stack === "string" &&
+    typeof obj.name === "string"
   );
 } // fn: isError
 
