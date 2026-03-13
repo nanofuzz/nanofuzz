@@ -839,7 +839,7 @@ export class FuzzPanel {
     // prettier-ignore
     const skeleton = `
 
-export function ${validatorName} ${validatorArgs.str}: boolean | undefined {
+export function ${validatorName}${validatorArgs.str}: boolean | undefined {
 ${inArgConsts}
   ${outArgConst}
 

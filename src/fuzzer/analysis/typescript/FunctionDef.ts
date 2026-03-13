@@ -193,9 +193,9 @@ export class FunctionDef {
   public getValidatorTargetName(): string {
     if (!this.isValidator())
       throw new Error(
-        `Function ${this.getName()} is not a validator and does not have a validation target`
+        `Function ${this.getName()} is not a validator and, therefore, does not have a validation target`
       );
-    return this._ref.name.substring(0, this._ref.name.indexOf("Validator", 1));
+    return this._ref.name.substring(0, this._ref.name.lastIndexOf("Validator"));
   } // fn: getValidatorTargetName()
 
   /**
