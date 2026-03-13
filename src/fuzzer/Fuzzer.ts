@@ -692,10 +692,15 @@ export class Tester {
             validatorResult.validatorExceptionStack;
         } // for: valFn in env.validators
 
-        result.passedValidator = true; // initialize
+        result.passedValidator = undefined; // initialize
         for (const i in result.passedValidators) {
-          result.passedValidator =
-            result.passedValidator && result.passedValidators[i];
+          const thisJudgment = result.passedValidators[i];
+          if (thisJudgment !== null && thisJudgment !== undefined) {
+            result.passedValidator =
+              result.passedValidator === undefined
+                ? !!thisJudgment
+                : result.passedValidator && !!thisJudgment;
+          }
         }
       } // if validator
 
@@ -921,18 +926,21 @@ export function isTimeoutError(error: unknown): boolean {
 } // fn: isTimeoutError()
 
 /**
- * Returns a list of validator FunctionRefs found within the program
+ * Returns a list of validator FunctionRefs found within the ProgramDef
+ * associated with a FunctionDef
  *
- * @param program the program to search
+ * @param program the ProgramDef to search
  * @returns an array of validator FunctionRefs
  */
 export function getValidators(
   program: ProgramDef,
   fnUnderTest: FunctionDef
 ): FunctionRef[] {
+  const fnUnderTestName = fnUnderTest.getName();
   return Object.values(program.getExportedFunctions())
     .filter(
-      (fn) => fn.isValidator() && fn.getName().startsWith(fnUnderTest.getName())
+      (fn) =>
+        fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName
     )
     .map((fn) => fn.getRef());
 } // fn: getValidators()

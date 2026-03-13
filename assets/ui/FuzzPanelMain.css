@@ -71,7 +71,9 @@ th.expandCollapseColumn {
   padding-bottom: 0px;
 }
 .fuzzGrid tbody tr {
-  transition: box-shadow 3s 3s ease, background-color 3s 3s ease;
+  transition:
+    box-shadow 3s 3s ease,
+    background-color 3s 3s ease;
 }
 .fuzzGrid tbody tr.focus {
   transition: none;
@@ -91,6 +93,7 @@ th.expandCollapseColumn {
 }
 
 /* Validator icons */
+td.classUnknown,
 td.classCheckOff,
 td.classErrorOff,
 td.classCheckOn,
@@ -100,25 +103,21 @@ td.classErrorOn {
   padding-right: 1px;
   padding-left: 1px;
 }
-td.classCheckOff,
-td.classCheckOn,
-td.classErrorOff,
-td.classErrorOn {
-  padding-right: 1px;
-  padding-left: 1px;
-}
+td.classUnknown.colGroupStart,
 td.classCheckOff.colGroupStart,
 td.classCheckOn.colGroupStart,
 td.classErrorOff.colGroupStart,
 td.classErrorOn.colGroupStart {
   padding-left: 4px;
 }
+td.classUnknown.colGroupEnd,
 td.classCheckOff.colGroupEnd,
 td.classCheckOn.colGroupEnd,
 td.classErrorOff.colGroupEnd,
 td.classErrorOn.colGroupEnd {
   padding-right: 4px;
 }
+td.classUnknown,
 td.classCheckOff,
 td.classErrorOff {
   opacity: 35%;
@@ -504,11 +503,15 @@ p span.codicon {
   position: absolute;
   left: 50%;
   font-size: var(--vscode-font-size);
-  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+  box-shadow:
+    0 4px 8px 0 rgba(0, 0, 0, 0.2),
+    0 6px 20px 0 rgba(0, 0, 0, 0.19);
 }
 .snackbarShow {
   visibility: visible;
-  animation: fadein 0.5s, fadeout 0.5s 3.6s;
+  animation:
+    fadein 0.5s,
+    fadeout 0.5s 3.6s;
 }
 @keyframes fadein {
   from {

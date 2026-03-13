@@ -100,10 +100,10 @@
           "description": "Hide the 'More options' button?"
         },
         "nanofuzz.ui.codeLens.includeValidators": {
-          "title": "Show 'NaNofuzz' button for property validator functions?",
+          "title": "Show 'NaNofuzz' buttons for property validator functions?",
           "type": "boolean",
           "default": true,
-          "description": "Show 'NaNofuzz' button for property validator functions?"
+          "description": "Show two buttons for validator functions, one to test the associated function with property validators enabled, and one to test the validator itself."
         },
         "nanofuzz.ui.codeLens.ignoreFilePattern": {
           "title": "Regex of files for NaNofuzz to ignore",
