@@ -6,7 +6,7 @@ import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
 import { FuzzOptions, InputAndSource } from "../Types";
 import { ProgramModel } from "../../models/ProgramModel";
-import { getErrorMessageOrJson } from "fuzzer/Util";
+import { getErrorMessageOrJson } from "../Util";
 
 /**
  * Produces a set of concrete input generators appropriate for

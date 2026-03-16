@@ -760,10 +760,10 @@
   dependencies:
     exenv-es6 "^1.1.1"
 
-"@node-llm/core@^1.14.0":
-  version "1.14.0"
-  resolved "https://registry.yarnpkg.com/@node-llm/core/-/core-1.14.0.tgz#8a1616bf653217a58a8329dc183162347c00d953"
-  integrity sha512-u9+RaaAX99Dr62t+57yO8BLCWY8blFlhOr4nAy7PipzGIg0g5BR2Uq+XKpakubTYDY2DVhk5IDcgxpA299MfjQ==
+"@node-llm/core@^1.14.1":
+  version "1.14.1"
+  resolved "https://registry.yarnpkg.com/@node-llm/core/-/core-1.14.1.tgz#5cbe3399c7e55e831addecc196a648cbbb62d81a"
+  integrity sha512-3/sgGbcLWXHvnh4nlFvKvv/VEPi4Yv9rUU1klyTw1pnQpTy6G/DcSeikL+OIZ/fbohVNrr5neER1Qh7qKS9CIQ==
   dependencies:
     zod "^3.23.8"
     zod-to-json-schema "^3.25.1"
