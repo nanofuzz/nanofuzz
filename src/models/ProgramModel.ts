@@ -37,11 +37,11 @@ export class ProgramModel {
     this._inputSchema = ProgramModel.getFuzzInputElements(this._fn);
     this._overrides = ProgramModel.getModelArgOverrides(this._fn);
 
-    const provider = ProgramModel._getConfig("provider", undefined);
-    const apiKey = ProgramModel._getConfig("apiKey", undefined);
-    const modelName = ProgramModel._getConfig("model", undefined);
+    const provider: string = ProgramModel._getConfig("provider", "disabled");
+    const apiKey = ProgramModel._getConfig("apiKey", "");
+    const modelName = ProgramModel._getConfig("model", "");
 
-    if (provider === "disable") {
+    if (provider === "disabled") {
       throw new Error("AI Models are disabled");
     }
 
@@ -54,13 +54,14 @@ export class ProgramModel {
       },
     };
 
-    // If apikey is undefined then infer from env
-    if (provider && apiKey) {
-      this._modelConfig[`${provider}ApiKey`] = apiKey;
+    // If apikey is defined, add it to the config.
+    // Otherwise, let @node-llm try to infer it from env
+    if (apiKey !== "") {
+      (this._modelConfig as any)[`${provider}ApiKey`] = apiKey;
     }
-    this._model = nodellm.createLLM(this._modelConfig);
 
-    // If model is undefined then use default model
+    // Create the model chat session
+    this._model = nodellm.createLLM(this._modelConfig);
     this._chat = this._model.chat(modelName, {
       systemPrompt: this.prompt.system(),
     });
@@ -314,7 +315,7 @@ export class ProgramModel {
   // !!!!!!
   private async _query(
     prompt: string[],
-    bypassCache: boolean = false
+    bypassCache: boolean | undefined = false
   ): Promise<string> {
     const promptSerialized = JSON5.stringify(prompt);
 
@@ -347,18 +348,6 @@ export class ProgramModel {
       return result;
     } // !!!!!!
   } // !!!!!!
-
-  // !!!!!!
-  protected schema = {
-    genSpec: (): any =>
-      nodellm.z.object({
-        name: nodellm.z.string().describe("Person's full name"),
-        age: nodellm.z.number().describe("Person's age in years"),
-        hobbies: nodellm.z
-          .array(nodellm.z.string())
-          .describe("List of hobbies"),
-      }),
-  }; // !!!!!!
 
   // !!!!!!
   protected prompt = {

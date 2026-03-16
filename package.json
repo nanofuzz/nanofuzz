@@ -270,7 +270,6 @@
   },
   "dependencies": {
     "@datastructures-js/queue": "^4.2.1",
-    "@google/generative-ai": "^0.24.1",
     "@node-llm/core": "^1.14.0",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/codicons": "^0.0.43",
