@@ -5,7 +5,8 @@ import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
 import { FuzzOptions, InputAndSource } from "../Types";
-import { ProgramModelFactory } from "../../models/ProgramModelFactory";
+import { ProgramModel } from "../../models/ProgramModel";
+import { getErrorMessageOrJson } from "fuzzer/Util";
 
 /**
  * Produces a set of concrete input generators appropriate for
@@ -33,15 +34,15 @@ export function InputGeneratorFactory(
     );
   }
 
-  if (options.AiInputGenerator.enabled) {
-    if (ProgramModelFactory.isConfigured()) {
+  if (options.AiInputGenerator.enabled && ProgramModel.isConfigured()) {
+    try {
       generators.push(
-        new AiInputGenerator(
-          fn.getArgDefs(),
-          rngSeed,
-          ProgramModelFactory.create(fn)
-        )
+        new AiInputGenerator(fn.getArgDefs(), rngSeed, new ProgramModel(fn))
       );
+    } catch (e: unknown) {
+      console.error(
+        `AI input generator is enabled and model is configured, but creating it failed: ${getErrorMessageOrJson(e)}`
+      ); // !!!!!!!!!! user feedback
     }
   }
 

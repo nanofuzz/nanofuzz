@@ -432,7 +432,7 @@ function main() {
             cell.id = type + "-" + pinnedLabel;
             cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Include in Jest test suite">
-                <big>pin</big>
+                <strong>pin</strong>
               </span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, type, k, tbody, true);
@@ -563,7 +563,7 @@ function main() {
             cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
             cell.innerHTML = /*html*/ `
               <span class="tooltipped tooltipped-ne" aria-label="Input source: Random, Mutation, AI, User">
-                <big>${htmlEscape(label)}</big>
+                <strong>${htmlEscape(label)}</strong>
               </span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, type, k, tbody, true);
@@ -574,7 +574,7 @@ function main() {
               type === "failure" && k === "output" ? "exception" : k;
             cell.id = type + "-" + k;
             cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
-            cell.innerHTML = `<big>${htmlEscape(label)}</big>`;
+            cell.innerHTML = `<strong>${htmlEscape(label)}</strong>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, type, k, tbody, true);
             });

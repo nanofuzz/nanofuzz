@@ -7,8 +7,6 @@ import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "../fuzzer/analysis/typescript/ProgramDef";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
-import { AbstractProgramModel } from "../models/AbstractProgramModel";
-import { ProgramModelFactory } from "../models/ProgramModelFactory";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -60,7 +58,6 @@ export class FuzzPanel {
   private _errorMessage?: string; // error state: the error message
   private _errorStack?: string; // error state: the error stack trace
   private _sortColumns?: fuzzer.FuzzSortColumns; // column sort orders
-  private _model?: AbstractProgramModel; // !!!!!!
   private _stopTesting = false; // indicates that testing should stop
 
   // ------------------------ Static Methods ------------------------ //
@@ -278,21 +275,6 @@ export class FuzzPanel {
       fnName: this._fuzzEnv.function.getName(),
     });
   }
-
-  /** !!!!!! */
-  private _getModel(): AbstractProgramModel {
-    if (!this._model) {
-      this._model = ProgramModelFactory.create(this._fuzzEnv.function);
-    }
-    return this._model;
-  } // fn: _getModel
-
-  /** !!!!!! */
-  private _updateModel(): void {
-    if (this._model) {
-      this._model = ProgramModelFactory.create(this._fuzzEnv.function);
-    }
-  } // fn: _updateModel
 
   /**
    * Extracts error information from an unknown error object and sets
@@ -1969,7 +1951,7 @@ ${inArgConsts}
                 <thead>
                   <tr>
                     ${argDefs
-                      .map((a,i) => `<th><big>input: ${a.getName()}</big><span id="addInputArg-${i}-message"></span></th>`)
+                      .map((a,i) => `<th><strong>input: ${a.getName()}</strong><span id="addInputArg-${i}-message"></span></th>`)
                       .join("\r\n")}
                     <th></th>
                   </tr>
@@ -2320,13 +2302,15 @@ ${inArgConsts}
               } as "interesting." (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span></a>)
               <table class="fuzzGrid hidden" id="fuzz.options.interesting.inputs">
                 <thead>
-                  <th><big>#</big></th>
+                  <th><strong>#</strong></th>
                   ${this._results.env.function
                     .getArgDefs()
-                    .map((a) => `<th><big>input: ${a.getName()}</big></th>`)
+                    .map(
+                      (a) => `<th><strong>input: ${a.getName()}</strong></th>`
+                    )
                     .join("\r\n")}
-                  <th><big>source</big></th>
-                  <th><big>why interesting</big></th>
+                  <th><strong>source</strong></th>
+                  <th><strong>why interesting</strong></th>
                 </thead>
                 <tbody>
                   ${this._results.interesting.inputs

@@ -4,7 +4,7 @@ import { ArgType, ArgValueTypeWrapped } from "../analysis/typescript/Types";
 import { InputAndSource } from "./../Types";
 import { ArgDefValidator } from "../analysis/typescript/ArgDefValidator";
 import * as JSON5 from "json5";
-import { AbstractProgramModel } from "../../models/AbstractProgramModel";
+import { ProgramModel } from "../../models/ProgramModel";
 
 /**
  * Generates new inputs using a large language model
@@ -13,7 +13,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   private _inputCache: InputAndSource[] = []; // !!!!!!
   private _usedInputs: InputAndSource[] = []; // !!!!!!
   private _validator: ArgDefValidator; // !!!!!!
-  private _model: AbstractProgramModel; // !!!!!!
+  private _model: ProgramModel; // !!!!!!
   private _gensLeft = 2; // !!!!!!!
 
   /**
@@ -26,7 +26,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   public constructor(
     specs: ArgDef<ArgType>[],
     rngSeed: string | undefined,
-    model: AbstractProgramModel
+    model: ProgramModel
   ) {
     super(specs, rngSeed);
     this._validator = new ArgDefValidator(specs);
@@ -67,7 +67,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
       console.debug(`Calling the LLM for test inputs`); // !!!!!!!
       const timer = performance.now();
       process.nextTick(async () => {
-        const inputs = await this._model.generateExampleInputs();
+        const inputs = await this._model.genInputs();
         console.debug(
           `Got test inputs from LLM: ${JSON5.stringify(inputs, null, 2)} in ${
             performance.now() - timer
