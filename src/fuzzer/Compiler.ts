@@ -295,6 +295,8 @@ export class TypeScriptCompiler {
     }; // end: require hook
 
     // Require the modules requested
+    /* eslint eslint-comments/no-use: off */
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require(fqModulePath);
 
     // Unhook require

@@ -318,7 +318,6 @@ export class Tester {
     //  (3) We have reached the time limit for the test suite to run
     //  (4) We have reached the maximum number of failed tests
     // Note: Pinned tests are not counted against the maxTests limit
-    // eslint-disable-next-line no-constant-condition, @typescript-eslint/no-unnecessary-condition
     while (true) {
       this._state = "running";
       // End the testing run when we encounter a stop condition
