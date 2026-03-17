@@ -296,31 +296,18 @@ export class Tester {
       })
     );
 
-    // The module that includes the function to fuzz will
-    // be a TypeScript source file, so we first must compile
-    // it to JavaScript prior to execution.  This activates the
-    // TypeScript compiler that hooks into the require() function.
+    // The target will be a TypeScript function, so we must compile
+    // it to JavaScript prior to execution.
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
-    compiler.inferOptionsFromModule(fqSrcFile);
-    compiler.activate(this._measures /*!!!!!!! active*/, update);
-
-    // The fuzz target is likely under development, so
-    // invalidate the cache to get the latest copy.
-    delete require.cache[require.resolve(fqSrcFile)];
-
-    /* eslint eslint-comments/no-use: off */
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require(fqSrcFile);
-
-    // Deactivate the TypeScript compiler
-    compiler.deactivate();
+    const tsCompiler = new compiler.TypeScriptCompiler(fqSrcFile);
+    const mod = tsCompiler.compile(fqSrcFile, this._measures, update);
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
     // Build a test runner for executing tests
     const runner = RunnerFactory(this.env, mod, this._function.getName());
 
-    update({ msg: `Target ready to test.`, milestone: true });
+    update({ msg: `Target ready to test.`, milestone: true, pct: 0.01 });
     this._state = "ready";
 
     // Main test loop
@@ -652,7 +639,7 @@ export class Tester {
                 timeout: result.timeout,
               };
               try {
-                const validatorOut: boolean = mod[valFnName](validatorIn); // this is where it goes wrong -- the array just turns into []
+                const validatorOut: boolean = mod[valFnName](validatorIn);
                 return {
                   ...result,
                   passedValidator: validatorOut,
