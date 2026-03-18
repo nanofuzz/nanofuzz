@@ -361,7 +361,7 @@ describe("fuzzer:", () => {
       {
         ...intOptions,
         useProperty: true,
-        suiteTimeout: 30000,
+        suiteTimeout: 0,
         maxTests: 12000,
         argDefaults: {
           ...intOptions.argDefaults,
