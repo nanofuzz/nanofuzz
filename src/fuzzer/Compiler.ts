@@ -1,12 +1,12 @@
 /**
  * Originally adapted from https://github.com/theblacksmith/typescript-require
- * with many modifications and updates.
+ * with many, many modifications and updates.
  *
  * The original npm module has not been maintained for a long time and lacked
  * support for ES6+ modules. This adaptation supports ES2020, can use the
- * project's or the one included in the extension, can infer settings from
- * the project's tsconfig.json, adds basic type checking, and provides the
- * ability to instrument compiled code.
+ * project's tsc or the one included in the extension, can infer settings from
+ * the project's tsconfig.json, and provides the ability to instrument
+ * compiled code.
  *
  * Note: Because it hooks require, this module is not compatible with Jest.
  */
@@ -18,6 +18,9 @@ import JSON5 from "json5";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
 import { FuzzBusyStatusMessage, TscCompilerError, VmGlobals } from "./Types";
 
+// Global list of transpiled modules
+let _transpiledModules: { tsFile: string; tsFileDatetime: Date }[] = [];
+
 /**
  * !!!!!!!
  */
@@ -28,7 +31,6 @@ export class TypeScriptCompiler {
   protected _tsconfigPath?: string; // !!!!!!
   protected _tsconfigDatetime?: Date; // !!!!!!
   protected _projectPath?: string; // !!!!!!
-  protected _transpiledModules: { tsFile: string; tsFileDatetime: Date }[] = []; // List of transpiled modules
   protected _options: CompilerOptions = defaultOptions; // !!!!!!
   protected _userOptions?: CompilerOptions; // !!!!!!
 
@@ -222,10 +224,7 @@ export class TypeScriptCompiler {
   } // !!!!!!
 
   /**
-   * Activate the TypeScript compiler hook
-   *
-   * @param measures !!!!!!
-   * @param update !!!!!!
+   * Compile the TypeScript file !!!!!!
    */
   public compile(
     fqModulePath: string,
@@ -237,36 +236,33 @@ export class TypeScriptCompiler {
       throw new Error(`Cannot find module to compile: ${fqModulePath}`);
     }
 
-    // The target is likely under development, so
-    // invalidate the cache to get the latest copy.
+    // Invalidate the cache to compile the latest copy and
+    // instrument it in a single context.
     delete require.cache[require.resolve(fqModulePath)];
 
-    // Clear any previously-transpiled modules from the cache
-    // so that we have a consistent global context across all
-    // modules transpiled and loaded.
-    this._transpiledModules.forEach((m) => {
+    // Clear any previously-cached transpiled modules so that
+    // we have a consistent global context for these modules.
+    _transpiledModules.forEach((m) => {
       delete require.cache[m.tsFile];
     });
-    this._transpiledModules = [];
-
-    // Place to store previous ts hooks
-    const previousRequireExtensions: NodeJS.Dict<
-      ((m: NodeJS.Module, filename: string) => unknown)[]
-    > = {};
-
-    // Save the previous extension, if it exists
-    if (require.extensions[hookType] !== undefined) {
-      if (previousRequireExtensions[hookType] === undefined) {
-        previousRequireExtensions[hookType] = [];
-      }
-      previousRequireExtensions[hookType].push(require.extensions[hookType]);
-    }
+    _transpiledModules = [];
 
     // Build a new context for this activation
     const moduleVmGlobals: { [k: string]: unknown } = {};
     let k: keyof typeof global;
     for (k in global) {
       moduleVmGlobals[k] = global[k];
+    }
+
+    // Save any previous require hooks
+    const previousRequireExtensions: NodeJS.Dict<
+      ((m: NodeJS.Module, filename: string) => unknown)[]
+    > = {};
+    if (require.extensions[hookType] !== undefined) {
+      if (previousRequireExtensions[hookType] === undefined) {
+        previousRequireExtensions[hookType] = [];
+      }
+      previousRequireExtensions[hookType].push(require.extensions[hookType]);
     }
 
     // Hook require to compile ts files
@@ -281,14 +277,13 @@ export class TypeScriptCompiler {
       }
 
       // Load the module & collect measurements from the initial load
-      // runner!!!!!!
       const context: VmGlobals = this.run(jsname, module, src, moduleVmGlobals);
       for (const measure of measures) {
         measure.onAfterLoad(context);
       }
 
       // Add this module to the list of transpiled modules
-      this._transpiledModules.push({
+      _transpiledModules.push({
         tsFile: module.filename,
         tsFileDatetime: fs.statSync(module.filename).mtime,
       });
@@ -301,12 +296,13 @@ export class TypeScriptCompiler {
 
     // Unhook require
     require.extensions[hookType] =
-      previousRequireExtensions[hookType] === undefined
+      previousRequireExtensions[hookType] === undefined ||
+      !previousRequireExtensions[hookType].length
         ? undefined
         : previousRequireExtensions[hookType].pop();
 
     return mod;
-  } // fn: activate
+  } // fn: compile
 
   /**
    * Returns true if any of the compiled TypeScript files have been modified
@@ -335,7 +331,7 @@ export class TypeScriptCompiler {
     }
 
     // Any of the compiled modules changed
-    return this._transpiledModules.some(
+    return _transpiledModules.some(
       (e) => fs.statSync(e.tsFile).mtime !== e.tsFileDatetime
     );
   } // fn: isStale
@@ -374,7 +370,8 @@ export class TypeScriptCompiler {
 
     // Provide feedback that we are compiling
     update({
-      msg: `Compiling...\r\n - ${module.filename}`,
+      msg: `Compiling: ${module.filename}`,
+      milestone: true,
       pct: 0.01,
     });
 
