@@ -273,7 +273,7 @@ export const fuzz = (
     } else {
       // Apply input transformers to generated inputs (before dedup)
       let skipThisInput = false;
-      if (env.transformers.length > 0) {
+      if (env.options.useInputTransformer && env.transformers.length > 0 ) {
         try {
           let transformedInputValues = result.input.map((i) => i.value);
 

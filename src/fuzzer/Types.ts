@@ -103,6 +103,7 @@ export type FuzzOptions = {
   useImplicit: boolean; // use implicit oracle
   useHuman: boolean; // use human oracle
   useProperty: boolean; // use property validator oracle
+  useInputTransformer: boolean; // use input transformer
   measures: { [k in SupportedMeasures]: BaseMeasureConfig }; // measure config
   generators: { [k in SupportedInputGenerators]: BaseGeneratorConfig }; // generator config
 };

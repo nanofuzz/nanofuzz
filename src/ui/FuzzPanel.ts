@@ -216,6 +216,18 @@ export class FuzzPanel {
     // Handle messages from the webview
     this._setWebviewMessageListener(this._panel.webview);
 
+    // Watch for file saves to refresh validators and transformers.
+    vscode.workspace.onDidSaveTextDocument((doc) => {
+      if (doc.fileName === this._fuzzEnv.function.getModule()) {
+        const changed = this._doGetValidatorsAndTransformers();
+        if (changed) {
+          // If a transformer was added or removed, re-render the UI
+          // to update the disabled state of the "Add Skeleton" button.
+          this._updateHtml(); 
+        }
+      }
+    }, null, this._disposables);
+
     // Load & apply any persisted fuzz settings previously persisted
     const testSet = this._getFuzzTestsForThisFn();
     this._fuzzEnv.options = testSet.options;
@@ -314,11 +326,16 @@ export class FuzzPanel {
             this._saveColumnSortOrders(json);
             break;
           case "validator.add":
-            this._doAddValidatorCmd();
-            this._doGetValidatorsAndTransformers();
+            await this._doAddValidatorCmd();
+            if (this._doGetValidatorsAndTransformers()) {
+              this._updateHtml();
+            }
             break;
           case "inputTransformer.add":
-            this._doAddInputTransformerCmd();
+            await this._doAddInputTransformerCmd();
+            if (this._doGetValidatorsAndTransformers()) {
+              this._updateHtml();
+            }
             break;
           case "validator.getList":
             this._doGetValidatorsAndTransformers();
@@ -1081,7 +1098,7 @@ export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName
    * of validators from the program source code and sends it back to the
    * front-end.
    */
-  private _doGetValidatorsAndTransformers() {
+  private _doGetValidatorsAndTransformers(): boolean {
     let program: ProgramDef;
     try {
       program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
@@ -1093,7 +1110,7 @@ export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName
         telemetry.commands.logTelemetry.name,
         new telemetry.LoggerEntry("FuzzPanel.parse.error", formattedMessage, [])
       );
-      return;
+      return false;
     }
     const fn = this._fuzzEnv.function; // Function under test
 
@@ -1111,6 +1128,8 @@ export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName
       newTransformers.map((e) => e.name),
     );
 
+    let changed = false;
+
     // Only send the message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
       // Update the Fuzzer Environment
@@ -1123,12 +1142,16 @@ export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName
           validators: newValidators.map((e) => e.name),
         }),
       });
+      changed = true;
     }
 
     // Update transformers if there has been a change
     if (oldTransformerNames !== newTransformerNames) {
       this._fuzzEnv.transformers = fuzzer.getTransformers(program, fn);
+      changed = true;
     }
+
+    return changed;
   } // fn: _doGetValidatorsAndTransformers()
 
   /**
@@ -1373,7 +1396,9 @@ export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName
     });
 
     // Apply boolean fuzzer option changes
-    (["useImplicit", "useHuman", "useProperty"] as const).forEach((e) => {
+    (
+      ["useImplicit", "useHuman", "useProperty", "useInputTransformer"] as const
+    ).forEach((e) => {
       if (e in panelInput.fuzzer) {
         const inputOption = panelInput.fuzzer[e];
         if (typeof inputOption === "boolean") {
@@ -1547,11 +1572,6 @@ export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName
                       <span class="codicon codicon-add" style="padding-left:.2em; padding-right:-.1em;"></span>
                     </span>
                   </span>
-                  <span id="inputTransformer.add" class="tooltipped tooltipped-nw" aria-label="Add input transformer">
-                    <span class="classAddRefreshValidator">
-                      <span class="codicon codicon-add" style="padding-left:.2em; padding-right:-.1em;"></span>
-                    </span>
-                  </span>
                   <span id="validator.getList" class="tooltipped tooltipped-nw" aria-label="Refresh list">
                     <span class="classAddRefreshValidator">
                       <span class="codicon codicon-refresh" style="padding-left:.1em;"></span>
@@ -1574,6 +1594,7 @@ export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName
                 <!-- <vscode-panel-tab aria-label="Validating options tab">Validating</vscode-panel-tab> -->
                 <vscode-panel-tab aria-label="Stopping options tab">Stopping</vscode-panel-tab>
                 <vscode-panel-tab aria-label="Input generation options tab">Generating Inputs</vscode-panel-tab>
+                <vscode-panel-tab aria-label="Input transformer tab">Input Transformer</vscode-panel-tab>
 
                 <vscode-panel-view>
                   <p>
@@ -1646,6 +1667,31 @@ export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName
                   </div>
 
                 </vscode-panel-view>
+
+                <vscode-panel-view>
+                  <p>
+                    An input transformer allows you to reject a generated input, or manipulate it (e.g., to calculate check-sums) before it is sent to the function under test.
+                  </p>
+                  
+                  <div class="fuzzInputControlGroup" style="margin-bottom: 1em;">
+                    <vscode-checkbox ${disabledFlag} id="fuzz-useInputTransformer" ${this._fuzzEnv.options.useInputTransformer ? "checked" : ""}>
+                      <span> 
+                        Enable Input Transformer
+                      </span>
+                    </vscode-checkbox>
+                  </div>
+
+                  <div class="fuzzInputControlGroup">
+                    <vscode-button ${disabledFlag || this._fuzzEnv.transformers.length > 0 ? "disabled" : ""} id="inputTransformer.add" appearance="secondary">
+                      Add Transformer Code Skeleton
+                    </vscode-button>
+                  </div>
+                  
+                  <p>
+                    <strong>Found Transformers:</strong> ${this._fuzzEnv.transformers.length > 0 ? htmlEscape(this._fuzzEnv.transformers.map(t => t.name).join(', ')) : "None"}
+                  </p>
+                </vscode-panel-view>
+                
                 </vscode-panels>
 
               <vscode-divider></vscode-divider>
@@ -2595,11 +2641,25 @@ export function provideCodeLenses(
     const fuzzValidators = vscode.workspace
       .getConfiguration("nanofuzz.ui.codeLens")
       .get("includeValidators");
-    const functions = (fuzzValidators === undefined ? true : fuzzValidators)
-      ? Object.values(program.getExportedFunctions())
-      : Object.values(program.getExportedFunctions()).filter(
-          (fn) => !fn.isValidator()
-        );
+
+    // Also skip decorating input transformers if configured to skip them
+    const fuzzTransformers = vscode.workspace
+      .getConfiguration("nanofuzz.ui.codeLens")
+      .get("includeInputTransformers");
+
+    const includeValidators = fuzzValidators === undefined ? true : fuzzValidators;
+    const includeInputTransformers = fuzzTransformers === undefined ? true : fuzzTransformers;
+
+    console.log(includeValidators, 'is this true?');
+    const functions = Object.values(program.getExportedFunctions()).filter(
+      (fn) => 
+        (includeValidators || !fn.isValidator()) && 
+        (includeInputTransformers || !fn.isInputTransformer())
+    );
+    
+    for (const fn of functions) {
+      console.log("fn", fn.getName(), "ref", fn.getRef(), fn.isInputTransformer());
+    }
 
     for (const fn of functions) {
       matches.push({
@@ -2756,6 +2816,7 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     useHuman: true,
     useImplicit: true,
     useProperty: false,
+    useInputTransformer: false,
     measures: {
       FailedTestMeasure: {
         // Externalize !!!!!!!

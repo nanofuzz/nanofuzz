@@ -1805,6 +1805,7 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
       useImplicit: getBooleanValue("useImplicit"),
       useHuman: true, // always active
       useProperty: getBooleanValue("useProperty"),
+      useInputTransformer: getBooleanValue("useInputTransformer"),
       measures: {
         CoverageMeasure: {
           enabled:
