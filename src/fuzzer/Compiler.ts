@@ -20,18 +20,17 @@ import { FuzzBusyStatusMessage, TscCompilerError, VmGlobals } from "./Types";
 
 // Global list of transpiled modules
 const _globalCompiledModules: {
-  [k: string]: {
-    srcPath: string;
-    srcDateTime: Date;
-    jsname: string;
-    tsconfigPath?: string;
-    tsconfigDatetime?: Date;
-    tscPath: string;
-    tscDatetime: Date;
-  };
+  [k: string]: CompilationRecord;
 } = {};
-// Map entrypoint modules to underlying compiled modules
-const _compilationMap: { [k: string]: string[] } = {};
+type CompilationRecord = {
+  srcPath: string;
+  srcDateTime: Date;
+  jsname: string;
+  tsconfigPath?: string;
+  tsconfigDatetime?: Date;
+  tscPath: string;
+  tscDatetime: Date;
+};
 
 /**
  * A TypeScript compiler wrapper for tsc.
@@ -39,9 +38,10 @@ const _compilationMap: { [k: string]: string[] } = {};
 export class TypeScriptCompiler {
   protected _tscPath: string; // Path to tsc
   protected _modulePath: string; // Path to a module within a project
-  protected _tsconfigPath?: string; // !!!!!!
-  protected _projectPath?: string; // !!!!!!
+  protected _tsconfigPath?: string; // Fully-qualified tsconfig.json path
+  protected _projectPath?: string; // Directory of tsconfig.json
   protected _options: CompilerOptions = defaultOptions; // !!!!!!
+  protected _compilations: CompilationRecord[] = []; // list of compiled modules
 
   constructor(fqModulePath: string) {
     this._modulePath = fqModulePath;
@@ -70,7 +70,7 @@ export class TypeScriptCompiler {
     measures: AbstractMeasure[],
     updateFn: (msg: FuzzBusyStatusMessage) => void
   ): ReturnType<NodeJS.Require> {
-    const thisCompilationRecord: string[] = [];
+    const thisCompilationRecord: CompilationRecord[] = [];
 
     // Determine options using the module path
     this._options = JSON5.parse(JSON5.stringify(defaultOptions));
@@ -121,8 +121,8 @@ export class TypeScriptCompiler {
         measure.onAfterLoad(context);
       }
 
-      // Update this module in the list of compiled modules
-      _globalCompiledModules[module.filename] = {
+      // Update this module's compilation record
+      const compilation: CompilationRecord = {
         srcPath: module.filename,
         srcDateTime: fs.statSync(module.filename).mtime,
         jsname: jsname,
@@ -133,7 +133,8 @@ export class TypeScriptCompiler {
         tscPath: this._tscPath,
         tscDatetime: fs.statSync(this._tscPath).mtime,
       };
-      thisCompilationRecord.push(module.filename);
+      _globalCompiledModules[module.filename] = compilation;
+      this._compilations.push({ ...compilation });
     }; // end: require hook
 
     // Require the modules requested
@@ -147,9 +148,6 @@ export class TypeScriptCompiler {
       !previousRequireExtensions[hookType].length
         ? undefined
         : previousRequireExtensions[hookType].pop();
-
-    // Update the global compilation map
-    _compilationMap[this._modulePath] = thisCompilationRecord;
 
     return mod;
   } // fn: compile
@@ -170,24 +168,26 @@ export class TypeScriptCompiler {
     | "compilerchanged"
     | "configchanged" {
     // Stale: no compilations for this module have yet taken place in this session
-    if (!(this._modulePath in _compilationMap)) {
+    if (!(this._modulePath in _globalCompiledModules)) {
       return "notcompiled";
     }
 
     // If no source file was provided, check all the compiled modules for changes
     const sourceFiles =
       inSrcFile === undefined
-        ? [..._compilationMap[this._modulePath]]
+        ? [...this._compilations.map((e) => e.srcPath)]
         : [inSrcFile];
 
     for (const sourceFile of sourceFiles) {
-      // Stale: We have not compiled the file yet in this session
-      if (!(sourceFile in _globalCompiledModules)) {
+      // Retrieve detals of the prior compilation
+      const priorCompilation =
+        this._compilations.find((e) => e.srcPath === sourceFile) ??
+        _globalCompiledModules[sourceFile];
+
+      // Stale: Not yet compiled
+      if (priorCompilation === undefined) {
         return "notcompiled";
       }
-
-      // Detals of the prior compilation
-      const priorCompilation = _globalCompiledModules[sourceFile];
 
       // Stale: Compiled file does not exist
       if (!fs.existsSync(priorCompilation.jsname)) {
