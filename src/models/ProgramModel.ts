@@ -280,6 +280,7 @@ export class ProgramModel {
     return result;
   } // !!!!!!
 
+  // !!!!!!
   public async genSpec(): Promise<string | undefined> {
     if (this._fn.getCmt() === undefined) {
       this._fn.setCmt(
@@ -288,8 +289,9 @@ export class ProgramModel {
       console.debug(`got this spec from the llm: ${this._fn.getCmt()}`); // !!!!!!
     }
     return this._fn.getCmt();
-  }
+  } // !!!!!!
 
+  // !!!!!!
   public async genInputs(): Promise<FuzzIoElement[][]> {
     const inputs: FuzzIoElement[][] = JSON5.parse(
       await this._query([this.prompt.genInputs()], true)

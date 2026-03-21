@@ -40,6 +40,7 @@ export class Tester {
   protected _function: FunctionDef; // !!!!!!
   protected _compositeInputGenerator: CompositeInputGenerator; // !!!!!
   protected _validators: FunctionRef[] = []; // !!!!!!
+  protected _lastCompiler?: compiler.TypeScriptCompiler; // !!!!!!
 
   protected _results: FuzzTestResults; // !!!!!!
 
@@ -58,7 +59,7 @@ export class Tester {
     }
     this._function = fnList[this._fnName];
 
-    // Get the list of validators
+    // Get the list of property validators
     this._validators = getValidators(this._program, fnList[this._fnName]);
 
     // Options
@@ -93,6 +94,53 @@ export class Tester {
     // Initialize results
     this._results = this._getInitializedResults();
   }
+
+  /**
+   * Returns `true` if the tester is out-of-date or crashed
+   *
+   * @param options FuzzOptions
+   * @returns a reason code if the tester is out-of-date or crashed and `false` otherwise.
+   */
+  public isStale(
+    options: FuzzOptions
+  ):
+    | ReturnType<compiler.TypeScriptCompiler["isStale"]>
+    | "optionschanged"
+    | "crashed" {
+    // Stale: compilation is stale
+    if (this._lastCompiler) {
+      const compilerIsStale = this._lastCompiler.isStale();
+      if (compilerIsStale) {
+        return compilerIsStale;
+      }
+    }
+    // Helper function to select only the options that would trigger
+    // a full retest
+    const retestRelevantOptions = (opt: FuzzOptions): Partial<FuzzOptions> => {
+      return {
+        measures: opt.measures, // affects future test generation
+        useProperty: opt.useProperty, // affects test results
+        useImplicit: opt.useImplicit, // affects test results
+        useHuman: opt.useHuman, // affects test results
+      };
+    };
+
+    // Stale: options are stale
+    if (
+      JSON5.stringify(retestRelevantOptions(options)) !==
+      JSON5.stringify(retestRelevantOptions(this._options))
+    ) {
+      return "optionschanged";
+    }
+
+    // Stale: tester crashed
+    if (this._state === "crashed") {
+      return "crashed";
+    }
+
+    // Not stale
+    return false;
+  } // fn: isStale
 
   // !!!!!!
   protected _getInitializedResults(): FuzzTestResults {
@@ -129,6 +177,7 @@ export class Tester {
   } // !!!!!!
 
   // !!!!!!
+  // can we eliminate this?
   public set options(options: FuzzOptions) {
     // Ensure we have a valid set of Fuzz options
     if (!isOptionValid(options)) {
@@ -138,8 +187,7 @@ export class Tester {
     }
 
     // If we already have an option set and it differs
-    // from the new one, handle the option changes.
-    // Otherwise, just use the new option set
+    // from the new one, use the new options.
     const strOptions = JSON5.stringify(options);
     if (JSON5.stringify(this._options) !== strOptions) {
       this._options = JSON5.parse(strOptions);
@@ -161,19 +209,16 @@ export class Tester {
   // !!!!!!
   public get state(): typeof this._state {
     return this._state;
-    /*
-    // check for validator changes; update validator results? !!!!!!!!
-    // check for program changes; re-compile !!!!!!!!
-
-    return {status: "paused"};
-    */
   } // !!!!!!
 
   // !!!!!!
-  public testSync(injectTests: FuzzPinnedTest[] = []): FuzzTestResults {
+  public testSync(
+    injectTests: FuzzPinnedTest[] = [],
+    mode: FuzzMode = { gen: true }
+  ): FuzzTestResults {
     let result: FuzzTestResults | undefined;
     try {
-      const run = this._run(injectTests);
+      const run = this._run(injectTests, mode);
       while (!result) {
         result = run.next().value;
       }
@@ -189,11 +234,15 @@ export class Tester {
   // !!!!!!
   public async testAsync(
     injectTests: FuzzPinnedTest[] = [],
+    mode: FuzzMode = { gen: true },
     callbackFn: (result: FuzzTestResults | Error) => void,
     statusFn?: (payload: FuzzBusyStatusMessage) => void,
     cancelFn?: () => boolean
   ): Promise<void> {
-    this.runBatchAsync(callbackFn, this._run(injectTests, statusFn, cancelFn));
+    this.runBatchAsync(
+      callbackFn,
+      this._run(injectTests, mode, statusFn, cancelFn)
+    );
   } // !!!!!!
 
   // !!!!!!
@@ -232,6 +281,7 @@ export class Tester {
   // !!!!!!
   protected *_run(
     injectTests: FuzzPinnedTest[] = [],
+    mode: FuzzMode = { gen: true },
     updateFn?: (payload: FuzzBusyStatusMessage) => void,
     cancelFn?: () => boolean
   ): Generator<
@@ -269,6 +319,7 @@ export class Tester {
       },
       timers: {
         startTime: performance.now(), // time the tester started in this run
+        startGenTime: 0, // time the tester started generating inputs in this run
       },
     };
 
@@ -296,35 +347,38 @@ export class Tester {
       })
     );
 
+    // Only generate new inputs if running in input generation mode
+    if (mode.gen) {
+      this._compositeInputGenerator.permitGenerators();
+    } else {
+      this._compositeInputGenerator.suppressGenerators();
+    }
+
     // The target will be a TypeScript function, so we must compile
-    // it to JavaScript prior to execution.
+    // it to JavaScript (and possibly instrument it) prior to execution.
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
-    const tsCompiler = new compiler.TypeScriptCompiler(fqSrcFile);
-    const mod = tsCompiler.compile(fqSrcFile, this._measures, update);
+    this._lastCompiler = new compiler.TypeScriptCompiler(fqSrcFile);
+    const mod = this._lastCompiler.compile(this._measures, update);
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
     // Build a test runner for executing tests
     const runner = RunnerFactory(this.env, mod, this._function.getName());
 
+    // Are we currently injecting inputs?
+    let stillInjecting = !!injectTests.length;
+
     update({ msg: `Target ready to test.`, milestone: true, pct: 0.01 });
     this._state = "ready";
 
     // Main test loop
-    // We break out of this loop when any of the following are true:
-    //  (1) We have reached the maximum number of tests
-    //  (2) We have reached the maximum number of duplicate tests
-    //      since the last non-duplicated test
-    //  (3) We have reached the time limit for the test suite to run
-    //  (4) We have reached the maximum number of failed tests
-    // Note: Pinned tests are not counted against the maxTests limit
     while (true) {
       this._state = "running";
       // End the testing run when we encounter a stop condition
       const stopCondition = _checkStopCondition(
         this._options,
         this._compositeInputGenerator.isAvailable(),
-        this._compositeInputGenerator.noGenerators(),
+        stillInjecting,
         injectTests.length,
         !!cancelFn && cancelFn(),
         runStats
@@ -411,7 +465,7 @@ export class Tester {
             JSON5.stringify(this._results)
           );
           update({
-            msg: ` - Wrote results to: ${this._options.outputFile}`,
+            msg: `Wrote results to: ${this._options.outputFile}`,
             milestone: true,
           });
         }
@@ -478,10 +532,8 @@ export class Tester {
       genStats.timers.gen += result.timers.gen;
       this._results.stats.timers.gen += result.timers.gen;
 
-      // Handle injected vs. generated tests differently, e.g.,
-      // 1. injected tests do not count against the maxTests limit
-      // 2. injected tests may or may not have an expected result
-      // 3. pinned tests stay pinned
+      // Handle injected and generated tests differently, e.g.,
+      // we need to retain any saved details for injected tests.
       if (genInput.injected) {
         // Ensure the injected inputs are in the expected order
         const expectedInput = JSON5.stringify(
@@ -498,11 +550,7 @@ export class Tester {
         // Map the injected test information to the new result
         const pinnedTest = injectTests[runStats.counters.inputsInjected];
         result.pinned = !!pinnedTest.pinned;
-        if (result.pinned) {
-          console.debug(`pinned: ${expectedInput}`); // !!!!!!!!
-        }
         if (pinnedTest.expectedOutput) {
-          console.debug(`expout: ${expectedInput}`); // !!!!!!!!
           result.expectedOutput = pinnedTest.expectedOutput;
         }
         runStats.counters.inputsInjected++; // increment the number of pinned tests injected
@@ -510,6 +558,14 @@ export class Tester {
         // Increment the number of inputs generated
         runStats.counters.inputsGenerated++;
         genStats.counters.inputsGenerated++;
+
+        // Log the generation start time
+        if (runStats.timers.startGenTime === 0) {
+          runStats.timers.startGenTime = startGenTime;
+        }
+
+        // Indicate that we are no longer injecting inputs
+        stillInjecting = false;
       }
 
       // Prepare measures for next test execution
@@ -543,7 +599,7 @@ export class Tester {
       // Front-end status update
       /* !!!!!!!! Return values rather than text here. Also "failed" is unclear. */
       update({
-        msg: `Testing input# ${
+        msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Generating new"} input# ${
           runStats.counters.passedTests + runStats.counters.failedTests + 1
         }: ${this._function.getName()}(${result.input
           .map((i) => JSON5.stringify(i.value))
@@ -743,26 +799,39 @@ export type CurrentRunStats = {
     inputsGenerated: number; // number of inputs generated so far
     dupesGenerated: number; // number of duplicate inputs generated so far
     dupesSequential: number; // current number of duplicate inputs generated in a row
-    failedTests: number; // number of failed tests encountered so far
-    passedTests: number; // number of passed tests encountered so far
+    failedTests: number; // number of failed tests so far
+    passedTests: number; // number of passed tests so far
   };
   timers: {
     startTime: number; // time the tester started in this run
+    startGenTime: number; // time the tester started generating new inputs
   };
 };
 
 /**
- * Checks whether the fuzzer should stop fuzzing. If so, return the reason.
+ * Returns either a readon for the fuzzer to stop fuzzing or a percentage
+ * representing progress toward the nearest stop condition.
  *
- * @param `env` fuzz environment
+ * Reasons to stop:
+ *  - We have reached the maximum number of tests
+ *  - We have reached the maximum number of duplicate tests
+ *    since the last non-duplicated test
+ *  - We have reached the time limit for the test suite to run
+ *  - We have reached the maximum number of failed tests
+ * Note: Injected tests are not counted against many limits
+ *
+ * @param `options` fuzzer options
  * @param `moreInputs` indicates whether more inputs can be produced
+ * @param `injecting` indicates whether still injecting inputs
+ * @param `injectCount` number of inputs injected
  * @param `userCancel` indicates whether the user cancelled testing
+ * @param `stats` fuzzer stats
  * @returns either the stop reason or percentage complete
  */
 const _checkStopCondition = (
   options: FuzzOptions,
   moreInputs: boolean,
-  injectOnly: boolean,
+  injecting: boolean,
   injectCount: number,
   userCancel: boolean,
   stats: CurrentRunStats
@@ -770,17 +839,19 @@ const _checkStopCondition = (
   const pcts: number[] = [0];
   const now = performance.now();
 
-  // End testing if the user cancels it exceed the suite timeou
-  if (userCancel) {
+  // End testing if the user cancels but not yet if still injecting
+  // inputs because if we stop we lose those.
+  if (userCancel && !injecting) {
     return FuzzStopReason.CANCEL;
   }
 
-  // End testing if we exceed the suite timeout
-  if (options.suiteTimeout > 0) {
-    if (now - stats.timers.startTime >= options.suiteTimeout) {
+  // End testing if we exceed the suite timeout, which here we measure
+  // from the time of the first input generation.
+  if (options.suiteTimeout > 0 && stats.timers.startGenTime > 0) {
+    if (now - stats.timers.startGenTime >= options.suiteTimeout) {
       return FuzzStopReason.MAXTIME;
     }
-    pcts.push((now - stats.timers.startTime) / options.suiteTimeout);
+    pcts.push((now - stats.timers.startGenTime) / options.suiteTimeout);
   }
 
   // End testing if we exceed the maximum number of generated tests
@@ -796,12 +867,14 @@ const _checkStopCondition = (
   );
 
   // End testing if we exceed the maximum number of failures
+  /*
   if (options.maxFailures > 0) {
     if (stats.counters.failedTests >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
     pcts.push(stats.counters.failedTests / options.maxFailures);
   }
+  */
 
   // End testing if we exceed the maximum number of sequential duplicates generated
   if (stats.counters.dupesSequential >= options.maxDupeInputs) {
@@ -813,7 +886,7 @@ const _checkStopCondition = (
   if (!moreInputs) {
     return FuzzStopReason.NOMOREINPUTS;
   }
-  if (injectOnly) {
+  if (injecting) {
     pcts.push(stats.counters.inputsInjected / injectCount);
   }
 
@@ -1091,6 +1164,13 @@ export type FuzzTestStats = {
   measures: {
     CodeCoverageMeasure?: CodeCoverageMeasureStats;
   };
+};
+
+/**
+ * Fuzzer mode
+ */
+export type FuzzMode = {
+  gen?: true;
 };
 
 export * from "./analysis/typescript/ProgramDef";

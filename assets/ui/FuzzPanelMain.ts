@@ -20,7 +20,7 @@ import {
   ArgValueTypeWrapped,
   FuzzTestResults,
 } from "fuzzer/Fuzzer";
-import { FuzzPanelFuzzStartMessage, FuzzPanelPinMessage } from "ui/FuzzPanel";
+import { FuzzPanelFuzzRunMessage, FuzzPanelPinMessage } from "ui/FuzzPanel";
 
 const vscode = acquireVsCodeApi();
 
@@ -116,14 +116,14 @@ let validators: { validators: string[] };
  * event handlers and filling the output grids if data is available.
  */
 function main() {
-  // Add event listener for the fuzz.start button
-  getElementByIdOrThrow("fuzz.start").addEventListener("click", () => {
-    handleFuzzStart();
+  // Add event listener for the fuzz.run button
+  getElementByIdOrThrow("fuzz.run").addEventListener("click", () => {
+    handleFuzzRun();
   });
 
-  // Add event listener for the fuzz.rerun button
-  getElementByIdOrThrow("fuzz.rerun").addEventListener("click", () => {
-    handleFuzzRerun();
+  // Add event listener for the fuzz.retest button
+  getElementByIdOrThrow("fuzz.retest").addEventListener("click", () => {
+    handleFuzzRetest();
   });
 
   // Add event listener for the fuzz.clear button
@@ -1798,35 +1798,32 @@ function buildExpectedTestCase(
 } // fn: buildExpectedTestCase()
 
 /**
- * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
+ * Handles the fuzz.run button onClick() event: retrieves the fuzzer options
  * from the UI and sends them to the extension to start the fuzzer.
  */
-function handleFuzzStart() {
-  // Send the fuzzer start command to the extension
+function handleFuzzRun() {
   vscode.postMessage({
-    command: "fuzz.start",
+    command: "fuzz.run",
     json: JSON5.stringify(getConfigFromUi()),
   });
-} // fn: handleFuzzStart
+} // fn: handleFuzzRun
 
 /**
- * Handles the fuzz.rerun button onClick() event: retrieves the fuzzer options
+ * Handles the fuzz.retest button onClick() event: retrieves the fuzzer options
  * from the UI and sends them to the extension to start the fuzzer.
  */
-function handleFuzzRerun() {
-  // Send the fuzzer rerun command to the extension
+function handleFuzzRetest() {
   vscode.postMessage({
-    command: "fuzz.rerun",
+    command: "fuzz.retest",
     json: JSON5.stringify(getConfigFromUi()),
   });
-} // fn: handleFuzzRerun
+} // fn: handleFuzzRetest
 
 /**
  * Handles the fuzz.clear button onClick() event: retrieves the fuzzer options
  * from the UI and sends them to the extension to clear the FuzzPanel
  */
 function handleFuzzClear() {
-  // Send the fuzzer rerun command to the extension
   vscode.postMessage({
     command: "fuzz.clear",
     json: JSON5.stringify(getConfigFromUi()),
@@ -1855,9 +1852,9 @@ function disableUiControls(disableArr: EventTarget[]): void {
  * Returns the on-screen fuzzer configuration.
  * Also disables controls in preparation for calling fuzzer.
  *
- * @returns FuzzPanelFuzzStartMessage containing the configuration
+ * @returns FuzzPanelFuzzRunMessage containing the configuration
  */
-function getConfigFromUi(): FuzzPanelFuzzStartMessage {
+function getConfigFromUi(): FuzzPanelFuzzRunMessage {
   const fuzzBase = "fuzz"; // Base html id name
 
   // Get input elements
@@ -1882,7 +1879,7 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
 
   // List of controls to disable while fuzzer is busy
   const disableArr = [
-    getElementByIdOrThrow("fuzz.start"),
+    getElementByIdOrThrow("fuzz.run"),
     document.getElementById("fuzz.addTestInput"), // may be null
     MutationInputGeneratorEnabled,
     CoverageMeasureEnabled,
@@ -1913,7 +1910,7 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
   };
 
   // Fuzzer option overrides (from UI)
-  const overrides: FuzzPanelFuzzStartMessage = {
+  const overrides: FuzzPanelFuzzRunMessage = {
     fuzzer: {
       maxTests: getIntValue("maxTests"),
       maxDupeInputs: getIntValue("maxDupeInputs"),

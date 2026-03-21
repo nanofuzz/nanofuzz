@@ -187,7 +187,8 @@ td.classErrorOn:active {
 [appearance="secondary icon depressed"] {
   background: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);
-  box-shadow: inset 1px 1px var(--vscode-button-background),
+  box-shadow:
+    inset 1px 1px var(--vscode-button-background),
     inset -1px -1px var(--vscode-button-background);
 }
 
@@ -452,7 +453,7 @@ div.fuzzInputControlGroup {
 }
 .fuzzResultHeading {
   font-size: 1.25em;
-  margin-bottom: 0.7em;
+  margin-bottom: 0.25em;
 }
 .fuzzResultHeading + p {
   margin-top: 0.7em;

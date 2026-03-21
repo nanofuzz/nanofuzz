@@ -45,6 +45,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   private readonly _L = 500; // Lookback window size for history !!!!!!! externalize
   private readonly _chunkSize = 20; // Re-evaluate subgen after _chunkSize inputs generated !!!!!!! externalize
   private readonly _P = 0.1; // Additional chance of subgen exploration !!!!!!! externalize
+  private _permitSubgens = true; // Allow generators to produce inputs
   public static readonly INJECTED = "injected";
 
   /**
@@ -87,25 +88,37 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   public isAvailable(): boolean {
     return (
       !!this._injectedInputs.length ||
-      this._subgens.some((g, i) => this._activeSubgens[i] && g.isAvailable())
+      (this._permitSubgens &&
+        this._subgens.some((g, i) => this._activeSubgens[i] && g.isAvailable()))
     );
   } // fn: isAvailable
 
-  // !!!!!!
-  public noGenerators(): boolean {
-    return !this._subgens.some(
-      (g, i) => this._activeSubgens[i] && g.isAvailable()
-    );
-  } // !!!!!!
+  /**
+   * Suppress all input generators. Input injection
+   * is unaffected.
+   */
+  public suppressGenerators(): void {
+    this._permitSubgens = false;
+  } // fn: suppressGenerators
 
-  // !!!!!!
+  /**
+   * Allow input generators to generate inputs.
+   */
+  public permitGenerators(): void {
+    this._permitSubgens = true;
+  } // fn: permitGenerators
+
+  /**
+   * Updates input generator options and enables/disables
+   * input generators accordingly.
+   */
   public set options(options: FuzzOptions["generators"]) {
     const _options: Record<string, typeof options.RandomInputGenerator> =
       options; // happify the type checker
     this._activeSubgens = this._subgens.map((m) =>
       m.name in _options ? _options[m.name].enabled : false
     );
-  } // !!!!!!
+  } // setter: options
 
   /**
    * Inject predefined inputs into the queue. These inputs will be produced
@@ -137,6 +150,13 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         };
         return this._lastInput;
       }
+    }
+
+    // Make sure we are permitted to generate inputs
+    if (!this._permitSubgens) {
+      throw new Error(
+        "Injected inputs exhausted and input generators are suppressed."
+      );
     }
 
     // If the prior chunk of generated inputs is exhausted or the
