@@ -712,6 +712,7 @@ function getInputValues(): ArgValueTypeWrapped[] | undefined {
       message.innerHTML = "";
       // Attempt to parse & add the input value
       inputs.push({
+        tag: "ArgValueTypeWrapped",
         value:
           unparsedValue === null ||
           unparsedValue === "undefined" ||
