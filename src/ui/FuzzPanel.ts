@@ -3132,21 +3132,6 @@ function toPrettyList(inList: string[]): string {
       );
 } // fn: toPrettyList()
 
-// !!!!!!
-function optionsNoGenerators(options: fuzzer.FuzzOptions): fuzzer.FuzzOptions {
-  const gens: typeof options.generators = JSON5.parse(
-    JSON5.stringify(options.generators)
-  );
-  let k: keyof typeof gens;
-  for (k in gens) {
-    gens[k].enabled = false;
-  }
-  return {
-    ...options,
-    generators: gens,
-  };
-} // !!!!!!
-
 /**
  * Initializes the module
  *

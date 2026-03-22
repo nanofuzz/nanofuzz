@@ -103,7 +103,6 @@ export class TypeScriptCompiler {
 
     // Hook require to compile ts files
     require.extensions[hookType] = (module) => {
-      const compilationNeeded = this.isStale(module.filename);
       // Compile the Typescript file if the compiled output is stale
       const jsname = !this.isStale(module.filename)
         ? _globalCompiledModules[module.filename].jsname

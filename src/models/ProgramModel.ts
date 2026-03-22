@@ -9,6 +9,7 @@ import { ArgDef } from "../fuzzer/analysis/typescript/ArgDef";
 import { FunctionDef } from "../fuzzer/analysis/typescript/FunctionDef";
 import { FuzzArgOverride, FuzzIoElement } from "../fuzzer/Types";
 import * as nodellm from "@node-llm/core";
+import { ArgDefValidator } from "../fuzzer/analysis/typescript/ArgDefValidator";
 
 // !!!!!!!
 let vscode: any = undefined;
@@ -281,18 +282,8 @@ export class ProgramModel {
   } // !!!!!!
 
   // !!!!!!
-  public async genSpec(): Promise<string | undefined> {
-    if (this._fn.getCmt() === undefined) {
-      this._fn.setCmt(
-        JSON5.parse(await this._query([this.prompt.genSpec()])).spec.join("\n")
-      );
-      console.debug(`got this spec from the llm: ${this._fn.getCmt()}`); // !!!!!!
-    }
-    return this._fn.getCmt();
-  } // !!!!!!
-
-  // !!!!!!
   public async genInputs(): Promise<FuzzIoElement[][]> {
+    const validator = new ArgDefValidator(this._fn.getArgDefs());
     const inputs: FuzzIoElement[][] = JSON5.parse(
       await this._query([this.prompt.genInputs()], true)
     );
@@ -310,8 +301,23 @@ export class ProgramModel {
     */
     console.debug(
       `got these inputs from the llm: ${JSON5.stringify(inputs, null, 2)}`
-    ); // !!!!!!
-    return inputs;
+    ); // !!!!!!!!!
+    const validInputs = inputs.filter((e) =>
+      validator.validate(
+        e.map((i) => {
+          return {
+            tag: "ArgValueTypeWrapped",
+            value: i.value,
+          };
+        })
+      )
+    );
+    if (inputs.length !== validInputs.length) {
+      console.debug(
+        `but only these inputs were valid: ${JSON5.stringify(validInputs, null, 2)}`
+      ); // !!!!!!!!!
+    }
+    return validInputs;
   } // !!!!!!
 
   // !!!!!!
@@ -355,23 +361,6 @@ export class ProgramModel {
   protected prompt = {
     system: (): string => {
       return `You are writing correct, secure, understandable, efficient TypeScript code and are aware of the important differences between TypeScript’s === and == operators.`;
-    },
-    genSpec: (): string => {
-      const vars = this._getPromptVars();
-      return `Generate a natural language specification for the “${vars.fnName}” program in docstring format using TypeDoc annotations such as @param and @returns. Include remarks but do not include the @remarks annotation. Do not include the source code of the "${vars.fnName}" program. Do not include the function signature. Return the specification in this JSON schema format: 
-\`\`\`
-{spec: string[]}
-\`\`\`
-
-A JSON Schema descrbing the concrete inputs and outputs:
-\`\`\`
-${vars.fnSchema}
-\`\`\`
-
-The "${vars.fnName}" program:
-\`\`\`
-${vars.fnSource}
-\`\`\``;
     },
     genInputs: (): string => {
       const vars = this._getPromptVars();

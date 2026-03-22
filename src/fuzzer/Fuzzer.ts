@@ -339,6 +339,7 @@ export class Tester {
         return {
           value: t.input.map((i) => {
             return {
+              tag: "ArgValueTypeWrapped",
               value: i.value,
             };
           }),
