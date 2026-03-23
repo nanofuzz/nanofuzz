@@ -2,7 +2,7 @@ import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { ArgValueTypeWrapped } from "../analysis/typescript/Types";
 import { InputAndSource } from "./../Types";
 import * as JSON5 from "json5";
-import { ProgramModel } from "../../models/ProgramModel";
+import { LlmAdapter } from "../adapters/LlmAdapter";
 import { FunctionDef } from "../Fuzzer";
 import { ArgDefValidator } from "../analysis/typescript/ArgDefValidator";
 
@@ -13,7 +13,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _inputCache: InputAndSource[] = []; // Cache of valid, generated inputs
   protected _usedInputs: InputAndSource[] = []; // Used inputs
   protected _fn: FunctionDef; // Function target for inputs
-  protected _model?: ProgramModel; // Back-end AI model
+  protected _llm?: LlmAdapter; // Back-end AI model
   protected _callsPending = 0; // Number of calls to AI model pending
 
   /**
@@ -44,16 +44,16 @@ export class AiInputGenerator extends AbstractInputGenerator {
   public onRunStart(active: boolean): void {
     // Abandon back-end if stale or no longer configured
     if (
-      this._model &&
-      (!active || !ProgramModel.isConfigured() || this._model.isStale())
+      this._llm &&
+      (!active || !LlmAdapter.isConfigured() || this._llm.isStale())
     ) {
-      this._model = undefined;
+      this._llm = undefined;
       this._inputCache = []; // flush the cache to avoid user confusion
     }
 
     // Create new back-end if configured but not yet loaded
-    if (active && !this._model && ProgramModel.isConfigured()) {
-      this._model = new ProgramModel(this._fn, this._specs);
+    if (active && !this._llm && LlmAdapter.isConfigured()) {
+      this._llm = new LlmAdapter(this._fn, this._specs);
       if (!this._inputCache.length) {
         this._getMoreInputs();
       }
@@ -70,7 +70,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
     }
 
     // Refill the cache if it's empty
-    if (this._model && !this._inputCache.length) {
+    if (this._llm && !this._inputCache.length) {
       this._getMoreInputs();
     }
 
@@ -105,12 +105,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
     // Bounce off the stack so we don't block the main fuzzer loop
     process.nextTick(async () => {
-      if (this._model) {
-        const modelId = this._model.id;
+      if (this._llm) {
+        const modelId = this._llm.id;
         this._callsPending++;
         try {
           this._inputCache.push(
-            ...(await this._model.genInputs())
+            ...(await this._llm.genInputs())
               .map((inputSet): InputAndSource => {
                 return {
                   tick: 0,

@@ -1,11 +1,10 @@
-import { ArgTag, ArgType } from "../fuzzer/analysis/typescript/Types";
+import { ArgTag, ArgType } from "../analysis/typescript/Types";
 import * as JSON5 from "json5";
-import { ModelArgOverrides, ModelArgOverridesBase } from "./Types";
-import { ArgDef } from "../fuzzer/analysis/typescript/ArgDef";
-import { FunctionDef } from "../fuzzer/analysis/typescript/FunctionDef";
-import { FuzzArgOverride, FuzzIoElement } from "../fuzzer/Types";
+import { ArgDef } from "../analysis/typescript/ArgDef";
+import { FunctionDef } from "../analysis/typescript/FunctionDef";
+import { FuzzArgOverride, FuzzIoElement } from "../Types";
 import * as nodellm from "@node-llm/core";
-import { ArgDefValidator } from "../fuzzer/analysis/typescript/ArgDefValidator";
+import { ArgDefValidator } from "../analysis/typescript/ArgDefValidator";
 
 // !!!!!!!
 let vscode: any = undefined;
@@ -16,7 +15,7 @@ try {
 }
 
 // !!!!!!
-export class ProgramModel {
+export class LlmAdapter {
   protected _fn: FunctionDef; // !!!!!!
   protected _specs: ArgDef<ArgType>[]; // !!!!!!
   protected _state: "ready" | "busy" | "failed" = "ready"; // !!!!!!
@@ -31,10 +30,10 @@ export class ProgramModel {
     this._fn = fn;
     this._specs = specs;
 
-    const cfg = ProgramModel._getConfig();
+    const cfg = LlmAdapter._getConfig();
     this._cfgHash = JSON5.stringify(cfg);
 
-    if (!ProgramModel.isConfigured()) {
+    if (!LlmAdapter.isConfigured()) {
       throw new Error("AI Models are disabled");
     }
 
@@ -42,8 +41,8 @@ export class ProgramModel {
     this._modelConfig = {
       provider: cfg.provider,
       retry: {
-        attempts: ProgramModel._getConfigValue("retries", 5),
-        delayMs: ProgramModel._getConfigValue("retryDelay", 1000),
+        attempts: LlmAdapter._getConfigValue("retries", 5),
+        delayMs: LlmAdapter._getConfigValue("retryDelay", 1000),
       },
     };
 
@@ -62,7 +61,7 @@ export class ProgramModel {
 
   // !!!!!!
   public isStale(): boolean {
-    return JSON5.stringify(ProgramModel._getConfig()) !== this._cfgHash;
+    return JSON5.stringify(LlmAdapter._getConfig()) !== this._cfgHash;
   } // !!!!!!
 
   // !!!!!!
@@ -72,7 +71,7 @@ export class ProgramModel {
 
   // !!!!!!
   public static isConfigured(): boolean {
-    const cfg = ProgramModel._getConfig();
+    const cfg = LlmAdapter._getConfig();
     return vscode ? cfg.provider !== "disabled" && cfg.modelName !== "" : false;
   } // !!!!!!
 
@@ -83,9 +82,9 @@ export class ProgramModel {
     apiKey: string;
   } {
     return {
-      provider: ProgramModel._getConfigValue("provider", "disabled"),
-      modelName: ProgramModel._getConfigValue("model", ""),
-      apiKey: ProgramModel._getConfigValue("apiKey", ""),
+      provider: LlmAdapter._getConfigValue("provider", "disabled"),
+      modelName: LlmAdapter._getConfigValue("model", ""),
+      apiKey: LlmAdapter._getConfigValue("apiKey", ""),
     };
   } // !!!!!!
 
@@ -109,9 +108,9 @@ export class ProgramModel {
       fnName: fnRef.name,
       fnSource: fnRef.src,
       fnSpec: this._fn.getCmt() ?? "", // !!!!!!!! should get spec here
-      fnSchema: ProgramModel.getFuzzInputElements(this._fn),
+      fnSchema: LlmAdapter.getFuzzInputElements(this._fn),
       fnOverrides: JSON5.stringify(
-        ProgramModel.getModelArgOverrides(this._specs),
+        LlmAdapter.getModelArgOverrides(this._specs),
         null,
         2
       ),
@@ -294,7 +293,7 @@ export class ProgramModel {
       result.push(fuzzArg);
 
       if ("children" in modelArg) {
-        result.push(...ProgramModel.toArgOverrides(modelArg.children));
+        result.push(...LlmAdapter.toArgOverrides(modelArg.children));
       }
     });
 
@@ -413,3 +412,47 @@ ${vars.fnSpec}
     },
   }; // !!!!!!
 } // !!!!!!
+
+/** !!!!!! */
+export type ModelArgOverrides =
+  | ModelArgOverridesNumber
+  | ModelArgOverridesBoolean
+  | ModelArgOverridesString
+  | ModelArgOverridesObject
+  | ModelArgOverridesLiteral
+  | ModelArgOverridesUnion;
+export type ModelArgOverridesBase = {
+  type: string;
+  name?: string;
+  typeName?: string;
+  arrayDimensions: { minLength: number; maxLength: number }[];
+};
+export type ModelArgOverridesNumber = ModelArgOverridesBase & {
+  number: {
+    minValue: number;
+    maxValue: number;
+    onlyIntegers: boolean;
+  };
+};
+export type ModelArgOverridesBoolean = ModelArgOverridesBase & {
+  boolean: {
+    minValue: boolean;
+    maxValue: boolean;
+  };
+};
+export type ModelArgOverridesString = ModelArgOverridesBase & {
+  string: {
+    minLength: number;
+    maxLength: number;
+    charSet: string;
+  };
+};
+export type ModelArgOverridesObject = ModelArgOverridesBase & {
+  children: ModelArgOverrides[];
+};
+export type ModelArgOverridesLiteral = ModelArgOverridesBase & {
+  literalValue: ArgType | undefined;
+};
+export type ModelArgOverridesUnion = ModelArgOverridesBase & {
+  children: ModelArgOverrides[];
+};
