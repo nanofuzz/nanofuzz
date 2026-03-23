@@ -34,7 +34,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    *
    * @returns true if generator is available, false otherwise
    */
-  public isAvailable(): boolean {
+  public nextable(): boolean {
     return !!this._leaderboard.length;
   } // fn: isAvailable
 

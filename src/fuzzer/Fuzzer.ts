@@ -355,6 +355,9 @@ export class Tester {
       this._compositeInputGenerator.suppressGenerators();
     }
 
+    // Indicate the start of the run
+    this._compositeInputGenerator.onRunStart(true);
+
     // The target will be a TypeScript function, so we must compile
     // it to JavaScript (and possibly instrument it) prior to execution.
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
@@ -378,7 +381,7 @@ export class Tester {
       // End the testing run when we encounter a stop condition
       const stopCondition = _checkStopCondition(
         this._options,
-        this._compositeInputGenerator.isAvailable(),
+        this._compositeInputGenerator.nextable(),
         stillInjecting,
         injectTests.length,
         !!cancelFn && cancelFn(),

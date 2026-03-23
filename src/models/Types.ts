@@ -1,3 +1,5 @@
+import { ArgType } from "../fuzzer/Fuzzer";
+
 /** !!!!!! */
 export type ModelArgOverrides =
   | ModelArgOverridesNumber
@@ -5,7 +7,7 @@ export type ModelArgOverrides =
   | ModelArgOverridesString
   | ModelArgOverridesObject
   | ModelArgOverridesLiteral
-  | ModelArgOverrideUnion;
+  | ModelArgOverridesUnion;
 export type ModelArgOverridesBase = {
   type: string;
   name?: string;
@@ -35,7 +37,9 @@ export type ModelArgOverridesString = ModelArgOverridesBase & {
 export type ModelArgOverridesObject = ModelArgOverridesBase & {
   children: ModelArgOverrides[];
 };
-export type ModelArgOverridesLiteral = ModelArgOverridesBase;
-export type ModelArgOverrideUnion = ModelArgOverridesBase & {
+export type ModelArgOverridesLiteral = ModelArgOverridesBase & {
+  literalValue: ArgType | undefined;
+};
+export type ModelArgOverridesUnion = ModelArgOverridesBase & {
   children: ModelArgOverrides[];
 };

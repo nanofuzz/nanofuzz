@@ -1,10 +1,6 @@
-import {
-  ArgTag,
-  ArgType,
-  FunctionRef,
-} from "../fuzzer/analysis/typescript/Types";
+import { ArgTag, ArgType } from "../fuzzer/analysis/typescript/Types";
 import * as JSON5 from "json5";
-import { ModelArgOverrides } from "./Types";
+import { ModelArgOverrides, ModelArgOverridesBase } from "./Types";
 import { ArgDef } from "../fuzzer/analysis/typescript/ArgDef";
 import { FunctionDef } from "../fuzzer/analysis/typescript/FunctionDef";
 import { FuzzArgOverride, FuzzIoElement } from "../fuzzer/Types";
@@ -22,67 +18,79 @@ try {
 // !!!!!!
 export class ProgramModel {
   protected _fn: FunctionDef; // !!!!!!
-  protected _fnRef: FunctionRef; // !!!!!!
+  protected _specs: ArgDef<ArgType>[]; // !!!!!!
   protected _state: "ready" | "busy" | "failed" = "ready"; // !!!!!!
-  protected _inputSchema; // !!!!!!
-  protected _overrides; // !!!!!!
   protected _modelConfig: Parameters<typeof nodellm.createLLM>[0] = {}; // !!!!!!
-  protected _model: nodellm.NodeLLMCore; // !!!!!!
+  protected _backend: nodellm.NodeLLMCore; // !!!!!!
   protected _chat: nodellm.Chat; // !!!!!!
   protected _promptCache: Record<string, string> = {}; // !!!!!!
+  protected _cfgHash: string; // !!!!!!
 
   /** !!!!!! */
-  public constructor(fn: FunctionDef) {
+  public constructor(fn: FunctionDef, specs: ArgDef<ArgType>[]) {
     this._fn = fn;
-    this._fnRef = fn.getRef();
-    this._inputSchema = ProgramModel.getFuzzInputElements(this._fn);
-    this._overrides = ProgramModel.getModelArgOverrides(this._fn);
+    this._specs = specs;
 
-    const provider: string = ProgramModel._getConfig("provider", "disabled");
-    const apiKey = ProgramModel._getConfig("apiKey", "");
-    const modelName = ProgramModel._getConfig("model", "");
+    const cfg = ProgramModel._getConfig();
+    this._cfgHash = JSON5.stringify(cfg);
 
-    if (provider === "disabled") {
+    if (!ProgramModel.isConfigured()) {
       throw new Error("AI Models are disabled");
     }
 
     // Configure model from NaNofuzz settings
     this._modelConfig = {
-      provider: provider,
+      provider: cfg.provider,
       retry: {
-        attempts: ProgramModel._getConfig("retries", 5),
-        delayMs: ProgramModel._getConfig("retryDelay", 1000),
+        attempts: ProgramModel._getConfigValue("retries", 5),
+        delayMs: ProgramModel._getConfigValue("retryDelay", 1000),
       },
     };
 
     // If apikey is defined, add it to the config.
     // Otherwise, let @node-llm try to infer it from env
-    if (apiKey !== "") {
-      (this._modelConfig as any)[`${provider}ApiKey`] = apiKey;
+    if (cfg.apiKey !== "") {
+      (this._modelConfig as any)[`${cfg.provider}ApiKey`] = cfg.apiKey;
     }
 
     // Create the model chat session
-    this._model = nodellm.createLLM(this._modelConfig);
-    this._chat = this._model.chat(modelName, {
+    this._backend = nodellm.createLLM(this._modelConfig);
+    this._chat = this._backend.chat(cfg.modelName, {
       systemPrompt: this.prompt.system(),
     });
   } // !!!!!!
 
   // !!!!!!
-  public static isConfigured(): boolean {
-    return vscode
-      ? ProgramModel._getConfig("provider", "disabled") !== "disabled" &&
-          ProgramModel._getConfig("model", "") !== ""
-      : false;
+  public isStale(): boolean {
+    return JSON5.stringify(ProgramModel._getConfig()) !== this._cfgHash;
   } // !!!!!!
 
   // !!!!!!
   public get id(): string | undefined {
-    return `v=${this._model.provider?.id},n=${this._chat.modelId}`;
+    return `v=${this._backend.provider?.id},n=${this._chat.modelId}`;
   } /// !!!!!!!!!
 
+  // !!!!!!
+  public static isConfigured(): boolean {
+    const cfg = ProgramModel._getConfig();
+    return vscode ? cfg.provider !== "disabled" && cfg.modelName !== "" : false;
+  } // !!!!!!
+
   /** !!!!!! */
-  protected static _getConfig<T>(section: string, dft: T): T {
+  protected static _getConfig(): {
+    provider: string;
+    modelName: string;
+    apiKey: string;
+  } {
+    return {
+      provider: ProgramModel._getConfigValue("provider", "disabled"),
+      modelName: ProgramModel._getConfigValue("model", ""),
+      apiKey: ProgramModel._getConfigValue("apiKey", ""),
+    };
+  } // !!!!!!
+
+  // !!!!!!
+  protected static _getConfigValue<T>(section: string, dft: T): T {
     return vscode !== undefined
       ? vscode.workspace.getConfiguration("nanofuzz.ai").get(section, dft)
       : dft;
@@ -96,12 +104,17 @@ export class ProgramModel {
     fnSchema: string;
     fnOverrides: string;
   } {
+    const fnRef = this._fn.getRef();
     return {
-      fnName: this._fnRef.name,
-      fnSource: this._fnRef.src,
+      fnName: fnRef.name,
+      fnSource: fnRef.src,
       fnSpec: this._fn.getCmt() ?? "", // !!!!!!!! should get spec here
-      fnSchema: this._inputSchema,
-      fnOverrides: JSON5.stringify(this._overrides, null, 2),
+      fnSchema: ProgramModel.getFuzzInputElements(this._fn),
+      fnOverrides: JSON5.stringify(
+        ProgramModel.getModelArgOverrides(this._specs),
+        null,
+        2
+      ),
     };
   } // !!!!!!
 
@@ -136,7 +149,9 @@ export class ProgramModel {
   } // !!!!!!
 
   /** !!!!!! */
-  protected static getModelArgOverrides(fn: FunctionDef): ModelArgOverrides[] {
+  protected static getModelArgOverrides(
+    specs: ArgDef<ArgType>[]
+  ): ModelArgOverrides[] {
     // !!!!!!
     const getModelArgOverrideInner = (
       arg: ArgDef<ArgType>
@@ -146,7 +161,7 @@ export class ProgramModel {
       const argTypeRef = arg.getTypeRef();
 
       let argOverride: ModelArgOverrides;
-      const argOverrideBase: ModelArgOverrides = {
+      const argOverrideBase: ModelArgOverridesBase = {
         type: arg.getType(),
         arrayDimensions: argOptions.dimLength.map((dim) => {
           return {
@@ -197,7 +212,10 @@ export class ProgramModel {
           break;
         }
         case ArgTag.LITERAL: {
-          argOverride = argOverrideBase;
+          argOverride = {
+            ...argOverrideBase,
+            literalValue: arg.getConstantValue(),
+          };
           break;
         }
         case ArgTag.OBJECT: {
@@ -205,6 +223,7 @@ export class ProgramModel {
             ...argOverrideBase,
             children: arg
               .getChildren()
+              .filter((child) => !child.isNoInput())
               .map((child) => getModelArgOverrideInner(child)),
           };
           break;
@@ -215,6 +234,7 @@ export class ProgramModel {
             type: arg.getTypeAnnotation({}),
             children: arg
               .getChildren()
+              .filter((child) => !child.isNoInput())
               .map((child) => getModelArgOverrideInner(child)),
           };
           break;
@@ -226,7 +246,7 @@ export class ProgramModel {
       return argOverride;
     };
 
-    return fn.getArgDefs().map((arg) => getModelArgOverrideInner(arg));
+    return specs.map((arg) => getModelArgOverrideInner(arg));
   } // !!!!!!
 
   // !!!!!!
@@ -294,11 +314,12 @@ export class ProgramModel {
       (inputs.length && !Array.isArray(inputs[0]))
     ) {
       console.debug(
-        `The LLM's response is not an array of arrays: ${JSON5.stringify(inputs, null, 2)}.`
+        `Discarded the LLM's response because it is not an array of arrays: ${JSON5.stringify(inputs, null, 2)}.`
       ); // !!!!!!!
       return [];
     }
 
+    // Validate the inputs before returning them !!!!!!!!!! duplicate validation logic for debugging
     const validInputs: FuzzIoElement[][] = [];
     const invalidInputs: FuzzIoElement[][] = [];
     inputs.forEach((e) => {
@@ -373,7 +394,7 @@ Each argument (including sub-arguments) of each program input must satisfy const
 ${vars.fnOverrides}
 \`\`\`
 
-Each program input must be in the following JSON format, which is an array of input values. Only change the "value" field. In each program input, omit any undefined values (e.g., optional inputs). Provide only literal values that are compatible with the type annotations. Even if the input has only a single argument, you still need to output it as an array. 
+Each program input must be in the following JSON format, which is an array of program input values. Only change the "value" field. In each program input, omit any undefined values (e.g., optional inputs). Provide only literal values that are compatible with the type annotations. Even if the input has only a single argument, you still need to output it as an array. 
 \`\`\`
 ${vars.fnSchema}
 \`\`\`

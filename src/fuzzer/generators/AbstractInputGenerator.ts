@@ -34,12 +34,19 @@ export abstract class AbstractInputGenerator {
   public abstract next(): InputAndSource;
 
   /**
-   * Returns true If the generator is presently available for use
+   * Returns true If the generator has inputs available for use
    * and false otherwise.
    */
-  public isAvailable(): boolean {
+  public nextable(): boolean {
     return true;
   } // fn: isAvailable
+
+  /**
+   * Executes any tasks when the test run begins
+   */
+  public onRunStart(_active: boolean): void {
+    return;
+  } // fn: onRunStart
 
   /**
    * Executes any tasks when the test run ends

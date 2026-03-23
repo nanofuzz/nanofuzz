@@ -5,7 +5,6 @@ import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
 import { FuzzOptions, InputAndSource } from "../Types";
-import { ProgramModel } from "../../models/ProgramModel";
 import { getErrorMessageOrJson } from "../Util";
 
 /**
@@ -22,29 +21,9 @@ export function InputGeneratorFactory(
   rngSeed: string | undefined,
   leaderboard: Leaderboard<InputAndSource>
 ): AbstractInputGenerator[] {
-  const generators: AbstractInputGenerator[] = [];
-
-  if (options.RandomInputGenerator.enabled) {
-    generators.push(new RandomInputGenerator(fn.getArgDefs(), rngSeed));
-  }
-
-  if (options.MutationInputGenerator.enabled) {
-    generators.push(
-      new MutationInputGenerator(fn.getArgDefs(), rngSeed, leaderboard)
-    );
-  }
-
-  if (options.AiInputGenerator.enabled && ProgramModel.isConfigured()) {
-    try {
-      generators.push(
-        new AiInputGenerator(fn.getArgDefs(), rngSeed, new ProgramModel(fn))
-      );
-    } catch (e: unknown) {
-      console.error(
-        `AI input generator is enabled and model is configured, but creating it failed: ${getErrorMessageOrJson(e)}`
-      ); // !!!!!!!!!! user feedback
-    }
-  }
-
-  return generators;
+  return [
+    new RandomInputGenerator(fn.getArgDefs(), rngSeed),
+    new MutationInputGenerator(fn.getArgDefs(), rngSeed, leaderboard),
+    new AiInputGenerator(fn, rngSeed),
+  ];
 } // fn: InputGeneratorFactory

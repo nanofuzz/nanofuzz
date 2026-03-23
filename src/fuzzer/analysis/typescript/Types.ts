@@ -135,7 +135,7 @@ export type ArgValueType =
   | ArgValueType[]
   | undefined;
 export type ArgValueTypeWrapped = {
-  tag: "ArgValueTypeWrapped";
+  tag: "ArgValueTypeWrapped"; // otherwise looks identical to FuzzIoElement
   value: ArgValueType;
 }; // Use for arrays
 
