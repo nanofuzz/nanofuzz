@@ -1,37 +1,31 @@
-import { ArgTag, ArgType } from "../analysis/typescript/Types";
+import { ArgValueType } from "../analysis/typescript/Types";
 import * as JSON5 from "json5";
-import { ArgDef } from "../analysis/typescript/ArgDef";
 import { FunctionDef } from "../analysis/typescript/FunctionDef";
-import { FuzzArgOverride, FuzzIoElement } from "../Types";
 import * as nodellm from "@node-llm/core";
-import { ArgDefValidator } from "../analysis/typescript/ArgDefValidator";
 
-// !!!!!!!
+// Try to load the vscode module
 let vscode: any = undefined;
 try {
   vscode = require("vscode");
 } catch (e: unknown) {
-  console.error(`vscode module unavailable: running outside vscode?`);
+  // vscode module unavailable: running outside vscode
 }
 
-// !!!!!!
+process.env["NODELLM_DEBUG"] = "true"; // !!!!!!!!!!
+
+/**
+ * An adapter for chatting with an LLM about the program under test
+ */
 export class LlmAdapter {
-  protected _fn: FunctionDef; // !!!!!!
-  protected _specs: ArgDef<ArgType>[]; // !!!!!!
-  protected _state: "ready" | "busy" | "failed" = "ready"; // !!!!!!
   protected _modelConfig: Parameters<typeof nodellm.createLLM>[0] = {}; // !!!!!!
   protected _backend: nodellm.NodeLLMCore; // !!!!!!
   protected _chat: nodellm.Chat; // !!!!!!
-  protected _promptCache: Record<string, string> = {}; // !!!!!!
-  protected _cfgHash: string; // !!!!!!
+  protected _promptCache: Record<string, string> = {}; // Cache of LLM chats
+  protected _cfgString: string; // LLM config; for detecting config changes
 
-  /** !!!!!! */
-  public constructor(fn: FunctionDef, specs: ArgDef<ArgType>[]) {
-    this._fn = fn;
-    this._specs = specs;
-
+  public constructor() {
     const cfg = LlmAdapter._getConfig();
-    this._cfgHash = JSON5.stringify(cfg);
+    this._cfgString = JSON5.stringify(cfg);
 
     if (!LlmAdapter.isConfigured()) {
       throw new Error("AI Models are disabled");
@@ -55,296 +49,73 @@ export class LlmAdapter {
     // Create the model chat session
     this._backend = nodellm.createLLM(this._modelConfig);
     this._chat = this._backend.chat(cfg.modelName, {
-      systemPrompt: this.prompt.system(),
+      systemPrompt: prompt.system(),
     });
-  } // !!!!!!
+  } // constructor
 
   // !!!!!!
   public isStale(): boolean {
-    return JSON5.stringify(LlmAdapter._getConfig()) !== this._cfgHash;
-  } // !!!!!!
+    return JSON5.stringify(LlmAdapter._getConfig()) !== this._cfgString;
+  } // fn: isStale
 
   // !!!!!!
   public get id(): string | undefined {
     return `v=${this._backend.provider?.id},n=${this._chat.modelId}`;
-  } /// !!!!!!!!!
+  } /// getter: id
 
   // !!!!!!
-  public static isConfigured(): boolean {
-    const cfg = LlmAdapter._getConfig();
-    return vscode ? cfg.provider !== "disabled" && cfg.modelName !== "" : false;
-  } // !!!!!!
+  public async genInputs(
+    fn: FunctionDef,
+    schema?: Parameters<typeof this._chat.withSchema>[0]
+  ): Promise<{
+    programInputs: { [k: string]: ArgValueType }[];
+    error?: "discarded";
+  }> {
+    const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
+      JSON5.parse(
+        await this._query(
+          [prompt.genInputs(this._getPromptVars(fn))],
+          schema,
+          true
+        )
+      );
 
-  /** !!!!!! */
-  protected static _getConfig(): {
-    provider: string;
-    modelName: string;
-    apiKey: string;
-  } {
-    return {
-      provider: LlmAdapter._getConfigValue("provider", "disabled"),
-      modelName: LlmAdapter._getConfigValue("model", ""),
-      apiKey: LlmAdapter._getConfigValue("apiKey", ""),
-    };
-  } // !!!!!!
+    // Sanity check llm output
+    if (
+      !(
+        typeof inputs === "object" &&
+        "programInputs" in inputs &&
+        Array.isArray(inputs.programInputs) &&
+        inputs.programInputs.every(
+          (e) => typeof e === "object" && !Array.isArray(e)
+        )
+      )
+    ) {
+      return { programInputs: [], error: "discarded" };
+    }
 
-  // !!!!!!
-  protected static _getConfigValue<T>(section: string, dft: T): T {
-    return vscode !== undefined
-      ? vscode.workspace.getConfiguration("nanofuzz.ai").get(section, dft)
-      : dft;
-  } // !!!!!!
+    // Deeper validation is the client's role
+    return inputs;
+  } // fn: genInputs
 
-  // !!!!!!
-  protected _getPromptVars(): {
+  // !!!!!!!!! should move this
+  protected _getPromptVars(fn: FunctionDef): {
     fnName: string;
     fnSource: string;
     fnSpec: string;
-    fnSchema: string;
-    fnOverrides: string;
   } {
-    const fnRef = this._fn.getRef();
+    const fnRef = fn.getRef();
     return {
       fnName: fnRef.name,
       fnSource: fnRef.src,
-      fnSpec: this._fn.getCmt() ?? "", // !!!!!!!! should get spec here
-      fnSchema: LlmAdapter.getFuzzInputElements(this._fn),
-      fnOverrides: JSON5.stringify(
-        LlmAdapter.getModelArgOverrides(this._specs),
-        null,
-        2
-      ),
+      fnSpec: fn.getCmt() ?? "", // !!!!!!!! should get spec here
     };
-  } // !!!!!!
-
-  /** !!!!!! */
-  protected static getFuzzInputElements(fn: FunctionDef): string {
-    let i = 0;
-    // Build the FuzzIoElement for each argument
-    const getFuzzIoElement = (arg: ArgDef<ArgType>): string => {
-      const name = arg.isNamed()
-        ? `name:${JSON5.stringify(arg.getName())},`
-        : "";
-      const offset = `offset:${i++},`;
-      const value = `value${
-        arg.isOptional() ? "?" : ""
-      }:${arg.getTypeAnnotation({})},`;
-      const typeRef = arg.getTypeRef() ? `typeName:${arg.getTypeRef()},` : "";
-
-      return `{${name}${offset}${value}${typeRef}}`;
-    };
-
-    const inputs = `[${fn
-      .getArgDefs()
-      .map((arg) => getFuzzIoElement(arg))
-      .join(",")}]`;
-    //const returnArg = fn.getReturnArg();
-    //const outputs = returnArg
-    //  ? `output?: ${getFuzzIoElement(returnArg)}}`
-    //  : fn.isVoid()
-    //  ? ``
-    //  : `output?: any`;
-    return inputs;
-  } // !!!!!!
-
-  /** !!!!!! */
-  protected static getModelArgOverrides(
-    specs: ArgDef<ArgType>[]
-  ): ModelArgOverrides[] {
-    // !!!!!!
-    const getModelArgOverrideInner = (
-      arg: ArgDef<ArgType>
-    ): ModelArgOverrides => {
-      const argIntervals = arg.getIntervals();
-      const argOptions = arg.getOptions();
-      const argTypeRef = arg.getTypeRef();
-
-      let argOverride: ModelArgOverrides;
-      const argOverrideBase: ModelArgOverridesBase = {
-        type: arg.getType(),
-        arrayDimensions: argOptions.dimLength.map((dim) => {
-          return {
-            minLength: dim.min,
-            maxLength: dim.max,
-          };
-        }),
-      };
-
-      if (arg.isNamed()) {
-        argOverrideBase["name"] = arg.getName();
-      }
-      if (argTypeRef) {
-        argOverrideBase["typeName"] = argTypeRef;
-      }
-
-      switch (arg.getType()) {
-        case ArgTag.NUMBER: {
-          argOverride = {
-            ...argOverrideBase,
-            number: {
-              minValue: Number(argIntervals[0].min),
-              maxValue: Number(argIntervals[0].max),
-              onlyIntegers: argOptions.numInteger,
-            },
-          };
-          break;
-        }
-        case ArgTag.BOOLEAN: {
-          argOverride = {
-            ...argOverrideBase,
-            boolean: {
-              minValue: !!argIntervals[0].min,
-              maxValue: !!argIntervals[0].max,
-            },
-          };
-          break;
-        }
-        case ArgTag.STRING: {
-          argOverride = {
-            ...argOverrideBase,
-            string: {
-              minLength: argOptions.strLength.min,
-              maxLength: argOptions.strLength.max,
-              charSet: argOptions.strCharset,
-            },
-          };
-          break;
-        }
-        case ArgTag.LITERAL: {
-          argOverride = {
-            ...argOverrideBase,
-            literalValue: arg.getConstantValue(),
-          };
-          break;
-        }
-        case ArgTag.OBJECT: {
-          argOverride = {
-            ...argOverrideBase,
-            children: arg
-              .getChildren()
-              .filter((child) => !child.isNoInput())
-              .map((child) => getModelArgOverrideInner(child)),
-          };
-          break;
-        }
-        case ArgTag.UNION: {
-          argOverride = {
-            ...argOverrideBase,
-            type: arg.getTypeAnnotation({}),
-            children: arg
-              .getChildren()
-              .filter((child) => !child.isNoInput())
-              .map((child) => getModelArgOverrideInner(child)),
-          };
-          break;
-        }
-        default: {
-          throw new Error(`Unexpected argument type: "${arg.getType()}"`);
-        }
-      }
-      return argOverride;
-    };
-
-    return specs.map((arg) => getModelArgOverrideInner(arg));
-  } // !!!!!!
-
-  // !!!!!!
-  public isAvailable(): boolean {
-    return this._state === "ready";
-  }
-
-  /** !!!!!! */
-  protected static toArgOverrides(
-    modelArgOverrides: ModelArgOverrides[]
-  ): FuzzArgOverride[] {
-    const result: FuzzArgOverride[] = [];
-    modelArgOverrides.forEach((modelArg) => {
-      const fuzzArg: FuzzArgOverride = {};
-      if ("number" in modelArg) {
-        fuzzArg.number = {
-          min: modelArg.number.minValue,
-          max: modelArg.number.maxValue,
-          numInteger: modelArg.number.onlyIntegers,
-        };
-      }
-      if ("boolean" in modelArg) {
-        fuzzArg.boolean = {
-          min: modelArg.boolean.minValue,
-          max: modelArg.boolean.maxValue,
-        };
-      }
-      if ("string" in modelArg) {
-        fuzzArg.string = {
-          minStrLen: modelArg.string.minLength,
-          maxStrLen: modelArg.string.maxLength,
-          strCharset: modelArg.string.charSet,
-        };
-      }
-      if ("arrayDimensions" in modelArg && modelArg.arrayDimensions.length) {
-        fuzzArg.array = {
-          dimLength: modelArg.arrayDimensions.map((modelDim) => {
-            return {
-              min: modelDim.minLength,
-              max: modelDim.maxLength,
-            };
-          }),
-        };
-      }
-      result.push(fuzzArg);
-
-      if ("children" in modelArg) {
-        result.push(...LlmAdapter.toArgOverrides(modelArg.children));
-      }
-    });
-
-    return result;
-  } // !!!!!!
-
-  // !!!!!!
-  public async genInputs(): Promise<FuzzIoElement[][]> {
-    const validator = new ArgDefValidator(this._fn.getArgDefs());
-    const inputs: FuzzIoElement[][] = JSON5.parse(
-      await this._query([this.prompt.genInputs()], true)
-    );
-
-    // Discard the result if it is not an array or arrays
-    if (
-      !Array.isArray(inputs) ||
-      (inputs.length && !Array.isArray(inputs[0]))
-    ) {
-      console.debug(
-        `Discarded the LLM's response because it is not an array of arrays: ${JSON5.stringify(inputs, null, 2)}.`
-      ); // !!!!!!!
-      return [];
-    }
-
-    // Validate the inputs before returning them !!!!!!!!!! duplicate validation logic for debugging
-    const validInputs: FuzzIoElement[][] = [];
-    const invalidInputs: FuzzIoElement[][] = [];
-    inputs.forEach((e) => {
-      (validator.validate(
-        e.map((i) => {
-          return {
-            tag: "ArgValueTypeWrapped",
-            value: i.value,
-          };
-        })
-      )
-        ? validInputs
-        : invalidInputs
-      ).push(e);
-    });
-    if (invalidInputs.length) {
-      console.debug(
-        `Discarded these invalid inputs generated by the LLM: ${JSON5.stringify(invalidInputs, null, 2)}`
-      ); // !!!!!!!!!
-    }
-    return validInputs;
-  } // !!!!!!
+  } // fn: _getPromptVars
 
   // !!!!!!
   private async _query(
     prompt: string[],
+    schema?: Parameters<typeof this._chat.withSchema>[0],
     bypassCache: boolean | undefined = false
   ): Promise<string> {
     const promptSerialized = JSON5.stringify(prompt);
@@ -367,7 +138,7 @@ export class LlmAdapter {
 
       const timer = performance.now();
       const result = (
-        await this._chat
+        await (schema ? this._chat.withSchema(schema) : this._chat)
           .withRequestOptions({
             responseFormat: { type: "json_object" },
           })
@@ -377,82 +148,47 @@ export class LlmAdapter {
       this._promptCache[promptSerialized] = result;
       return result;
     } // !!!!!!
-  } // !!!!!!
+  } // fn: query
 
   // !!!!!!
-  protected prompt = {
-    system: (): string => {
-      return `You are writing correct, secure, understandable, efficient TypeScript code and are aware of the important differences between TypeScript’s === and == operators.`;
-    },
-    genInputs: (): string => {
-      const vars = this._getPromptVars();
-      return `To evaluate whether the following TypeScript program "${vars.fnName}" satisfies its specification, generate 10-20 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+  public static isConfigured(): boolean {
+    const cfg = LlmAdapter._getConfig();
+    return vscode ? cfg.provider !== "disabled" && cfg.modelName !== "" : false;
+  } // fn: isConfigured
 
-Each argument (including sub-arguments) of each program input must satisfy constraints, such as min and max ranges (numbers, booleans), min and max lengths of each string and array dimension, character set restrictions (strings), and whether floats are allowed or only integers (numbers), as defined here:
-\`\`\`
-${vars.fnOverrides}
-\`\`\`
+  /** !!!!!! */
+  protected static _getConfig(): {
+    provider: string;
+    modelName: string;
+    apiKey: string;
+  } {
+    return {
+      provider: LlmAdapter._getConfigValue("provider", "disabled"),
+      modelName: LlmAdapter._getConfigValue("model", ""),
+      apiKey: LlmAdapter._getConfigValue("apiKey", ""),
+    };
+  } // fn: _getConfig
 
-Each program input must be in the following JSON format, which is an array of program input values. Only change the "value" field. In each program input, omit any undefined values (e.g., optional inputs). Provide only literal values that are compatible with the type annotations. Even if the input has only a single argument, you still need to output it as an array. 
-\`\`\`
-${vars.fnSchema}
-\`\`\`
+  // !!!!!!
+  protected static _getConfigValue<T>(section: string, dft: T): T {
+    return vscode !== undefined
+      ? vscode.workspace.getConfiguration("nanofuzz.ai").get(section, dft)
+      : dft;
+  } // fn: _getConfigValue
+} // class: LlmAdapter
 
-Return an array of 10-20 program inputs in the above JSON format such that you return an array of arrays.
+// !!!!!!
+const prompt = {
+  system: (): string => {
+    return `You are writing correct, secure, understandable, efficient TypeScript code and are aware of the important differences between TypeScript’s === and == operators.`;
+  },
+  genInputs: (vars: ReturnType<LlmAdapter["_getPromptVars"]>): string => {
+    return `To evaluate whether the following TypeScript program "${vars.fnName}" satisfies its specification, generate 10-20 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
 
 The "${vars.fnName}" program:
 \`\`\`
-${vars.fnSource}
-\`\`\`
-    
-The “${vars.fnName}” specification in docstring format:
-\`\`\`
-${vars.fnSpec}
-\`\`\``;
-    },
-  }; // !!!!!!
-} // !!!!!!
-
-/** !!!!!! */
-export type ModelArgOverrides =
-  | ModelArgOverridesNumber
-  | ModelArgOverridesBoolean
-  | ModelArgOverridesString
-  | ModelArgOverridesObject
-  | ModelArgOverridesLiteral
-  | ModelArgOverridesUnion;
-export type ModelArgOverridesBase = {
-  type: string;
-  name?: string;
-  typeName?: string;
-  arrayDimensions: { minLength: number; maxLength: number }[];
-};
-export type ModelArgOverridesNumber = ModelArgOverridesBase & {
-  number: {
-    minValue: number;
-    maxValue: number;
-    onlyIntegers: boolean;
-  };
-};
-export type ModelArgOverridesBoolean = ModelArgOverridesBase & {
-  boolean: {
-    minValue: boolean;
-    maxValue: boolean;
-  };
-};
-export type ModelArgOverridesString = ModelArgOverridesBase & {
-  string: {
-    minLength: number;
-    maxLength: number;
-    charSet: string;
-  };
-};
-export type ModelArgOverridesObject = ModelArgOverridesBase & {
-  children: ModelArgOverrides[];
-};
-export type ModelArgOverridesLiteral = ModelArgOverridesBase & {
-  literalValue: ArgType | undefined;
-};
-export type ModelArgOverridesUnion = ModelArgOverridesBase & {
-  children: ModelArgOverrides[];
+${vars.fnSpec ? `${vars.fnSpec}\r\n` : ""}${vars.fnSource}
+\`\`\`  
+`;
+  },
 };

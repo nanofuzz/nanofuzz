@@ -1,27 +1,26 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
-import { ArgValueTypeWrapped } from "../analysis/typescript/Types";
-import { InputAndSource } from "./../Types";
+import {
+  ArgTag,
+  ArgType,
+  ArgValueType,
+  ArgValueTypeWrapped,
+} from "../analysis/typescript/Types";
 import * as JSON5 from "json5";
 import { LlmAdapter } from "../adapters/LlmAdapter";
-import { FunctionDef } from "../Fuzzer";
+import { ArgDef, FunctionDef, InputAndSource } from "../Fuzzer";
 import { ArgDefValidator } from "../analysis/typescript/ArgDefValidator";
+import * as zod from "zod";
 
 /**
  * Generates new inputs using a large language model
  */
 export class AiInputGenerator extends AbstractInputGenerator {
-  protected _inputCache: InputAndSource[] = []; // Cache of valid, generated inputs
-  protected _usedInputs: InputAndSource[] = []; // Used inputs
+  protected _inputQueue: InputAndSource[] = []; // Cache of valid, generated inputs
   protected _fn: FunctionDef; // Function target for inputs
   protected _llm?: LlmAdapter; // Back-end AI model
   protected _callsPending = 0; // Number of calls to AI model pending
+  protected _stats = _initStats(); // Stats about inputs generated
 
-  /**
-   * Create a MutationInputGenerator
-   *
-   * @param `fn` FunctionDef to target with inputs
-   * @param `rngSeed` Random seed for input generation
-   */
   public constructor(fn: FunctionDef, rngSeed: string | undefined) {
     super(fn.getArgDefs(), rngSeed);
     this._fn = fn;
@@ -33,7 +32,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @returns true if generator inputs are available, false otherwise
    */
   public nextable(): boolean {
-    return !!this._inputCache.length;
+    return !!this._inputQueue.length;
   } // fn: isAvailable
 
   /**
@@ -48,33 +47,36 @@ export class AiInputGenerator extends AbstractInputGenerator {
       (!active || !LlmAdapter.isConfigured() || this._llm.isStale())
     ) {
       this._llm = undefined;
-      this._inputCache = []; // flush the cache to avoid user confusion
+      this._inputQueue = []; // flush the cache to avoid user confusion
     }
 
     // Create new back-end if configured but not yet loaded
     if (active && !this._llm && LlmAdapter.isConfigured()) {
-      this._llm = new LlmAdapter(this._fn, this._specs);
-      if (!this._inputCache.length) {
+      this._stats = _initStats();
+      this._llm = new LlmAdapter();
+      if (!this._inputQueue.length) {
         this._getMoreInputs();
       }
-      this._inputCache = []; // flush the cache to avoid user confusion
+      this._inputQueue = []; // flush the cache to avoid user confusion
     }
 
     // Input generation options may have changed, so re-validate
     // any cached inputs
-    if (this._inputCache.length) {
+    if (this._inputQueue.length) {
       const validator = new ArgDefValidator(this._specs);
-      this._inputCache = this._inputCache.filter((e) =>
-        validator.validate(e.value)
-      );
+      this._inputQueue = this._inputQueue.filter((e) => {
+        const isValid = validator.validate(e.value);
+        if (!isValid) {
+          this._stats.inputs.invalidLater++;
+        }
+        return isValid;
+      });
     }
 
     // Refill the cache if it's empty
-    if (this._llm && !this._inputCache.length) {
+    if (this._llm && !this._inputQueue.length) {
       this._getMoreInputs();
     }
-
-    return;
   } // fn: onRunStart
 
   /**
@@ -83,15 +85,14 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @returns AI-generated input
    */
   public next(): InputAndSource {
-    const inputToReturn = this._inputCache.pop();
+    const inputToReturn = this._inputQueue.pop();
     if (inputToReturn === undefined) {
       throw new Error(`next() not allowed when isAvailable()===false`);
     }
-    this._usedInputs.push(inputToReturn);
-    if (!this._inputCache.length) {
+    if (!this._inputQueue.length) {
       this._getMoreInputs();
     }
-    return JSON5.parse(JSON5.stringify(inputToReturn));
+    return inputToReturn;
   } // fn: next
 
   /**
@@ -109,25 +110,76 @@ export class AiInputGenerator extends AbstractInputGenerator {
         const modelId = this._llm.id;
         this._callsPending++;
         try {
-          this._inputCache.push(
-            ...(await this._llm.genInputs())
-              .map((inputSet): InputAndSource => {
-                return {
-                  tick: 0,
-                  value: inputSet.map((inputElement): ArgValueTypeWrapped => {
-                    return {
-                      tag: "ArgValueTypeWrapped",
-                      value: inputElement.value,
-                    };
-                  }),
-                  source: {
-                    type: "generator",
-                    generator: "AiInputGenerator",
-                    model: modelId ?? "unknown model",
-                  },
-                };
-              })
-              .filter((e) => new ArgDefValidator(this._specs).validate(e.value))
+          const validInputs: { [k: string]: ArgValueType }[] = [];
+          const invalidInputs: { [k: string]: ArgValueType }[] = [];
+          this._stats.calls.sent++;
+
+          // Fetch & process inputs from the llm
+          const inputs = await this._llm.genInputs(
+            this._fn,
+            this._getInputsSchema()
+          );
+          switch (inputs.error) {
+            case undefined:
+              this._stats.calls.valid++;
+              break;
+            case "discarded":
+              console.debug(
+                `Discarded LLM response: it does not match the schema: ${JSON5.stringify(inputs, null, 2)}.`
+              ); // !!!!!!!
+              this._stats.calls.invalid++;
+              break;
+          }
+          inputs.programInputs.forEach((input) => {
+            this._stats.inputs.gen++;
+
+            // Perform any decodings to work around JSON schema limitations
+            Object.keys(input).forEach((k) => {
+              input[k] = _decode(input[k]);
+            });
+
+            // Validate the input
+            const validator = new ArgDefValidator(this._specs);
+            if (
+              validator.validate(
+                this._specs.map((arg, i) => {
+                  return {
+                    tag: "ArgValueTypeWrapped",
+                    value: input[arg.getName()],
+                  };
+                })
+              )
+            ) {
+              validInputs.push(input);
+            } else {
+              invalidInputs.push(input);
+              this._stats.inputs.invalid++;
+            }
+          });
+          if (invalidInputs.length) {
+            console.debug(
+              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSON5.stringify(invalidInputs, null, 2)}`
+            ); // !!!!!!!!!
+          }
+
+          // Push the valid inputs to the input queue
+          this._inputQueue.push(
+            ...validInputs.map((input): InputAndSource => {
+              return {
+                tick: 0,
+                value: this._specs.map((arg): ArgValueTypeWrapped => {
+                  return {
+                    tag: "ArgValueTypeWrapped",
+                    value: input[arg.getName()],
+                  };
+                }),
+                source: {
+                  type: "generator",
+                  generator: "AiInputGenerator",
+                  model: modelId ?? "unknown model",
+                },
+              };
+            })
           );
         } finally {
           this._callsPending--;
@@ -135,4 +187,161 @@ export class AiInputGenerator extends AbstractInputGenerator {
       }
     });
   } // fn: _getMoreInputs
+
+  // !!!!!!
+  protected _getInputsSchema(): ReturnType<zod.ZodType["toJSONSchema"]> {
+    const zodObj: { [k: string]: zod.ZodType } = {};
+    this._specs.forEach((arg) => {
+      zodObj[arg.getName()] = this._argDefToSchema(arg);
+    });
+    return zod
+      .strictObject({ programInputs: zod.array(zod.strictObject(zodObj)) })
+      .toJSONSchema();
+  } // fn: _getInputsSchema
+
+  // !!!!!!
+  protected _argDefToSchema(inArg: ArgDef<ArgType>): zod.ZodType {
+    // !!!!!!!!!! not sure we handle optionality or dimensions correctly.
+    const argIntervals = inArg.getIntervals();
+    const argChildren = inArg
+      .getChildren()
+      .filter((child) => !child.isNoInput());
+    const argOptions = inArg.getOptions();
+
+    // !!!!!!
+    const argToZod = (arg: ArgDef<ArgType>) => {
+      switch (arg.getType()) {
+        case ArgTag.NUMBER: {
+          return (argOptions.numInteger ? zod.int() : zod.number())
+            .min(Number(argIntervals[0].min))
+            .max(Number(argIntervals[0].max));
+        }
+        case ArgTag.BOOLEAN: {
+          if (!!argIntervals[0].min !== !!argIntervals[0].max) {
+            return zod.boolean();
+          } else {
+            return zod.enum([
+              argIntervals[0].min ? NANOFUZZ_TRUE : NANOFUZZ_FALSE,
+            ]);
+          }
+        }
+        case ArgTag.STRING: {
+          const charSet = argOptions.strCharset;
+          return zod
+            .string()
+            .min(argOptions.strLength.min)
+            .max(argOptions.strLength.max)
+            .refine((s) => [...s].every((char) => charSet.includes(char)))
+            .describe(
+              `Minimum length: ${argOptions.strLength.min}; maximum length: ${argOptions.strLength.max}; use only the following characters: ${charSet}`
+            );
+        }
+        case ArgTag.LITERAL: {
+          const literalValue = arg.getConstantValue();
+          switch (typeof literalValue) {
+            case "undefined":
+              return zod.enum([NANOFUZZ_UNDEFINED]);
+            case "boolean":
+              return zod.enum([literalValue ? NANOFUZZ_TRUE : NANOFUZZ_FALSE]);
+            case "number":
+              return zod.number().min(literalValue).max(literalValue);
+            case "string":
+              return zod.enum([literalValue]);
+            case "object":
+              throw new Error(`Array and Object literals not supported`);
+            default:
+              throw new Error(`Type not supported: ${typeof literalValue}`);
+          }
+        }
+        case ArgTag.OBJECT: {
+          const obj: { [k: string]: zod.ZodType } = {};
+          argChildren.forEach((child) => {
+            const zodChild = this._argDefToSchema(child);
+            obj[child.getName()] = child.isOptional()
+              ? zod.union([zodChild, zod.enum([NANOFUZZ_MISSING_PROPERTY])])
+              : zodChild; // mandatory
+          });
+          return zod.strictObject(obj);
+        }
+        case ArgTag.UNION: {
+          const unionMembers = argChildren.map((child) =>
+            this._argDefToSchema(child)
+          );
+          return zod.union([
+            unionMembers[0],
+            unionMembers[1],
+            ...unionMembers.slice(2),
+          ]);
+        }
+        default: {
+          throw new Error(`Unexpected argument type: "${arg.getType()}"`);
+        }
+      }
+    }; // helper fn: argToZod
+
+    // Optionality
+    let zodArg: zod.ZodType = inArg.isOptional()
+      ? zod.union([argToZod(inArg), zod.enum([NANOFUZZ_UNDEFINED])])
+      : argToZod(inArg); // mandatory
+
+    // Dimensions
+    argOptions.dimLength.forEach((dim) => {
+      zodArg = zod.array(zodArg).min(dim.min).max(dim.max);
+    });
+    return zodArg;
+  } // fn: _argDefToSchema
 } // class: AiInputGenerator
+
+/**
+ * Returns an initialized stats structure
+ */
+function _initStats() {
+  return {
+    inputs: { gen: 0, invalid: 0, invalidLater: 0 },
+    calls: { sent: 0, valid: 0, invalid: 0 },
+  };
+} // fn: _initStats
+
+// !!!!!!
+function _decode(data: ArgValueType): ArgValueType {
+  switch (typeof data) {
+    case "object":
+      if (Array.isArray(data)) {
+        return data.map((e) => _decode(e));
+      } else {
+        Object.keys(data).forEach((k) => {
+          if (data[k] === NANOFUZZ_MISSING_PROPERTY) {
+            delete data[k];
+          } else {
+            data[k] = _decode(data[k]);
+          }
+        });
+        return data;
+      }
+    case "string": {
+      switch (data) {
+        case NANOFUZZ_MISSING_PROPERTY:
+          throw new Error(
+            "Internal error: NANOFUZZ_MISSING_PROPERTY not expected in string"
+          );
+        case NANOFUZZ_UNDEFINED:
+          return undefined;
+        case NANOFUZZ_TRUE:
+          return true;
+        case NANOFUZZ_FALSE:
+          return false;
+        default:
+          return data;
+      }
+    }
+    default:
+      return data;
+  }
+} // !!!!!!
+
+// !!!!!!
+const NANOFUZZ_UNDEFINED = "___NANOFUZZ____6158195231___UNDEFINED___";
+const NANOFUZZ_MISSING_PROPERTY =
+  "___NANOFUZZ____6158195231___MISSING___PROPERTY___";
+const NANOFUZZ_TRUE = "___NANOFUZZ____6158195231___TRUE___";
+const NANOFUZZ_FALSE = "___NANOFUZZ____6158195231___FALSE___";
