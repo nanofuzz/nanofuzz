@@ -24,10 +24,13 @@ export class ArgDefValidator {
    * @returns true if the values conform to the ArgDef specs, false otherwise
    */
   public validate(values: ArgValueTypeWrapped[]): boolean {
-    let i = 0;
     return (
       values.length <= this._specs.length &&
-      values.every((e) => ArgDefValidator.validate(e.value, this._specs[i++]))
+      values.every(
+        (e, i) =>
+          (e.value === undefined && this._specs[i].isOptional()) ||
+          ArgDefValidator.validate(e.value, this._specs[i])
+      )
     );
   } // fn: validate
 

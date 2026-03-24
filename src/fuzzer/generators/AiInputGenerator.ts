@@ -112,9 +112,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
         try {
           const validInputs: { [k: string]: ArgValueType }[] = [];
           const invalidInputs: { [k: string]: ArgValueType }[] = [];
+          const validator = new ArgDefValidator(this._specs);
+
           this._stats.calls.sent++;
 
-          // Fetch & process inputs from the llm
+          // Fetch inputs from the llm
           const inputs = await this._llm.genInputs(
             this._fn,
             this._getInputsSchema()
@@ -130,16 +132,16 @@ export class AiInputGenerator extends AbstractInputGenerator {
               this._stats.calls.invalid++;
               break;
           }
+
           inputs.programInputs.forEach((input) => {
             this._stats.inputs.gen++;
 
-            // Perform any decodings to work around JSON schema limitations
+            // Decode the input
             Object.keys(input).forEach((k) => {
               input[k] = _decode(input[k]);
             });
 
             // Validate the input
-            const validator = new ArgDefValidator(this._specs);
             if (
               validator.validate(
                 this._specs.map((arg, i) => {
@@ -162,7 +164,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
             ); // !!!!!!!!!
           }
 
-          // Push the valid inputs to the input queue
+          // Push valid inputs to the input queue
           this._inputQueue.push(
             ...validInputs.map((input): InputAndSource => {
               return {
