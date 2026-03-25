@@ -603,7 +603,7 @@ export class Tester {
       // Front-end status update
       /* !!!!!!!! Return values rather than text here. Also "failed" is unclear. */
       update({
-        msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Generating test"} input# ${
+        msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Generating new test"} input# ${
           runStats.counters.passedTests + runStats.counters.failedTests + 1
         }: ${this._function.getName()}(${result.input
           .map((i) => JSON5.stringify(i.value))

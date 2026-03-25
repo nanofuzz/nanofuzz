@@ -24,11 +24,12 @@ vscode-panel-view.fuzzGridPanel {
   font-weight: var(--vscode-editor-font-weight);
   white-space: pre-wrap;
 }
-.fuzzGrid td.tableCol-src {
-  text-align: center;
+.fuzzGrid td.tableCol-src,
+.fuzzGrid td.noInput {
   color: rgb(from var(--vscode-foreground) r g b / 0.5);
 }
-.fuzzGrid th.tableCol-src {
+.fuzzGrid th.tableCol-src,
+.fuzzGrid td.tableCol-src {
   text-align: center;
 }
 .fuzzGrid th {
@@ -377,21 +378,21 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 }
 .columnSortDesc::after {
   content: "▼";
-  font-size: 0.9em;
+  font-size: 0.6em;
   display: inline-block;
   padding-left: 0.25ch;
   position: absolute;
 }
 .columnSortAsc::after {
   content: "▲";
-  font-size: 0.9em;
+  font-size: 0.6em;
   display: inline-block;
   padding-left: 0.25ch;
   position: absolute;
 }
 .columnSortDescSmall::after {
   content: "▼";
-  font-size: 0.75em;
+  font-size: 0.5em;
   display: inline-block;
   padding-left: 0.2ch;
   padding-bottom: 0em;
@@ -399,7 +400,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 }
 .columnSortAscSmall::after {
   content: "▲";
-  font-size: 0.75em;
+  font-size: 0.5em;
   display: inline-block;
   padding-left: 0.2ch;
   position: absolute;

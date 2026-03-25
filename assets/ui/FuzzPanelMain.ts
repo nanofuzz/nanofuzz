@@ -1492,6 +1492,9 @@ function drawTableBody({
       } else {
         const cell = row.appendChild(document.createElement("td"));
         cell.classList.add(`tableCol-${k.replace(" ", "")}`, `editorFont`);
+        if (e[k] === "(no input)") {
+          cell.classList.add("noInput");
+        }
         cell.textContent = e[k];
       }
     });
