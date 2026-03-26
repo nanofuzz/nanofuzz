@@ -61,6 +61,9 @@ export function activate(context: vscode.ExtensionContext): void {
   tm.listeners.forEach((listener) => {
     context.subscriptions.push(listener.event(listener.fn));
   });
+  fp.listeners.forEach((listener) => {
+    context.subscriptions.push(listener.event(listener.fn));
+  });
 } // fn: activate()
 
 /**

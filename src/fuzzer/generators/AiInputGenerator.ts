@@ -133,6 +133,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
               break;
           }
 
+          // Process the inputs
           inputs.programInputs.forEach((input) => {
             this._stats.inputs.gen++;
 

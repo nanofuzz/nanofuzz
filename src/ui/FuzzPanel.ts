@@ -322,37 +322,35 @@ export class FuzzPanel {
    */
   private _setWebviewMessageListener(webview: vscode.Webview) {
     webview.onDidReceiveMessage(
-      async (message: FuzzPanelMessage) => {
-        const { command, json } = message;
-
-        switch (command) {
+      async (message: FuzzPanelMessageFromWebView) => {
+        switch (message.command) {
           case "fuzz.run":
             this._doGetValidators();
-            this._testRun(json, { gen: true });
+            this._testRun(message.json, { gen: true });
             break;
           case "fuzz.retest":
             this._doGetValidators();
-            this._testRun(json, { retest: true });
+            this._testRun(message.json, { retest: true });
             break;
           case "fuzz.addTestInput":
             this._doGetValidators();
-            this._testRun(json, { add: true });
+            this._testRun(message.json, { add: true });
             break;
           case "fuzz.clear":
             this._doGetValidators();
-            this._testClear(json);
+            this._testClear(message.json);
             break;
           case "fuzz.stop":
             this._stopTesting = true;
             break;
           case "test.pin":
-            this._doTestPinnedCmd(json, true);
+            this._doTestPinnedCmd(message.json, true);
             break;
           case "test.unpin":
-            this._doTestPinnedCmd(json, false);
+            this._doTestPinnedCmd(message.json, false);
             break;
           case "columns.sorted":
-            this._saveColumnSortOrders(json);
+            this._saveColumnSortOrders(message.json);
             break;
           case "validator.add":
             this._doAddValidatorCmd();
@@ -365,6 +363,13 @@ export class FuzzPanel {
             this._navigateToSource(
               this._fuzzEnv.function.getModule(),
               this._fuzzEnv.function.getRef().startOffset
+            );
+            break;
+          }
+          case "open.settings.ai": {
+            vscode.commands.executeCommand(
+              "workbench.action.openSettings",
+              "nanofuzz.ai"
             );
             break;
           }
@@ -1078,13 +1083,12 @@ ${inArgConsts}
       // Update the Fuzzer Environment
       this._fuzzEnv.validators = fuzzer.getValidators(program, fn);
 
-      // Notify the front-end about the change
-      this._panel.webview.postMessage({
+      // Notify webview about the change
+      const message: FuzzPanelMessageToWebView = {
         command: "validator.list",
-        json: JSON5.stringify({
-          validators: newValidators.map((e) => e.name),
-        }),
-      });
+        validators: newValidators.map((e) => e.name),
+      };
+      this._panel.webview.postMessage(message);
     }
   } // fn: _doGetValidators()
 
@@ -1275,10 +1279,11 @@ ${inArgConsts}
           },
           // Fn that provides test status feedback to the panel => {
           (payload: fuzzer.FuzzBusyStatusMessage): void => {
-            this._panel.webview.postMessage({
+            const message: FuzzPanelMessageToWebView = {
               command: "busy.message",
-              json: JSON5.stringify(payload),
-            });
+              message: payload,
+            };
+            this._panel.webview.postMessage(message);
           },
           // Fn to cancel testing
           () => this._stopTesting
@@ -1409,6 +1414,25 @@ ${inArgConsts}
     testSet.isVoid = this._fuzzEnv.function.isVoid();
     this._putFuzzTestsForThisFn(testSet);
   } // fn: _updateFuzzTests
+
+  /**
+   * Updates the webview when the extension configuration changes
+   */
+  public onDidChangeConfiguration(): void {
+    const message: FuzzPanelMessageToWebView = {
+      command: "config.updated",
+      config: {
+        ai: {
+          provider: vscode.workspace
+            .getConfiguration("nanofuzz.ai")
+            .get("provider", "disabled"),
+          model: vscode.workspace.getConfiguration("nanofuzz.ai").get("model"),
+        },
+      },
+    };
+    this._panel.webview.postMessage(message);
+    console.debug("sent config.updated message to webview"); // !!!!!!!!!!!!
+  } //fn: onDidChangeConfiguration
 
   /**
    * Disposes all objects used by this instance
@@ -1617,7 +1641,7 @@ ${inArgConsts}
 
                 <vscode-panel-view>
                   <p>
-                    What makes an input "interesting"?
+                    What makes an input interesting?
                   </p>
                   <div class="fuzzInputControlGroup">
                     <vscode-checkbox ${disabledFlag} id="fuzz-measure-CoverageMeasure-enabled" ${this._fuzzEnv.options.measures.CoverageMeasure.enabled ? "checked" : ""}>
@@ -1649,16 +1673,16 @@ ${inArgConsts}
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-MutationInputGenerator-enabled" ${this._fuzzEnv.options.generators.MutationInputGenerator.enabled ? "checked" : ""}>
                       <span> 
-                        By mutating "interesting" inputs
+                        By mutating interesting inputs
                       </span>
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-AiInputGenerator-enabled" ${this._fuzzEnv.options.generators.AiInputGenerator.enabled ? "checked" : ""}>
                       <span> 
-                        Using an LLM
+                        With an LLM (<span class="editorFont" id="llm-model">...</span>)
+                        <vscode-link id="open.settings.ai">change</vscode-link>
                       </span>
-                    </vscode-checkbox>                    
+                    </vscode-checkbox>
                   </div>
-
                 </vscode-panel-view>
                 </vscode-panels>
 
@@ -2322,10 +2346,7 @@ ${inArgConsts}
             <!-- Validator Functions: for the client script to process -->
             <div id="validators" style="display:none">
               ${htmlEscape(
-                JSON5.stringify({
-                  disabled: !!disabledFlag,
-                  validators: this._fuzzEnv.validators.map((e) => e.name),
-                })
+                JSON5.stringify(this._fuzzEnv.validators.map((e) => e.name))
               )}
             </div>
 
@@ -2356,6 +2377,7 @@ ${inArgConsts}
 
     // Update the webview with the new HTML
     this._panel.webview.html = html;
+    this.onDidChangeConfiguration();
   } // fn: _updateHtml()
 
   /**
@@ -3148,6 +3170,21 @@ export function deinit(): void {
   // noop
 } // fn: deinit
 
+/**
+ * Export this module's listeners to the extension.
+ */
+export const listeners: Listener<any>[] = [
+  {
+    event: vscode.workspace.onDidChangeConfiguration,
+    fn: (): void => {
+      // Notify the open webviews about configuration changes
+      Object.values(FuzzPanel.currentPanels).forEach((panel) => {
+        panel.onDidChangeConfiguration();
+      });
+    },
+  },
+];
+
 // --------------------------- Constants --------------------------- //
 
 /**
@@ -3190,10 +3227,26 @@ const CURR_FILE_FMT_VER = "0.3.9"; // !!!!!!! Increment if fmt changes
 /**
  * Represents a message from the WebView client to its FuzzPanel.
  */
-export type FuzzPanelMessage = {
-  command: string;
-  json: string; // !!! Better typing here
-};
+export type FuzzPanelMessageFromWebView =
+  | {
+      command:
+        | "fuzz.run"
+        | "fuzz.retest"
+        | "fuzz.addTestInput"
+        | "fuzz.clear"
+        | "test.pin"
+        | "test.unpin"
+        | "columns.sorted";
+      json: string; // !!! Improve typing here
+    }
+  | {
+      command:
+        | "fuzz.stop"
+        | "validator.add"
+        | "validator.getList"
+        | "open.source"
+        | "open.settings.ai";
+    };
 
 /**
  * Represents the possible states of the FuzzPanel
@@ -3204,6 +3257,14 @@ export enum FuzzPanelState {
   done = "done", // Testing is done
   error = "error", // Testing stopped due to an error
 }
+
+/**
+ * Associates a callback function with an vscode event.
+ */
+type Listener<T extends unknown> = {
+  event: vscode.Event<T>;
+  fn: (e: T) => void;
+};
 
 /**
  * The serialized state of a FuzzPanel
@@ -3248,3 +3309,22 @@ export type FuzzPanelPinMessage = {
   id: number;
   test: fuzzer.FuzzPinnedTest;
 };
+
+/**
+ * Message structure for updating the webview
+ */
+export type FuzzPanelMessageToWebView =
+  | {
+      command: "validator.list";
+      validators: string[];
+    }
+  | { command: "busy.message"; message: fuzzer.FuzzBusyStatusMessage }
+  | {
+      command: "config.updated";
+      config: {
+        ai: {
+          provider: string;
+          model?: string;
+        };
+      };
+    };

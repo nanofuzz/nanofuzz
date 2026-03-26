@@ -153,7 +153,7 @@ export class LlmAdapter {
   // !!!!!!
   public static isConfigured(): boolean {
     const cfg = LlmAdapter._getConfig();
-    return vscode ? cfg.provider !== "disabled" && cfg.modelName !== "" : false;
+    return cfg.provider !== "disabled" && cfg.modelName !== "";
   } // fn: isConfigured
 
   /** !!!!!! */
