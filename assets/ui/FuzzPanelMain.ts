@@ -12,13 +12,19 @@ import {
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
+  FuzzValueOrigin,
 } from "fuzzer/Types";
 import {
   ArgValueType,
   ArgValueTypeWrapped,
   FuzzTestResults,
 } from "fuzzer/Fuzzer";
-import { FuzzPanelFuzzStartMessage } from "ui/FuzzPanel";
+import {
+  FuzzPanelFuzzRunMessage,
+  FuzzPanelMessageToWebView,
+  FuzzPanelMessageFromWebView,
+  FuzzPanelPinMessage,
+} from "ui/FuzzPanel";
 
 const vscode = acquireVsCodeApi();
 
@@ -38,6 +44,7 @@ const gridTypes = [
 // Column name labels
 const pinnedLabel = "pinned";
 const idLabel = "id";
+const srcLabel = "src";
 const correctLabel = "correct output?";
 const expectedLabel = "expectedOutput";
 const validatorLabel = "validator";
@@ -106,55 +113,71 @@ const data: Record<FuzzResultCategory, any[]> = {
   failure: [],
 };
 // Validator functions (filled by main during load event)
-let validators: { validators: string[] };
+let validators: string[];
 
 /**
  * Sets up the UI when the page is loaded, including setting up
  * event handlers and filling the output grids if data is available.
  */
 function main() {
-  // Add event listener for the fuzz.start button
-  getElementByIdOrThrow("fuzz.start").addEventListener("click", (e) => {
-    if (!e.currentTarget) {
-      throw new Error("no currentTarget");
-    }
-    handleFuzzStart();
+  // Add event listener for the fuzz.run button
+  getElementByIdOrThrow("fuzz.run").addEventListener("click", () => {
+    handleFuzzRun();
   });
 
-  // Add event listener for the fuzz.options button
-  getElementByIdOrThrow("fuzz.options").addEventListener(
+  // Add event listener for the fuzz.retest button
+  getElementByIdOrThrow("fuzz.retest").addEventListener("click", () => {
+    handleFuzzRetest();
+  });
+
+  // Add event listener for the fuzz.clear button
+  getElementByIdOrThrow("fuzz.clear").addEventListener("click", () => {
+    handleFuzzClear();
+  });
+
+  // Add event listener for the fuzz.options buttons
+  getElementByIdOrThrow("fuzz.options.open").addEventListener(
+    "click",
+    toggleFuzzOptions
+  );
+  getElementByIdOrThrow("fuzz.options.close").addEventListener(
+    "click",
+    toggleFuzzOptions
+  );
+  getElementByIdOrThrow("fuzzOptions-close").addEventListener(
     "click",
     toggleFuzzOptions
   );
 
-  // Add event listener for the fuzz.addTestInputOptions button
-  getElementByIdOrThrow("fuzz.addTestInputOptions").addEventListener(
+  // Add event listeners for the fuzz.addTestInputOptions controls
+  getElementByIdOrThrow("fuzz.addTestInputOptions.open").addEventListener(
     "click",
     toggleAddTestInputOptions
   );
-
-  // Add event listener for the fuzz.addTestInputOptions close button
+  getElementByIdOrThrow("fuzz.addTestInputOptions.close").addEventListener(
+    "click",
+    toggleAddTestInputOptions
+  );
   getElementByIdOrThrow("fuzzAddTestInputOptions-close").addEventListener(
     "click",
     toggleAddTestInputOptions
   );
-
-  // Add event listener for the fuzz.addTestInput button
-  getElementByIdOrThrow("fuzz.addTestInput").addEventListener(
-    "click",
-    handleAddTestInput
-  );
+  document
+    .getElementById("fuzz.addTestInput")
+    ?.addEventListener("click", handleAddTestInput);
+  for (let i = 0; document.getElementById(`addInputArg-${i}-value`); i++) {
+    getElementByIdOrThrow(`addInputArg-${i}-value`).addEventListener(
+      "change",
+      () => {
+        getInputValues();
+      }
+    );
+  }
 
   // Add event listener for opening the function source code
   getElementByIdOrThrow("openSourceLink").addEventListener(
     "click",
     handleOpenSource
-  );
-
-  // Add event listener for the fuzz.options close button
-  getElementByIdOrThrow("fuzzOptions-close").addEventListener(
-    "click",
-    toggleFuzzOptions
   );
 
   // Add event listener to toggle fuzz.options.interesting.inputs.button
@@ -187,6 +210,18 @@ function main() {
     );
   });
 
+  // Add event listener for LLM configuration button
+  getElementByIdOrThrow("open.settings.ai").addEventListener("click", () => {
+    // Send the message to open the ai settings
+    const message: FuzzPanelMessageFromWebView = {
+      command: "open.settings.ai",
+    };
+    vscode.postMessage(message);
+
+    // Undo the the parent checkbox click
+    getElementByIdOrThrow("fuzz-gen-AiInputGenerator-enabled").click();
+  });
+
   // Load the fuzzer results data from the HTML
   resultsData = JSON5.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzResultsData").innerHTML)
@@ -202,15 +237,12 @@ function main() {
     handleGetListOfValidators
   );
 
-  // Add event listeners for the add input fields
-  for (let i = 0; document.getElementById(`addInputArg-${i}-value`); i++) {
-    getElementByIdOrThrow(`addInputArg-${i}-value`).addEventListener(
-      "change",
-      () => {
-        getInputValues();
-      }
-    );
-  }
+  // Add event listeners for the stop button
+  getElementByIdOrThrow("fuzz.stop").addEventListener("click", () => {
+    const message: FuzzPanelMessageFromWebView = { command: "fuzz.stop" };
+    vscode.postMessage(message);
+    getElementByIdOrThrow("fuzz.stop").setAttribute("disabled", "true");
+  });
 
   // Load & display the validator functions from the HTML
   validators = JSON5.parse(
@@ -227,12 +259,38 @@ function main() {
   }
 
   // Listen for messages from the extension
-  window.addEventListener("message", (event) => {
-    const { command, json } = event.data;
-    switch (command) {
+  window.addEventListener("message", async (event) => {
+    const data: FuzzPanelMessageToWebView = event.data;
+    switch (data.command) {
       case "validator.list":
-        refreshValidators(JSON5.parse(json));
+        refreshValidators(data.validators);
         break;
+      case "config.updated": {
+        console.debug("got config.updated message from panel"); // !!!!!!!!!!!!
+        getElementByIdOrThrow("llm-model").innerText =
+          data.config.ai.provider === "disabled" ||
+          data.config.ai.model === undefined
+            ? "disabled"
+            : data.config.ai.model;
+        break;
+      }
+      case "busy.message": {
+        const nonMilestone = getElementByIdOrThrow(
+          "fuzzBusyMessageNonMilestone"
+        );
+        nonMilestone.innerHTML = htmlEscape(data.message.msg);
+        if (data.message.pct) {
+          const pct = Math.min(data.message.pct, 100);
+          const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
+          progressBar.style.width = pct + "%";
+          if (pct > 0) {
+            progressBar.innerHTML = Math.floor(pct) + "%";
+          } else {
+            progressBar.innerHTML = "";
+          }
+        }
+        break;
+      }
     }
   });
 
@@ -255,6 +313,48 @@ function main() {
       // Indicate which tests are pinned
       const pinned = { [pinnedLabel]: !!e.pinned };
       const id = { [idLabel]: idx++ };
+
+      // Input Source
+      const inputSrc: FuzzValueOrigin = e.input.length
+        ? e.input[0].origin
+        : { type: "unknown" };
+      let src: { [srcLabel]: string };
+      switch (inputSrc.type) {
+        case "unknown":
+          src = { [srcLabel]: "n/a" };
+          break;
+        case "user":
+          src = { [srcLabel]: "usr" };
+          break;
+        case "put":
+          src = { [srcLabel]: "pgm" };
+          break;
+        case "generator":
+          switch (inputSrc.generator) {
+            case "AiInputGenerator":
+              src = { [srcLabel]: "ai" };
+              break;
+            case "MutationInputGenerator":
+              src = { [srcLabel]: "mut" };
+              break;
+            case "RandomInputGenerator":
+              src = { [srcLabel]: "rnd" };
+              break;
+            default:
+              throw new Error(
+                `Unexpected FuzzValueOrigin generator at input# ${idx}: ${JSON5.stringify(
+                  inputSrc
+                )}`
+              );
+          }
+          break;
+        default:
+          throw new Error(
+            `Unexpected FuzzValueOrigin at input# ${idx}: ${JSON5.stringify(
+              inputSrc
+            )}`
+          );
+      }
 
       // Implicit validation result
       const passedImplicit = resultsData.env.options.useImplicit
@@ -282,7 +382,7 @@ function main() {
       // Result for each property validator (true if passed)
       const validatorFns: Record<string, boolean> = {};
       e.passedValidators?.forEach((v, i) => {
-        validatorFns[validators.validators[i]] = v;
+        validatorFns[validators[i]] = v;
       });
 
       // Name each input argument and make it clear which inputs were not provided
@@ -316,12 +416,14 @@ function main() {
       if (e.category === "failure") {
         data[e.category].push({
           ...id,
+          ...src,
           ...inputs,
           ...outputs, // Exception message contained in outputs
         });
       } else {
         data[e.category].push({
           ...id,
+          ...src,
           ...inputs,
           ...outputs,
           //...elapsedTimes,
@@ -353,7 +455,7 @@ function main() {
             cell.id = type + "-" + pinnedLabel;
             cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-nw" aria-label="Include in Jest test suite">
-                <big>pin</big>
+                <strong>pin</strong>
               </span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, type, k, tbody, true);
@@ -381,12 +483,12 @@ function main() {
               const cell = hRow.appendChild(document.createElement("th"));
               cell.id = type + "-" + validatorLabel;
               cell.classList.add("colorColumn", "clickable");
-              if (validators.validators.length > 1) {
+              if (validators.length > 1) {
                 cell.style.paddingRight = "3px"; // close to twistie column
               }
               cell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-nw" aria-label="${
-                  validators.validators.length < 2
+                  validators.length < 2
                     ? "Property validator"
                     : "Property validator summary"
                 }">
@@ -397,13 +499,10 @@ function main() {
                 handleColumnSort(cell, type, k, tbody, true);
               });
             } // if useProperty
-          } else if (validators.validators.indexOf(k) !== -1) {
+          } else if (validators.indexOf(k) !== -1) {
             // Individual property validator columns and twistie columns
-            if (
-              resultsData.env.options.useProperty &&
-              validators.validators.length > 1
-            ) {
-              if (validators.validators.indexOf(k) === 0) {
+            if (resultsData.env.options.useProperty && validators.length > 1) {
+              if (validators.indexOf(k) === 0) {
                 // Twistie column with right arrow (to expand validator columns)
                 const expandCell = hRow.appendChild(
                   document.createElement("th")
@@ -432,7 +531,7 @@ function main() {
               cell.id = type + "-" + k;
               cell.style.paddingLeft = "0px";
               cell.style.paddingRight = "0px";
-              if (validators.validators.indexOf(k) === 0) {
+              if (validators.indexOf(k) === 0) {
                 // add padding to first custom validator header cell
                 cell.style.paddingLeft = "16px";
                 cell.style.paddingRight = "6px";
@@ -443,10 +542,7 @@ function main() {
               cell.addEventListener("click", () => {
                 handleColumnSort(cell, type, k, tbody, true);
               });
-              if (
-                validators.validators.indexOf(k) ===
-                validators.validators.length - 1
-              ) {
+              if (validators.indexOf(k) === validators.length - 1) {
                 // Twistie column with left arrow (to collapse validator columns)
                 const collapseCell = hRow.appendChild(
                   document.createElement("th")
@@ -477,13 +573,25 @@ function main() {
             cell.addEventListener("click", () => {
               handleColumnSort(cell, type, k, tbody, true);
             });
+          } else if (k === srcLabel) {
+            const cell = hRow.appendChild(document.createElement("th"));
+            const label = k;
+            cell.id = type + "-" + k;
+            cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
+            cell.innerHTML = /*html*/ `
+              <span class="tooltipped tooltipped-ne" aria-label="Input source: Random, Mutation, AI, User">
+                <strong>${htmlEscape(label)}</strong>
+              </span>`;
+            cell.addEventListener("click", () => {
+              handleColumnSort(cell, type, k, tbody, true);
+            });
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             const label =
               type === "failure" && k === "output" ? "exception" : k;
             cell.id = type + "-" + k;
-            cell.classList.add("clickable");
-            cell.innerHTML = `<big>${htmlEscape(label)}</big>`;
+            cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
+            cell.innerHTML = `<strong>${htmlEscape(label)}</strong>`;
             cell.addEventListener("click", () => {
               handleColumnSort(cell, type, k, tbody, true);
             });
@@ -537,15 +645,9 @@ function main() {
  * Toggles whether more fuzzer options are shown.
  */
 function toggleFuzzOptions() {
-  const fuzzOptions = getElementByIdOrThrow("fuzzOptions");
-  const fuzzOptionsButton = getElementByIdOrThrow("fuzz.options");
-  if (isHidden(fuzzOptions)) {
-    toggleHidden(fuzzOptions);
-    fuzzOptionsButton.innerHTML = "Fewer options";
-  } else {
-    toggleHidden(fuzzOptions);
-    fuzzOptionsButton.innerHTML = "More options...";
-  }
+  toggleHidden(getElementByIdOrThrow("fuzzOptions"));
+  toggleHidden(getElementByIdOrThrow("fuzz.options.open"));
+  toggleHidden(getElementByIdOrThrow("fuzz.options.close"));
 
   // Refresh the list of validators
   handleGetListOfValidators();
@@ -555,20 +657,17 @@ function toggleFuzzOptions() {
  * Toggles whether add test case options are shown.
  */
 function toggleAddTestInputOptions() {
+  toggleHidden(getElementByIdOrThrow("fuzz.addTestInputOptions.open"));
+  toggleHidden(getElementByIdOrThrow("fuzz.addTestInputOptions.close"));
+
   const fuzzAddTestInputOptionsPane = getElementByIdOrThrow(
     "fuzzAddTestInputOptions-pane"
   );
-  const fuzzAddTestInputOptionsButton = getElementByIdOrThrow(
-    "fuzz.addTestInputOptions"
-  );
   if (isHidden(fuzzAddTestInputOptionsPane)) {
     toggleHidden(fuzzAddTestInputOptionsPane);
-    fuzzAddTestInputOptionsButton.innerHTML = "Cancel Add Input";
     getElementByIdOrThrow("addInputArg-0-value").focus();
   } else {
     toggleHidden(fuzzAddTestInputOptionsPane);
-    show(fuzzAddTestInputOptionsButton);
-    fuzzAddTestInputOptionsButton.innerHTML = "Add Input...";
   }
 } // fn: toggleAddTestInputOptions
 
@@ -592,10 +691,11 @@ function handleAddTestInput() {
   );
   if (tick === -1) {
     // Call the extension to test this one input
-    vscode.postMessage({
+    const message: FuzzPanelMessageFromWebView = {
       command: "fuzz.addTestInput",
       json: JSON5.stringify(overrides),
-    });
+    };
+    vscode.postMessage(message);
   } else {
     // Input already in the grid. Hide the add input pane.
     toggleAddTestInputOptions();
@@ -630,6 +730,7 @@ function getInputValues(): ArgValueTypeWrapped[] | undefined {
       message.innerHTML = "";
       // Attempt to parse & add the input value
       inputs.push({
+        tag: "ArgValueTypeWrapped",
         value:
           unparsedValue === null ||
           unparsedValue === "undefined" ||
@@ -790,12 +891,7 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   data[type][index][pinnedLabel] = pinning;
 
   // Get the test data for the test case
-  const testCase: {
-    input: FuzzIoElement[];
-    output: FuzzIoElement[];
-    pinned: boolean;
-    expectedOutput?: any;
-  } = {
+  const testCase: FuzzPinnedTest = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
     pinned: data[type][index][pinnedLabel],
@@ -805,11 +901,16 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   }
 
   // Send the request to the extension
+  const msg: FuzzPanelPinMessage = {
+    id,
+    test: testCase,
+  };
   window.setTimeout(() => {
-    vscode.postMessage({
+    const message: FuzzPanelMessageFromWebView = {
       command: pinning ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(testCase),
-    });
+      json: JSON5.stringify(msg),
+    };
+    vscode.postMessage(message);
 
     // Update the control state
     if (pinning) {
@@ -908,20 +1009,24 @@ function handleCorrectToggle(
     HTMLTableCellElement
   ).classList.contains(pinState.classPinned);
 
-  // Get the test data for the test case
-  const testCase: FuzzPinnedTest = {
-    input: resultsData.results[id].input,
-    output: resultsData.results[id].output,
-    pinned: isPinned,
-    expectedOutput: data[type][index][expectedLabel],
+  // Build the test case for the back-end
+  const msg: FuzzPanelPinMessage = {
+    id,
+    test: {
+      input: resultsData.results[id].input,
+      output: resultsData.results[id].output,
+      pinned: isPinned,
+      expectedOutput: data[type][index][expectedLabel],
+    },
   };
 
   // Send the request to the extension
   window.setTimeout(() => {
-    vscode.postMessage({
+    const message: FuzzPanelMessageFromWebView = {
       command: isPinned ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(testCase),
-    });
+      json: JSON5.stringify(msg),
+    };
+    vscode.postMessage(message);
   });
 }
 
@@ -935,23 +1040,20 @@ function toggleExpandColumn(type: FuzzResultCategory) {
     HTMLTableSectionElement
   );
 
-  const valIdx = getIdxInTableHeader(
-    type + "-" + validators.validators[0],
-    thead.rows[0]
-  ); // idx of first custom validator in table header
+  const valIdx = getIdxInTableHeader(type + "-" + validators[0], thead.rows[0]); // idx of first custom validator in table header
 
   // Show or hide custom validator fn header
-  for (const valName of validators.validators) {
+  for (const valName of validators) {
     toggleHidden(getElementByIdOrThrow(type + "-" + valName));
   }
   // Show or hide custom validator table cells
   for (const row of Array.from(tbody.rows)) {
     if (row.getAttribute("class") === "classErrorExpectedOutputRow") continue;
-    for (let i = valIdx; i < valIdx + validators.validators.length; ++i) {
+    for (let i = valIdx; i < valIdx + validators.length; ++i) {
       toggleHidden(row.cells[i]); // custom validator cell
     }
     toggleHidden(row.cells[valIdx - 1]); // expand column cell
-    toggleHidden(row.cells[valIdx + validators.validators.length]); // collapse column cell
+    toggleHidden(row.cells[valIdx + validators.length]); // collapse column cell
   }
 
   // Show or hide twistie column headers (expand, collapse)
@@ -963,10 +1065,11 @@ function toggleExpandColumn(type: FuzzResultCategory) {
     columnSortOrders[type][expandLabel] === "desc"
       ? FuzzSortOrder.asc
       : FuzzSortOrder.desc;
-  vscode.postMessage({
+  const message: FuzzPanelMessageFromWebView = {
     command: "columns.sorted",
     json: JSON5.stringify(columnSortOrders),
-  });
+  };
+  vscode.postMessage(message);
 }
 
 /**
@@ -1100,10 +1203,11 @@ function handleColumnSort(
 
   // Send message to extension to retain sort order
   if (isClicking) {
-    vscode.postMessage({
+    const message: FuzzPanelMessageFromWebView = {
       command: "columns.sorted",
       json: JSON5.stringify(columnSortOrders),
-    });
+    };
+    vscode.postMessage(message);
   }
 } // fn: handleColumnSort
 
@@ -1178,7 +1282,7 @@ function updateColumnArrow(
   // Update frontend with appropriate arrow
   switch (currOrder) {
     case FuzzSortOrder.asc:
-      if (validators.validators.indexOf(col) === -1) {
+      if (validators.indexOf(col) === -1) {
         cell.classList.add("columnSortAsc");
         cell.classList.remove("columnSortDesc");
       } else {
@@ -1187,7 +1291,7 @@ function updateColumnArrow(
       }
       break;
     case FuzzSortOrder.desc:
-      if (validators.validators.indexOf(col) === -1) {
+      if (validators.indexOf(col) === -1) {
         cell.classList.add("columnSortDesc");
         cell.classList.remove("columnSortAsc");
       } else {
@@ -1289,7 +1393,7 @@ function drawTableBody({
         if (resultsData.env.options.useProperty) {
           // Property validator column (summary)
           const cell = row.appendChild(document.createElement("td"));
-          if (validators.validators.length > 1) {
+          if (validators.length > 1) {
             cell.style.paddingRight = "0px"; // close to twistie column if multiple validators
           }
           if (e[k] === undefined) {
@@ -1306,13 +1410,10 @@ function drawTableBody({
             span.classList.add("codicon", "codicon-error");
           }
         } // if useProperty
-      } else if (validators.validators.indexOf(k) !== -1) {
+      } else if (validators.indexOf(k) !== -1) {
         // Individual validator columns and twistie columns
-        if (
-          resultsData.env.options.useProperty &&
-          validators.validators.length > 1
-        ) {
-          if (validators.validators.indexOf(k) === 0) {
+        if (resultsData.env.options.useProperty && validators.length > 1) {
+          if (validators.indexOf(k) === 0) {
             // Empty cell for twistie column (expand)
             const emptyCell = row.appendChild(document.createElement("td"));
             emptyCell.classList.add("expandCollapseColumn");
@@ -1343,10 +1444,7 @@ function drawTableBody({
           } else {
             cell.classList.remove("hidden"); // show individual validator columns if currently expanded
           }
-          if (
-            validators.validators.indexOf(k) ===
-            validators.validators.length - 1
-          ) {
+          if (validators.indexOf(k) === validators.length - 1) {
             // Empty cell for twistie column (collapse)
             const emptyCell = row.appendChild(document.createElement("td"));
             if (columnSortOrders[type][expandLabel] === "asc") {
@@ -1406,7 +1504,15 @@ function drawTableBody({
         cell2.classList.add("colGroupEnd", "clickable");
       } else {
         const cell = row.appendChild(document.createElement("td"));
-        cell.innerHTML = htmlEscape(e[k]);
+        cell.classList.add(
+          `tableCol-${k.replace(" ", "")}`,
+          `editorFont`,
+          `preWrap`
+        );
+        if (e[k] === "(no input)") {
+          cell.classList.add("noInput");
+        }
+        cell.textContent = e[k];
       }
     });
   });
@@ -1519,12 +1625,19 @@ function handleExpectedOutput({
           // Update the front-end data structure
           data[type][index][expectedLabel] = testCase.expectedOutput;
 
+          // Back-end message
+          const msg: FuzzPanelPinMessage = {
+            id,
+            test: testCase,
+          };
+
           // Send the test case to the back-end
           window.setTimeout(() => {
-            vscode.postMessage({
+            const message: FuzzPanelMessageFromWebView = {
               command: "test.pin",
-              json: JSON5.stringify(testCase),
-            });
+              json: JSON5.stringify(msg),
+            };
+            vscode.postMessage(message);
           });
 
           // Re-draw the expected output row again
@@ -1543,7 +1656,7 @@ function handleExpectedOutput({
       });
     } else {
       // Marked X but not currently being edited; display expected output
-      row.cells[numInputs].className = "classErrorCell"; // red wavy underline
+      row.cells[numInputs + 1].className = "classErrorCell"; // red wavy underline
       expectedRow.className = "classErrorExpectedOutputRow";
 
       // Display the expected outout
@@ -1694,6 +1807,7 @@ function buildExpectedTestCase(
     isTimeout: !!("checked" in radioTimeout && radioTimeout.checked),
     isException: !!("checked" in radioException && radioException.checked),
     value: parsedExpectedValue,
+    origin: { type: "user" },
   };
 
   // Build & return the test case object
@@ -1706,19 +1820,40 @@ function buildExpectedTestCase(
 } // fn: buildExpectedTestCase()
 
 /**
- * Handles the fuzz.start button onClick() event: retrieves the fuzzer options
+ * Handles the fuzz.run button onClick() event: retrieves the fuzzer options
  * from the UI and sends them to the extension to start the fuzzer.
- *
- * // e onClick() event
- * @param eCurrTarget current target of onClick() event
  */
-function handleFuzzStart() {
-  // Send the fuzzer start command to the extension
-  vscode.postMessage({
-    command: "fuzz.start",
+function handleFuzzRun() {
+  const message: FuzzPanelMessageFromWebView = {
+    command: "fuzz.run",
     json: JSON5.stringify(getConfigFromUi()),
-  });
-} // fn: handleFuzzStart
+  };
+  vscode.postMessage(message);
+} // fn: handleFuzzRun
+
+/**
+ * Handles the fuzz.retest button onClick() event: retrieves the fuzzer options
+ * from the UI and sends them to the extension to start the fuzzer.
+ */
+function handleFuzzRetest() {
+  const message: FuzzPanelMessageFromWebView = {
+    command: "fuzz.retest",
+    json: JSON5.stringify(getConfigFromUi()),
+  };
+  vscode.postMessage(message);
+} // fn: handleFuzzRetest
+
+/**
+ * Handles the fuzz.clear button onClick() event: retrieves the fuzzer options
+ * from the UI and sends them to the extension to clear the FuzzPanel
+ */
+function handleFuzzClear() {
+  const message: FuzzPanelMessageFromWebView = {
+    command: "fuzz.clear",
+    json: JSON5.stringify(getConfigFromUi()),
+  };
+  vscode.postMessage(message);
+} // fn: handleFuzzClear
 
 /**
  * Disable UI controls
@@ -1742,14 +1877,17 @@ function disableUiControls(disableArr: EventTarget[]): void {
  * Returns the on-screen fuzzer configuration.
  * Also disables controls in preparation for calling fuzzer.
  *
- * @returns FuzzPanelFuzzStartMessage containing the configuration
+ * @returns FuzzPanelFuzzRunMessage containing the configuration
  */
-function getConfigFromUi(): FuzzPanelFuzzStartMessage {
+function getConfigFromUi(): FuzzPanelFuzzRunMessage {
   const fuzzBase = "fuzz"; // Base html id name
 
   // Get input elements
   const MutationInputGeneratorEnabled = getElementByIdOrThrow(
     `${fuzzBase}-gen-MutationInputGenerator-enabled`
+  );
+  const AiInputGeneratorEnabled = getElementByIdOrThrow(
+    `${fuzzBase}-gen-AiInputGenerator-enabled`
   );
   const CoverageMeasureEnabled = getElementByIdOrThrow(
     `${fuzzBase}-measure-CoverageMeasure-enabled`
@@ -1766,14 +1904,14 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
 
   // List of controls to disable while fuzzer is busy
   const disableArr = [
-    getElementByIdOrThrow("fuzz.start"),
-    getElementByIdOrThrow("fuzz.addTestInput"),
+    getElementByIdOrThrow("fuzz.run"),
+    document.getElementById("fuzz.addTestInput"), // may be null
     MutationInputGeneratorEnabled,
     CoverageMeasureEnabled,
     CoverageMeasureWeight,
     FailedTestMeasureEnabled,
     FailedTestMeasureWeight,
-  ];
+  ].filter((e) => e !== null);
 
   // Helper: integer values
   const getIntValue = (e: string): number => {
@@ -1797,7 +1935,7 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
   };
 
   // Fuzzer option overrides (from UI)
-  const overrides: FuzzPanelFuzzStartMessage = {
+  const overrides: FuzzPanelFuzzRunMessage = {
     fuzzer: {
       maxTests: getIntValue("maxTests"),
       maxDupeInputs: getIntValue("maxDupeInputs"),
@@ -1839,6 +1977,12 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
           enabled:
             (MutationInputGeneratorEnabled.getAttribute("value") ??
               MutationInputGeneratorEnabled.getAttribute("current-checked")) ===
+            "true",
+        },
+        AiInputGenerator: {
+          enabled:
+            (AiInputGeneratorEnabled.getAttribute("value") ??
+              AiInputGeneratorEnabled.getAttribute("current-checked")) ===
             "true",
         },
       },
@@ -1962,12 +2106,14 @@ function getConfigFromUi(): FuzzPanelFuzzStartMessage {
  *  validators: string[], // list of available custom validators
  * }
  */
-function refreshValidators(validatorList: { validators: string[] }) {
+function refreshValidators(validatorList: string[]) {
   const validatorFnList = getElementByIdOrThrow("validator-functionList");
+  const validatorFnCount = getElementByIdOrThrow("validator-functionCount");
   validatorFnList.setAttribute(
     "aria-label",
     listForValidatorFnTooltip(validatorList)
   );
+  validatorFnCount.innerText = String(validatorList.length);
 } // fn: refreshValidators
 
 /**
@@ -1975,10 +2121,10 @@ function refreshValidators(validatorList: { validators: string[] }) {
  * user clicked the customValidator button)
  */
 function handleAddValidator() {
-  vscode.postMessage({
+  const message: FuzzPanelMessageFromWebView = {
     command: "validator.add",
-    json: JSON5.stringify(""),
-  });
+  };
+  vscode.postMessage(message);
 } // fn: handleAddValidator()
 
 /**
@@ -1986,20 +2132,20 @@ function handleAddValidator() {
  * user clicked the customValidator button)
  */
 function handleOpenSource() {
-  vscode.postMessage({
+  const message: FuzzPanelMessageFromWebView = {
     command: "open.source",
-    json: JSON5.stringify(""),
-  });
+  };
+  vscode.postMessage(message);
 } // fn: handleOpenSource()
 
 /**
  * Send message to back-end to refresh the validators
  */
 function handleGetListOfValidators() {
-  vscode.postMessage({
+  const message: FuzzPanelMessageFromWebView = {
     command: "validator.getList",
-    json: "{}",
-  });
+  };
+  vscode.postMessage(message);
 } // fn: handleGetListOfValidators()
 
 /**
@@ -2087,14 +2233,14 @@ function getIdxInTableHeader(id: string, hRow: HTMLTableRowElement) {
  * @param {*} validatorList list of validator fn names
  * @returns
  */
-function listForValidatorFnTooltip(validatorList: { validators: string[] }) {
+function listForValidatorFnTooltip(validatorList: string[]) {
   let list = "Property validators:\n";
-  if (validatorList.validators.length === 0) {
+  if (validatorList.length === 0) {
     list += "(none)";
   }
-  validatorList.validators.forEach((validator, idx) => {
-    list += validatorList.validators[idx];
-    if (idx !== validatorList.validators.length) {
+  validatorList.forEach((validator, idx) => {
+    list += validatorList[idx];
+    if (idx !== validatorList.length) {
       list += "\n";
     }
   });

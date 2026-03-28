@@ -44,6 +44,7 @@ module.exports = {
     "@typescript-eslint/no-unnecessary-condition": 1,
     "@typescript-eslint/non-nullable-type-assertion-style": 2,
     "@typescript-eslint/prefer-ts-expect-error": 2,
+    "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
     eqeqeq: 2,
     "eslint-comments/no-use": 2,
     "import/no-cycle": 2,
