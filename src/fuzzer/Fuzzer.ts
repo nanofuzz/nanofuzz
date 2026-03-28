@@ -21,7 +21,7 @@ import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { ScoredInput } from "./generators/Types";
+import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 
@@ -82,17 +82,18 @@ export class Tester {
       m.name in optMeasures ? optMeasures[m.name].enabled : false
     );
 
+    // Initialize results
+    this._results = this._getInitializedResults();
+
     // Generators
     this._compositeInputGenerator = new CompositeInputGenerator(
       this._options.generators, // generator options
       this._function, // input generation target
       options.seed, // prng seed
       this._measures, // active measures
-      this._leaderboard // leaderboard
+      this._leaderboard, // leaderboard
+      this._results.stats.generators
     );
-
-    // Initialize results
-    this._results = this._getInitializedResults();
   }
 
   /**
@@ -142,7 +143,11 @@ export class Tester {
     return false;
   } // fn: isStale
 
-  // !!!!!!
+  /**
+   * Creates a new, empty set of fuzzer results
+   *
+   * @returns initialized Fuzzer Results
+   */
   protected _getInitializedResults(): FuzzTestResults {
     return {
       env: {
@@ -166,15 +171,52 @@ export class Tester {
           dupesGenerated: 0, // updated later
           inputsInjected: 0, // updated later
         },
-        generators: {}, // updated later
+        generators: {
+          RandomInputGenerator: {
+            timers: {
+              gen: 0, // updated below
+              run: 0, // updated later
+              val: 0, // updated later
+              measure: 0, // updated later
+            },
+            counters: {
+              dupesGenerated: 0, // updated later
+              inputsGenerated: 0, // updated later
+            },
+          },
+          MutationInputGenerator: {
+            timers: {
+              gen: 0, // updated below
+              run: 0, // updated later
+              val: 0, // updated later
+              measure: 0, // updated later
+            },
+            counters: {
+              dupesGenerated: 0, // updated later
+              inputsGenerated: 0, // updated later
+            },
+          },
+          AiInputGenerator: {
+            timers: {
+              gen: 0, // updated below
+              run: 0, // updated later
+              val: 0, // updated later
+              measure: 0, // updated later
+            },
+            counters: {
+              dupesGenerated: 0, // updated later
+              inputsGenerated: 0, // updated later
+            },
+          },
+        },
         measures: {}, // updated later
       },
       interesting: {
         inputs: [],
       },
-      results: [], // filled later  } // fn: constructor
+      results: [], // filled later
     };
-  } // !!!!!!
+  } // fn: _getInitializedResults
 
   // !!!!!!
   // can we eliminate this?
@@ -512,29 +554,10 @@ export class Tester {
         };
       });
 
-      // Stats
-      const statKey = genInput.injected
-        ? `injected`
-        : genInput.source.type === "generator"
-          ? `${genInput.source.type}.${genInput.source.generator}`
-          : `${genInput.source.type}`;
-      if (!(statKey in this._results.stats.generators)) {
-        this._results.stats.generators[statKey] = {
-          timers: {
-            gen: 0, // updated below
-            run: 0, // updated later
-            val: 0, // updated later
-            measure: 0, // updated later
-          },
-          counters: {
-            dupesGenerated: 0, // updated later
-            inputsGenerated: 0, // updated later
-          },
-        };
-      }
-      const genStats = this._results.stats.generators[statKey];
-      genStats.timers.gen += result.timers.gen;
-      this._results.stats.timers.gen += result.timers.gen;
+      // Pointer to generator stats for this input, if not injected
+      let genStats:
+        | FuzzTestStats["generators"]["RandomInputGenerator"]
+        | undefined = undefined;
 
       // Handle injected and generated tests differently, e.g.,
       // we need to retain any saved details for injected tests.
@@ -559,15 +582,22 @@ export class Tester {
         }
         runStats.counters.inputsInjected++; // increment the number of pinned tests injected
       } else {
-        // Increment the number of inputs generated
-        runStats.counters.inputsGenerated++;
-        genStats.counters.inputsGenerated++;
+        // Update generator stats
+        if (genInput.source.type === "generator") {
+          // Add generation times to the generator stats
+          genStats = this._results.stats.generators[genInput.source.generator];
+          genStats.timers.gen += result.timers.gen;
+          this._results.stats.timers.gen += result.timers.gen;
 
-        // Log the generation start time
-        if (runStats.timers.startGenTime === 0) {
-          runStats.timers.startGenTime = startGenTime;
+          // Increment the number of inputs generated
+          runStats.counters.inputsGenerated++;
+          genStats.counters.inputsGenerated++;
+
+          // Log the generation start time
+          if (runStats.timers.startGenTime === 0) {
+            runStats.timers.startGenTime = startGenTime;
+          }
         }
-
         // Indicate that we are no longer injecting inputs
         stillInjecting = false;
       }
@@ -580,7 +610,7 @@ export class Tester {
         });
         const measureTime = performance.now() - startMeasTime;
         this._results.stats.timers.measure += measureTime;
-        genStats.timers.measure += measureTime;
+        genStats ? (genStats.timers.measure += measureTime) : undefined;
       }
 
       // Skip tests if we previously processed the input
@@ -589,7 +619,7 @@ export class Tester {
         runStats.counters.dupesSequential++; // increment the dupe counter
         runStats.counters.dupesGenerated++; // incremement the total run dupe counter
         this._compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
-        genStats.counters.dupesGenerated++; // increment the generator's dupe counter
+        genStats ? genStats.counters.dupesGenerated++ : undefined; // increment the generator's dupe counter
         continue; // skip this test
       } else {
         runStats.counters.dupesSequential = 0; // reset the duplicate count
@@ -640,7 +670,7 @@ export class Tester {
         }
       }
       this._results.stats.timers.put += result.timers.run;
-      genStats.timers.run += result.timers.run;
+      genStats ? (genStats.timers.run += result.timers.run) : undefined;
 
       const startValTime = performance.now(); // start timer
       // IMPLICIT ORACLE --------------------------------------------
@@ -753,7 +783,7 @@ export class Tester {
       // Validator stats
       const valTime = performance.now() - startValTime; // stop timer
       this._results.stats.timers.val += valTime;
-      genStats.timers.val += valTime;
+      genStats ? (genStats.timers.val += valTime) : undefined;
 
       // (Re-)categorize the result
       result.category = categorizeResult(result);
@@ -788,7 +818,7 @@ export class Tester {
         // Measurement stats
         const measureTime = performance.now() - startMeasureTime;
         this._results.stats.timers.measure += measureTime;
-        genStats.timers.measure += measureTime;
+        genStats ? (genStats.timers.measure += measureTime) : undefined;
       }
 
       yield undefined;
@@ -797,7 +827,7 @@ export class Tester {
 } // class: Tester
 
 // !!!!!!
-export type CurrentRunStats = {
+type CurrentRunStats = {
   counters: {
     inputsInjected: number; // number of inputs injected for testing
     inputsGenerated: number; // number of inputs generated so far
@@ -1136,6 +1166,18 @@ export type FuzzTestResults = {
 /**
  * Fuzzer Test Stats
  */
+export type FuzzGeneratorStatsBase = {
+  counters: {
+    inputsGenerated: number; // number of inputs generated, including dupes
+    dupesGenerated: number; // number of duplicate inputs generated
+  };
+  timers: {
+    run: number; // elapsed time the PUT ran
+    val: number; // elapsed time to categorize outputs
+    gen: number; // elapsed time to generate inputs
+    measure: number; // elapsed time to measure
+  };
+};
 export type FuzzTestStats = {
   timers: {
     total: number; // elapsed time the fuzzer ran
@@ -1152,18 +1194,9 @@ export type FuzzTestStats = {
     inputsInjected: number; // number of inputs pinned
   };
   generators: {
-    [k: string]: {
-      timers: {
-        run: number; // elapsed time the PUT ran
-        val: number; // elapsed time to categorize outputs
-        gen: number; // elapsed time to generate inputs
-        measure: number; // elapsed time to measure
-      };
-      counters: {
-        inputsGenerated: number; // number of inputs generated, including dupes
-        dupesGenerated: number; // number of duplicate inputs generated
-      };
-    };
+    RandomInputGenerator: FuzzGeneratorStatsBase;
+    MutationInputGenerator: FuzzGeneratorStatsBase;
+    AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
   };
   measures: {
     CodeCoverageMeasure?: CodeCoverageMeasureStats;

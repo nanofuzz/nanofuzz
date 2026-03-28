@@ -7,6 +7,7 @@ import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "../fuzzer/analysis/typescript/ProgramDef";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
+import { Listener } from "../extension";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -1143,7 +1144,7 @@ ${inArgConsts}
       this._results === undefined
         ? Object.values(this._getFuzzTestsForThisFn().tests) // First run: inject saved tests
         : needNewTester
-          ? (this._results?.results.map((i) => {
+          ? this._results.results.map((i) => {
               // Inject any prior inputs into the new tester, including persisted test details
               const inputKey = fuzzer.getIoKey(i.input);
               if (inputKey in savedTests) {
@@ -1155,7 +1156,7 @@ ${inArgConsts}
                   pinned: false,
                 };
               }
-            }) ?? [])
+            })
           : []; // Subsequent run with existing tester; no injection needed
 
     // If adding a test manually, inject that test
@@ -1858,7 +1859,27 @@ ${inArgConsts}
             }">
               <p>No property validators were found, so the property validator column is blank.</p>
             </div>
+            
+            <div class="fuzzWarnings${
+              this._state === FuzzPanelState.done && this._fuzzEnv.options.generators.AiInputGenerator.enabled && this._results?.stats.generators.AiInputGenerator.gen?.calls.failureMessage
+                ? ""
+                : " hidden"
+            }">
+              <p>The last request to the LLM failed: <span class="editorFont">${this._results?.stats.generators.AiInputGenerator.gen?.calls.failureMessage}</span></p>
+            </div>`;
 
+      // prettier-ignore
+      html += /*html*/ `
+            <div class="fuzzWarnings${
+              this._state === FuzzPanelState.done && this._fuzzEnv.options.useProperty && !(this._fuzzEnv.validators.length)
+                ? ""
+                : " hidden"
+            }">
+              <p>No property validators were found, so the property validator column is blank.</p>
+            </div>`;
+
+      // prettier-ignore
+      html += /*html*/ `
             <!-- Fuzzer Info -->
             <div class="fuzzInfo hidden"></div>
             
@@ -1964,8 +1985,8 @@ ${inArgConsts}
           for (g in this._results.env.options.generators) {
             const shortName = g.replace("InputGenerator", "").toLowerCase();
 
-            if (`generator.${g}` in this._results.stats.generators) {
-              const genStats = this._results.stats.generators[`generator.${g}`];
+            const genStats = this._results.stats.generators[g];
+            if (genStats.counters.inputsGenerated > 0) {
               genTextEnabled.push(
                 `${shortName} produced ${
                   genStats.counters.inputsGenerated
@@ -2002,11 +2023,92 @@ ${inArgConsts}
                         genTextDisabled.length === 1 ? "y was" : "ies were"
                       } not used because ${
                         genTextDisabled.length === 1 ? "it was" : "they were"
-                      } disabled: `
+                      } not enabled: `
                     : ``
                 }${toPrettyList(genTextDisabled)}${
                   genTextDisabled.length ? "." : ""
                 }`;
+
+          // Extra details for the AI generator
+          const aiGenStats = this._results.stats.generators["AiInputGenerator"];
+          const aiGeneratorText: string[] = [];
+          if (aiGenStats.gen && aiGenStats.gen.calls.sent) {
+            aiGeneratorText.push(
+              `The ai input generator sent ${aiGenStats.gen.calls.sent} requests to the LLM,`
+            );
+            if (
+              aiGenStats.gen.calls.valid ||
+              aiGenStats.gen.calls.invalid ||
+              aiGenStats.gen.calls.failures
+            ) {
+              aiGeneratorText.push(
+                `which used ${aiGenStats.gen.tokens.sent} input tokens and ${aiGenStats.gen.tokens.sent} output tokens.`
+              );
+              aiGeneratorText.push(
+                `The estimated retail cost of these tokens is ${
+                  aiGenStats.gen.tokens.receivedCost === undefined ||
+                  aiGenStats.gen.tokens.sentCost === undefined ||
+                  aiGenStats.gen.tokens.receivedCost.unit !==
+                    aiGenStats.gen.tokens.sentCost.unit
+                    ? "unknown"
+                    : `${
+                        aiGenStats.gen.tokens.sentCost.amt +
+                        aiGenStats.gen.tokens.receivedCost.amt
+                      } ${aiGenStats.gen.tokens.receivedCost.unit}`
+                }.`
+              );
+              const pendingCalls =
+                aiGenStats.gen.calls.sent -
+                aiGenStats.gen.calls.valid -
+                aiGenStats.gen.calls.invalid -
+                aiGenStats.gen.calls.failures;
+              if (pendingCalls) {
+                aiGeneratorText.push(
+                  `The LLM had not yet responded to ${pendingCalls} pending request${pendingCalls === 1 ? "" : "s"} when testing ended.`
+                );
+              }
+            } else {
+              aiGeneratorText.push(
+                `but the LLM had not yet responded when testing ended.`
+              );
+            }
+            if (aiGenStats.gen.calls.invalid) {
+              aiGeneratorText.push(
+                `The LLM returned ${aiGenStats.gen.calls.invalid} uninterpretable response${aiGenStats.gen.calls.invalid === 1 ? "" : "s"} that were discarded.`
+              );
+            }
+            if (aiGenStats.gen.calls.failures) {
+              aiGeneratorText.push(
+                `The LLM failed to respond to ${aiGenStats.gen.calls.failures} request${aiGenStats.gen.calls.failures === 1 ? "" : "s"},`
+              );
+              if (aiGenStats.gen.calls.failureMessage) {
+                aiGeneratorText.push(
+                  `and the most recent requested failed for reason: <span class="editorText">${aiGenStats.gen.calls.failureMessage}.`
+                );
+              } else {
+                aiGeneratorText.push(
+                  `but these failures happened previously (not the latest request).`
+                );
+              }
+            }
+            if (
+              aiGenStats.gen.inputs.invalid ||
+              aiGenStats.gen.inputs.invalidLater ||
+              aiGenStats.gen.inputs.inQueue
+            ) {
+              aiGeneratorText.push(
+                `In addition to the ${aiGenStats.counters.inputsGenerated} input${aiGenStats.counters.inputsGenerated === 1 ? "" : "s"} returned by the generator (${aiGenStats.counters.dupesGenerated} of which ${aiGenStats.counters.dupesGenerated === 1 ? "was a duplicate" : "were duplicates"}),`
+              );
+              aiGeneratorText.push(
+                `${aiGenStats.gen.inputs.invalid + aiGenStats.gen.inputs.invalidLater} input${aiGenStats.gen.inputs.invalid + aiGenStats.gen.inputs.invalidLater === 1 ? " was discarded because it" : "s were discarded because they"} did not satisfy the input schema, and ${aiGenStats.gen.inputs.inQueue} input${aiGenStats.gen.inputs.inQueue === 1 ? "" : "s"} remained queued when testing finished.`
+              );
+            }
+            /*
+            aiGeneratorText.push(
+              `You can set env variable <span class="editorFont">NODELLM_DEBUG=true</span> to see the raw LLM interaction.`
+            );
+            */
+          }
 
           // Build code coverage information
           const coverageStats =
@@ -2071,7 +2173,7 @@ ${inArgConsts}
                 validatorsNotUsed
               )} validator${
                 validatorsNotUsed.length > 1 ? "s were" : " was"
-              } not configured.`;
+              } not enabled.`;
             }
           } else {
             validatorsUsedText = `${toolName} did not use any validators in this test. This means that all tests were categorized as passed.`;
@@ -2220,7 +2322,16 @@ ${inArgConsts}
                 this._results.results.length
               ).toFixed(2)} ms/input).
               ${coverageText}
-            </p>`,
+            </p>
+            
+            ${
+              aiGeneratorText.length
+                ? `
+            <div class="fuzzResultHeading">How was the LLM used?</div>
+            <p>${aiGeneratorText.join(" ")}</p>`
+                : ``
+            }
+            `,
             hasGrid: false,
           });
         }
@@ -3173,7 +3284,7 @@ export function deinit(): void {
 /**
  * Export this module's listeners to the extension.
  */
-export const listeners: Listener<any>[] = [
+export const listeners: Listener<unknown>[] = [
   {
     event: vscode.workspace.onDidChangeConfiguration,
     fn: (): void => {
@@ -3257,14 +3368,6 @@ export enum FuzzPanelState {
   done = "done", // Testing is done
   error = "error", // Testing stopped due to an error
 }
-
-/**
- * Associates a callback function with an vscode event.
- */
-type Listener<T extends unknown> = {
-  event: vscode.Event<T>;
-  fn: (e: T) => void;
-};
 
 /**
  * The serialized state of a FuzzPanel

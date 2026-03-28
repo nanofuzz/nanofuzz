@@ -12,3 +12,35 @@ export type ScoredInput = {
   measurements: BaseMeasurement[];
   interestingReasons: string[];
 };
+
+/**
+ * AI Input Generator Statistics
+ */
+export interface InputGeneratorStatsAi extends InputGeneratorStats {
+  inputs: {
+    gen: number;
+    invalid: number;
+    invalidLater: number;
+    inQueue: number;
+  };
+  calls: {
+    sent: number;
+    valid: number;
+    invalid: number;
+    failures: number;
+    failureMessage?: string;
+  };
+  tokens: {
+    sent: number;
+    received: number;
+    sentCost?: { amt: number; unit: string };
+    receivedCost?: { amt: number; unit: string };
+  };
+}
+
+/**
+ * Input-generator specific stats
+ */
+export type InputGeneratorStats = {
+  [k: string]: string | number | undefined | InputGeneratorStats;
+};

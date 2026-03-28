@@ -10,6 +10,7 @@ import { LlmAdapter } from "../adapters/LlmAdapter";
 import { ArgDef, FunctionDef, InputAndSource } from "../Fuzzer";
 import { ArgDefValidator } from "../analysis/typescript/ArgDefValidator";
 import * as zod from "zod";
+import { InputGeneratorStatsAi } from "./Types";
 
 /**
  * Generates new inputs using a large language model
@@ -47,17 +48,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
       (!active || !LlmAdapter.isConfigured() || this._llm.isStale())
     ) {
       this._llm = undefined;
-      this._inputQueue = []; // flush the cache to avoid user confusion
+      this._inputQueue = []; // empty the queue to avoid user confusion
     }
 
     // Create new back-end if configured but not yet loaded
     if (active && !this._llm && LlmAdapter.isConfigured()) {
-      this._stats = _initStats();
       this._llm = new LlmAdapter();
-      if (!this._inputQueue.length) {
-        this._getMoreInputs();
-      }
-      this._inputQueue = []; // flush the cache to avoid user confusion
+      this._inputQueue = []; // empty the queue to avoid user confusion
     }
 
     // Input generation options may have changed, so re-validate
@@ -103,12 +100,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
     if (this._callsPending) {
       return;
     }
+    this._callsPending++;
 
     // Bounce off the stack so we don't block the main fuzzer loop
     process.nextTick(async () => {
       if (this._llm) {
         const modelId = this._llm.id;
-        this._callsPending++;
         try {
           const validInputs: { [k: string]: ArgValueType }[] = [];
           const invalidInputs: { [k: string]: ArgValueType }[] = [];
@@ -117,19 +114,59 @@ export class AiInputGenerator extends AbstractInputGenerator {
           this._stats.calls.sent++;
 
           // Fetch inputs from the llm
+          this._stats.calls.failureMessage = undefined;
           const inputs = await this._llm.genInputs(
             this._fn,
             this._getInputsSchema()
           );
-          switch (inputs.error) {
+
+          // Update tokens received stats
+          if (inputs.stats) {
+            this._stats.tokens.received += inputs.stats.tokensReceived;
+            if (!this._stats.tokens.receivedCost) {
+              this._stats.tokens.receivedCost = {
+                ...inputs.stats.tokensReceivedCost,
+              };
+            } else if (
+              this._stats.tokens.receivedCost.unit ===
+              inputs.stats.tokensReceivedCost.unit
+            ) {
+              this._stats.tokens.receivedCost.amt +=
+                inputs.stats.tokensReceivedCost.amt;
+            }
+
+            // Update tokens sent stats
+            this._stats.tokens.sent += inputs.stats.tokensSent;
+            if (!this._stats.tokens.sentCost) {
+              this._stats.tokens.sentCost = {
+                ...inputs.stats.tokensSentCost,
+              };
+            } else if (
+              this._stats.tokens.sentCost.unit ===
+              inputs.stats.tokensSentCost.unit
+            ) {
+              this._stats.tokens.sentCost.amt +=
+                inputs.stats.tokensSentCost.amt;
+            }
+          }
+
+          // Handle error cases
+          switch (inputs.error?.type) {
             case undefined:
               this._stats.calls.valid++;
               break;
-            case "discarded":
+            case "discard":
               console.debug(
                 `Discarded LLM response: it does not match the schema: ${JSON5.stringify(inputs, null, 2)}.`
               ); // !!!!!!!
               this._stats.calls.invalid++;
+              break;
+            case "failure":
+              console.debug(
+                `LLM failed to process request: ${inputs.error.message}.`
+              ); // !!!!!!!
+              this._stats.calls.failures++;
+              this._stats.calls.failureMessage = inputs.error.message;
               break;
           }
 
@@ -145,7 +182,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
             // Validate the input
             if (
               validator.validate(
-                this._specs.map((arg, i) => {
+                this._specs.map((arg) => {
                   return {
                     tag: "ArgValueTypeWrapped",
                     value: input[arg.getName()],
@@ -293,15 +330,26 @@ export class AiInputGenerator extends AbstractInputGenerator {
     });
     return zodArg;
   } // fn: _argDefToSchema
+
+  /**
+   * Return stats about the AI input generation process
+   */
+  public get stats(): InputGeneratorStatsAi {
+    return JSON.parse(JSON.stringify(this._stats));
+  } // getter: stats
 } // class: AiInputGenerator
 
 /**
  * Returns an initialized stats structure
  */
-function _initStats() {
+function _initStats(): InputGeneratorStatsAi {
   return {
-    inputs: { gen: 0, invalid: 0, invalidLater: 0 },
-    calls: { sent: 0, valid: 0, invalid: 0 },
+    inputs: { gen: 0, invalid: 0, invalidLater: 0, inQueue: 0 },
+    calls: { sent: 0, valid: 0, invalid: 0, failures: 0 },
+    tokens: {
+      sent: 0,
+      received: 0,
+    },
   };
 } // fn: _initStats
 

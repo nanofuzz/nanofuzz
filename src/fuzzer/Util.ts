@@ -7,7 +7,7 @@ import JSON5 from "json5";
  * exception types have the message and stack fields.
  *
  * @param obj the object to check
- * @returns type guard if `obj` has `message` and `stack` properties of type `string`
+ * @returns type guard if `obj` has `message`, `stack`, and `name` properties of type `string`
  */
 export function isError(obj: unknown): obj is Error {
   return (

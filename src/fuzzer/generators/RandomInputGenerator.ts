@@ -36,8 +36,11 @@ export class RandomInputGenerator extends AbstractInputGenerator {
     };
   } // fn: next
 
-  // !!!!!!
+  /**
+   * Don't re-use generators across runs because the ranges may
+   * have changed.
+   */
   public onRunEnd(): void {
     this._gen = undefined;
-  }
+  } // fn: onRunEnd
 } // class: RandomInputGenerator

@@ -5,7 +5,6 @@ import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
 import { FuzzOptions, InputAndSource } from "../Types";
-import { getErrorMessageOrJson } from "../Util";
 
 /**
  * Produces a set of concrete input generators appropriate for

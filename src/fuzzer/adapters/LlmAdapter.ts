@@ -2,6 +2,7 @@ import { ArgValueType } from "../analysis/typescript/Types";
 import * as JSON5 from "json5";
 import { FunctionDef } from "../analysis/typescript/FunctionDef";
 import * as nodellm from "@node-llm/core";
+import { isError } from "../Util";
 
 // Try to load the vscode module
 let vscode: any = undefined;
@@ -20,7 +21,6 @@ export class LlmAdapter {
   protected _modelConfig: Parameters<typeof nodellm.createLLM>[0] = {}; // !!!!!!
   protected _backend: nodellm.NodeLLMCore; // !!!!!!
   protected _chat: nodellm.Chat; // !!!!!!
-  protected _promptCache: Record<string, string> = {}; // Cache of LLM chats
   protected _cfgString: string; // LLM config; for detecting config changes
 
   public constructor() {
@@ -69,16 +69,26 @@ export class LlmAdapter {
     schema?: Parameters<typeof this._chat.withSchema>[0]
   ): Promise<{
     programInputs: { [k: string]: ArgValueType }[];
-    error?: "discarded";
+    stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
+    error?: { type: "discard" } | { type: "failure"; message: string };
   }> {
-    const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
-      JSON5.parse(
-        await this._query(
-          [prompt.genInputs(this._getPromptVars(fn))],
-          schema,
-          true
-        )
+    let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
+    try {
+      response = await this._query(
+        [prompt.genInputs(this._getPromptVars(fn))],
+        schema
       );
+    } catch (e: unknown) {
+      return {
+        programInputs: [],
+        error: {
+          type: "failure",
+          message: isError(e) ? e.message : "unknown llm failure",
+        },
+      };
+    }
+    const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
+      JSON5.parse(response.response);
 
     // Sanity check llm output
     if (
@@ -91,11 +101,15 @@ export class LlmAdapter {
         )
       )
     ) {
-      return { programInputs: [], error: "discarded" };
+      return {
+        programInputs: [],
+        error: { type: "discard" },
+        stats: { ...response.stats },
+      };
     }
 
     // Deeper validation is the client's role
-    return inputs;
+    return { ...inputs, stats: { ...response.stats } };
   } // fn: genInputs
 
   // !!!!!!!!! should move this
@@ -108,46 +122,49 @@ export class LlmAdapter {
     return {
       fnName: fnRef.name,
       fnSource: fnRef.src,
-      fnSpec: fn.getCmt() ?? "", // !!!!!!!! should get spec here
+      fnSpec: fn.getCmt() ?? "",
     };
   } // fn: _getPromptVars
 
   // !!!!!!
   private async _query(
     prompt: string[],
-    schema?: Parameters<typeof this._chat.withSchema>[0],
-    bypassCache: boolean | undefined = false
-  ): Promise<string> {
-    const promptSerialized = JSON5.stringify(prompt);
+    schema?: Parameters<typeof this._chat.withSchema>[0]
+  ): Promise<{
+    response: string;
+    stats: {
+      tokensSent: number;
+      tokensSentCost: { amt: number; unit: string };
+      tokensReceived: number;
+      tokensReceivedCost: { amt: number; unit: string };
+    };
+  }> {
+    console.debug(`chat query: ${prompt.join(", ")}`); // !!!!!!
 
-    if (promptSerialized in this._promptCache && !bypassCache) {
-      const cachedResponse = this._promptCache[promptSerialized];
-      console.debug(`chat(from CACHE) query: ${prompt.join(", ")}`); // !!!!!!
-      console.debug(`chat(from CACHE) reply: ${cachedResponse}`); // !!!!!!
-      return cachedResponse;
-    } else {
-      console.debug(`chat query: ${prompt.join(", ")}`); // !!!!!!
-
-      const promptParts: nodellm.ContentPart[] = [];
-      prompt.forEach((e) => {
-        promptParts.push({
-          type: "text",
-          text: e,
-        });
+    const promptParts: nodellm.ContentPart[] = [];
+    prompt.forEach((e) => {
+      promptParts.push({
+        type: "text",
+        text: e,
       });
+    });
 
-      const timer = performance.now();
-      const result = (
-        await (schema ? this._chat.withSchema(schema) : this._chat)
-          .withRequestOptions({
-            responseFormat: { type: "json_object" },
-          })
-          .ask(promptParts)
-      ).toString();
-      console.debug(`(${performance.now() - timer} ms) chat reply: ${result}`); // !!!!!!
-      this._promptCache[promptSerialized] = result;
-      return result;
-    } // !!!!!!
+    const timer = performance.now();
+    const response = await (schema ? this._chat.withSchema(schema) : this._chat)
+      .withRequestOptions({
+        responseFormat: { type: "json_object" },
+      })
+      .ask(promptParts);
+    console.debug(`(${performance.now() - timer} ms) chat reply: ${response}`); // !!!!!!!!!!
+    return {
+      response: response.toString(),
+      stats: {
+        tokensSent: response.inputTokens,
+        tokensSentCost: { amt: response.input_cost ?? 0, unit: "USD" }, // USD per docs
+        tokensReceived: response.outputTokens,
+        tokensReceivedCost: { amt: response.output_cost ?? 0, unit: "USD" }, // USD per docs
+      },
+    };
   } // fn: query
 
   // !!!!!!

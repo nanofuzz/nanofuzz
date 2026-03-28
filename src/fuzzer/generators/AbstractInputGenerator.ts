@@ -2,6 +2,7 @@ import seedrandom from "seedrandom";
 import { ArgType } from "../analysis/typescript/Types";
 import { ArgDef } from "../analysis/typescript/ArgDef";
 import { InputAndSource } from "./../Types";
+import { InputGeneratorStats } from "./Types";
 
 /**
  * Abstract class of an input generator
@@ -27,6 +28,13 @@ export abstract class AbstractInputGenerator {
   public get name(): string {
     return this.constructor.name;
   } // property: get name
+
+  /**
+   * Returns generator stats
+   */
+  public get stats(): InputGeneratorStats {
+    return {};
+  } // property: get stats
 
   /**
    * Produce the next test-case inputs if isAvailable();

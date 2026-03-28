@@ -70,8 +70,6 @@ export class TypeScriptCompiler {
     measures: AbstractMeasure[],
     updateFn: (msg: FuzzBusyStatusMessage) => void
   ): ReturnType<NodeJS.Require> {
-    const thisCompilationRecord: CompilationRecord[] = [];
-
     // Determine options using the module path
     this._options = JSON5.parse(JSON5.stringify(defaultOptions));
     this._determineOptions();
@@ -179,9 +177,11 @@ export class TypeScriptCompiler {
 
     for (const sourceFile of sourceFiles) {
       // Retrieve detals of the prior compilation
-      const priorCompilation =
-        this._compilations.find((e) => e.srcPath === sourceFile) ??
-        _globalCompiledModules[sourceFile];
+      const priorCompilation: CompilationRecord | undefined =
+        (this._compilations.find((e) => e.srcPath === sourceFile) ??
+        sourceFile in _globalCompiledModules)
+          ? _globalCompiledModules[sourceFile]
+          : undefined;
 
       // Stale: Not yet compiled
       if (priorCompilation === undefined) {

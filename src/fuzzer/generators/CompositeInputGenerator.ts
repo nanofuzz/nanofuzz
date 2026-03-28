@@ -4,8 +4,9 @@ import { Leaderboard } from "./Leaderboard";
 import * as JSON5 from "json5";
 import { ScoredInput } from "./Types";
 import { FuzzOptions, InputAndSource } from "./../Types";
-import { FunctionDef } from "fuzzer/Fuzzer";
+import { FunctionDef, FuzzTestStats } from "fuzzer/Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
+import { AiInputGenerator } from "./AiInputGenerator";
 
 /**
  * The Composite Input Generator subsumes multiple types of input generator and biases
@@ -46,6 +47,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   private readonly _chunkSize = 20; // Re-evaluate subgen after _chunkSize inputs generated !!!!!!! externalize
   private readonly _P = 0.1; // Additional chance of subgen exploration !!!!!!! externalize
   private _permitSubgens = true; // Allow generators to produce inputs
+  private _genStats: FuzzTestStats["generators"]; // Generator statistics
   public static readonly INJECTED = "injected";
 
   /**
@@ -64,13 +66,15 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     fn: FunctionDef,
     rngSeed: string | undefined,
     measures: AbstractMeasure[],
-    leaderboard: Leaderboard<InputAndSource>
+    leaderboard: Leaderboard<InputAndSource>,
+    genStats: FuzzTestStats["generators"]
   ) {
     super([], rngSeed);
 
     this._subgens = InputGeneratorFactory(options, fn, rngSeed, leaderboard);
     this._measures = measures;
     this._leaderboard = leaderboard;
+    this._genStats = genStats;
 
     // Initialize measure history
     this._history = this._subgens.map(() => ({
@@ -364,12 +368,18 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // fn: onRun
 
   /**
-   * Cleanup when the test run ends
+   * Cleanup all subgens and update stats when the test run ends
    */
   public onRunEnd(): void {
     super.onRunEnd();
-    this._subgens.forEach((e) => {
-      e.onRunEnd();
+    this._subgens.forEach((subgen) => {
+      subgen.onRunEnd();
+      if (
+        subgen.name === "AiInputGenerator" &&
+        subgen instanceof AiInputGenerator
+      ) {
+        this._genStats["AiInputGenerator"].gen = subgen.stats;
+      }
     });
   } // fn: onRunEnd
 } // class: CompositeInputGenerator

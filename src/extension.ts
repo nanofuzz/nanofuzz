@@ -74,3 +74,11 @@ export function deactivate(): void {
   fp.deinit();
   tm.deinit();
 } // fn: deactivate()
+
+/**
+ * Associates a callback function with an vscode event.
+ */
+export type Listener<T extends unknown> = {
+  event: vscode.Event<T>;
+  fn: (e: T) => void;
+};
