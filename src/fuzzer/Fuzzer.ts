@@ -876,7 +876,7 @@ const _checkStopCondition = (
   // End testing if the user cancels but not yet if still injecting
   // inputs because if we stop we lose those.
   if (userCancel && !injecting) {
-    return FuzzStopReason.CANCEL;
+    return FuzzStopReason.PAUSE;
   }
 
   // End testing if we exceed the suite timeout, which here we measure

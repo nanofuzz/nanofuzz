@@ -195,7 +195,7 @@ export type FuzzArgOverride = {
  * Reason the fuzzer stopped
  */
 export enum FuzzStopReason {
-  CANCEL = "cancel",
+  PAUSE = "pause",
   CRASH = "crash",
   MAXTESTS = "maxTests",
   MAXFAILURES = "maxFailures",

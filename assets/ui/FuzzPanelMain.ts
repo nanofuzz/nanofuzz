@@ -82,12 +82,10 @@ const validatorResult = {
 };
 
 // Sort order for each grid and column
-const sortOrder = [FuzzSortOrder.asc, FuzzSortOrder.desc, FuzzSortOrder.none];
 function getDefaultColumnSortOrder(): Record<string, FuzzSortOrder> {
   return {
     [pinnedLabel]: FuzzSortOrder.desc,
     [correctLabel]: FuzzSortOrder.desc,
-    [expandLabel]: FuzzSortOrder.asc,
   };
 }
 const defaultColumnSortOrders: FuzzSortColumns = {
@@ -237,11 +235,11 @@ function main() {
     handleGetListOfValidators
   );
 
-  // Add event listeners for the stop button
-  getElementByIdOrThrow("fuzz.stop").addEventListener("click", () => {
-    const message: FuzzPanelMessageFromWebView = { command: "fuzz.stop" };
+  // Add event listeners for the pause button
+  getElementByIdOrThrow("fuzz.pause").addEventListener("click", () => {
+    const message: FuzzPanelMessageFromWebView = { command: "fuzz.pause" };
     vscode.postMessage(message);
-    getElementByIdOrThrow("fuzz.stop").setAttribute("disabled", "true");
+    getElementByIdOrThrow("fuzz.pause").setAttribute("disabled", "true");
   });
 
   // Load & display the validator functions from the HTML
@@ -291,6 +289,9 @@ function main() {
         }
         break;
       }
+      case "busy.ending":
+        getElementByIdOrThrow("fuzz.pause").setAttribute("disabled", "true");
+        break;
     }
   });
 
@@ -437,6 +438,7 @@ function main() {
         });
       }
     } // for: each result
+
     // Fill the grids with data
     gridTypes.forEach((type) => {
       if (data[type].length) {
@@ -598,20 +600,28 @@ function main() {
           }
         }); // for each column k
 
-        // Render the data rows, set up event listeners
-        drawTableBody({ type, tbody, isClicking: false });
-
         // Initial sort, according to columnSortOrders
+        const cols = Object.keys(data[type][0]);
         for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
-          const col = Object.keys(data[type][0])[i]; // back-end column
+          const col = cols[i]; // back-end column
           const cell = document.getElementById(type + "-" + col); // front-end column
           if (!(col in hiddenColumns) && cell !== null) {
             if (!(cell instanceof HTMLTableCellElement)) {
               throw new Error("cell not HTMLTableCellElement");
             }
-            handleColumnSort(cell, type, col, tbody, false);
+            // Only sort if a sort order is set for this column
+            const sortOrder = columnSortOrders[type][col];
+            if (
+              sortOrder === FuzzSortOrder.asc ||
+              sortOrder === FuzzSortOrder.desc
+            ) {
+              handleColumnSort(cell, type, col, tbody, false);
+            }
           }
         } // for i
+
+        // Sorting complete: render the table body
+        drawTableBody({ type, tbody, isClicking: false });
       } // if data[type].length
     }); // for each type (e.g. bad output, passed)
 
@@ -1089,11 +1099,11 @@ function toggleExpandColumn(type: FuzzResultCategory) {
  *  - Making sure we retain previous sort settings if you click 'Test' again
  */
 function handleColumnSort(
-  cell: HTMLTableCellElement,
-  type: FuzzResultCategory,
-  column: string,
-  tbody: HTMLTableSectionElement,
-  isClicking: boolean
+  cell: HTMLTableCellElement, // front end column
+  type: FuzzResultCategory, // tab
+  column: string, // back-end column
+  tbody: HTMLTableSectionElement, // front-end table for tab
+  isClicking: boolean // true=user clicked on the sort button
 ) {
   // console.debug(`Sorting type:'${type}' col:'${column}' cell:'${cell.id}'`);
 
@@ -1110,9 +1120,10 @@ function handleColumnSort(
   // Define sorting function:
   // Sort current column value based on sort order
   const sortFn = (a: any, b: any, thisCol: string) => {
-    if (columnSortOrders[type][thisCol] === FuzzSortOrder.none) {
+    const sortOrder = columnSortOrders[type][thisCol];
+    if (sortOrder !== FuzzSortOrder.desc && sortOrder !== FuzzSortOrder.asc) {
       return 0; // no need to sort
-    } else if (columnSortOrders[type][thisCol] === FuzzSortOrder.desc) {
+    } else if (sortOrder === FuzzSortOrder.desc) {
       const temp = a;
       a = b;
       b = temp; // swap a and b
@@ -1198,11 +1209,11 @@ function handleColumnSort(
     return 0; // a = b for all columns
   });
 
-  // Sorting done, display table
-  drawTableBody({ type, tbody, isClicking: false });
-
-  // Send message to extension to retain sort order
+  // Sorting done. If user-initiated, re-render table contents
+  // and send message to extension to retain sort order
   if (isClicking) {
+    drawTableBody({ type, tbody, isClicking: false });
+
     const message: FuzzPanelMessageFromWebView = {
       command: "columns.sorted",
       json: JSON5.stringify(columnSortOrders),
@@ -1219,9 +1230,10 @@ function handleColumnSort(
  * @param thisCol the current column being sorted by
  */
 function resetOtherColumnArrows(type: FuzzResultCategory, thisCol: string) {
+  const cols = Object.keys(data[type][0]);
   for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
     // For a given type, iterate over the columns (ex: input a, output, pin)
-    const col = Object.keys(data[type][0])[i]; // back-end column
+    const col = cols[i]; // back-end column
     const cell = document.getElementById(type + "-" + col); // front-end column
 
     if (
@@ -1240,7 +1252,7 @@ function resetOtherColumnArrows(type: FuzzResultCategory, thisCol: string) {
       cell.classList.remove("columnSortDescSmall");
     } // if
   } // for i
-}
+} // fn: resetOtherColumnArrows
 
 /**
  * Displays column arrow in header row, and updates columnSortOrders
@@ -1260,19 +1272,19 @@ function updateColumnArrow(
 ) {
   // Pinned and correct columns are special -- can be sorted by them, plus one addtional column
   let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
-  let currIndex = -1; // index in sortOrder array
-
   if (isClicking) {
-    if (!currOrder) {
-      // Set default if undefined
-      currOrder = FuzzSortOrder.asc;
-      currIndex = 0; // index in [asc, desc, none]
-    } else {
-      // Update sorting direction (asc -> desc, desc -> none, none -> asc)
-      const idx = sortOrder.indexOf(currOrder);
-      currIndex = (idx + 1) % sortOrder.length;
-      currOrder = sortOrder[currIndex];
+    // Update sorting direction (asc->desc, desc->none, none->asc)
+    switch (currOrder) {
+      case FuzzSortOrder.asc:
+        currOrder = FuzzSortOrder.desc;
+        break;
+      case FuzzSortOrder.desc:
+        currOrder = FuzzSortOrder.none;
+        break;
+      default:
+        currOrder = FuzzSortOrder.asc;
     }
+
     // Update columnSortOrders
     columnSortOrders[type][col] = currOrder;
     if (currOrder === "none") delete columnSortOrders[type][col];
@@ -1331,7 +1343,7 @@ function drawTableBody({
   | { isClicking: false; button?: undefined }
 )) {
   // Clear table
-  while (tbody.rows.length > 0) tbody.deleteRow(0);
+  tbody.innerHTML = "";
 
   // For each entry in data[type]
   data[type].forEach((e) => {
