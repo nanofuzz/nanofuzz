@@ -1589,7 +1589,7 @@ ${inArgConsts}
                 <vscode-panel-view>
                   <p>
                     These settings control how long testing runs. Testing pauses and results are returned when any limit is reached.  
-                    Previously saved or pinned tests do not count against the maximum runtime maximum number of tests. 
+                    Previously saved or pinned tests do not count against the maximum runtime or number of tests. 
                     For max runtime, 0 indicates no limit.
                   </p>
                   <div class="fuzzInputControlGroup">

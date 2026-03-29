@@ -361,9 +361,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   /**
    * Startup when the test run begins
    */
-  public onRunStart(_active: boolean): void {
+  public onRunStart(gen: boolean): void {
     for (const subgen in this._subgens) {
-      this._subgens[subgen].onRunStart(this._activeSubgens[subgen]);
+      this._subgens[subgen].onRunStart(gen && this._activeSubgens[subgen]);
     }
   } // fn: onRun
 

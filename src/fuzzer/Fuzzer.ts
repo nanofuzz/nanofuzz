@@ -398,7 +398,7 @@ export class Tester {
     }
 
     // Indicate the start of the run
-    this._compositeInputGenerator.onRunStart(true);
+    this._compositeInputGenerator.onRunStart(!!mode.gen);
 
     // The target will be a TypeScript function, so we must compile
     // it to JavaScript (and possibly instrument it) prior to execution.
@@ -427,7 +427,8 @@ export class Tester {
         stillInjecting,
         injectTests.length,
         !!cancelFn && cancelFn(),
-        runStats
+        runStats,
+        !!mode.gen
       );
       if (typeof stopCondition !== "number") {
         // Calculate final stats
@@ -868,7 +869,8 @@ const _checkStopCondition = (
   injecting: boolean,
   injectCount: number,
   userCancel: boolean,
-  stats: CurrentRunStats
+  stats: CurrentRunStats,
+  gen: boolean
 ): FuzzStopReason | number => {
   const pcts: number[] = [0];
   const now = performance.now();
@@ -888,16 +890,22 @@ const _checkStopCondition = (
     pcts.push((now - stats.timers.startGenTime) / options.suiteTimeout);
   }
 
-  // End testing if we exceed the maximum number of generated tests
+  // End testing if we exceed the maximum number of tests
   if (
-    stats.counters.inputsGenerated - stats.counters.dupesGenerated >=
-    options.maxTests
+    stats.counters.inputsInjected +
+      (gen
+        ? stats.counters.inputsGenerated - stats.counters.dupesGenerated
+        : 0) >=
+    injectCount + (gen ? options.maxTests : 0)
   ) {
     return FuzzStopReason.MAXTESTS;
   }
   pcts.push(
-    (stats.counters.inputsGenerated - stats.counters.dupesGenerated) /
-      options.maxTests
+    (stats.counters.inputsInjected +
+      (gen
+        ? stats.counters.inputsGenerated - stats.counters.dupesGenerated
+        : 0)) /
+      (injectCount + (gen ? options.maxTests : 0))
   );
 
   // End testing if we exceed the maximum number of failures
@@ -916,12 +924,9 @@ const _checkStopCondition = (
   }
   // We don't do a pct because one non-dupe resets this counter
 
-  // End testing if the source of inputs is exhausted
+  // End testing if all sources of inputs are exhausted
   if (!moreInputs) {
     return FuzzStopReason.NOMOREINPUTS;
-  }
-  if (injecting) {
-    pcts.push(stats.counters.inputsInjected / injectCount);
   }
 
   // No stop condition found; return pct complete
