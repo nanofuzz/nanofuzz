@@ -1318,42 +1318,27 @@ ${inArgConsts}
    * @param json JSON input
    */
   private _testClear(json: string): void {
-    type responses = "Clear generated tests";
-    type responsesWithUndefined = responses | undefined;
-    vscode.window
-      .showWarningMessage<responses>(
-        "Clear unpinned tests that lack an expected output?",
-        { modal: true },
-        "Clear generated tests"
-      )
-      .then<responsesWithUndefined>(
-        (value: responsesWithUndefined): responsesWithUndefined => {
-          if (value === "Clear generated tests") {
-            // Start over with a new tester
-            this._tester = new fuzzer.Tester(
-              this._fuzzEnv.function.getModule(),
-              this._fuzzEnv.function.getName(),
-              this._fuzzEnv.options
-            );
-            this._fuzzEnv = this._tester.env;
+    // Start over with a new tester
+    this._tester = new fuzzer.Tester(
+      this._fuzzEnv.function.getModule(),
+      this._fuzzEnv.function.getName(),
+      this._fuzzEnv.options
+    );
+    this._fuzzEnv = this._tester.env;
 
-            // Get the panel input
-            const panelInput: FuzzPanelFuzzRunMessage = JSON5.parse(json);
-            this._getConfigFromUi(panelInput);
+    // Get the panel input
+    const panelInput: FuzzPanelFuzzRunMessage = JSON5.parse(json);
+    this._getConfigFromUi(panelInput);
 
-            // Update the UI
-            this._results = undefined;
-            this._state = FuzzPanelState.init;
-            this._errorMessage = undefined;
-            this._errorStack = undefined;
-            this._updateHtml();
+    // Update the UI
+    this._results = undefined;
+    this._state = FuzzPanelState.init;
+    this._errorMessage = undefined;
+    this._errorStack = undefined;
+    this._updateHtml();
 
-            // Save the argument overrides
-            this._argOverrides = panelInput.args;
-            return value;
-          }
-        }
-      );
+    // Save the argument overrides
+    this._argOverrides = panelInput.args;
   } // fn: _testClear
 
   /**
@@ -1554,7 +1539,7 @@ ${inArgConsts}
           <div id="pane-nanofuzz"> 
             <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing:" : "Test:"}
               ${htmlEscape(fn.getName())+"()"} 
-              <div title="Open source code" id="openSourceLink" class='codicon codicon-link clickable'></div>
+              <div title="Open source code" id="openSourceLink" class='codicon codicon-go-to-file clickable'></div>
             </h2>
 
             <!-- Function Arguments -->
@@ -1754,7 +1739,7 @@ ${inArgConsts}
               <vscode-button ${disabledFlag} ${!activeButtons.run ? `class="hidden"` : ""} id="fuzz.run" class="tooltipped tooltipped-ne" appearance="primary icon" aria-label="${this._results ? "Generate more tests": "Generate tests"}">
                 <span class="codicon codicon-${this._results ? "debug-continue" : "play"}"></span>
               </vscode-button>
-              <vscode-button ${!activeButtons.pause ? `class="hidden"` : ""} id="fuzz.stop" appearance="primary icon" aria-label="Pause testing">
+              <vscode-button class="${!activeButtons.pause ? `hidden ` : ""}tooltipped tooltipped-ne " id="fuzz.stop" appearance="primary icon" aria-label="Pause testing">
                 <span class="codicon codicon-debug-pause"></span>
               </vscode-button>
               <vscode-button ${disabledFlag} ${!activeButtons.retest ? `class="hidden"` : ""} id="fuzz.retest" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Retest these results">
@@ -1771,8 +1756,8 @@ ${inArgConsts}
               ${activeButtons.run || activeButtons.pause || activeButtons.retest || activeButtons.add ? `&nbsp;` : ""}
 
               <span ${!activeButtons.clear ? `class="hidden"` : ""}>
-                <vscode-button ${disabledFlag} id="fuzz.clear" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Clear tests">
-                  <span class="codicon codicon-clear-all"></span>
+                <vscode-button ${disabledFlag} id="fuzz.clear" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Discard these results">
+                  <span class="codicon codicon-discard"></span>
                 </vscode-button>
                 &nbsp;
               </span>

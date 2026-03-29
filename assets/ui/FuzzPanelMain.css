@@ -284,6 +284,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 .tooltipped:focus::after {
   display: inline-block;
   text-decoration: none;
+  color: var(--button-primary-foreground);
   opacity: 1;
 }
 .tooltipped-multiline:hover::after,
