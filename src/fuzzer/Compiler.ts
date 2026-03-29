@@ -305,8 +305,6 @@ function compileTS(module: NodeJS.Module): string {
       path.basename(module.filename, ".ts") + ".js"
     )
   );
-  console.log(` - Transpiling: ${module.filename}`);
-  console.log(`            to: ${jsname}`);
 
   // If the Javascript file is current, return it directly
   if (!isModified(module.filename, jsname)) {
@@ -361,6 +359,11 @@ function compileTS(module: NodeJS.Module): string {
 
     options.typeRoots.length ? "--typeRoots" : "",
     options.typeRoots.length ? options.typeRoots.join(",") : "",
+
+    // We need these two options to map the compiled JS line
+    // numbers back to the original TS line numbers.
+    "--sourceMap",
+    "--inlineSources",
 
     module.filename,
   ];
