@@ -27,8 +27,12 @@ export interface InputGeneratorStatsAi extends InputGeneratorStats {
     sent: number;
     valid: number;
     invalid: number;
-    failures: number;
-    failureMessage?: string;
+    failed: number;
+    history: (
+      | { success: true }
+      | { discard: true }
+      | { failure: true; message: string }
+    )[];
   };
   tokens: {
     sent: number;
@@ -42,5 +46,11 @@ export interface InputGeneratorStatsAi extends InputGeneratorStats {
  * Input-generator specific stats
  */
 export type InputGeneratorStats = {
-  [k: string]: string | number | undefined | InputGeneratorStats;
+  [k: string]:
+    | string
+    | number
+    | boolean
+    | undefined
+    | InputGeneratorStats
+    | InputGeneratorStats[];
 };

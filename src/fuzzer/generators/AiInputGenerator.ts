@@ -100,132 +100,132 @@ export class AiInputGenerator extends AbstractInputGenerator {
     if (this._callsPending) {
       return;
     }
-    this._callsPending++;
 
-    // Bounce off the stack so we don't block the main fuzzer loop
-    process.nextTick(async () => {
-      if (this._llm) {
-        const modelId = this._llm.id;
-        try {
-          const validInputs: { [k: string]: ArgValueType }[] = [];
-          const invalidInputs: { [k: string]: ArgValueType }[] = [];
-          const validator = new ArgDefValidator(this._specs);
+    if (this._llm) {
+      this._callsPending++;
+      const modelId = this._llm.id;
+      try {
+        const validInputs: { [k: string]: ArgValueType }[] = [];
+        const invalidInputs: { [k: string]: ArgValueType }[] = [];
+        const validator = new ArgDefValidator(this._specs);
 
-          this._stats.calls.sent++;
+        this._stats.calls.sent++;
 
-          // Fetch inputs from the llm
-          this._stats.calls.failureMessage = undefined;
-          const inputs = await this._llm.genInputs(
-            this._fn,
-            this._getInputsSchema()
-          );
+        // Fetch inputs from the llm
+        this._llm
+          .genInputs(this._fn, this._getInputsSchema())
+          .then((inputs) => {
+            // Update tokens received stats
+            if (inputs.stats) {
+              this._stats.tokens.received += inputs.stats.tokensReceived;
+              if (!this._stats.tokens.receivedCost) {
+                this._stats.tokens.receivedCost = {
+                  ...inputs.stats.tokensReceivedCost,
+                };
+              } else if (
+                this._stats.tokens.receivedCost.unit ===
+                inputs.stats.tokensReceivedCost.unit
+              ) {
+                this._stats.tokens.receivedCost.amt +=
+                  inputs.stats.tokensReceivedCost.amt;
+              }
 
-          // Update tokens received stats
-          if (inputs.stats) {
-            this._stats.tokens.received += inputs.stats.tokensReceived;
-            if (!this._stats.tokens.receivedCost) {
-              this._stats.tokens.receivedCost = {
-                ...inputs.stats.tokensReceivedCost,
-              };
-            } else if (
-              this._stats.tokens.receivedCost.unit ===
-              inputs.stats.tokensReceivedCost.unit
-            ) {
-              this._stats.tokens.receivedCost.amt +=
-                inputs.stats.tokensReceivedCost.amt;
+              // Update tokens sent stats
+              this._stats.tokens.sent += inputs.stats.tokensSent;
+              if (!this._stats.tokens.sentCost) {
+                this._stats.tokens.sentCost = {
+                  ...inputs.stats.tokensSentCost,
+                };
+              } else if (
+                this._stats.tokens.sentCost.unit ===
+                inputs.stats.tokensSentCost.unit
+              ) {
+                this._stats.tokens.sentCost.amt +=
+                  inputs.stats.tokensSentCost.amt;
+              }
             }
 
-            // Update tokens sent stats
-            this._stats.tokens.sent += inputs.stats.tokensSent;
-            if (!this._stats.tokens.sentCost) {
-              this._stats.tokens.sentCost = {
-                ...inputs.stats.tokensSentCost,
-              };
-            } else if (
-              this._stats.tokens.sentCost.unit ===
-              inputs.stats.tokensSentCost.unit
-            ) {
-              this._stats.tokens.sentCost.amt +=
-                inputs.stats.tokensSentCost.amt;
+            // Handle error cases
+            switch (inputs.error?.type) {
+              case undefined:
+                this._stats.calls.valid++;
+                this._stats.calls.history.push({ success: true });
+                break;
+              case "discard":
+                console.debug(
+                  `Discarded LLM response: it does not match the schema: ${JSON5.stringify(inputs, null, 2)}.`
+                ); // !!!!!!!
+                this._stats.calls.invalid++;
+                this._stats.calls.history.push({ discard: true });
+                break;
+              case "failure":
+                console.debug(
+                  `LLM failed to process request: ${inputs.error.message}.`
+                ); // !!!!!!!
+                this._stats.calls.failed++;
+                this._stats.calls.history.push({
+                  failure: true,
+                  message: inputs.error.message,
+                });
+                break;
             }
-          }
 
-          // Handle error cases
-          switch (inputs.error?.type) {
-            case undefined:
-              this._stats.calls.valid++;
-              break;
-            case "discard":
-              console.debug(
-                `Discarded LLM response: it does not match the schema: ${JSON5.stringify(inputs, null, 2)}.`
-              ); // !!!!!!!
-              this._stats.calls.invalid++;
-              break;
-            case "failure":
-              console.debug(
-                `LLM failed to process request: ${inputs.error.message}.`
-              ); // !!!!!!!
-              this._stats.calls.failures++;
-              this._stats.calls.failureMessage = inputs.error.message;
-              break;
-          }
+            // Process the inputs
+            inputs.programInputs.forEach((input) => {
+              this._stats.inputs.gen++;
 
-          // Process the inputs
-          inputs.programInputs.forEach((input) => {
-            this._stats.inputs.gen++;
+              // Decode the input
+              Object.keys(input).forEach((k) => {
+                input[k] = _decode(input[k]);
+              });
 
-            // Decode the input
-            Object.keys(input).forEach((k) => {
-              input[k] = _decode(input[k]);
+              // Validate the input
+              if (
+                validator.validate(
+                  this._specs.map((arg) => {
+                    return {
+                      tag: "ArgValueTypeWrapped",
+                      value: input[arg.getName()],
+                    };
+                  })
+                )
+              ) {
+                validInputs.push(input);
+              } else {
+                invalidInputs.push(input);
+                this._stats.inputs.invalid++;
+              }
             });
-
-            // Validate the input
-            if (
-              validator.validate(
-                this._specs.map((arg) => {
-                  return {
-                    tag: "ArgValueTypeWrapped",
-                    value: input[arg.getName()],
-                  };
-                })
-              )
-            ) {
-              validInputs.push(input);
-            } else {
-              invalidInputs.push(input);
-              this._stats.inputs.invalid++;
+            if (invalidInputs.length) {
+              console.debug(
+                `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSON5.stringify(invalidInputs, null, 2)}`
+              ); // !!!!!!!!!
             }
-          });
-          if (invalidInputs.length) {
-            console.debug(
-              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSON5.stringify(invalidInputs, null, 2)}`
-            ); // !!!!!!!!!
-          }
 
-          // Push valid inputs to the input queue
-          this._inputQueue.push(
-            ...validInputs.map((input): InputAndSource => {
-              return {
-                tick: 0,
-                value: this._specs.map((arg): ArgValueTypeWrapped => {
-                  return {
-                    tag: "ArgValueTypeWrapped",
-                    value: input[arg.getName()],
-                  };
-                }),
-                source: {
-                  type: "generator",
-                  generator: "AiInputGenerator",
-                  model: modelId ?? "unknown model",
-                },
-              };
-            })
-          );
-        } finally {
-          this._callsPending--;
-        }
+            // Push valid inputs to the input queue
+            this._inputQueue.push(
+              ...validInputs.map((input): InputAndSource => {
+                return {
+                  tick: 0,
+                  value: this._specs.map((arg): ArgValueTypeWrapped => {
+                    return {
+                      tag: "ArgValueTypeWrapped",
+                      value: input[arg.getName()],
+                    };
+                  }),
+                  source: {
+                    type: "generator",
+                    generator: "AiInputGenerator",
+                    model: modelId ?? "unknown model",
+                  },
+                };
+              })
+            );
+          });
+      } finally {
+        this._callsPending--;
       }
-    });
+    }
   } // fn: _getMoreInputs
 
   // !!!!!!
@@ -345,7 +345,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
 function _initStats(): InputGeneratorStatsAi {
   return {
     inputs: { gen: 0, invalid: 0, invalidLater: 0, inQueue: 0 },
-    calls: { sent: 0, valid: 0, invalid: 0, failures: 0 },
+    calls: { sent: 0, valid: 0, invalid: 0, failed: 0, history: [] },
     tokens: {
       sent: 0,
       received: 0,

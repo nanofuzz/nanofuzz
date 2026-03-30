@@ -1861,14 +1861,22 @@ ${inArgConsts}
                 : " hidden"
             }">
               <p>No property validators were found, so the property validator column is blank.</p>
-            </div>
-            
+            </div>`;
+
+      const { count: sequentialFailures, message: latestFailureMessage } =
+        this._results && this._results.stats.generators.AiInputGenerator.gen
+          ? getSequentialFailures(
+              this._results.stats.generators.AiInputGenerator.gen.calls.history
+            )
+          : { count: 0 };
+      // prettier-ignore
+      html += /*html*/ `
             <div class="fuzzWarnings${
-              this._state === FuzzPanelState.done && this._fuzzEnv.options.generators.AiInputGenerator.enabled && this._results?.stats.generators.AiInputGenerator.gen?.calls.failureMessage
+              this._state === FuzzPanelState.done && this._fuzzEnv.options.generators.AiInputGenerator.enabled && sequentialFailures
                 ? ""
                 : " hidden"
             }">
-              <p>The last request to the LLM failed: <span class="editorFont">${this._results?.stats.generators.AiInputGenerator.gen?.calls.failureMessage}</span></p>
+              <p>The last ${sequentialFailures===1 ? `` : `${sequentialFailures}`} LLM response${sequentialFailures===1 ? "" : "s"} failed: <span class="editorFont">${latestFailureMessage ?? "n/a"}</span></p>
             </div>`;
 
       // prettier-ignore
@@ -2036,75 +2044,87 @@ ${inArgConsts}
           const aiGenStats = this._results.stats.generators["AiInputGenerator"];
           const aiGeneratorText: string[] = [];
           if (aiGenStats.gen && aiGenStats.gen.calls.sent) {
+            let moreCalls = aiGenStats.gen.calls.sent;
+            const pendingCalls =
+              aiGenStats.gen.calls.sent -
+              aiGenStats.gen.calls.valid -
+              aiGenStats.gen.calls.invalid -
+              aiGenStats.gen.calls.failed;
+
+            // Call details
             aiGeneratorText.push(
-              `The ai input generator sent ${aiGenStats.gen.calls.sent} requests to the LLM,`
+              `The ai input generator sent ${aiGenStats.gen.calls.sent} request${aiGenStats.gen.calls.sent === 1 ? "" : "s"} to the LLM, of which`
             );
-            if (
-              aiGenStats.gen.calls.valid ||
-              aiGenStats.gen.calls.invalid ||
-              aiGenStats.gen.calls.failures
-            ) {
+            let callCategories = 0;
+            if (pendingCalls) {
+              moreCalls -= pendingCalls;
+              callCategories++;
               aiGeneratorText.push(
-                `which used ${aiGenStats.gen.tokens.sent} input tokens and ${aiGenStats.gen.tokens.sent} output tokens.`
+                `${pendingCalls} ${pendingCalls === 1 ? "was" : "were"} awaiting a response when testing ended${moreCalls ? "," : "."}`
               );
+            }
+            if (aiGenStats.gen.calls.valid) {
+              moreCalls -= aiGenStats.gen.calls.valid;
+              callCategories++;
               aiGeneratorText.push(
-                `The estimated retail cost of these tokens is ${
-                  aiGenStats.gen.tokens.receivedCost === undefined ||
-                  aiGenStats.gen.tokens.sentCost === undefined ||
-                  aiGenStats.gen.tokens.receivedCost.unit !==
-                    aiGenStats.gen.tokens.sentCost.unit
-                    ? "unknown"
-                    : `${
-                        aiGenStats.gen.tokens.sentCost.amt +
-                        aiGenStats.gen.tokens.receivedCost.amt
-                      } ${aiGenStats.gen.tokens.receivedCost.unit}`
-                }.`
-              );
-              const pendingCalls =
-                aiGenStats.gen.calls.sent -
-                aiGenStats.gen.calls.valid -
-                aiGenStats.gen.calls.invalid -
-                aiGenStats.gen.calls.failures;
-              if (pendingCalls) {
-                aiGeneratorText.push(
-                  `The LLM had not yet responded to ${pendingCalls} pending request${pendingCalls === 1 ? "" : "s"} when testing ended.`
-                );
-              }
-            } else {
-              aiGeneratorText.push(
-                `but the LLM had not yet responded when testing ended.`
+                `${aiGenStats.gen.calls.valid} received a well-formed response${moreCalls ? "," : "."}`
               );
             }
             if (aiGenStats.gen.calls.invalid) {
+              callCategories++;
+
+              moreCalls -= aiGenStats.gen.calls.invalid;
               aiGeneratorText.push(
-                `The LLM returned ${aiGenStats.gen.calls.invalid} uninterpretable response${aiGenStats.gen.calls.invalid === 1 ? "" : "s"} that were discarded.`
+                `${aiGenStats.gen.calls.invalid} received a malformed response that was discarded${moreCalls ? "," : "."}`
               );
             }
-            if (aiGenStats.gen.calls.failures) {
+            if (aiGenStats.gen.calls.failed) {
+              callCategories++;
               aiGeneratorText.push(
-                `The LLM failed to respond to ${aiGenStats.gen.calls.failures} request${aiGenStats.gen.calls.failures === 1 ? "" : "s"},`
+                `${aiGenStats.gen.calls.failed} failed. ${sequentialFailures ? `The most recent ${sequentialFailures === 1 ? "" : sequentialFailures} response${sequentialFailures === 1 ? "" : "s"} failed for reason: <span class="editorText">${latestFailureMessage}</span>.` : ""}`
               );
-              if (aiGenStats.gen.calls.failureMessage) {
-                aiGeneratorText.push(
-                  `and the most recent requested failed for reason: <span class="editorText">${aiGenStats.gen.calls.failureMessage}.`
-                );
-              } else {
-                aiGeneratorText.push(
-                  `but these failures happened previously (not the latest request).`
-                );
-              }
             }
+            if (callCategories > 1) {
+              aiGeneratorText.push("and", aiGeneratorText.pop() ?? "");
+            }
+
+            // Input generation information
             if (
               aiGenStats.gen.inputs.invalid ||
-              aiGenStats.gen.inputs.invalidLater ||
-              aiGenStats.gen.inputs.inQueue
+              aiGenStats.gen.inputs.invalidLater
             ) {
               aiGeneratorText.push(
                 `In addition to the ${aiGenStats.counters.inputsGenerated} input${aiGenStats.counters.inputsGenerated === 1 ? "" : "s"} returned by the generator (${aiGenStats.counters.dupesGenerated} of which ${aiGenStats.counters.dupesGenerated === 1 ? "was a duplicate" : "were duplicates"}),`
               );
               aiGeneratorText.push(
-                `${aiGenStats.gen.inputs.invalid + aiGenStats.gen.inputs.invalidLater} input${aiGenStats.gen.inputs.invalid + aiGenStats.gen.inputs.invalidLater === 1 ? " was discarded because it" : "s were discarded because they"} did not satisfy the input schema, and ${aiGenStats.gen.inputs.inQueue} input${aiGenStats.gen.inputs.inQueue === 1 ? "" : "s"} remained queued when testing finished.`
+                `${aiGenStats.gen.inputs.invalid + aiGenStats.gen.inputs.invalidLater} input${aiGenStats.gen.inputs.invalid + aiGenStats.gen.inputs.invalidLater === 1 ? " was discarded because it" : "s were discarded because they"} did not satisfy the input schema.`
               );
+            }
+            if (aiGenStats.gen.inputs.inQueue) {
+              aiGeneratorText.push(
+                `${aiGenStats.gen.inputs.inQueue} input${aiGenStats.gen.inputs.inQueue === 1 ? "" : "s"} remained queued when testing finished.`
+              );
+            }
+            // Tokens and estimated costs
+            if (aiGenStats.gen.tokens.sent + aiGenStats.gen.tokens.received) {
+              aiGeneratorText.push(
+                `All these interactions used ${aiGenStats.gen.tokens.sent} input tokens and ${aiGenStats.gen.tokens.received} output tokens.`
+              );
+              if (
+                !(
+                  aiGenStats.gen.tokens.receivedCost === undefined ||
+                  aiGenStats.gen.tokens.sentCost === undefined ||
+                  aiGenStats.gen.tokens.receivedCost.unit !==
+                    aiGenStats.gen.tokens.sentCost.unit
+                )
+              ) {
+                aiGeneratorText.push(
+                  `The estimated retail cost of which is ${
+                    aiGenStats.gen.tokens.sentCost.amt +
+                    aiGenStats.gen.tokens.receivedCost.amt
+                  } ${aiGenStats.gen.tokens.receivedCost.unit}.`
+                );
+              }
             }
             /*
             aiGeneratorText.push(
@@ -2481,7 +2501,7 @@ ${inArgConsts}
       <body>
         <h1>:-(</h1>
         <p>Unable to render this panel due to an internal error in FuzzPanel._updateHtml().</p>
-        <p>You may want to make a copy then delete the following file. Then close and re-open this panel.
+        <p>You may want to make a copy of the following file then delete it. Then close and re-open this panel.
         <small><pre>${htmlEscape(this._getFuzzTestsFilename())}</pre></small>
         <p>Stack trace:</p>
         <small><pre>${stack}</pre></small>
@@ -3267,6 +3287,39 @@ function toPrettyList(inList: string[]): string {
         (a, b, i, array) => a + (i < array.length - 1 ? ", " : ", and ") + b
       );
 } // fn: toPrettyList()
+
+/**
+ * Returns the number of sequential failues with the same message from
+ * an AiInputGenerator call history.
+ *
+ * @param `history` from InputGeneratorStatsAi.calls.history
+ * @returns {
+ *  `count`: number of most-recent sequential failures
+ *  `message`: error messge for those sequential failures (if count > 0)
+ * }
+ */
+function getSequentialFailures(
+  history: NonNullable<
+    fuzzer.FuzzTestStats["generators"]["AiInputGenerator"]["gen"]
+  >["calls"]["history"]
+): { count: number; message?: string } {
+  const callHistory = [...history].reverse();
+  const message =
+    callHistory.length && "failure" in callHistory[0]
+      ? callHistory[0].message
+      : undefined;
+  let count = 0;
+  for (const e of callHistory) {
+    if (!("failure" in e && e.message === message)) {
+      continue;
+    }
+    count++;
+  }
+  return {
+    count,
+    message,
+  };
+} // fn: getSequentialFailures
 
 /**
  * Initializes the module

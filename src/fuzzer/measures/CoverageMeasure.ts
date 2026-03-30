@@ -82,9 +82,9 @@ export class CoverageMeasure extends AbstractMeasure {
 
     // Merge the current coverage into root predecessor
     const pred =
-      input.source.tick === undefined
-        ? undefined
-        : this._history[input.source.tick];
+      "tick" in input.source && input.source.tick !== undefined
+        ? this._history[input.source.tick]
+        : undefined;
     let accumBefore = 0;
     let accumAfter = 0;
     let nextPred = pred;
