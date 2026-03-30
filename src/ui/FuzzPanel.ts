@@ -1706,6 +1706,10 @@ ${inArgConsts}
           case "ready": {
             activeButtons.run = true;
             activeButtons.options = true;
+            if (this._results) {
+              activeButtons.retest = true;
+              activeButtons.clear = true;
+            }
             break;
           }
           case "paused": {
