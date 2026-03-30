@@ -742,8 +742,21 @@ export class FuzzPanel {
     ) {
       delete testSet.tests[currInputsJson];
     } else {
-      // Else, save to pinnedSet
-      testSet.tests[currInputsJson] = test;
+      // Else, save to pinnedSet w/o ticks or output
+      testSet.tests[currInputsJson] = {
+        ...test,
+        output: [],
+        input: test.input.map((i) => {
+          const i2 = { ...i };
+          if (
+            i2.origin.type === "generator" &&
+            i2.origin.generator === "MutationInputGenerator"
+          ) {
+            delete i2.origin.tick;
+          }
+          return i2;
+        }),
+      };
     }
 
     // Persist the updated set of tests
@@ -1108,7 +1121,7 @@ ${inArgConsts}
     this._getConfigFromUi(panelInput); // needed for accuate stale check
 
     // We need to build a new tester if the current tester is
-    // stale or the user opted to retest all the results.
+    // stale or the user opted to retest the prior results.
     const resultsAreStale = this.resultsAreStale(this._fuzzEnv.options);
     const needNewTester = mode.retest || !!resultsAreStale;
 
@@ -1138,7 +1151,17 @@ ${inArgConsts}
                 return savedTests[inputKey];
               } else {
                 return {
-                  input: i.input,
+                  input: i.input.map((e) => {
+                    const e2 = { ...e };
+                    // ticks are tester-specific
+                    if (
+                      e2.origin.type === "generator" &&
+                      e2.origin.generator === "MutationInputGenerator"
+                    ) {
+                      delete e2.origin.tick;
+                    }
+                    return e2;
+                  }),
                   output: [],
                   pinned: false,
                 };
@@ -1409,7 +1432,6 @@ ${inArgConsts}
       },
     };
     this._panel.webview.postMessage(message);
-    console.debug("sent config.updated message to webview"); // !!!!!!!!!!!!
   } //fn: onDidChangeConfiguration
 
   /**
@@ -2241,13 +2263,10 @@ ${inArgConsts}
                         `<tr class="editorFont"><td>${htmlEscape(
                           i.input.tick.toString()
                         )}</td>${i.input.value
-                          .map(
-                            (i) =>
-                              `<td>${
-                                i.value === undefined
-                                  ? "(no input)"
-                                  : JSON5.stringify(i.value)
-                              }</td>`
+                          .map((i) =>
+                            i.value === undefined
+                              ? `<td class="noInput">(no input)</td>`
+                              : `<td>${htmlEscape(JSON5.stringify(i.value))}</td>`
                           )
                           .join("\r\n")}
                         <td>${htmlEscape(
@@ -2257,6 +2276,9 @@ ${inArgConsts}
                                 .toLowerCase()
                             : i.input.source.type.toLowerCase()
                         )}${
+                          i.input.source.type === "generator" &&
+                          i.input.source.generator ===
+                            "MutationInputGenerator" &&
                           i.input.source.tick !== undefined
                             ? ` from #${i.input.source.tick}`
                             : ""

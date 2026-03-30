@@ -87,9 +87,7 @@ export type FuzzIoElement = {
 export type InputAndSource = {
   tick: number;
   value: ArgValueTypeWrapped[];
-  source: FuzzValueOrigin & {
-    tick?: number;
-  };
+  source: FuzzValueOrigin;
   injected?: true;
 };
 
