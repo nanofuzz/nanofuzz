@@ -131,13 +131,18 @@ export class FuzzPanel {
     ) {
       // Create a new fuzzer environment
       try {
-        // Render the FuzzPanel
-        const fuzzPanel = FuzzPanel.render(
-          FuzzPanel.context.extensionUri,
-          state.fnRef.module,
-          state.fnRef.name,
-          state.options
+        // Create the new FuzzPanel
+        const localFuzzPanel = new FuzzPanel(
+          panel,
+          extensionUri,
+          new fuzzer.Tester(
+            state.fnRef.module,
+            state.fnRef.name,
+            state.options,
+            { precompile: true }
+          )
         );
+        fuzzPanel = localFuzzPanel;
 
         // Attach a telemetry event handler to the panel
         panel.onDidChangeViewState((e) => {
@@ -148,7 +153,7 @@ export class FuzzPanel {
               "Webview with title '%s' for function '%s' state changed.  Visible: %s.  Active %s.",
               [
                 e.webviewPanel.title,
-                fuzzPanel.getFnRefKey(),
+                localFuzzPanel.getFnRefKey(),
                 e.webviewPanel.visible ? "true" : "false",
                 e.webviewPanel.active ? "true" : "false",
               ]

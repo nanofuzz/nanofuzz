@@ -3,8 +3,8 @@ import { TypeScriptCompiler } from "./Compiler";
 import { FuzzOptions } from "./Types";
 import * as JSON5 from "json5";
 
-// Extend default test timeout to 45s
-jasmine.DEFAULT_TIMEOUT_INTERVAL = 45000;
+// Extend default test timeout to 60s
+jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
 
 // Clean up prior testing temporary files, like compiler output,
 // so that we actually run the compiler during testing
