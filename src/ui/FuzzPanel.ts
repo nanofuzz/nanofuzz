@@ -89,7 +89,7 @@ export class FuzzPanel {
         FuzzPanel.viewType, // FuzzPanel view type
         `Test: ${fnName}()`, // webview title
         vscode.ViewColumn.Beside, // open beside the editor
-        FuzzPanel.getWebviewOptions() // options
+        FuzzPanel.getWebviewOptions(extensionUri) // options
       );
       panel.iconPath = vscode.Uri.joinPath(
         extensionUri,
@@ -189,8 +189,9 @@ export class FuzzPanel {
    * @param extensionUri The Uri of the extension
    * @returns The options to use when creating the FuzzPanel WebView
    */
-  public static getWebviewOptions(): vscode.WebviewPanelOptions &
-    vscode.WebviewOptions {
+  public static getWebviewOptions(
+    extensionUri: vscode.Uri
+  ): vscode.WebviewPanelOptions & vscode.WebviewOptions {
     return {
       // Enable javascript in the webview
       enableScripts: true,
@@ -201,8 +202,9 @@ export class FuzzPanel {
       // Retain the webview contents when hidden
       retainContextWhenHidden: true,
 
-      // And restrict the webview to only loading content from our extension's `media` directory.
-      // !!! localResourceRoots: [vscode.Uri.joinPath(extensionUri, "media")],
+      // Restrict the webview to only loading extension content.
+      localResourceRoots: [vscode.Uri.joinPath(extensionUri)],
+      // !!!!!!!!!!! localResourceRoots: [vscode.Uri.joinPath(extensionUri, "assets", "ui")],
     };
   }
 
@@ -1553,6 +1555,7 @@ ${inArgConsts}
         <html lang="en">
           <head>
             <meta charset="UTF-8">
+				    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${webview.cspSource}; font-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline';">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <script type="module" src="${toolkitUri}"></script>
             <script src="${json5Uri}"></script>

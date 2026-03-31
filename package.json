@@ -216,6 +216,12 @@
         "order": 90,
         "description": "These settings are primarily intended for scientists, who need to customize certain aspects of NaNofuzz for the purpose of running user studies.",
         "properties": {
+          "nanofuzz.name": {
+            "title": "Change NaNofuzz' name (for studies)",
+            "type": "string",
+            "default": "NaNofuzz",
+            "description": "Change NaNofuzz' name (for studies)"
+          },
           "nanofuzz.ui.hideMoreOptionsButton": {
             "title": "Hide the 'More options' button?",
             "type": "boolean",
