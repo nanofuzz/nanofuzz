@@ -8,6 +8,7 @@ import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "../fuzzer/analysis/typescript/ProgramDef";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { Listener } from "../extension";
+import { Tester } from "../fuzzer/Fuzzer";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -66,23 +67,27 @@ export class FuzzPanel {
    * @param extensionUri Extension Uri
    * @param env FuzzEnv for which to display or create the FuzzPanel
    */
-  public static render(extensionUri: vscode.Uri, tester: fuzzer.Tester): void {
-    const env = tester.env;
-
+  public static render(
+    extensionUri: vscode.Uri,
+    moduleFile: string,
+    fnName: string,
+    options: fuzzer.FuzzOptions
+  ): FuzzPanel {
     // Differentiate panels by the module and function under test
     const fnRef = JSON5.stringify({
-      module: env.function.getModule(),
-      fnName: env.function.getName(),
+      module: moduleFile,
+      fnName: fnName,
     });
 
     // If we already have a panel for this ref, show it.
     if (fnRef in FuzzPanel.currentPanels) {
       FuzzPanel.currentPanels[fnRef]._panel.reveal();
+      return FuzzPanel.currentPanels[fnRef];
     } else {
       // Otherwise, create a new panel.
       const panel = vscode.window.createWebviewPanel(
         FuzzPanel.viewType, // FuzzPanel view type
-        `Test: ${env.function.getName()}()`, // webview title
+        `Test: ${fnName}()`, // webview title
         vscode.ViewColumn.Beside, // open beside the editor
         FuzzPanel.getWebviewOptions() // options
       );
@@ -94,7 +99,11 @@ export class FuzzPanel {
       );
 
       // Create the new FuzzPanel
-      new FuzzPanel(panel, extensionUri, tester);
+      return new FuzzPanel(
+        panel,
+        extensionUri,
+        new Tester(moduleFile, fnName, options, { precompile: true })
+      );
     }
   } // fn: render()
 
@@ -122,13 +131,13 @@ export class FuzzPanel {
     ) {
       // Create a new fuzzer environment
       try {
-        // Create the new FuzzPanel
-        const localFuzzPanel = new FuzzPanel(
-          panel,
-          extensionUri,
-          new fuzzer.Tester(state.fnRef.module, state.fnRef.name, state.options)
+        // Render the FuzzPanel
+        const fuzzPanel = FuzzPanel.render(
+          FuzzPanel.context.extensionUri,
+          state.fnRef.module,
+          state.fnRef.name,
+          state.options
         );
-        fuzzPanel = localFuzzPanel;
 
         // Attach a telemetry event handler to the panel
         panel.onDidChangeViewState((e) => {
@@ -139,7 +148,7 @@ export class FuzzPanel {
               "Webview with title '%s' for function '%s' state changed.  Visible: %s.  Active %s.",
               [
                 e.webviewPanel.title,
-                localFuzzPanel.getFnRefKey(),
+                fuzzPanel.getFnRefKey(),
                 e.webviewPanel.visible ? "true" : "false",
                 e.webviewPanel.active ? "true" : "false",
               ]
@@ -224,7 +233,7 @@ export class FuzzPanel {
     // Handle messages from the webview
     this._setWebviewMessageListener(this._panel.webview);
 
-    // Load & apply any persisted fuzz settings previously persisted
+    // Load & apply any fuzz settings previously persisted
     const testSet = this._getFuzzTestsForThisFn();
     this._fuzzEnv.options = testSet.options;
     this._argOverrides = testSet.argOverrides ?? [];
@@ -2862,21 +2871,19 @@ export async function handleFuzzCommand(match?: FunctionMatch): Promise<void> {
   // Get the current active editor filename
   const srcFile = document.uri.fsPath; // full path of the file which contains the function
 
-  // Call the fuzzer to analyze the function
-  const fuzzOptions = getDefaultFuzzOptions();
+  // Create the panel
   try {
-    // Create the tester and the  panel
     FuzzPanel.render(
       FuzzPanel.context.extensionUri,
-      new fuzzer.Tester(srcFile, fnName, fuzzOptions)
+      srcFile,
+      fnName,
+      getDefaultFuzzOptions()
     );
-    return;
   } catch (e: unknown) {
     const msg = isError(e) ? e.message : JSON.stringify(e);
     vscode.window.showErrorMessage(
       `${toolName} could not find or does not support this function. Message: "${msg}"`
     );
-    return;
   }
 } // fn: handleFuzzCommand()
 
@@ -2944,7 +2951,12 @@ export async function handleFuzzWithValidatorCommand(
   }
 
   // Load the fuzz panel (brings it to foreground)
-  FuzzPanel.render(FuzzPanel.context.extensionUri, tester);
+  FuzzPanel.render(
+    FuzzPanel.context.extensionUri,
+    srcFile,
+    fnName,
+    fuzzOptions
+  );
 
   return;
 } // fn: handleFuzzWithValidatorCommand()

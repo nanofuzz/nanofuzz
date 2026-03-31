@@ -44,8 +44,12 @@ export class Tester {
 
   protected _results: FuzzTestResults; // !!!!!!
 
-  // !!!!!!
-  constructor(module: string, fnName: string, options: FuzzOptions) {
+  constructor(
+    module: string,
+    fnName: string,
+    options: FuzzOptions,
+    mode: { precompile?: true } = {}
+  ) {
     this._module = require.resolve(module);
     this._fnName = fnName;
 
@@ -94,6 +98,11 @@ export class Tester {
       this._leaderboard, // leaderboard
       this._results.stats.generators
     );
+
+    // Start a background compilation
+    if (mode.precompile) {
+      compiler.TypeScriptCompiler.compileAsync(module);
+    }
   }
 
   /**
@@ -251,7 +260,7 @@ export class Tester {
   // !!!!!!
   public get state(): typeof this._state {
     return this._state;
-  } // !!!!!!
+  } // property: get state
 
   // !!!!!!
   public testSync(
@@ -405,7 +414,7 @@ export class Tester {
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
     this._lastCompiler = new compiler.TypeScriptCompiler(fqSrcFile);
-    const mod = this._lastCompiler.compile(this._measures, update);
+    const mod = this._lastCompiler.compileSync(this._measures, update);
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
     // Build a test runner for executing tests

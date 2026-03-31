@@ -264,7 +264,6 @@ function main() {
         refreshValidators(data.validators);
         break;
       case "config.updated": {
-        console.debug("got config.updated message from panel"); // !!!!!!!!!!!!
         getElementByIdOrThrow("llm-model").innerText =
           data.config.ai.provider === "disabled" ||
           data.config.ai.model === undefined

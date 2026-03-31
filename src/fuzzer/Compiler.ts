@@ -12,39 +12,48 @@
  */
 import vm from "vm";
 import fs from "fs";
+import { Worker } from "worker_threads";
 import path from "path";
 import os from "os";
 import JSON5 from "json5";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
-import { FuzzBusyStatusMessage, TscCompilerError, VmGlobals } from "./Types";
+import {
+  FuzzBusyStatusMessage,
+  TscCompilerError,
+  TscCompilerErrorDetails,
+  VmGlobals,
+} from "./Types";
 
-// Global list of transpiled modules
-const _globalCompiledModules: {
-  [k: string]: CompilationRecord;
+// Global list of compilations by entrypoint module
+const _compilationsByModule: {
+  [k: string]: string[];
 } = {};
-type CompilationRecord = {
-  srcPath: string;
-  srcDateTime: Date;
-  jsname: string;
-  tsconfigPath?: string;
-  tsconfigDatetime?: Date;
-  tscPath: string;
-  tscDatetime: Date;
-};
+
+// Background worker
+let compilerWorker: Worker | undefined = undefined;
+let compileId = 0;
+
+// Pending Worker Tasks
+type TscFinishedCallback<T> = (value: T | PromiseLike<T>) => void;
+const pendingCompilations: {
+  [k: number]: {
+    resolve: TscFinishedCallback<void>;
+    reject: TscFinishedCallback<void>;
+  };
+} = {};
 
 /**
  * A TypeScript compiler wrapper for tsc.
  */
 export class TypeScriptCompiler {
   protected _tscPath: string; // Path to tsc
-  protected _modulePath: string; // Path to a module within a project
+  protected _moduleFile: string; // Path to a module within a project
   protected _tsconfigPath?: string; // Fully-qualified tsconfig.json path
   protected _projectPath?: string; // Directory of tsconfig.json
-  protected _options: CompilerOptions = defaultOptions; // !!!!!!
-  protected _compilations: CompilationRecord[] = []; // list of compiled modules
+  protected _options: CompilerOptions = defaultOptions; // Compiler options
 
   constructor(fqModulePath: string) {
-    this._modulePath = fqModulePath;
+    this._moduleFile = fqModulePath;
 
     // Make sure the source file exists
     if (!fs.existsSync(fqModulePath)) {
@@ -64,9 +73,63 @@ export class TypeScriptCompiler {
   } // get: options
 
   /**
-   * Compile the TypeScript file !!!!!!
+   * Compile a Typescript file in the background
    */
-  public compile(
+  public static async compileAsync(fqModulePath: string): Promise<void> {
+    // If there's no compiler worker, create one
+    if (!compilerWorker) {
+      // Compiler worker
+      const workerPath = path.resolve(
+        path.join(
+          path.dirname(module.filename),
+          "..",
+          "..",
+          "build",
+          "workers",
+          "CompilerWorker.js"
+        )
+      );
+      compilerWorker = new Worker(workerPath);
+
+      // Handle messages from the worker
+      compilerWorker.on(
+        "message",
+        (message: TypeScriptCompilerMessageFromWorker) => {
+          console.log("Main thread received: ", JSON5.stringify(message));
+          switch (message.command) {
+            case "compile.result":
+              if (message.id in pendingCompilations) {
+                pendingCompilations[message.id][
+                  message.success ? "resolve" : "reject"
+                ]();
+                delete pendingCompilations[message.id];
+              } else {
+                throw new Error(`No compilation pending for ${message.id}`);
+              }
+          }
+        }
+      );
+    } // if: no compiler worker
+
+    return new Promise<void>((resolve, reject) => {
+      const message: TypeScriptCompilerMessageToWorker = {
+        command: "compile",
+        id: compileId++,
+        module: fqModulePath,
+      };
+      pendingCompilations[message.id] = { resolve, reject };
+      if (compilerWorker) {
+        compilerWorker.postMessage(message);
+      } else {
+        reject();
+      }
+    });
+  } // fn: compileAsync
+
+  /**
+   * Compile the TypeScript file
+   */
+  public compileSync(
     measures: AbstractMeasure[],
     updateFn: (msg: FuzzBusyStatusMessage) => void
   ): ReturnType<NodeJS.Require> {
@@ -74,12 +137,29 @@ export class TypeScriptCompiler {
     this._options = JSON5.parse(JSON5.stringify(defaultOptions));
     this._determineOptions();
 
-    // Clear any previously-cached transpiled modules so that
+    // Track local compilations
+    const localCompilations: string[] = [];
+
+    // Invalidate previously-cached project modules so that
     // we have a consistent global context for compiled modules.
-    delete require.cache[require.resolve(this._modulePath)];
-    Object.keys(_globalCompiledModules).forEach((m) => {
-      delete require.cache[m];
-    });
+    delete require.cache[require.resolve(this._moduleFile)];
+    if (this._moduleFile in _compilationsByModule) {
+      // We know which modules to invalidate
+      Object.values(_compilationsByModule[this._moduleFile]).forEach((m) => {
+        delete require.cache[m];
+      });
+    } else {
+      // We don't know which modules to invalidate, so invalidate all
+      // cache entries for the project
+      for (const m in require.cache) {
+        if (
+          (m.endsWith(".ts") || m.endsWith(".js")) &&
+          (this._projectPath === undefined || m.startsWith(this._projectPath))
+        ) {
+          delete require.cache[m];
+        }
+      }
+    }
 
     // Build a new context for this activation
     const moduleVmGlobals: { [k: string]: unknown } = {};
@@ -100,11 +180,14 @@ export class TypeScriptCompiler {
     }
 
     // Hook require to compile ts files
-    require.extensions[hookType] = (module) => {
+    require.extensions[hookType] = async (module) => {
+      const jsname = this._getJsFilename(module.filename);
+
       // Compile the Typescript file if the compiled output is stale
-      const jsname = !this.isStale(module.filename)
-        ? _globalCompiledModules[module.filename].jsname
-        : this.tsc(module, updateFn);
+      const staleReason = this.isStale(module.filename);
+      if (staleReason) {
+        this.tsc(module, updateFn);
+      }
 
       // Apply measurement instrumentation
       let src = fs.readFileSync(jsname, "utf8"); // TODO: encoding
@@ -119,25 +202,13 @@ export class TypeScriptCompiler {
       }
 
       // Update this module's compilation record
-      const compilation: CompilationRecord = {
-        srcPath: module.filename,
-        srcDateTime: fs.statSync(module.filename).mtime,
-        jsname: jsname,
-        tsconfigPath: this._tsconfigPath,
-        tsconfigDatetime: this._tsconfigPath
-          ? fs.statSync(this._tsconfigPath).mtime
-          : undefined,
-        tscPath: this._tscPath,
-        tscDatetime: fs.statSync(this._tscPath).mtime,
-      };
-      _globalCompiledModules[module.filename] = compilation;
-      this._compilations.push({ ...compilation });
+      localCompilations.push(module.filename);
     }; // end: require hook
 
     // Require the modules requested
     /* eslint eslint-comments/no-use: off */
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require(this._modulePath);
+    const mod = require(this._moduleFile);
 
     // Unhook require
     require.extensions[hookType] =
@@ -146,8 +217,38 @@ export class TypeScriptCompiler {
         ? undefined
         : previousRequireExtensions[hookType].pop();
 
+    // Update the list of compilations
+    if (!(this._moduleFile in _compilationsByModule)) {
+      _compilationsByModule[this._moduleFile] = localCompilations;
+    }
+
     return mod;
   } // fn: compile
+
+  /**
+   * Creates a new record for the current compilation
+   *
+   * @param `moduleFile` module to compile
+   * @returns compilation record
+   */
+  protected _newCompilationRecord(moduleFile: string): CompilationRecord {
+    const jsFile = this._getJsFilename(moduleFile);
+    return {
+      fileVersion: CURR_COMPILATION_FILE_VER,
+      details: {
+        srcFile: moduleFile,
+        srcDatetime: fs.statSync(moduleFile).mtime.toISOString(),
+        jsFile: jsFile,
+        jsDatetime: fs.statSync(jsFile).mtime.toISOString(),
+        tsconfigFile: this._tsconfigPath,
+        tsconfigDatetime: this._tsconfigPath
+          ? fs.statSync(this._tsconfigPath).mtime.toISOString()
+          : undefined,
+        tscFile: this._tscPath,
+        tscDatetime: fs.statSync(this._tscPath).mtime.toISOString(),
+      },
+    };
+  }
 
   /**
    * Returns true if any of the compiled TypeScript files have been modified
@@ -164,38 +265,41 @@ export class TypeScriptCompiler {
     | "sourcechanged"
     | "compilerchanged"
     | "configchanged" {
-    // Stale: no compilations for this module have yet taken place in this session
-    if (!(this._modulePath in _globalCompiledModules)) {
+    // Stale: no compilations for this module have yet taken place
+    if (
+      !fs.existsSync(this._getJsFilename(this._moduleFile)) ||
+      !fs.existsSync(this._getCompilationRecordFilename(this._moduleFile))
+    ) {
       return "notcompiled";
     }
 
     // If no source file was provided, check all the compiled modules for changes
     const sourceFiles =
       inSrcFile === undefined
-        ? [...this._compilations.map((e) => e.srcPath)]
+        ? [
+            ...(this._moduleFile in _compilationsByModule
+              ? _compilationsByModule[this._moduleFile]
+              : [this._moduleFile]),
+          ]
         : [inSrcFile];
 
     for (const sourceFile of sourceFiles) {
       // Retrieve detals of the prior compilation
-      const priorCompilation: CompilationRecord | undefined =
-        (this._compilations.find((e) => e.srcPath === sourceFile) ??
-        sourceFile in _globalCompiledModules)
-          ? _globalCompiledModules[sourceFile]
-          : undefined;
+      const compRec = this._getCompilationRecord(sourceFile);
 
-      // Stale: Not yet compiled
-      if (priorCompilation === undefined) {
+      // Stale: No compilation record found
+      if (compRec === undefined) {
         return "notcompiled";
       }
 
       // Stale: Compiled file does not exist
-      if (!fs.existsSync(priorCompilation.jsname)) {
+      if (!fs.existsSync(this._getJsFilename(sourceFile))) {
         return "notcompiled";
       }
 
       // Stale: Source file changed since prior compilation
       if (
-        priorCompilation.srcDateTime.toISOString() !==
+        compRec.details.srcDatetime !==
         fs.statSync(sourceFile).mtime.toISOString()
       ) {
         return "sourcechanged";
@@ -203,9 +307,9 @@ export class TypeScriptCompiler {
 
       // Stale: tsconfig changed since prior compilation
       if (
-        priorCompilation.tsconfigPath !== this._tsconfigPath ||
+        compRec.details.tsconfigFile !== this._tsconfigPath ||
         (this._tsconfigPath &&
-          (priorCompilation.tsconfigDatetime ?? new Date(0)).toISOString() !==
+          (compRec.details.tsconfigDatetime ?? new Date(0).toISOString()) !==
             fs.statSync(this._tsconfigPath).mtime.toISOString())
       ) {
         return "configchanged";
@@ -213,8 +317,8 @@ export class TypeScriptCompiler {
 
       // Stale: tsc changed since prior compilation
       if (
-        priorCompilation.tscPath !== this._tscPath ||
-        priorCompilation.tscDatetime.toISOString() !==
+        compRec.details.tscFile !== this._tscPath ||
+        compRec.details.tscDatetime !==
           fs.statSync(this._tscPath).mtime.toISOString()
       ) {
         return "compilerchanged";
@@ -228,28 +332,17 @@ export class TypeScriptCompiler {
   /**
    * Compiles TypeScript file and returns js file path
    *
-   * @return {string} js file path
+   * @param `module` node module
+   * @param `updateFn` function for client status updates
    */
   protected tsc(
     module: NodeJS.Module,
     updateFn: (msg: FuzzBusyStatusMessage) => void
-  ): string {
+  ): void {
     let exitCode = 0;
 
     // Determine the compiled name of the module
-    const moduleDirName = path.dirname(module.filename);
-    const relativeFolder =
-      "." +
-      (moduleDirName.charAt(1) === ":"
-        ? moduleDirName.substring(2)
-        : moduleDirName);
-    const jsname = path.resolve(
-      path.join(
-        this._options.tmpDir,
-        relativeFolder,
-        path.basename(module.filename, ".ts") + ".js"
-      )
-    );
+    const jsname = this._getJsFilename(module.filename);
     const options = this._options;
 
     // Provide feedback that we are compiling
@@ -276,7 +369,7 @@ export class TypeScriptCompiler {
       options.moduleKind ? options.moduleKind : "",
 
       "--outDir",
-      path.resolve(path.join(options.tmpDir, relativeFolder)),
+      path.dirname(jsname),
 
       "--baseUrl",
       options.baseUrl,
@@ -327,7 +420,7 @@ export class TypeScriptCompiler {
         }
         exitCode = code;
       },
-      // Wrap stdout.write()---only for this context
+      // Wrap stdout.write() for this context
       stdout: {
         ...process.stdout,
         write: function () {
@@ -335,7 +428,7 @@ export class TypeScriptCompiler {
           process.stdout.write.apply(process.stdout, arguments as any);
         },
       },
-      // Wrap stderr.write()---only for this context
+      // Wrap stderr.write() for this context
       stderr: {
         ...process.stderr,
         write: function () {
@@ -375,8 +468,90 @@ export class TypeScriptCompiler {
       throw e;
     }
 
-    return jsname;
-  } // fn: compile
+    // Write compilation record
+    fs.writeFileSync(
+      this._getCompilationRecordFilename(module.filename),
+      JSON5.stringify(this._newCompilationRecord(module.filename))
+    );
+  } // fn: compileSync
+
+  /**
+   * Returns the name of the compiled output file
+   *
+   * @param `moduleFile` module to compile
+   * @returns filename of the compiled output file
+   */
+  protected _getJsFilename(moduleFile: string): string {
+    const moduleDirName = path.dirname(moduleFile);
+    const relativeFolder =
+      "." +
+      (moduleDirName.charAt(1) === ":"
+        ? moduleDirName.substring(2)
+        : moduleDirName);
+    return path.resolve(
+      path.join(
+        this._options.tmpDir,
+        relativeFolder,
+        path.basename(moduleFile, ".ts") + ".js"
+      )
+    );
+  } // fn: _getJsFilename
+
+  /**
+   * Returns the filename where compilation details are stored.
+   *
+   * @param `moduleFile` module to compile
+   * @returns filename of compilation details
+   */
+  protected _getCompilationRecordFilename(moduleFile: string): string {
+    return `${this._getJsFilename(moduleFile)}.comp.json`;
+  } // fn: _getCompilationRecordFilename
+
+  /**
+   *
+   * @param `moduleFile` module with the compilation record
+   * @returns `undefined` if no record exists, otherwise the record.
+   */
+  protected _getCompilationRecord(
+    moduleFile: string
+  ): CompilationRecord | undefined {
+    const compRecFile = this._getCompilationRecordFilename(moduleFile);
+    try {
+      const compRecRaw = JSON5.parse(fs.readFileSync(compRecFile).toString());
+      if (
+        typeof compRecRaw === "object" &&
+        !Array.isArray(compRecRaw) &&
+        compRecRaw !== null &&
+        "fileVersion" in compRecRaw &&
+        compRecRaw.fileVersion === CURR_COMPILATION_FILE_VER &&
+        "details" in compRecRaw &&
+        typeof compRecRaw.details === "object" &&
+        !Array.isArray(compRecRaw.details) &&
+        compRecRaw.details !== null &&
+        "srcFile" in compRecRaw.details &&
+        typeof compRecRaw.details.srcFile === "string" &&
+        "srcDatetime" in compRecRaw.details &&
+        typeof compRecRaw.details.srcDatetime === "string" &&
+        "jsFile" in compRecRaw.details &&
+        typeof compRecRaw.details.jsFile === "string" &&
+        "jsDatetime" in compRecRaw.details &&
+        typeof compRecRaw.details.jsDatetime === "string" &&
+        "tscFile" in compRecRaw.details &&
+        typeof compRecRaw.details.tscFile === "string" &&
+        "tscDatetime" in compRecRaw.details &&
+        typeof compRecRaw.details.tscDatetime === "string" &&
+        (!("tsconfigFile" in compRecRaw.details) ||
+          typeof compRecRaw.details.tsconfigFile === "string") &&
+        (!("tsconfigDatetime" in compRecRaw.details) ||
+          typeof compRecRaw.details.tsconfigDatetime === "string")
+      ) {
+        return compRecRaw;
+      }
+    } catch (e: unknown) {
+      // it's fine if we can't load the file
+    }
+    return undefined;
+  } // fn: _getCompilationRecord
 
   /**
    * Run the Javascript module
@@ -458,7 +633,7 @@ export class TypeScriptCompiler {
   protected _determineOptions(): void {
     // Determine project's tsconfig.json
     this._tsconfigPath = findInAncestor(
-      path.dirname(this._modulePath),
+      path.dirname(this._moduleFile),
       tsconfigFilename
     );
 
@@ -555,6 +730,16 @@ export class TypeScriptCompiler {
       );
     }
   } // fn: _inferOptions
+
+  /**
+   * Clears compilation temp files
+   */
+  public clean(): void {
+    if (fs.existsSync(this.options.tmpDir)) {
+      console.info(`Removing temp files: ${this.options.tmpDir}`);
+      fs.rmSync(this.options.tmpDir, { recursive: true });
+    }
+  } // fn: clean
 } // class: TypeScriptCompiler
 
 /**
@@ -620,7 +805,7 @@ const defaultOptions: CompilerOptions = {
   target: "ES2020", // default to ES2020
   moduleKind: "commonjs", // required for running inside express
   emitOnError: false, // fail compilation in case of errors
-  tmpDir: path.join(os.tmpdir(), "tsreq"), // path for compiled files
+  tmpDir: path.join(os.tmpdir(), "nanofuzz", "tsc"), // path for compiled files
   lib: ["DOM", "ScriptHost", "ES2020"], // default to ES2020
   types: [""], // do not automatically import types
   typeRoots: [], // do not automatically import types
@@ -656,3 +841,43 @@ export type CompilerOptions = {
   resolveJsonModule: boolean;
   traceResolution: boolean;
 };
+
+/**
+ * Record of compilation, including tsc
+ */
+type CompilationRecord = {
+  fileVersion: string;
+  details: {
+    srcFile: string;
+    srcDatetime: string; // ISODateString
+    jsFile: string;
+    jsDatetime: string; // ISODateString
+    tsconfigFile?: string;
+    tsconfigDatetime?: string; // ISODateString
+    tscFile: string;
+    tscDatetime: string; // ISODateString
+  };
+};
+
+/**
+ * Messages from the Compiler to its worker
+ */
+export type TypeScriptCompilerMessageToWorker = {
+  command: "compile";
+  id: number;
+  module: string;
+};
+
+/**
+ * Messages from the worker to the Compiler
+ */
+export type TypeScriptCompilerMessageFromWorker = {
+  command: "compile.result";
+  id: number;
+} & (
+  | { success: true }
+  | ({ success: false } & Partial<TscCompilerErrorDetails>)
+);
+
+// Version of the compilation record file
+const CURR_COMPILATION_FILE_VER = "0.4.0"; // !!!

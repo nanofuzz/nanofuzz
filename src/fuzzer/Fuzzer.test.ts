@@ -1,9 +1,14 @@
 import { ArgDef, Tester, implicitOracle } from "./Fuzzer";
+import { TypeScriptCompiler } from "./Compiler";
 import { FuzzOptions } from "./Types";
 import * as JSON5 from "json5";
 
 // Extend default test timeout to 45s
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 45000;
+
+// Clean up prior testing temporary files, like compiler output,
+// so that we actually run the compiler during testing
+new TypeScriptCompiler(require.resolve("nanofuzz-study/examples/3.ts")).clean();
 
 /**
  * Fuzzer option for enabling all Measures
@@ -344,11 +349,10 @@ describe("fuzzer:", () => {
   });
 
   it("Fuzz example 14 - modInv", () => {
-    const fuzzResult = new Tester(
-      "nanofuzz-study/examples/14.ts",
-      "modInv",
-      intOptions
-    ).testSync();
+    const fuzzResult = new Tester("nanofuzz-study/examples/14.ts", "modInv", {
+      ...intOptions,
+      suiteTimeout: 3000,
+    }).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
     expect(fuzzResult.results.some((e) => e.timeout)).toBe(true);
