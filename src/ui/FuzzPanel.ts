@@ -190,7 +190,7 @@ export class FuzzPanel {
    * @returns The options to use when creating the FuzzPanel WebView
    */
   public static getWebviewOptions(
-    extensionUri: vscode.Uri
+    _extensionUri: vscode.Uri
   ): vscode.WebviewPanelOptions & vscode.WebviewOptions {
     return {
       // Enable javascript in the webview
@@ -203,8 +203,7 @@ export class FuzzPanel {
       retainContextWhenHidden: true,
 
       // Restrict the webview to only loading extension content.
-      localResourceRoots: [vscode.Uri.joinPath(extensionUri)],
-      // !!!!!!!!!!! localResourceRoots: [vscode.Uri.joinPath(extensionUri, "assets", "ui")],
+      // !!! localResourceRoots: [vscode.Uri.joinPath(extensionUri, "assets", "ui")],
     };
   }
 
