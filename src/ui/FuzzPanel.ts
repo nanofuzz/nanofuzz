@@ -1477,9 +1477,53 @@ ${inArgConsts}
    */
   _updateHtml(): void {
     let html = "";
+    const webview: vscode.Webview = this._panel.webview; // Current webview
+    const extensionUri: vscode.Uri = this._extensionUri; // Extension URI
+    const csp = [
+      `default-src 'none'`,
+      `style-src ${webview.cspSource} 'unsafe-inline' 'self'`,
+      `font-src ${webview.cspSource} data: 'self'`,
+      `img-src ${webview.cspSource} data: blob:`,
+      `script-src ${webview.cspSource} 'self'`,
+      `connect-src ${webview.cspSource}`,
+    ].join("; ");
+    const htmlHead = /*html*/ `
+          <head>
+				    <meta http-equiv="Content-Security-Policy" content="${csp}">
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <script type="module" src="${getUri(webview, extensionUri, [
+              "node_modules",
+              "@vscode",
+              "webview-ui-toolkit",
+              "dist",
+              "toolkit.js",
+            ])}"></script>
+            <script src="${getUri(webview, extensionUri, [
+              "node_modules",
+              "json5",
+              "dist",
+              "index.js",
+            ])}"></script>
+            <script type="module" src="${getUri(webview, extensionUri, [
+              "build",
+              "ui",
+              "FuzzPanelMain.js",
+            ])}"></script>
+            <link rel="stylesheet" type="text/css" href="${getUri(
+              webview,
+              extensionUri,
+              ["assets", "ui", "FuzzPanelMain.css"]
+            )}">
+            <link rel="stylesheet" type="text/css" href="${getUri(
+              webview,
+              extensionUri,
+              ["node_modules", "@vscode", "codicons", "dist", "codicon.css"]
+            )}">
+            <title>${toolName} Panel</title>
+          </head>
+    `;
     try {
-      const webview: vscode.Webview = this._panel.webview; // Current webview
-      const extensionUri: vscode.Uri = this._extensionUri; // Extension URI
       const disabledFlag =
         this._state === FuzzPanelState.busyTesting ? ` disabled ` : ""; // Disable inputs if busy
       const resultSummary = {
@@ -1490,36 +1534,6 @@ ${inArgConsts}
         ok: 0,
         disagree: 0,
       }; // Summary of fuzzing results
-      const toolkitUri = getUri(webview, extensionUri, [
-        "node_modules",
-        "@vscode",
-        "webview-ui-toolkit",
-        "dist",
-        "toolkit.js",
-      ]); // URI to the VS Code webview ui toolkit
-      const codiconsUri = getUri(webview, extensionUri, [
-        "node_modules",
-        "@vscode",
-        "codicons",
-        "dist",
-        "codicon.css",
-      ]);
-      const json5Uri = getUri(webview, extensionUri, [
-        "node_modules",
-        "json5",
-        "dist",
-        "index.js",
-      ]); // URI to the json5 library
-      const scriptUrl = getUri(webview, extensionUri, [
-        "build",
-        "ui",
-        "FuzzPanelMain.js",
-      ]); // URI to client-side panel script
-      const cssUrl = getUri(webview, extensionUri, [
-        "assets",
-        "ui",
-        "FuzzPanelMain.css",
-      ]); // URI to client-side panel script
       const env = this._fuzzEnv; // Fuzzer environment
       const fn = env.function; // Function under test
       const argDefs = fn.getArgDefs();
@@ -1552,17 +1566,7 @@ ${inArgConsts}
       html += /*html*/ `
         <!DOCTYPE html>
         <html lang="en">
-          <head>
-				    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${webview.cspSource}; font-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline';">
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script type="module" src="${toolkitUri}"></script>
-            <script src="${json5Uri}"></script>
-            <script type="module" src="${scriptUrl}"></script>
-            <link rel="stylesheet" type="text/css" href="${cssUrl}">
-            <link rel="stylesheet" type="text/css" href="${codiconsUri}">
-            <title>${toolName} Panel</title>
-          </head>
+          ${htmlHead}
           <body>
             
           <!-- ${toolName} pane -->
@@ -2513,7 +2517,7 @@ ${inArgConsts}
       const msg = isError(e) ? e.message : "Unknown error";
       const stack = isError(e) ? e.stack : "<no stack>";
       html = /*html*/ `
-      <head></head>
+      ${htmlHead}
       <body>
         <h1>:-(</h1>
         <p>Unable to render this panel due to an internal error in FuzzPanel._updateHtml().</p>
