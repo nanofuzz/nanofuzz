@@ -2146,11 +2146,6 @@ ${inArgConsts}
                 );
               }
             }
-            /*
-            aiGeneratorText.push(
-              `You can set env variable <span class="editorFont">NODELLM_DEBUG=true</span> to see the raw LLM interaction.`
-            );
-            */
           }
 
           // Build code coverage information

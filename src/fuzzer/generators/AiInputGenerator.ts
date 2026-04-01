@@ -40,6 +40,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * Manage the life-cycle of the ProgramModel and clear
    * any now-invalid items out of the input cache at the
    * start of each run.
+   *
+   * @param `active` indicates if inputs are expected this run
    */
   public onRunStart(active: boolean): void {
     // Abandon back-end if stale or no longer configured
@@ -110,182 +112,237 @@ export class AiInputGenerator extends AbstractInputGenerator {
         const validator = new ArgDefValidator(this._specs);
 
         this._stats.calls.sent++;
+        const [schema, directives] = this._getInputsSchema();
 
         // Fetch inputs from the llm
-        this._llm
-          .genInputs(this._fn, this._getInputsSchema())
-          .then((inputs) => {
-            // Update tokens received stats
-            if (inputs.stats) {
-              this._stats.tokens.received += inputs.stats.tokensReceived;
-              if (!this._stats.tokens.receivedCost) {
-                this._stats.tokens.receivedCost = {
-                  ...inputs.stats.tokensReceivedCost,
-                };
-              } else if (
-                this._stats.tokens.receivedCost.unit ===
-                inputs.stats.tokensReceivedCost.unit
-              ) {
-                this._stats.tokens.receivedCost.amt +=
-                  inputs.stats.tokensReceivedCost.amt;
-              }
-
-              // Update tokens sent stats
-              this._stats.tokens.sent += inputs.stats.tokensSent;
-              if (!this._stats.tokens.sentCost) {
-                this._stats.tokens.sentCost = {
-                  ...inputs.stats.tokensSentCost,
-                };
-              } else if (
-                this._stats.tokens.sentCost.unit ===
-                inputs.stats.tokensSentCost.unit
-              ) {
-                this._stats.tokens.sentCost.amt +=
-                  inputs.stats.tokensSentCost.amt;
-              }
+        this._llm.genInputs(this._fn, [schema, directives]).then((inputs) => {
+          // Update tokens received stats
+          if (inputs.stats) {
+            this._stats.tokens.received += inputs.stats.tokensReceived;
+            if (!this._stats.tokens.receivedCost) {
+              this._stats.tokens.receivedCost = {
+                ...inputs.stats.tokensReceivedCost,
+              };
+            } else if (
+              this._stats.tokens.receivedCost.unit ===
+              inputs.stats.tokensReceivedCost.unit
+            ) {
+              this._stats.tokens.receivedCost.amt +=
+                inputs.stats.tokensReceivedCost.amt;
             }
 
-            // Handle error cases
-            switch (inputs.error?.type) {
-              case undefined:
-                this._stats.calls.valid++;
-                this._stats.calls.history.push({ success: true });
-                break;
-              case "discard":
-                console.debug(
-                  `Discarded LLM response: it does not match the schema: ${JSON5.stringify(inputs, null, 2)}.`
-                ); // !!!!!!!
-                this._stats.calls.invalid++;
-                this._stats.calls.history.push({ discard: true });
-                break;
-              case "failure":
-                console.debug(
-                  `LLM failed to process request: ${inputs.error.message}.`
-                ); // !!!!!!!
-                this._stats.calls.failed++;
-                this._stats.calls.history.push({
-                  failure: true,
-                  message: inputs.error.message,
-                });
-                break;
+            // Update tokens sent stats
+            this._stats.tokens.sent += inputs.stats.tokensSent;
+            if (!this._stats.tokens.sentCost) {
+              this._stats.tokens.sentCost = {
+                ...inputs.stats.tokensSentCost,
+              };
+            } else if (
+              this._stats.tokens.sentCost.unit ===
+              inputs.stats.tokensSentCost.unit
+            ) {
+              this._stats.tokens.sentCost.amt +=
+                inputs.stats.tokensSentCost.amt;
             }
+          }
 
-            // Process the inputs
-            inputs.programInputs.forEach((input) => {
-              this._stats.inputs.gen++;
-
-              // Decode the input
-              Object.keys(input).forEach((k) => {
-                input[k] = _decode(input[k]);
+          // Handle error cases
+          switch (inputs.error?.type) {
+            case undefined:
+              this._stats.calls.valid++;
+              this._stats.calls.history.push({ success: true });
+              break;
+            case "discard":
+              this._stats.calls.invalid++;
+              this._stats.calls.history.push({ discard: true });
+              break;
+            case "failure":
+              this._stats.calls.failed++;
+              this._stats.calls.history.push({
+                failure: true,
+                message: inputs.error.message,
               });
+              break;
+          }
 
-              // Validate the input
-              if (
-                validator.validate(
-                  this._specs.map((arg) => {
-                    return {
-                      tag: "ArgValueTypeWrapped",
-                      value: input[arg.getName()],
-                    };
-                  })
-                )
-              ) {
-                validInputs.push(input);
-              } else {
-                invalidInputs.push(input);
-                this._stats.inputs.invalid++;
-              }
+          // Process the inputs
+          inputs.programInputs.forEach((input) => {
+            this._stats.inputs.gen++;
+
+            // Decode the input
+            Object.keys(input).forEach((k) => {
+              input[k] = _decode(input[k]);
             });
-            if (invalidInputs.length) {
-              console.debug(
-                `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSON5.stringify(invalidInputs, null, 2)}`
-              ); // !!!!!!!!!
-            }
 
-            // Push valid inputs to the input queue
-            this._inputQueue.push(
-              ...validInputs.map((input): InputAndSource => {
-                return {
-                  tick: 0,
-                  value: this._specs.map((arg): ArgValueTypeWrapped => {
-                    return {
-                      tag: "ArgValueTypeWrapped",
-                      value: input[arg.getName()],
-                    };
-                  }),
-                  source: {
-                    type: "generator",
-                    generator: "AiInputGenerator",
-                    model: modelId ?? "unknown model",
-                  },
-                };
-              })
-            );
+            // Validate the input
+            if (
+              validator.validate(
+                this._specs.map((arg) => {
+                  return {
+                    tag: "ArgValueTypeWrapped",
+                    value: input[arg.getName()],
+                  };
+                })
+              )
+            ) {
+              validInputs.push(input);
+            } else {
+              invalidInputs.push(input);
+              this._stats.inputs.invalid++;
+            }
           });
+          if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
+            console.debug(
+              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSON5.stringify(invalidInputs, null, 2)}`
+            );
+          }
+
+          // Push valid inputs to the input queue
+          this._inputQueue.push(
+            ...validInputs.map((input): InputAndSource => {
+              return {
+                tick: 0,
+                value: this._specs.map((arg): ArgValueTypeWrapped => {
+                  return {
+                    tag: "ArgValueTypeWrapped",
+                    value: input[arg.getName()],
+                  };
+                }),
+                source: {
+                  type: "generator",
+                  generator: "AiInputGenerator",
+                  model: modelId ?? "unknown model",
+                },
+              };
+            })
+          );
+        });
       } finally {
         this._callsPending--;
       }
     }
   } // fn: _getMoreInputs
 
-  // !!!!!!
-  protected _getInputsSchema(): ReturnType<zod.ZodType["toJSONSchema"]> {
+  /**
+   * Returns a JSON schema representing the function inputs.
+   *
+   * @returns JSON schema
+   */
+  protected _getInputsSchema(): [
+    ReturnType<zod.ZodType["toJSONSchema"]>,
+    string[],
+  ] {
     const zodObj: { [k: string]: zod.ZodType } = {};
+    const directives: string[] = [];
     this._specs.forEach((arg) => {
-      zodObj[arg.getName()] = this._argDefToSchema(arg);
+      zodObj[arg.getName()] = this._argDefToSchema(
+        arg,
+        arg.getName(),
+        directives
+      );
     });
-    return zod
-      .strictObject({ programInputs: zod.array(zod.strictObject(zodObj)) })
-      .toJSONSchema();
+    directives.push(
+      `${NANOFUZZ_UNDEFINED} is a placeholder for the actual value \`undefined\``
+    );
+    directives.push(
+      `${NANOFUZZ_MISSING_PROPERTY} is a placeholder for a missing property`
+    );
+    directives.push(
+      `${NANOFUZZ_TRUE} is a placeholder for the actual value \`true\``
+    );
+    directives.push(
+      `${NANOFUZZ_FALSE} is a placeholder for the actual value \`false\``
+    );
+    return [
+      zod
+        .strictObject({ programInputs: zod.array(zod.strictObject(zodObj)) })
+        .toJSONSchema(),
+      directives,
+    ];
   } // fn: _getInputsSchema
 
-  // !!!!!!
-  protected _argDefToSchema(inArg: ArgDef<ArgType>): zod.ZodType {
-    // !!!!!!!!!! not sure we handle optionality or dimensions correctly.
+  /**
+   * Creates a ZodSchema that represents the structure and
+   * constraints of the ArgDef provided.
+   *
+   * Because Zod has many limitations in terms of what it
+   * can represernt, in some cases we use placeholder values
+   * that must be decoded with `_decode` prior to use.
+   *
+   * @param `inArg` ArgDef to convert to a Zod schema
+   * @returns a Zod schema for the ArgDef
+   */
+  protected _argDefToSchema(
+    inArg: ArgDef<ArgType>,
+    path: string,
+    directives: string[]
+  ): zod.ZodType {
+    // !!! do we handle optionality or dimensions in all cases here?
     const argIntervals = inArg.getIntervals();
     const argChildren = inArg
       .getChildren()
       .filter((child) => !child.isNoInput());
     const argOptions = inArg.getOptions();
 
-    // !!!!!!
-    const argToZod = (arg: ArgDef<ArgType>) => {
+    // Helper function that creates a Zod schema from an ArgDef
+    const argToZod = (arg: ArgDef<ArgType>): zod.ZodType => {
       switch (arg.getType()) {
         case ArgTag.NUMBER: {
+          const desc = `value must be >= ${Number(argIntervals[0].min)} && <= ${Number(argIntervals[0].max)}`;
+          directives.push(`${path}: ${desc}`);
           return (argOptions.numInteger ? zod.int() : zod.number())
             .min(Number(argIntervals[0].min))
-            .max(Number(argIntervals[0].max));
+            .max(Number(argIntervals[0].max))
+            .describe(desc);
         }
         case ArgTag.BOOLEAN: {
           if (!!argIntervals[0].min !== !!argIntervals[0].max) {
             return zod.boolean();
           } else {
-            return zod.enum([
-              argIntervals[0].min ? NANOFUZZ_TRUE : NANOFUZZ_FALSE,
-            ]);
+            const specialValue = argIntervals[0].min
+              ? NANOFUZZ_TRUE
+              : NANOFUZZ_FALSE;
+            const desc = `value must === \`${specialValue}\``;
+            directives.push(`${path}: ${desc}`);
+            return zod.enum([specialValue]).describe(desc);
           }
         }
         case ArgTag.STRING: {
           const charSet = argOptions.strCharset;
+          const desc = `string length must be >= ${argOptions.strLength.min} && <= ${argOptions.strLength.max}; the string may contain only the following characters: ${charSet}`;
+          directives.push(`${path}: ${desc}}`);
           return zod
             .string()
             .min(argOptions.strLength.min)
             .max(argOptions.strLength.max)
             .refine((s) => [...s].every((char) => charSet.includes(char)))
-            .describe(
-              `Minimum length: ${argOptions.strLength.min}; maximum length: ${argOptions.strLength.max}; use only the following characters: ${charSet}`
-            );
+            .describe(desc);
         }
         case ArgTag.LITERAL: {
           const literalValue = arg.getConstantValue();
           switch (typeof literalValue) {
-            case "undefined":
+            case "undefined": {
+              directives.push(
+                `${path}: value must === \`${NANOFUZZ_UNDEFINED}\``
+              );
               return zod.enum([NANOFUZZ_UNDEFINED]);
-            case "boolean":
-              return zod.enum([literalValue ? NANOFUZZ_TRUE : NANOFUZZ_FALSE]);
+            }
+            case "boolean": {
+              const specialValue = literalValue
+                ? NANOFUZZ_TRUE
+                : NANOFUZZ_FALSE;
+              directives.push(`${path}: value must === ${specialValue}`);
+              return zod.enum([specialValue]);
+            }
             case "number":
+              directives.push(
+                `${path}: value must === ${String(literalValue)}`
+              );
               return zod.number().min(literalValue).max(literalValue);
             case "string":
+              directives.push(
+                `${path}: value must === \`${String(literalValue)}\``
+              );
               return zod.enum([literalValue]);
             case "object":
               throw new Error(`Array and Object literals not supported`);
@@ -296,7 +353,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
         case ArgTag.OBJECT: {
           const obj: { [k: string]: zod.ZodType } = {};
           argChildren.forEach((child) => {
-            const zodChild = this._argDefToSchema(child);
+            const zodChild = this._argDefToSchema(
+              child,
+              `${path}.${child.getName()}`,
+              directives
+            );
             obj[child.getName()] = child.isOptional()
               ? zod.union([zodChild, zod.enum([NANOFUZZ_MISSING_PROPERTY])])
               : zodChild; // mandatory
@@ -304,8 +365,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
           return zod.strictObject(obj);
         }
         case ArgTag.UNION: {
-          const unionMembers = argChildren.map((child) =>
-            this._argDefToSchema(child)
+          const unionMembers = argChildren.map((child, i) =>
+            this._argDefToSchema(child, `${path}.union[${i}]`, directives)
           );
           return zod.union([
             unionMembers[0],
@@ -326,7 +387,9 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
     // Dimensions
     argOptions.dimLength.forEach((dim) => {
-      zodArg = zod.array(zodArg).min(dim.min).max(dim.max);
+      const desc = `array length must be >= ${dim.min} && <= ${dim.max}`;
+      directives.push(`${path}: ${desc}`);
+      zodArg = zod.array(zodArg).min(dim.min).max(dim.max).describe(desc);
     });
     return zodArg;
   } // fn: _argDefToSchema
@@ -353,7 +416,14 @@ function _initStats(): InputGeneratorStatsAi {
   };
 } // fn: _initStats
 
-// !!!!!!
+/**
+ * Replaces special placeholder values in an ArgValueType with
+ * the actual values. We do this to work around the cases Zod
+ * can't handle natively.
+ *
+ * @param data
+ * @returns
+ */
 function _decode(data: ArgValueType): ArgValueType {
   switch (typeof data) {
     case "object":
@@ -388,9 +458,9 @@ function _decode(data: ArgValueType): ArgValueType {
     default:
       return data;
   }
-} // !!!!!!
+} // fn: _decode
 
-// !!!!!!
+// Constants for encoding/decoding
 const NANOFUZZ_UNDEFINED = "___NANOFUZZ____6158195231___UNDEFINED___";
 const NANOFUZZ_MISSING_PROPERTY =
   "___NANOFUZZ____6158195231___MISSING___PROPERTY___";

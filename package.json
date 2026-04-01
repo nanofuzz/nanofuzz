@@ -138,6 +138,13 @@
             "type": "integer",
             "default": 1000,
             "description": "Delay (in ms) before retrying again"
+          },
+          "nanofuzz.ai.debug": {
+            "title": "Write AI debug info to console?",
+            "order": 60,
+            "type": "boolean",
+            "default": false,
+            "description": "Write AI debug information to the console"
           }
         }
       },
