@@ -1,5 +1,4 @@
 import { parentPort } from "worker_threads";
-import * as JSON5 from "json5";
 import {
   TypeScriptCompiler,
   TypeScriptCompilerMessageToWorker,
@@ -8,11 +7,10 @@ import {
 import { isError } from "./Util";
 import { TscCompilerError } from "./Types";
 
-console.debug("CompilerWorker started"); // !!!!!!!!!
+console.debug("CompilerWorker started");
 
 // Processes messages from the main thread
 parentPort?.on("message", (message: TypeScriptCompilerMessageToWorker) => {
-  console.log("tscWorker received:", JSON5.stringify(message)); // !!!!!!!!!!!
   switch (message.command) {
     case "compile": {
       const compiler = new TypeScriptCompiler(message.module);
@@ -22,7 +20,6 @@ parentPort?.on("message", (message: TypeScriptCompilerMessageToWorker) => {
             console.log(msg.msg);
           }
         });
-        console.debug("Done compiling"); // !!!!!!!!!!
         const reply: TypeScriptCompilerMessageFromWorker = {
           command: "compile.result",
           success: true,
@@ -52,7 +49,6 @@ parentPort?.on("message", (message: TypeScriptCompilerMessageToWorker) => {
         } else {
           reply.output = [`Unknown error during compilation`];
         }
-        console.log(`sent to main: ${JSON5.stringify(reply)}`); // !!!!!!!!!!!
         parentPort?.postMessage(reply);
       }
       break;

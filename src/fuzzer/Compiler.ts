@@ -109,6 +109,10 @@ export class TypeScriptCompiler {
           }
         }
       );
+      compilerWorker.on("exit", (code) => {
+        console.log(`CompilerWorker exited with code ${code}`);
+        compilerWorker = undefined;
+      });
     } // if: no compiler worker
 
     return new Promise<void>((resolve, reject) => {
@@ -880,4 +884,4 @@ export type TypeScriptCompilerMessageFromWorker = {
 );
 
 // Version of the compilation record file
-const CURR_COMPILATION_FILE_VER = "0.4.0"; // !!!
+const CURR_COMPILATION_FILE_VER = "0.3.9"; // !!!

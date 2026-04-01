@@ -91,7 +91,9 @@ export type InputAndSource = {
   injected?: true;
 };
 
-// !!!!!!
+/**
+ * Provenance of a test value (e.g., an input)
+ */
 export type FuzzValueOrigin =
   | {
       type: "user" | "put" | "unknown";

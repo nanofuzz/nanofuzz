@@ -25,24 +25,23 @@ import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 
-// !!!!!!
 export class Tester {
-  protected _module: string; // !!!!!!
-  protected _fnName: string; // !!!!!!
-  protected _leaderboard = new Leaderboard<InputAndSource>();
-  protected _measures; // !!!!!!
-  protected _allInputs: Record<string, true> = {}; // !!!!!!
+  protected _module: string; // module filename
+  protected _fnName: string; // function name
+  protected _leaderboard = new Leaderboard<InputAndSource>(); // top test results, according to measures
+  protected _measures; // set of measures for executions
+  protected _allInputs: Record<string, true> = {}; // dupe check for input generation
   protected _state: "init" | "ready" | "running" | "paused" | "crashed" =
-    "init"; // !!!!!!
+    "init"; // tester state
 
-  protected _options: FuzzOptions; // !!!!!!
-  protected _program: ProgramDef; // !!!!!!
-  protected _function: FunctionDef; // !!!!!!
-  protected _compositeInputGenerator: CompositeInputGenerator; // !!!!!
-  protected _validators: FunctionRef[] = []; // !!!!!!
-  protected _lastCompiler?: compiler.TypeScriptCompiler; // !!!!!!
+  protected _options: FuzzOptions; // testing options
+  protected _program: ProgramDef; // program under test
+  protected _function: FunctionDef; // function under test
+  protected _compositeInputGenerator: CompositeInputGenerator; // composite input generator
+  protected _validators: FunctionRef[] = []; // property validator functions
+  protected _lastCompiler?: compiler.TypeScriptCompiler; // last compiler object used
 
-  protected _results: FuzzTestResults; // !!!!!!
+  protected _results: FuzzTestResults; // test results
 
   constructor(
     module: string,
@@ -227,8 +226,10 @@ export class Tester {
     };
   } // fn: _getInitializedResults
 
-  // !!!!!!
-  // can we eliminate this?
+  /**
+   * Sets the tester options
+   * (can we eliminate this? !!!!!!)
+   */
   public set options(options: FuzzOptions) {
     // Ensure we have a valid set of Fuzz options
     if (!isOptionValid(options)) {
@@ -245,24 +246,34 @@ export class Tester {
       this._results.env.options = JSON5.parse(strOptions);
       this._compositeInputGenerator.options = this._options.generators;
     }
-  } // !!!!!!
+  } // property: set options
 
-  // !!!!!!
-  // For compatibility.... should probably go away !!!!!!!
+  /**
+   * Returns the current `FuzzEnv`
+   * (Retained for prior compatibility.... should probably go away !!!!!!!)
+   */
   public get env(): FuzzEnv {
     return {
       options: JSON5.parse(JSON5.stringify(this._options)),
       function: this._function,
       validators: JSON5.parse(JSON5.stringify(this._validators)),
     };
-  } // !!!!!!
+  } // property: get env
 
-  // !!!!!!
+  /**
+   * Returns the current state
+   */
   public get state(): typeof this._state {
     return this._state;
   } // property: get state
 
-  // !!!!!!
+  /**
+   * Runs the tester in sync mode and returns its results.
+   *
+   * @param `injectTests` tests to inject
+   * @param `mode` testing mode
+   * @returns `FuzzTestResults`
+   */
   public testSync(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true }
@@ -280,9 +291,18 @@ export class Tester {
       }
       throw e;
     }
-  } // !!!!!!
+  } // fn: testSync
 
-  // !!!!!!
+  /**
+   * Runs the tester in async mode and returns its results
+   * via `callbackFn`.
+   *
+   * @param `injectTests` tests to inject
+   * @param `mode` testing mode
+   * @param `callbackFn` called when testing completes
+   * @param `statusFn` called to report status updates
+   * @param `cancelFn` called to check cancel status
+   */
   public async testAsync(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
@@ -290,14 +310,19 @@ export class Tester {
     statusFn?: (payload: FuzzBusyStatusMessage) => void,
     cancelFn?: () => boolean
   ): Promise<void> {
-    this.runBatchAsync(
+    this._runBatchAsync(
       callbackFn,
       this._run(injectTests, mode, statusFn, cancelFn)
     );
-  } // !!!!!!
+  } // fn: testAsync
 
-  // !!!!!!
-  protected runBatchAsync(
+  /**
+   * Runs the tester in batch async mode
+   *
+   * @param `callbackFn` called when testing completes
+   * @param `run` generator function
+   */
+  protected _runBatchAsync(
     callbackFn: (result: FuzzTestResults | Error) => void,
     run: ReturnType<typeof this._run>
   ): void {
@@ -325,11 +350,19 @@ export class Tester {
     }
     if (!result)
       setTimeout(() => {
-        this.runBatchAsync(callbackFn, run);
+        this._runBatchAsync(callbackFn, run);
       });
-  } // !!!!!!
+  } // fn: _runBatchAsync
 
-  // !!!!!!
+  /**
+   * Generates and returns new test results
+   *
+   * @param `injectTests` tests to inject
+   * @param `mode` tester mode
+   * @param `updateFn` called to report status updates
+   * @param `cancelFn` called to check cancel status
+   * @returns test results
+   */
   protected *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
@@ -580,7 +613,7 @@ export class Tester {
         if (expectedInput !== returnedInput) {
           throw new Error(
             `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
-              JSON5.stringify(injectTests, null, 3) // !!!!!!!!
+              JSON5.stringify(injectTests, null, 3)
           );
         }
 
@@ -641,7 +674,6 @@ export class Tester {
       }
 
       // Front-end status update
-      /* !!!!!!!! Return values rather than text here. Also "failed" is unclear. */
       update({
         msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Generating new test"} input# ${
           runStats.counters.passedTests + runStats.counters.failedTests + 1
@@ -835,22 +867,6 @@ export class Tester {
     } // for: Main test loop
   } // fn: _run
 } // class: Tester
-
-// !!!!!!
-type CurrentRunStats = {
-  counters: {
-    inputsInjected: number; // number of inputs injected for testing
-    inputsGenerated: number; // number of inputs generated so far
-    dupesGenerated: number; // number of duplicate inputs generated so far
-    dupesSequential: number; // current number of duplicate inputs generated in a row
-    failedTests: number; // number of failed tests so far
-    passedTests: number; // number of passed tests so far
-  };
-  timers: {
-    startTime: number; // time the tester started in this run
-    startGenTime: number; // time the tester started generating new inputs
-  };
-};
 
 /**
  * Returns either a readon for the fuzzer to stop fuzzing or a percentage
@@ -1081,7 +1097,7 @@ function actualEqualsExpectedOutput(
       )
     );
   }
-} // !!!!!!
+} // fn: actualEqualsExpectedOutput
 
 /**
  * Categorizes the result of a fuzz test according to the available
@@ -1146,7 +1162,12 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   }
 } // fn: categorizeResult()
 
-// !!!!!!
+/**
+ * Gets the input key as a string from an array of `FuzzIoElement`s
+ *
+ * @param `io` array of `FuzzIoElements`
+ * @returns string representation of input key
+ */
 export function getIoKey(io: FuzzIoElement[]): string {
   return JSON5.stringify(
     io.map((input) => {
@@ -1214,6 +1235,24 @@ export type FuzzTestStats = {
   };
   measures: {
     CodeCoverageMeasure?: CodeCoverageMeasureStats;
+  };
+};
+
+/**
+ * Current run statistics
+ */
+type CurrentRunStats = {
+  counters: {
+    inputsInjected: number; // number of inputs injected for testing
+    inputsGenerated: number; // number of inputs generated so far
+    dupesGenerated: number; // number of duplicate inputs generated so far
+    dupesSequential: number; // current number of duplicate inputs generated in a row
+    failedTests: number; // number of failed tests so far
+    passedTests: number; // number of passed tests so far
+  };
+  timers: {
+    startTime: number; // time the tester started in this run
+    startGenTime: number; // time the tester started generating new inputs
   };
 };
 

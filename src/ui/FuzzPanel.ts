@@ -648,8 +648,6 @@ export class FuzzPanel {
     };
   } // fn: _initFuzzTestsForThisFn()
 
-  /** !!!!!! */
-
   /**
    * Returns the saved tests for just the current function.
    *
@@ -1107,8 +1105,6 @@ ${inArgConsts}
       this._panel.webview.postMessage(message);
     }
   } // fn: _doGetValidators()
-
-  // !!!!!!
 
   /**
    * Message handler for testing commands.
@@ -3263,27 +3259,22 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     useProperty: false,
     measures: {
       FailedTestMeasure: {
-        // Externalize !!!!!!!
         enabled: true,
         weight: 1,
       },
       CoverageMeasure: {
-        // Externalize !!!!!!!
         enabled: true,
         weight: 1,
       },
     },
     generators: {
       RandomInputGenerator: {
-        // Externalize !!!!!!!
         enabled: true,
       },
       MutationInputGenerator: {
-        // Externalize !!!!!!!
         enabled: true,
       },
       AiInputGenerator: {
-        // Externalize !!!!!!!
         enabled: true,
       },
     },
