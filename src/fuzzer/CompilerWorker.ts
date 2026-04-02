@@ -9,13 +9,14 @@ import { TscCompilerError } from "./Types";
 
 console.debug("CompilerWorker started");
 
-// Processes messages from the main thread
-parentPort?.on("message", (message: TypeScriptCompilerMessageToWorker) => {
+// Process messages from the main thread
+parentPort?.on("message", processMessage);
+
+function processMessage(message: TypeScriptCompilerMessageToWorker): void {
   switch (message.command) {
     case "compile": {
-      const compiler = new TypeScriptCompiler(message.module);
       try {
-        compiler.compileSync([], (msg) => {
+        new TypeScriptCompiler(message.module).compileSync([], (msg) => {
           if (msg.milestone) {
             console.log(msg.msg);
           }
@@ -53,5 +54,9 @@ parentPort?.on("message", (message: TypeScriptCompilerMessageToWorker) => {
       }
       break;
     }
+    case "exit": {
+      console.debug("CompilerWorker exiting");
+      parentPort?.close();
+    }
   }
-});
+} // fn: processMessage

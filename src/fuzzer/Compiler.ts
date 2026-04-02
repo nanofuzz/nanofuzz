@@ -35,7 +35,7 @@ let compileId = 0;
 
 // Pending Worker Tasks
 type TscFinishedCallback<T> = (value: T | PromiseLike<T>) => void;
-const pendingCompilations: {
+const _pendingCompilations: {
   [k: number]: {
     resolve: TscFinishedCallback<void>;
     reject: TscFinishedCallback<void>;
@@ -78,7 +78,7 @@ export class TypeScriptCompiler {
   public static async compileAsync(fqModulePath: string): Promise<void> {
     // If there's no compiler worker, create one
     if (!compilerWorker) {
-      // Compiler worker
+      // Start compiler worker
       const workerPath = path.resolve(
         path.join(
           path.dirname(module.filename),
@@ -89,22 +89,26 @@ export class TypeScriptCompiler {
           "CompilerWorker.js"
         )
       );
-      compilerWorker = new Worker(workerPath);
+      compilerWorker = new Worker(workerPath, { name: "CompilerWorker" });
 
       // Handle messages from the worker
       compilerWorker.on(
         "message",
         (message: TypeScriptCompilerMessageFromWorker) => {
-          console.log("Main thread received: ", JSON5.stringify(message));
           switch (message.command) {
             case "compile.result":
-              if (message.id in pendingCompilations) {
-                pendingCompilations[message.id][
+              if (message.id in _pendingCompilations) {
+                _pendingCompilations[message.id][
                   message.success ? "resolve" : "reject"
                 ]();
-                delete pendingCompilations[message.id];
+                console.info(
+                  `Background compilation# ${message.id} ${message.success ? "succeeded" : "failed"}`
+                );
+                delete _pendingCompilations[message.id];
               } else {
-                throw new Error(`No compilation pending for ${message.id}`);
+                throw new Error(
+                  `No background compilation pending for ${message.id}`
+                );
               }
           }
         }
@@ -112,6 +116,11 @@ export class TypeScriptCompiler {
       compilerWorker.on("exit", (code) => {
         console.log(`CompilerWorker exited with code ${code}`);
         compilerWorker = undefined;
+        Object.keys(_pendingCompilations).forEach((k) => {
+          console.debug(`Auto-rejecting pending background compilation ${k}.`);
+          _pendingCompilations[Number(k)].reject();
+          delete _pendingCompilations[Number(k)];
+        });
       });
     } // if: no compiler worker
 
@@ -121,7 +130,7 @@ export class TypeScriptCompiler {
         id: compileId++,
         module: fqModulePath,
       };
-      pendingCompilations[message.id] = { resolve, reject };
+      _pendingCompilations[message.id] = { resolve, reject };
       if (compilerWorker) {
         compilerWorker.postMessage(message);
       } else {
@@ -183,30 +192,47 @@ export class TypeScriptCompiler {
       previousRequireExtensions[hookType].push(require.extensions[hookType]);
     }
 
+    // Save & re-throw exceptions outside the hook
+    let hookException: unknown | undefined = undefined;
+
     // Hook require to compile ts files
     require.extensions[hookType] = async (module) => {
       const jsname = this._getJsFilename(module.filename);
 
       // Compile the Typescript file if the compiled output is stale
       const staleReason = this.isStale(module.filename);
-      if (staleReason) {
-        this.tsc(module, updateFn);
-      }
+      // If we throw a compiler exception in the hook within a
+      // Worker, it kills the Worker. Save any exception thrown
+      // and re-throw it outside the hook.
+      if (staleReason && hookException === undefined) {
+        try {
+          // Compile the module
+          this._tsc(module, updateFn);
 
-      // Apply measurement instrumentation
-      let src = fs.readFileSync(jsname, "utf8"); // TODO: encoding
-      for (const measure of measures) {
-        src = measure.onAfterCompile(src, jsname);
-      }
+          // Apply measurement instrumentation
+          let src = fs.readFileSync(jsname, "utf8"); // TODO: encoding
+          for (const measure of measures) {
+            src = measure.onAfterCompile(src, jsname);
+          }
 
-      // Load the module & collect measurements from the initial load
-      const context: VmGlobals = this.run(jsname, module, src, moduleVmGlobals);
-      for (const measure of measures) {
-        measure.onAfterLoad(context);
-      }
+          // Load the module & collect measurements from the initial load
+          const context: VmGlobals = this.run(
+            jsname,
+            module,
+            src,
+            moduleVmGlobals
+          );
+          for (const measure of measures) {
+            measure.onAfterLoad(context);
+          }
 
-      // Update this module's compilation record
-      localCompilations.push(module.filename);
+          // Update this module's compilation record
+          localCompilations.push(module.filename);
+        } catch (e: unknown) {
+          // Save the exception and throw it outside the hook
+          hookException = e;
+        }
+      }
     }; // end: require hook
 
     // Require the modules requested
@@ -221,13 +247,18 @@ export class TypeScriptCompiler {
         ? undefined
         : previousRequireExtensions[hookType].pop();
 
+    // Finally, re-throw the hook exception
+    if (hookException) {
+      throw hookException;
+    }
+
     // Update the list of compilations
-    if (!(this._moduleFile in _compilationsByModule)) {
+    if (!(this._moduleFile in _compilationsByModule) && !hookException) {
       _compilationsByModule[this._moduleFile] = localCompilations;
     }
 
     return mod;
-  } // fn: compile
+  } // fn: compileSync
 
   /**
    * Creates a new record for the current compilation
@@ -252,7 +283,7 @@ export class TypeScriptCompiler {
         tscDatetime: fs.statSync(this._tscPath).mtime.toISOString(),
       },
     };
-  }
+  } // fn: _newCompilationRecord
 
   /**
    * Returns true if any of the compiled TypeScript files have been modified
@@ -339,7 +370,7 @@ export class TypeScriptCompiler {
    * @param `module` node module
    * @param `updateFn` function for client status updates
    */
-  protected tsc(
+  protected _tsc(
     module: NodeJS.Module,
     updateFn: (msg: FuzzBusyStatusMessage) => void
   ): void {
@@ -477,7 +508,7 @@ export class TypeScriptCompiler {
       this._getCompilationRecordFilename(module.filename),
       JSON5.stringify(this._newCompilationRecord(module.filename))
     );
-  } // fn: compileSync
+  } // fn: _tsc
 
   /**
    * Returns the name of the compiled output file
@@ -866,11 +897,15 @@ type CompilationRecord = {
 /**
  * Messages from the Compiler to its worker
  */
-export type TypeScriptCompilerMessageToWorker = {
-  command: "compile";
-  id: number;
-  module: string;
-};
+export type TypeScriptCompilerMessageToWorker =
+  | {
+      command: "compile";
+      id: number;
+      module: string;
+    }
+  | {
+      command: "exit";
+    };
 
 /**
  * Messages from the worker to the Compiler
