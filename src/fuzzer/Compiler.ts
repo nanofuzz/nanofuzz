@@ -47,6 +47,7 @@ const _pendingCompilations: {
  */
 export class TypeScriptCompiler {
   protected _tscPath: string; // Path to tsc
+  protected _tscVersion: string; // tsc version
   protected _moduleFile: string; // Path to a module within a project
   protected _tsconfigPath?: string; // Fully-qualified tsconfig.json path
   protected _projectPath?: string; // Directory of tsconfig.json
@@ -60,8 +61,9 @@ export class TypeScriptCompiler {
       throw new Error(`Cannot find module to compile: ${fqModulePath}`);
     }
 
-    // Determine tsc location
+    // Determine tsc location & version
     this._tscPath = this._findTsc();
+    this._tscVersion = this._findTscVersion(this._tscPath) ?? "unknown";
   } // constructor
 
   /**
@@ -192,22 +194,26 @@ export class TypeScriptCompiler {
       previousRequireExtensions[hookType].push(require.extensions[hookType]);
     }
 
-    // Save & re-throw exceptions outside the hook
+    // Save hook exceptions for re-throw outside the hook
     let hookException: unknown | undefined = undefined;
 
     // Hook require to compile ts files
     require.extensions[hookType] = async (module) => {
       const jsname = this._getJsFilename(module.filename);
 
-      // Compile the Typescript file if the compiled output is stale
-      const staleReason = this.isStale(module.filename);
+      // Log the compile attempt
+      localCompilations.push(module.filename);
+
       // If we throw a compiler exception in the hook within a
       // Worker, it kills the Worker. Save any exception thrown
       // and re-throw it outside the hook.
-      if (staleReason && hookException === undefined) {
+      if (hookException === undefined) {
         try {
-          // Compile the module
-          this._tsc(module, updateFn);
+          // Compile the Typescript file if the compiled output is stale
+          const staleReason = this.isStale(module.filename);
+          if (staleReason) {
+            this._tsc(module, updateFn);
+          }
 
           // Apply measurement instrumentation
           let src = fs.readFileSync(jsname, "utf8"); // TODO: encoding
@@ -225,9 +231,6 @@ export class TypeScriptCompiler {
           for (const measure of measures) {
             measure.onAfterLoad(context);
           }
-
-          // Update this module's compilation record
-          localCompilations.push(module.filename);
         } catch (e: unknown) {
           // Save the exception and throw it outside the hook
           hookException = e;
@@ -247,8 +250,9 @@ export class TypeScriptCompiler {
         ? undefined
         : previousRequireExtensions[hookType].pop();
 
-    // Finally, re-throw the hook exception
+    // Finally, invalidate the cache and re-throw the hook exception
     if (hookException) {
+      localCompilations.forEach((m) => delete require.cache[m]);
       throw hookException;
     }
 
@@ -280,6 +284,7 @@ export class TypeScriptCompiler {
           ? fs.statSync(this._tsconfigPath).mtime.toISOString()
           : undefined,
         tscFile: this._tscPath,
+        tscVersion: this._tscVersion,
         tscDatetime: fs.statSync(this._tscPath).mtime.toISOString(),
       },
     };
@@ -506,7 +511,7 @@ export class TypeScriptCompiler {
     // Write compilation record
     fs.writeFileSync(
       this._getCompilationRecordFilename(module.filename),
-      JSON5.stringify(this._newCompilationRecord(module.filename))
+      JSON.stringify(this._newCompilationRecord(module.filename))
     );
   } // fn: _tsc
 
@@ -573,6 +578,8 @@ export class TypeScriptCompiler {
         typeof compRecRaw.details.jsDatetime === "string" &&
         "tscFile" in compRecRaw.details &&
         typeof compRecRaw.details.tscFile === "string" &&
+        "tscVersion" in compRecRaw.details &&
+        typeof compRecRaw.details.tscVersion === "string" &&
         "tscDatetime" in compRecRaw.details &&
         typeof compRecRaw.details.tscDatetime === "string" &&
         (!("tsconfigFile" in compRecRaw.details) ||
@@ -661,6 +668,32 @@ export class TypeScriptCompiler {
       `No copy of tsc found. Checked: ${JSON5.stringify(tscPriority, null, 2)}`
     );
   } // fn: _findTsc
+
+  /**
+   * Returns the tsc version number
+   *
+   * @param `tscPath` path and filename of tsc script
+   * @returns tsc version number as a string if found; otherwise, `undefined`
+   */
+  protected _findTscVersion(tscPath: string): string | undefined {
+    const packageJson = findInAncestor(path.dirname(tscPath), "package.json");
+    if (packageJson) {
+      try {
+        const tscVer = JSON5.parse(
+          fs.readFileSync(packageJson).toString()
+        ).version;
+        return typeof tscVer === "string" && tscVer !== "" ? tscVer : undefined;
+      } catch {
+        console.info(
+          `Unable to read tsc version from its package.json: ${packageJson}`
+        );
+        return undefined;
+      }
+    } else {
+      console.info(`Unable to find package.json for tsc at: ${packageJson}`);
+      return undefined;
+    }
+  } // fn: _findTscVersion
 
   /**
    * Determine compiler options for the module's project
@@ -890,6 +923,7 @@ type CompilationRecord = {
     tsconfigFile?: string;
     tsconfigDatetime?: string; // ISODateString
     tscFile: string;
+    tscVersion: string;
     tscDatetime: string; // ISODateString
   };
 };
