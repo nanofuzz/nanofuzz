@@ -587,7 +587,9 @@ describe("fuzzer:", () => {
     // Run the following tests on the raw and JSON5-cloned results
     [
       fuzzResult.results,
-      JSON5.parse(JSON5.stringify(fuzzResult.results)),
+      JSON5.parse<typeof fuzzResult.results>(
+        JSON5.stringify(fuzzResult.results)
+      ),
     ].forEach((r) => {
       // Every input should be true, false, or undefined
       expect(

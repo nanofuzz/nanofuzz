@@ -149,7 +149,9 @@ export class TypeScriptCompiler {
     updateFn: (msg: FuzzBusyStatusMessage) => void
   ): ReturnType<NodeJS.Require> {
     // Determine options using the module path
-    this._options = JSON5.parse(JSON5.stringify(defaultOptions));
+    this._options = JSON5.parse<typeof defaultOptions>(
+      JSON5.stringify(defaultOptions)
+    );
     this._determineOptions();
 
     // Track local compilations
@@ -679,10 +681,16 @@ export class TypeScriptCompiler {
     const packageJson = findInAncestor(path.dirname(tscPath), "package.json");
     if (packageJson) {
       try {
-        const tscVer = JSON5.parse(
+        const packageJsonData: unknown = JSON5.parse<unknown>(
           fs.readFileSync(packageJson).toString()
-        ).version;
-        return typeof tscVer === "string" && tscVer !== "" ? tscVer : undefined;
+        );
+        return packageJsonData !== null &&
+          typeof packageJsonData === "object" &&
+          !Array.isArray(packageJsonData) &&
+          "version" in packageJsonData &&
+          typeof packageJsonData.version === "string"
+          ? packageJsonData.version // return version string
+          : undefined; // unknown version
       } catch {
         console.info(
           `Unable to read tsc version from its package.json: ${packageJson}`
@@ -731,14 +739,27 @@ export class TypeScriptCompiler {
     }
 
     try {
-      const tsConfig = JSON5.parse(tsConfigData);
+      const tsConfig: unknown = JSON5.parse(tsConfigData);
       this._options.tscConfigFilename = tsConfigFilename;
       try {
         const projectDir = path.dirname(tsConfigFilename);
 
-        if ("compilerOptions" in tsConfig) {
+        if (
+          tsConfig !== null &&
+          typeof tsConfig === "object" &&
+          !Array.isArray(tsConfig) &&
+          "compilerOptions" in tsConfig &&
+          tsConfig.compilerOptions !== null &&
+          typeof tsConfig.compilerOptions === "object" &&
+          !Array.isArray(tsConfig.compilerOptions)
+        ) {
           // typeRoots
-          if ("typeRoots" in tsConfig.compilerOptions) {
+          if (
+            "typeRoots" in tsConfig.compilerOptions &&
+            tsConfig.compilerOptions.typeRoots !== null &&
+            typeof tsConfig.compilerOptions.typeRoots === "object" &&
+            Array.isArray(tsConfig.compilerOptions.typeRoots)
+          ) {
             this._options.typeRoots = tsConfig.compilerOptions.typeRoots.map(
               (e: string) =>
                 // Replace relative paths because our cwd is not the project
@@ -751,7 +772,12 @@ export class TypeScriptCompiler {
           }
 
           // types -- ignore types that do not exist in any root
-          if ("types" in tsConfig.compilerOptions) {
+          if (
+            "types" in tsConfig.compilerOptions &&
+            tsConfig.compilerOptions.types !== null &&
+            typeof tsConfig.compilerOptions.types === "object" &&
+            Array.isArray(tsConfig.compilerOptions.types)
+          ) {
             this._options.types = tsConfig.compilerOptions.types.filter(
               (t: string) =>
                 this._options.typeRoots.some((tr) =>
@@ -763,7 +789,12 @@ export class TypeScriptCompiler {
             this._options.types = [""];
           }
 
-          if ("lib" in tsConfig.compilerOptions) {
+          if (
+            "lib" in tsConfig.compilerOptions &&
+            tsConfig.compilerOptions.lib !== null &&
+            typeof tsConfig.compilerOptions.lib === "object" &&
+            Array.isArray(tsConfig.compilerOptions.lib)
+          ) {
             this._options.lib = tsConfig.compilerOptions.lib;
           }
 

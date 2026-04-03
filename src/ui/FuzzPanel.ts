@@ -404,7 +404,7 @@ export class FuzzPanel {
    * @param pin true=save test; false=unsave test
    */
   private _doTestPinnedCmd(json: string, pin: boolean) {
-    const msg: FuzzPanelPinMessage = JSON5.parse(json);
+    const msg: FuzzPanelPinMessage = JSON5.parse(json); // !!! validation
 
     // Log the telemetry event
     vscode.commands.executeCommand(
@@ -613,9 +613,7 @@ export class FuzzPanel {
    *          tests with an expected output.
    */
   private _pruneTestSet(testSet: fuzzer.FuzzTests): fuzzer.FuzzTests {
-    const prunedTestSet: fuzzer.FuzzTests = JSON5.parse(
-      JSON5.stringify(testSet)
-    );
+    const prunedTestSet = JSON5.parse<typeof testSet>(JSON5.stringify(testSet));
     for (const fn in prunedTestSet.functions) {
       for (const test in prunedTestSet.functions[fn].tests) {
         const thisTest = prunedTestSet.functions[fn].tests[test];
@@ -780,7 +778,7 @@ export class FuzzPanel {
    * Message handler for the `columns.sort' command.
    */
   private _saveColumnSortOrders(json: string) {
-    this._sortColumns = JSON5.parse(json);
+    this._sortColumns = JSON5.parse(json); // !!! validation
   } // fn: _saveColumnSortOrders
 
   /**

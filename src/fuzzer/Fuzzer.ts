@@ -71,8 +71,7 @@ export class Tester {
         `Invalid options provided: ${JSON5.stringify(options, null, 2)}`
       );
     }
-    const strOptions = JSON5.stringify(options);
-    this._options = JSON5.parse(strOptions);
+    this._options = JSON5.parse<typeof options>(JSON5.stringify(options));
 
     // Get the active measures, which will take various measurements
     // during execution that guide the composite generator
@@ -159,9 +158,13 @@ export class Tester {
   protected _getInitializedResults(): FuzzTestResults {
     return {
       env: {
-        options: JSON5.parse(JSON5.stringify(this._options)),
+        options: JSON5.parse<typeof this._options>(
+          JSON5.stringify(this._options)
+        ),
         function: this._function,
-        validators: JSON5.parse(JSON5.stringify(this._validators)),
+        validators: JSON5.parse<typeof this._validators>(
+          JSON5.stringify(this._validators)
+        ),
       },
       stopReason: FuzzStopReason.CRASH, // updated later
       stats: {
@@ -242,8 +245,8 @@ export class Tester {
     // from the new one, use the new options.
     const strOptions = JSON5.stringify(options);
     if (JSON5.stringify(this._options) !== strOptions) {
-      this._options = JSON5.parse(strOptions);
-      this._results.env.options = JSON5.parse(strOptions);
+      this._options = JSON5.parse<typeof options>(strOptions);
+      this._results.env.options = JSON5.parse<typeof options>(strOptions);
       this._compositeInputGenerator.options = this._options.generators;
     }
   } // property: set options
@@ -254,9 +257,13 @@ export class Tester {
    */
   public get env(): FuzzEnv {
     return {
-      options: JSON5.parse(JSON5.stringify(this._options)),
+      options: JSON5.parse<typeof this._options>(
+        JSON5.stringify(this._options)
+      ),
       function: this._function,
-      validators: JSON5.parse(JSON5.stringify(this._validators)),
+      validators: JSON5.parse<typeof this._validators>(
+        JSON5.stringify(this._validators)
+      ),
     };
   } // property: get env
 
@@ -460,6 +467,8 @@ export class Tester {
     this._state = "ready";
 
     // Main test loop
+    /* eslint eslint-comments/no-use: off */
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     while (true) {
       this._state = "running";
       // End the testing run when we encounter a stop condition
@@ -688,8 +697,9 @@ export class Tester {
       // Call the function via the wrapper
       const startRunTime = performance.now(); // start timer
       try {
+        const inputValues = result.input.map((e) => e.value);
         const [exeOutput] = runner.run(
-          JSON5.parse(JSON5.stringify(result.input.map((e) => e.value))),
+          JSON5.parse<typeof inputValues>(JSON5.stringify(inputValues)),
           this._options.fnTimeout
         ); // <-- Runner (protect the input)
         result.output.push({
@@ -770,7 +780,8 @@ export class Tester {
                 timeout: result.timeout,
               };
               try {
-                const validatorOut: boolean = mod[valFnName](validatorIn);
+                const validatorOut: boolean | undefined =
+                  mod[valFnName](validatorIn);
                 return {
                   ...result,
                   passedValidator: validatorOut,
@@ -795,8 +806,8 @@ export class Tester {
           result.category = categorizeResult(result);
 
           // Call the validator function wrapper
-          const validatorResult = validatorFnWrapper(
-            JSON5.parse(JSON5.stringify(result))
+          const validatorResult: typeof result = validatorFnWrapper(
+            JSON5.parse<typeof result>(JSON5.stringify(result))
           ); // <-- Wrapper (protect the input)
 
           // Store the validator results
@@ -812,8 +823,8 @@ export class Tester {
 
         result.passedValidator = undefined; // initialize
         for (const i in result.passedValidators) {
-          const thisJudgment = result.passedValidators[i];
-          if (thisJudgment !== null && thisJudgment !== undefined) {
+          const thisJudgment: boolean | undefined = result.passedValidators[i];
+          if (thisJudgment === true || thisJudgment === false) {
             result.passedValidator =
               result.passedValidator === undefined
                 ? !!thisJudgment
@@ -845,8 +856,8 @@ export class Tester {
         const startMeasureTime = performance.now(); // start timer
         const measurements = this._measures.map((e) =>
           e.measure(
-            JSON5.parse(JSON5.stringify(genInput)),
-            JSON5.parse(JSON5.stringify(result))
+            JSON5.parse<typeof genInput>(JSON5.stringify(genInput)),
+            JSON5.parse<typeof result>(JSON5.stringify(result))
           )
         );
 
@@ -1131,7 +1142,11 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
     "passedImplicit" in result ? (result.passedImplicit ? 1 : -1) : 0;
   const human = "passedHuman" in result ? (result.passedHuman ? 1 : -1) : 0;
   const property =
-    "passedValidator" in result ? (result.passedValidator ? 1 : -1) : 0;
+    "passedValidator" in result && result.passedValidator !== undefined
+      ? result.passedValidator
+        ? 1
+        : -1
+      : 0;
 
   if (human > 0) {
     if (property < 0) {

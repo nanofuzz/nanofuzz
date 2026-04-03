@@ -387,7 +387,9 @@ export class ProgramDef {
    * @returns the list of imports by identifier name
    */
   public getImports(): Record<IdentifierName, ProgramImport> {
-    return JSON5.parse(JSON5.stringify(this._imports));
+    return JSON5.parse<typeof this._imports.identifiers>(
+      JSON5.stringify(this._imports.identifiers)
+    );
   } // fn: getImports()
 
   /**
@@ -434,7 +436,7 @@ export class ProgramDef {
    * @returns the types defined in the program
    */
   public getTypes(): Record<string, TypeRef> {
-    return JSON5.parse(JSON5.stringify(this._types));
+    return JSON5.parse<typeof this._types>(JSON5.stringify(this._types));
   } // fn: getTypes()
 
   /**
@@ -443,7 +445,9 @@ export class ProgramDef {
    * @returns the types exported by the program
    */
   public getExportedTypes(): Record<string, TypeRef> {
-    return JSON5.parse(JSON5.stringify(this._exportedTypes));
+    return JSON5.parse<typeof this._exportedTypes>(
+      JSON5.stringify(this._exportedTypes)
+    );
   } // fn: getExportedTypes()
 
   /**
@@ -689,7 +693,9 @@ export class ProgramDef {
       const resolvedType = this._resolveTypeRef(
         this._types[typeRef.typeRefName]
       );
-      typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+      typeRef.type = JSON5.parse<typeof resolvedType.type>(
+        JSON5.stringify(resolvedType.type)
+      );
       return this._types[typeRef.typeRefName];
     } else {
       // Follow the imported type reference
@@ -731,11 +737,13 @@ export class ProgramDef {
           // Namespace import: create concrete imports for each of the imports
           for (const exported of Object.values(importProgram._exportedTypes)) {
             const localName = localNameParts[0] + "." + exported.name;
-            const newImport = JSON5.parse(JSON5.stringify(exported));
-            newImport.local = localName;
-            newImport.imported = exported.name;
-            newImport.resolved = true;
-            this._imports.identifiers[localName] = newImport;
+            this._imports.identifiers[localName] = {
+              local: localName,
+              imported: exported.name ?? "__default",
+              programPath: exported.module,
+              resolved: true,
+              default: !exported.name,
+            };
           }
 
           // Remove the original unresolved import reference
@@ -758,13 +766,17 @@ export class ProgramDef {
           const resolvedType = importProgram._resolveTypeRef(
             importProgram._defaultExport
           );
-          typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+          typeRef.type = JSON5.parse<typeof resolvedType.type>(
+            JSON5.stringify(resolvedType.type)
+          );
         } else if (importName in importProgram._exportedTypes) {
           // Resolve named export
           const resolvedType = importProgram._resolveTypeRef(
             importProgram._exportedTypes[importName]
           );
-          typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+          typeRef.type = JSON5.parse<typeof resolvedType.type>(
+            JSON5.stringify(resolvedType.type)
+          );
         } else {
           // Unable to find exported type
           throw new Error(

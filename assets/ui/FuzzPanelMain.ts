@@ -375,7 +375,7 @@ function main() {
       //   : {};
 
       // Result for each property validator (true if passed)
-      const validatorFns: Record<string, boolean> = {};
+      const validatorFns: Record<string, boolean | undefined> = {};
       e.passedValidators?.forEach((v, i) => {
         validatorFns[validators[i]] = v;
       });

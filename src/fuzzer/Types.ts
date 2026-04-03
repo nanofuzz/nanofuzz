@@ -18,7 +18,7 @@ export type FuzzTestResult = {
   passedImplicit: boolean; // true if output matches implicit oracle; false, otherwise
   passedHuman?: boolean; // true if actual output matches human-expected output
   passedValidator?: boolean; // true if passed all custom validators; false, otherwise
-  passedValidators?: boolean[]; // for each custom validator, true if passed; false, otherwise
+  passedValidators?: (boolean | undefined)[]; // for each custom validator, true if passed; false, otherwise
   validatorException: boolean; // true if validator threw an exception
   validatorExceptionMessage?: string; // validator exception message
   validatorExceptionFunction?: string; // name of validator throwing exception

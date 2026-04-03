@@ -516,7 +516,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
 
                 // Revert to the previous input so that we don't confuse
                 // the issue about which mutator broke the input chain
-                input = JSON5.parse(inputStringBefore);
+                input = JSON5.parse<typeof input>(inputStringBefore);
               } else {
                 stats.muts.valid++;
               }
