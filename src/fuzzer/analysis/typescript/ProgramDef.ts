@@ -1262,7 +1262,7 @@ export class ProgramDef {
           : undefined;
       } catch {
         if (!isVoid) {
-          console.debug('Unsupported return type for function "' + name + '".');
+          // !!! console.debug('Unsupported return type for function "' + name + '".');
         }
       }
       return {
@@ -1298,7 +1298,7 @@ export class ProgramDef {
           : undefined;
       } catch {
         if (!isVoid) {
-          console.debug('Unsupported return type for function "' + name + '".');
+          // !!! console.debug('Unsupported return type for function "' + name + '".');
         }
       }
       return {

@@ -1,10 +1,6 @@
 import * as JSON5 from "json5";
 
-import {
-  assertNonreachable,
-  getElementByIdOrThrow,
-  getElementByIdWithTypeOrThrow,
-} from "./utils";
+import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./utils";
 import {
   FuzzArgOverride,
   FuzzIoElement,
@@ -459,7 +455,7 @@ function main() {
                 <strong>pin</strong>
               </span>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, type, k, tbody, true);
+              handleColumnSort(type, k, tbody, true);
             });
           } else if (hiddenColumns.indexOf(k) !== -1) {
             // noop (hidden)
@@ -475,7 +471,7 @@ function main() {
                 <span class="codicon codicon-debug"></span>
               </span>`;
               cell.addEventListener("click", () => {
-                handleColumnSort(cell, type, k, tbody, true);
+                handleColumnSort(type, k, tbody, true);
               });
             }
           } else if (k === validatorLabel) {
@@ -497,7 +493,7 @@ function main() {
                 </span>`;
               cell.id = type + "-" + k;
               cell.addEventListener("click", () => {
-                handleColumnSort(cell, type, k, tbody, true);
+                handleColumnSort(type, k, tbody, true);
               });
             } // if useProperty
           } else if (validators.indexOf(k) !== -1) {
@@ -541,7 +537,7 @@ function main() {
                 cell.classList.add("hidden"); // hide individual validators if currently collapsed
               }
               cell.addEventListener("click", () => {
-                handleColumnSort(cell, type, k, tbody, true);
+                handleColumnSort(type, k, tbody, true);
               });
               if (validators.indexOf(k) === validators.length - 1) {
                 // Twistie column with left arrow (to collapse validator columns)
@@ -572,7 +568,7 @@ function main() {
               </span>`;
             cell.colSpan = 2;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, type, k, tbody, true);
+              handleColumnSort(type, k, tbody, true);
             });
           } else if (k === srcLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
@@ -584,7 +580,7 @@ function main() {
                 <strong>${htmlEscape(label)}</strong>
               </span>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, type, k, tbody, true);
+              handleColumnSort(type, k, tbody, true);
             });
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
@@ -594,7 +590,7 @@ function main() {
             cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
             cell.innerHTML = `<strong>${htmlEscape(label)}</strong>`;
             cell.addEventListener("click", () => {
-              handleColumnSort(cell, type, k, tbody, true);
+              handleColumnSort(type, k, tbody, true);
             });
           }
         }); // for each column k
@@ -614,7 +610,7 @@ function main() {
               sortOrder === FuzzSortOrder.asc ||
               sortOrder === FuzzSortOrder.desc
             ) {
-              handleColumnSort(cell, type, col, tbody, false);
+              handleColumnSort(type, col, tbody, false);
             }
           }
         } // for i
@@ -1086,35 +1082,24 @@ function toggleExpandColumn(type: FuzzResultCategory) {
  * The most recent column clicked has the highest precedence.
  * Uses stable sort, so previously sorted rows will not change unless they have to.
  *
- * @param cell cell of hRow
- * @param hRow header row
- * @param type (timeout, exception, badValue, ok, etc.)
- * @param column (ex: input:a, output, pin)
- * @param tbody table body
- * @param isClicking true if user clicked a column; false if an 'initial sort'
- *
- * 'Initial sort' could be:
- *  - Making sure the pinned/correct columns are sorted at the beginning
- *  - Making sure we retain previous sort settings if you click 'Test' again
+ * @param `type`` (timeout, exception, badValue, ok, etc.)
+ * @param `column` (ex: input:a, output, pin)
+ * @param `tbody` table body
+ * @param `isClicking` true if user clicked a column; false if an 'initial sort'
  */
 function handleColumnSort(
-  cell: HTMLTableCellElement, // front end column
   type: FuzzResultCategory, // tab
   column: string, // back-end column
   tbody: HTMLTableSectionElement, // front-end table for tab
   isClicking: boolean // true=user clicked on the sort button
 ) {
-  // console.debug(`Sorting type:'${type}' col:'${column}' cell:'${cell.id}'`);
-
-  // We are only explicitly sorting by one column at a time (with the pinned and correct
-  // columns being special cases)
-  // Reset the other column arrows to 'none'
+  // If the user clicked a column, updating the sort for that column
   if (isClicking) {
-    resetOtherColumnArrows(type, column);
+    updateSortOrders(type, column);
   }
 
-  // Update the sort arrow for this column (asc->desc etc, and frontend)
-  updateColumnArrow(cell, type, column, isClicking);
+  // Update the front-end column arrows
+  updateColumnArrows(type);
 
   // Define sorting function:
   // Sort current column value based on sort order
@@ -1208,8 +1193,8 @@ function handleColumnSort(
     return 0; // a = b for all columns
   });
 
-  // Sorting done. If user-initiated, re-render table contents
-  // and send message to extension to retain sort order
+  // If sorting was user-initiated, re-render table contents
+  // and send message to extension to persist the sort order
   if (isClicking) {
     drawTableBody({ type, tbody, isClicking: false });
 
@@ -1222,112 +1207,76 @@ function handleColumnSort(
 } // fn: handleColumnSort
 
 /**
- * For a given type, set columns arrows to 'none', unless the column is
- * the current column being sorted by. The 'pinned' column is a special case
+ * Respond to a user clicking a column by updating the column sort orders
  *
- * @param type (timeout, exception, badValue, ok)
- * @param thisCol the current column being sorted by
+ * @param `type` (timeout, exception, badValue, ok)
+ * @param `thisCol` the current column being sorted by
  */
-function resetOtherColumnArrows(type: FuzzResultCategory, thisCol: string) {
+function updateSortOrders(type: FuzzResultCategory, thisCol: string) {
+  // Update sorting direction for the clicked column
+  // Note: a missing column sort means "none"
+  switch (
+    thisCol in columnSortOrders[type]
+      ? columnSortOrders[type][thisCol]
+      : FuzzSortOrder.none
+  ) {
+    case FuzzSortOrder.asc:
+      columnSortOrders[type][thisCol] = FuzzSortOrder.desc;
+      break;
+    case FuzzSortOrder.desc:
+      delete columnSortOrders[type][thisCol]; // not present, meaning "none"
+      break;
+    default:
+      columnSortOrders[type][thisCol] = FuzzSortOrder.asc;
+  }
+} // fn: updateSortOrders
+
+/**
+ * Updates front-end column headings to match the current sort order
+ *
+ * @param `type` (timeout, exception, badValue, ok, etc.)
+ */
+function updateColumnArrows(type: FuzzResultCategory) {
+  // Get the front-end column names
   const cols = Object.keys(data[type][0]);
+
+  // Loop over the columns and update the arrows
   for (let i = 0; i < Object.keys(data[type][0]).length; ++i) {
-    // For a given type, iterate over the columns (ex: input a, output, pin)
     const col = cols[i]; // back-end column
     const cell = document.getElementById(type + "-" + col); // front-end column
 
-    if (
-      col === thisCol ||
-      col === type + "-" + pinnedLabel ||
-      col === type + "-" + correctLabel
-    ) {
-      continue;
-    }
-
+    // Only process front-end columns
     if (cell !== null) {
-      delete columnSortOrders[type][col];
-      cell.classList.remove("columnSortAsc");
-      cell.classList.remove("columnSortDesc");
-      cell.classList.remove("columnSortAscSmall");
-      cell.classList.remove("columnSortDescSmall");
+      cell.classList.remove(
+        "columnSortAsc",
+        "columnSortDesc",
+        "columnSortAscSmall",
+        "columnSortDescSmall"
+      );
+
+      // A missing sort order means "none"
+      const thisColSort =
+        col in columnSortOrders[type]
+          ? columnSortOrders[type][col]
+          : FuzzSortOrder.none;
+
+      // Add the appropriate arrow (small arrows for property validator columns)
+      if (thisColSort !== FuzzSortOrder.none) {
+        cell.classList.add(
+          `columnSort${thisColSort === FuzzSortOrder.asc ? "Asc" : "Desc"}${validators.indexOf(col) === -1 ? "" : "Small"}`
+        );
+      }
     } // if
   } // for i
-} // fn: resetOtherColumnArrows
-
-/**
- * Displays column arrow in header row, and updates columnSortOrders
- *
- * @param cell cell of hRow
- * @param type (timeout, exception, badValue, ok, etc.)
- * @param col (ex: input:a, output, pin)
- * @param isClicking bool determining if the initial sort is occurring, or if the function
- * is being called because the user clicked on a column
- * @returns
- */
-function updateColumnArrow(
-  cell: HTMLTableCellElement,
-  type: FuzzResultCategory,
-  col: string,
-  isClicking: boolean
-) {
-  // Pinned and correct columns are special -- can be sorted by them, plus one addtional column
-  let currOrder = columnSortOrders[type][col]; // 'asc', 'desc', or 'none'
-  if (isClicking) {
-    // Update sorting direction (asc->desc, desc->none, none->asc)
-    switch (currOrder) {
-      case FuzzSortOrder.asc:
-        currOrder = FuzzSortOrder.desc;
-        break;
-      case FuzzSortOrder.desc:
-        currOrder = FuzzSortOrder.none;
-        break;
-      default:
-        currOrder = FuzzSortOrder.asc;
-    }
-
-    // Update columnSortOrders
-    columnSortOrders[type][col] = currOrder;
-    if (currOrder === "none") delete columnSortOrders[type][col];
-  }
-
-  if (!isClicking && !currOrder) return;
-  // Update frontend with appropriate arrow
-  switch (currOrder) {
-    case FuzzSortOrder.asc:
-      if (validators.indexOf(col) === -1) {
-        cell.classList.add("columnSortAsc");
-        cell.classList.remove("columnSortDesc");
-      } else {
-        cell.classList.add("columnSortAscSmall");
-        cell.classList.remove("columnSortDescSmall");
-      }
-      break;
-    case FuzzSortOrder.desc:
-      if (validators.indexOf(col) === -1) {
-        cell.classList.add("columnSortDesc");
-        cell.classList.remove("columnSortAsc");
-      } else {
-        cell.classList.add("columnSortDescSmall");
-        cell.classList.remove("columnSortAscSmall");
-      }
-      break;
-    case FuzzSortOrder.none:
-      cell.classList.remove("columnSortDesc");
-      cell.classList.remove("columnSortAsc");
-      cell.classList.remove("columnSortDescSmall");
-      cell.classList.remove("columnSortAscSmall");
-      break;
-    default:
-      assertNonreachable(currOrder);
-  }
-} //fn: updateColumnArrows
+} // fn: updateColumnArrows
 
 /**
  * Draw table body and fill in with values from data[type]. Add event listeners
  * for pinning, toggling correct icons
  *
- * @param type e.g. bad output, passed, etc
- * @param tbody table body
- * @param isClicking bool true if user is clicking
+ * @param `type` e.g. bad output, passed, etc
+ * @param `tbody` table body element
+ * @param `isClicking` bool `true` if user is clicking
  */
 function drawTableBody({
   type,
