@@ -1,5 +1,4 @@
 import * as JSON5 from "json5";
-
 import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./utils";
 import {
   FuzzArgOverride,
@@ -54,16 +53,16 @@ const hiddenColumns = [idLabel, expectedLabel, allValidatorsLabel];
 
 // Pin button states
 const pinState = {
-  htmlPinned: `<span class="codicon codicon-pinned"></span>`,
-  htmlPin: `<span class="codicon codicon-pin"></span>`,
+  htmlPinned: `<span class="codicon codicon-pinned" title="pinned"></span>`,
+  htmlPin: `<span class="codicon codicon-pin" title="not pinned"></span>`,
   classPinned: "fuzzGridCellPinned",
   classPin: "fuzzGridCellPin",
 };
 
 // Correct icon states
 const correctState = {
-  htmlCheck: `<span class="codicon codicon-pass"></span>`, // check in circle
-  htmlError: `<span class="codicon codicon-error"></span>`, // X in circle
+  htmlCheck: `<span class="codicon codicon-pass" title="passed"></span>`, // check in circle
+  htmlError: `<span class="codicon codicon-error" title="failed"></span>`, // X in circle
   classCheckOn: "classCheckOn",
   classCheckOff: "classCheckOff",
   classErrorOn: "classErrorOn",
@@ -1343,10 +1342,12 @@ function drawTableBody({
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-pass");
+            span.setAttribute("title", "passed");
           } else {
             cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-error");
+            span.setAttribute("title", "failed");
           }
         }
       } else if (k === validatorLabel) {
@@ -1360,14 +1361,17 @@ function drawTableBody({
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-circle-large");
+            span.setAttribute("title", "undecided");
           } else if (e[k]) {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-pass");
+            span.setAttribute("title", "passed");
           } else {
             cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-error");
+            span.setAttribute("title", "failed");
           }
         } // if useProperty
       } else if (validators.indexOf(k) !== -1) {
@@ -1388,16 +1392,19 @@ function drawTableBody({
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-circle-large");
+            span.setAttribute("title", "undecided");
           } else if (e[k]) {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-pass");
+            span.setAttribute("title", "passed");
             // Fade check mark for passed tests
             cell.style.opacity = "35%";
           } else {
             cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-error");
+            span.setAttribute("title", "failed");
           }
           if (columnSortOrders[type][expandLabel] === "asc") {
             cell.classList.add("hidden"); // hide individual validator columns if currently collapsed
