@@ -2,7 +2,6 @@ import seedrandom from "seedrandom";
 import { ArgDef } from "./ArgDef";
 import {
   ArgTag,
-  ArgType,
   ArgValueType,
   ArgOptions,
   Interval,
@@ -22,7 +21,7 @@ export class ArgDefGenerator {
    * @param `argDefs` array of ArgDef specs that describe the shape of values
    * @param `prng` pseudo-random number generator
    */
-  public constructor(argDefs: ArgDef<ArgType>[], prng: seedrandom.prng) {
+  public constructor(argDefs: ArgDef[], prng: seedrandom.prng) {
     this._prng = prng;
     this._gens = argDefs.map((argDef) =>
       generateRandomInputFn(argDef, this._prng)
@@ -49,7 +48,7 @@ export class ArgDefGenerator {
    * @returns value that conforms to the ArgDef specs
    */
   public static gen(
-    spec: ArgDef<ArgType>,
+    spec: ArgDef,
     prng: seedrandom.prng,
     genDims = true
   ): ArgValueType {
@@ -80,8 +79,8 @@ type PublicRandFn = () => ArgValueType;
  *
  * TODO: bias selection of input interval based on interval size
  */
-function generateRandomInputFn<T extends ArgType>(
-  arg: ArgDef<T>,
+function generateRandomInputFn(
+  arg: ArgDef,
   prng: seedrandom.prng,
   genDims = true /* true=generate array dimensions if present;
                     false=generate only the value */

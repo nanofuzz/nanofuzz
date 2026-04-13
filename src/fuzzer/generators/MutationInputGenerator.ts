@@ -1,6 +1,5 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { ArgDef } from "../analysis/ArgDef";
-import { ArgType } from "../analysis/Types";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
@@ -20,7 +19,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    * @param `leaderboard` Running list of "interesting" inputs
    */
   public constructor(
-    specs: ArgDef<ArgType>[],
+    specs: ArgDef[],
     rngSeed: string | undefined,
     leaderboard: Leaderboard<InputAndSource>
   ) {

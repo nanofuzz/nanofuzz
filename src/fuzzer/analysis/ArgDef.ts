@@ -5,6 +5,7 @@ import {
   ArgTag,
   ArgType,
   Interval,
+  TagToType,
   TypeRef,
 } from "./Types";
 
@@ -29,16 +30,16 @@ import {
  * - Deconstructed types
  * - Generics
  */
-export class ArgDef<T extends ArgType> {
+export class ArgDef<Tag extends ArgTag = ArgTag> {
   private name: string; // name of the argument
   private offset: number; // offset of the argument in the function (0-based)
-  private type: ArgTag; // type of the argument
+  private type: Tag; // type of the argument
   private typeRef?: string; // type reference name (if the type is a reference)
   private dims: number; // dimensions of the argument (e.g., number=0, number[]=1, etc)
   private optional: boolean; // whether the argument is optional
-  private intervals: Interval<T>[]; // input intervals for the argument
+  private intervals: Interval<TagToType[Tag]>[]; // input intervals for the argument
   private options: ArgOptions; // default argument options
-  private children: ArgDef<ArgType>[]; // child arguments (if this is an object)
+  private children: ArgDef[]; // child arguments (if this is an object)
 
   /**
    * Constructor to instantiate a new ArgDef object.
@@ -54,12 +55,12 @@ export class ArgDef<T extends ArgType> {
   public constructor(
     name: string,
     offset: number,
-    type: ArgTag,
+    type: Tag,
     options: ArgOptions,
     dims?: number,
     optional?: boolean,
-    intervals?: Interval<T>[],
-    children?: ArgDef<ArgType>[],
+    intervals?: Interval<TagToType[Tag]>[],
+    children?: ArgDef[],
     typeRef?: string
   ) {
     this.name = name;
@@ -110,7 +111,7 @@ export class ArgDef<T extends ArgType> {
       intervals === undefined ||
       intervals.length === 0 ||
       type === ArgTag.OBJECT
-        ? (ArgDef.getDefaultIntervals(this.type, this.options) as Interval<T>[])
+        ? (ArgDef.getDefaultIntervals(this.type, this.options) as Interval<TagToType[Tag]>[])
         : intervals;
 
     // Ensure each non-array dimension is valid
@@ -134,7 +135,7 @@ export class ArgDef<T extends ArgType> {
     ref: TypeRef,
     options: ArgOptions,
     offset?: number
-  ): ArgDef<ArgType> {
+  ): ArgDef {
     offset = offset ?? 0;
     let i = 0; // Child counter
 
@@ -158,7 +159,7 @@ export class ArgDef<T extends ArgType> {
     const typeOptions: ArgOptions = { ...options, ...ref.type.options };
 
     // Use the type reference to build the ArgDef
-    return new ArgDef<ArgType>(
+    return new ArgDef(
       ref.name ?? "unknown", // name
       offset, // offset
       ref.type.type, // type
@@ -214,7 +215,7 @@ export class ArgDef<T extends ArgType> {
    *
    * @param value Constant value to set as the input
    */
-  public makeConstant(value: T): void {
+  public makeConstant(value: TagToType[Tag]): void {
     this.intervals = [{ min: value, max: value }];
     if (this.type === ArgTag.STRING && typeof value === "string") {
       this.options.strLength = { min: value.length, max: value.length };
@@ -245,7 +246,7 @@ export class ArgDef<T extends ArgType> {
    *
    * @returns The type of the argument
    */
-  public getType(): ArgTag {
+  public getType(): Tag {
     return this.type;
   } // fn: getType()
 
@@ -301,7 +302,7 @@ export class ArgDef<T extends ArgType> {
    *
    * @returns The input intervals of the argument
    */
-  public getIntervals(): Interval<T>[] {
+  public getIntervals(): Interval<TagToType[Tag]>[] {
     return this.intervals;
   } // fn: getIntervals()
 
@@ -312,7 +313,7 @@ export class ArgDef<T extends ArgType> {
    *
    * Throws an exception if any interval's min>max.
    */
-  public setIntervals(intervals: Interval<T>[]): void {
+  public setIntervals(intervals: Interval<TagToType[Tag]>[]): void {
     if (intervals.some((e) => e.min > e.max))
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
@@ -331,7 +332,7 @@ export class ArgDef<T extends ArgType> {
     const intervals = ArgDef.getDefaultIntervals(
       this.type,
       options
-    ) as Interval<T>[];
+    ) as Interval<TagToType[Tag]>[];
     if (intervals.some((e) => e.min > e.max))
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
@@ -360,7 +361,7 @@ export class ArgDef<T extends ArgType> {
    *
    * Throws an exception is isConstant() is false
    */
-  public getConstantValue(): T | undefined {
+  public getConstantValue(): TagToType[Tag] | undefined {
     if (!this.isConstant())
       throw new Error("Arg is not a constant -- check isConstant() first");
     if (
@@ -370,7 +371,7 @@ export class ArgDef<T extends ArgType> {
       const result = this.intervals[0].min
         .padEnd(this.options.strLength.min, this.options.strCharset[0])
         .substring(0, this.options.strLength.max);
-      return result as T;
+      return result as TagToType[Tag];
     }
     if (this.type === ArgTag.LITERAL && !this.intervals.length) {
       return undefined;
@@ -411,7 +412,7 @@ export class ArgDef<T extends ArgType> {
     // Handle numMin and numMax overrides
     if (this.type === ArgTag.NUMBER) {
       if ("numIntervals" in options && options.numIntervals !== undefined)
-        this.setIntervals(options.numIntervals as Interval<T>[]);
+        this.setIntervals(options.numIntervals as Interval<TagToType[Tag]>[]);
     }
 
     // Merge the two option sets; incoming has precedence
@@ -455,7 +456,7 @@ export class ArgDef<T extends ArgType> {
    *
    * @returns the argument's children (if it is an object)
    */
-  public getChildren(): ArgDef<ArgType>[] {
+  public getChildren(): ArgDef[] {
     return [...this.children];
   } // fn: getChildren()
 
@@ -465,8 +466,8 @@ export class ArgDef<T extends ArgType> {
    *
    * @returns the argument's descendents (if it is an object)
    */
-  public getChildrenFlat(): ArgDef<ArgType>[] {
-    const ret: ArgDef<ArgType>[] = [];
+  public getChildrenFlat(): ArgDef[] {
+    const ret: ArgDef[] = [];
     for (const child of this.children) {
       ret.push(child);
       ret.push(...child.getChildrenFlat());

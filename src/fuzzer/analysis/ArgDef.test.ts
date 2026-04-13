@@ -375,7 +375,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
   it("NoInput test", function () {
     const prng = seedrandom("qwertyuiop");
     /*
-    const q = new ArgDef<ArgType>(
+    const q = new ArgDef(
       "q",
       0,
       ArgTag.STRING,
@@ -391,7 +391,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       []
     );
     */
-    const n = new ArgDef<ArgType>(
+    const n = new ArgDef(
       "n",
       0,
       ArgTag.OBJECT,
@@ -401,7 +401,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       undefined,
       []
     );
-    const h = new ArgDef<ArgType>(
+    const h = new ArgDef(
       "h",
       0,
       ArgTag.OBJECT,
@@ -547,7 +547,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
 });
 
 // Helper function to abbreviate ArgDef specs
-function abbrSpec(spec: ArgDef<ArgType>, indents = 0): string[] {
+function abbrSpec(spec: ArgDef, indents = 0): string[] {
   const space = "  ".repeat(indents);
   const line: string[] = [];
   line.push(space);
@@ -577,7 +577,7 @@ function getRandomArgDef(
   prng: seedrandom.prng,
   levels = 0,
   parentType?: ArgTag
-): ArgDef<ArgType> {
+): ArgDef {
   const argTagOptions: ArgTag[] = [
     ArgTag.NUMBER,
     ArgTag.STRING,
@@ -588,7 +588,7 @@ function getRandomArgDef(
   ];
   const argTag = argTagOptions[Math.floor(prng() * (argTagOptions.length - 1))];
 
-  const children: ArgDef<ArgType>[] = [];
+  const children: ArgDef[] = [];
   if (levels && (argTag === ArgTag.OBJECT || argTag === ArgTag.UNION)) {
     let childCount = 2;
     while (childCount) {
@@ -722,7 +722,7 @@ function getRandomArgDef(
       );
     }
   }
-  return new ArgDef<ArgType>(
+  return new ArgDef(
     name,
     0,
     argTag,

@@ -6,7 +6,6 @@ import {
   ProgramImports,
   ProgramPath,
   TypeRef,
-  ArgType,
   ArgOptions,
   ProgramImport,
   ProgramLanguage,
@@ -387,7 +386,7 @@ export abstract class AbstractProgram {
    * @returns a string that works as the type annotation for the argument
    */
   public static getTypeAnnotation(
-    _arg: ArgDef<ArgType>,
+    _arg: ArgDef,
     _options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
     throw new Error("Method must be implemented");

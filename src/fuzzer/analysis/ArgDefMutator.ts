@@ -1,7 +1,7 @@
 import { ArgDef } from "./ArgDef";
 import { ArgDefGenerator } from "./ArgDefGenerator";
 import { ArgDefValidator } from "./ArgDefValidator";
-import { ArgTag, ArgType, ArgValueType, ArgValueTypeWrapped } from "./Types";
+import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
 import * as JSONN from "../../Jsonn";
 
 /**
@@ -23,7 +23,7 @@ export class ArgDefMutator {
    * @returns array of mutator functions
    */
   public static getMutators(
-    specs: ArgDef<ArgType>[],
+    specs: ArgDef[],
     value: ArgValueTypeWrapped[],
     prng: seedrandom.prng
   ): mutatorFn[] {
@@ -48,7 +48,7 @@ export class ArgDefMutator {
     const mutateArray = (
       a: Array<ArgValueType>,
       path: (string | number)[],
-      spec: ArgDef<ArgType>,
+      spec: ArgDef,
       level = 1
     ): void => {
       const options = spec.getOptions();
@@ -131,7 +131,7 @@ export class ArgDefMutator {
     const subInputs: {
       subPath: (number | string)[];
       subElement: ArgValueType;
-      subSpec: ArgDef<ArgType>;
+      subSpec: ArgDef;
       inArray: boolean;
     }[] = value.map((e, i) => {
       return {
