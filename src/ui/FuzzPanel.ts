@@ -43,9 +43,8 @@ export class FuzzPanel {
   private _fuzzEnv: fuzzer.FuzzEnv; // The Fuzz environment this panel represents
   private _state: FuzzPanelState = FuzzPanelState.init; // The current state of the fuzzer.
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
-  private _focusInput?: [string, number]; // Newly-added input to receive UI focus
-  private _lastTab: string | undefined; // Last tab that had focus
-  private _disposed = false; // Indicates whether this panel is disposed
+  private _focusInput?: [fuzzer.FuzzResultCategory, number]; // Newly-added input to receive UI focus
+  private _lastTab: fuzzer.FuzzResultTab | undefined; // Last tab id that had focus
   private _tester: fuzzer.Tester; // The test generator
 
   // State-dependent instance variables
@@ -87,7 +86,7 @@ export class FuzzPanel {
       // Otherwise, create a new panel.
       const panel = vscode.window.createWebviewPanel(
         FuzzPanel.viewType, // FuzzPanel view type
-        `Test: ${fnName}()`, // webview title
+        `Test: ${fnName}`, // webview title
         vscode.ViewColumn.Beside, // open beside the editor
         FuzzPanel.getWebviewOptions(extensionUri) // options
       );
@@ -1374,7 +1373,9 @@ ${inArgConsts}
     const fn = this._fuzzEnv.function;
 
     // Remember the selected tab
-    this._lastTab = panelInput.lastTab;
+    this._lastTab = fuzzer.isFuzzResultTab(panelInput.lastTab)
+      ? (this._lastTab = panelInput.lastTab)
+      : undefined;
 
     // Apply numeric fuzzer option changes
     (
@@ -1447,9 +1448,6 @@ ${inArgConsts}
    * Disposes all objects used by this instance
    */
   public dispose(): void {
-    // Set the disposed flag
-    this._disposed = true;
-
     // Remove this panel from the list of current panels.
     delete FuzzPanel.currentPanels[this.getFnRefKey()];
 
@@ -1532,7 +1530,6 @@ ${inArgConsts}
       const fn = env.function; // Function under test
       const argDefs = fn.getArgDefs();
       const counterArgDef = { id: 0 }; // Unique counter for argument ids
-      let argDefHtml = ""; // HTML representing argument definitions
       const heuristicValidatorDescription = fn.isVoid()
         ? "Heuristic validator (for void functions). Fails: timeout, exception, values !==undefined"
         : "Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN";
@@ -1544,17 +1541,6 @@ ${inArgConsts}
         });
       } // if: results are available
 
-      argDefs.forEach((arg, i) => {
-        // Render the HTML for each generator argument
-        argDefHtml += this._argDefToHtmlForm(
-          arg,
-          counterArgDef,
-          "",
-          i === argDefs.length - 1 ? "" : ",",
-          undefined
-        );
-      });
-
       // Prettier abhorrently butchers this HTML, so disable prettier here
       // prettier-ignore
       html += /*html*/ `
@@ -1562,20 +1548,34 @@ ${inArgConsts}
         <html lang="en">
           ${htmlHead}
           <body>
-            
+
           <!-- ${toolName} pane -->
           <div id="pane-nanofuzz"> 
-            <h2 style="font-size:1.75em; padding-top:.2em; margin-bottom:.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing:" : "Test:"}
-              ${htmlEscape(fn.getName())+"()"} 
-              <div title="Open source code" id="openSourceLink" class='codicon codicon-go-to-file clickable'></div>
-            </h2>
+            <!-- PUT -->
+            <p class="fuzzPanelHeading" style="padding-bottom: 0.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing:" : "Test:"}
+              ${htmlEscape(fn.getName())} 
+              <span title="Open source code" id="openSourceLink" class='codicon codicon-go-to-file clickable'></span>
+              w/inputs:
+            </p>
 
             <!-- Function Arguments -->
-            <div id="argDefs">${argDefHtml}</div>
+            <div id="argDefs">${
+              argDefs
+                .map((arg, i) =>
+                  this._argDefToHtmlForm(
+                    arg,
+                    counterArgDef,
+                    "",
+                    i === argDefs.length - 1 ? "" : ",",
+                    undefined
+                  )
+                )
+                .join("")
+            }</div>
 
             <!-- Change Validators Options -->
             <div style="clear: both;">
-            <p style="font-size:1.2em; margin-top: 0.1em; margin-bottom: 0.1em;"><strong>Categorize output using:</strong></p>
+            <p class="fuzzPanelHeading">Categorize outputs using:</p>
             <div style="padding-left: .76em;">
               <!-- Checkboxes -->
               <div class="fuzzInputControlGroup">
@@ -1663,7 +1663,7 @@ ${inArgConsts}
                         Increases code coverage
                       </span>
                     </vscode-checkbox>
-                    <vscode-text-field style="display:none" ${disabledFlag} size="3" id="fuzz-measure-CoverageMeasure-weight" name="fuzz-measures-CoverageMeasure-weight" value="${this._fuzzEnv.options.measures.FailedTestMeasure.weight}">
+                    <vscode-text-field class="hidden" ${disabledFlag} size="3" id="fuzz-measure-CoverageMeasure-weight" name="fuzz-measures-CoverageMeasure-weight" value="${this._fuzzEnv.options.measures.FailedTestMeasure.weight}">
                       Weight of measure (&gt;=1)
                     </vscode-text-field>
                     <vscode-checkbox ${disabledFlag} id="fuzz-measure-FailedTestMeasure-enabled" ${this._fuzzEnv.options.measures.FailedTestMeasure.enabled ? "checked" : ""}>
@@ -1671,7 +1671,7 @@ ${inArgConsts}
                         Causes a new test to fail
                       </span>
                     </vscode-checkbox>
-                    <vscode-text-field style="display:none" ${disabledFlag} size="3" id="fuzz-measures-FailedTestMeasure-weight" name="fuzz-measures-FailedTestMeasure-weight" value="${this._fuzzEnv.options.measures.FailedTestMeasure.weight}">
+                    <vscode-text-field  class="hidden" ${disabledFlag} size="3" id="fuzz-measures-FailedTestMeasure-weight" name="fuzz-measures-FailedTestMeasure-weight" value="${this._fuzzEnv.options.measures.FailedTestMeasure.weight}">
                       Weight of measure (&gt;=1)
                     </vscode-text-field>
                   </div>
@@ -1912,9 +1912,8 @@ ${inArgConsts}
             <div class="fuzzResults" ${
               this._state === FuzzPanelState.done
                 ? ""
-                : /*html*/ `style="display:none;"`
-            }>
-              <vscode-panels aria-label="Test result tabs" id="fuzzResultsTabStrip" class="fuzzTabStrip"${this._focusInput ? ` activeId="tab-${this._focusInput[0]}"` : (this._lastTab ? ` activeId="${this._lastTab}"` : ``)}>`;
+                : `class="hidden"`
+            }>`;
 
       // If we have results & the fuzzer is done running, render the output tabs to display the results.
       if (this._state === FuzzPanelState.done) {
@@ -1941,7 +1940,7 @@ ${inArgConsts}
           {
             id: "disagree",
             name: "Disagree",
-            description: `The property and human validators disagreed about how to categorize these outputs. Correct one of the validators and retest.`,
+            description: `The property and human validators disagreed about how to categorize these outputs. Usually this indicates the property validator has a bug.`,
             hasGrid: true,
           },
           {
@@ -2214,7 +2213,7 @@ ${inArgConsts}
           // Add the run info tab to the panel
           tabs.push({
             id: "runInfo",
-            name: `<div class="codicon codicon-info"></div>`,
+            name: `Run info`,
             description: /*html*/ `
 
             <div class="fuzzResultHeading">What did ${toolName} do?</div>
@@ -2367,52 +2366,82 @@ ${inArgConsts}
             hasGrid: false,
           });
         }
-        tabs.forEach((e) => {
-          if (!e.hasGrid || resultSummary[e.id] > 0) {
-            // prettier-ignore
-            html += /*html*/ `
-                  <vscode-panel-tab id="tab-${e.id}" style="font-size:1.15em;">
-                    ${e.name}`;
-            if (e.hasGrid) {
-              // prettier-ignore
-              html += /*html*/ `
-                    <vscode-badge appearance="secondary">${
-                      resultSummary[e.id]
-                    }</vscode-badge>`;
-            }
-            // prettier-ignore
-            html += /*html*/ `
-                  </vscode-panel-tab>`;
-          }
-        });
+
+        // If the prior tab no longer exists in the display set, don't use it
+        if (
+          this._lastTab &&
+          !tabs.filter(
+            (t) =>
+              t.id === this._lastTab && (!t.hasGrid || resultSummary[t.id] > 0)
+          ).length
+        ) {
+          this._lastTab = undefined;
+        }
+
+        html += /*html */ `
+            <div class="fuzzResultsTabStripWrapper">
+              <vscode-panels aria-label="Test result tabs" id="fuzzResultsTabStrip" class="fuzzTabStrip"${
+                this._focusInput
+                  ? ` activeid="tab-${this._focusInput[0]}"`
+                  : this._lastTab
+                    ? ` activeid="tab-${this._lastTab}"`
+                    : ``
+              }>`;
 
         tabs.forEach((e) => {
           if (!e.hasGrid || resultSummary[e.id] > 0) {
             html += /*html*/ `
-                  <vscode-panel-view class="fuzzGridPanel" id="view-${e.id}">
-                    <section>
-                      <div class="fuzzPanelDescription">${e.description}</div>`;
+                <vscode-panel-tab id="tab-${e.id}">
+                  ${
+                    e.id === "runInfo"
+                      ? `<div class="codicon codicon-info"></div>`
+                      : `<span class="FuzzResultTabLabel">${e.name}</span>`
+                  }`;
             if (e.hasGrid) {
-              // prettier-ignore
               html += /*html*/ `
-                      <div id="fuzzResultsGrid-${e.id}">
-                        <table class="fuzzGrid">
-                          <thead class="columnSortOrder" id="fuzzResultsGrid-${e.id}-thead" /> 
-                          <tbody id="fuzzResultsGrid-${e.id}-tbody" />
-                        </table>
-                      </div>`;
+                  <vscode-badge appearance="secondary">${
+                    resultSummary[e.id]
+                  }</vscode-badge>`;
             }
-            // prettier-ignore
             html += /*html*/ `
-                    </section>
-                  </vscode-panel-view>`;
+                </vscode-panel-tab>
+                <vscode-panel-view class="hidden"></vscode-panel-view> <!-- dummy panel so that active tab indicator works -->`;
+          }
+        });
+
+        html += /*html*/ `
+              </vscode-panels>
+            </div>`;
+
+        let i = 0;
+        tabs.forEach((e) => {
+          if (!e.hasGrid || resultSummary[e.id] > 0) {
+            const showThisGrid = this._focusInput
+              ? this._focusInput[0] === e.id
+              : this._lastTab
+                ? this._lastTab === e.id //
+                : i === 0; // default: select left-most tab
+            i++;
+
+            html += /*html*/ `
+                  <div class="fuzzGridPanel${showThisGrid ? `` : ` hidden`}" id="view-${e.id}">
+                    <div class="fuzzPanelDescription">${e.description}</div>`;
+            if (e.hasGrid) {
+              html += /*html*/ `
+                    <div id="fuzzResultsGrid-${e.id}">
+                      <table class="fuzzGrid">
+                        <thead class="columnSortOrder sticky" id="fuzzResultsGrid-${e.id}-thead" /> 
+                        <tbody id="fuzzResultsGrid-${e.id}-tbody" />
+                      </table>
+                    </div>`;
+            }
+            html += /*html*/ `
+                  </div> <!-- fuzzGridPanel -->`;
           }
         });
       }
-      // prettier-ignorex
       html += /*html*/ `
-              </vscode-panels>
-            </div>`;
+            </div> <!-- fuzzResults -->`;
 
       if (this._state === FuzzPanelState.busyTesting) {
         if (this._retestingReason) {
@@ -2442,24 +2471,22 @@ ${inArgConsts}
             <!-- Fuzzer Retesting Explanation -->
             <div class="fuzzInfo">
               <p>Retesting because ${htmlEscape(retestExpl)}</p>
-            </div>
-            `;
+            </div>`;
         }
         html += /*html*/ `
             <!-- Fuzzer Busy Status Message -->
             <div id="fuzzBusyStatusBarContainer">
-              <div id="fuzzBusyStatusBar" style="width: 0%;"></div>
+              <div id="fuzzBusyStatusBar" style="width: 0%;">0%</div>
             </div>
             <div id="fuzzBusyMessage">
-              <pre id="fuzzBusyMessageNonMilestone"> </pre>
-            </div>
-        `;
+              <pre id="fuzzBusyMessageNonMilestone">Initializing...</pre>
+            </div>`;
       }
 
       if (this._focusInput) {
         html += /*html*/ `
             <!-- Fuzzer Result to receive UI focus -->
-            <div id="fuzzFocusInput" style="display:none">
+            <div id="fuzzFocusInput" class="hidden">
               ${htmlEscape(JSON5.stringify(this._focusInput))}
             </div>
         `;
@@ -2468,7 +2495,7 @@ ${inArgConsts}
       // Hidden data for the client script to process
       html += /*html*/ `
             <!-- Fuzzer Result Payload: for the client script to process -->
-            <div id="fuzzResultsData" style="display:none">
+            <div id="fuzzResultsData" class="hidden">
               ${
                 this._results === undefined ||
                 this._state !== FuzzPanelState.done
@@ -2478,7 +2505,7 @@ ${inArgConsts}
             </div>
 
             <!-- Fuzzer Sort Columns: for the client script to process -->
-            <div id="fuzzSortColumns" style="display:none">
+            <div id="fuzzSortColumns" class="hidden">
               ${
                 this._sortColumns === undefined
                   ? "{}"
@@ -2487,14 +2514,14 @@ ${inArgConsts}
             </div>
             
             <!-- Validator Functions: for the client script to process -->
-            <div id="validators" style="display:none">
+            <div id="validators" class="hidden">
               ${htmlEscape(
                 JSON5.stringify(this._fuzzEnv.validators.map((e) => e.name))
               )}
             </div>
 
             <!-- Fuzzer State Payload: for the client script to persist -->
-            <div id="fuzzPanelState" style="display:none">
+            <div id="fuzzPanelState" class="hidden">
               ${htmlEscape(JSON5.stringify(this.getState()))}
             </div>
           </div>
@@ -2582,7 +2609,7 @@ ${inArgConsts}
     // prettier-ignore
     html += /*html*/ `
       <!-- Argument Name -->
-      <div class="argDef-name" style="font-size:1.25em;">${beginSep}`;
+      <div class="argDef-name">${beginSep}`;
 
     if (argName !== "unknown") {
       // prettier-ignore
@@ -2756,7 +2783,7 @@ ${inArgConsts}
     html += `</div>`;
     // For objects: output the end of object character ("}") here
     if (argType === fuzzer.ArgTag.OBJECT) {
-      html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close" style="font-size:1.25em;">}${endSep}</div>`;
+      html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close">}${endSep}</div>`;
     }
     html += `</div>`;
 
@@ -3464,7 +3491,7 @@ export type ValidatorMatch = {
 export type FuzzPanelFuzzRunMessage = {
   fuzzer: Omit<fuzzer.FuzzOptions, "argDefaults">;
   args: fuzzer.FuzzArgOverride[];
-  lastTab?: string;
+  lastTab?: fuzzer.FuzzResultTab;
   input?: fuzzer.ArgValueTypeWrapped[];
 };
 

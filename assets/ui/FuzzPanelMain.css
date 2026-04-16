@@ -1,14 +1,39 @@
 /** Body Styles **/
 body {
+  padding-right: 0;
+  padding-left: 0;
+}
+/*
+.breadcrumb {
+  padding-top: 2px;
+  padding-left: 10px;
+  color: var(--vscode-breadcrumb-foreground);
+  line-height: 20px;
+}
+.breadcrumb a {
+  color: var(--vscode-breadcrumb-foreground);
+}
+.breadcrumb a:hover {
+  color: var(--vscode-breadcrumb-focusForeground);
+}
+.shadowBefore {
+  box-shadow: var(--vscode-scrollbar-shadow) 0 6px 6px -6px inset;
+}
+*/
+#pane-nanofuzz {
   padding-right: 10px;
   padding-left: 10px;
 }
 
-/** Grid Styles **/
-vscode-panel-view.fuzzGridPanel {
-  padding-top: 5px;
-  padding-left: 3px;
+/** Panel Styles **/
+.fuzzPanelHeading {
+  font-size: 1.25em;
+  margin-top: 0.1em;
+  margin-bottom: 0.1em;
+  font-weight: bolder;
 }
+
+/** Grid Styles **/
 .fuzzGrid {
   width: 100%;
   padding-left: 0;
@@ -39,6 +64,22 @@ vscode-panel-view.fuzzGridPanel {
   padding: 4px 6px;
   border-bottom: 1px solid;
   vertical-align: bottom;
+}
+.fuzzGrid thead.sticky {
+  position: sticky;
+  background-color: var(--vscode-panel-background);
+  opacity: 1;
+  top: 2.2em;
+  z-index: 2;
+}
+.fuzzResultsTabStripWrapper {
+  position: sticky;
+  top: -4px;
+  z-index: 3;
+}
+.fuzzResultsTabStripWrapper .fuzzTabStrip {
+  background-color: var(--vscode-panel-background);
+  opacity: 1;
 }
 .fuzzGrid td:first-child,
 .fuzzGrid th:first-child {
@@ -125,11 +166,9 @@ td.classCheckOff,
 td.classErrorOff {
   opacity: 35%;
 }
-
 td.classCheckOff:hover,
 td.classErrorOff:hover {
   opacity: 100%;
-  /* background-color: var(--vscode-list-inactiveSelectionBackground); */
 }
 td.classCheckOff:active,
 td.classErrorOff:active {
@@ -145,33 +184,25 @@ td.classErrorOn:active {
 }
 
 .classAddRefreshValidator:active {
-  /* background-color: var(--vscode-list-inactiveSelectionBackground); */
   opacity: 50%;
 }
 
-.argDef-name {
+/* ArgDef styles */
+.argDef-name,
+.argDef-close {
   float: left;
+  font-size: 1.2em;
 }
-
 .argDef,
 .argDef-type,
-.argDef-array {
-  clear: both;
-}
-
+.argDef-array,
 .argDef-preClose {
   clear: both;
 }
-
-.argDef-close {
-  float: left;
-}
-
 .isNoInput {
   float: right;
   padding-right: 0.85em;
 }
-
 .isNoInput vscode-checkbox {
   margin-top: 0;
   margin-bottom: 0;
@@ -419,6 +450,8 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 /* Narrow tab strip column gaps */
 vscode-panels::part(tablist) {
   column-gap: calc(var(--design-unit) * 4px);
+  padding-left: 0;
+  padding-right: 0;
 }
 /* Narrow the margins for <h2> elements */
 h2 {
@@ -450,13 +483,12 @@ vscode-panel-view > p:nth-of-type(1) {
 }
 .fuzzPanelDescription {
   margin-bottom: 0.25em;
-  margin-top: 0.25em;
+  margin-top: 0.75em;
 }
 div.fuzzInputControlGroup {
   flex-direction: row;
 }
 .fuzzResultHeading {
-  font-size: 1.25em;
   margin-bottom: 0.25em;
 }
 .fuzzResultHeading + p {
@@ -466,6 +498,7 @@ div.fuzzInputControlGroup {
 .fuzzInfo > p {
   margin-top: 0.5em;
   margin-bottom: 0.25em;
+  color: rgb(from var(--vscode-foreground) r g b / 0.8);
 }
 
 .dropdown-container {

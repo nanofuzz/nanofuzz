@@ -116,13 +116,47 @@ export type FuzzValueOrigin =
 /**
  * Category of a test result
  */
-export type FuzzResultCategory =
-  | "ok" // Judgment: passed
-  | "badValue" // Judgment: failed (not timeout or exception)
-  | "timeout" // Judgment: failed (timeout)
-  | "exception" // Judgment: failed (exception)
-  | "disagree" // Judgment: unknown
-  | "failure"; // Validator failure (e.g., threw an exception)
+export const FuzzResultCategoryValues = [
+  "ok", // Judgment: passed
+  "badValue", // Judgment: failed (not timeout or exception)
+  "timeout", // Judgment: failed (timeout)
+  "exception", // Judgment: failed (exception)
+  "disagree", // Judgment: unknown
+  "failure", // Validator failure (e.g., threw an exception)
+] as const;
+export type FuzzResultCategory = (typeof FuzzResultCategoryValues)[number];
+
+/**
+ * Type guard that returns true if the input object is a
+ * FuzzResultCategory.
+ *
+ * @param obj the object to check
+ * @returns `true` if `obj` is a `FuzzResultCategory`, `false` otherwise
+ */
+const fuzzResultCategoryValues: string[] = [...FuzzResultCategoryValues];
+export function isFuzzResultCategory(obj: unknown): obj is FuzzResultCategory {
+  return typeof obj === "string" && fuzzResultCategoryValues.includes(obj);
+} // fn: isFuzzResultCategory
+
+/**
+ * Result Tabs
+ */
+export const FuzzResultTabValues = [
+  ...FuzzResultCategoryValues,
+  "runInfo",
+] as const;
+export type FuzzResultTab = (typeof FuzzResultTabValues)[number];
+
+/**
+ * Type guard that returns true if the input object is a FuzzResultTab.
+ *
+ * @param obj the object to check
+ * @returns `true` if `obj` is a `FuzzResultTab`, `false` otherwise
+ */
+const fuzzResultTabValues: string[] = [...FuzzResultTabValues];
+export function isFuzzResultTab(obj: unknown): obj is FuzzResultTab {
+  return typeof obj === "string" && fuzzResultTabValues.includes(obj);
+} // fn: isFuzzResultTab
 
 /**
  * Fuzzer Options that specify the fuzzing behavior

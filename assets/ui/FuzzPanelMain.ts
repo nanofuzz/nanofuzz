@@ -8,6 +8,7 @@ import {
   FuzzSortColumns,
   FuzzSortOrder,
   FuzzValueOrigin,
+  isFuzzResultTab,
 } from "fuzzer/Types";
 import {
   ArgValueType,
@@ -107,6 +108,13 @@ const data: Record<FuzzResultCategory, any[]> = {
 };
 // Validator functions (filled by main during load event)
 let validators: string[];
+
+// Tab scroll positions by tab
+const tabScrollPosition: Record<string, number> = {};
+
+// Last results tab & clicked
+let lastResultsTabClicked: Element | undefined = undefined;
+let lastResultsTableShown: Element | undefined = undefined;
 
 /**
  * Sets up the UI when the page is loaded, including setting up
@@ -236,6 +244,116 @@ function main() {
     vscode.postMessage(message);
     getElementByIdOrThrow("fuzz.pause").setAttribute("disabled", "true");
   });
+
+  // Add event listeners for results tabs
+  //
+  // Note: we don't use the vscode ui toolkit's tab panes necause
+  //       we want sticky scroll and more control over rendering
+  const resultsTabStrip = document.querySelector("#fuzzResultsTabStrip");
+  if (resultsTabStrip) {
+    // Tab style override
+    resultsTabStrip.shadowRoot
+      ?.querySelector(".tablist")
+      ?.setAttribute(
+        "style",
+        "column-gap: calc(var(--design-unit) * 4px); padding-left: 0; padding-right: 0;"
+      );
+
+    // Event handlers
+    const tabs = document.querySelectorAll(
+      `.fuzzResults #fuzzResultsTabStrip vscode-panel-tab`
+    );
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const htmlElement = document.querySelector("html");
+        if (!htmlElement) {
+          throw new Error("Cannot find html element");
+        }
+        if (!lastResultsTabClicked) {
+          throw new Error("lastTabClicked not defined");
+        }
+        // Save the current tab's scroll position
+        const lastTabId = lastResultsTabClicked.id.replace("tab-", "");
+        const lastGridId = lastResultsTabClicked.id.replace(
+          "tab-",
+          "fuzzResultsGrid-"
+        );
+        const lastGridElement = document.querySelector(`#${lastGridId}`);
+
+        // Is the heading collapsed? (handle both grids and non-grids)
+        const headingCollapsed = lastGridElement
+          ? lastGridElement.getBoundingClientRect().top <
+            resultsTabStrip.getBoundingClientRect().bottom
+          : resultsTabStrip.getBoundingClientRect().top < 0;
+
+        // Only save the tab position if the heading is collapsed
+        if (headingCollapsed) {
+          tabScrollPosition[lastTabId] = htmlElement.scrollTop;
+        } else {
+          delete tabScrollPosition[lastTabId];
+        }
+
+        // Sync visibility of tabs and panels
+        syncResultsTabsAndPanels(resultsTabStrip, tabs, tab);
+
+        // If a scroll position was saved for the clicked tab &
+        // the headings are collapsed, scroll to the previous position
+        const tabId = tab.id.replace("tab-", "");
+        const gridId = tab.id.replace("tab-", "fuzzResultsGrid-");
+        const viewId = tab.id.replace("tab-", "view-");
+        const pos = tabScrollPosition[tabId];
+        const gridElement = document.querySelector(`#${gridId}`);
+        const gridHeadElement = document.querySelector(`#${gridId}-thead`);
+        const viewElement = document.querySelector(`#${viewId}`);
+
+        // Only restore a scroll position if the heading is collapsed
+        // Otherwise, go the top of the tab
+        if (headingCollapsed) {
+          if (pos) {
+            // Position was saved
+            htmlElement.scrollTo({ top: pos });
+          } else if (gridElement && gridHeadElement) {
+            // Grid tab w/o saved position: scroll to top of tab
+            htmlElement.scrollTo({
+              top:
+                gridElement.getBoundingClientRect().top -
+                gridHeadElement.getBoundingClientRect().height -
+                htmlElement.getBoundingClientRect().top +
+                resultsTabStrip.getBoundingClientRect().top,
+            });
+          } else if (viewElement) {
+            // Non-grid tab w/o saved position: scroll to top of tab
+            htmlElement.scrollTo({
+              top:
+                viewElement.getBoundingClientRect().top -
+                htmlElement.getBoundingClientRect().top -
+                resultsTabStrip.getBoundingClientRect().height,
+            });
+          } else {
+            // shouldn't reach here
+          }
+        }
+      }); // tab onClick event
+    }); // for each: grid tab
+
+    // Sync the tabs and panes after load
+    window.setTimeout(() => {
+      lastResultsTabClicked =
+        resultsTabStrip.querySelector(
+          `vscode-panel-tab[aria-selected="true"]`
+        ) ?? undefined;
+      if (lastResultsTabClicked) {
+        syncResultsTabsAndPanels(resultsTabStrip, tabs, lastResultsTabClicked);
+      }
+    });
+
+    // Event listener for window resize
+    window.addEventListener("resize", () => {
+      if (lastResultsTableShown) {
+        syncTabStripWidth(resultsTabStrip, lastResultsTableShown);
+      }
+    }); // onResize event handler
+  } // if: tabstrip found
 
   // Load & display the validator functions from the HTML
   validators = JSON5.parse(
@@ -450,7 +568,7 @@ function main() {
             cell.classList.add("fuzzGridCellPinned", "clickable");
             cell.id = type + "-" + pinnedLabel;
             cell.innerHTML = /* html */ `
-              <span class="tooltipped tooltipped-nw" aria-label="Include in Jest test suite">
+              <span class="tooltipped tooltipped-sw" aria-label="Include in persistent test suite?">
                 <strong>pin</strong>
               </span>`;
             cell.addEventListener("click", () => {
@@ -466,7 +584,7 @@ function main() {
               cell.id = type + "-" + implicitLabel;
               cell.classList.add("colorColumn", "clickable");
               cell.innerHTML = /* html */ `
-              <span class="tooltipped tooltipped-nw" aria-label="${heuristicValidatorDescription}">
+              <span class="tooltipped tooltipped-s" aria-label="${heuristicValidatorDescription}">
                 <span class="codicon codicon-debug"></span>
               </span>`;
               cell.addEventListener("click", () => {
@@ -483,12 +601,12 @@ function main() {
                 cell.style.paddingRight = "3px"; // close to twistie column
               }
               cell.innerHTML = /* html */ `
-                <span class="tooltipped tooltipped-nw" aria-label="${
+                <span class="tooltipped tooltipped-sw" aria-label="${
                   validators.length < 2
                     ? "Property validator"
                     : "Property validator summary"
                 }">
-                  <span class="codicon codicon-hubot" style="font-size:1.4em;"></span>
+                  <span class="codicon codicon-hubot"></span>
                 </span>`;
               cell.id = type + "-" + k;
               cell.addEventListener("click", () => {
@@ -504,13 +622,13 @@ function main() {
                   document.createElement("th")
                 );
                 expandCell.innerHTML = /* html */ `
-                <span class="tooltipped tooltipped-nw" aria-label="Expand">
-                  <span class="codicon codicon-chevron-right" style=""></span>
+                <span class="tooltipped tooltipped-sw" aria-label="Expand">
+                  <span class="codicon codicon-chevron-right"></span>
                 </span>`;
                 expandCell.id = type + "-" + expandLabel;
                 expandCell.classList.add("expandCollapseColumn", "clickable");
-                if (columnSortOrders[type][expandLabel] === "desc") {
-                  // asc = columns currently hidden; desc = columns currently expanded
+                if (columnSortOrders[type][expandLabel] !== "asc") {
+                  // asc = columns currently hidden; !asc = columns currently expanded
                   expandCell.classList.add("hidden"); // hide if currently expanded
                 }
                 expandCell.addEventListener("click", () => {
@@ -521,7 +639,7 @@ function main() {
               const cell = hRow.appendChild(document.createElement("th"));
               cell.classList.add("colorColumn", "clickable");
               cell.innerHTML = /* html */ `
-                <span class="tooltipped tooltipped-nw" aria-label="${k}">
+                <span class="tooltipped tooltipped-sw" aria-label="${k}">
                   <span class="codicon codicon-hubot" style="font-size: 1em;"></span> <!-- small -->
                 </span>`;
               cell.id = type + "-" + k;
@@ -544,7 +662,7 @@ function main() {
                   document.createElement("th")
                 );
                 collapseCell.innerHTML = /* html */ `
-                <span class="tooltipped tooltipped-nw" aria-label="Collapse">
+                <span class="tooltipped tooltipped-sw" aria-label="Collapse">
                   <span class="codicon codicon-chevron-left" style=""></span>
                 </span>`;
                 if (columnSortOrders[type][expandLabel] === "asc") {
@@ -562,8 +680,8 @@ function main() {
             cell.classList.add("colorColumn", "clickable");
             cell.id = type + "-" + correctLabel;
             cell.innerHTML = /* html */ `
-              <span class="tooltipped tooltipped-nw" aria-label="Human validator">
-                <span class="codicon codicon-person" id="humanIndicator" style="font-size:1.4em;"></span>
+              <span class="tooltipped tooltipped-sw" aria-label="Human validator">
+                <span class="codicon codicon-person" id="humanIndicator"></span>
               </span>`;
             cell.colSpan = 2;
             cell.addEventListener("click", () => {
@@ -575,7 +693,7 @@ function main() {
             cell.id = type + "-" + k;
             cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
             cell.innerHTML = /*html*/ `
-              <span class="tooltipped tooltipped-ne" aria-label="Input source: Random, Mutation, AI, User">
+              <span class="tooltipped tooltipped-se" aria-label="Input source: Random, Mutation, AI, User">
                 <strong>${htmlEscape(label)}</strong>
               </span>`;
             cell.addEventListener("click", () => {
@@ -1032,8 +1150,13 @@ function handleCorrectToggle(
     };
     vscode.postMessage(message);
   });
-}
+} // fn: handleCorrectToggle
 
+/**
+ * Toggles the property validator expand and collapse options
+ *
+ * @param `type` grid type (`FuzzResultcategory`)
+ */
 function toggleExpandColumn(type: FuzzResultCategory) {
   const thead = getElementByIdWithTypeOrThrow(
     `fuzzResultsGrid-${type}-thead`,
@@ -1074,7 +1197,61 @@ function toggleExpandColumn(type: FuzzResultCategory) {
     json: JSON5.stringify(columnSortOrders),
   };
   vscode.postMessage(message);
-}
+} // fn: toggleExpandColumn
+
+/**
+ * Syncs the tabs and panels so that only the pane for the
+ * selected tab is shown. are displaying
+ *
+ * @param `clickedTab` the tab clicked
+ */
+function syncResultsTabsAndPanels(
+  gridTabStrip: Element,
+  gridTabs: NodeListOf<Element>,
+  clickedTab: Element
+) {
+  lastResultsTabClicked = clickedTab;
+  lastResultsTableShown = undefined;
+
+  const gridPanels = document.querySelectorAll(`.fuzzResults .fuzzGridPanel`);
+  gridTabStrip.setAttribute("activeId", clickedTab.id);
+  gridTabs.forEach((tab) => {
+    tab.setAttribute(
+      "aria-selected",
+      clickedTab.id === tab.id ? "true" : "false"
+    );
+  });
+  const viewId = clickedTab.id.replace("tab-", "view-");
+  const gridId = clickedTab.id.replace("tab-", "fuzzResultsGrid-");
+  gridPanels.forEach((panel) => {
+    if (panel.id === viewId) {
+      show(panel);
+      const table = document.querySelector(`#${gridId} table`);
+      if (table) {
+        lastResultsTableShown = table;
+        // Bounce to set the tabstrip width to be the same as the visible table after the redraw
+        window.setTimeout(() => {
+          syncTabStripWidth(gridTabStrip, table);
+        });
+      }
+    } else {
+      hide(panel);
+    }
+  });
+} // fn: syncResultsTabsAndPanels
+
+/**
+ * Sets the tabstrip width to be the same as a grid table
+ *
+ * @param `tabStrip` Tabstrip element to resize
+ * @param `activeTable` Active grid table
+ */
+function syncTabStripWidth(tabStrip: Element, activeTable: Element) {
+  tabStrip.setAttribute(
+    "style",
+    `width: ${activeTable.getBoundingClientRect().width}px; overflow-x: visible;`
+  );
+} // fn: syncTabStripWidth
 
 /**
  * Sorts table based on a column (each column toggles between asc, desc, none).
@@ -1381,7 +1558,7 @@ function drawTableBody({
             // Empty cell for twistie column (expand)
             const emptyCell = row.appendChild(document.createElement("td"));
             emptyCell.classList.add("expandCollapseColumn");
-            if (columnSortOrders[type][expandLabel] === "desc") {
+            if (columnSortOrders[type][expandLabel] !== "asc") {
               emptyCell.classList.add("hidden"); // hide if currently expanded
             }
           }
@@ -1901,6 +2078,14 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     );
   };
 
+  // Last tab
+  const lastTabRaw =
+    document
+      .getElementById("fuzzResultsTabStrip")
+      ?.getAttribute("activeId")
+      ?.replace("tab-", "") ?? undefined;
+  const lastTab = isFuzzResultTab(lastTabRaw) ? lastTabRaw : undefined;
+
   // Fuzzer option overrides (from UI)
   const overrides: FuzzPanelFuzzRunMessage = {
     fuzzer: {
@@ -1955,10 +2140,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
       },
     },
     args: [],
-    lastTab:
-      document
-        .getElementById("fuzzResultsTabStrip")
-        ?.getAttribute("activeId") ?? undefined,
+    lastTab,
   };
 
   // Process all the argument overrides
