@@ -5,9 +5,12 @@ import {
   CoverageMapData,
   createCoverageMap,
 } from "istanbul-lib-coverage";
-import { FuzzTestResult, VmGlobals } from "../Types";
-import { FuzzTestResults } from "fuzzer/Fuzzer";
-import { InputAndSource } from "fuzzer/generators/Types";
+import {
+  VmGlobals,
+  InputAndSource,
+  FuzzTestResult,
+  FuzzTestResults,
+} from "../Fuzzer";
 
 /**
  * Measures code coverage of test executions
@@ -79,9 +82,9 @@ export class CoverageMeasure extends AbstractMeasure {
 
     // Merge the current coverage into root predecessor
     const pred =
-      input.source.tick === undefined
-        ? undefined
-        : this._history[input.source.tick];
+      "tick" in input.source && input.source.tick !== undefined
+        ? this._history[input.source.tick]
+        : undefined;
     let accumBefore = 0;
     let accumAfter = 0;
     let nextPred = pred;
@@ -159,13 +162,11 @@ export class CoverageMeasure extends AbstractMeasure {
   } // fn: onBeforeNextTestExecution
 
   /**
-   * Called prior to fuzzer shut down.
-   *
    * Fills in global code coverage statistics.
    *
    * @param `results` all test results
    */
-  public onShutdown(results: FuzzTestResults): void {
+  public onRunEnd(results: FuzzTestResults): void {
     const coverageSummary = this._globalCoverageMap.getCoverageSummary();
     results.stats.measures.CodeCoverageMeasure = {
       counters: {
@@ -178,7 +179,7 @@ export class CoverageMeasure extends AbstractMeasure {
       },
       files: this._globalCoverageMap.files(),
     };
-  } // fn: onShutdown
+  } // fn: onRunEnd
 
   /**
    * Returns a numeric value that is the sum of branches, statements, and

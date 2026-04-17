@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { Logger, LoggerEntry } from "./Logger";
+import { Listener } from "../extension";
 
 let currentWindow = ""; // Current editor window filename / uri
 let currentTerm = ""; // Current terminal window name
@@ -167,7 +168,7 @@ export const listeners: Listener<any>[] = [
       currentWindow =
         editor !== undefined && isCodeEditor(editor.document.fileName)
           ? editor.document.fileName
-          : editor?.document.uri.toString() ?? "";
+          : (editor?.document.uri.toString() ?? "");
       logger.push(
         new LoggerEntry(
           "onDidChangeActiveTextEditor",
@@ -271,14 +272,6 @@ export const listeners: Listener<any>[] = [
 ];
 
 // ----------------------------- Types ----------------------------- //
-
-/**
- * Associates a callback function with an vscode event.
- */
-type Listener<T extends unknown> = {
-  event: vscode.Event<T>;
-  fn: (e: T) => void;
-};
 
 /**
  * Telemetry configuration

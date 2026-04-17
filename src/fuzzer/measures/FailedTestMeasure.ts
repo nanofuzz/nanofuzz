@@ -1,5 +1,4 @@
-import { FuzzTestResult } from "../Types";
-import { InputAndSource } from "fuzzer/generators/Types";
+import { FuzzTestResult, InputAndSource } from "../Types";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 import { CoverageMeasure } from "./CoverageMeasure";
 

@@ -40,6 +40,7 @@ export type FunctionRef = {
   isVoid: boolean; // True if the function is void; false, otherwise
   args?: TypeRef[]; // Array of argument types
   returnType?: TypeRef; // Return type of the function
+  cmt?: string; // Docstring comment of the function
 };
 
 /**
@@ -89,7 +90,10 @@ export type ArgValueType =
     }
   | ArgValueType[]
   | undefined;
-export type ArgValueTypeWrapped = { value: ArgValueType }; // Use for arrays
+export type ArgValueTypeWrapped = {
+  tag: "ArgValueTypeWrapped"; // otherwise looks identical to FuzzIoElement
+  value: ArgValueType;
+}; // Use for arrays
 
 /**
  * The set of options for an argument.  This option set is used to "fill in" information
@@ -138,6 +142,16 @@ export type ArgOptionOverride = {
   strCharset?: string;
   children?: ArgOptionOverrides;
   isNoInput?: boolean;
+};
+
+/** Options for generating type annotations */
+export type TypeAnnotationOptions = {
+  useTypeRefs?: true;
+  useOptionality?: true;
+};
+export const TypeAnnotationOptionDefaults: TypeAnnotationOptions = {
+  useTypeRefs: true,
+  useOptionality: true,
 };
 
 /**
