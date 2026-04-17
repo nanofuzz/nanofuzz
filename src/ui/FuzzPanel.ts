@@ -871,7 +871,7 @@ export class FuzzPanel {
       });
 
     // Determine if we need to add an import
-    const hasImport = Object.keys(program.getImports().identifiers).some(
+    const hasImport = Object.keys(program.getImports()).some(
       (e) => e === "FuzzTestResult"
     );
 
@@ -1608,12 +1608,12 @@ ${inArgConsts}
                       Property validator${this._fuzzEnv.validators.length===1 ? "" : "s"}
                     </span> (<span id="validator-functionCount">${this._fuzzEnv.validators.length}</span>)
                   </vscode-checkbox>
-                  <span id="validator.add" class="tooltipped tooltipped-nw" aria-label="Add new property validator">
+                  <span id="validator.add" class="tooltipped tooltipped-nw clickable" aria-label="Add new property validator">
                     <span class="classAddRefreshValidator">
                       <span class="codicon codicon-add" style="padding-left:0.1em; padding-right:0.1em;"></span>
                     </span>
                   </span>
-                  <span id="validator.getList" class="tooltipped tooltipped-nw" aria-label="Refresh list">
+                  <span id="validator.getList" class="tooltipped tooltipped-nw clickable" aria-label="Refresh list">
                     <span class="classAddRefreshValidator">
                       <span class="codicon codicon-refresh" style="padding-left:0.1em;"></span>
                     </span>
@@ -1906,17 +1906,6 @@ ${inArgConsts}
                 : " hidden"
             }">
               <p>The last ${sequentialFailures === 1 ? `` : `${sequentialFailures}`} LLM response${sequentialFailures === 1 ? "" : "s"} failed: <span class="editorFont">${latestFailureMessage ?? "n/a"}</span></p>
-            </div>`;
-
-      html += /*html*/ `
-            <div class="fuzzWarnings${
-              this._state === FuzzPanelState.done &&
-              this._fuzzEnv.options.useProperty &&
-              !this._fuzzEnv.validators.length
-                ? ""
-                : " hidden"
-            }">
-              <p>No property validators were found, so the property validator column is blank.</p>
             </div>`;
 
       html += /*html*/ `
