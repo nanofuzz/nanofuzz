@@ -289,7 +289,7 @@ export class FuzzPanel {
   /**
    * Determines if the current results are stale.
    *
-   * @returns `true` if we have results and the back-end says they are stale.
+   * @returns a reason if the results are stale and `false` otherwise.
    */
   private resultsAreStale(
     options: fuzzer.FuzzOptions
@@ -1135,11 +1135,18 @@ ${inArgConsts}
 
     // Create a new tester if the current one is stale
     if (needNewTester) {
-      this._tester = new fuzzer.Tester(
-        this._fuzzEnv.function.getModule(),
-        this._fuzzEnv.function.getName(),
-        this._fuzzEnv.options
-      );
+      try {
+        this._tester = new fuzzer.Tester(
+          this._fuzzEnv.function.getModule(),
+          this._fuzzEnv.function.getName(),
+          this._fuzzEnv.options
+        );
+      } catch (e: unknown) {
+        this._state = FuzzPanelState.error;
+        this._setErrorFromException(e);
+        this._updateHtml();
+        return;
+      }
       this._fuzzEnv = this._tester.env;
 
       // Apply panel inputs to the new tester
@@ -1342,11 +1349,18 @@ ${inArgConsts}
    */
   private _testClear(json: string): void {
     // Start over with a new tester
-    this._tester = new fuzzer.Tester(
-      this._fuzzEnv.function.getModule(),
-      this._fuzzEnv.function.getName(),
-      this._fuzzEnv.options
-    );
+    try {
+      this._tester = new fuzzer.Tester(
+        this._fuzzEnv.function.getModule(),
+        this._fuzzEnv.function.getName(),
+        this._fuzzEnv.options
+      );
+    } catch (e: unknown) {
+      this._state = FuzzPanelState.error;
+      this._setErrorFromException(e);
+      this._updateHtml();
+      return;
+    }
     this._fuzzEnv = this._tester.env;
 
     // Get the panel input

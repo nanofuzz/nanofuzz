@@ -53,7 +53,15 @@ export class Tester {
     this._fnName = fnName;
 
     // Get the program & function definitions
-    this._program = ProgramDef.fromModule(this._module, options.argDefaults);
+    try {
+      this._program = ProgramDef.fromModule(this._module, options.argDefaults);
+    } catch (e: unknown) {
+      throw new Error(
+        `The TypeScript program could not be parsed. Please fix the errors and retest.${
+          isError(e) ? ` (${e.message})` : ``
+        }`
+      );
+    }
     const fnList = this._program.getExportedFunctions();
     if (!(this._fnName in fnList)) {
       throw new Error(
