@@ -42,6 +42,7 @@ build/Release
 build/dist
 build/extension
 build/ui
+build/workers
 
 # Dependency directories
 node_modules/

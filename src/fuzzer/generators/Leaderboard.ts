@@ -68,7 +68,7 @@ export class Leaderboard<T> {
     // Only post scores > minimum score
     if (score > this._minScore) {
       const thisLeader = {
-        leader: JSON5.parse(JSON5.stringify(leader)),
+        leader: JSON5.parse<typeof leader>(JSON5.stringify(leader)),
         score,
         focus: this._initialFocus,
       };
@@ -127,8 +127,8 @@ export class Leaderboard<T> {
         l.focus -= this._focusDecay;
       }
     });
-
-    return JSON5.parse(JSON5.stringify(this._leaders[leaderIdx ?? 0].leader));
+    const leader = this._leaders[leaderIdx ?? 0].leader;
+    return JSON5.parse<typeof leader>(JSON5.stringify(leader));
   } // fn: getRandomLeader
 
   /**
@@ -138,6 +138,6 @@ export class Leaderboard<T> {
    * @returns array of leaders
    */
   public getLeaders(): { leader: T; score: number }[] {
-    return JSON5.parse(JSON5.stringify(this._leaders));
+    return JSON5.parse<typeof this._leaders>(JSON5.stringify(this._leaders));
   } // fn: getLeaders
 } // class: Leaderboard
