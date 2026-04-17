@@ -99,7 +99,7 @@ body {
 }
 .fuzzGrid thead.sticky {
   position: sticky;
-  background-color: var(--vscode-panel-background);
+  background-color: var(--vscode-editor-background);
   opacity: 1;
   top: 2.2em;
   z-index: 2;
@@ -110,7 +110,7 @@ body {
   z-index: 3;
 }
 .fuzzResultsTabStripWrapper .fuzzTabStrip {
-  background-color: var(--vscode-panel-background);
+  background-color: var(--vscode-editor-background);
   opacity: 1;
 }
 .fuzzGrid td:first-child,
@@ -321,7 +321,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   white-space: pre-line;
   pointer-events: none;
   content: attr(aria-label);
-  background: var(--vscode-panel-background);
+  background: var(--vscode-editor-background);
   border-width: 1px;
   border-style: solid;
   border-color: var(--vscode-focus-border);
