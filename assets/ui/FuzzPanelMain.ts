@@ -248,7 +248,7 @@ function main() {
   // Add event listeners for results tabs
   //
   // Note: we don't use the vscode ui toolkit's tab panes necause
-  //       we want sticky scroll and more control over rendering
+  // we want sticky scroll and more control over rendering.
   const resultsTabStrip = document.querySelector("#fuzzResultsTabStrip");
   if (resultsTabStrip) {
     // Tab style override
@@ -353,6 +353,20 @@ function main() {
         syncTabStripWidth(resultsTabStrip, lastResultsTableShown);
       }
     }); // onResize event handler
+
+    // Event listener for scroll
+    let scrollEvent: NodeJS.Timeout | undefined = undefined;
+    const scrollButton = getElementByIdOrThrow("scroll-to-top");
+    window.addEventListener("scroll", () => {
+      clearTimeout(scrollEvent);
+      scrollEvent = setTimeout(() => {
+        if (resultsTabStrip.getBoundingClientRect().top < 2) {
+          scrollButton.classList.add("revealed");
+        } else {
+          scrollButton.classList.remove("revealed");
+        }
+      }, 100);
+    }); // onScroll event handler
   } // if: tabstrip found
 
   // Load & display the validator functions from the HTML
@@ -573,11 +587,15 @@ function main() {
         Object.keys(data[type][0]).forEach((k) => {
           if (k === pinnedLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
-            cell.classList.add("fuzzGridCellPinned", "clickable");
+            cell.classList.add(
+              "colorColumn",
+              "fuzzGridCellPinned",
+              "clickable"
+            );
             cell.id = type + "-" + pinnedLabel;
             cell.innerHTML = /* html */ `
               <span class="tooltipped tooltipped-sw" aria-label="Include in persistent test suite?">
-                <strong>pin</strong>
+                <span class="codicon codicon-pinned"></span>
               </span>`;
             cell.addEventListener("click", () => {
               handleColumnSort(type, k, tbody, true);
@@ -1514,23 +1532,22 @@ function drawTableBody({
       } else if (k === implicitLabel) {
         if (resultsData.env.options.useImplicit) {
           const cell = row.appendChild(document.createElement("td"));
+          const span = cell.appendChild(document.createElement("span"));
           // Fade the indicator if overridden by another validator
           if (
             e[correctLabel] !== undefined ||
             e[validatorLabel] !== undefined
           ) {
-            cell.style.opacity = "35%";
+            span.classList.add("overridden");
           }
           if (e[k] === undefined) {
-            cell.innerHTML = "";
+            span.innerHTML = "";
           } else if (e[k]) {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
-            const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-pass");
             span.setAttribute("title", "passed");
           } else {
             cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
-            const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-error");
             span.setAttribute("title", "failed");
           }
@@ -1572,22 +1589,18 @@ function drawTableBody({
           }
           // Individual property validator column
           const cell = row.appendChild(document.createElement("td"));
+          const span = cell.appendChild(document.createElement("span"));
           cell.style.textAlign = "right";
           if (e[k] === undefined || e[k] === null) {
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
-            const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-circle-large");
             span.setAttribute("title", "undecided");
           } else if (e[k]) {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
-            const span = cell.appendChild(document.createElement("span"));
-            span.classList.add("codicon", "codicon-pass");
+            span.classList.add("codicon", "codicon-pass", "overridden"); // Fade check mark for passed tests
             span.setAttribute("title", "passed");
-            // Fade check mark for passed tests
-            cell.style.opacity = "35%";
           } else {
             cell.classList.add("classErrorOn", "colGroupStart", "colGroupEnd");
-            const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-error");
             span.setAttribute("title", "failed");
           }

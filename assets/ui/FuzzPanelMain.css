@@ -33,6 +33,35 @@ body {
   font-weight: bolder;
 }
 
+/* Scroll to top button */
+#scroll-to-top {
+  visibility: hidden;
+  position: fixed;
+  width: 1.5em;
+  height: 1.5em;
+  right: 10px;
+  top: 2px;
+  font-size: 1.25em;
+  color: var(--vscode-tab-inactiveForeground);
+  background-color: var(--vscode-button-secondaryBackground);
+  border-color: var(--vscode-button-border);
+  border-radius: 50%;
+  box-shadow: 1px 1px 1px rgba(0, 0, 0, 0.25);
+  outline: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-decoration-line: none;
+  z-index: 4; /* on top of sticky rows & tabstrip */
+  animation: fadeout 0.75s;
+}
+#scroll-to-top:hover {
+  color: var(--vscode-tab-activeForeground);
+}
+.fuzzGridPanel {
+  margin-bottom: 5px;
+}
+
 /** Grid Styles **/
 .fuzzGrid {
   width: 100%;
@@ -42,6 +71,9 @@ body {
 .fuzzGrid td {
   word-break: break-word;
   padding: 4px 6px;
+}
+.fuzzGrid tbody tr:last-child td {
+  border-bottom: 1px solid;
 }
 .editorFont {
   font-family: var(--vscode-editor-font-family);
@@ -92,6 +124,9 @@ body {
 .fuzzGrid tr.classGetExpectedOutputRow td:first-child {
   padding-left: 6px;
 }
+.fuzzGrid td span.overridden {
+  opacity: 35%;
+}
 td.fuzzGridCellPinned,
 td.fuzzGridCellPin {
   text-align: center;
@@ -101,11 +136,11 @@ th.fuzzGridCellPinned,
 th.fuzzGridCellPin {
   text-align: center;
 }
-td.fuzzGridCellPin {
+td.fuzzGridCellPin span {
   opacity: 35%;
 }
-td.fuzzGridCellPinned,
-td.fuzzGridCellPin:hover {
+td.fuzzGridCellPinned span,
+td.fuzzGridCellPin:hover span {
   opacity: 100%;
 }
 /* Expand or collapse twistie column (›) */
@@ -161,25 +196,25 @@ td.classErrorOff.colGroupEnd,
 td.classErrorOn.colGroupEnd {
   padding-right: 4px;
 }
-td.classUnknown,
-td.classCheckOff,
-td.classErrorOff {
+td.classUnknown span,
+td.classCheckOff span,
+td.classErrorOff span {
   opacity: 35%;
 }
-td.classCheckOff:hover,
-td.classErrorOff:hover {
+td.classCheckOff:hover span,
+td.classErrorOff:hover span {
   opacity: 100%;
 }
-td.classCheckOff:active,
-td.classErrorOff:active {
+td.classCheckOff:active span,
+td.classErrorOff:active span {
   opacity: 80%;
 }
-td.classCheckOn,
-td.classErrorOn {
+td.classCheckOn span,
+td.classErrorOn span {
   opacity: 100%;
 }
-td.classCheckOn:active,
-td.classErrorOn:active {
+td.classCheckOn:active span,
+td.classErrorOn:active span {
   opacity: 80%;
 }
 
@@ -550,6 +585,10 @@ p span.codicon {
   animation:
     fadein 0.5s,
     fadeout 0.5s 3.6s;
+}
+.revealed {
+  visibility: visible !important;
+  animation: fadein 0.75s;
 }
 @keyframes fadein {
   from {

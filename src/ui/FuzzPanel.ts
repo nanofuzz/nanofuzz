@@ -2393,6 +2393,9 @@ ${inArgConsts}
 
         html += /*html */ `
             <div class="fuzzResultsTabStripWrapper">
+              <a id="scroll-to-top" class="clickable" role="button" aria-label="scroll to top" href="#" title="Scroll to top">
+                <span class="clickable codicon codicon-chevron-up"> </span>
+              </a>
               <vscode-panels aria-label="Test result tabs" id="fuzzResultsTabStrip" class="fuzzTabStrip"${
                 this._focusInput
                   ? ` activeid="tab-${this._focusInput[0]}"`
