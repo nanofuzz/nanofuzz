@@ -50,7 +50,7 @@ const expandLabel = "expandColumn";
 const collapseLabel = "collapseColumn";
 
 // List of hidden columns
-const hiddenColumns = [idLabel, expectedLabel, allValidatorsLabel];
+const hiddenColumns = [expectedLabel, allValidatorsLabel];
 
 // Pin button states
 const pinState = {
@@ -413,6 +413,14 @@ function main() {
   vscode.setState(
     JSON5.parse(htmlUnescape(getElementByIdOrThrow("fuzzPanelState").innerHTML))
   );
+
+  // Update the list of hidden columns
+  const addlHiddenColumns = JSON5.parse(
+    htmlUnescape(getElementByIdOrThrow("fuzzHideColumns").innerHTML)
+  );
+  if (Array.isArray(addlHiddenColumns)) {
+    hiddenColumns.push(...addlHiddenColumns);
+  }
 
   // Fill the result grids
   if (Object.keys(resultsData).length) {

@@ -1883,36 +1883,35 @@ ${inArgConsts}
               this._results.stats.generators.AiInputGenerator.gen.calls.history
             )
           : { count: 0 };
-      // prettier-ignore
       html += /*html*/ `
             <div class="fuzzWarnings${
-              this._state === FuzzPanelState.done && this._fuzzEnv.options.generators.AiInputGenerator.enabled && sequentialFailures
+              this._state === FuzzPanelState.done &&
+              this._fuzzEnv.options.generators.AiInputGenerator.enabled &&
+              sequentialFailures
                 ? ""
                 : " hidden"
             }">
-              <p>The last ${sequentialFailures===1 ? `` : `${sequentialFailures}`} LLM response${sequentialFailures===1 ? "" : "s"} failed: <span class="editorFont">${latestFailureMessage ?? "n/a"}</span></p>
+              <p>The last ${sequentialFailures === 1 ? `` : `${sequentialFailures}`} LLM response${sequentialFailures === 1 ? "" : "s"} failed: <span class="editorFont">${latestFailureMessage ?? "n/a"}</span></p>
             </div>`;
 
-      // prettier-ignore
       html += /*html*/ `
             <div class="fuzzWarnings${
-              this._state === FuzzPanelState.done && this._fuzzEnv.options.useProperty && !(this._fuzzEnv.validators.length)
+              this._state === FuzzPanelState.done &&
+              this._fuzzEnv.options.useProperty &&
+              !this._fuzzEnv.validators.length
                 ? ""
                 : " hidden"
             }">
               <p>No property validators were found, so the property validator column is blank.</p>
             </div>`;
 
-      // prettier-ignore
       html += /*html*/ `
             <!-- Fuzzer Info -->
             <div class="fuzzInfo hidden"></div>
             
             <!-- Fuzzer Output -->
             <div class="fuzzResults" ${
-              this._state === FuzzPanelState.done
-                ? ""
-                : `class="hidden"`
+              this._state === FuzzPanelState.done ? "" : `class="hidden"`
             }>`;
 
       // If we have results & the fuzzer is done running, render the output tabs to display the results.
@@ -2513,6 +2512,19 @@ ${inArgConsts}
               }
             </div>
             
+            <!-- Fuzzer Sort Columns: for the client script to process -->
+            <div id="fuzzHideColumns" class="hidden">
+              ${htmlEscape(
+                JSON5.stringify(
+                  vscode.workspace
+                    .getConfiguration("nanofuzz.ui")
+                    .get<boolean>("showSourceColumn", false)
+                    ? ["id"]
+                    : ["id", "src"]
+                )
+              )}
+            </div>
+
             <!-- Validator Functions: for the client script to process -->
             <div id="validators" class="hidden">
               ${htmlEscape(
@@ -2601,21 +2613,18 @@ ${inArgConsts}
       }
     }
 
-    // prettier-ignore
     let html = /*html*/ `
     <!-- Argument Definition -->
-    <div class="argDef" id="${idBase}">`
+    <div class="argDef" id="${idBase}">`;
 
-    // prettier-ignore
     html += /*html*/ `
       <!-- Argument Name -->
       <div class="argDef-name">${beginSep}`;
 
     if (argName !== "unknown") {
-      // prettier-ignore
       html += /*html*/ `
           <strong>${argName}</strong>${optionalString}: 
-        `
+        `;
     }
 
     let sep: string;
@@ -2633,7 +2642,6 @@ ${inArgConsts}
         sep = " = " + htmlEllipsis;
     }
 
-    // prettier-ignore
     html += /*html*/ `
          ${typeString}${dimString}${sep}
       </div>`;

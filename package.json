@@ -229,6 +229,12 @@
             "default": "NaNofuzz",
             "description": "Change NaNofuzz' name (for studies)"
           },
+          "nanofuzz.ui.showSourceColumn": {
+            "title": "Show the 'source' column in test results?",
+            "type": "boolean",
+            "default": false,
+            "description": "Show the `source` column?"
+          },
           "nanofuzz.ui.hideMoreOptionsButton": {
             "title": "Hide the 'More options' button?",
             "type": "boolean",
