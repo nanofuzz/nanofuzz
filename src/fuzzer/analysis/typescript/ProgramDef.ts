@@ -696,7 +696,13 @@ export class ProgramDef {
       typeRef.type = JSON5.parse<typeof resolvedType.type>(
         JSON5.stringify(resolvedType.type)
       );
-      return this._types[typeRef.typeRefName];
+
+      if (typeRef.type) {
+        typeRef.type.dims += resolvedType.dims;
+      }
+      typeRef.optional = typeRef.optional || resolvedType.optional;
+
+      return typeRef; // this._types[typeRef.typeRefName];
     } else {
       // Follow the imported type reference
       // Split the local name into parts (e.g., "foo.bar" => ["foo", "bar"])
@@ -769,6 +775,10 @@ export class ProgramDef {
           typeRef.type = JSON5.parse<typeof resolvedType.type>(
             JSON5.stringify(resolvedType.type)
           );
+          if (typeRef.type) {
+            typeRef.type.dims += resolvedType.dims;
+          }
+          typeRef.optional = typeRef.optional || resolvedType.optional;
         } else if (importName in importProgram._exportedTypes) {
           // Resolve named export
           const resolvedType = importProgram._resolveTypeRef(
@@ -777,6 +787,11 @@ export class ProgramDef {
           typeRef.type = JSON5.parse<typeof resolvedType.type>(
             JSON5.stringify(resolvedType.type)
           );
+
+          if (typeRef.type) {
+            typeRef.type.dims += resolvedType.dims;
+          }
+          typeRef.optional = typeRef.optional || resolvedType.optional;
         } else {
           // Unable to find exported type
           throw new Error(
