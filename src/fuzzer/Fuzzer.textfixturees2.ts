@@ -7,3 +7,7 @@
 export function testCoverageMultiFile2(str: string): boolean {
   return str === "NaN" ? true : false;
 }
+
+/** For testing dimensions across a chain of imported types */
+export type importedLiteralDim2Type = importedLiteralDim1Type[];
+type importedLiteralDim1Type = "goodbye"[];

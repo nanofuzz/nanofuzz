@@ -426,6 +426,61 @@ describe("fuzzer:", () => {
   });
 
   /**
+   * Ensure that chains of dimensioned typerefs have the correct number
+   * of dimensions, including both local and imported typerefs. As an
+   * end-to-end test, this also tests the input generator.
+   */
+  it("Fuzz example 17 - dimensioned typerefs", () => {
+    const tester = new Tester(
+      "./Fuzzer.testfixtures.ts",
+      "testDimensionedTypeRefs",
+      {
+        ...intOptions,
+        argDefaults: {
+          ...intOptions.argDefaults,
+          dftDimLength: { min: 0, max: 1 },
+        },
+      }
+    );
+    const args = tester.env.function.getArgDefs();
+    expect(args.length).toBe(2);
+    expect(args[0].getDim()).toBe(3);
+    expect(args[1].getDim()).toBe(3);
+
+    const fuzzResult = tester.testSync();
+    //const validator = new ArgDefValidator(args);
+    expect(fuzzResult.results.length).not.toBe(0); // Ensure we have results
+    fuzzResult.results.forEach((result) => {
+      const input = result.input.map((i) => i.value);
+      /* 
+      TODO: This part of the test is commented out pending resolution of Issue # 329
+      console.debug(JSON5.stringify(input)); // !!!!!!!!!!
+      expect(
+        validator.validate(
+          result.input.map((i) => {
+            return {
+              tag: "ArgValueTypeWrapped",
+              value: i.value,
+            };
+          })
+        )
+      ).toBeTrue();
+      expect(input.length).toBe(2);
+      expect(
+        ["[]", "[[]]", "[[[]]]", "[[['hello']]]"].includes(
+          JSON5.stringify(input[0])
+        )
+      ).toBeTrue();
+      expect(
+        ["[]", "[[]]", "[[[]]]", "[[['goodbye']]]"].includes(
+          JSON5.stringify(input[1])
+        )
+      ).toBeTrue();
+      */
+    });
+  });
+
+  /**
    * Ensure fuzz targets that mutate their inputs cannot alter
    * the input the fuzzer recorded for the function.
    */

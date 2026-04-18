@@ -1,4 +1,4 @@
-import { testCoverageMultiFile2 } from "./Fuzzer.textfixturees2";
+import { importedLiteralDim2Type, testCoverageMultiFile2 } from "./Fuzzer.textfixturees2";
 
 /**
  * Fuzz target that alters its input - used to verify
@@ -126,6 +126,21 @@ export function testCoverageOneFileValidator(
 export function testCoverageMultiFile(str: string): boolean {
   return testCoverageMultiFile2(str);
 }
+
+/**
+ * For testing dimensions across a chain of local & imported types
+ * 
+ * @param _lit local chain of dimensioned typerefs
+ * @param _lit2 imported chain of dimensioned typerefs
+ */
+export function testDimensionedTypeRefs(
+  _lit: literalDim2Type[],
+  _lit2: importedLiteralDim2Type[]
+): void {
+  return;
+}
+type literalDim2Type = literalDim1Type[];
+type literalDim1Type = "hello"[];
 
 export type FuzzTestResult = {
   in: any[];
