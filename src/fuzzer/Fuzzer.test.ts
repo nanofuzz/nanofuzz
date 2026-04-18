@@ -2,6 +2,7 @@ import { ArgDef, Tester, implicitOracle } from "./Fuzzer";
 import { TypeScriptCompiler } from "./Compiler";
 import { FuzzOptions } from "./Types";
 import * as JSON5 from "json5";
+import { ArgDefValidator } from "./analysis/typescript/ArgDefValidator";
 
 // Extend default test timeout to 60s
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
@@ -448,13 +449,10 @@ describe("fuzzer:", () => {
     expect(args[1].getDim()).toBe(3);
 
     const fuzzResult = tester.testSync();
-    //const validator = new ArgDefValidator(args);
+    const validator = new ArgDefValidator(args);
     expect(fuzzResult.results.length).not.toBe(0); // Ensure we have results
     fuzzResult.results.forEach((result) => {
       const input = result.input.map((i) => i.value);
-      /* 
-      TODO: This part of the test is commented out pending resolution of Issue # 329
-      console.debug(JSON5.stringify(input)); // !!!!!!!!!!
       expect(
         validator.validate(
           result.input.map((i) => {
@@ -476,7 +474,6 @@ describe("fuzzer:", () => {
           JSON5.stringify(input[1])
         )
       ).toBeTrue();
-      */
     });
   });
 

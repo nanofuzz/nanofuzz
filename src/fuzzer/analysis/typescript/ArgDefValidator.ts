@@ -162,9 +162,15 @@ const traverse = (
   for (const i in a) {
     if (Array.isArray(a[i]) && currDepth < spec.getDim()) {
       if (!traverse(a[i], spec, currDepth + 1)) {
-        return false;
+        return false; // next level of array is invalid
       }
     } else {
+      if (currDepth + 1 < spec.getDim()) {
+        console.debug(
+          `${JSON5.stringify(a)} has non-array value at insufficient depth (${currDepth + 1} < ${spec.getDim()})`
+        ); // !!!!!!!!!!
+        return false; // value at insufficient depth
+      }
       if (!ArgDefValidator.validate(a[i], spec, true)) {
         return false;
       }
