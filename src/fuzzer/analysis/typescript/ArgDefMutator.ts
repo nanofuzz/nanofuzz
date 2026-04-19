@@ -52,33 +52,51 @@ export class ArgDefMutator {
       level = 1
     ): void => {
       const options = spec.getOptions();
-      mutations.push(
-        ...[
-          {
-            name: "array-jumble",
-            value: [...a].sort(() => 0.5 - prng()),
-            path: [...path],
-          },
-          {
-            name: "array-reverse",
-            value: [...a].reverse(),
-            path: [...path],
-          },
-          {
-            name: "array-appendNewElement",
-            value: [
-              ...a,
-              ArgDefGenerator.gen(spec, prng, false /* w/o dimensions */),
-            ],
-            path: [...path],
-          },
-        ].filter(
-          (e) =>
-            JSON5.stringify(e.value) !== JSON5.stringify(a) &&
-            options.dimLength[level - 1].max >= e.value.length &&
-            options.dimLength[level - 1].min <= e.value.length
-        )
-      );
+
+      // Re-arrange elements if multiple elements are present
+      if (a.length > 1) {
+        mutations.push(
+          ...[
+            {
+              name: "array-jumble",
+              value: [...a].sort(() => 0.5 - prng()),
+              path: [...path],
+            },
+            {
+              name: "array-reverse",
+              value: [...a].reverse(),
+              path: [...path],
+            },
+          ].filter((e) => JSON5.stringify(e.value) !== JSON5.stringify(a))
+        );
+      } // if: array length > 1
+
+      // Add elements if the dimension is not yet full
+      if (options.dimLength[level - 1].max > a.length) {
+        // Append new non-array element on the terminal dimension
+        // when that terminal dimension is not full
+        if (level === spec.getDim()) {
+          // terminal dimension: add a value
+          mutations.push(
+            ...[
+              {
+                name: "array-appendNewElement",
+                value: [
+                  ...a,
+                  ArgDefGenerator.gen(spec, prng, false /* w/o dimensions */),
+                ],
+                path: [...path],
+              },
+            ].filter(
+              (e) =>
+                JSON5.stringify(e.value) !== JSON5.stringify(a) &&
+                options.dimLength[level - 1].max >= e.value.length &&
+                options.dimLength[level - 1].min <= e.value.length
+            ) // filter
+          ); // push
+        }
+        // TODO: non-terminal dimension: generate a dimensional element
+      } // if: dimension is not yet full
 
       // Process each element in this level of the array
       for (const i in a) {
@@ -107,7 +125,7 @@ export class ArgDefMutator {
           });
         }
       }
-    };
+    }; // fn: mutateArray
 
     // Create a subinput for each input
     const subInputs: {
@@ -122,7 +140,7 @@ export class ArgDefMutator {
         subSpec: specs[i],
         inArray: false,
       };
-    });
+    }); // fn: subInputs
 
     // Process each subinput
     for (let i = 0; i < subInputs.length; i++) {
