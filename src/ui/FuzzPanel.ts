@@ -1780,7 +1780,7 @@ ${inArgConsts}
         retest?: true;
         clear?: true;
         add?: true;
-        coverage?: true;
+        coverage?: true | "disabled";
         options?: true;
       } = {};
       if (this._state === FuzzPanelState.busyTesting) {
@@ -1802,7 +1802,9 @@ ${inArgConsts}
             activeButtons.retest = true;
             activeButtons.clear = true;
             activeButtons.add = true;
-            activeButtons.coverage = true;
+            activeButtons.coverage =
+              this._fuzzEnv.options.measures.CoverageMeasure.enabled ||
+              "disabled";
             activeButtons.options = true;
             break;
           }
@@ -1857,13 +1859,17 @@ ${inArgConsts}
                   <span class="codicon codicon-add"></span>
                 </vscode-button>
               </span>
-              <span ${!activeButtons.coverage ? `class="hidden"` : ""}>
-                <vscode-button ${disabledFlag} id="fuzz.coverage.show" appearance="secondary icon" class="tooltipped tooltipped-n" aria-label="Show coverage heatmap">
-                  <span class="codicon codicon-coverage"></span>
-                </vscode-button>  
-                <vscode-button ${disabledFlag} id="fuzz.coverage.hide" appearance="secondary icon depressed" class="hidden tooltipped tooltipped-n" aria-label="Hide coverage heatmap">
-                  <span class="codicon codicon-coverage"></span>
-                </vscode-button>  
+              <span ${!activeButtons.coverage ? `class="hidden"` : ``}>
+                <span class="tooltipped tooltipped-n" aria-label="${activeButtons.coverage === "disabled" ? "Coverage measure is disabled" : "Show coverage heatmap"}">
+                  <vscode-button ${disabledFlag || activeButtons.coverage === "disabled" ? " disabled" : ""} id="fuzz.coverage.show" appearance="secondary icon">
+                    <span class="codicon codicon-coverage"></span>
+                  </vscode-button>  
+                </span>
+                <span class="tooltipped tooltipped-n" aria-label="${activeButtons.coverage === "disabled" ? "Coverage measure is disabled" : "Hide coverage heatmap"}">
+                  <vscode-button ${disabledFlag || activeButtons.coverage === "disabled" ? " disabled" : ""} id="fuzz.coverage.hide" appearance="secondary icon depressed" class="hidden">
+                    <span class="codicon codicon-coverage"></span>
+                  </vscode-button>  
+                </span>
               </span>
 
               ${activeButtons.run || activeButtons.pause || activeButtons.retest || activeButtons.add || activeButtons.coverage ? `&nbsp;` : ""}
