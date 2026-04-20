@@ -6,11 +6,13 @@ import {
   CoverageMapData,
   createCoverageMap,
 } from "istanbul-lib-coverage";
-import { FuzzTestResult, VmGlobals } from "../Types";
-import { FuzzTestResults } from "../Fuzzer";
-import { InputAndSource } from "../generators/Types";
-import { normalizePathForKey } from "../../Util";
-
+import {
+  VmGlobals,
+  InputAndSource,
+  FuzzTestResult,
+  FuzzTestResults,
+} from "../Fuzzer";
+import { normalizePathForKey } from "../Util";
 import * as fs from "fs";
 
 /**
@@ -87,11 +89,11 @@ export class CoverageMeasure extends AbstractMeasure {
    * @param `result` test result
    * @returns a code coverage measurement for the test execution
    */
-  public async measure(
+  public measure(
     input: InputAndSource,
     result: FuzzTestResult
-  ): Promise<CoverageMeasurement> {
-    const measure = await super.measure(input, result);
+  ): CoverageMeasurement {
+    const measure = super.measure(input, result);
 
     // Sanity check that we have coverage data to ingest
     if (this._coverageData === undefined) {
@@ -103,9 +105,9 @@ export class CoverageMeasure extends AbstractMeasure {
 
     // Merge the current coverage into root predecessor
     const pred =
-      input.source.tick === undefined
-        ? undefined
-        : this._history[input.source.tick];
+      "tick" in input.source && input.source.tick !== undefined
+        ? this._history[input.source.tick]
+        : undefined;
     let accumBefore = 0;
     let accumAfter = 0;
     let nextPred = pred;
@@ -145,12 +147,14 @@ export class CoverageMeasure extends AbstractMeasure {
     // to get correct line numbers (and not the compiled JS line numbers).
     // TODO: async call here. im wondering if this will cause issues. if we
     // notice issues, we can look into not having to do this call each time we measure.
+    /* !!!!!!!!!! will resolve this after merge vv
     const tsCoverageMap = await this._sourceMapStore.transformCoverage(
       createCoverageMap(currentCoverageData)
     );
 
     // Track which lines were hit in this test run (binary: hit or not hit)
     this._accumulateLineHitsForTestRun(tsCoverageMap);
+    !!!!!!!!! will resolve this after merge ^^ */
 
     return meas;
   } // fn: measure
@@ -229,24 +233,27 @@ export class CoverageMeasure extends AbstractMeasure {
         }
       }
     }
-  }
+  } // fn: _accumulateLineHitsForTestRun
 
   /**
-   * Called prior to fuzzer shut down.
-   *
    * Fills in global code coverage statistics.
    *
    * @param `results` all test results
    */
-  public async onShutdown(results: FuzzTestResults): Promise<void> {
+  public onRunEnd(results: FuzzTestResults): void {
     // We need to transform the global coverage map using the source maps
     // to get correct line numbers (and not the compiled JS line numbers).
+    /* !!!!!!!!!! will resolve this after merge vv
     const tsCoverageMap = await this._sourceMapStore.transformCoverage(
       this._globalCoverageMap
     );
     const coverageSummary = tsCoverageMap.getCoverageSummary();
 
     const files: CodeCoverageFileStats[] = tsCoverageMap
+    !!!!!!!!!! will resolve this after merge ^^ */
+
+    const coverageSummary = this._globalCoverageMap.getCoverageSummary(); // !!!!!!!!!!
+    const files: CodeCoverageFileStats[] = this._globalCoverageMap
       .files()
       .map((filePath) => {
         const filePathKey = normalizePathForKey(filePath);
@@ -288,7 +295,7 @@ export class CoverageMeasure extends AbstractMeasure {
       },
       files,
     };
-  } // fn: onShutdown
+  } // fn: onRunEnd
 
   /**
    * Returns a numeric value that is the sum of branches, statements, and

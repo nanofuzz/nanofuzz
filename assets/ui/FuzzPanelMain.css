@@ -1,14 +1,68 @@
 /** Body Styles **/
 body {
+  padding-right: 0;
+  padding-left: 0;
+}
+/*
+.breadcrumb {
+  padding-top: 2px;
+  padding-left: 10px;
+  color: var(--vscode-breadcrumb-foreground);
+  line-height: 20px;
+}
+.breadcrumb a {
+  color: var(--vscode-breadcrumb-foreground);
+}
+.breadcrumb a:hover {
+  color: var(--vscode-breadcrumb-focusForeground);
+}
+.shadowBefore {
+  box-shadow: var(--vscode-scrollbar-shadow) 0 6px 6px -6px inset;
+}
+*/
+#pane-nanofuzz {
   padding-right: 10px;
   padding-left: 10px;
 }
 
-/** Grid Styles **/
-vscode-panel-view.fuzzGridPanel {
-  padding-top: 5px;
-  padding-left: 3px;
+/** Panel Styles **/
+.fuzzPanelHeading {
+  font-size: 1.25em;
+  margin-top: 0.1em;
+  margin-bottom: 0.1em;
+  font-weight: bolder;
 }
+
+/* Scroll to top button */
+#scroll-to-top {
+  visibility: hidden;
+  position: fixed;
+  width: 1.5em;
+  height: 1.5em;
+  right: 10px;
+  top: 2px;
+  font-size: 1.25em;
+  color: var(--vscode-tab-inactiveForeground);
+  background-color: var(--vscode-button-secondaryBackground);
+  border-color: var(--vscode-button-border);
+  border-radius: 50%;
+  box-shadow: 1px 1px 1px rgba(0, 0, 0, 0.25);
+  outline: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-decoration-line: none;
+  z-index: 4; /* on top of sticky rows & tabstrip */
+  animation: fadeout 0.75s;
+}
+#scroll-to-top:hover {
+  color: var(--vscode-tab-activeForeground);
+}
+.fuzzGridPanel {
+  margin-bottom: 5px;
+}
+
+/** Grid Styles **/
 .fuzzGrid {
   width: 100%;
   padding-left: 0;
@@ -18,17 +72,23 @@ vscode-panel-view.fuzzGridPanel {
   word-break: break-word;
   padding: 4px 6px;
 }
+.fuzzGrid tbody tr:last-child td {
+  border-bottom: 1px solid;
+}
 .editorFont {
   font-family: var(--vscode-editor-font-family);
   font-size: var(--vscode-editor-font-size);
   font-weight: var(--vscode-editor-font-weight);
+}
+.preWrap {
   white-space: pre-wrap;
 }
-.fuzzGrid td.tableCol-src {
-  text-align: center;
+.fuzzGrid td.tableCol-src,
+.fuzzGrid td.noInput {
   color: rgb(from var(--vscode-foreground) r g b / 0.5);
 }
-.fuzzGrid th.tableCol-src {
+.fuzzGrid th.tableCol-src,
+.fuzzGrid td.tableCol-src {
   text-align: center;
 }
 .fuzzGrid th {
@@ -36,6 +96,22 @@ vscode-panel-view.fuzzGridPanel {
   padding: 4px 6px;
   border-bottom: 1px solid;
   vertical-align: bottom;
+}
+.fuzzGrid thead.sticky {
+  position: sticky;
+  background-color: var(--vscode-editor-background);
+  opacity: 1;
+  top: 2.2em;
+  z-index: 2;
+}
+.fuzzResultsTabStripWrapper {
+  position: sticky;
+  top: -4px;
+  z-index: 3;
+}
+.fuzzResultsTabStripWrapper .fuzzTabStrip {
+  background-color: var(--vscode-editor-background);
+  opacity: 1;
 }
 .fuzzGrid td:first-child,
 .fuzzGrid th:first-child {
@@ -48,6 +124,9 @@ vscode-panel-view.fuzzGridPanel {
 .fuzzGrid tr.classGetExpectedOutputRow td:first-child {
   padding-left: 6px;
 }
+.fuzzGrid td span.overridden {
+  opacity: 35%;
+}
 td.fuzzGridCellPinned,
 td.fuzzGridCellPin {
   text-align: center;
@@ -57,11 +136,11 @@ th.fuzzGridCellPinned,
 th.fuzzGridCellPin {
   text-align: center;
 }
-td.fuzzGridCellPin {
+td.fuzzGridCellPin span {
   opacity: 35%;
 }
-td.fuzzGridCellPinned,
-td.fuzzGridCellPin:hover {
+td.fuzzGridCellPinned span,
+td.fuzzGridCellPin:hover span {
   opacity: 100%;
 }
 /* Expand or collapse twistie column (›) */
@@ -71,7 +150,9 @@ th.expandCollapseColumn {
   padding-bottom: 0px;
 }
 .fuzzGrid tbody tr {
-  transition: box-shadow 3s 3s ease, background-color 3s 3s ease;
+  transition:
+    box-shadow 3s 3s ease,
+    background-color 3s 3s ease;
 }
 .fuzzGrid tbody tr.focus {
   transition: none;
@@ -91,6 +172,7 @@ th.expandCollapseColumn {
 }
 
 /* Validator icons */
+td.classUnknown,
 td.classCheckOff,
 td.classErrorOff,
 td.classCheckOn,
@@ -100,76 +182,62 @@ td.classErrorOn {
   padding-right: 1px;
   padding-left: 1px;
 }
-td.classCheckOff,
-td.classCheckOn,
-td.classErrorOff,
-td.classErrorOn {
-  padding-right: 1px;
-  padding-left: 1px;
-}
+td.classUnknown.colGroupStart,
 td.classCheckOff.colGroupStart,
 td.classCheckOn.colGroupStart,
 td.classErrorOff.colGroupStart,
 td.classErrorOn.colGroupStart {
   padding-left: 4px;
 }
+td.classUnknown.colGroupEnd,
 td.classCheckOff.colGroupEnd,
 td.classCheckOn.colGroupEnd,
 td.classErrorOff.colGroupEnd,
 td.classErrorOn.colGroupEnd {
   padding-right: 4px;
 }
-td.classCheckOff,
-td.classErrorOff {
+td.classUnknown span,
+td.classCheckOff span,
+td.classErrorOff span {
   opacity: 35%;
 }
-
-td.classCheckOff:hover,
-td.classErrorOff:hover {
+td.classCheckOff:hover span,
+td.classErrorOff:hover span {
   opacity: 100%;
-  /* background-color: var(--vscode-list-inactiveSelectionBackground); */
 }
-td.classCheckOff:active,
-td.classErrorOff:active {
+td.classCheckOff:active span,
+td.classErrorOff:active span {
   opacity: 80%;
 }
-td.classCheckOn,
-td.classErrorOn {
+td.classCheckOn span,
+td.classErrorOn span {
   opacity: 100%;
 }
-td.classCheckOn:active,
-td.classErrorOn:active {
+td.classCheckOn:active span,
+td.classErrorOn:active span {
   opacity: 80%;
 }
 
 .classAddRefreshValidator:active {
-  /* background-color: var(--vscode-list-inactiveSelectionBackground); */
   opacity: 50%;
 }
 
-.argDef-name {
+/* ArgDef styles */
+.argDef-name,
+.argDef-close {
   float: left;
+  font-size: 1.2em;
 }
-
 .argDef,
 .argDef-type,
-.argDef-array {
-  clear: both;
-}
-
+.argDef-array,
 .argDef-preClose {
   clear: both;
 }
-
-.argDef-close {
-  float: left;
-}
-
 .isNoInput {
   float: right;
   padding-right: 0.85em;
 }
-
 .isNoInput vscode-checkbox {
   margin-top: 0;
   margin-bottom: 0;
@@ -188,7 +256,8 @@ td.classErrorOn:active {
 [appearance="secondary icon depressed"] {
   background: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);
-  box-shadow: inset 1px 1px var(--vscode-button-background),
+  box-shadow:
+    inset 1px 1px var(--vscode-button-background),
     inset -1px -1px var(--vscode-button-background);
 }
 
@@ -252,7 +321,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   white-space: pre-line;
   pointer-events: none;
   content: attr(aria-label);
-  background: var(--vscode-panel-background);
+  background: var(--vscode-editor-background);
   border-width: 1px;
   border-style: solid;
   border-color: var(--vscode-focus-border);
@@ -281,6 +350,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 .tooltipped:focus::after {
   display: inline-block;
   text-decoration: none;
+  color: var(--button-primary-foreground);
   opacity: 1;
 }
 .tooltipped-multiline:hover::after,
@@ -377,21 +447,21 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 }
 .columnSortDesc::after {
   content: "▼";
-  font-size: 0.9em;
+  font-size: 0.6em;
   display: inline-block;
   padding-left: 0.25ch;
   position: absolute;
 }
 .columnSortAsc::after {
   content: "▲";
-  font-size: 0.9em;
+  font-size: 0.6em;
   display: inline-block;
   padding-left: 0.25ch;
   position: absolute;
 }
 .columnSortDescSmall::after {
   content: "▼";
-  font-size: 0.75em;
+  font-size: 0.5em;
   display: inline-block;
   padding-left: 0.2ch;
   padding-bottom: 0em;
@@ -399,7 +469,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 }
 .columnSortAscSmall::after {
   content: "▲";
-  font-size: 0.75em;
+  font-size: 0.5em;
   display: inline-block;
   padding-left: 0.2ch;
   position: absolute;
@@ -415,6 +485,8 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 /* Narrow tab strip column gaps */
 vscode-panels::part(tablist) {
   column-gap: calc(var(--design-unit) * 4px);
+  padding-left: 0;
+  padding-right: 0;
 }
 /* Narrow the margins for <h2> elements */
 h2 {
@@ -446,14 +518,13 @@ vscode-panel-view > p:nth-of-type(1) {
 }
 .fuzzPanelDescription {
   margin-bottom: 0.25em;
-  margin-top: 0.25em;
+  margin-top: 0.75em;
 }
 div.fuzzInputControlGroup {
   flex-direction: row;
 }
 .fuzzResultHeading {
-  font-size: 1.25em;
-  margin-bottom: 0.7em;
+  margin-bottom: 0.25em;
 }
 .fuzzResultHeading + p {
   margin-top: 0.7em;
@@ -462,6 +533,7 @@ div.fuzzInputControlGroup {
 .fuzzInfo > p {
   margin-top: 0.5em;
   margin-bottom: 0.25em;
+  color: rgb(from var(--vscode-foreground) r g b / 0.8);
 }
 
 .dropdown-container {
@@ -504,11 +576,19 @@ p span.codicon {
   position: absolute;
   left: 50%;
   font-size: var(--vscode-font-size);
-  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+  box-shadow:
+    0 4px 8px 0 rgba(0, 0, 0, 0.2),
+    0 6px 20px 0 rgba(0, 0, 0, 0.19);
 }
 .snackbarShow {
   visibility: visible;
-  animation: fadein 0.5s, fadeout 0.5s 3.6s;
+  animation:
+    fadein 0.5s,
+    fadeout 0.5s 3.6s;
+}
+.revealed {
+  visibility: visible !important;
+  animation: fadein 0.75s;
 }
 @keyframes fadein {
   from {

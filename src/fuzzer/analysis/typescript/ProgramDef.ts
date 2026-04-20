@@ -16,6 +16,10 @@ import {
   TSPropertySignature,
   TypeNode,
   Node,
+  Comment,
+  VariableDeclaration,
+  FunctionDeclaration,
+  AST_TOKEN_TYPES,
 } from "@typescript-eslint/types/dist/ast-spec";
 import path from "path";
 import fs from "fs";
@@ -30,7 +34,7 @@ import {
   ProgramImport,
   ArgType,
 } from "./Types";
-import { getErrorMessageOrJson } from "../../../Util";
+import { getErrorMessageOrJson } from "../../Util";
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
@@ -118,7 +122,7 @@ export class ProgramDef {
     }
 
     // Parse the program source to generate the AST
-    const ast = parse(this._src, { range: true });
+    const ast = parse(this._src, { comment: true, range: true, loc: true });
 
     // Retrieve the imports defined in this program
     this._imports = this._findImports(ast);
@@ -383,7 +387,9 @@ export class ProgramDef {
    * @returns the list of imports by identifier name
    */
   public getImports(): Record<IdentifierName, ProgramImport> {
-    return JSON5.parse(JSON5.stringify(this._imports));
+    return JSON5.parse<typeof this._imports.identifiers>(
+      JSON5.stringify(this._imports.identifiers)
+    );
   } // fn: getImports()
 
   /**
@@ -430,7 +436,7 @@ export class ProgramDef {
    * @returns the types defined in the program
    */
   public getTypes(): Record<string, TypeRef> {
-    return JSON5.parse(JSON5.stringify(this._types));
+    return JSON5.parse<typeof this._types>(JSON5.stringify(this._types));
   } // fn: getTypes()
 
   /**
@@ -439,7 +445,9 @@ export class ProgramDef {
    * @returns the types exported by the program
    */
   public getExportedTypes(): Record<string, TypeRef> {
-    return JSON5.parse(JSON5.stringify(this._exportedTypes));
+    return JSON5.parse<typeof this._exportedTypes>(
+      JSON5.stringify(this._exportedTypes)
+    );
   } // fn: getExportedTypes()
 
   /**
@@ -685,8 +693,16 @@ export class ProgramDef {
       const resolvedType = this._resolveTypeRef(
         this._types[typeRef.typeRefName]
       );
-      typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
-      return this._types[typeRef.typeRefName];
+      typeRef.type = JSON5.parse<typeof resolvedType.type>(
+        JSON5.stringify(resolvedType.type)
+      );
+
+      if (typeRef.type) {
+        typeRef.type.dims += resolvedType.dims;
+      }
+      typeRef.optional = typeRef.optional || resolvedType.optional;
+
+      return typeRef; // this._types[typeRef.typeRefName];
     } else {
       // Follow the imported type reference
       // Split the local name into parts (e.g., "foo.bar" => ["foo", "bar"])
@@ -727,11 +743,13 @@ export class ProgramDef {
           // Namespace import: create concrete imports for each of the imports
           for (const exported of Object.values(importProgram._exportedTypes)) {
             const localName = localNameParts[0] + "." + exported.name;
-            const newImport = JSON5.parse(JSON5.stringify(exported));
-            newImport.local = localName;
-            newImport.imported = exported.name;
-            newImport.resolved = true;
-            this._imports.identifiers[localName] = newImport;
+            this._imports.identifiers[localName] = {
+              local: localName,
+              imported: exported.name ?? "__default",
+              programPath: exported.module,
+              resolved: true,
+              default: !exported.name,
+            };
           }
 
           // Remove the original unresolved import reference
@@ -754,13 +772,26 @@ export class ProgramDef {
           const resolvedType = importProgram._resolveTypeRef(
             importProgram._defaultExport
           );
-          typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+          typeRef.type = JSON5.parse<typeof resolvedType.type>(
+            JSON5.stringify(resolvedType.type)
+          );
+          if (typeRef.type) {
+            typeRef.type.dims += resolvedType.dims;
+          }
+          typeRef.optional = typeRef.optional || resolvedType.optional;
         } else if (importName in importProgram._exportedTypes) {
           // Resolve named export
           const resolvedType = importProgram._resolveTypeRef(
             importProgram._exportedTypes[importName]
           );
-          typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+          typeRef.type = JSON5.parse<typeof resolvedType.type>(
+            JSON5.stringify(resolvedType.type)
+          );
+
+          if (typeRef.type) {
+            typeRef.type.dims += resolvedType.dims;
+          }
+          typeRef.optional = typeRef.optional || resolvedType.optional;
         } else {
           // Unable to find exported type
           throw new Error(
@@ -1141,6 +1172,8 @@ export class ProgramDef {
   private _findFunctions(
     ast: AST<{
       range: true;
+      comment: true;
+      loc: true;
     }>
   ): {
     supported: Record<IdentifierName, FunctionRef>;
@@ -1162,7 +1195,12 @@ export class ProgramDef {
           const name = node.id.name;
 
           try {
-            const maybeFunction = this._getFunctionFromNode(name, node, parent);
+            const maybeFunction = this._getFunctionFromNode(
+              name,
+              node,
+              parent,
+              ast.comments
+            );
             if (maybeFunction) {
               supported[name] = maybeFunction;
             }
@@ -1179,9 +1217,9 @@ export class ProgramDef {
               node: node,
             };
           }
-        },
+        }, // enter
         // TODO: Add support for class methods
-      }, // enter
+      },
       true // set parent pointers
     ); // traverse AST
 
@@ -1204,8 +1242,31 @@ export class ProgramDef {
   private _getFunctionFromNode(
     name: string,
     node: Node,
-    parent: Node | undefined
+    parent: Node | undefined,
+    comments: Comment[]
   ): FunctionRef | undefined {
+    // Internal function to retrieve docstring comment immediately preceding the function
+    const getComments = (
+      node: VariableDeclaration | FunctionDeclaration
+    ): string | undefined => {
+      const nodeLine = node.loc.start.line;
+      const cmts = comments.filter(
+        (thisCmt) =>
+          thisCmt.type === AST_TOKEN_TYPES.Block && // Block comment
+          thisCmt.loc.end.line - thisCmt.loc.start.line > 0 && // > 1 line long
+          thisCmt.loc.end.line <= nodeLine && // Prior to function
+          thisCmt.loc.end.line >= nodeLine - 1 // But not too prior
+      );
+      // If we found a matching comment, return its source.
+      // Otherwise, return undefined (not found)
+      return cmts.length
+        ? this._src.substring(
+            cmts[cmts.length - 1].range[0],
+            cmts[cmts.length - 1].range[1]
+          )
+        : undefined;
+    }; // fn: getComments
+
     if (
       // Arrow Function Definition: const xyz = (): void => { ... }
       node.type === AST_NODE_TYPES.VariableDeclarator &&
@@ -1228,7 +1289,7 @@ export class ProgramDef {
           : undefined;
       } catch {
         if (!isVoid) {
-          console.debug('Unsupported return type for function "' + name + '".');
+          // !!! console.debug('Unsupported return type for function "' + name + '".');
         }
       }
       return {
@@ -1264,7 +1325,7 @@ export class ProgramDef {
           : undefined;
       } catch {
         if (!isVoid) {
-          console.debug('Unsupported return type for function "' + name + '".');
+          // !!! console.debug('Unsupported return type for function "' + name + '".');
         }
       }
       return {
@@ -1281,6 +1342,7 @@ export class ProgramDef {
           .map((arg) => this._getTypeRefFromAstNode(arg)),
         returnType,
         isVoid,
+        cmt: getComments(node),
       };
     }
   } // fn: _getFunctionFromNode()

@@ -1,6 +1,5 @@
-import { InputAndSource } from "fuzzer/generators/Types";
 import { FuzzTestResults } from "../Fuzzer";
-import { FuzzTestResult, VmGlobals } from "../Types";
+import { FuzzTestResult, VmGlobals, InputAndSource } from "../Types";
 
 /**
  * Abstract class of a measure
@@ -36,9 +35,8 @@ export abstract class AbstractMeasure {
    * @param `jsFileName` location of source coe
    * @returns modified source code
    */
-  public onAfterCompile(jsSrc: string, jsFileName: string): string {
+  public onAfterCompile(jsSrc: string, _jsFileName: string): string {
     return jsSrc;
-    jsFileName;
   }
 
   /**
@@ -47,9 +45,8 @@ export abstract class AbstractMeasure {
    *
    * @param `globals` context of the loaded program
    */
-  public onAfterLoad(globals: VmGlobals): void {
+  public onAfterLoad(_globals: VmGlobals): void {
     return;
-    globals;
   }
 
   /**
@@ -68,10 +65,9 @@ export abstract class AbstractMeasure {
    * @returns measurement data
    */
   public measure(
-    input: InputAndSource,
-    result: FuzzTestResult
-  ): BaseMeasurement | Promise<BaseMeasurement> {
-    result;
+    _input: InputAndSource,
+    _result: FuzzTestResult
+  ): BaseMeasurement {
     return {
       type: "measure",
       name: this.name,
@@ -79,15 +75,13 @@ export abstract class AbstractMeasure {
   } // fn: measure
 
   /**
-   * Hook to perform cleanup activities when the fuzzer is shutting
-   * down and after testing has ended
+   * Hook to finalize results when the test run is ending.
    *
    * @param `results` all test results
    */
-  public onShutdown(results: FuzzTestResults): void {
+  public onRunEnd(_results: FuzzTestResults): void {
     return;
-    results;
-  }
+  } // fn: onRunEnd
 
   /**
    * Returns the progress measured for `a`

@@ -28,3 +28,17 @@ await esbuild.build({
   sourcemap: "both",
   external: [],
 });
+
+// VSCode Web Extension UI
+await esbuild.build({
+  entryPoints: ["./src/fuzzer/CompilerWorker.ts"],
+  outfile: "./build/workers/CompilerWorker.js",
+  bundle: true,
+  platform: "node",
+  metafile: true,
+  minify: false,
+  format: "cjs",
+  sourcemap: "both",
+  tsconfig: "./tsconfig.json",
+  external: ["path", "fs", "typescript"],
+});
