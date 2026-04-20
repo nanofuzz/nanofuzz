@@ -1,10 +1,13 @@
+import * as JSON5 from "json5";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createSourceMapStore, MapStore } from "istanbul-lib-source-maps";
+import { RawSourceMap } from "source-map";
 import {
   CoverageMap,
   CoverageMapData,
   createCoverageMap,
+  FileCoverage,
 } from "istanbul-lib-coverage";
 import {
   VmGlobals,
@@ -35,7 +38,7 @@ export class CoverageMeasure extends AbstractMeasure {
    */
   public onAfterCompile(jsSrc: string, jsFileName: string): string {
     const mapPath = jsFileName + ".map";
-    let sourceMap: any | undefined;
+    let sourceMap: RawSourceMap | undefined;
 
     if (fs.existsSync(mapPath)) {
       sourceMap = JSON.parse(fs.readFileSync(mapPath, "utf8"));
@@ -84,6 +87,9 @@ export class CoverageMeasure extends AbstractMeasure {
 
   /**
    * Measure the code coverage of the most recent test execution.
+   *
+   * Note: At this stage we are working with the raw JS source
+   * maps, which we will map to TS at the end of the run.
    *
    * @param `input` test input
    * @param `result` test result
@@ -143,19 +149,6 @@ export class CoverageMeasure extends AbstractMeasure {
       meas,
     };
 
-    // We need to transform the global coverage map using the source maps
-    // to get correct line numbers (and not the compiled JS line numbers).
-    // TODO: async call here. im wondering if this will cause issues. if we
-    // notice issues, we can look into not having to do this call each time we measure.
-    /* !!!!!!!!!! will resolve this after merge vv
-    const tsCoverageMap = await this._sourceMapStore.transformCoverage(
-      createCoverageMap(currentCoverageData)
-    );
-
-    // Track which lines were hit in this test run (binary: hit or not hit)
-    this._accumulateLineHitsForTestRun(tsCoverageMap);
-    !!!!!!!!! will resolve this after merge ^^ */
-
     return meas;
   } // fn: measure
 
@@ -184,7 +177,9 @@ export class CoverageMeasure extends AbstractMeasure {
         this._coverageData[fileKey] = { ...this._coverageData[fileKey] };
         const fileCoverage = this._coverageData[fileKey];
         Object.keys(fileCoverage.b).forEach((bKey) => {
-          fileCoverage.b[bKey] = [0, 0];
+          fileCoverage.b[bKey] = Array<number>(
+            fileCoverage.b[bKey].length
+          ).fill(0);
         });
         Object.keys(fileCoverage.s).forEach((sKey) => {
           fileCoverage.s[sKey] = 0;
@@ -197,104 +192,68 @@ export class CoverageMeasure extends AbstractMeasure {
   } // fn: onBeforeNextTestExecution
 
   /**
-   * Accumulates line hit counts for a single test run into the
-   * _lineHitCounts map. This is a binary +1 or +0 (whether a line was hit during
-   *  the test run or not).
-   *
-   * @param `tsCoverageMap` js-to-ts transformed coverage map from a single test run
-   */
-  protected _accumulateLineHitsForTestRun(tsCoverageMap: CoverageMap): void {
-    for (const filePath of tsCoverageMap.files()) {
-      const fileKey = normalizePathForKey(filePath);
-
-      let lineHitCounts = this._lineHitCounts.get(fileKey);
-      if (!lineHitCounts) {
-        lineHitCounts = new Map<number, number>();
-        this._lineHitCounts.set(fileKey, lineHitCounts);
-      }
-
-      const fileCoverage = tsCoverageMap.fileCoverageFor(filePath);
-      const lineCoverage = fileCoverage.getLineCoverage();
-
-      for (const [lineStr, hits] of Object.entries(lineCoverage)) {
-        if (hits > 0) {
-          const lineNum = Number(lineStr);
-          lineHitCounts.set(lineNum, (lineHitCounts.get(lineNum) ?? 0) + 1);
-        }
-      }
-
-      // Functions are not accounted for in the above line coverage,
-      // so let us account for it here.
-      for (const funcId in fileCoverage.f) {
-        const funcMap = fileCoverage.fnMap[funcId];
-        if (fileCoverage.f[funcId] > 0) {
-          const lineNum = funcMap.loc.start.line;
-          lineHitCounts.set(lineNum, (lineHitCounts.get(lineNum) ?? 0) + 1);
-        }
-      }
-    }
-  } // fn: _accumulateLineHitsForTestRun
-
-  /**
    * Fills in global code coverage statistics.
    *
    * @param `results` all test results
    */
   public onRunEnd(results: FuzzTestResults): void {
-    // We need to transform the global coverage map using the source maps
-    // to get correct line numbers (and not the compiled JS line numbers).
-    /* !!!!!!!!!! will resolve this after merge vv
-    const tsCoverageMap = await this._sourceMapStore.transformCoverage(
-      this._globalCoverageMap
-    );
-    const coverageSummary = tsCoverageMap.getCoverageSummary();
+    results.stats.measures.CodeCoverageMeasure =
+      async (): Promise<CodeCoverageMeasureStats> => {
+        // We need to transform the global coverage map using the source maps
+        // to get TypeScript locations (not the compiled JS locations).
+        const tsCoverageMap = await this._sourceMapStore.transformCoverage(
+          this._globalCoverageMap
+        );
+        const coverageSummary = tsCoverageMap.getCoverageSummary();
+        const files: CodeCoverageFileStats[] = tsCoverageMap
+          .files()
+          .map((filePath) => {
+            const fileSummary = tsCoverageMap
+              .fileCoverageFor(filePath)
+              .toSummary();
+            const fileMap = JSON5.parse<FileCoverage>(
+              JSON5.stringify(tsCoverageMap.fileCoverageFor(filePath))
+            );
+            // Omit functions and branches with no hits
+            for (const k of Object.keys(fileMap.f)) {
+              if (fileMap.f[k] === 0) delete fileMap.f[k];
+            }
+            for (const k of Object.keys(fileMap.b)) {
+              if (Math.max(...fileMap.b[k]) === 0) delete fileMap.b[k];
+            }
+            for (const k of Object.keys(fileMap.statementMap)) {
+              if (!(k in fileMap.s)) delete fileMap.statementMap[k];
+            }
+            for (const k of Object.keys(fileMap.branchMap)) {
+              if (!(k in fileMap.b)) delete fileMap.branchMap[k];
+            }
 
-    const files: CodeCoverageFileStats[] = tsCoverageMap
-    !!!!!!!!!! will resolve this after merge ^^ */
-
-    const coverageSummary = this._globalCoverageMap.getCoverageSummary(); // !!!!!!!!!!
-    const files: CodeCoverageFileStats[] = this._globalCoverageMap
-      .files()
-      .map((filePath) => {
-        const filePathKey = normalizePathForKey(filePath);
-        const accumulatedLineHits = this._lineHitCounts.get(filePathKey);
-
-        const lineHits: LineHits = {};
-        if (accumulatedLineHits) {
-          for (const [lineNum, count] of accumulatedLineHits) {
-            lineHits[lineNum] = count;
-          }
-        }
-
-        // TODO: re-add if needed. these are just per-file coverage counters
-        // const fileSummary = fileCoverage.toSummary();
-        // const counters: CodeCoverageCounters = {
-        //   functionsTotal: fileSummary.functions.total,
-        //   functionsCovered: fileSummary.functions.covered,
-        //   statementsTotal: fileSummary.statements.total,
-        //   statementsCovered: fileSummary.statements.covered,
-        //   branchesTotal: fileSummary.branches.total,
-        //   branchesCovered: fileSummary.branches.covered,
-        // };
+            return {
+              path: normalizePathForKey(filePath),
+              counters: {
+                functionsTotal: fileSummary.functions.total,
+                functionsCovered: fileSummary.functions.covered,
+                statementsTotal: fileSummary.statements.total,
+                statementsCovered: fileSummary.statements.covered,
+                branchesTotal: fileSummary.branches.total,
+                branchesCovered: fileSummary.branches.covered,
+              },
+              fileMap,
+            };
+          });
 
         return {
-          path: normalizePathForKey(filePath),
-          // counters,
-          lineHits,
+          counters: {
+            functionsTotal: coverageSummary.functions.total,
+            functionsCovered: coverageSummary.functions.covered,
+            statementsTotal: coverageSummary.statements.total,
+            statementsCovered: coverageSummary.statements.covered,
+            branchesTotal: coverageSummary.branches.total,
+            branchesCovered: coverageSummary.branches.covered,
+          },
+          files,
         };
-      });
-
-    results.stats.measures.CodeCoverageMeasure = {
-      counters: {
-        functionsTotal: coverageSummary.functions.total,
-        functionsCovered: coverageSummary.functions.covered,
-        statementsTotal: coverageSummary.statements.total,
-        statementsCovered: coverageSummary.statements.covered,
-        branchesTotal: coverageSummary.branches.total,
-        branchesCovered: coverageSummary.branches.covered,
-      },
-      files,
-    };
+      };
   } // fn: onRunEnd
 
   /**
@@ -395,17 +354,14 @@ type CodeCoverageCounters = {
   branchesCovered: number;
 };
 
-export type LineHits = { [line: number]: number };
-
 /**
  * Per-file Code Coverage Statistics. Includes line-level hit counts, which necessitates
  * per-file stats since line numbers are file-specific.
  */
 type CodeCoverageFileStats = {
   path: string;
-  // counters: CodeCoverageCounters; // TODO: re-add if needed
-  lineHits: LineHits;
-  // lineHitsFromFailedTests: LineHits;
+  counters: CodeCoverageCounters;
+  fileMap: FileCoverage;
 };
 
 /**
@@ -418,3 +374,5 @@ export type CodeCoverageMeasureStats = {
   // Per-file breakdown, including line-level hit counts
   files: CodeCoverageFileStats[];
 };
+
+export { FileCoverage } from "istanbul-lib-coverage";

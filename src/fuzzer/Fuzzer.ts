@@ -1257,7 +1257,7 @@ export type FuzzTestStats = {
     AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
   };
   measures: {
-    CodeCoverageMeasure?: CodeCoverageMeasureStats;
+    CodeCoverageMeasure?: () => Promise<CodeCoverageMeasureStats>;
   };
 };
 

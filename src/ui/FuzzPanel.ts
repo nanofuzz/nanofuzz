@@ -9,8 +9,12 @@ import { ProgramDef } from "../fuzzer/analysis/typescript/ProgramDef";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
-import { applyCoverageHeatmap, clearCoverageHeatmap } from "./CoverageHeatmap";
+import {
+  applyCoverageHeatmapToEditor,
+  clearCoverageHeatmapFromEditor,
+} from "./CoverageHeatmap";
 import { normalizePathForKey } from "../fuzzer/Util";
+import { CodeCoverageMeasureStats } from "fuzzer/measures/CoverageMeasure";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -49,6 +53,7 @@ export class FuzzPanel {
   private _lastTab: fuzzer.FuzzResultTab | undefined; // Last tab id that had focus
   private _tester: fuzzer.Tester; // The test generator
   private _showingCoverage = false; // Currently showing code coverage?
+  private _coverageStats: CodeCoverageMeasureStats | undefined;
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
@@ -349,6 +354,7 @@ export class FuzzPanel {
             this._testRun(message.json, { gen: true });
             break;
           case "fuzz.retest":
+            this._refreshCoverageHeatmap(false);
             this._doGetValidators();
             this._testRun(message.json, { retest: true });
             break;
@@ -358,6 +364,7 @@ export class FuzzPanel {
             this._testRun(message.json, { add: true });
             break;
           case "fuzz.clear":
+            this._refreshCoverageHeatmap(false);
             this._doGetValidators();
             this._testClear(message.json);
             break;
@@ -365,6 +372,11 @@ export class FuzzPanel {
             this._pauseTesting = true;
             break;
           case "fuzz.coverage.show":
+            if (this._coverageStats) {
+              console.debug(
+                `Coverage stats: ${JSON5.stringify(this._coverageStats, null, 2)}`
+              ); // !!!!!!!!!!
+            }
             this._refreshCoverageHeatmap(true);
             this._navigateToSource(
               this._fuzzEnv.function.getModule(),
@@ -1223,6 +1235,7 @@ ${inArgConsts}
     this._state = FuzzPanelState.busyTesting;
     this._errorMessage = undefined;
     this._errorStack = undefined;
+    this._coverageStats = undefined;
     this._retestingReason = mode.retest
       ? "user" // user trigged retest
       : this._results && resultsAreStale
@@ -1252,7 +1265,7 @@ ${inArgConsts}
         this._tester.testAsync(
           testsToInject,
           { gen: mode.gen },
-          (result: fuzzer.FuzzTestResults | Error) => {
+          async (result: fuzzer.FuzzTestResults | Error) => {
             if (isError(result)) {
               /* Error */
               // Transition to error state
@@ -1314,6 +1327,12 @@ ${inArgConsts}
               // Persist the fuzz test run settings (!!!!!!! validation)
               this._updateFuzzTests();
 
+              // Get coverage data
+              this._coverageStats = this._results.stats.measures
+                .CodeCoverageMeasure
+                ? await this._results.stats.measures.CodeCoverageMeasure()
+                : undefined;
+
               // Update the UI
               const message: FuzzPanelMessageToWebView = {
                 command: "busy.ending",
@@ -1373,6 +1392,7 @@ ${inArgConsts}
     } catch (e: unknown) {
       this._state = FuzzPanelState.error;
       this._setErrorFromException(e);
+      this._coverageStats = undefined;
       this._updateHtml();
       return;
     }
@@ -1388,46 +1408,46 @@ ${inArgConsts}
     this._errorMessage = undefined;
     this._errorStack = undefined;
     this._focusInput = undefined;
+    this._coverageStats = undefined;
     this._updateHtml();
 
     // Save the argument overrides
     this._argOverrides = panelInput.args;
   } // fn: _testClear
 
-  // !!!!!!
-  private _refreshCoverageHeatmap(show: boolean) {
+  /**
+   * Refreshes the heat map for the set of open editors
+   *
+   * @param `show` boolean: true=show coverage heatmap
+   */
+  private _refreshCoverageHeatmap(show: boolean): void {
     if (this._showingCoverage === show) {
       return;
     }
 
     const editors = vscode.window.visibleTextEditors;
-    const files = this._results?.stats.measures.CodeCoverageMeasure?.files;
+    if (!this._coverageStats) {
+      for (const editor of editors) {
+        clearCoverageHeatmapFromEditor(editor);
+      }
+      this._showingCoverage = false;
+      return;
+    }
 
+    const files = this._coverageStats.files;
     this._showingCoverage = show;
-
-    if (!files) return; // !!!!!!! error feedback
 
     for (const editor of editors) {
       const fsPath = normalizePathForKey(editor.document.uri.fsPath);
-      const hits = files.find((f) => f.path === fsPath)?.lineHits;
+      const fileMap = files.find((f) => f.path === fsPath)?.fileMap; // !!!!!!!!!!!
 
-      if (show && hits) {
-        applyCoverageHeatmap(editor, hits);
+      if (show && fileMap) {
+        applyCoverageHeatmapToEditor(editor, fileMap);
       } else {
-        clearCoverageHeatmap(editor);
+        clearCoverageHeatmapFromEditor(editor);
       }
     }
-  } // !!!!!!
-
-  //   private _updateCoverageForRun(
-  //   newCoverage: { [fsPath: string]: LineHits }
-  // ) {
-  //   coverageByFile.clear();
-  //   for (const [fsPath, hits] of Object.entries(newCoverage)) {
-  //     coverageByFile.set(fsPath, hits);
-  //   }
-  //   refreshHeatmapDecorations();
-  // }
+  } // fn: _refreshCoverageHeatmap
 
   /**
    * Updates the fuzzer configuration from the front-end UI message.
@@ -1624,7 +1644,9 @@ ${inArgConsts}
             <!-- PUT -->
             <p class="fuzzPanelHeading" style="padding-bottom: 0.2em;">${this._state === FuzzPanelState.busyTesting ? "Testing:" : "Test:"}
               ${htmlEscape(fn.getName())} 
-              <span title="Open source code" id="openSourceLink" class='codicon codicon-go-to-file clickable'></span>
+              <span class="tooltipped tooltipped-s" aria-label="Open source code">
+                <span id="openSourceLink" ${disabledFlag} class="codicon codicon-go-to-file clickable"></span>
+              </span>
               w/inputs:
             </p>
 
@@ -1650,27 +1672,28 @@ ${inArgConsts}
               <!-- Checkboxes -->
               <div class="fuzzInputControlGroup">
                 <!-- Heuristic Validator -->
-                <vscode-checkbox ${disabledFlag} id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>
-                  <span class="tooltipped tooltipped-ne" aria-label="${heuristicValidatorDescription}">
-                  Heuristic validator 
-                  </span>
-                </vscode-checkbox>
+                <span class="tooltipped tooltipped-ne" aria-label="${heuristicValidatorDescription}">
+                  <vscode-checkbox ${disabledFlag} id="fuzz-useImplicit" ${this._fuzzEnv.options.useImplicit ? "checked" : ""}>
+                    Heuristic validator 
+                  </vscode-checkbox>
+                </span>
 
                 <!-- Property Validator -->
                 <span style="padding-left:1.3em;"> </span>
                 <span style="display:inline-block;">
-                  <vscode-checkbox ${disabledFlag} id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>
-                    <span id="validator-functionList" class="tooltipped tooltipped-ne" aria-label=""> 
+                  <span id="validator-functionList" class="tooltipped tooltipped-ne" aria-label=""> 
+                    <vscode-checkbox ${disabledFlag} id="fuzz-useProperty" ${this._fuzzEnv.options.useProperty ? "checked" : ""}>
                       Property validator${this._fuzzEnv.validators.length===1 ? "" : "s"}
-                    </span> (<span id="validator-functionCount">${this._fuzzEnv.validators.length}</span>)
-                  </vscode-checkbox>
+                     (<span id="validator-functionCount">${this._fuzzEnv.validators.length}</span>)
+                    </vscode-checkbox>
+                  </span>
                   <span id="validator.add" class="tooltipped tooltipped-nw clickable" aria-label="Add new property validator">
-                    <span class="classAddRefreshValidator">
+                    <span ${disabledFlag} class="classAddRefreshValidator">
                       <span class="codicon codicon-add" style="padding-left:0.1em; padding-right:0.1em;"></span>
                     </span>
                   </span>
                   <span id="validator.getList" class="tooltipped tooltipped-nw clickable" aria-label="Refresh list">
-                    <span class="classAddRefreshValidator">
+                    <span ${disabledFlag} class="classAddRefreshValidator">
                       <span class="codicon codicon-refresh" style="padding-left:0.1em;"></span>
                     </span>
                   </span>
@@ -1845,9 +1868,11 @@ ${inArgConsts}
               <vscode-button ${disabledFlag} ${!activeButtons.run ? `class="hidden"` : ""} id="fuzz.run" class="tooltipped tooltipped-ne" appearance="primary icon" aria-label="${this._results ? "Generate more tests": "Generate tests"}">
                 ${this._results ? `<span class="codicon codicon-play"></span><span class="codicon codicon-add"></span>` : `<span class="codicon codicon-play"></span>`}
               </vscode-button>
-              <vscode-button class="${!activeButtons.pause ? `hidden ` : ""}tooltipped tooltipped-ne " id="fuzz.pause" appearance="primary icon" aria-label="Pause testing">
-                <span class="codicon codicon-debug-pause"></span>
-              </vscode-button>
+              <span class="${!activeButtons.pause ? `hidden ` : ""}tooltipped tooltipped-ne" aria-label="Pause testing">
+                <vscode-button id="fuzz.pause" appearance="primary icon">
+                  <span class="codicon codicon-debug-pause"></span>
+                </vscode-button>
+              </span>
               <vscode-button ${disabledFlag} ${!activeButtons.retest ? `class="hidden"` : ""} id="fuzz.retest" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Retest these results">
                 <span class="codicon codicon-debug-rerun"></span>
               </vscode-button>
@@ -2217,36 +2242,34 @@ ${inArgConsts}
           }
 
           // Build code coverage information
-          const coverageStats =
-            this._results.stats.measures.CodeCoverageMeasure;
           const fmtPct = (n: number, d: number) =>
             d === 0 ? "na%" : ((n * 100) / d).toFixed(0).toString() + "%";
           const coverageText =
-            coverageStats === undefined
+            this._coverageStats === undefined
               ? ""
               : `The executed tests exercised ${
-                  coverageStats.counters.functionsCovered
-                } of ${coverageStats.counters.functionsTotal} function${
-                  coverageStats.counters.functionsTotal === 1 ? "" : "s"
+                  this._coverageStats.counters.functionsCovered
+                } of ${this._coverageStats.counters.functionsTotal} function${
+                  this._coverageStats.counters.functionsTotal === 1 ? "" : "s"
                 } (${fmtPct(
-                  coverageStats.counters.functionsCovered,
-                  coverageStats.counters.functionsTotal
-                )}), ${coverageStats.counters.statementsCovered} of ${
-                  coverageStats.counters.statementsTotal
+                  this._coverageStats.counters.functionsCovered,
+                  this._coverageStats.counters.functionsTotal
+                )}), ${this._coverageStats.counters.statementsCovered} of ${
+                  this._coverageStats.counters.statementsTotal
                 } statement${
-                  coverageStats.counters.statementsTotal === 1 ? "" : "s"
+                  this._coverageStats.counters.statementsTotal === 1 ? "" : "s"
                 } (${fmtPct(
-                  coverageStats.counters.statementsCovered,
-                  coverageStats.counters.statementsTotal
-                )}), and ${coverageStats.counters.branchesCovered} of ${
-                  coverageStats.counters.branchesTotal
+                  this._coverageStats.counters.statementsCovered,
+                  this._coverageStats.counters.statementsTotal
+                )}), and ${this._coverageStats.counters.branchesCovered} of ${
+                  this._coverageStats.counters.branchesTotal
                 } branch${
-                  coverageStats.counters.branchesTotal === 1 ? "" : "es"
+                  this._coverageStats.counters.branchesTotal === 1 ? "" : "es"
                 } (${fmtPct(
-                  coverageStats.counters.branchesCovered,
-                  coverageStats.counters.branchesTotal
-                )}) in the ${coverageStats.files.length} source file${
-                  coverageStats.files.length === 1 ? "" : "s"
+                  this._coverageStats.counters.branchesCovered,
+                  this._coverageStats.counters.branchesTotal
+                )}) in the ${this._coverageStats.files.length} source file${
+                  this._coverageStats.files.length === 1 ? "" : "s"
                 } executed.`;
 
           // Build the list of validators used/not used
@@ -2367,9 +2390,9 @@ ${inArgConsts}
                   ${this._results.interesting.inputs
                     .map(
                       (i) =>
-                        `<tr class="editorFont"><td>${htmlEscape(
+                        `<tr class="editorFont"><td><span>${htmlEscape(
                           i.input.tick.toString()
-                        )}</td>${i.input.value
+                        )}</span></td>${i.input.value
                           .map((i) =>
                             i.value === undefined
                               ? `<td class="noInput">(no input)</td>`

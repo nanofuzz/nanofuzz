@@ -189,7 +189,7 @@ function main() {
   getElementByIdOrThrow("fuzz.coverage.hide").addEventListener(
     "click",
     handleToggleCoverageHeatmap
-  );  
+  );
 
   // Add event listener for opening the function source code
   getElementByIdOrThrow("openSourceLink").addEventListener(
@@ -621,7 +621,8 @@ function main() {
           } else if (k === implicitLabel) {
             if (resultsData.env.options.useImplicit) {
               const heuristicValidatorDescription =
-                getElementByIdOrThrow("fuzz-useImplicit").children[0].ariaLabel;
+                getElementByIdOrThrow("fuzz-useImplicit").parentElement
+                  ?.ariaLabel;
               const cell = hRow.appendChild(document.createElement("th"));
               cell.id = type + "-" + implicitLabel;
               cell.classList.add("colorColumn", "clickable");
