@@ -1780,6 +1780,7 @@ ${inArgConsts}
         retest?: true;
         clear?: true;
         add?: true;
+        coverage?: true;
         options?: true;
       } = {};
       if (this._state === FuzzPanelState.busyTesting) {
@@ -1801,6 +1802,7 @@ ${inArgConsts}
             activeButtons.retest = true;
             activeButtons.clear = true;
             activeButtons.add = true;
+            activeButtons.coverage = true;
             activeButtons.options = true;
             break;
           }
@@ -1855,17 +1857,16 @@ ${inArgConsts}
                   <span class="codicon codicon-add"></span>
                 </vscode-button>
               </span>
-              
-              <!-- !!!!!!!!!!! will resolve this after merge -->
-              <vscode-button ${disabledFlag} id="fuzz.coverage.show" appearance="secondary icon" class="tooltipped tooltipped-n" aria-label="Show coverage heatmap">
-                <span class="codicon codicon-coverage"></span>
-              </vscode-button>  
-              <vscode-button ${disabledFlag} id="fuzz.coverage.hide" appearance="secondary icon depressed" class="hidden tooltipped tooltipped-n" aria-label="Hide coverage heatmap">
-                <span class="codicon codicon-coverage"></span>
-              </vscode-button>  
-              <!-- !!!!!!!!!!! will resolve this after merge ^^ -->
+              <span ${!activeButtons.coverage ? `class="hidden"` : ""}>
+                <vscode-button ${disabledFlag} id="fuzz.coverage.show" appearance="secondary icon" class="tooltipped tooltipped-n" aria-label="Show coverage heatmap">
+                  <span class="codicon codicon-coverage"></span>
+                </vscode-button>  
+                <vscode-button ${disabledFlag} id="fuzz.coverage.hide" appearance="secondary icon depressed" class="hidden tooltipped tooltipped-n" aria-label="Hide coverage heatmap">
+                  <span class="codicon codicon-coverage"></span>
+                </vscode-button>  
+              </span>
 
-              ${activeButtons.run || activeButtons.pause || activeButtons.retest || activeButtons.add /* !!!!!!!!!! will resolve this after merge */ ? `&nbsp;` : ""}
+              ${activeButtons.run || activeButtons.pause || activeButtons.retest || activeButtons.add || activeButtons.coverage ? `&nbsp;` : ""}
 
               <span ${!activeButtons.clear ? `class="hidden"` : ""}>
                 <vscode-button ${disabledFlag} id="fuzz.clear" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Discard these results">
@@ -1874,7 +1875,6 @@ ${inArgConsts}
                 &nbsp;
               </span>
               
-
               <span ${!activeButtons.options ? `class="hidden"` : ""}>
                 <vscode-button ${disabledFlag} id="fuzz.options.open" class="tooltipped tooltipped-n" appearance="secondary icon"  aria-label="More options">
                   <span class="codicon codicon-settings-gear"></span>
