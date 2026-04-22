@@ -165,6 +165,8 @@ th.expandCollapseColumn {
 }
 #fuzz\.options\.interesting\.inputs tbody tr td:first-child {
   text-align: center;
+}
+#fuzz\.options\.interesting\.inputs tbody tr td:first-child span {
   color: rgb(from var(--vscode-foreground) r g b / 0.35);
 }
 #fuzzAddTestInputOptions-pane .fuzzGrid {
@@ -582,6 +584,7 @@ p span.codicon {
 }
 .snackbarShow {
   visibility: visible;
+  z-index: 10;
   animation:
     fadein 0.5s,
     fadeout 0.5s 3.6s;

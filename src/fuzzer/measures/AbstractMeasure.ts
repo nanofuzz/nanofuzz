@@ -35,9 +35,8 @@ export abstract class AbstractMeasure {
    * @param `jsFileName` location of source coe
    * @returns modified source code
    */
-  public onAfterCompile(jsSrc: string, jsFileName: string): string {
+  public onAfterCompile(jsSrc: string, _jsFileName: string): string {
     return jsSrc;
-    jsFileName;
   }
 
   /**
@@ -46,9 +45,8 @@ export abstract class AbstractMeasure {
    *
    * @param `globals` context of the loaded program
    */
-  public onAfterLoad(globals: VmGlobals): void {
+  public onAfterLoad(_globals: VmGlobals): void {
     return;
-    globals;
   }
 
   /**
@@ -67,10 +65,9 @@ export abstract class AbstractMeasure {
    * @returns measurement data
    */
   public measure(
-    input: InputAndSource,
-    result: FuzzTestResult
+    _input: InputAndSource,
+    _result: FuzzTestResult
   ): BaseMeasurement {
-    result;
     return {
       type: "measure",
       name: this.name,
@@ -82,9 +79,8 @@ export abstract class AbstractMeasure {
    *
    * @param `results` all test results
    */
-  public onRunEnd(results: FuzzTestResults): void {
+  public onRunEnd(_results: FuzzTestResults): void {
     return;
-    results;
   } // fn: onRunEnd
 
   /**

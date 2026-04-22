@@ -65,7 +65,7 @@ export class Tester {
     const fnList = this._program.getExportedFunctions();
     if (!(this._fnName in fnList)) {
       throw new Error(
-        `Could not find exported function ${this._fnName} in: ${this._module})}`
+        `Could not find exported function ${this._fnName} in: ${this._module}`
       );
     }
     this._function = fnList[this._fnName];
@@ -1257,7 +1257,7 @@ export type FuzzTestStats = {
     AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
   };
   measures: {
-    CodeCoverageMeasure?: CodeCoverageMeasureStats;
+    CodeCoverageMeasure?: () => Promise<CodeCoverageMeasureStats>;
   };
 };
 

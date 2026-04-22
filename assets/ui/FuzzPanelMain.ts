@@ -116,6 +116,9 @@ const tabScrollPosition: Record<string, number> = {};
 let lastResultsTabClicked: Element | undefined = undefined;
 let lastResultsTableShown: Element | undefined = undefined;
 
+// Coverage Heatmap Status
+let coverageHeatmapIsStale = false;
+
 /**
  * Sets up the UI when the page is loaded, including setting up
  * event handlers and filling the output grids if data is available.
@@ -163,6 +166,12 @@ function main() {
     "click",
     toggleAddTestInputOptions
   );
+  // Add event listener for the fuzz.addTestInput button
+  getElementByIdOrThrow("fuzz.addTestInput").addEventListener(
+    "click",
+    handleAddTestInput
+  );
+
   document
     .getElementById("fuzz.addTestInput")
     ?.addEventListener("click", handleAddTestInput);
@@ -174,6 +183,16 @@ function main() {
       }
     );
   }
+
+  // Add event listeners for the fuzz.coverage buttons
+  getElementByIdOrThrow("fuzz.coverage.show").addEventListener(
+    "click",
+    handleToggleCoverageHeatmap
+  );
+  getElementByIdOrThrow("fuzz.coverage.hide").addEventListener(
+    "click",
+    handleToggleCoverageHeatmap
+  );
 
   // Add event listener for opening the function source code
   getElementByIdOrThrow("openSourceLink").addEventListener(
@@ -383,6 +402,11 @@ function main() {
     columnSortOrders = defaultColumnSortOrders;
   }
 
+  // Load the coverage heatmap state from the HTML
+  if (getElementByIdOrThrow("fuzzShowCoverageHeatmap").innerText === "true") {
+    handleToggleCoverageHeatmap();
+  }
+
   // Listen for messages from the extension
   window.addEventListener("message", async (event) => {
     const data: FuzzPanelMessageToWebView = event.data;
@@ -417,6 +441,17 @@ function main() {
       }
       case "busy.ending":
         getElementByIdOrThrow("fuzz.pause").setAttribute("disabled", "true");
+        break;
+      case "coverage.hidden":
+        show(getElementByIdOrThrow("fuzz.coverage.show"));
+        hide(getElementByIdOrThrow("fuzz.coverage.hide"));
+        hide(getElementByIdOrThrow("fuzzWarnings.coverage.stale"));
+        break;
+      case "coverage.stale":
+        coverageHeatmapIsStale = true;
+        if (isHidden(getElementByIdOrThrow("fuzz.coverage.show"))) {
+          show(getElementByIdOrThrow("fuzzWarnings.coverage.stale"));
+        }
         break;
     }
   });
@@ -605,7 +640,8 @@ function main() {
           } else if (k === implicitLabel) {
             if (resultsData.env.options.useImplicit) {
               const heuristicValidatorDescription =
-                getElementByIdOrThrow("fuzz-useImplicit").children[0].ariaLabel;
+                getElementByIdOrThrow("fuzz-useImplicit").parentElement
+                  ?.ariaLabel;
               const cell = hRow.appendChild(document.createElement("th"));
               cell.id = type + "-" + implicitLabel;
               cell.classList.add("colorColumn", "clickable");
@@ -856,6 +892,26 @@ function handleAddTestInput() {
     );
   }
 } // fn: handleAddTestInputCase
+
+/**
+ * Toggle the display of the code coverage heatmap
+ */
+function handleToggleCoverageHeatmap() {
+  toggleHidden(getElementByIdOrThrow("fuzz.coverage.show"));
+  toggleHidden(getElementByIdOrThrow("fuzz.coverage.hide"));
+  const showingCoverage = isHidden(getElementByIdOrThrow("fuzz.coverage.show"));
+
+  // Show or hide the coverage stale warning
+  (coverageHeatmapIsStale && showingCoverage ? show : hide)(
+    getElementByIdOrThrow("fuzzWarnings.coverage.stale")
+  );
+
+  // Show or hide the coverage decorations
+  const message: FuzzPanelMessageFromWebView = {
+    command: `fuzz.coverage.${showingCoverage ? "show" : "hide"}`,
+  };
+  vscode.postMessage(message);
+} // fn: handleToggleCoverageHeatmap
 
 /**
  * Gets a single input value.

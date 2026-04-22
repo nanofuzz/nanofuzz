@@ -396,7 +396,7 @@ describe("fuzzer:", () => {
     ).toBeTruthy();
   });
 
-  it("Fuzz example 16 - coverageMultiFile", () => {
+  it("Fuzz example 16 - coverageMultiFile", async () => {
     const fuzzResult = new Tester(
       "./Fuzzer.testfixtures.ts",
       "testCoverageMultiFile",
@@ -407,22 +407,16 @@ describe("fuzzer:", () => {
     expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // Expect all implicit validation to pass
     expect(fuzzResult.stats.measures.CodeCoverageMeasure).toBeDefined(); // Has coverage stats
     if (fuzzResult.stats.measures.CodeCoverageMeasure) {
+      const coverageStats =
+        await fuzzResult.stats.measures.CodeCoverageMeasure();
       // Expect coverage of >1 source files
-      expect(
-        fuzzResult.stats.measures.CodeCoverageMeasure.files.length
-      ).toBeGreaterThan(1);
+      expect(coverageStats.files.length).toBeGreaterThan(1);
       // Expect coverage of 2 functions (one in each source file)
-      expect(
-        fuzzResult.stats.measures.CodeCoverageMeasure.counters.functionsCovered
-      ).toBe(2);
+      expect(coverageStats.counters.functionsCovered).toBe(2);
       // Expect coverage of 2 statements across 2 files, 2 functions
-      expect(
-        fuzzResult.stats.measures.CodeCoverageMeasure.counters.statementsCovered
-      ).toBeGreaterThan(1);
+      expect(coverageStats.counters.statementsCovered).toBeGreaterThan(1);
       // Expect coverage of 1 branch across 2 files, 2 functions
-      expect(
-        fuzzResult.stats.measures.CodeCoverageMeasure.counters.branchesCovered
-      ).toBeGreaterThan(0);
+      expect(coverageStats.counters.branchesCovered).toBeGreaterThan(0);
     }
   });
 
