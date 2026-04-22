@@ -349,22 +349,22 @@ export class FuzzPanel {
       async (message: FuzzPanelMessageFromWebView) => {
         switch (message.command) {
           case "fuzz.run":
-            this._refreshCoverageHeatmap(false);
+            this._hideCoverageHeatmap();
             this._doGetValidators();
             this._testRun(message.json, { gen: true });
             break;
           case "fuzz.retest":
-            this._refreshCoverageHeatmap(false);
+            this._hideCoverageHeatmap();
             this._doGetValidators();
             this._testRun(message.json, { retest: true });
             break;
           case "fuzz.addTestInput":
-            this._refreshCoverageHeatmap(false);
+            this._hideCoverageHeatmap();
             this._doGetValidators();
             this._testRun(message.json, { add: true });
             break;
           case "fuzz.clear":
-            this._refreshCoverageHeatmap(false);
+            this._hideCoverageHeatmap();
             this._doGetValidators();
             this._testClear(message.json);
             break;
@@ -372,19 +372,15 @@ export class FuzzPanel {
             this._pauseTesting = true;
             break;
           case "fuzz.coverage.show":
-            if (this._coverageStats) {
-              console.debug(
-                `Coverage stats: ${JSON5.stringify(this._coverageStats, null, 2)}`
-              ); // !!!!!!!!!!
-            }
-            this._refreshCoverageHeatmap(true);
             this._navigateToSource(
               this._fuzzEnv.function.getModule(),
               this._fuzzEnv.function.getRef().startOffset
-            );
+            ).then(() => {
+              this._showCoverageHeatmap();
+            });
             break;
           case "fuzz.coverage.hide":
-            this._refreshCoverageHeatmap(false);
+            this._hideCoverageHeatmap();
             break;
           case "test.pin":
             this._doTestPinnedCmd(message.json, true);
@@ -816,7 +812,10 @@ export class FuzzPanel {
    * @param module path to TypeScript module
    * @param position? offset position to receive focus in file
    */
-  private _navigateToSource(module: string, position?: number): void {
+  private async _navigateToSource(
+    module: string,
+    position?: number
+  ): Promise<void> {
     const uri = vscode.Uri.file(module);
     let viewColumn: vscode.ViewColumn | undefined;
 
@@ -852,17 +851,17 @@ export class FuzzPanel {
     }
 
     // Open the text document for the module
-    vscode.workspace.openTextDocument(uri).then((doc) => {
-      // Show the document in the desired column and position the
-      // cursor where we want, if a position was provided.
-      const opt: vscode.TextDocumentShowOptions = {
-        viewColumn: viewColumn,
-        selection: position
-          ? new vscode.Range(doc.positionAt(position), doc.positionAt(position))
-          : undefined,
-      };
-      vscode.window.showTextDocument(doc, opt);
-    });
+    const doc = await vscode.workspace.openTextDocument(uri);
+
+    // Show the document in the desired column and position the
+    // cursor where we want, if a position was provided.
+    const opt: vscode.TextDocumentShowOptions = {
+      viewColumn: viewColumn,
+      selection: position
+        ? new vscode.Range(doc.positionAt(position), doc.positionAt(position))
+        : undefined,
+    };
+    await vscode.window.showTextDocument(doc, opt);
   }
   /**
    * Add code skeleton for a property validator to the program source code.
@@ -1416,38 +1415,39 @@ ${inArgConsts}
   } // fn: _testClear
 
   /**
-   * Refreshes the heat map for the set of open editors
-   *
-   * @param `show` boolean: true=show coverage heatmap
+   * Hides the heat map for the set of open editors
    */
-  private _refreshCoverageHeatmap(show: boolean): void {
-    if (this._showingCoverage === show) {
+  private _hideCoverageHeatmap(): void {
+    if (!this._showingCoverage) {
       return;
     }
+    for (const editor of vscode.window.visibleTextEditors) {
+      clearCoverageHeatmapFromEditor(editor);
+    }
+    this._showingCoverage = false;
+  } // fn: _hideCoverageHeatmap
 
-    const editors = vscode.window.visibleTextEditors;
-    if (!this._coverageStats) {
-      for (const editor of editors) {
-        clearCoverageHeatmapFromEditor(editor);
-      }
-      this._showingCoverage = false;
+  /**
+   * Shows the heat map for the set of open editors
+   */
+  private _showCoverageHeatmap(): void {
+    if (this._showingCoverage || !this._coverageStats) {
       return;
     }
-
     const files = this._coverageStats.files;
-    this._showingCoverage = show;
 
-    for (const editor of editors) {
+    for (const editor of vscode.window.visibleTextEditors) {
       const fsPath = normalizePathForKey(editor.document.uri.fsPath);
-      const fileMap = files.find((f) => f.path === fsPath)?.fileMap; // !!!!!!!!!!!
+      const fileMap = files.find((f) => f.path === fsPath)?.fileMap;
 
-      if (show && fileMap) {
+      if (fileMap) {
         applyCoverageHeatmapToEditor(editor, fileMap);
       } else {
         clearCoverageHeatmapFromEditor(editor);
       }
     }
-  } // fn: _refreshCoverageHeatmap
+    this._showingCoverage = true;
+  } // fn: _showCoverageHeatmap
 
   /**
    * Updates the fuzzer configuration from the front-end UI message.
@@ -1533,10 +1533,8 @@ ${inArgConsts}
    * Disposes all objects used by this instance
    */
   public dispose(): void {
-    // Turn off code coverage decorations
-    if (this._showingCoverage) {
-      this._refreshCoverageHeatmap(false);
-    }
+    // Hide code coverage decorations
+    this._hideCoverageHeatmap();
 
     // Remove this panel from the list of current panels.
     delete FuzzPanel.currentPanels[this.getFnRefKey()];
