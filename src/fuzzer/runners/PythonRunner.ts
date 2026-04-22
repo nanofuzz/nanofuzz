@@ -675,8 +675,13 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
         kind: "union",
         arms: arg.getChildren().map(getTypeHint),
       };
+
     case ArgTag.BYTES:
       return "bytes";
+
+    case ArgTag.BIGINT:
+      throw new Error(`Internal error: Python doesn't have bigint`);
+
     case ArgTag.NUMBER:
     case ArgTag.STRING:
     case ArgTag.BOOLEAN:
