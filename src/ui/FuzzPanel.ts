@@ -65,7 +65,9 @@ export class FuzzPanel {
   private _lastTab: fuzzer.FuzzResultTab | undefined; // Last tab id that had focus
   private _tester: fuzzer.Tester; // The test generator
   private _showingCoverage = false; // Currently showing code coverage?
-  private _coverageStats: CodeCoverageMeasureStats | undefined;
+  private _wasShowingCoverage = false; // Was showing coverage on the prior run?
+  private _coverageStats: CodeCoverageMeasureStats | undefined; // Code coverage stats
+  private _isDisposed = false; // is panel disposed?
 
   // State-dependent instance variables
   private _results?: fuzzer.FuzzTestResults; // done state: the fuzzer output
@@ -359,6 +361,7 @@ export class FuzzPanel {
   private _setWebviewMessageListener(webview: vscode.Webview) {
     webview.onDidReceiveMessage(
       async (message: FuzzPanelMessageFromWebView) => {
+        this._wasShowingCoverage = this._showingCoverage;
         switch (message.command) {
           case "fuzz.run":
             this._hideCoverageHeatmap();
@@ -1173,6 +1176,8 @@ ${inArgConsts}
     json: string,
     mode: { retest?: true; gen?: true; add?: true }
   ): Promise<void> {
+    this._coverageStats = undefined;
+
     // Get the panel input & use it to update options
     const panelInput: FuzzPanelFuzzRunMessage = JSON5.parse(json);
     this._getConfigFromUi(panelInput); // needed for accuate stale check
@@ -1454,11 +1459,13 @@ ${inArgConsts}
     this._showingCoverage = false;
     FuzzPanel.panelShowingCoverage = undefined;
 
-    // Inform the panel so it can change the button state
-    const message: FuzzPanelMessageToWebView = {
-      command: "coverage.hidden",
-    };
-    this._panel.webview.postMessage(message);
+    // Inform the panel so it can update the button state, if needed
+    if (!this._isDisposed) {
+      const message: FuzzPanelMessageToWebView = {
+        command: "coverage.hidden",
+      };
+      this._panel.webview.postMessage(message);
+    }
   } // fn: _hideCoverageHeatmap
 
   /**
@@ -1571,6 +1578,8 @@ ${inArgConsts}
    * Disposes all objects used by this instance
    */
   public dispose(): void {
+    this._isDisposed = true;
+
     // Hide code coverage decorations
     this._hideCoverageHeatmap();
 
@@ -1861,9 +1870,12 @@ ${inArgConsts}
             activeButtons.retest = true;
             activeButtons.clear = true;
             activeButtons.add = true;
-            activeButtons.coverage =
-              this._fuzzEnv.options.measures.CoverageMeasure.enabled ||
-              "disabled";
+            activeButtons.coverage = this._fuzzEnv.options.measures
+              .CoverageMeasure.enabled
+              ? this._coverageStats
+                ? true
+                : undefined
+              : "disabled";
             activeButtons.options = true;
             break;
           }
@@ -2018,7 +2030,7 @@ ${inArgConsts}
             </div>
 
             <div class="fuzzWarnings hidden" id="fuzzWarnings.coverage.stale">
-              <p>The program changed after this coverage heatmap was generated.</p>
+              <p>The program changed after the coverage heatmap was generated.</p>
             </div>
 
             <div class="fuzzWarnings${
@@ -2654,6 +2666,9 @@ ${inArgConsts}
               }
             </div>
             
+            <!-- Fuzzer Coverage Heatmap Setting: for the client script to process -->
+            <div id="fuzzShowCoverageHeatmap" class="hidden">${this._coverageStats && this._wasShowingCoverage}</div>
+
             <!-- Fuzzer Sort Columns: for the client script to process -->
             <div id="fuzzHideColumns" class="hidden">
               ${htmlEscape(

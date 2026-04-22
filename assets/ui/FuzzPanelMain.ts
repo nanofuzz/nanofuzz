@@ -402,6 +402,11 @@ function main() {
     columnSortOrders = defaultColumnSortOrders;
   }
 
+  // Load the coverage heatmap state from the HTML
+  if (getElementByIdOrThrow("fuzzShowCoverageHeatmap").innerText === "true") {
+    handleToggleCoverageHeatmap();
+  }
+
   // Listen for messages from the extension
   window.addEventListener("message", async (event) => {
     const data: FuzzPanelMessageToWebView = event.data;

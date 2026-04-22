@@ -584,6 +584,7 @@ p span.codicon {
 }
 .snackbarShow {
   visibility: visible;
+  z-index: 10;
   animation:
     fadein 0.5s,
     fadeout 0.5s 3.6s;
