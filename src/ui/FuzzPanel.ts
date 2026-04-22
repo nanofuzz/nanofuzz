@@ -42,6 +42,17 @@ export class FuzzPanel {
   public static readonly viewType = "FuzzPanel"; // The name of this panel type
   public static context: vscode.ExtensionContext;
   private static panelShowingCoverage: FuzzPanel | undefined = undefined;
+  private static staleMonitor = setInterval(() => {
+    if (
+      FuzzPanel.panelShowingCoverage &&
+      FuzzPanel.panelShowingCoverage._showingCoverage &&
+      FuzzPanel.panelShowingCoverage.resultsAreStale(
+        FuzzPanel.panelShowingCoverage._fuzzEnv.options
+      )
+    ) {
+      FuzzPanel.panelShowingCoverage._doStaleNotify();
+    }
+  }, 5000);
 
   // Instance variables
   private readonly _panel: vscode.WebviewPanel; // The WebView panel for this FuzzPanel instance
@@ -864,6 +875,17 @@ export class FuzzPanel {
     };
     await vscode.window.showTextDocument(doc, opt);
   }
+
+  /**
+   * Notify the panel about stale results
+   */
+  private _doStaleNotify() {
+    const message: FuzzPanelMessageToWebView = {
+      command: "coverage.stale",
+    };
+    this._panel.webview.postMessage(message);
+  } // fn: _doStaleNotify
+
   /**
    * Add code skeleton for a property validator to the program source code.
    */
@@ -1433,9 +1455,10 @@ ${inArgConsts}
     FuzzPanel.panelShowingCoverage = undefined;
 
     // Inform the panel so it can change the button state
-    this._panel.webview.postMessage({
+    const message: FuzzPanelMessageToWebView = {
       command: "coverage.hidden",
-    });
+    };
+    this._panel.webview.postMessage(message);
   } // fn: _hideCoverageHeatmap
 
   /**
@@ -1992,6 +2015,10 @@ ${inArgConsts}
                 : " hidden"
             }">
               <p>No validators were selected, so all tests below will pass. You can change this by turning on one or more validators.</p>
+            </div>
+
+            <div class="fuzzWarnings hidden" id="fuzzWarnings.coverage.stale">
+              <p>The program changed after this coverage heatmap was generated.</p>
             </div>
 
             <div class="fuzzWarnings${
@@ -3558,8 +3585,6 @@ export type FuzzPanelMessageFromWebView =
         | "fuzz.retest"
         | "fuzz.addTestInput"
         | "fuzz.clear"
-        | "fuzz.coverage.show"
-        | "fuzz.coverage.hide"
         | "test.pin"
         | "test.unpin"
         | "columns.sorted";
@@ -3567,6 +3592,8 @@ export type FuzzPanelMessageFromWebView =
     }
   | {
       command:
+        | "fuzz.coverage.show"
+        | "fuzz.coverage.hide"
         | "fuzz.pause"
         | "validator.add"
         | "validator.getList"
@@ -3647,4 +3674,5 @@ export type FuzzPanelMessageToWebView =
         };
       };
     }
-  | { command: "coverage.hidden" };
+  | { command: "coverage.hidden" }
+  | { command: "coverage.stale" };

@@ -116,6 +116,9 @@ const tabScrollPosition: Record<string, number> = {};
 let lastResultsTabClicked: Element | undefined = undefined;
 let lastResultsTableShown: Element | undefined = undefined;
 
+// Coverage Heatmap Status
+let coverageHeatmapIsStale = false;
+
 /**
  * Sets up the UI when the page is loaded, including setting up
  * event handlers and filling the output grids if data is available.
@@ -437,6 +440,13 @@ function main() {
       case "coverage.hidden":
         show(getElementByIdOrThrow("fuzz.coverage.show"));
         hide(getElementByIdOrThrow("fuzz.coverage.hide"));
+        hide(getElementByIdOrThrow("fuzzWarnings.coverage.stale"));
+        break;
+      case "coverage.stale":
+        coverageHeatmapIsStale = true;
+        if (isHidden(getElementByIdOrThrow("fuzz.coverage.show"))) {
+          show(getElementByIdOrThrow("fuzzWarnings.coverage.stale"));
+        }
         break;
     }
   });
@@ -879,18 +889,23 @@ function handleAddTestInput() {
 } // fn: handleAddTestInputCase
 
 /**
- *
+ * Toggle the display of the code coverage heatmap
  */
 function handleToggleCoverageHeatmap() {
   toggleHidden(getElementByIdOrThrow("fuzz.coverage.show"));
   toggleHidden(getElementByIdOrThrow("fuzz.coverage.hide"));
+  const showingCoverage = isHidden(getElementByIdOrThrow("fuzz.coverage.show"));
 
-  vscode.postMessage({
-    command: `fuzz.coverage.${
-      isHidden(getElementByIdOrThrow("fuzz.coverage.show")) ? "show" : "hide"
-    }`,
-    // json: JSON5.stringify(overrides),
-  });
+  // Show or hide the coverage stale warning
+  (coverageHeatmapIsStale && showingCoverage ? show : hide)(
+    getElementByIdOrThrow("fuzzWarnings.coverage.stale")
+  );
+
+  // Show or hide the coverage decorations
+  const message: FuzzPanelMessageFromWebView = {
+    command: `fuzz.coverage.${showingCoverage ? "show" : "hide"}`,
+  };
+  vscode.postMessage(message);
 } // fn: handleToggleCoverageHeatmap
 
 /**
