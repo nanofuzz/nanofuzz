@@ -434,6 +434,10 @@ function main() {
       case "busy.ending":
         getElementByIdOrThrow("fuzz.pause").setAttribute("disabled", "true");
         break;
+      case "coverage.hidden":
+        show(getElementByIdOrThrow("fuzz.coverage.show"));
+        hide(getElementByIdOrThrow("fuzz.coverage.hide"));
+        break;
     }
   });
 

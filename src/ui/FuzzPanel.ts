@@ -41,6 +41,7 @@ export class FuzzPanel {
   public static currentPanels: Record<string, FuzzPanel> = {}; // Map of panels indeved by the result of getFnRefKey()
   public static readonly viewType = "FuzzPanel"; // The name of this panel type
   public static context: vscode.ExtensionContext;
+  private static panelShowingCoverage: FuzzPanel | undefined = undefined;
 
   // Instance variables
   private readonly _panel: vscode.WebviewPanel; // The WebView panel for this FuzzPanel instance
@@ -1421,10 +1422,20 @@ ${inArgConsts}
     if (!this._showingCoverage) {
       return;
     }
+
+    // Clear the editor decorations
     for (const editor of vscode.window.visibleTextEditors) {
       clearCoverageHeatmapFromEditor(editor);
     }
+
+    // Clear indicators
     this._showingCoverage = false;
+    FuzzPanel.panelShowingCoverage = undefined;
+
+    // Inform the panel so it can change the button state
+    this._panel.webview.postMessage({
+      command: "coverage.hidden",
+    });
   } // fn: _hideCoverageHeatmap
 
   /**
@@ -1434,8 +1445,11 @@ ${inArgConsts}
     if (this._showingCoverage || !this._coverageStats) {
       return;
     }
-    const files = this._coverageStats.files;
 
+    // Only show coverage for 0-1 panels to avoid user confusion
+    FuzzPanel.panelShowingCoverage?._hideCoverageHeatmap();
+
+    const files = this._coverageStats.files;
     for (const editor of vscode.window.visibleTextEditors) {
       const fsPath = normalizePathForKey(editor.document.uri.fsPath);
       const fileMap = files.find((f) => f.path === fsPath)?.fileMap;
@@ -1447,6 +1461,7 @@ ${inArgConsts}
       }
     }
     this._showingCoverage = true;
+    FuzzPanel.panelShowingCoverage = this;
   } // fn: _showCoverageHeatmap
 
   /**
@@ -3631,4 +3646,5 @@ export type FuzzPanelMessageToWebView =
           model?: string;
         };
       };
-    };
+    }
+  | { command: "coverage.hidden" };
