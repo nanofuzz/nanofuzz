@@ -1479,7 +1479,22 @@ ${inArgConsts}
     // Only show coverage for 0-1 panels to avoid user confusion
     FuzzPanel.panelShowingCoverage?._hideCoverageHeatmap();
 
-    const files = this._coverageStats.files;
+    // Refresh this panel's heatmap
+    this._showingCoverage = true;
+    FuzzPanel.panelShowingCoverage = this;
+    FuzzPanel.refreshCoverageHeatmap();
+  } // fn: _showCoverageHeatmap
+
+  /**
+   * Refresh the active panel's coverage heatmap
+   */
+  public static refreshCoverageHeatmap(): void {
+    const panel = FuzzPanel.panelShowingCoverage;
+    if (!panel || !panel._showingCoverage || !panel._coverageStats) {
+      return;
+    }
+
+    const files = panel._coverageStats.files;
     for (const editor of vscode.window.visibleTextEditors) {
       const fsPath = normalizePathForKey(editor.document.uri.fsPath);
       const fileMap = files.find((f) => f.path === fsPath)?.fileMap;
@@ -1490,9 +1505,7 @@ ${inArgConsts}
         clearCoverageHeatmapFromEditor(editor);
       }
     }
-    this._showingCoverage = true;
-    FuzzPanel.panelShowingCoverage = this;
-  } // fn: _showCoverageHeatmap
+  } // fn: _refreshCoverageHeatmap
 
   /**
    * Updates the fuzzer configuration from the front-end UI message.
@@ -3527,6 +3540,15 @@ function getSequentialFailures(
  */
 export function init(context: vscode.ExtensionContext): void {
   FuzzPanel.context = context; // Set the context
+
+  // Listen for active text editor changes and refresh the heatmap
+  vscode.window.onDidChangeActiveTextEditor(
+    () => {
+      FuzzPanel.refreshCoverageHeatmap();
+    },
+    null,
+    context.subscriptions
+  );
 }
 
 /**
