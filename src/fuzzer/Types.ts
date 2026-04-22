@@ -206,6 +206,10 @@ export enum FuzzSortOrder {
  * to override the default argument options (e.g., min, max, etc.)
  */
 export type FuzzArgOverride = {
+  bigInt?: {
+    min: bigint;
+    max: bigint;
+  };
   number?: {
     min: number;
     max: number;

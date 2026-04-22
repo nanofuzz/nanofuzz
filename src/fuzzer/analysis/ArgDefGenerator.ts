@@ -93,6 +93,9 @@ function generateRandomInputFn(
 
   const argType = arg.getType();
   switch (argType) {
+    case ArgTag.BIGINT:
+      randFn = getRandomBigint;
+      break;
     case ArgTag.NUMBER:
       randFn = getRandomNumber;
       break;
@@ -220,6 +223,30 @@ function generateRandomInputFn(
       }
     : randArgValueWrapper; // mandatory arg
 } // fn: generateRandomInput
+
+/**
+ * Returns a random bigint >= min and <= max
+ *
+ * @param `prng` pseudo-random number generator
+ * @param `min` minimum value allowed (inclusive)
+ * @param `max` maximum value allowed (inclusive)
+ * @param `options` argument option set
+ * @returns random bigint >= min and <= max
+ *
+ * Throws an exception if min and max are not bigints
+ */
+const getRandomBigint: PrivateRandFn = (
+  prng: seedrandom.prng,
+  min: ArgValueType,
+  max: ArgValueType
+): bigint => {
+  if (typeof min !== "bigint" || typeof max !== "bigint")
+    throw new Error("Min and max must be bigints");
+
+  const range = max - min;
+  // TODO: might not sample uniformly
+  return BigInt(Math.round(prng() * Number(range))) + min;
+};
 
 /**
  * Returns a random number >= min and <= max

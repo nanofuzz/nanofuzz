@@ -156,6 +156,69 @@ export class ArgDefMutator {
       } else if (!spec.isNoInput()) {
         // Determine mutations according to ArgDef types
         switch (spec.getType()) {
+          case ArgTag.BIGINT: {
+            const value = subInput.subElement;
+            if (typeof value !== "bigint") {
+              throw new Error(
+                `Expected bigint input, got ${JSONN.stringify(value)}`
+              );
+            }
+            const interval = spec.getIntervals()[0];
+            if (
+              typeof interval.min !== "bigint" ||
+              typeof interval.max !== "bigint"
+            ) {
+              throw new Error(
+                `Invalid interval bounds for bigint type: ${JSONN.stringify(
+                  interval
+                )}`
+              );
+            }
+            const max = interval.max;
+            const min = interval.min;
+            mutations.push(
+              ...[
+                {
+                  name: "bigint-plusOne",
+                  value: value + BigInt(1),
+                  path: [...subInput.subPath],
+                },
+                {
+                  name: "bigint-minusOne",
+                  value: value - BigInt(1),
+                  path: [...subInput.subPath],
+                },
+                {
+                  name: "bigint-negate",
+                  value: value * BigInt(-1),
+                  path: [...subInput.subPath],
+                },
+                {
+                  name: "bigint-timesTwo",
+                  value: value * BigInt(2),
+                  path: [...subInput.subPath],
+                },
+                {
+                  name: "bigint-timesThree",
+                  value: value * BigInt(3),
+                  path: [...subInput.subPath],
+                },
+                {
+                  name: "bigint-divTwo",
+                  value: value / BigInt(2),
+                  path: [...subInput.subPath],
+                },
+                {
+                  name: "bigint-divThree",
+                  value: value / BigInt(3),
+                  path: [...subInput.subPath],
+                },
+              ].filter(
+                (e) => e.value !== value && e.value <= max && e.value >= min
+              )
+            );
+            break;
+          }
           case ArgTag.NUMBER: {
             const value = Number(subInput.subElement);
             mutations.push(

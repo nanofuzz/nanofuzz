@@ -831,7 +831,8 @@ export class PythonProgram extends AbstractProgram {
         break;
       }
       case ArgTag.OBJECT:
-        throw new Error(`Unexpected object type in Python annotation`);
+      case ArgTag.BIGINT:
+        throw new Error(`Unexpected type ${type} in Python annotation`);
     }
     return thisType;
   }
@@ -1308,6 +1309,9 @@ export class PythonProgram extends AbstractProgram {
 
       case ArgTag.STRING:
         return "str";
+
+      case ArgTag.BIGINT:
+        throw new Error(`Internal error: Python doesn't have bigint`);
 
       case ArgTag.UNRESOLVED:
         throw new Error(`Internal error: unresolved types cannot be annotated`);
