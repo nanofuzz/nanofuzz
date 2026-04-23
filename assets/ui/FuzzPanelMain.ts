@@ -620,7 +620,9 @@ function main() {
         // Render the header row
         const hRow = thead.appendChild(document.createElement("tr"));
         Object.keys(data[type][0]).forEach((k) => {
-          if (k === pinnedLabel) {
+          if (hiddenColumns.indexOf(k) !== -1) {
+            // noop (hidden)
+          } else if (k === pinnedLabel) {
             const cell = hRow.appendChild(document.createElement("th"));
             cell.classList.add(
               "colorColumn",
@@ -635,8 +637,6 @@ function main() {
             cell.addEventListener("click", () => {
               handleColumnSort(type, k, tbody, true);
             });
-          } else if (hiddenColumns.indexOf(k) !== -1) {
-            // noop (hidden)
           } else if (k === implicitLabel) {
             if (resultsData.env.options.useImplicit) {
               const heuristicValidatorDescription =
@@ -1556,7 +1556,12 @@ function drawTableBody({
     let id = -1;
     const row = tbody.appendChild(document.createElement("tr"));
     Object.keys(e).forEach((k) => {
-      if (k === pinnedLabel) {
+      if (k === idLabel) {
+        id = parseInt(e[k]);
+        row.setAttribute("id", `${id}`);
+      } else if (hiddenColumns.indexOf(k) !== -1) {
+        // noop (hidden)
+      } else if (k === pinnedLabel) {
         const cell = row.appendChild(document.createElement("td"));
         // Add pin icon
         cell.className = e[k] ? pinState.classPinned : pinState.classPin;
@@ -1580,11 +1585,6 @@ function drawTableBody({
           }
           handlePinToggle(parseInt(idStr), type);
         });
-      } else if (k === idLabel) {
-        id = parseInt(e[k]);
-        row.setAttribute("id", `${id}`);
-      } else if (hiddenColumns.indexOf(k) !== -1) {
-        // noop (hidden)
       } else if (k === implicitLabel) {
         if (resultsData.env.options.useImplicit) {
           const cell = row.appendChild(document.createElement("td"));
