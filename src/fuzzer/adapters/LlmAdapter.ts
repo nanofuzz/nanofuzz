@@ -1,16 +1,10 @@
+import * as vscode from "vscode";
 import { ArgValueType } from "../analysis/typescript/Types";
 import * as JSON5 from "json5";
 import { FunctionDef } from "../analysis/typescript/FunctionDef";
 import * as nodellm from "@node-llm/core";
 import { isError } from "../Util";
-
-// Try to load the vscode module
-let vscode: any = undefined;
-try {
-  vscode = require("vscode");
-} catch (e: unknown) {
-  // vscode module unavailable: running outside vscode
-}
+import * as telemetry from "../../telemetry/Telemetry";
 
 /**
  * An adapter for chatting with an LLM about the program under test
@@ -186,12 +180,38 @@ export class LlmAdapter {
         text: e,
       });
     });
+    vscode.commands.executeCommand(
+      telemetry.commands.logTelemetry.name,
+      new telemetry.LoggerEntry(
+        "LlmAdapter.query.send",
+        "Sending query to LLM (v=%s;m=%s). Query: %s.",
+        [
+          LlmAdapter._getConfig().provider,
+          LlmAdapter._getConfig().modelName,
+          prompt.join("\n"),
+        ]
+      )
+    );
 
     const response = await (schema ? this._chat.withSchema(schema) : this._chat)
       .withRequestOptions({
         responseFormat: { type: "json_object" },
       })
       .ask(promptParts);
+
+    vscode.commands.executeCommand(
+      telemetry.commands.logTelemetry.name,
+      new telemetry.LoggerEntry(
+        "LlmAdapter.query.response",
+        "Received response from LLM (v=%s;m=%s). Response: %s.",
+        [
+          LlmAdapter._getConfig().provider,
+          LlmAdapter._getConfig().modelName,
+          response.toString(),
+        ]
+      )
+    );
+
     return {
       response: response.toString(),
       stats: {
@@ -238,9 +258,9 @@ export class LlmAdapter {
    * @returns extension configuration element or default
    */
   protected static _getConfigValue<T>(section: string, dft: T): T {
-    return vscode !== undefined
-      ? vscode.workspace.getConfiguration("nanofuzz.ai").get(section, dft)
-      : dft;
+    return vscode.workspace
+      .getConfiguration("nanofuzz.ai")
+      .get<T>(section, dft);
   } // fn: _getConfigValue
 
   /**
