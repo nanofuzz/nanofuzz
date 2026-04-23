@@ -288,13 +288,12 @@
     ]
   },
   "dependencies": {
-    "@datastructures-js/queue": "^4.2.1",
+    "@babel/core": "^7.28.0",
     "@node-llm/core": "^1.14.1",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/codicons": "^0.0.45",
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "eslint": "^7.3.2",
-    "immutable": "^4.1.0",
     "istanbul-lib-coverage": "^3.2.2",
     "istanbul-lib-hook": "^3.0.0",
     "istanbul-lib-instrument": "6.0.3",
@@ -305,7 +304,6 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@babel/core": "^7.28.0",
     "@babel/plugin-transform-modules-commonjs": "^7.27.1",
     "@babel/preset-typescript": "^7.27.1",
     "@babel/register": "^7.27.1",
@@ -326,14 +324,9 @@
     "eslint-config-prettier": "^6.13.0",
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-import": "^2.22.1",
-    "eslint-plugin-jsdoc": "^30.7.3",
-    "eslint-plugin-react": "^7.28.0",
     "jasmine": "5.9.0",
-    "jsdom": "^26.1.0",
     "nanofuzz-study": "nanofuzz/nanofuzz-study#main",
-    "tsc-alias": "^1.6.7",
     "tslib": "^2.1.0",
-    "typedoc": "^0.22.11",
-    "typedoc-plugin-markdown": "^3.11.13"
+    "typedoc": "^0.22.11"
   }
 }
