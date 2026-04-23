@@ -7,5 +7,23 @@ module.exports = {
         },
       };
     },
+    onDidChangeConfiguration: {},
+    onDidChangeTextDocument: {},
+    onDidChangeActiveTextEditor: {},
   },
+  window: {
+    onDidChangeActiveTextEditor: {},
+    onDidChangeTextEditorSelection: {},
+    onDidChangeTextEditorVisibleRanges: {},
+    onDidChangeTerminalState: {},
+    onDidCloseTerminal: {},
+    onDidChangeActiveTerminal: {},
+    onDidOpenTerminal: {},
+  },
+  commands: {
+    executeCommand: () => null,
+  },
+  TextEditorSelectionChangeEvent: {},
+  TextEditorVisibleRangesChangeEvent: {},
+  Terminal: {},
 };
