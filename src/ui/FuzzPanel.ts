@@ -45,6 +45,7 @@ export class FuzzPanel {
   private static staleMonitor = setInterval(() => {
     if (
       FuzzPanel.panelShowingCoverage &&
+      FuzzPanel.panelShowingCoverage._panel.visible &&
       FuzzPanel.panelShowingCoverage._showingCoverage &&
       FuzzPanel.panelShowingCoverage.resultsAreStale(
         FuzzPanel.panelShowingCoverage._fuzzEnv.options
@@ -2043,7 +2044,7 @@ ${inArgConsts}
             </div>
 
             <div class="fuzzWarnings hidden" id="fuzzWarnings.coverage.stale">
-              <p>The program changed after the coverage heatmap was generated.</p>
+              <p>The program may have changed since the coverage heatmap was generated.</p>
             </div>
 
             <div class="fuzzWarnings${

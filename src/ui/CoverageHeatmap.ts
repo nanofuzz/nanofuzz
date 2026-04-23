@@ -22,6 +22,16 @@ for (let i = 0; i <= GRANULARITY; i++) {
   );
 }
 
+// Cache of range decorations by editor. We maintain this because
+// vscode redraws editor when their visibility changes, which means
+// applyCoverageHeatmapToEditor can be called quite a lot.
+const rangeCache: {
+  [k: string]: {
+    ranges: vscode.Range[][];
+    fileMap: FileCoverage;
+  };
+} = {};
+
 /**
  * Decorates a vscode editor with a heatmap that visualizes
  * its corresponding coverage map
@@ -33,13 +43,49 @@ export function applyCoverageHeatmapToEditor(
   editor: vscode.TextEditor,
   fileMap: FileCoverage
 ): void {
-  const spans = new TextSpans<number>();
-
   if (!editor.document.lineCount) {
     clearCoverageHeatmapFromEditor(editor);
     return;
   }
 
+  // Use the cached ranges if we have them; otherwise create new
+  const rangesByGradientLevel: vscode.Range[][] =
+    editor.document.fileName in rangeCache &&
+    rangeCache[editor.document.fileName].fileMap === fileMap
+      ? rangeCache[editor.document.fileName].ranges // cached ranges
+      : _calculateDecorationRanges(fileMap); // create new
+
+  // Apply the editor decorations to the hit elements
+  // Note: skip coloring elements with no hits (i===0))
+  for (let i = 1; i <= GRANULARITY; i++) {
+    editor.setDecorations(gradientDecorationTypes[i], rangesByGradientLevel[i]);
+  }
+
+  // Update the range cache
+  rangeCache[editor.document.fileName] = {
+    fileMap: fileMap,
+    ranges: rangesByGradientLevel,
+  };
+} // fn: applyCoverageHeatmapToEditor
+
+/**
+ * Creates a set of bucketed ranges for the given file coverage map.
+ *
+ * @param `fileMap` file coverage map
+ * @returns `vscode.Range`s bucketed according to hit count
+ */
+function _calculateDecorationRanges(fileMap: FileCoverage): vscode.Range[][] {
+  // We use a text span tree to represent the coverage map hierarchically,
+  // which we may then flatten into a set of non-overlapping text editor
+  // decorations where the hit count of child (e.g., leaf) nodes have
+  // precedence over the hit counts of their parent nodes.
+  //
+  // For instance, we need statements with no hits to have precedence
+  // of the (possibly numerous) hits of their containing `if` statement.
+  const spans = new TextSpans<number>();
+
+  // Determine the maximum number of hits so that we appropriately
+  // assign hit counts to buckets.
   const maxHits = Math.max(
     0,
     ...Object.values(fileMap.s),
@@ -47,12 +93,6 @@ export function applyCoverageHeatmapToEditor(
       Math.max(0, ...b.filter((e) => !Number.isNaN(e)))
     ),
     ...Object.values(fileMap.f)
-  );
-
-  // Bucket decorations by type and relative heat
-  const rangesByGradientLevel: vscode.Range[][] = Array.from(
-    { length: GRANULARITY + 1 },
-    () => []
   );
 
   // Helper function to assign a hit count to a decoration bucket
@@ -121,6 +161,10 @@ export function applyCoverageHeatmapToEditor(
   }
 
   // Flatten the spans & assign each to a decoration bucket
+  const rangesByGradientLevel: vscode.Range[][] = Array.from(
+    { length: GRANULARITY + 1 },
+    () => []
+  );
   for (const span of spans.flatten()) {
     rangesByGradientLevel[_gradientLevelForRatio(span.value)].push(
       new vscode.Range(
@@ -130,12 +174,8 @@ export function applyCoverageHeatmapToEditor(
     );
   }
 
-  // Apply the editor decorations to the hit elements
-  // Note: skip coloring elements with no hits (i===0))
-  for (let i = 1; i <= GRANULARITY; i++) {
-    editor.setDecorations(gradientDecorationTypes[i], rangesByGradientLevel[i]);
-  }
-} // fn: applyCoverageHeatmapToEditor
+  return rangesByGradientLevel;
+} // fn: _calculateDecorationRanges
 
 /**
  * Clears heatmap decorations from an editor
@@ -148,4 +188,7 @@ export function clearCoverageHeatmapFromEditor(
   for (const type of gradientDecorationTypes) {
     editor.setDecorations(type, []);
   }
+
+  // Invalidate the range cache for this editor
+  delete rangeCache[editor.document.fileName];
 } // fn: clearCoverageHeatmapFromEditor
