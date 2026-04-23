@@ -47,7 +47,7 @@ export const toString = (testSet: FuzzTests, module: string): string => {
   // Emit the implicit oracle and custom validator wrappers
   jestData.push(
     `// @ts-ignore`,
-    `const implicitOracle = ${implicitOracle.toString()};`,
+    `const implicitOracle: (x:unknown) => boolean = ${implicitOracle.toString()};`,
     ``,
     `// @ts-ignore`,
     `const runPropertyValidator = (input,testFn,validFn,timeout) => {`,
@@ -122,7 +122,7 @@ export const toString = (testSet: FuzzTests, module: string): string => {
           jestData.push(
             `  // Expect property validator to not return false`,
             `  it("${fn}.${i}.${validator}", () => {`,
-            `    expect(runPropertyValidator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toBeFalsy();`,
+            `    expect(runPropertyValidator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toBeFalse();`,
             `  });`,
             ``,
           );
