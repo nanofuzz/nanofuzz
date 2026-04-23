@@ -1467,6 +1467,16 @@ ${inArgConsts}
       };
       this._panel.webview.postMessage(message);
     }
+
+    // Telemetry
+    vscode.commands.executeCommand(
+      telemetry.commands.logTelemetry.name,
+      new telemetry.LoggerEntry(
+        "FuzzPanel.coverage.hide",
+        "Hiding coverage heatmap for module: %s, function: %s.",
+        [this._fuzzEnv.function.getModule(), this._fuzzEnv.function.getName()]
+      )
+    );
   } // fn: _hideCoverageHeatmap
 
   /**
@@ -1484,10 +1494,20 @@ ${inArgConsts}
     this._showingCoverage = true;
     FuzzPanel.panelShowingCoverage = this;
     FuzzPanel.refreshCoverageHeatmap();
+
+    // Telemetry
+    vscode.commands.executeCommand(
+      telemetry.commands.logTelemetry.name,
+      new telemetry.LoggerEntry(
+        "FuzzPanel.coverage.show",
+        "Showing coverage heatmap for module: %s, function: %s.",
+        [this._fuzzEnv.function.getModule(), this._fuzzEnv.function.getName()]
+      )
+    );
   } // fn: _showCoverageHeatmap
 
   /**
-   * Refresh the active panel's coverage heatmap
+   * Refresh the active FuzzPanel's coverage heatmap
    */
   public static refreshCoverageHeatmap(): void {
     const panel = FuzzPanel.panelShowingCoverage;
