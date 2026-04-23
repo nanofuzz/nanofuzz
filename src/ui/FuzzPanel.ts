@@ -2679,6 +2679,19 @@ ${inArgConsts}
         `;
       }
 
+      // Columns to hide on the front-end
+      const hiddenColumns = vscode.workspace
+        .getConfiguration("nanofuzz.ui")
+        .get<boolean>("showSourceColumn", false)
+        ? ["id"] // Always hide the id column
+        : ["id", "src"];
+
+      // Pinning and human validators are not relevant for
+      // PUTs with no inputs so hide those columns
+      if (!this._fuzzEnv.function.getArgDefs().length) {
+        hiddenColumns.push("pinned", "correct output?");
+      }
+
       // Hidden data for the client script to process
       html += /*html*/ `
             <!-- Fuzzer Result Payload: for the client script to process -->
@@ -2705,15 +2718,7 @@ ${inArgConsts}
 
             <!-- Fuzzer Sort Columns: for the client script to process -->
             <div id="fuzzHideColumns" class="hidden">
-              ${htmlEscape(
-                JSON5.stringify(
-                  vscode.workspace
-                    .getConfiguration("nanofuzz.ui")
-                    .get<boolean>("showSourceColumn", false)
-                    ? ["id"]
-                    : ["id", "src"]
-                )
-              )}
+              ${htmlEscape(JSON5.stringify(hiddenColumns))}
             </div>
 
             <!-- Validator Functions: for the client script to process -->
