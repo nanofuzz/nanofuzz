@@ -907,7 +907,7 @@ const tsconfigFilename = "tsconfig.json";
 const defaultOptions: CompilerOptions = {
   nodeLib: false,
   target: "ES2020", // default to ES2020
-  moduleKind: "commonjs", // required for running inside express
+  moduleKind: "nodenext", // cjs is required for running inside express
   emitOnError: false, // fail compilation in case of errors
   tmpDir: path.join(os.tmpdir(), "nanofuzz", "tsc"), // path for compiled files
   lib: ["DOM", "ScriptHost", "ES2020"], // default to ES2020
@@ -915,7 +915,7 @@ const defaultOptions: CompilerOptions = {
   typeRoots: [], // do not automatically import types
   baseUrl: "./",
   skipLibCheck: true,
-  moduleResolution: "node",
+  moduleResolution: "nodenext",
   allowSyntheticDefaultImports: true,
   esModuleInterop: true,
   allowJs: true,
