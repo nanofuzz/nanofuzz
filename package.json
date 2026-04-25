@@ -267,7 +267,6 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
-    "docs": "typedoc --plugin none --out docs",
     "lint": "eslint --ext js,ts,tsx src",
     "vscode:prepublish": "yarn build",
     "publish": "vsce publish --yarn",
@@ -288,12 +287,11 @@
     ]
   },
   "dependencies": {
-    "@babel/core": "^7.28.0",
+    "@babel/core": "^7.27.1",
     "@node-llm/core": "^1.14.1",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/codicons": "^0.0.45",
     "@vscode/webview-ui-toolkit": "^1.2.2",
-    "eslint": "^7.3.2",
     "istanbul-lib-coverage": "^3.2.2",
     "istanbul-lib-hook": "^3.0.0",
     "istanbul-lib-instrument": "6.0.3",
@@ -307,6 +305,7 @@
     "@babel/plugin-transform-modules-commonjs": "^7.27.1",
     "@babel/preset-typescript": "^7.27.1",
     "@babel/register": "^7.27.1",
+    "@types/babel__core": "^7.20.5",
     "@types/istanbul-lib-hook": "^2.0.4",
     "@types/istanbul-lib-instrument": "^1.7.7",
     "@types/istanbul-lib-source-maps": "^4.0.4",
@@ -321,12 +320,12 @@
     "cross-env": "^10.0.0",
     "esbuild": "^0.25.0",
     "escape-goat": "^4.0.0",
+    "eslint": "^7.3.2",
     "eslint-config-prettier": "^6.13.0",
     "eslint-plugin-eslint-comments": "^3.2.0",
     "eslint-plugin-import": "^2.22.1",
     "jasmine": "5.9.0",
     "nanofuzz-study": "nanofuzz/nanofuzz-study#main",
-    "tslib": "^2.1.0",
-    "typedoc": "^0.22.11"
+    "tslib": "^2.1.0"
   }
 }

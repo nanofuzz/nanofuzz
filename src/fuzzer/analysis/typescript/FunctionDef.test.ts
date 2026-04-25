@@ -515,6 +515,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "returnA2",
@@ -537,6 +538,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
             type: ArgTag.NUMBER,
           },
         },
+        cmt: undefined,
       },
       {
         name: "returnA3",
@@ -548,6 +550,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "noReturnA1",
@@ -559,6 +562,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: true,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "noReturnA2",
@@ -570,6 +574,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: true,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "noReturnA3",
@@ -581,6 +586,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: true,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
     ]);
   });
@@ -607,6 +613,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "returnForIn",
@@ -618,6 +625,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "returnFor",
@@ -629,6 +637,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "returnForOf",
@@ -640,6 +649,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "returnDoWhile",
@@ -651,6 +661,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
     ]);
   });
@@ -660,7 +671,9 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     export const returnIf = () => {const x = undefined; if (x) {return x} else {return Infinity;}}
     export const returnSwitch = () => {switch(1) {case 1: {return undefined;} default: {return undefined;}}}
     export const returnTry = () => {try {return Infinity;} catch {return NaN;}}
+    // Dummy comment
     export const returnThrow = () => {const x = undefined; if (!x) {throw Error();} else {throw Error();}}
+    /* Dummy comment2 */
     export const returnLabeled = () => {const arr: number[] = []; loop1: for (let x=0; x<5; ++x) {if (x === 1) {continue loop1;} arr.push(x); if (x === 4) {return undefined;}} return 0;}
     `;
     const thisProgram = dummyProgram.setSrc(() => src);
@@ -677,6 +690,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "returnSwitch",
@@ -688,6 +702,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "returnTry",
@@ -699,28 +714,31 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "returnThrow",
         module: "dummy.ts",
         src: "const returnThrow = () => {const x = undefined; if (!x) {throw Error();} else {throw Error();}}",
-        startOffset: 306,
-        endOffset: 395,
+        startOffset: 327,
+        endOffset: 416,
         isExported: true,
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: undefined,
       },
       {
         name: "returnLabeled",
         module: "dummy.ts",
         src: "const returnLabeled = () => {const arr: number[] = []; loop1: for (let x=0; x<5; ++x) {if (x === 1) {continue loop1;} arr.push(x); if (x === 4) {return undefined;}} return 0;}",
-        startOffset: 413,
-        endOffset: 582,
+        startOffset: 459,
+        endOffset: 628,
         isExported: true,
         isVoid: false,
         args: [],
         returnType: undefined,
+        cmt: "/* Dummy comment2 */",
       },
     ]);
   });
@@ -803,7 +821,10 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     type hellos = "hello" | "bonjour" | "olá" | "ciao" | "hej";
     type stringOrNumber = string | number;
     type maybeString = string | undefined;
+    /* Dummy comment */
     export function test(a:stringOrNumber,b:maybeString[]):boolean | undefined {return;}
+    // Dummy comment2
+    export function test2(a:boolean):boolean {return a;}
     `;
     const thisProgram = dummyProgram.setSrc(() => src);
     expect(
@@ -813,9 +834,9 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         name: "test",
         module: "dummy.ts",
         src: "function test(a:stringOrNumber,b:maybeString[]):boolean | undefined {return;}",
-        cmt: undefined,
-        startOffset: 162,
-        endOffset: 239,
+        cmt: `/* Dummy comment */`,
+        startOffset: 186,
+        endOffset: 263,
         isExported: true,
         isVoid: false,
         args: [
@@ -934,6 +955,43 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
                 },
               },
             ],
+          },
+        },
+      },
+      {
+        name: "test2",
+        module: "dummy.ts",
+        src: "function test2(a:boolean):boolean {return a;}",
+        cmt: undefined,
+        startOffset: 297,
+        endOffset: 342,
+        isExported: true,
+        isVoid: false,
+        args: [
+          {
+            dims: 0,
+            isExported: false,
+            module: "dummy.ts",
+            name: "a",
+            optional: false,
+            type: {
+              dims: 0,
+              children: [],
+              resolved: true,
+              type: ArgTag.BOOLEAN,
+            },
+          },
+        ],
+        returnType: {
+          dims: 0,
+          isExported: false,
+          module: "dummy.ts",
+          optional: false,
+          type: {
+            dims: 0,
+            children: [],
+            resolved: true,
+            type: ArgTag.BOOLEAN,
           },
         },
       },
