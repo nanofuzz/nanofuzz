@@ -19,7 +19,6 @@ module.exports = {
   extends: [
     "eslint:recommended",
     "plugin:@typescript-eslint/recommended",
-    "plugin:react/recommended",
     "prettier",
     "prettier/@typescript-eslint",
   ],
@@ -32,7 +31,7 @@ module.exports = {
     },
     extraFileExtensions: [".cjs", ".mjs"],
   },
-  plugins: ["eslint-comments", "eslint-plugin-import", "eslint-plugin-jsdoc"],
+  plugins: ["eslint-comments", "eslint-plugin-import"],
   rules: {
     "@typescript-eslint/consistent-type-assertions": [
       1,
