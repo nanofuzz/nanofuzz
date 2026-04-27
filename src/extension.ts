@@ -78,7 +78,7 @@ export function deactivate(): void {
 /**
  * Associates a callback function with an vscode event.
  */
-export type Listener<T extends unknown> = {
+export type Listener<T> = {
   event: vscode.Event<T>;
   fn: (e: T) => void;
 };

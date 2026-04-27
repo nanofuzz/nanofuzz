@@ -845,7 +845,7 @@ export class ProgramDef {
             }
           }
         }
-      } catch (e) {
+      } catch (_e) {
         // Eat the exception & retry
       }
     } // for: each extension

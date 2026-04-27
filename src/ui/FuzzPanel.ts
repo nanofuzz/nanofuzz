@@ -498,7 +498,7 @@ export class FuzzPanel {
     try {
       inputTests = JSON5.parse(fs.readFileSync(jsonFile).toString());
       testSet = inputTests;
-    } catch (e: unknown) {
+    } catch (_e: unknown) {
       return this._initFuzzTestsForThisFn();
     }
 
@@ -902,7 +902,7 @@ export class FuzzPanel {
 
     try {
       program = ProgramDef.fromModule(module);
-    } catch (e: unknown) {
+    } catch (_e: unknown) {
       vscode.window.showErrorMessage(
         `Unable to add the validator. TypeScript source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
       );
@@ -1004,7 +1004,7 @@ ${inArgConsts}
       try {
         const fn = ProgramDef.fromModule(module).getFunctions()[validatorName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
-      } catch (e: unknown) {
+      } catch (_e: unknown) {
         vscode.window.showErrorMessage(
           `Unable to navigate to the created validator '${validatorName}' in '${fn.getModule()}'`
         );
@@ -3445,9 +3445,7 @@ function _applyArgOverrides(
     // Array dimensions
     if (thisOverride.array) {
       thisOverride.array.dimLength.forEach((e: fuzzer.Interval<number>) => {
-        if (typeof e === "object" && "min" in e && "max" in e) {
-          e = { min: Number(e.min), max: Number(e.max) };
-        } else {
+        if (!(typeof e === "object" && "min" in e && "max" in e)) {
           throw new Error(
             `Invalid interval for array dimensions: ${JSON5.stringify(e)}`
           );

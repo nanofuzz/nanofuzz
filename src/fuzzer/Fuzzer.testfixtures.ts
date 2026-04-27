@@ -1,4 +1,7 @@
-import { importedLiteralDim2Type, testCoverageMultiFile2 } from "./Fuzzer.textfixturees2";
+import {
+  importedLiteralDim2Type,
+  testCoverageMultiFile2,
+} from "./Fuzzer.textfixturees2";
 
 /**
  * Fuzz target that alters its input - used to verify
@@ -11,26 +14,17 @@ export function testChangeInput(obj: { a: number }) {
 /**
  * Fuzz targets with return type `void` that returns undefined
  */
-export function testStandardVoidReturnUndefined(x: number): void {
-  const y = x - 1;
+export function testStandardVoidReturnUndefined(_x: number): void {
+  return;
 }
-export const testArrowVoidReturnUndefined = (x: number): void => {
-  const y = x - 1;
+export const testArrowVoidReturnUndefined = (_x: number): void => {
+  return;
 };
 
 /**
  * Fuzz targets with return type `void` that returns number
  */
 export function testStandardVoidReturnNumber(x: number): void {
-  if (x % 2) {
-    x;
-  }
-  if (x % 3) {
-    x;
-  }
-  if (x % 5) {
-    x;
-  }
   const y: unknown = x;
   return y as void;
 }
@@ -42,42 +36,42 @@ export const testArrowVoidReturnNumber = (x: number): void => {
 /**
  * Fuzz targets with return type `void` that throw an exception
  */
-export function testStandardVoidReturnException(x: number): void {
+export function testStandardVoidReturnException(_x: number): void {
   throw new Error("Random error");
 }
-export const testArrowVoidReturnException = (x: number): void => {
+export const testArrowVoidReturnException = (_x: number): void => {
   throw new Error("Random error");
 };
 
 /**
  * Fuzz targets with literal arguments
  */
-export function testStandardVoidLiteralArgs(n: 5, n2: 5[]): void {
+export function testStandardVoidLiteralArgs(_n: 5, _n2: 5[]): void {
   return;
 }
-export const testArrowVoidLiteralArgs = (n: 5, n2: 5[]): void => {
+export const testArrowVoidLiteralArgs = (_n: 5, _n2: 5[]): void => {
   return;
 };
 
 /**
  * Fuzz targets with union arguments
  */
-type hellos = "hello" | "bonjour" | "olá" | "ciao" | "hej";
+//type hellos = "hello" | "bonjour" | "olá" | "ciao" | "hej";
 type stringOrNumber = string | number;
 type maybeBool = boolean | undefined;
 export function testStandardUnionArgs(
-  a: stringOrNumber,
-  b: maybeBool[]
+  _a: stringOrNumber,
+  _b: maybeBool[]
 ): boolean | undefined {
   return;
 }
 export const testArrowUnionArgs = (
-  a: stringOrNumber,
-  b: maybeBool[]
+  _a: stringOrNumber,
+  _b: maybeBool[]
 ): boolean | undefined => {
   return;
 };
-export function testBoolean(a?: boolean): boolean {
+export function testBoolean(_a?: boolean): boolean {
   return true;
 }
 
@@ -112,7 +106,7 @@ export function testCoverageOneFileValidator(
     if (!out) console.debug(` - Property test failed input: ${s}`);
     return !!out; // expected : out === true
   } else {
-    if (!!out) console.debug(` - Property test failed input: ${s}`);
+    if (out) console.debug(` - Property test failed input: ${s}`);
     return !out; // expected : out === false
   }
 }
@@ -129,7 +123,7 @@ export function testCoverageMultiFile(str: string): boolean {
 
 /**
  * For testing dimensions across a chain of local & imported types
- * 
+ *
  * @param _lit local chain of dimensioned typerefs
  * @param _lit2 imported chain of dimensioned typerefs
  */

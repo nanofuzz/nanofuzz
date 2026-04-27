@@ -59,7 +59,8 @@ export class Tester {
       throw new Error(
         `The TypeScript program could not be parsed. Please fix the errors and retest.${
           isError(e) ? ` (${e.message})` : ``
-        }`
+        }`,
+        { cause: e }
       );
     }
     const fnList = this._program.getExportedFunctions();
@@ -475,8 +476,6 @@ export class Tester {
     this._state = "ready";
 
     // Main test loop
-    /* eslint eslint-comments/no-use: off */
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     while (true) {
       this._state = "running";
       // End the testing run when we encounter a stop condition
@@ -670,7 +669,9 @@ export class Tester {
         });
         const measureTime = performance.now() - startMeasTime;
         this._results.stats.timers.measure += measureTime;
-        genStats ? (genStats.timers.measure += measureTime) : undefined;
+        if (genStats) {
+          genStats.timers.measure += measureTime;
+        }
       }
 
       // Skip tests if we previously processed the input
@@ -679,7 +680,10 @@ export class Tester {
         runStats.counters.dupesSequential++; // increment the dupe counter
         runStats.counters.dupesGenerated++; // incremement the total run dupe counter
         this._compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
-        genStats ? genStats.counters.dupesGenerated++ : undefined; // increment the generator's dupe counter
+        if (genStats) {
+          genStats.counters.dupesGenerated++; // increment the generator's dupe counter
+        }
+
         continue; // skip this test
       } else {
         runStats.counters.dupesSequential = 0; // reset the duplicate count
@@ -730,7 +734,9 @@ export class Tester {
         }
       }
       this._results.stats.timers.put += result.timers.run;
-      genStats ? (genStats.timers.run += result.timers.run) : undefined;
+      if (genStats) {
+        genStats.timers.run += result.timers.run;
+      }
 
       const startValTime = performance.now(); // start timer
       // IMPLICIT ORACLE --------------------------------------------
@@ -844,7 +850,9 @@ export class Tester {
       // Validator stats
       const valTime = performance.now() - startValTime; // stop timer
       this._results.stats.timers.val += valTime;
-      genStats ? (genStats.timers.val += valTime) : undefined;
+      if (genStats) {
+        genStats.timers.val += valTime;
+      }
 
       // (Re-)categorize the result
       result.category = categorizeResult(result);
@@ -879,7 +887,9 @@ export class Tester {
         // Measurement stats
         const measureTime = performance.now() - startMeasureTime;
         this._results.stats.timers.measure += measureTime;
-        genStats ? (genStats.timers.measure += measureTime) : undefined;
+        if (genStats) {
+          genStats.timers.measure += measureTime;
+        }
       }
 
       yield undefined;
