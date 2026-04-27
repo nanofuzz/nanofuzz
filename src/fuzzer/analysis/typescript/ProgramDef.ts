@@ -457,6 +457,19 @@ export class ProgramDef {
   } // fn: getExportedTypes()
 
   /**
+   * Returns the default type export, if it exists.
+   *
+   * @returns the default type export or `undefined` if it does not exist
+   */
+  public getDefaultExport(): TypeRef | undefined {
+    if (this._defaultExport) {
+      return JSON5.parse<TypeRef>(JSON5.stringify(this._defaultExport));
+    } else {
+      return undefined;
+    }
+  } // fn: getExportedTypes()
+
+  /**
    * Returns the imports defined in the program
    *
    * @param ast The parsed AST for the program
@@ -532,11 +545,11 @@ export class ProgramDef {
    * Accepts a program AST and returns a default type export if defined
    * in the program.
    *
-   * We don't support literal or function exports here. Just types, and
-   * the usual limitations from elsewhere still apply (no OR types, etc).
+   * We don't support many types of default exports here, and the usual limitations
+   * from elsewhere still apply.
    *
-   * @param ast Program AST
-   * @returns A default export, if found
+   * @param `ast` Program AST
+   * @returns A default export, if found; otherwise, `undefined`
    */
   private _findDefaultTypeExport(ast: ParseResult<File>): TypeRef | undefined {
     const module = this._module;
@@ -545,57 +558,75 @@ export class ProgramDef {
     // Traverse the AST and find top-level type alias declarations
     traverse(ast, {
       enter: (path) => {
+        if (defaultExport) return;
         switch (path.node.type) {
           // Implicit defaults:
           //   - export {x as default};
           case "ExportNamedDeclaration": {
-            path.node.specifiers.forEach((specifier) => {
-              const name =
+            for (const specifier of path.node.specifiers) {
+              let localName: string;
+              const exportedName =
                 specifier.exported.type === "Identifier"
                   ? specifier.exported.name
                   : specifier.exported.value;
-              if (name === "default") {
-                // build and return the type reference
-                // switch (specifier.local.type) { !!!!!!!!!!
-                switch (specifier.exported.type) {
-                  case "Identifier": {
+              if (exportedName === "default") {
+                switch (specifier.type) {
+                  case "ExportSpecifier":
                     defaultExport = {
                       isExported: true,
                       optional: false,
                       dims: 0,
                       module: module,
                       name: "default",
-                      // typeRefName: specifier.local.name, !!!!!!!!!!
-                      typeRefName: specifier.exported.name, // !!!!!!!!!!! this is NOT correct
+                      typeRefName: specifier.local.name,
                     };
                     return; // enter function
-                  }
-                  default: {
+
+                  default:
                     console.debug(
                       `Unsupported implicit default export specifier '${specifier.exported.type}' in module '${module}'`
                     );
-                  }
                 }
               }
-            });
+            }
             break;
           }
 
           // Explicit default:
           //   - export default x;
           case "ExportDefaultDeclaration": {
-            switch (path.node.declaration.type) {
-              case "Identifier": {
+            const decl = path.node.declaration;
+            switch (decl.type) {
+              case "Identifier":
                 defaultExport = {
                   isExported: true,
                   optional: false,
                   dims: 0,
                   module: module,
                   name: "default",
-                  typeRefName: path.node.declaration.name,
+                  typeRefName: decl.name,
                 };
                 return; // enter function
-              }
+
+              case "BooleanLiteral":
+              case "StringLiteral":
+              case "NumericLiteral":
+                defaultExport = {
+                  isExported: true,
+                  optional: false,
+                  dims: 0,
+                  module: module,
+                  name: "default",
+                  type: {
+                    children: [],
+                    dims: 0,
+                    resolved: true,
+                    type: ArgTag.LITERAL,
+                    value: decl.value,
+                  },
+                };
+                return; // enter function
+
               default: {
                 console.debug(
                   `Unsupported explicit default export type '${path.node.declaration.type}' in module '${module}'`
@@ -607,6 +638,18 @@ export class ProgramDef {
         }
       }, // enter
     }); // traverse AST
+
+    // Resolve the default type
+    if (
+      defaultExport &&
+      !defaultExport.type &&
+      defaultExport.typeRefName &&
+      defaultExport.typeRefName in this._types
+    ) {
+      defaultExport.type = JSON5.parse<TypeRef["type"]>(
+        JSON5.stringify(this._types[defaultExport.typeRefName].type)
+      );
+    }
 
     // No default found: return undefined
     return defaultExport;
