@@ -12,10 +12,9 @@ import { JSRunner } from "./JSRunner";
  * @returns an appropriate AbstractRunner instance
  */
 export function RunnerFactory(
-  env: FuzzEnv,
+  _env: FuzzEnv,
   module: NodeJS.Module,
   jsFn: string
 ): AbstractRunner {
-  env;
   return new JSRunner(module, jsFn);
 } // fn: RunnerFactory

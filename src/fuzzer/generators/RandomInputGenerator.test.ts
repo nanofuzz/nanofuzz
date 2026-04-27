@@ -17,11 +17,6 @@ const tsFnWithNumberInput = `function test(num: number):void {0;}`;
 const tsFnWithBoolInput = `function test(bool: boolean):void {true;}`;
 
 /**
- * Dummy program definition needed for testing
- */
-const dummyProgram = ProgramDef.fromSource(() => "");
-
-/**
  * Test that the random generators generate values within the bounds.
  *
  * TODO: These tests do not check that distributions are reasonably uniform.

@@ -942,7 +942,7 @@ function getInputValues(): ArgValueTypeWrapped[] | undefined {
             ? undefined
             : JSON5.parse(unparsedValue),
       });
-    } catch (err) {
+    } catch (_err) {
       // Error feedback
       e.classList.add("classErrorCell");
       message.classList.add("expectedOutputErrorMessage");
@@ -1374,7 +1374,7 @@ function handleColumnSort(
     let aType;
     try {
       aType = typeof JSON.parse(a[thisCol]);
-    } catch (error) {
+    } catch (_error) {
       aType = "string";
     }
     // Save original strings (to break ties alphabetically)
@@ -1410,7 +1410,7 @@ function handleColumnSort(
             try {
               aVal = JSON.parse(a[thisCol]);
               bVal = JSON.parse(b[thisCol]);
-            } catch (error) {
+            } catch (_error) {
               // noop; if not numerical, break ties alphabetically
             }
           } else {
@@ -2001,7 +2001,7 @@ function buildExpectedTestCase(
       expectedValue === ""
         ? undefined
         : JSON5.parse(expectedValue);
-  } catch (e) {
+  } catch (_e) {
     // Only validate the value if we are doing a value check
     if ("checked" in radioValue && radioValue.checked) {
       // Indicate to the user that there is an error

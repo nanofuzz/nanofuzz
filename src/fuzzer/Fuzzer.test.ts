@@ -639,7 +639,7 @@ describe("fuzzer:", () => {
     ].forEach((r) => {
       // Every input should be true, false, or undefined
       expect(
-        fuzzResult.results.every(
+        r.every(
           (e) =>
             e.input.length &&
             (e.input[0].value === undefined ||
@@ -649,21 +649,15 @@ describe("fuzzer:", () => {
       ).toBeTruthy();
       // Some inputs should be undefined
       expect(
-        fuzzResult.results.some(
-          (e) => e.input.length && e.input[0].value === undefined
-        )
+        r.some((e) => e.input.length && e.input[0].value === undefined)
       ).toBeTruthy();
       // Some inputs should be true
       expect(
-        fuzzResult.results.some(
-          (e) => e.input.length && e.input[0].value === true
-        )
+        r.some((e) => e.input.length && e.input[0].value === true)
       ).toBeTruthy();
       // Some inputs should be false
       expect(
-        fuzzResult.results.some(
-          (e) => e.input.length && e.input[0].value === false
-        )
+        r.some((e) => e.input.length && e.input[0].value === false)
       ).toBeTruthy();
     });
   });

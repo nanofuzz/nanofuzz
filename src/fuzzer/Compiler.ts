@@ -241,8 +241,7 @@ export class TypeScriptCompiler {
     }; // end: require hook
 
     // Require the modules requested
-    /* eslint eslint-comments/no-use: off */
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require(this._moduleFile);
 
     // Unhook require
@@ -596,7 +595,7 @@ export class TypeScriptCompiler {
       ) {
         return compRecRaw;
       }
-    } catch (e: unknown) {
+    } catch (_e: unknown) {
       // it's fine if we can't load the file
     }
     return undefined;
@@ -723,7 +722,7 @@ export class TypeScriptCompiler {
       this._inferOptions(this._tsconfigPath);
       try {
         this._projectPath = path.resolve(path.dirname(this._tsconfigPath));
-      } catch (e: unknown) {
+      } catch (_e: unknown) {
         // it's fine: fallback to our extension's tsc
       }
     }
@@ -738,7 +737,7 @@ export class TypeScriptCompiler {
     let tsConfigData: string;
     try {
       tsConfigData = fs.readFileSync(tsConfigFilename, { encoding: "utf8" }); // TODO: encoding
-    } catch (e: unknown) {
+    } catch (_e: unknown) {
       console.debug(`Unable to read: ${tsConfigFilename}`);
       return;
     }
@@ -823,12 +822,12 @@ export class TypeScriptCompiler {
 
           // TODO: there is more that we could infer here
         }
-      } catch (e: unknown) {
+      } catch (_e: unknown) {
         console.debug(
           `Unable to interpret settings from: ${tsConfigFilename}. Using default compilation options.`
         );
       }
-    } catch (e: unknown) {
+    } catch (_e: unknown) {
       console.debug(
         `Unable to parse: ${tsConfigFilename}. Using default compilation options.`
       );

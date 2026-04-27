@@ -2,8 +2,8 @@
   "compilerOptions": {
     "outDir": "build/extension",
     "module": "nodenext",
-    "target": "ES2020",
-    "lib": ["ES2020", "ES2021.String", "WebWorker", "DOM"],
+    "target": "ES2022",
+    "lib": ["ES2020", "ES2021.String", "ES2022", "WebWorker", "DOM"],
     "sourceMap": true,
     "allowJs": true,
     "moduleResolution": "nodenext",
@@ -50,16 +50,5 @@
     "placeOpenBraceOnNewLineForControlBlocks": false
   },
   "include": ["src", "assets/ui"],
-  "exclude": [],
-  "typedocOptions": {
-    "entryPoints": ["./src"],
-    "out": "docs/html",
-    "exclude": [
-      "**/*.spec.ts",
-      "**/*.test.ts",
-      "**/*.test.tsx",
-      "**/*__*/**",
-      "**/node_modules/**"
-    ]
-  }
+  "exclude": []
 }

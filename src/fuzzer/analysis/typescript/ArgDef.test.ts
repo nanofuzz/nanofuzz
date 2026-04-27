@@ -403,6 +403,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
 
   it("NoInput test", function () {
     const prng = seedrandom("qwertyuiop");
+    /*
     const q = new ArgDef<ArgType>(
       "q",
       0,
@@ -418,6 +419,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
       undefined,
       []
     );
+    */
     const n = new ArgDef<ArgType>(
       "n",
       0,
@@ -528,7 +530,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
                     `Double mutation is expected to fail but didn't`
                   );
                   expect(false).toBeTrue();
-                } catch (e: unknown) {
+                } catch (_e: unknown) {
                   // we expect this to throw an exception
                 }
               }
@@ -722,7 +724,7 @@ function getRandomArgDef(
       break;
     }
     case ArgTag.STRING: {
-      interval;
+      // interval; TODO: string min/max ranges
       options = {
         ...options,
         strLength: { min: Math.floor(prng() * 2), max: 2 },

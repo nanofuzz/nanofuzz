@@ -5,7 +5,6 @@ import { Listener } from "../extension";
 let currentWindow = ""; // Current editor window filename / uri
 let currentTerm = ""; // Current terminal window name
 let logger: Logger; // Telemetry logger
-let context: vscode.ExtensionContext; // Context of this extension
 let config: PurseConfig | undefined; // Configuration settings
 let logFlusher: NodeJS.Timeout | undefined; // Interval to flush log data
 
@@ -14,10 +13,8 @@ let logFlusher: NodeJS.Timeout | undefined; // Interval to flush log data
  *
  * @param context extension context
  */
-export async function init(inContext: vscode.ExtensionContext): Promise<void> {
+export async function init(_inContext: vscode.ExtensionContext): Promise<void> {
   console.info("Telemetry is starting...");
-  context = inContext; // We don't use this but may need it later
-  context.extensionPath; // Make unused variable error go away
 
   // Get logger instance
   logger = Logger.getLogger();
