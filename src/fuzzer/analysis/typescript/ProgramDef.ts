@@ -564,7 +564,6 @@ export class ProgramDef {
           //   - export {x as default};
           case "ExportNamedDeclaration": {
             for (const specifier of path.node.specifiers) {
-              let localName: string;
               const exportedName =
                 specifier.exported.type === "Identifier"
                   ? specifier.exported.name
