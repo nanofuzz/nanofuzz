@@ -50,15 +50,5 @@
     "placeOpenBraceOnNewLineForControlBlocks": false
   },
   "include": ["src", "assets/ui"],
-  "exclude": [],
-  "typedocOptions": {
-    "entryPoints": ["./src"],
-    "out": "docs/html",
-    "exclude": [
-      "**/*.spec.ts",
-      "**/*.test.ts",
-      "**/*__*/**",
-      "**/node_modules/**"
-    ]
-  }
+  "exclude": []
 }

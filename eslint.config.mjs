@@ -27,7 +27,6 @@ export default defineConfig(
         1,
         { assertionStyle: "never" },
       ],
-      // "eslint-comments/no-use": 2,
     },
   },
   {
@@ -35,6 +34,16 @@ export default defineConfig(
       parserOptions: {
         project: "./tsconfig.json",
       },
+    },
+  },
+  {
+    files: ["**/*.cjs", "**/*.mjs"],
+    extends: [tseslint.configs.disableTypeChecked],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+    env: {
+      node: true,
     },
   },
   eslintConfigPrettier
