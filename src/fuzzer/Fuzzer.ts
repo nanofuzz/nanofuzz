@@ -24,6 +24,7 @@ import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
+import { CompositeOracle } from "./oracles/CompositeOracle";
 
 export class Tester {
   protected _module: string; // module filename
@@ -1149,49 +1150,37 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
       return "badValue"; // PUT returned bad value
     }
   };
-  const getBadValueTypeProperty = (
-    result: FuzzTestResult
-  ): FuzzResultCategory => {
-    return result.passedValidator ? "ok" : "badValue"; // PUT returned bad value
-  };
 
-  // Setup the Composite Oracle -- we describe this in the TerzoN paper
+  // Setup the Composite Oracle -- we describe this in the TerzoN paper:
+  //
+  // TerzoN: Human-in-the-Loop Software Testing with a Composite Oracle
+  // https://doi.org/10.1145/3580446
   const implicit =
-    "passedImplicit" in result ? (result.passedImplicit ? 1 : -1) : 0;
-  const human = "passedHuman" in result ? (result.passedHuman ? 1 : -1) : 0;
+    "passedImplicit" in result
+      ? result.passedImplicit
+        ? "pass"
+        : "fail"
+      : "unknown";
+  const human =
+    "passedHuman" in result
+      ? result.passedHuman
+        ? "pass"
+        : "fail"
+      : "unknown";
   const property =
     "passedValidator" in result && result.passedValidator !== undefined
       ? result.passedValidator
-        ? 1
-        : -1
-      : 0;
+        ? "pass"
+        : "fail"
+      : "unknown";
 
-  if (human > 0) {
-    if (property < 0) {
-      return "disagree";
-    } else {
+  switch (CompositeOracle.judge([[property, human], [implicit]])) {
+    case "pass":
       return "ok";
-    }
-  } else if (human < 0) {
-    if (property > 0) {
-      return "disagree";
-    } else {
+    case "fail":
       return getBadValueType(result);
-    }
-  } else {
-    // human === 0
-    if (property > 0) {
-      return "ok";
-    } else if (property < 0) {
-      return getBadValueTypeProperty(result);
-    } else {
-      // human === 0 && property === 0
-      if (implicit >= 0) {
-        return "ok";
-      } else {
-        return getBadValueType(result);
-      }
-    }
+    case "unknown":
+      return "disagree";
   }
 } // fn: categorizeResult()
 
