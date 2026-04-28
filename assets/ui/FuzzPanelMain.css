@@ -70,10 +70,14 @@ body {
 }
 .fuzzGrid td {
   word-break: break-word;
-  padding: 4px 6px;
+  padding: 2px 6px;
+}
+.fuzzGrid tbody tr:first-child td {
+  padding-top: 4px;
 }
 .fuzzGrid tbody tr:last-child td {
   border-bottom: 1px solid;
+  padding-bottom: 4px;
 }
 .editorFont {
   font-family: var(--vscode-editor-font-family);
@@ -83,8 +87,8 @@ body {
 .preWrap {
   white-space: pre-wrap;
 }
-.fuzzGrid td.tableCol-src,
-.fuzzGrid td.noInput {
+.fuzzGrid td.tableCol-src span,
+.fuzzGrid td.noInput span {
   color: rgb(from var(--vscode-foreground) r g b / 0.5);
 }
 .fuzzGrid th.tableCol-src,
