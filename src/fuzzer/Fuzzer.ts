@@ -25,6 +25,8 @@ import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
+import { ImplicitOracle } from "./oracles/ImplicitOracle";
+import { ExampleOracle } from "./oracles/ExampleOracle";
 
 export class Tester {
   protected _module: string; // module filename
@@ -741,35 +743,31 @@ export class Tester {
 
       const startValTime = performance.now(); // start timer
       // IMPLICIT ORACLE --------------------------------------------
-      // How can it fail ... let us count the ways...
       if (this._options.useImplicit) {
-        if (result.exception || result.timeout) {
-          // Exceptions and timeouts fail the implicit oracle
-          result.passedImplicit = false;
-        } else if (this._function.isVoid()) {
-          // Functions with a void return type should only return undefined
-          result.passedImplicit = !result.output.some(
-            (e) => e.value !== undefined
-          );
-        } else {
-          // Non-void functions should not contain disallowed values
-          result.passedImplicit = !result.output.some(
-            (e) => !implicitOracle(e)
-          );
-        }
+        result.passedImplicit =
+          ImplicitOracle.judge(
+            result.timeout,
+            result.exception,
+            this._function.isVoid(),
+            result.output
+          ) === "pass";
       }
 
-      // HUMAN ORACLE -----------------------------------------------
+      // EXAMPLE ORACLE ---------------------------------------------
       // If a human annotated an expected output, then check it
       if (this._options.useHuman && result.expectedOutput) {
-        result.passedHuman = actualEqualsExpectedOutput(
-          result,
-          result.expectedOutput
-        );
+        result.passedHuman =
+          ExampleOracle.judge(
+            result.timeout,
+            result.exception,
+            result.expectedOutput,
+            result.output
+          ) === "pass";
       }
 
-      // CUSTOM VALIDATOR ------------------------------------------
-      // If a custom validator is selected, call it to evaluate the result
+      // PROPERTY VALIDATOR ------------------------------------------
+      // If a property validator is selected, call it to evaluate the result
+      // TODO: Get this out of the fuzzer similar to the other oracles
       if (this._validators.length && this._options.useProperty) {
         // const fnName = env.validator;
         result.passedValidators = [];
@@ -1008,23 +1006,6 @@ const isOptionValid = (options: FuzzOptions): boolean => {
 }; // fn: isOptionValid()
 
 /**
- * The implicit oracle returns true only if the value contains no nulls, undefineds, NaNs,
- * or Infinity values.
- *
- * @param x any value
- * @returns true if x has no nulls, undefineds, NaNs, or Infinity values; false otherwise
- */
-export const implicitOracle = (x: unknown): boolean => {
-  if (Array.isArray(x)) return !x.flat().some((e) => !implicitOracle(e));
-  if (typeof x === "number")
-    return !(isNaN(x) || x === Infinity || x === -Infinity);
-  else if (x === null || x === undefined) return false;
-  else if (typeof x === "object")
-    return !Object.values(x).some((e) => !implicitOracle(e));
-  else return true; //implicitOracleValue(x);
-}; // fn: implicitOracle()
-
-/**
  * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
  *
  * The original function-timeout is an ES module; incorporating it here
@@ -1097,37 +1078,6 @@ export function getValidators(
     )
     .map((fn) => fn.getRef());
 } // fn: getValidators()
-
-/**
- * Compares the actual output to the expected output.
- *
- * @param fuzz testing result
- * @param expected output
- * @returns true if actualOut equals expectedOut
- */
-function actualEqualsExpectedOutput(
-  result: FuzzTestResult,
-  expectedOutput: FuzzIoElement[]
-): boolean {
-  if (result.timeout) {
-    return expectedOutput.length > 0 && expectedOutput[0].isTimeout === true;
-  } else if (result.exception) {
-    return expectedOutput.length > 0 && expectedOutput[0].isException === true;
-  } else {
-    return (
-      JSON5.stringify(
-        result.output.map((output) => {
-          return { value: output.value };
-        })
-      ) ===
-      JSON5.stringify(
-        expectedOutput.map((output) => {
-          return { value: output.value };
-        })
-      )
-    );
-  }
-} // fn: actualEqualsExpectedOutput
 
 /**
  * Categorizes the result of a fuzz test according to the available

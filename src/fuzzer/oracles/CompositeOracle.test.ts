@@ -1,4 +1,5 @@
-import { CompositeOracle, Judgment } from "./CompositeOracle";
+import { CompositeOracle } from "./CompositeOracle";
+import { Judgment } from "./Types";
 
 describe("fuzzer.oracles.CompositeOracle", () => {
   it("CompositeOracle.0", () => {

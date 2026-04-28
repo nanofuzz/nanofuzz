@@ -1,3 +1,5 @@
+import { Judgment } from "./Types";
+
 /**
  * An implementation of the Composite Oracle described in:
  *
@@ -30,9 +32,7 @@ export class CompositeOracle {
       }
     }
     return "pass"; // default case: no contrary judgments
-  }
-}
-
-export type Judgment = "fail" /* -1 */ | "unknown" /* 0 */ | "pass" /* 1 */;
+  } //fn: judge
+} // class: CompositeOracle
 
 export type JudgmentHierarchy = Judgment[][];
