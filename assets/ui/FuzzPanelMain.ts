@@ -1725,6 +1725,7 @@ function drawTableBody({
         cell2.classList.add("colGroupEnd", "clickable");
       } else {
         const cell = row.appendChild(document.createElement("td"));
+        const span = cell.appendChild(document.createElement("span"));
         cell.classList.add(
           `tableCol-${k.replace(" ", "")}`,
           `editorFont`,
@@ -1733,7 +1734,7 @@ function drawTableBody({
         if (e[k] === "(no input)") {
           cell.classList.add("noInput");
         }
-        cell.textContent = e[k];
+        span.textContent = e[k];
       }
     });
   });
