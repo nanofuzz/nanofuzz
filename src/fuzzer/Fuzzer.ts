@@ -27,6 +27,7 @@ import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
+import { PropertyOracle } from "./oracles/PropertyOracle";
 
 export class Tester {
   protected _module: string; // module filename
@@ -544,25 +545,27 @@ export class Tester {
         );
         console.log(
           ` - Total tests where human validator passed: ${
-            this._results.results.filter((e) => e.passedHuman === true).length
+            this._results.results.filter((e) => e.passedHuman === "pass").length
           }, failed: ${
-            this._results.results.filter((e) => e.passedHuman === false).length
+            this._results.results.filter((e) => e.passedHuman === "fail").length
           }`
         );
         console.log(
           ` - Total tests where property validator passed: ${
-            this._results.results.filter((e) => e.passedValidator === true)
+            this._results.results.filter((e) => e.passedValidator === "pass")
               .length
           }, failed: ${
-            this._results.results.filter((e) => e.passedValidator === false)
+            this._results.results.filter((e) => e.passedValidator === "fail")
               .length
           }`
         );
         console.log(
           ` - Total tests where heuristic validator passed: ${
-            this._results.results.filter((e) => e.passedImplicit).length
+            this._results.results.filter((e) => e.passedImplicit === "pass")
+              .length
           }, failed: ${
-            this._results.results.filter((e) => !e.passedImplicit).length
+            this._results.results.filter((e) => e.passedImplicit === "fail")
+              .length
           }`
         );
 
@@ -594,7 +597,10 @@ export class Tester {
         exception: false,
         validatorException: false,
         timeout: false,
-        passedImplicit: true,
+        passedImplicit: "unknown",
+        passedHuman: "unknown",
+        passedValidator: "unknown",
+        passedValidators: [],
         timers: {
           run: 0,
           gen: 0,
@@ -744,34 +750,29 @@ export class Tester {
       const startValTime = performance.now(); // start timer
       // IMPLICIT ORACLE --------------------------------------------
       if (this._options.useImplicit) {
-        result.passedImplicit =
-          ImplicitOracle.judge(
-            result.timeout,
-            result.exception,
-            this._function.isVoid(),
-            result.output
-          ) === "pass";
+        result.passedImplicit = ImplicitOracle.judge(
+          result.timeout,
+          result.exception,
+          this._function.isVoid(),
+          result.output
+        );
       }
 
       // EXAMPLE ORACLE ---------------------------------------------
       // If a human annotated an expected output, then check it
       if (this._options.useHuman && result.expectedOutput) {
-        result.passedHuman =
-          ExampleOracle.judge(
-            result.timeout,
-            result.exception,
-            result.expectedOutput,
-            result.output
-          ) === "pass";
+        result.passedHuman = ExampleOracle.judge(
+          result.timeout,
+          result.exception,
+          result.expectedOutput,
+          result.output
+        );
       }
 
       // PROPERTY VALIDATOR ------------------------------------------
       // If a property validator is selected, call it to evaluate the result
-      // TODO: Get this out of the fuzzer similar to the other oracles
+      // TODO: Refactor this out of the fuzzer similar to the other oracles
       if (this._validators.length && this._options.useProperty) {
-        // const fnName = env.validator;
-        result.passedValidators = [];
-
         for (const valFn in this._validators) {
           const valFnName = this._validators[valFn].name;
           // Build the validator function wrapper
@@ -797,8 +798,12 @@ export class Tester {
                   mod[valFnName](validatorIn);
                 return {
                   ...result,
-                  passedValidator: validatorOut,
-                  passedValidators: [],
+                  passedValidator:
+                    validatorOut === undefined
+                      ? "unknown"
+                      : validatorOut === true
+                        ? "pass"
+                        : "fail",
                 };
               } catch (e: unknown) {
                 const msg = isError(e) ? e.message : JSON.stringify(e);
@@ -834,16 +839,10 @@ export class Tester {
             validatorResult.validatorExceptionStack;
         } // for: valFn in env.validators
 
-        result.passedValidator = undefined; // initialize
-        for (const i in result.passedValidators) {
-          const thisJudgment: boolean | undefined = result.passedValidators[i];
-          if (thisJudgment === true || thisJudgment === false) {
-            result.passedValidator =
-              result.passedValidator === undefined
-                ? !!thisJudgment
-                : result.passedValidator && !!thisJudgment;
-          }
-        }
+        // Summarize propert judgments.
+        result.passedValidator = PropertyOracle.summarize(
+          result.passedValidators
+        );
       } // if validator
 
       // Validator stats
@@ -1101,30 +1100,19 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
     }
   };
 
-  // Setup the Composite Oracle -- we describe this in the TerzoN paper:
+  // Use the Composite Oracle to render a single judgment from among
+  // the various oracles. We describe this in the TerzoN paper:
   //
   // TerzoN: Human-in-the-Loop Software Testing with a Composite Oracle
   // https://doi.org/10.1145/3580446
-  const implicit =
-    "passedImplicit" in result
-      ? result.passedImplicit
-        ? "pass"
-        : "fail"
-      : "unknown";
-  const human =
-    "passedHuman" in result
-      ? result.passedHuman
-        ? "pass"
-        : "fail"
-      : "unknown";
-  const property =
-    "passedValidator" in result && result.passedValidator !== undefined
-      ? result.passedValidator
-        ? "pass"
-        : "fail"
-      : "unknown";
-
-  switch (CompositeOracle.judge([[property, human], [implicit]])) {
+  //
+  // Subsequently, map the judgment to a FuzzResultCategory
+  switch (
+    CompositeOracle.judge([
+      [result.passedValidator, result.passedHuman],
+      [result.passedImplicit],
+    ])
+  ) {
     case "pass":
       return "ok";
     case "fail":

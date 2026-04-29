@@ -159,9 +159,9 @@ export function tester(
 }
 
 /**
- * This is an older, particular implementation of the Composite Oracle
+ * This is prior and particular implementation of the Composite Oracle
  * specific to NaNofuzz 0.3 included here for testing as an alternative
- * implementation with a known good result.
+ * implementation with a known good expected result.
  *
  * @param `implicit` judgment
  * @param `property` judgment

@@ -230,7 +230,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).toBeGreaterThan(0); // Expect some results
-    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // Expect all implicit validation to pass
+    expect(
+      fuzzResult.results.every((e) => e.passedImplicit === "pass")
+    ).toBeTruthy(); // Expect all implicit validation to pass
 
     // Expect that we generate input "bugs" within 12k input generations
     expect(
@@ -239,12 +241,16 @@ describe("fuzzer:", () => {
 
     // Expect that most of the validtor tests will pass
     expect(
-      fuzzResult.results.some((e) => e.passedValidators?.some((v) => v))
+      fuzzResult.results.some((e) =>
+        e.passedValidators.some((v) => v === "pass")
+      )
     ).toBeTruthy();
 
     // But expect that "bugs" should fail (as would "bug!" and "moth")
     expect(
-      fuzzResult.results.some((e) => e.passedValidators?.some((v) => !v))
+      fuzzResult.results.some((e) =>
+        e.passedValidators.some((v) => v === "fail")
+      )
     ).toBeTruthy();
   });
 
@@ -256,7 +262,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0); // Ensure we have results
-    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // Expect all implicit validation to pass
+    expect(
+      fuzzResult.results.every((e) => e.passedImplicit === "pass")
+    ).toBeTruthy(); // Expect all implicit validation to pass
     expect(fuzzResult.stats.measures.CodeCoverageMeasure).toBeDefined(); // Has coverage stats
     if (fuzzResult.stats.measures.CodeCoverageMeasure) {
       const coverageStats =
@@ -355,7 +363,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
   });
   it("Arrow fn void fuzz target fails if return is !==undefined", () => {
     const fuzzResult = new Tester(
@@ -365,7 +375,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
   });
 
   /**
@@ -380,7 +392,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
   });
   it("Arrow fn void fuzz target passes if return is undefined", () => {
     const fuzzResult = new Tester(
@@ -390,7 +404,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
   });
 
   /**
@@ -405,7 +421,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
     expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
   });
   it("Arrow fn void fuzz target fails if exception is thrown", () => {
@@ -416,7 +434,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
     expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
   });
 
@@ -432,7 +452,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
   });
   it("Arrow void literal arg fuzz target", () => {
     const fuzzResult = new Tester(
@@ -442,7 +464,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
   });
 
   /**
@@ -456,7 +480,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
   });
   it("Arrow union arg fuzz target", () => {
     const fuzzResult = new Tester(
@@ -466,7 +492,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
   });
 
   /**
@@ -480,7 +508,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).toBe(3);
-    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy();
+    expect(
+      fuzzResult.results.every((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
 
     // Run the following tests on the raw and JSON5-cloned results
     [
