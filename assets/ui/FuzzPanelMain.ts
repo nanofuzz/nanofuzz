@@ -9,6 +9,7 @@ import {
   FuzzSortOrder,
   FuzzValueOrigin,
   isFuzzResultTab,
+  Judgment,
 } from "fuzzer/Types";
 import {
   ArgValueType,
@@ -68,13 +69,6 @@ const correctState = {
   classCheckOff: "classCheckOff",
   classErrorOn: "classErrorOn",
   classErrorOff: "classErrorOff",
-};
-
-// Correct icon sorting validator results
-const validatorResult = {
-  true: 3,
-  false: 2,
-  undefined: 1,
 };
 
 // Sort order for each grid and column
@@ -539,7 +533,7 @@ function main() {
         ? { [expectedLabel]: e.expectedOutput }
         : {};
 
-      // Property validator summary (true if passed all validator functions)
+      // Property validator summary ("pass" if passed all validator functions)
       const passedValidator = resultsData.env.options.useProperty
         ? { [validatorLabel]: e.passedValidator }
         : {};
@@ -549,10 +543,10 @@ function main() {
       //   ? { [allValidatorsLabel]: e.passedValidators }
       //   : {};
 
-      // Result for each property validator (true if passed)
-      const validatorFns: Record<string, boolean | undefined> = {};
-      e.passedValidators?.forEach((v, i) => {
-        validatorFns[validators[i]] = v;
+      // Result for each property validator ("pass"" if passed)
+      const validatorFns: Record<string, Judgment> = {};
+      e.passedValidators.forEach((j, i) => {
+        validatorFns[validators[i]] = j;
       });
 
       // Name each input argument and make it clear which inputs were not provided
@@ -1162,21 +1156,21 @@ function handleCorrectToggle(
     // clicking check off
     button.className = correctState.classCheckOff;
     button.setAttribute("onOff", "false");
-    data[type][index][correctLabel] = undefined;
+    data[type][index][correctLabel] = "unknown";
     // delete saved expected value
     delete data[type][index][expectedLabel];
   } else if (button.classList.contains(correctState.classErrorOn)) {
     // clicking error off
     button.className = correctState.classErrorOff;
     button.setAttribute("onOff", "false");
-    data[type][index][correctLabel] = undefined;
+    data[type][index][correctLabel] = "unknown";
     // delete saved expected value
     delete data[type][index][expectedLabel];
   } else if (button.classList.contains(correctState.classCheckOff)) {
     // clicking check on
     button.className = correctState.classCheckOn;
     button.setAttribute("onOff", "true");
-    data[type][index][correctLabel] = "true";
+    data[type][index][correctLabel] = "pass";
     // turn others off
     cell2.className = correctState.classErrorOff;
     cell2.setAttribute("onOff", "false");
@@ -1196,7 +1190,7 @@ function handleCorrectToggle(
     // clicking error on
     button.className = correctState.classErrorOn;
     button.setAttribute("onOff", "true");
-    data[type][index][correctLabel] = "false";
+    data[type][index][correctLabel] = "fail";
     // turn others off
     cell1.className = correctState.classCheckOff;
     cell1.setAttribute("onOff", "false");
@@ -1382,18 +1376,15 @@ function handleColumnSort(
     let bVal = (b[thisCol] ?? "undefined") + "";
 
     // How are we sorting?
-    if (thisCol === correctLabel || thisCol === validatorLabel) {
-      // Sort by numerical values in validatorResult map.
-      const aId = (a[thisCol] ?? "undefined") + "";
-      const bId = (b[thisCol] ?? "undefined") + "";
-      if (aId !== "true" && aId !== "false" && aId !== "undefined") {
-        throw new Error(`Invalid validator result: ${aId}`);
-      }
-      if (bId !== "true" && bId !== "false" && bId !== "undefined") {
-        throw new Error(`Invalid validator result: ${bId}`);
-      }
-      a = validatorResult[aId];
-      b = validatorResult[bId];
+    if (
+      [correctLabel, implicitLabel, validatorLabel, ...validators].includes(
+        thisCol
+      )
+    ) {
+      // Special sort order for judgments
+      [a, b] = [a[thisCol], b[thisCol]].map((j) =>
+        j === "pass" ? 2 : j === "fail" ? 1 : 0
+      );
     } else {
       switch (aType) {
         case "number":
@@ -1591,14 +1582,16 @@ function drawTableBody({
           const span = cell.appendChild(document.createElement("span"));
           // Fade the indicator if overridden by another validator
           if (
-            e[correctLabel] !== undefined ||
-            e[validatorLabel] !== undefined
+            (e[correctLabel] ?? "unknown") !== "unknown" ||
+            (e[validatorLabel] ?? "unknown") !== "unknown"
           ) {
             span.classList.add("overridden");
           }
-          if (e[k] === undefined) {
-            span.innerHTML = "";
-          } else if (e[k]) {
+          if (e[k] === "unknown") {
+            cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
+            span.classList.add("codicon", "codicon-circle-large");
+            span.setAttribute("title", "undecided");
+          } else if (e[k] === "pass") {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-pass");
             span.setAttribute("title", "passed");
@@ -1615,12 +1608,12 @@ function drawTableBody({
           if (validators.length > 1) {
             cell.style.paddingRight = "0px"; // close to twistie column if multiple validators
           }
-          if (e[k] === undefined) {
+          if (e[k] === "unknown") {
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-circle-large");
             span.setAttribute("title", "undecided");
-          } else if (e[k]) {
+          } else if (e[k] === "pass") {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-pass");
@@ -1647,11 +1640,11 @@ function drawTableBody({
           const cell = row.appendChild(document.createElement("td"));
           const span = cell.appendChild(document.createElement("span"));
           cell.style.textAlign = "right";
-          if (e[k] === undefined || e[k] === null) {
+          if (e[k] === "unknown") {
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-circle-large");
             span.setAttribute("title", "undecided");
-          } else if (e[k]) {
+          } else if (e[k] === "pass") {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-pass", "overridden"); // Fade check mark for passed tests
             span.setAttribute("title", "passed");
@@ -1697,10 +1690,10 @@ function drawTableBody({
         });
 
         // Update the front-end buttons to match the back-end state
-        switch (e[k] + "") {
-          case undefined:
+        switch (e[k] ?? "unknown") {
+          case "unknown":
             break;
-          case "true":
+          case "pass":
             cell1.className = correctState.classCheckOn;
             cell1.setAttribute("onOff", "true");
             handleExpectedOutput({
@@ -1710,7 +1703,7 @@ function drawTableBody({
               ...(isClicking ? { isClicking, button } : { isClicking }),
             });
             break;
-          case "false":
+          case "fail":
             cell2.className = correctState.classErrorOn;
             cell2.setAttribute("onOff", "true");
             handleExpectedOutput({
@@ -1788,10 +1781,9 @@ function handleExpectedOutput({
     throw new Error("invalid id");
   }
   const correctType = data[type][index][correctLabel];
-  const numInputs = resultsData.results[id].input.length;
 
   // If actual output does not match expected output, show expected/actual output
-  if (correctType + "" === "false") {
+  if (correctType === "fail") {
     const expectedRow = row.insertAdjacentElement(
       "afterend",
       document.createElement("tr")
@@ -1878,7 +1870,7 @@ function handleExpectedOutput({
       });
     } else {
       // Marked X but not currently being edited; display expected output
-      row.cells[numInputs + 1].className = "classErrorCell"; // red wavy underline
+      row.querySelector("td.tableCol-output")?.classList.add("classErrorCell"); // red wavy underline
       expectedRow.className = "classErrorExpectedOutputRow";
 
       // Display the expected outout

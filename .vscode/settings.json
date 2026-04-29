@@ -14,5 +14,10 @@
   "js/ts.tsc.autoDetect": "off",
   "editor.formatOnSave": true,
   "jasmineExplorer.nodeArgv": ["--no-experimental-strip-types"],
-  "eslint.validate": ["javascript", "typescript"]
+  "eslint.validate": ["javascript", "typescript"],
+  // The number of spaces a tab is equal to
+  "editor.tabSize": 2,
+  // insert spaces when pressing Tab
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": true
 }

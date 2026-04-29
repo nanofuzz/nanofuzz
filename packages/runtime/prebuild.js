@@ -24,7 +24,7 @@ rimraf.sync("./build");
 
 // Copy the license file
 copyfiles(["../../LICENSE", "."], true /* flat */, () =>
-  console.log("done copying")
+  console.log("done copying license file")
 );
 
 // Copy the Fuzzer Types file
@@ -32,7 +32,7 @@ copyfiles(["../../src/fuzzer/Types.ts", "./src/fuzzer"], true /* flat */, () =>
   console.log("done copying fuzzer types")
 );
 
-// Copy the Fuzzer Types file
+// Copy the TypeScript analysis Types file
 copyfiles(
   [
     "../../src/fuzzer/analysis/typescript/Types.ts",
@@ -40,4 +40,11 @@ copyfiles(
   ],
   true /* flat */,
   () => console.log("done copying argdef types")
+);
+
+// Copy the Oracle types file
+copyfiles(
+  ["../../src/fuzzer/oracles/Types.ts", "./src/fuzzer/oracles"],
+  true /* flat */,
+  () => console.log("done copying oracle types")
 );

@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
-import { FuzzTests, Result, implicitOracle } from "../Fuzzer";
+import { FuzzTests, Result } from "../Fuzzer";
 import * as JSON5 from "json5";
 import * as os from "os";
 import * as path from "path";
+import { implicitOracle } from "../oracles/ImplicitOracle";
 
 /**
  * The tool's current name (used for studies)

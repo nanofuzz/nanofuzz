@@ -3,6 +3,7 @@ import {
   ArgValueType,
   ArgValueTypeWrapped,
 } from "./analysis/typescript/Types";
+import { Judgment as _Judgment } from "./oracles/Types";
 
 /**
  * Single Fuzzer Test Result
@@ -15,10 +16,10 @@ export type FuzzTestResult = {
   exceptionMessage?: string; // exception message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
-  passedImplicit: boolean; // true if output matches implicit oracle; false, otherwise
-  passedHuman?: boolean; // true if actual output matches human-expected output
-  passedValidator?: boolean; // true if passed all custom validators; false, otherwise
-  passedValidators?: (boolean | undefined)[]; // for each custom validator, true if passed; false, otherwise
+  passedImplicit: Judgment; // "pass" if output passed implicit oracle
+  passedHuman: Judgment; // "pass" if actual output matches human-expected output
+  passedValidator: Judgment; // "pass" if passed all property oracles
+  passedValidators: Judgment[]; // "pass" if passed all property oracles
   validatorException: boolean; // true if validator threw an exception
   validatorExceptionMessage?: string; // validator exception message
   validatorExceptionFunction?: string; // name of validator throwing exception
@@ -282,3 +283,5 @@ export class TscCompilerError extends Error {
     this.details = details;
   }
 }
+
+export type Judgment = _Judgment;

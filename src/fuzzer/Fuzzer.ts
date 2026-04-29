@@ -16,6 +16,7 @@ import {
   FuzzStopReason,
   FuzzBusyStatusMessage,
   BaseMeasureConfig,
+  Judgment,
 } from "./Types";
 import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
@@ -24,6 +25,10 @@ import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
+import { CompositeOracle } from "./oracles/CompositeOracle";
+import { ImplicitOracle } from "./oracles/ImplicitOracle";
+import { ExampleOracle } from "./oracles/ExampleOracle";
+import { PropertyOracle } from "./oracles/PropertyOracle";
 
 export class Tester {
   protected _module: string; // module filename
@@ -541,25 +546,27 @@ export class Tester {
         );
         console.log(
           ` - Total tests where human validator passed: ${
-            this._results.results.filter((e) => e.passedHuman === true).length
+            this._results.results.filter((e) => e.passedHuman === "pass").length
           }, failed: ${
-            this._results.results.filter((e) => e.passedHuman === false).length
+            this._results.results.filter((e) => e.passedHuman === "fail").length
           }`
         );
         console.log(
           ` - Total tests where property validator passed: ${
-            this._results.results.filter((e) => e.passedValidator === true)
+            this._results.results.filter((e) => e.passedValidator === "pass")
               .length
           }, failed: ${
-            this._results.results.filter((e) => e.passedValidator === false)
+            this._results.results.filter((e) => e.passedValidator === "fail")
               .length
           }`
         );
         console.log(
           ` - Total tests where heuristic validator passed: ${
-            this._results.results.filter((e) => e.passedImplicit).length
+            this._results.results.filter((e) => e.passedImplicit === "pass")
+              .length
           }, failed: ${
-            this._results.results.filter((e) => !e.passedImplicit).length
+            this._results.results.filter((e) => e.passedImplicit === "fail")
+              .length
           }`
         );
 
@@ -591,7 +598,10 @@ export class Tester {
         exception: false,
         validatorException: false,
         timeout: false,
-        passedImplicit: true,
+        passedImplicit: "unknown",
+        passedHuman: "unknown",
+        passedValidator: "unknown",
+        passedValidators: [],
         timers: {
           run: 0,
           gen: 0,
@@ -740,52 +750,38 @@ export class Tester {
 
       const startValTime = performance.now(); // start timer
       // IMPLICIT ORACLE --------------------------------------------
-      // How can it fail ... let us count the ways...
       if (this._options.useImplicit) {
-        if (result.exception || result.timeout) {
-          // Exceptions and timeouts fail the implicit oracle
-          result.passedImplicit = false;
-        } else if (this._function.isVoid()) {
-          // Functions with a void return type should only return undefined
-          result.passedImplicit = !result.output.some(
-            (e) => e.value !== undefined
-          );
-        } else {
-          // Non-void functions should not contain disallowed values
-          result.passedImplicit = !result.output.some(
-            (e) => !implicitOracle(e)
-          );
-        }
-      }
-
-      // HUMAN ORACLE -----------------------------------------------
-      // If a human annotated an expected output, then check it
-      if (this._options.useHuman && result.expectedOutput) {
-        result.passedHuman = actualEqualsExpectedOutput(
-          result,
-          result.expectedOutput
+        result.passedImplicit = ImplicitOracle.judge(
+          result.timeout,
+          result.exception,
+          this._function.isVoid(),
+          result.output
         );
       }
 
-      // CUSTOM VALIDATOR ------------------------------------------
-      // If a custom validator is selected, call it to evaluate the result
-      if (this._validators.length && this._options.useProperty) {
-        // const fnName = env.validator;
-        result.passedValidators = [];
+      // EXAMPLE ORACLE ---------------------------------------------
+      // If a human annotated an expected output, then check it
+      if (this._options.useHuman && result.expectedOutput) {
+        result.passedHuman = ExampleOracle.judge(
+          result.timeout,
+          result.exception,
+          result.expectedOutput,
+          result.output
+        );
+      }
 
+      // PROPERTY VALIDATOR ------------------------------------------
+      // If a property validator is selected, call it to evaluate the result
+      // TODO: Refactor this out of the fuzzer similar to the other oracles
+      if (this._validators.length && this._options.useProperty) {
         for (const valFn in this._validators) {
           const valFnName = this._validators[valFn].name;
           // Build the validator function wrapper
           const validatorFnWrapper = functionTimeout(
             (result: FuzzTestResult): FuzzTestResult => {
-              const inParams: ArgValueType[] = []; // array of input parameters
-              result.input.forEach((e) => {
-                const param = e.value;
-                inParams.push(param);
-              });
               // Simplified data structure for validator function input
               const validatorIn: Result = {
-                in: inParams,
+                in: result.input.map((i) => i.value), // inputs
                 out:
                   result.output.length === 0
                     ? "timeout or exception"
@@ -794,12 +790,26 @@ export class Tester {
                 timeout: result.timeout,
               };
               try {
-                const validatorOut: boolean | undefined =
+                // Map v0.3 judgments to v0.4 judgments
+                const validatorOut: boolean | undefined | Judgment =
                   mod[valFnName](validatorIn);
+                let judgment: Judgment;
+                switch (validatorOut) {
+                  case undefined:
+                    judgment = "unknown";
+                    break;
+                  case true:
+                    judgment = "pass";
+                    break;
+                  case false:
+                    judgment = "fail";
+                    break;
+                  default:
+                    judgment = validatorOut;
+                }
                 return {
                   ...result,
-                  passedValidator: validatorOut,
-                  passedValidators: [],
+                  passedValidator: judgment,
                 };
               } catch (e: unknown) {
                 const msg = isError(e) ? e.message : JSON.stringify(e);
@@ -835,16 +845,10 @@ export class Tester {
             validatorResult.validatorExceptionStack;
         } // for: valFn in env.validators
 
-        result.passedValidator = undefined; // initialize
-        for (const i in result.passedValidators) {
-          const thisJudgment: boolean | undefined = result.passedValidators[i];
-          if (thisJudgment === true || thisJudgment === false) {
-            result.passedValidator =
-              result.passedValidator === undefined
-                ? !!thisJudgment
-                : result.passedValidator && !!thisJudgment;
-          }
-        }
+        // Summarize propert judgments.
+        result.passedValidator = PropertyOracle.summarize(
+          result.passedValidators
+        );
       } // if validator
 
       // Validator stats
@@ -1007,23 +1011,6 @@ const isOptionValid = (options: FuzzOptions): boolean => {
 }; // fn: isOptionValid()
 
 /**
- * The implicit oracle returns true only if the value contains no nulls, undefineds, NaNs,
- * or Infinity values.
- *
- * @param x any value
- * @returns true if x has no nulls, undefineds, NaNs, or Infinity values; false otherwise
- */
-export const implicitOracle = (x: unknown): boolean => {
-  if (Array.isArray(x)) return !x.flat().some((e) => !implicitOracle(e));
-  if (typeof x === "number")
-    return !(isNaN(x) || x === Infinity || x === -Infinity);
-  else if (x === null || x === undefined) return false;
-  else if (typeof x === "object")
-    return !Object.values(x).some((e) => !implicitOracle(e));
-  else return true; //implicitOracleValue(x);
-}; // fn: implicitOracle()
-
-/**
  * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
  *
  * The original function-timeout is an ES module; incorporating it here
@@ -1098,37 +1085,6 @@ export function getValidators(
 } // fn: getValidators()
 
 /**
- * Compares the actual output to the expected output.
- *
- * @param fuzz testing result
- * @param expected output
- * @returns true if actualOut equals expectedOut
- */
-function actualEqualsExpectedOutput(
-  result: FuzzTestResult,
-  expectedOutput: FuzzIoElement[]
-): boolean {
-  if (result.timeout) {
-    return expectedOutput.length > 0 && expectedOutput[0].isTimeout === true;
-  } else if (result.exception) {
-    return expectedOutput.length > 0 && expectedOutput[0].isException === true;
-  } else {
-    return (
-      JSON5.stringify(
-        result.output.map((output) => {
-          return { value: output.value };
-        })
-      ) ===
-      JSON5.stringify(
-        expectedOutput.map((output) => {
-          return { value: output.value };
-        })
-      )
-    );
-  }
-} // fn: actualEqualsExpectedOutput
-
-/**
  * Categorizes the result of a fuzz test according to the available
  * categories defined in ResultType.
  * @param result of the test
@@ -1149,49 +1105,26 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
       return "badValue"; // PUT returned bad value
     }
   };
-  const getBadValueTypeProperty = (
-    result: FuzzTestResult
-  ): FuzzResultCategory => {
-    return result.passedValidator ? "ok" : "badValue"; // PUT returned bad value
-  };
 
-  // Setup the Composite Oracle -- we describe this in the TerzoN paper
-  const implicit =
-    "passedImplicit" in result ? (result.passedImplicit ? 1 : -1) : 0;
-  const human = "passedHuman" in result ? (result.passedHuman ? 1 : -1) : 0;
-  const property =
-    "passedValidator" in result && result.passedValidator !== undefined
-      ? result.passedValidator
-        ? 1
-        : -1
-      : 0;
-
-  if (human > 0) {
-    if (property < 0) {
-      return "disagree";
-    } else {
+  // Use the Composite Oracle to render a single judgment from among
+  // the various oracles. We describe this in the TerzoN paper:
+  //
+  // TerzoN: Human-in-the-Loop Software Testing with a Composite Oracle
+  // https://doi.org/10.1145/3580446
+  //
+  // Subsequently, map the judgment to a FuzzResultCategory
+  switch (
+    CompositeOracle.judge([
+      [result.passedValidator, result.passedHuman],
+      [result.passedImplicit],
+    ])
+  ) {
+    case "pass":
       return "ok";
-    }
-  } else if (human < 0) {
-    if (property > 0) {
-      return "disagree";
-    } else {
+    case "fail":
       return getBadValueType(result);
-    }
-  } else {
-    // human === 0
-    if (property > 0) {
-      return "ok";
-    } else if (property < 0) {
-      return getBadValueTypeProperty(result);
-    } else {
-      // human === 0 && property === 0
-      if (implicit >= 0) {
-        return "ok";
-      } else {
-        return getBadValueType(result);
-      }
-    }
+    case "unknown":
+      return "disagree";
   }
 } // fn: categorizeResult()
 

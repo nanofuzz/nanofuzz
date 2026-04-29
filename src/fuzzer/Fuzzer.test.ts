@@ -1,4 +1,4 @@
-import { ArgDef, Tester, implicitOracle } from "./Fuzzer";
+import { ArgDef, Tester } from "./Fuzzer";
 import { TypeScriptCompiler } from "./Compiler";
 import { FuzzOptions } from "./Types";
 import * as JSON5 from "json5";
@@ -71,154 +71,6 @@ const floatOptions: FuzzOptions = {
  * for each example. TODO: Add tests that check the fuzzer output.
  */
 describe("fuzzer:", () => {
-  it("Implicit Oracle - NaN", () => {
-    expect(implicitOracle(NaN)).toBe(false);
-  });
-
-  it("Implicit Oracle - +Infinity", () => {
-    expect(implicitOracle(Infinity)).toBe(false);
-  });
-
-  it("Implicit Oracle - -Infinity", () => {
-    expect(implicitOracle(-Infinity)).toBe(false);
-  });
-
-  it("Implicit Oracle - null", () => {
-    expect(implicitOracle(null)).toBe(false);
-  });
-
-  it("Implicit Oracle - undefined", () => {
-    expect(implicitOracle(undefined)).toBe(false);
-  });
-
-  it("Implicit Oracle - ''", () => {
-    expect(implicitOracle("")).toBe(true);
-  });
-
-  it("Implicit Oracle - 0", () => {
-    expect(implicitOracle(0)).toBe(true);
-  });
-
-  it("Implicit Oracle - -1", () => {
-    expect(implicitOracle(-1)).toBe(true);
-  });
-
-  it("Implicit Oracle - 1", () => {
-    expect(implicitOracle(1)).toBe(true);
-  });
-
-  it("Implicit Oracle - 'xyz'", () => {
-    expect(implicitOracle("xyz")).toBe(true);
-  });
-
-  it("Implicit Oracle - []", () => {
-    expect(implicitOracle([])).toBe(true);
-  });
-
-  it("Implicit Oracle - [1]", () => {
-    expect(implicitOracle([1])).toBe(true);
-  });
-
-  it("Implicit Oracle - [[]]", () => {
-    expect(implicitOracle([[]])).toBe(true);
-  });
-
-  it("Implicit Oracle - [[1]]", () => {
-    expect(implicitOracle([[]])).toBe(true);
-  });
-
-  it("Implicit Oracle - [null,1]", () => {
-    expect(implicitOracle([null, 1])).toBe(false);
-  });
-
-  it("Implicit Oracle - [1,undefined]", () => {
-    expect(implicitOracle([1, undefined])).toBe(false);
-  });
-
-  it("Implicit Oracle - [NaN,1]", () => {
-    expect(implicitOracle([NaN, 1])).toBe(false);
-  });
-
-  it("Implicit Oracle - [1,Infinity]", () => {
-    expect(implicitOracle([1, Infinity])).toBe(false);
-  });
-
-  it("Implicit Oracle - [-Infinity,1]", () => {
-    expect(implicitOracle([-Infinity, 1])).toBe(false);
-  });
-
-  it("Implicit Oracle - [[null,1],1]", () => {
-    expect(implicitOracle([[null, 1], 1])).toBe(false);
-  });
-
-  it("Implicit Oracle - [1,[undefined,1]]", () => {
-    expect(implicitOracle([1, [undefined, 1]])).toBe(false);
-  });
-
-  it("Implicit Oracle - [[NaN,1],1]", () => {
-    expect(implicitOracle([[NaN, 1], 1])).toBe(false);
-  });
-
-  it("Implicit Oracle - [1,[1,Infinity]]", () => {
-    expect(implicitOracle([1, [1, Infinity]])).toBe(false);
-  });
-
-  it("Implicit Oracle - [[1,-Infinity],1]", () => {
-    expect(implicitOracle([[1, -Infinity], 1])).toBe(false);
-  });
-
-  it("Implicit Oracle - {}", () => {
-    expect(implicitOracle({})).toBe(true);
-  });
-
-  it("Implicit Oracle - {a: 'abc', b: 123}", () => {
-    expect(implicitOracle({ a: "abc", b: 123 })).toBe(true);
-  });
-
-  it("Implicit Oracle - {a:null, b:1}", () => {
-    expect(implicitOracle({ a: null, b: 1 })).toBe(false);
-  });
-
-  it("Implicit Oracle - {a:1, b:undefined}", () => {
-    expect(implicitOracle({ a: 1, b: undefined })).toBe(false);
-  });
-
-  it("Implicit Oracle - {a:1, b:NaN}", () => {
-    expect(implicitOracle({ a: 1, b: NaN })).toBe(false);
-  });
-
-  it("Implicit Oracle - {a:1, b:Infinity}", () => {
-    expect(implicitOracle({ a: 1, b: Infinity })).toBe(false);
-  });
-
-  it("Implicit Oracle - {a:-Infinity, b:1}", () => {
-    expect(implicitOracle({ a: -Infinity, b: 1 })).toBe(false);
-  });
-
-  it("Implicit Oracle - [{a:[{c:null}], b:1}]", () => {
-    expect(implicitOracle([{ a: [{ c: null }], b: 1 }])).toBe(false);
-  });
-
-  it("Implicit Oracle - [{a:[{c:NaN}], b:1}]", () => {
-    expect(implicitOracle([{ a: [{ c: NaN }], b: 1 }])).toBe(false);
-  });
-
-  it("Implicit Oracle - [{a:[{c:Infinity}], b:1}]", () => {
-    expect(implicitOracle([{ a: [{ c: Infinity }], b: 1 }])).toBe(false);
-  });
-
-  it("Implicit Oracle - [{a:[{c:-Infinity}], b:1}]", () => {
-    expect(implicitOracle([{ a: [{ c: -Infinity }], b: 1 }])).toBe(false);
-  });
-
-  it("Implicit Oracle - [{a:[{c:undefined}], b:1}]", () => {
-    expect(implicitOracle([{ a: [{ c: undefined }], b: 1 }])).toBe(false);
-  });
-
-  it("Implicit Oracle - [{a:[{c:2}], b:1}]", () => {
-    expect(implicitOracle([{ a: [{ c: 2 }], b: 1 }])).toBe(true);
-  });
-
   it("Fuzz example 01 - minValue", () => {
     expect(
       new Tester(
@@ -378,7 +230,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).toBeGreaterThan(0); // Expect some results
-    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // Expect all implicit validation to pass
+    expect(
+      fuzzResult.results.every((e) => e.passedImplicit === "pass")
+    ).toBeTruthy(); // Expect all implicit validation to pass
 
     // Expect that we generate input "bugs" within 12k input generations
     expect(
@@ -387,12 +241,16 @@ describe("fuzzer:", () => {
 
     // Expect that most of the validtor tests will pass
     expect(
-      fuzzResult.results.some((e) => e.passedValidators?.some((v) => v))
+      fuzzResult.results.some((e) =>
+        e.passedValidators.some((v) => v === "pass")
+      )
     ).toBeTruthy();
 
     // But expect that "bugs" should fail (as would "bug!" and "moth")
     expect(
-      fuzzResult.results.some((e) => e.passedValidators?.some((v) => !v))
+      fuzzResult.results.some((e) =>
+        e.passedValidators.some((v) => v === "fail")
+      )
     ).toBeTruthy();
   });
 
@@ -404,7 +262,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0); // Ensure we have results
-    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy(); // Expect all implicit validation to pass
+    expect(
+      fuzzResult.results.every((e) => e.passedImplicit === "pass")
+    ).toBeTruthy(); // Expect all implicit validation to pass
     expect(fuzzResult.stats.measures.CodeCoverageMeasure).toBeDefined(); // Has coverage stats
     if (fuzzResult.stats.measures.CodeCoverageMeasure) {
       const coverageStats =
@@ -503,7 +363,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
   });
   it("Arrow fn void fuzz target fails if return is !==undefined", () => {
     const fuzzResult = new Tester(
@@ -513,7 +375,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
   });
 
   /**
@@ -528,7 +392,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
   });
   it("Arrow fn void fuzz target passes if return is undefined", () => {
     const fuzzResult = new Tester(
@@ -538,7 +404,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
   });
 
   /**
@@ -553,7 +421,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
     expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
   });
   it("Arrow fn void fuzz target fails if exception is thrown", () => {
@@ -564,7 +434,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
     expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
   });
 
@@ -580,7 +452,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
   });
   it("Arrow void literal arg fuzz target", () => {
     const fuzzResult = new Tester(
@@ -590,7 +464,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeTruthy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
   });
 
   /**
@@ -604,7 +480,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
   });
   it("Arrow union arg fuzz target", () => {
     const fuzzResult = new Tester(
@@ -614,7 +492,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.passedImplicit)).toBeFalsy();
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeFalsy();
   });
 
   /**
@@ -628,7 +508,9 @@ describe("fuzzer:", () => {
     ).testSync();
 
     expect(fuzzResult.results.length).toBe(3);
-    expect(fuzzResult.results.every((e) => e.passedImplicit)).toBeTruthy();
+    expect(
+      fuzzResult.results.every((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
 
     // Run the following tests on the raw and JSON5-cloned results
     [
