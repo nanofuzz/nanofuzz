@@ -958,11 +958,11 @@ export class FuzzPanel {
     // prettier-ignore
     const skeleton = `
 
-export function ${validatorName}${validatorArgs.str}: boolean | undefined {
+export function ${validatorName}${validatorArgs.str}: "pass" | "fail" | "unknown" {
 ${inArgConsts}
   ${outArgConst}
 
-  return true; // true=passed; false=failed
+  return "pass";
 }`;
 
     // Save the editor if dirty

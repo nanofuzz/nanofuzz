@@ -16,6 +16,7 @@ import {
   FuzzStopReason,
   FuzzBusyStatusMessage,
   BaseMeasureConfig,
+  Judgment,
 } from "./Types";
 import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
@@ -794,16 +795,26 @@ export class Tester {
                 timeout: result.timeout,
               };
               try {
-                const validatorOut: boolean | undefined =
+                // Map v0.3 judgments to v0.4 judgments
+                const validatorOut: boolean | undefined | Judgment =
                   mod[valFnName](validatorIn);
+                let judgment: Judgment;
+                switch (validatorOut) {
+                  case undefined:
+                    judgment = "unknown";
+                    break;
+                  case true:
+                    judgment = "pass";
+                    break;
+                  case false:
+                    judgment = "fail";
+                    break;
+                  default:
+                    judgment = validatorOut;
+                }
                 return {
                   ...result,
-                  passedValidator:
-                    validatorOut === undefined
-                      ? "unknown"
-                      : validatorOut === true
-                        ? "pass"
-                        : "fail",
+                  passedValidator: judgment,
                 };
               } catch (e: unknown) {
                 const msg = isError(e) ? e.message : JSON.stringify(e);
