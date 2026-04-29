@@ -779,14 +779,9 @@ export class Tester {
           // Build the validator function wrapper
           const validatorFnWrapper = functionTimeout(
             (result: FuzzTestResult): FuzzTestResult => {
-              const inParams: ArgValueType[] = []; // array of input parameters
-              result.input.forEach((e) => {
-                const param = e.value;
-                inParams.push(param);
-              });
               // Simplified data structure for validator function input
               const validatorIn: Result = {
-                in: inParams,
+                in: result.input.map((i) => i.value), // inputs
                 out:
                   result.output.length === 0
                     ? "timeout or exception"
