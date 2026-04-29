@@ -70,7 +70,7 @@ body {
 }
 .fuzzGrid td {
   word-break: break-word;
-  padding: 2px 6px;
+  padding: 3px 6px;
 }
 .fuzzGrid tbody tr:first-child td {
   padding-top: 4px;
