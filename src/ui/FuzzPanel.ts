@@ -14,7 +14,7 @@ import {
   clearCoverageHeatmapFromEditor,
 } from "./CoverageHeatmap";
 import { normalizePathForKey } from "../fuzzer/Util";
-import { CodeCoverageMeasureStats } from "fuzzer/measures/CoverageMeasure";
+import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];

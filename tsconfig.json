@@ -22,11 +22,7 @@
     "isolatedModules": false,
     "strict": true,
     "declaration": true,
-    "declarationMap": true,
-    "paths": {
-      "fuzzer/*": ["./src/fuzzer/*"],
-      "ui/*": ["./src/ui/*"]
-    }
+    "declarationMap": true
   },
   "formatCodeOptions": {
     "baseIndentSize": 0,

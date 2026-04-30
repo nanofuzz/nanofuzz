@@ -1,4 +1,4 @@
-import { FuzzIoElement } from "fuzzer/Types";
+import { FuzzIoElement } from "../Types";
 import { Judgment } from "./Types";
 import * as JSON5 from "json5";
 
