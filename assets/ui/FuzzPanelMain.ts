@@ -10,18 +10,18 @@ import {
   FuzzValueOrigin,
   isFuzzResultTab,
   Judgment,
-} from "fuzzer/Types";
+} from "../../src/fuzzer/Types";
 import {
   ArgValueType,
   ArgValueTypeWrapped,
   FuzzTestResults,
-} from "fuzzer/Fuzzer";
+} from "../../src/fuzzer/Fuzzer";
 import {
   FuzzPanelFuzzRunMessage,
   FuzzPanelMessageToWebView,
   FuzzPanelMessageFromWebView,
   FuzzPanelPinMessage,
-} from "ui/FuzzPanel";
+} from "../../src/ui/FuzzPanel";
 
 const vscode = acquireVsCodeApi();
 

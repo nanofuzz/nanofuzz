@@ -11,12 +11,10 @@ import {
   FuzzIoElement,
   FuzzPinnedTest,
   FuzzTestResult,
-  Result,
   FuzzResultCategory,
   FuzzStopReason,
   FuzzBusyStatusMessage,
   BaseMeasureConfig,
-  Judgment,
 } from "./Types";
 import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
@@ -474,6 +472,13 @@ export class Tester {
     // Build a test runner for executing tests
     const runner = RunnerFactory(this.env, mod, this._function.getName());
 
+    // Build runners for the property validators
+    const propertyOracle = new PropertyOracle(
+      this._validators.map((vFnRef) =>
+        RunnerFactory(this.env, mod, vFnRef.name)
+      )
+    );
+
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
 
@@ -716,7 +721,7 @@ export class Tester {
         pct: typeof stopCondition === "number" ? stopCondition : 100,
       });
 
-      // Call the function via the wrapper
+      // Call the function via the runner
       const startRunTime = performance.now(); // start timer
       try {
         const inputValues = result.input.map((e) => e.value);
@@ -770,80 +775,32 @@ export class Tester {
         );
       }
 
-      // PROPERTY VALIDATOR ------------------------------------------
+      // PROPERTY ORACLE --------------------------------------------
       // If a property validator is selected, call it to evaluate the result
-      // TODO: Refactor this out of the fuzzer similar to the other oracles
-      if (this._validators.length && this._options.useProperty) {
-        for (const valFn in this._validators) {
-          const valFnName = this._validators[valFn].name;
-          // Build the validator function wrapper
-          const validatorFnWrapper = functionTimeout(
-            (result: FuzzTestResult): FuzzTestResult => {
-              // Simplified data structure for validator function input
-              const validatorIn: Result = {
-                in: result.input.map((i) => i.value), // inputs
-                out:
-                  result.output.length === 0
-                    ? "timeout or exception"
-                    : result.output[0].value,
-                exception: result.exception,
-                timeout: result.timeout,
-              };
-              try {
-                // Map v0.3 judgments to v0.4 judgments
-                const validatorOut: boolean | undefined | Judgment =
-                  mod[valFnName](validatorIn);
-                let judgment: Judgment;
-                switch (validatorOut) {
-                  case undefined:
-                    judgment = "unknown";
-                    break;
-                  case true:
-                    judgment = "pass";
-                    break;
-                  case false:
-                    judgment = "fail";
-                    break;
-                  default:
-                    judgment = validatorOut;
-                }
-                return {
-                  ...result,
-                  passedValidator: judgment,
-                };
-              } catch (e: unknown) {
-                const msg = isError(e) ? e.message : JSON.stringify(e);
-                const stack = isError(e) ? e.stack : "<no stack>";
-                return {
-                  ...result,
-                  validatorException: true,
-                  validatorExceptionMessage: msg,
-                  validatorExceptionFunction: valFnName,
-                  validatorExceptionStack: stack,
-                };
-              }
-            },
-            this._options.fnTimeout
-          );
-
-          // Categorize the result (so it's not stale)
-          result.category = categorizeResult(result);
-
-          // Call the validator function wrapper
-          const validatorResult: typeof result = validatorFnWrapper(
-            JSON5.parse<typeof result>(JSON5.stringify(result))
-          ); // <-- Wrapper (protect the input)
-
-          // Store the validator results
-          result.passedValidators.push(validatorResult.passedValidator);
-          result.validatorException = validatorResult.validatorException;
-          result.validatorExceptionFunction =
-            validatorResult.validatorExceptionFunction;
-          result.validatorExceptionMessage =
-            validatorResult.validatorExceptionMessage;
-          result.validatorExceptionStack =
-            validatorResult.validatorExceptionStack;
-        } // for: valFn in env.validators
+      if (this._options.useProperty) {
+        propertyOracle
+          .judge(
+            Object.freeze({
+              in: result.input.map((i) => i.value), // inputs
+              out:
+                result.output.length === 0
+                  ? "timeout or exception"
+                  : result.output[0].value,
+              exception: result.exception,
+              timeout: result.timeout,
+            })
+          )
+          .forEach((j, i) => {
+            if (isError(j)) {
+              result.passedValidators.push("unknown");
+              result.validatorException = true;
+              result.validatorExceptionMessage = j.message;
+              result.validatorExceptionFunction = this._validators[i].name;
+              result.validatorExceptionStack = j.stack;
+            } else {
+              result.passedValidators.push(j);
+            }
+          });
 
         // Summarize propert judgments.
         result.passedValidator = PropertyOracle.summarize(
