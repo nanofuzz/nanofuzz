@@ -23,6 +23,7 @@ import {
   TscCompilerErrorDetails,
   VmGlobals,
 } from "./Types";
+import * as ts from "typescript";
 
 // Global list of compilations by entrypoint module
 const _compilationsByModule: {
@@ -843,6 +844,42 @@ export class TypeScriptCompiler {
       fs.rmSync(this.options.tmpDir, { recursive: true });
     }
   } // fn: clean
+
+  /**
+   * Transpiles TypeScript source to Javascript in memory
+   * without requiring objects on the file system.
+   *
+   * @param `tsSrc` TypeScript source to compile
+   * @param `userOpts` tsc options
+   * @param `filename` optional filename
+   * @returns Javascript source
+   */
+  public static compileInMemory(
+    tsSrc: string,
+    userOpts: ts.TranspileOptions = {},
+    filename?: string
+  ): string {
+    const defaultCompilerOptions: ts.CompilerOptions = {
+      ...defaultOptions,
+      target: ts.ScriptTarget.ES2020,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    };
+    const opts = {
+      compilerOptions: {
+        ...defaultCompilerOptions,
+        ...userOpts.compilerOptions,
+      },
+      filename,
+      ...userOpts,
+    };
+    const result = ts.transpileModule(tsSrc, opts);
+    if (result.diagnostics && result.diagnostics.length) {
+      throw new Error(
+        `Compilation failed for ts source. Diagnostics: ${JSON5.stringify(result.diagnostics, null, 2)}`
+      );
+    }
+    return result.outputText;
+  } // fn: compileInMemory
 } // class: TypeScriptCompiler
 
 /**

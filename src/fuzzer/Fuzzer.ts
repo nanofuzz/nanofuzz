@@ -470,12 +470,20 @@ export class Tester {
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
     // Build a test runner for executing tests
-    const runner = RunnerFactory(this.env, mod, this._function.getName());
+    const runner = RunnerFactory({
+      type: "NodeJS.Module",
+      module: mod,
+      fnName: this._function.getName(),
+    });
 
     // Build runners for the property validators
     const propertyOracle = new PropertyOracle(
       this._validators.map((vFnRef) =>
-        RunnerFactory(this.env, mod, vFnRef.name)
+        RunnerFactory({
+          type: "NodeJS.Module",
+          module: mod,
+          fnName: vFnRef.name,
+        })
       )
     );
 
