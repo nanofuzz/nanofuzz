@@ -39,23 +39,16 @@ export class CompositeJudgmentDiff {
     if (this._props.has(name)) {
       throw new Error(`Property was previously added: ${name}`);
     }
+    console.debug(`Running judgments for property: ${name}`); // !!!!!!!!!!
 
     // Evaluate the property across the set of examples
     const propOracle = new PropertyOracle([runner]);
     for (const e of this._examples) {
-      const j = propOracle.judge(e.example)[0];
-      if (isError(j)) {
-        throw j;
-      }
-      if (j === undefined) {
-        throw new Error(
-          `Internal error: property oracle did not return a result`
-        );
-      }
-      e.addlJudgments[name] = j;
+      e.addlJudgments[name] = propOracle.judge(e.example)[0];
     }
 
     this._props.set(name, true);
+    console.debug(`Done w/judgments for property: ${name}`); // !!!!!!!!!!
   } // fn: _addProperty
 
   /**
@@ -67,7 +60,7 @@ export class CompositeJudgmentDiff {
    * would affect the specific judgements of the test suite for the previously-
    * given set of execution examples.
    */
-  public statsFor(props: string[]): JudgmentDiff {
+  public diffFor(props: string[]): JudgmentDiff {
     for (const name of props) {
       if (!this._props.has(name)) {
         throw new Error(`Unknown property: ${name}`);
@@ -75,6 +68,7 @@ export class CompositeJudgmentDiff {
     }
 
     const counters: JudgmentDiff = {
+      exceptions: [],
       falseFailures: [],
       falsePasses: [],
       trueFailures: [],
@@ -87,70 +81,77 @@ export class CompositeJudgmentDiff {
     // into the test suite. Compare this judgment with the original
     // judgment of the test suite according to the groupings below.
     for (const e of this._examples) {
-      const oldJudgment = e.judgments.composite;
+      const oldJudgment = e.judgments.composite; // !!!!!!!!!! how are we handling exceptions here?
+      let exceptions = false;
       const newJudgment = CompositeOracle.judge([
         [
           PropertyOracle.summarize([
             ...e.judgments.propertyDetail,
-            ...props.map((p) => e.addlJudgments[p] ?? "unknown"),
+            ...props.map((p) => {
+              const j = e.addlJudgments[p];
+              if (/*!!!!!!!!!!!exceptions &&*/ isError(j)) {
+                console.error(`${p} threw ${j.name}`);
+                exceptions = true;
+              }
+              return isError(j) ? "unknown" : j;
+            }),
           ]),
           e.judgments.example,
         ],
         [e.judgments.implicit],
       ]);
-
       /**
-       * False Pass. A test execution where the existing test suite fails the test execution,
-       * but the same test execution no longer fails when the candidate assertion is added to
-       * the test suite.
+       * Exceptions.
        */
-      if (oldJudgment === "fail" && newJudgment !== "fail") {
+      if (exceptions) {
+        counters.exceptions.push(e);
+      } else if (
+        /**
+         * False Pass. A test execution where the existing test suite fails the test execution,
+         * but the same test execution no longer fails when the candidate assertion is added to
+         * the test suite.
+         */
+        oldJudgment === "fail" &&
+        newJudgment !== "fail"
+      ) {
         counters.falsePasses.push(e);
-      }
-
-      /**
-       * False Failure. A test execution where the expected output is known, and the existing
-       * test suite passes the test execution, but the test execution no longer passes when the
-       * candidate assertion is added to the existing test suite.
-       */
-      if (
+      } else if (
+        /**
+         * False Failure. A test execution where the expected output is known, and the existing
+         * test suite passes the test execution, but the test execution no longer passes when the
+         * candidate assertion is added to the existing test suite.
+         */
         e.judgments.example !== "unknown" &&
         oldJudgment === "pass" &&
         newJudgment !== "pass"
       ) {
         counters.falseFailures.push(e);
-      }
-
-      /**
-       * True Pass. A test execution where the expected output is known, and the test execution
-       * passes before and after adding the candidate test assertion to the existing test suite.
-       */
-      if (
+      } else if (
+        /**
+         * True Pass. A test execution where the expected output is known, and the test execution
+         * passes before and after adding the candidate test assertion to the existing test suite.
+         */
         e.judgments.example !== "unknown" &&
         oldJudgment === "pass" &&
         newJudgment === "pass"
       ) {
         counters.truePasses.push(e);
-      }
-
-      /**
-       * True Failure. A test execution where the expected output is known, and the test
-       * execution fails before and after adding the candidate test assertion to the existing
-       * test suite.
-       */
-      if (
+      } else if (
+        /**
+         * True Failure. A test execution where the expected output is known, and the test
+         * execution fails before and after adding the candidate test assertion to the existing
+         * test suite.
+         */
         e.judgments.example !== "unknown" &&
         oldJudgment === "fail" &&
         newJudgment === "fail"
       ) {
         counters.trueFailures.push(e);
-      }
-
-      /**
-       * Prospective Failure. The same as a false failure, except that the expected output
-       * is unknown.
-       */
-      if (
+      } else if (
+        /**
+         * Prospective Failure. The same as a false failure, except that the expected output
+         * is unknown.
+         */
         e.judgments.example === "unknown" &&
         oldJudgment === "pass" &&
         newJudgment !== "pass"
@@ -225,14 +226,16 @@ export class CompositeJudgmentDiff {
     const negativeAspects = diff.falseFailures.length + diff.falsePasses.length;
     const neutralAspects = diff.trueFailures.length + diff.truePasses.length;
     const positiveAspects = diff.prospectiveFailures.length;
+
     const total = negativeAspects + neutralAspects + positiveAspects;
     const factor = 100 / total;
+
     if (negativeAspects) {
       return (
         ((negativeAspects / factor) * (neutralAspects / factor) * -1) / factor
       );
     } else {
-      return (positiveAspects / factor) * (positiveAspects / factor);
+      return (positiveAspects / factor) * (neutralAspects / factor);
     }
   } // fn: prioritize
 } // class: CompositeJudgmentDiff
@@ -246,10 +249,11 @@ export type JudgedExample = {
     property: Judgment;
     propertyDetail: Judgment[];
   };
-  addlJudgments: { [k: string]: Judgment };
+  addlJudgments: { [k: string]: Judgment | Error };
 };
 
 export type JudgmentDiff = {
+  exceptions: JudgedExample[];
   falsePasses: JudgedExample[];
   falseFailures: JudgedExample[];
   truePasses: JudgedExample[];

@@ -37,10 +37,11 @@ export function ${validatorName}(r: FuzzTestResult): "pass" | "fail" | "unknown"
         }),
       },
     ];
-    const diff = new CompositeJudgmentDiff(examples, props).statsFor([
+    const diff = new CompositeJudgmentDiff(examples, props).diffFor([
       validatorName,
     ]);
-    expect(Object.keys(diff).length).toBe(5);
+    expect(Object.keys(diff).length).toEqual(6);
+    expect(diff.exceptions.length).toEqual(0);
     expect(diff.falseFailures.length).toEqual(0);
     expect(diff.falsePasses.length).toEqual(0);
     expect(diff.trueFailures.length).toEqual(0);

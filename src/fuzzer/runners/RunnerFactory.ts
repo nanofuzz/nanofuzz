@@ -57,7 +57,8 @@ function tsSrcToRunner(
 function jsSrcToRunner(
   jsSrc: string,
   fnName: string,
-  _fileName?: string
+  fileName?: string
 ): JSRunner {
-  return new JSRunner(req(jsSrc), fnName);
+  // !!!!!!!!!! invalidate the module cache
+  return new JSRunner(req(jsSrc, fileName), fnName);
 } // fn: jsSrcToRunner

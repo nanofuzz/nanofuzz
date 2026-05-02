@@ -16,6 +16,7 @@ import {
 import { normalizePathForKey } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import { getPropertyTestSkeleton } from "../fuzzer/analysis/typescript/Util";
+import { proposeProperties } from "./DiffPanel";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -1233,6 +1234,11 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
               this._panel.webview.postMessage(message);
               this._updateHtml();
               this._focusInput = undefined;
+
+              // Diff panel !!!!!!!!!!!
+              setTimeout(() => {
+                proposeProperties(this._fuzzEnv.function, result);
+              }, 0);
             }
           },
           // Fn that provides test status feedback to the panel => {

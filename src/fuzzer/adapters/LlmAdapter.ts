@@ -1,10 +1,11 @@
 import * as vscode from "vscode";
-import { ArgValueType } from "../analysis/typescript/Types";
 import * as JSON5 from "json5";
-import { FunctionDef } from "../analysis/typescript/FunctionDef";
 import * as nodellm from "@node-llm/core";
+import { ArgValueType } from "../analysis/typescript/Types";
+import { FunctionDef } from "../analysis/typescript/FunctionDef";
 import { isError } from "../Util";
 import * as telemetry from "../../telemetry/Telemetry";
+import { getPropertyTestSkeleton } from "../analysis/typescript/Util";
 
 /**
  * An adapter for chatting with an LLM about the program under test
@@ -128,6 +129,44 @@ export class LlmAdapter {
   } // fn: genInputs
 
   /**
+   * Prompt an LLM to generate property assertions for a function
+   *
+   * @param `fn` function for which assertions should be generated
+   * @returns a set of property assertions
+   */
+  public async genProps(
+    fn: FunctionDef,
+    schema?: Parameters<typeof this._chat.withSchema>[0]
+  ): Promise<{ functionSourceCode: string; functionName: string }[]> {
+    try {
+      const response = await this._query(
+        [prompt.genProps(this._getPromptVars(fn, []))],
+        schema
+      );
+      const props: unknown = JSON5.parse(response.response); // !!!!!!!!!! error handling
+      if (
+        Array.isArray(props) &&
+        props.every(
+          (e) =>
+            typeof e === "object" &&
+            !Array.isArray(e) &&
+            "functionSourceCode" in e &&
+            typeof e.functionSourceCode === "string" &&
+            "functionName" in e &&
+            typeof e.functionName === "string"
+        )
+      ) {
+        return props;
+      } else {
+        console.debug(`Got some invalid data`); // !!!!!!!!!!
+        return []; // !!!!!!!!!! error handling
+      }
+    } catch (_e: unknown) {
+      return []; // !!!!!!!!!! error handling
+    }
+  } // fn: genProps
+
+  /**
    * Returns a commmunication structure of data for building prompts
    * for a program.
    *
@@ -141,6 +180,7 @@ export class LlmAdapter {
     fnName: string;
     fnSource: string;
     fnSpec: string;
+    fnPropSkel: string;
     directives: string[];
   } {
     const fnRef = fn.getRef();
@@ -148,6 +188,7 @@ export class LlmAdapter {
       fnName: fnRef.name,
       fnSource: fnRef.src,
       fnSpec: fn.getCmt() ?? "",
+      fnPropSkel: getPropertyTestSkeleton(fn, "<name-suffix>"),
       directives,
     };
   } // fn: _getPromptVars
@@ -301,6 +342,28 @@ ${vars.fnSource}
 \`\`\`
 
 ${vars.directives.length ? `Important details about the program's inputs:\n${vars.directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+`;
+  },
+  genProps: (vars: ReturnType<LlmAdapter["_getPromptVars"]>): string => {
+    return `To evaluate whether the following TypeScript program "${vars.fnName}" behaves correctly relative to its specification, write 10 to 15 property tests that determine whether the program satisfies its specification. 
+    
+You should be familiar with property tests, which are small programs that are called after each execution of the program ("${vars.fnName}") to determine whether that execution's one particular output is correct for its given input.
+
+The property tests you write to check an execution's inputs and output will use the following boilerplate TypeScript code. Replace "<name-suffix>" with an appropriate name including only ASCII letters and numbers. Othwerwise, ONLY modify the code where indicated. The property test you write must return \`"pass" | "fail" | "unknown"\`, where "unknown" indicates the property in undecidable for that particular example. 
+\`\`\`
+${vars.fnPropSkel}
+\`\`\`
+
+The specification for the "${vars.fnName}" program:
+\`\`\`
+${vars.fnSpec ? vars.fnSpec : `(no specification was found. try to infer the spec from the program below)`}
+\`\`\`
+
+The "${vars.fnName}" program:
+\`\`\`
+${vars.fnSource}
+\`\`\`
+
 `;
   },
 };
