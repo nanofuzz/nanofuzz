@@ -217,16 +217,17 @@ export class FuzzPanel {
     this._setWebviewMessageListener(this._panel.webview);
 
     // Watch for file saves to refresh validators and transformers.
-    vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (doc.fileName === this._fuzzEnv.function.getModule()) {
-        const changed = this._doGetValidatorsAndTransformers();
-        if (changed) {
-          // If a transformer was added or removed, re-render the UI
-          // to update the disabled state of the "Add Skeleton" button.
-          this._updateHtml(); 
-        }
-      }
-    }, null, this._disposables);
+    // TODO: This updates the entire UI, but we just need one part of the UI to be updated.
+    // vscode.workspace.onDidSaveTextDocument((doc) => {
+    //   if (doc.fileName === this._fuzzEnv.function.getModule()) {
+    //     const changed = this._doGetValidatorsAndTransformers();
+    //     if (changed) {
+    //       // If a transformer was added or removed, re-render the UI
+    //       // to update the disabled state of the "Add Skeleton" button.
+    //       this._updateHtml(); 
+    //     }
+    //   }
+    // }, null, this._disposables);
 
     // Load & apply any persisted fuzz settings previously persisted
     const testSet = this._getFuzzTestsForThisFn();
