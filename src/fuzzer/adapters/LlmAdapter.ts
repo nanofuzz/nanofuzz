@@ -347,7 +347,7 @@ ${vars.directives.length ? `Important details about the program's inputs:\n${var
 `;
   },
   genProps: (vars: ReturnType<LlmAdapter["_getPromptVars"]>): string => {
-    return `To evaluate whether the following TypeScript program "${vars.fnName}" behaves correctly relative to its specification, write 10 to 15 property tests that determine whether the program satisfies its specification. 
+    return `To evaluate whether the following TypeScript program "${vars.fnName}" behaves correctly relative to its specification, write 15 to 20 property tests that determine whether the program satisfies its specification. 
     
 You are familiar with property tests, which are small programs that are called after each execution of the program ("${vars.fnName}") to determine whether that execution's one particular output is correct for its given input.
 

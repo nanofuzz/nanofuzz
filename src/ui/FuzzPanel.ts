@@ -2448,7 +2448,8 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
           name: "ideas",
           icon: "codicon-lightbulb",
           payload: "ideasGrid",
-          description: "Below are some ideas that may improve your test suite.",
+          description:
+            "Below are some ideas that may help improve your test suite.",
         });
 
         // If the prior tab no longer exists in the display set, don't use it
