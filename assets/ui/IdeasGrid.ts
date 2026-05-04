@@ -63,7 +63,7 @@ export class IdeasGrid {
 
     const cols = [
       { id: "expand", text: "" },
-      { id: "desc", text: "idea" },
+      { id: "desc", text: "idea", hspan: { cols: 1, text: "idea" } },
       {
         id: "impactGreens",
         text: "impactGreens",
@@ -93,7 +93,7 @@ export class IdeasGrid {
           spanning--;
         } else {
           const th = hRow.appendChild(document.createElement("th"));
-          if ("hspan" in h && h.hspan.cols > 1) {
+          if ("hspan" in h && h.hspan.cols > 0) {
             spanning = h.hspan.cols - 1;
             th.colSpan = h.hspan.cols;
             th.innerText = h.hspan.text;
