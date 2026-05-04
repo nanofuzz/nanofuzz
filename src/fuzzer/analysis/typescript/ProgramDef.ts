@@ -155,9 +155,7 @@ export class ProgramDef {
           if (fnRef.args) {
             for (const fnArg of fnRef.args) {
               lastArgName = fnArg.name;
-              if (fnArg.typeRefName && !fnArg.type) {
-                this._resolveTypeRef(fnArg);
-              }
+              this._resolveTypeRef(fnArg);
             }
           }
         } catch (e: unknown) {
@@ -1015,6 +1013,9 @@ export class ProgramDef {
       case AST_NODE_TYPES.TSUndefinedKeyword: {
         return [ArgTag.LITERAL, 0, undefined, undefined];
       }
+      case AST_NODE_TYPES.TSParenthesizedType: {
+        return this._getTypeFromAstNode(node.typeAnnotation, options);
+      }
       case AST_NODE_TYPES.TSTypeReference: {
         return [ArgTag.UNRESOLVED, 0, getIdentifierName(node.typeName)];
       }
@@ -1069,6 +1070,8 @@ export class ProgramDef {
         return [];
       case AST_NODE_TYPES.TSArrayType:
         return this._getChildrenFromNode(node.elementType);
+      case AST_NODE_TYPES.TSParenthesizedType:
+        return this._getChildrenFromNode(node.typeAnnotation);
       case AST_NODE_TYPES.TSTypeReference:
         throw new Error(
           `Internal Error: Unresolved type reference found: ${JSON5.stringify(
@@ -1090,9 +1093,19 @@ export class ProgramDef {
       case AST_NODE_TYPES.TSUnionType:
         return node.types.map((type) => this._getTypeRefFromAstNode(type));
       case AST_NODE_TYPES.TSTypeAnnotation: {
-        // Collapse array annotations -- we previously handled those
-        while (node.typeAnnotation.type === AST_NODE_TYPES.TSArrayType)
-          node.typeAnnotation = node.typeAnnotation.elementType;
+        // Collapse array and parenthesis annotations -- we previously handled those
+        let innerNode: any = node.typeAnnotation;
+        while (
+          innerNode.type === AST_NODE_TYPES.TSArrayType || 
+          innerNode.type === AST_NODE_TYPES.TSParenthesizedType
+        ) {
+          if (innerNode.type === AST_NODE_TYPES.TSArrayType) {
+            innerNode = innerNode.elementType;
+          } else {
+            innerNode = innerNode.typeAnnotation;
+          }
+        }
+        node.typeAnnotation = innerNode;
 
         switch (node.typeAnnotation.type) {
           case AST_NODE_TYPES.TSTypeReference: {
