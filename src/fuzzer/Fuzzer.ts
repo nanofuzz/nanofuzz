@@ -169,6 +169,7 @@ export class Tester {
    */
   protected _getInitializedResults(): FuzzTestResults {
     return {
+      runId: crypto.randomUUID(),
       env: {
         options: JSON5.parse<typeof this._options>(
           JSON5.stringify(this._options)
@@ -492,6 +493,7 @@ export class Tester {
 
     update({ msg: `Target ready to test.`, milestone: true, pct: 0.01 });
     this._state = "ready";
+    let testId = 0;
 
     // Main test loop
     while (true) {
@@ -605,6 +607,7 @@ export class Tester {
 
       // Initialized test result - overwritten below
       const result: FuzzTestResult = {
+        testId: -1,
         pinned: false,
         input: [],
         output: [],
@@ -834,6 +837,7 @@ export class Tester {
       }
 
       // Store the result for this iteration
+      result.testId = testId++;
       this._results.results.push(result);
 
       // Take measurements for this test run
@@ -1120,6 +1124,7 @@ export type FuzzEnv = {
  * Fuzzer Test Result
  */
 export type FuzzTestResults = {
+  runId: string; // fuzzer run id
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped
   stats: FuzzTestStats; // fuzzer statistics

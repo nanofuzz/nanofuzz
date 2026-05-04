@@ -137,13 +137,13 @@ export class LlmAdapter {
   public async genProps(
     fn: FunctionDef,
     schema?: Parameters<typeof this._chat.withSchema>[0]
-  ): Promise<{ functionSourceCode: string; functionName: string }[]> {
+  ): Promise<{ functionSourceCode: string[]; functionName: string }[]> {
     try {
       const response = await this._query(
         [prompt.genProps(this._getPromptVars(fn, []))],
         schema
       );
-      const props: unknown = JSON5.parse(response.response); // !!!!!!!!!! error handling
+      const props: unknown = JSON5.parse(response.response);
       if (
         Array.isArray(props) &&
         props.every(
@@ -151,7 +151,9 @@ export class LlmAdapter {
             typeof e === "object" &&
             !Array.isArray(e) &&
             "functionSourceCode" in e &&
-            typeof e.functionSourceCode === "string" &&
+            typeof e.functionSourceCode === "object" &&
+            Array.isArray(e.functionSourceCode) &&
+            e.functionSourceCode.every((l: unknown) => typeof l === "string") &&
             "functionName" in e &&
             typeof e.functionName === "string"
         )
@@ -347,10 +349,15 @@ ${vars.directives.length ? `Important details about the program's inputs:\n${var
   genProps: (vars: ReturnType<LlmAdapter["_getPromptVars"]>): string => {
     return `To evaluate whether the following TypeScript program "${vars.fnName}" behaves correctly relative to its specification, write 10 to 15 property tests that determine whether the program satisfies its specification. 
     
-You should be familiar with property tests, which are small programs that are called after each execution of the program ("${vars.fnName}") to determine whether that execution's one particular output is correct for its given input.
+You are familiar with property tests, which are small programs that are called after each execution of the program ("${vars.fnName}") to determine whether that execution's one particular output is correct for its given input.
 
-The property tests you write to check an execution's inputs and output will use the following boilerplate TypeScript code. Replace "<name-suffix>" with an appropriate name including only ASCII letters and numbers. Othwerwise, ONLY modify the code where indicated. The property test you write must return \`"pass" | "fail" | "unknown"\`, where "unknown" indicates the property in undecidable for that particular example. 
+The property tests you write to check an execution's inputs and output will use the following boilerplate TypeScript code and docstring comment. Replace "<name-suffix>" with an appropriate name including only ASCII letters and numbers. Replace "<explanation>" in the docstring comment with a natural language explanation of your code. Othwerwise, ONLY modify the code and docstring comment where indicated. The property test you write must include the docstring comment and must return \`"pass" | "fail" | "unknown"\`, where "unknown" indicates the property in undecidable for that particular example. 
+
+The boilerplate property test code and docstring comment:
 \`\`\`
+/**
+ * <explanation>
+ */
 ${vars.fnPropSkel}
 \`\`\`
 

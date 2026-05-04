@@ -1,3 +1,4 @@
+import * as JSON5 from "json5";
 import { Judgment, Result } from "../Types";
 import { CompositeOracle } from "./CompositeOracle";
 import { PropertyOracle } from "./PropertyOracle";
@@ -12,6 +13,7 @@ import { isError } from "../Util";
  *
  */
 export class CompositeJudgmentDiff {
+  protected _runId: string;
   protected _examples: readonly JudgedExample[];
   protected _props = new Map<
     string, // name
@@ -19,9 +21,18 @@ export class CompositeJudgmentDiff {
   >();
 
   constructor(
+    runId: string,
     examples: JudgedExample[],
     props: { name: string; runner: AbstractRunner }[] = []
   ) {
+    this._runId = runId;
+    for (const e of examples) {
+      if (e.source.runId !== runId) {
+        throw new Error(
+          `Not all examples are from run ${runId}. E.g., ${JSON5.stringify(e, null, 2)}`
+        );
+      }
+    }
     this._examples = Object.freeze(examples);
     for (const p of props) {
       this._addProperty(p.name, p.runner);
@@ -67,7 +78,7 @@ export class CompositeJudgmentDiff {
       }
     }
 
-    const counters: JudgmentDiff = {
+    const counters: JudgmentDiff["detail"] = {
       exceptions: [],
       falseFailures: [],
       falsePasses: [],
@@ -89,8 +100,7 @@ export class CompositeJudgmentDiff {
             ...e.judgments.propertyDetail,
             ...props.map((p) => {
               const j = e.addlJudgments[p];
-              if (/*!!!!!!!!!!!exceptions &&*/ isError(j)) {
-                console.error(`${p} threw ${j.name}`);
+              if (isError(j)) {
                 exceptions = true;
               }
               return isError(j) ? "unknown" : j;
@@ -100,11 +110,12 @@ export class CompositeJudgmentDiff {
         ],
         [e.judgments.implicit],
       ]);
+      const rejudgment = { ...e, rejudgment: newJudgment };
       /**
        * Exceptions.
        */
       if (exceptions) {
-        counters.exceptions.push(e);
+        counters.exceptions.push(rejudgment);
       } else if (
         /**
          * False Pass. A test execution where the existing test suite fails the test execution,
@@ -114,7 +125,7 @@ export class CompositeJudgmentDiff {
         oldJudgment === "fail" &&
         newJudgment !== "fail"
       ) {
-        counters.falsePasses.push(e);
+        counters.falsePasses.push(rejudgment);
       } else if (
         /**
          * False Failure. A test execution where the expected output is known, and the existing
@@ -125,7 +136,7 @@ export class CompositeJudgmentDiff {
         oldJudgment === "pass" &&
         newJudgment !== "pass"
       ) {
-        counters.falseFailures.push(e);
+        counters.falseFailures.push(rejudgment);
       } else if (
         /**
          * True Pass. A test execution where the expected output is known, and the test execution
@@ -135,7 +146,7 @@ export class CompositeJudgmentDiff {
         oldJudgment === "pass" &&
         newJudgment === "pass"
       ) {
-        counters.truePasses.push(e);
+        counters.truePasses.push(rejudgment);
       } else if (
         /**
          * True Failure. A test execution where the expected output is known, and the test
@@ -146,7 +157,7 @@ export class CompositeJudgmentDiff {
         oldJudgment === "fail" &&
         newJudgment === "fail"
       ) {
-        counters.trueFailures.push(e);
+        counters.trueFailures.push(rejudgment);
       } else if (
         /**
          * Prospective Failure. The same as a false failure, except that the expected output
@@ -156,11 +167,16 @@ export class CompositeJudgmentDiff {
         oldJudgment === "pass" &&
         newJudgment !== "pass"
       ) {
-        counters.prospectiveFailures.push(e);
+        counters.prospectiveFailures.push(rejudgment);
       }
     }
 
-    return counters;
+    return {
+      runId: this._runId,
+      priority: CompositeJudgmentDiff.prioritize(counters),
+      detail: counters,
+      summary: CompositeJudgmentDiff.summarize(counters),
+    };
   } // fn: statsFor
 
   /**
@@ -175,7 +191,9 @@ export class CompositeJudgmentDiff {
    * @param `diff` the JudgmentDiff to summarize
    * @returns a five squares diff showing the impact of the prospective judgements
    */
-  public static summarize(diff: JudgmentDiff): JudgmentDiffSummary {
+  protected static summarize(
+    diff: JudgmentDiff["detail"]
+  ): JudgmentDiffSummary {
     const greens = diff.prospectiveFailures.length;
     const reds = diff.falseFailures.length + diff.falsePasses.length;
     const total = greens + reds;
@@ -222,7 +240,7 @@ export class CompositeJudgmentDiff {
    *
    * @param `diff` Composite Judgment Diff to prioritize
    */
-  public static prioritize(diff: JudgmentDiff): number {
+  protected static prioritize(diff: JudgmentDiff["detail"]): number {
     const negativeAspects = diff.falseFailures.length + diff.falsePasses.length;
     const neutralAspects = diff.trueFailures.length + diff.truePasses.length;
     const positiveAspects = diff.prospectiveFailures.length;
@@ -242,6 +260,10 @@ export class CompositeJudgmentDiff {
 
 export type JudgedExample = {
   example: Result;
+  source: {
+    runId: string;
+    testId: number;
+  };
   judgments: {
     composite: Judgment;
     example: Judgment;
@@ -252,13 +274,20 @@ export type JudgedExample = {
   addlJudgments: { [k: string]: Judgment | Error };
 };
 
+export type RejudgedExample = JudgedExample & { rejudgment: Judgment };
+
 export type JudgmentDiff = {
-  exceptions: JudgedExample[];
-  falsePasses: JudgedExample[];
-  falseFailures: JudgedExample[];
-  truePasses: JudgedExample[];
-  trueFailures: JudgedExample[];
-  prospectiveFailures: JudgedExample[];
+  runId: string;
+  priority: number;
+  summary: JudgmentDiffSummary;
+  detail: {
+    exceptions: RejudgedExample[];
+    falsePasses: RejudgedExample[];
+    falseFailures: RejudgedExample[];
+    truePasses: RejudgedExample[];
+    trueFailures: RejudgedExample[];
+    prospectiveFailures: RejudgedExample[];
+  };
 };
 
 export type JudgmentDiffSummary = {

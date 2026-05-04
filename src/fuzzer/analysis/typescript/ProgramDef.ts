@@ -1384,7 +1384,7 @@ export class ProgramDef {
           thisPath.node.leadingComments
             .filter((c) => c.type === "CommentBlock")
             .map((c) => `/*${c.value}*/`)
-            .join("/n") || undefined
+            .join("\n") || undefined
         );
       } else {
         thisPath = thisPath.parentPath;

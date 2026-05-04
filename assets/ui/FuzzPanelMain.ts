@@ -1,5 +1,12 @@
 import * as JSON5 from "json5";
-import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./utils";
+import {
+  getElementByIdOrThrow,
+  getElementByIdWithTypeOrThrow,
+  hide,
+  isHidden,
+  show,
+  toggleHidden,
+} from "./Util";
 import {
   FuzzArgOverride,
   FuzzIoElement,
@@ -22,6 +29,8 @@ import {
   FuzzPanelMessageFromWebView,
   FuzzPanelPinMessage,
 } from "../../src/ui/FuzzPanel";
+import { JudgmentDiff } from "../../src/fuzzer/oracles/CompositeJudgmentDiff";
+import { IdeasGrid } from "./IdeasGrid";
 
 const vscode = acquireVsCodeApi();
 
@@ -112,6 +121,9 @@ let lastResultsTableShown: Element | undefined = undefined;
 
 // Coverage Heatmap Status
 let coverageHeatmapIsStale = false;
+
+// Ideas Grid
+let ideasGrid: IdeasGrid;
 
 /**
  * Sets up the UI when the page is loaded, including setting up
@@ -278,6 +290,7 @@ function main() {
     );
     tabs.forEach((tab) => {
       tab.addEventListener("click", () => {
+        console.debug(`tab clicked (event handler): ${tab.id}`); // !!!!!!!!!!
         const htmlElement = document.querySelector("html");
         if (!htmlElement) {
           throw new Error("Cannot find html element");
@@ -447,6 +460,9 @@ function main() {
           show(getElementByIdOrThrow("fuzzWarnings.coverage.stale"));
         }
         break;
+      case "props.proposed":
+        handleProposeProps(data.props);
+        break;
     }
   });
 
@@ -472,11 +488,10 @@ function main() {
     });
 
     // Loop over each result
-    let idx = 0;
     for (const e of resultsData.results) {
       // Indicate which tests are pinned
       const pinned = { [pinnedLabel]: !!e.pinned };
-      const id = { [idLabel]: idx++ };
+      const id = { [idLabel]: e.testId };
 
       // Input Source
       const inputSrc: FuzzValueOrigin = e.input.length
@@ -506,7 +521,7 @@ function main() {
               break;
             default:
               throw new Error(
-                `Unexpected FuzzValueOrigin generator at input# ${idx}: ${JSON5.stringify(
+                `Unexpected FuzzValueOrigin generator at input# ${id}: ${JSON5.stringify(
                   inputSrc
                 )}`
               );
@@ -514,7 +529,7 @@ function main() {
           break;
         default:
           throw new Error(
-            `Unexpected FuzzValueOrigin at input# ${idx}: ${JSON5.stringify(
+            `Unexpected FuzzValueOrigin at input# ${id}: ${JSON5.stringify(
               inputSrc
             )}`
           );
@@ -662,7 +677,7 @@ function main() {
                     ? "Property validator"
                     : "Property validator summary"
                 }">
-                  <span class="codicon codicon-hubot"></span>
+                  <span class="codicon codicon-robot"></span>
                 </span>`;
               cell.id = type + "-" + k;
               cell.addEventListener("click", () => {
@@ -696,7 +711,7 @@ function main() {
               cell.classList.add("colorColumn", "clickable");
               cell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-sw" aria-label="${k}">
-                  <span class="codicon codicon-hubot" style="font-size: 1em;"></span> <!-- small -->
+                  <span class="codicon codicon-robot" style="font-size: 1em;"></span> <!-- small -->
                 </span>`;
               cell.id = type + "-" + k;
               cell.style.paddingLeft = "0px";
@@ -1277,7 +1292,7 @@ function toggleExpandColumn(type: FuzzResultCategory) {
 
 /**
  * Syncs the tabs and panels so that only the pane for the
- * selected tab is shown. are displaying
+ * selected tab is shown.
  *
  * @param `clickedTab` the tab clicked
  */
@@ -1286,6 +1301,7 @@ function syncResultsTabsAndPanels(
   gridTabs: NodeListOf<Element>,
   clickedTab: Element
 ) {
+  console.debug(`Clicked tab: ${clickedTab.id}`); // !!!!!!!!!!
   lastResultsTabClicked = clickedTab;
   lastResultsTableShown = undefined;
 
@@ -1546,6 +1562,7 @@ function drawTableBody({
   data[type].forEach((e) => {
     let id = -1;
     const row = tbody.appendChild(document.createElement("tr"));
+    row.classList.add("lineAbove");
     Object.keys(e).forEach((k) => {
       if (k === idLabel) {
         id = parseInt(e[k]);
@@ -2357,6 +2374,46 @@ function handleOpenSource() {
   vscode.postMessage(message);
 } // fn: handleOpenSource()
 
+// !!!!!!
+function handleProposeProps(props: {
+  [k: string]: {
+    src: string;
+    diff: JudgmentDiff;
+  };
+}) {
+  // Create the ideas grid if it doesn't exist yet
+  if (ideasGrid === undefined) {
+    if (document.getElementById("tab-ideas")) {
+      // Ideas Grid
+      ideasGrid = new IdeasGrid(
+        getElementByIdOrThrow("tab-ideas"),
+        getElementByIdOrThrow("fuzzResultsGrid-ideas")
+      );
+    } else {
+      console.debug(
+        `Discarded proposed properties message because no ideas grid is present on the page`
+      );
+    }
+  }
+
+  // missing check: avoid clobbering the user's work if already open !!!!!!!!!!!!
+  ideasGrid.deleteAllOfType("property.suggestion");
+  ideasGrid.add(
+    Object.keys(props).map((k) => {
+      return {
+        type: "property.suggestion" as const,
+        id: k,
+        priority: props[k].diff.priority,
+        prop: {
+          name: k,
+          src: props[k].src,
+        },
+        diff: props[k].diff,
+      };
+    })
+  );
+} // fn: handleProposeProps
+
 /**
  * Send message to back-end to refresh the validators
  */
@@ -2366,47 +2423,6 @@ function handleGetListOfValidators() {
   };
   vscode.postMessage(message);
 } // fn: handleGetListOfValidators()
-
-/**
- * Returns true if the DOM node is hidden using the 'hidden' class.
- *
- * @param e The DOM node to check for the 'hidden' class
- * @returns true if the DOM node is hidden; false otherwise
- */
-function isHidden(e: HTMLElement) {
-  return e.classList.contains("hidden");
-} // fn: isHidden()
-
-/**
- * Toggles whether an element is hidden or not
- *
- * @param e DOM element to toggle
- */
-function toggleHidden(e: Element) {
-  if (e.classList.contains("hidden")) {
-    e.classList.remove("hidden");
-  } else {
-    e.classList.add("hidden");
-  }
-} // fn: toggleHidden()
-
-/**
- * Hides a DOM element
- *
- * @param e DOM element to hide
- */
-function hide(e: Element) {
-  e.classList.add("hidden");
-} // fn: hide()
-
-/**
- * Shows a DOM element
- *
- * @param e DOM element to hide
- */
-function show(e: Element) {
-  e.classList.remove("hidden");
-} // fn: show()
 
 /**
  * Returns the number of columns in a table

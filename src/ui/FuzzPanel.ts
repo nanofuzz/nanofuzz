@@ -16,7 +16,8 @@ import {
 import { normalizePathForKey } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import { getPropertyTestSkeleton } from "../fuzzer/analysis/typescript/Util";
-import { proposeProperties } from "./DiffPanel";
+import { proposeProperties } from "./IdeasPanel";
+import { JudgmentDiff } from "../fuzzer/oracles/CompositeJudgmentDiff";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -1237,7 +1238,11 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
 
               // Diff panel !!!!!!!!!!!
               setTimeout(() => {
-                proposeProperties(this._fuzzEnv.function, result);
+                proposeProperties(
+                  this._panel.webview,
+                  this._fuzzEnv.function,
+                  result
+                );
               }, 0);
             }
           },
@@ -1546,6 +1551,11 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
               webview,
               extensionUri,
               ["assets", "ui", "FuzzPanelMain.css"]
+            )}">
+            <link rel="stylesheet" type="text/css" href="${getUri(
+              webview,
+              extensionUri,
+              ["assets", "ui", "IdeasGrid.css"]
             )}">
             <link rel="stylesheet" type="text/css" href="${getUri(
               webview,
@@ -1979,38 +1989,47 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
               id: fuzzer.FuzzResultCategory;
               name: string;
               description: string;
-              hasGrid: boolean;
+              payload: "fuzzGrid";
+              icon?: string;
             }
           | {
               id: "runInfo";
               name: string;
               description: string;
-              hasGrid: false;
+              payload: "html";
+              icon?: string;
+            }
+          | {
+              id: "ideas";
+              name: string;
+              description: string;
+              payload: "ideasGrid";
+              icon?: string;
             }
         )[] = [
           {
             id: "failure",
             name: "Validator Error",
             description: `A property validator threw an exception for these inputs. Fix the bug in the property validator and retest.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "disagree",
             name: "Disagree",
             description: `The property and human validators disagreed about how to categorize these outputs. Usually this indicates the property validator has a bug.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "timeout",
             name: "Timeouts",
             description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator categorized them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "exception",
             name: "Exceptions",
             description: `These inputs resulted in a runtime exception, and no validator categorized them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "badValue",
@@ -2023,7 +2042,7 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
                   : `The human validator categorized these outputs as failed.`
             }`,
             // description: `A validator categorized these outputs as failed. The heuristic validator by default fails outputs that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "ok",
@@ -2031,7 +2050,7 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
             description: `A validator categorized these outputs as passed, or no validator categorized them as failed.`,
             // description: `Passed. No validator categorized these outputs as failed.`,
             // description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
         ];
         if (this._results) {
@@ -2269,6 +2288,7 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
           tabs.push({
             id: "runInfo",
             name: `Run info`,
+            icon: "codicon-info",
             description: /*html*/ `
 
             <div class="fuzzResultHeading">What did ${toolName} do?</div>
@@ -2418,16 +2438,26 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
                 : ``
             }
             `,
-            hasGrid: false,
+            payload: "html",
           });
         }
+
+        // Add the ideas grid tab to the panel
+        tabs.push({
+          id: "ideas",
+          name: "ideas",
+          icon: "codicon-lightbulb",
+          payload: "ideasGrid",
+          description: "Below are some ideas that may improve your test suite.",
+        });
 
         // If the prior tab no longer exists in the display set, don't use it
         if (
           this._lastTab &&
           !tabs.filter(
             (t) =>
-              t.id === this._lastTab && (!t.hasGrid || resultSummary[t.id] > 0)
+              t.id === this._lastTab &&
+              (t.payload !== "fuzzGrid" || resultSummary[t.id] > 0)
           ).length
         ) {
           this._lastTab = undefined;
@@ -2447,18 +2477,20 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
               }>`;
 
         tabs.forEach((e) => {
-          if (!e.hasGrid || resultSummary[e.id] > 0) {
+          if (e.payload !== "fuzzGrid" || resultSummary[e.id] > 0) {
             html += /*html*/ `
-                <vscode-panel-tab id="tab-${e.id}">
+                <vscode-panel-tab id="tab-${e.id}" ${e.payload === "ideasGrid" ? `class="hidden"` : ``}>
                   ${
-                    e.id === "runInfo"
-                      ? `<div class="codicon codicon-info"></div>`
+                    e.icon
+                      ? `<div class="codicon ${e.icon}"></div>`
                       : `<span class="FuzzResultTabLabel">${e.name}</span>`
                   }`;
-            if (e.hasGrid) {
+            if (e.payload === "fuzzGrid" || e.payload === "ideasGrid") {
               html += /*html*/ `
-                  <vscode-badge appearance="secondary">${
-                    resultSummary[e.id]
+                  <vscode-badge ${e.payload === "ideasGrid" ? `id="ideasCountBadge" class="hidden"` : ""} appearance="secondary">${
+                    e.payload === "fuzzGrid"
+                      ? resultSummary[e.id]
+                      : /*html */ `<span id="ideasCount">0</span>`
                   }</vscode-badge>`;
             }
             html += /*html*/ `
@@ -2473,7 +2505,7 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
 
         let i = 0;
         tabs.forEach((e) => {
-          if (!e.hasGrid || resultSummary[e.id] > 0) {
+          if (e.payload !== "fuzzGrid" || resultSummary[e.id] > 0) {
             const showThisGrid = this._focusInput
               ? this._focusInput[0] === e.id
               : this._lastTab
@@ -2484,15 +2516,16 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
             html += /*html*/ `
                   <div class="fuzzGridPanel${showThisGrid ? `` : ` hidden`}" id="view-${e.id}">
                     <div class="fuzzPanelDescription">${e.description}</div>`;
-            if (e.hasGrid) {
+            if (e.payload === "fuzzGrid" || e.payload === "ideasGrid") {
               html += /*html*/ `
                     <div id="fuzzResultsGrid-${e.id}">
-                      <table class="fuzzGrid">
+                      <table class="fuzzGrid${e.payload === "ideasGrid" ? ` ideasGrid` : ``}">
                         <thead class="columnSortOrder sticky" id="fuzzResultsGrid-${e.id}-thead" /> 
                         <tbody id="fuzzResultsGrid-${e.id}-tbody" />
                       </table>
                     </div>`;
             }
+
             html += /*html*/ `
                   </div> <!-- fuzzGridPanel -->`;
           }
@@ -3607,4 +3640,13 @@ export type FuzzPanelMessageToWebView =
       };
     }
   | { command: "coverage.hidden" }
-  | { command: "coverage.stale" };
+  | { command: "coverage.stale" }
+  | {
+      command: "props.proposed";
+      props: {
+        [k: string]: {
+          src: string;
+          diff: JudgmentDiff;
+        };
+      }; // TODO Diffs of multiple props
+    };
