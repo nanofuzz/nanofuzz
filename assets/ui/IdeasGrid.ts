@@ -282,7 +282,7 @@ export class IdeasGrid {
                 : /*html*/ `
               <div>...would throw ${exceptions.length} new exceptions (<span class="clickable">show</span>)...</div> <!-- !!!!!!!!!! -->`
             }
-            <div>...would alter ${jj.length ? "these" : "no"} test judgments${jj.length ? ":" : "."}
+            <div>...would alter ${jj.length ? `these ${jj.length}` : "no"} test judgments${jj.length ? ":" : "."}
               <table class="fuzzGrid${jj.length ? "" : " hidden"}">
                 <thead> 
                   <tr>
