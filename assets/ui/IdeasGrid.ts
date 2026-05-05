@@ -23,15 +23,21 @@ export class IdeasGrid {
         this._ideas.set(idea.type, new Map<string, Idea>()).get(idea.type)!
       ).set(idea.id, idea);
     }
-    if (ideas.length) {
-      this._draw();
-    }
+    this._draw();
   }
 
-  public delete(idea: Idea): boolean {
-    const deleted = this._ideas.get(idea.type)?.delete(idea.id) ?? false;
+  public delete(type: Idea["type"], id: Idea["id"]): boolean {
+    const deleted = this._ideas.get(type)?.delete(id) ?? false;
     if (deleted) {
-      this._draw();
+      [
+        this._htmlGrid.querySelector(
+          `#idea-${type}-${id}-summary`.replaceAll(".", "-")
+        ),
+        this._htmlGrid.querySelector(
+          `#idea-${type}-${id}-detail`.replaceAll(".", "-")
+        ),
+      ].forEach((e) => (e ? e.remove() : e)); // update DOM
+      this._updateBadge(this._getIdeas().length);
     }
     return deleted;
   }
@@ -56,6 +62,18 @@ export class IdeasGrid {
     console.debug(`${ideas.length} total ideas`); // !!!!!!!!!!!
     // sort
     return ideas.sort((a, b) => b.priority - a.priority);
+  }
+
+  protected _updateBadge(count: number): void {
+    const ideasCountElement = this._htmlTab.querySelector("#ideasCount");
+    const ideasCountBadgeElement =
+      this._htmlTab.querySelector("#ideasCountBadge");
+    if (ideasCountElement && ideasCountBadgeElement) {
+      ideasCountElement.innerHTML = count.toString();
+      if (count) {
+        show(ideasCountBadgeElement);
+      }
+    }
   }
 
   protected _draw(): void {
@@ -115,15 +133,8 @@ export class IdeasGrid {
     tbody.replaceChildren();
 
     const ideas = this._getIdeas();
-    const ideasCountElement = this._htmlTab.querySelector("#ideasCount");
-    const ideasCountBadgeElement =
-      this._htmlTab.querySelector("#ideasCountBadge");
-    if (ideasCountElement && ideasCountBadgeElement) {
-      ideasCountElement.innerHTML = ideas.length.toString();
-      if (ideas.length) {
-        show(ideasCountBadgeElement);
-      }
-    }
+    this._updateBadge(ideas.length);
+
     const squareTitles = {
       green: `prospective failures detected`,
       red: `test suite contradictions`,
@@ -134,8 +145,15 @@ export class IdeasGrid {
     ideas.forEach((i) => {
       /* summary row */
       const detailTr = document.createElement("tr");
+      detailTr.setAttribute(
+        "id",
+        `idea-${i.type}-${i.id}-detail`.replaceAll(".", "-")
+      );
       const tr = document.createElement("tr");
-      tr.setAttribute("id", `idea-${i.type}-${i.id}`);
+      tr.setAttribute(
+        "id",
+        `idea-${i.type}-${i.id}-summary`.replaceAll(".", "-")
+      );
       tr.classList.add("sticky", "lineBelow");
       cols.forEach((c) => {
         const td = document.createElement("td");
@@ -224,10 +242,19 @@ export class IdeasGrid {
             td.innerHTML = `<span title="${c.text}"><span class="clickable codicon ${c.icon}"></span>`;
             // !!!!!!!!!! event handler
             break;
-          case "reject":
-            td.innerHTML = `<span title="${c.text}"><span class="clickable codicon ${c.icon}"></span>`;
-            // !!!!!!!!!! event handler
+          case "reject": {
+            const outerSpan = document.createElement("span");
+            outerSpan.setAttribute("title", c.text);
+            const innerSpan = document.createElement("span");
+            innerSpan.classList.add("clickable", "codicon", c.icon);
+            outerSpan.appendChild(innerSpan);
+            td.appendChild(outerSpan);
+            innerSpan.addEventListener("click", () => {
+              console.debug(`Deleting ${i.type} ${i.id}`); // !!!!!!!!!!
+              this.delete(i.type, i.id);
+            });
             break;
+          }
         }
         tr.appendChild(td);
       });
@@ -328,13 +355,8 @@ export class IdeasGrid {
           break;
       }
 
-      /*
-      ${typeof j.addlJudgments[i.prop.name] === "string" ? j.addlJudgments[i.prop.name] : / * html * / `<span title="${j.addlJudgments[i.prop.name].toString()}">exception</span>`}
-      */
-
       detailTr.appendChild(td);
       tbody.appendChild(detailTr);
-      // !!!!!!!!!! expanded row
     });
 
     // flattem, sort, and filter the ideas
