@@ -1,35 +1,28 @@
 {
   "compilerOptions": {
-    "baseUrl": "./",
     "outDir": "build/extension",
-    "module": "commonjs",
-    "target": "ES2020",
-    "lib": ["ES2020", "WebWorker", "DOM"],
+    "module": "nodenext",
+    "target": "ES2022",
+    "lib": ["ES2020", "ES2021.String", "ES2022", "WebWorker", "DOM"],
     "sourceMap": true,
     "allowJs": true,
-    "moduleResolution": "node",
+    "moduleResolution": "nodenext",
     "rootDirs": ["src"],
     "forceConsistentCasingInFileNames": true,
     "noImplicitThis": true,
     "noImplicitAny": true,
     "importHelpers": true,
     "strictNullChecks": true,
-    "ignoreDeprecations": "5.0",
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "noUnusedLocals": false,
     "skipLibCheck": true,
-    "downlevelIteration": true,
     "types": ["jasmine", "node", "tslib", "vscode", "vscode-webview"],
     "esModuleInterop": true,
     "isolatedModules": false,
     "strict": true,
     "declaration": true,
-    "declarationMap": true,
-    "paths": {
-      "fuzzer/*": ["./src/fuzzer/*"],
-      "ui/*": ["./src/ui/*"]
-    }
+    "declarationMap": true
   },
   "formatCodeOptions": {
     "baseIndentSize": 0,
@@ -53,27 +46,5 @@
     "placeOpenBraceOnNewLineForControlBlocks": false
   },
   "include": ["src", "assets/ui"],
-  "exclude": [
-    "node_modules",
-    "build",
-    "docs",
-    "dist",
-    "src/test/suite",
-    "src/__tests__",
-    "src/__testfixtures__",
-    "scripts",
-    "acceptance-tests",
-    "webpack"
-  ],
-  "typedocOptions": {
-    "entryPoints": ["./src"],
-    "out": "docs/html",
-    "exclude": [
-      "**/*.spec.ts",
-      "**/*.test.ts",
-      "**/*.test.tsx",
-      "**/*__*/**",
-      "**/node_modules/**"
-    ]
-  }
+  "exclude": []
 }

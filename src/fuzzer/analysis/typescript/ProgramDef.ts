@@ -2,21 +2,21 @@ import * as JSON5 from "json5";
 import { ArgDef } from "./ArgDef";
 import { FunctionDef } from "./FunctionDef";
 import { getIdentifierName, isBlockScoped, removeParents } from "./Util";
+import { parse, ParseResult } from "@babel/parser";
+import _traverse, { NodePath } from "@babel/traverse";
 import {
-  AST_NODE_TYPES,
-  AST,
-  parse,
-  simpleTraverse,
-} from "@typescript-eslint/typescript-estree";
-import {
+  File,
   TSTypeAliasDeclaration,
   TSTypeAnnotation,
   TSLiteralType,
+  TSType,
   Identifier,
   TSPropertySignature,
-  TypeNode,
   Node,
-} from "@typescript-eslint/types/dist/ast-spec";
+  TypeAnnotation,
+  VariableDeclarator,
+  FunctionDeclaration,
+} from "@babel/types";
 import path from "path";
 import fs from "fs";
 import {
@@ -30,7 +30,12 @@ import {
   ProgramImport,
   ArgType,
 } from "./Types";
-import { getErrorMessageOrJson } from "../../../Util";
+import { getErrorMessageOrJson } from "../../Util";
+
+// Default import nonsense for node
+// https://github.com/babel/babel/discussions/13093
+const traverse: typeof _traverse =
+  typeof _traverse === "function" ? _traverse : (_traverse as any).default;
 
 /**
  * The ProgramDef class represents a program definition in a TypeScript source
@@ -118,7 +123,12 @@ export class ProgramDef {
     }
 
     // Parse the program source to generate the AST
-    const ast = parse(this._src, { range: true });
+    const ast = parse(this._src, {
+      sourceType: "unambiguous",
+      plugins: ["typescript"],
+      attachComment: true,
+      ranges: true,
+    });
 
     // Retrieve the imports defined in this program
     this._imports = this._findImports(ast);
@@ -381,7 +391,9 @@ export class ProgramDef {
    * @returns the list of imports by identifier name
    */
   public getImports(): Record<IdentifierName, ProgramImport> {
-    return JSON5.parse(JSON5.stringify(this._imports));
+    return JSON5.parse<typeof this._imports.identifiers>(
+      JSON5.stringify(this._imports.identifiers)
+    );
   } // fn: getImports()
 
   /**
@@ -428,7 +440,7 @@ export class ProgramDef {
    * @returns the types defined in the program
    */
   public getTypes(): Record<string, TypeRef> {
-    return JSON5.parse(JSON5.stringify(this._types));
+    return JSON5.parse<typeof this._types>(JSON5.stringify(this._types));
   } // fn: getTypes()
 
   /**
@@ -437,7 +449,22 @@ export class ProgramDef {
    * @returns the types exported by the program
    */
   public getExportedTypes(): Record<string, TypeRef> {
-    return JSON5.parse(JSON5.stringify(this._exportedTypes));
+    return JSON5.parse<typeof this._exportedTypes>(
+      JSON5.stringify(this._exportedTypes)
+    );
+  } // fn: getExportedTypes()
+
+  /**
+   * Returns the default type export, if it exists.
+   *
+   * @returns the default type export or `undefined` if it does not exist
+   */
+  public getDefaultExport(): TypeRef | undefined {
+    if (this._defaultExport) {
+      return JSON5.parse<TypeRef>(JSON5.stringify(this._defaultExport));
+    } else {
+      return undefined;
+    }
   } // fn: getExportedTypes()
 
   /**
@@ -446,74 +473,69 @@ export class ProgramDef {
    * @param ast The parsed AST for the program
    * @returns A record of the imports defined in the program
    */
-  private _findImports(
-    ast: AST<{
-      range: true;
-    }>
-  ): ProgramImports {
+  private _findImports(ast: ParseResult<File>): ProgramImports {
     const imports: ProgramImports = { programs: {}, identifiers: {} };
 
-    simpleTraverse(
-      ast,
-      {
-        enter: (node) => {
-          switch (node.type) {
-            case AST_NODE_TYPES.ImportDeclaration: {
-              if (typeof node.source.value === "string") {
-                // Resolve the import module
-                const importModulePath = this._resolveImportModule(
-                  node.source.value
-                );
+    traverse(ast, {
+      enter: (path) => {
+        switch (path.node.type) {
+          case "ImportDeclaration": {
+            if (typeof path.node.source.value === "string") {
+              // Resolve the import module
+              const importModulePath = this._resolveImportModule(
+                path.node.source.value
+              );
 
-                // Loop over all the imports specified
-                node.specifiers.forEach((specifier) => {
-                  switch (specifier.type) {
-                    // import { foo } from "bar";
-                    case AST_NODE_TYPES.ImportSpecifier: {
-                      imports.identifiers[specifier.local.name] = {
-                        local: specifier.local.name,
-                        imported: specifier.imported.name,
-                        programPath: importModulePath,
-                        resolved: true,
-                        default: false,
-                      };
-                      imports.programs[importModulePath] = "?";
-                      break;
-                    }
-                    // import * as foo from "bar";
-                    case AST_NODE_TYPES.ImportNamespaceSpecifier: {
-                      imports.identifiers[specifier.local.name] = {
-                        local: specifier.local.name,
-                        imported: "*",
-                        programPath: importModulePath,
-                        resolved: false,
-                        default: false,
-                      };
-                      imports.programs[importModulePath] = "?";
-                      break;
-                    }
-                    // import foo from "bar";
-                    case AST_NODE_TYPES.ImportDefaultSpecifier: {
-                      imports.identifiers[specifier.local.name] = {
-                        local: specifier.local.name,
-                        imported: "*",
-                        programPath: importModulePath,
-                        resolved: false,
-                        default: true,
-                      };
-                      imports.programs[importModulePath] = "?";
-                      break;
-                    }
+              // Loop over all the imports specified
+              path.node.specifiers.forEach((specifier) => {
+                switch (specifier.type) {
+                  // import { foo } from "bar";
+                  case "ImportSpecifier": {
+                    imports.identifiers[specifier.local.name] = {
+                      local: specifier.local.name,
+                      imported:
+                        specifier.imported.type === "Identifier"
+                          ? specifier.imported.name
+                          : specifier.imported.value,
+                      programPath: importModulePath,
+                      resolved: true,
+                      default: false,
+                    };
+                    imports.programs[importModulePath] = "?";
+                    break;
                   }
-                });
-              }
-              break;
+                  // import * as foo from "bar";
+                  case "ImportNamespaceSpecifier": {
+                    imports.identifiers[specifier.local.name] = {
+                      local: specifier.local.name,
+                      imported: "*",
+                      programPath: importModulePath,
+                      resolved: false,
+                      default: false,
+                    };
+                    imports.programs[importModulePath] = "?";
+                    break;
+                  }
+                  // import foo from "bar";
+                  case "ImportDefaultSpecifier": {
+                    imports.identifiers[specifier.local.name] = {
+                      local: specifier.local.name,
+                      imported: "*",
+                      programPath: importModulePath,
+                      resolved: false,
+                      default: true,
+                    };
+                    imports.programs[importModulePath] = "?";
+                    break;
+                  }
+                }
+              });
             }
+            break;
           }
-        }, // enter
-      },
-      true // set parent pointers
-    ); // traverse AST
+        }
+      }, // enter
+    }); // traverse AST
     return imports;
   } // fn: findImports()
 
@@ -521,83 +543,110 @@ export class ProgramDef {
    * Accepts a program AST and returns a default type export if defined
    * in the program.
    *
-   * We don't support literal or function exports here. Just types, and
-   * the usual limitations from elsewhere still apply (no OR types, etc).
+   * We don't support many types of default exports here, and the usual limitations
+   * from elsewhere still apply.
    *
-   * @param ast Program AST
-   * @returns A default export, if found
+   * @param `ast` Program AST
+   * @returns A default export, if found; otherwise, `undefined`
    */
-  private _findDefaultTypeExport(
-    ast: AST<{
-      range: true;
-    }>
-  ): TypeRef | undefined {
+  private _findDefaultTypeExport(ast: ParseResult<File>): TypeRef | undefined {
     const module = this._module;
     let defaultExport: TypeRef | undefined;
 
     // Traverse the AST and find top-level type alias declarations
-    simpleTraverse(
-      ast,
-      {
-        enter: (node) => {
-          switch (node.type) {
-            // Implicit defaults:
-            //   - export {x as default};
-            case AST_NODE_TYPES.ExportNamedDeclaration: {
-              node.specifiers.forEach((specifier) => {
-                if (specifier.exported.name === "default") {
-                  // build and return the type reference
-                  switch (specifier.local.type) {
-                    case AST_NODE_TYPES.Identifier: {
-                      defaultExport = {
-                        isExported: true,
-                        optional: false,
-                        dims: 0,
-                        module: module,
-                        name: "default",
-                        typeRefName: specifier.local.name,
-                      };
-                      return; // enter function
-                    }
-                    default: {
-                      console.debug(
-                        `Unsupported implicit default export specifier '${specifier.local.type}' in module '${module}'`
-                      );
-                    }
-                  }
-                }
-              });
-              break;
-            }
+    traverse(ast, {
+      enter: (path) => {
+        if (defaultExport) return;
+        switch (path.node.type) {
+          // Implicit defaults:
+          //   - export {x as default};
+          case "ExportNamedDeclaration": {
+            for (const specifier of path.node.specifiers) {
+              const exportedName =
+                specifier.exported.type === "Identifier"
+                  ? specifier.exported.name
+                  : specifier.exported.value;
+              if (exportedName === "default") {
+                switch (specifier.type) {
+                  case "ExportSpecifier":
+                    defaultExport = {
+                      isExported: true,
+                      optional: false,
+                      dims: 0,
+                      module: module,
+                      name: "default",
+                      typeRefName: specifier.local.name,
+                    };
+                    return; // enter function
 
-            // Explicit default:
-            //   - export default x;
-            case AST_NODE_TYPES.ExportDefaultDeclaration: {
-              switch (node.declaration.type) {
-                case AST_NODE_TYPES.Identifier: {
-                  defaultExport = {
-                    isExported: true,
-                    optional: false,
-                    dims: 0,
-                    module: module,
-                    name: "default",
-                    typeRefName: node.declaration.name,
-                  };
-                  return; // enter function
-                }
-                default: {
-                  console.debug(
-                    `Unsupported explicit default export type '${node.declaration.type}' in module '${module}'`
-                  );
+                  default:
+                    console.debug(
+                      `Unsupported implicit default export specifier '${specifier.exported.type}' in module '${module}'`
+                    );
                 }
               }
-              break;
             }
+            break;
           }
-        }, // enter
-      },
-      true // set parent pointers
-    ); // traverse AST
+
+          // Explicit default:
+          //   - export default x;
+          case "ExportDefaultDeclaration": {
+            const decl = path.node.declaration;
+            switch (decl.type) {
+              case "Identifier":
+                defaultExport = {
+                  isExported: true,
+                  optional: false,
+                  dims: 0,
+                  module: module,
+                  name: "default",
+                  typeRefName: decl.name,
+                };
+                return; // enter function
+
+              case "BooleanLiteral":
+              case "StringLiteral":
+              case "NumericLiteral":
+                defaultExport = {
+                  isExported: true,
+                  optional: false,
+                  dims: 0,
+                  module: module,
+                  name: "default",
+                  type: {
+                    children: [],
+                    dims: 0,
+                    resolved: true,
+                    type: ArgTag.LITERAL,
+                    value: decl.value,
+                  },
+                };
+                return; // enter function
+
+              default: {
+                console.debug(
+                  `Unsupported explicit default export type '${path.node.declaration.type}' in module '${module}'`
+                );
+              }
+            }
+            break;
+          }
+        }
+      }, // enter
+    }); // traverse AST
+
+    // Resolve the default type
+    if (
+      defaultExport &&
+      !defaultExport.type &&
+      defaultExport.typeRefName &&
+      defaultExport.typeRefName in this._types
+    ) {
+      defaultExport.type = JSON5.parse<TypeRef["type"]>(
+        JSON5.stringify(this._types[defaultExport.typeRefName].type)
+      );
+    }
 
     // No default found: return undefined
     return defaultExport;
@@ -610,39 +659,34 @@ export class ProgramDef {
    * @param ast Program AST
    * @returns A dictionary of type aliases defined in the program
    */
-  private _findTypes(
-    ast: AST<{
-      range: true;
-    }>
-  ): Record<IdentifierName, TypeRef> {
+  private _findTypes(ast: ParseResult<File>): Record<IdentifierName, TypeRef> {
     const module = this._module;
 
     // List of nodes
     const types: Record<string, TypeRef> = {};
 
     // Traverse the AST and find top-level type alias declarations
-    simpleTraverse(
-      ast,
-      {
-        enter: (node) => {
-          // Find type alias declarations
-          if (node.type === AST_NODE_TYPES.TSTypeAliasDeclaration) {
-            // Skip any block scoped type alias declarations
-            if (!isBlockScoped(node)) {
-              // Throw an error for duplicate type aliases
-              if (node.id.name in types) {
-                throw new Error(
-                  `Duplicate type alias '${node.id.name}' found in module '${module}'`
-                );
-              } else {
-                types[node.id.name] = this._getTypeRefFromAstNode(node);
-              }
+    traverse(ast, {
+      enter: (path) => {
+        // Find type alias declarations
+        if (path.isTSTypeAliasDeclaration()) {
+          // Skip any block scoped type alias declarations
+          if (!isBlockScoped(path)) {
+            // Throw an error for duplicate type aliases
+            if (path.node.id.name in types) {
+              throw new Error(
+                `Duplicate type alias '${path.node.id.name}' found in module '${module}'`
+              );
+            } else {
+              types[path.node.id.name] = this._getTypeRefFromAstNode(
+                path.node,
+                path.parent
+              );
             }
           }
-        }, // enter
-      },
-      true // set parent pointers
-    ); // traverse AST
+        }
+      }, // enter
+    }); // traverse AST
 
     // Return the TypeRef objects
     return types;
@@ -683,8 +727,16 @@ export class ProgramDef {
       const resolvedType = this._resolveTypeRef(
         this._types[typeRef.typeRefName]
       );
-      typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
-      return this._types[typeRef.typeRefName];
+      typeRef.type = JSON5.parse<typeof resolvedType.type>(
+        JSON5.stringify(resolvedType.type)
+      );
+
+      if (typeRef.type) {
+        typeRef.type.dims += resolvedType.dims;
+      }
+      typeRef.optional = typeRef.optional || resolvedType.optional;
+
+      return typeRef; // this._types[typeRef.typeRefName];
     } else {
       // Follow the imported type reference
       // Split the local name into parts (e.g., "foo.bar" => ["foo", "bar"])
@@ -725,11 +777,13 @@ export class ProgramDef {
           // Namespace import: create concrete imports for each of the imports
           for (const exported of Object.values(importProgram._exportedTypes)) {
             const localName = localNameParts[0] + "." + exported.name;
-            const newImport = JSON5.parse(JSON5.stringify(exported));
-            newImport.local = localName;
-            newImport.imported = exported.name;
-            newImport.resolved = true;
-            this._imports.identifiers[localName] = newImport;
+            this._imports.identifiers[localName] = {
+              local: localName,
+              imported: exported.name ?? "__default",
+              programPath: exported.module,
+              resolved: true,
+              default: !exported.name,
+            };
           }
 
           // Remove the original unresolved import reference
@@ -752,13 +806,26 @@ export class ProgramDef {
           const resolvedType = importProgram._resolveTypeRef(
             importProgram._defaultExport
           );
-          typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+          typeRef.type = JSON5.parse<typeof resolvedType.type>(
+            JSON5.stringify(resolvedType.type)
+          );
+          if (typeRef.type) {
+            typeRef.type.dims += resolvedType.dims;
+          }
+          typeRef.optional = typeRef.optional || resolvedType.optional;
         } else if (importName in importProgram._exportedTypes) {
           // Resolve named export
           const resolvedType = importProgram._resolveTypeRef(
             importProgram._exportedTypes[importName]
           );
-          typeRef.type = JSON5.parse(JSON5.stringify(resolvedType.type));
+          typeRef.type = JSON5.parse<typeof resolvedType.type>(
+            JSON5.stringify(resolvedType.type)
+          );
+
+          if (typeRef.type) {
+            typeRef.type.dims += resolvedType.dims;
+          }
+          typeRef.optional = typeRef.optional || resolvedType.optional;
         } else {
           // Unable to find exported type
           throw new Error(
@@ -818,7 +885,7 @@ export class ProgramDef {
             }
           }
         }
-      } catch (e) {
+      } catch (_e) {
         // Eat the exception & retry
       }
     } // for: each extension
@@ -845,18 +912,31 @@ export class ProgramDef {
       | TSPropertySignature
       | TSTypeAliasDeclaration
       | TSTypeAnnotation
-      | TypeNode
+      | TSType
+      | TypeAnnotation,
+    parent: Node
   ): TypeRef {
-    let typeNode: TypeNode | TSTypeAnnotation;
+    let typeNode: TSType | TSTypeAnnotation | TypeAnnotation;
     switch (node.type) {
-      case AST_NODE_TYPES.Identifier:
-      case AST_NODE_TYPES.TSTypeAnnotation:
-      case AST_NODE_TYPES.TSTypeAliasDeclaration:
-      case AST_NODE_TYPES.TSPropertySignature: {
+      case "Identifier":
+      case "TSTypeAnnotation":
+      case "TSTypeAliasDeclaration":
+      case "TSPropertySignature": {
         // Throw an error if type annotations are missing
-        if (node.typeAnnotation === undefined) {
+        if (!node.typeAnnotation) {
           throw new Error(
             `Missing type annotation (already transpiled to JS?): ${JSON5.stringify(
+              node,
+              removeParents
+            )}`
+          );
+        }
+        if (
+          node.typeAnnotation.type === "Noop" ||
+          node.typeAnnotation.type === "TypeAnnotation"
+        ) {
+          throw new Error(
+            `This type of type annotation is not supported: ${JSON5.stringify(
               node,
               removeParents
             )}`
@@ -875,14 +955,14 @@ export class ProgramDef {
       dims: 0, // override later if needed
       optional: false, // override later if needed
       isExported:
-        node.parent?.type === AST_NODE_TYPES.ExportNamedDeclaration ||
-        node.parent?.type === AST_NODE_TYPES.TSModuleBlock,
+        parent.type === "ExportNamedDeclaration" ||
+        parent.type === "TSModuleBlock",
     };
 
     // Determine the node name
     switch (node.type) {
-      case AST_NODE_TYPES.TSPropertySignature: {
-        if (node.key.type === AST_NODE_TYPES.Identifier) {
+      case "TSPropertySignature": {
+        if (node.key.type === "Identifier") {
           thisType.name = node.key.name;
         } else {
           throw new Error(
@@ -894,11 +974,11 @@ export class ProgramDef {
         }
         break;
       }
-      case AST_NODE_TYPES.Identifier: {
+      case "Identifier": {
         thisType.name = node.name;
         break;
       }
-      case AST_NODE_TYPES.TSTypeAliasDeclaration: {
+      case "TSTypeAliasDeclaration": {
         thisType.name = node.id.name;
         break;
       }
@@ -916,7 +996,7 @@ export class ProgramDef {
     // we handle those below
     if (
       "typeAnnotation" in node &&
-      node.typeAnnotation?.type === AST_NODE_TYPES.TSTypeReference
+      node.typeAnnotation?.type === "TSTypeReference"
     ) {
       thisType.typeRefName = getIdentifierName(node.typeAnnotation.typeName);
     } else {
@@ -978,45 +1058,45 @@ export class ProgramDef {
    * @returns [type tag, dimensions, type reference name, literal value]
    */
   private _getTypeFromAstNode(
-    node: TSTypeAnnotation | TypeNode,
+    node: TSTypeAnnotation | TSType | TypeAnnotation,
     options: ArgOptions
   ): [ArgTag, number, string?, ArgType?] {
     switch (node.type) {
-      case AST_NODE_TYPES.TSAnyKeyword:
+      case "TSAnyKeyword":
         return [options.anyType, options.anyDims];
-      case AST_NODE_TYPES.TSStringKeyword:
+      case "TSStringKeyword":
         return [ArgTag.STRING, 0];
-      case AST_NODE_TYPES.TSBooleanKeyword:
+      case "TSBooleanKeyword":
         return [ArgTag.BOOLEAN, 0];
-      case AST_NODE_TYPES.TSNumberKeyword:
+      case "TSNumberKeyword":
         return [ArgTag.NUMBER, 0];
-      case AST_NODE_TYPES.TSTypeAnnotation:
+      case "TSTypeAnnotation":
         return this._getTypeFromAstNode(node.typeAnnotation, options);
-      case AST_NODE_TYPES.TSUnionType:
+      case "TSUnionType":
         return [ArgTag.UNION, 0];
-      case AST_NODE_TYPES.TSTypeLiteral: // Object literal
+      case "TSTypeLiteral": // Object literal
         return [ArgTag.OBJECT, 0];
-      case AST_NODE_TYPES.TSLiteralType:
+      case "TSLiteralType":
         return [
           ArgTag.LITERAL,
           0,
           undefined,
           this._getLiteralValueFromNode(node),
         ];
-      case AST_NODE_TYPES.TSArrayType: {
+      case "TSArrayType": {
         const [type, dims, typeName, literalValue] = this._getTypeFromAstNode(
           node.elementType,
           options
         );
         return [type, dims + 1, typeName, literalValue];
       }
-      case AST_NODE_TYPES.TSUndefinedKeyword: {
+      case "TSUndefinedKeyword": {
         return [ArgTag.LITERAL, 0, undefined, undefined];
       }
-      case AST_NODE_TYPES.TSParenthesizedType: {
+      case "TSParenthesizedType": {
         return this._getTypeFromAstNode(node.typeAnnotation, options);
       }
-      case AST_NODE_TYPES.TSTypeReference: {
+      case "TSTypeReference": {
         return [ArgTag.UNRESOLVED, 0, getIdentifierName(node.typeName)];
       }
       default:
@@ -1036,17 +1116,12 @@ export class ProgramDef {
   private _getLiteralValueFromNode(node: TSLiteralType): ArgType {
     const literalNode = node.literal;
     switch (literalNode.type) {
-      case AST_NODE_TYPES.Literal: {
-        // TODO Add support for bigint, null, RegExp
-        if (
-          typeof literalNode.value === "number" ||
-          typeof literalNode.value === "string" ||
-          typeof literalNode.value === "boolean"
-        ) {
-          return literalNode.value;
-        }
+      case "StringLiteral":
+      case "BooleanLiteral":
+      case "NumericLiteral": {
+        return literalNode.value;
       }
-      // TODO Add support for TemplateLiteral, UnaryExpression, UpdateExpression
+      // TODO Add support for BigIntLiteral, TemplateLiteral, UnaryExpression, UpdateExpression
     }
     throw new Error(
       "Unsupported literal value type in type annotation: " +
@@ -1060,29 +1135,31 @@ export class ProgramDef {
    * @param node The AST type node or type annotation
    * @returns An array of child TypeRef objects
    */
-  private _getChildrenFromNode(node: TSTypeAnnotation | TypeNode): TypeRef[] {
+  private _getChildrenFromNode(
+    node: TSTypeAnnotation | TSType | TypeAnnotation
+  ): TypeRef[] {
     switch (node.type) {
-      case AST_NODE_TYPES.TSAnyKeyword:
-      case AST_NODE_TYPES.TSStringKeyword:
-      case AST_NODE_TYPES.TSBooleanKeyword:
-      case AST_NODE_TYPES.TSLiteralType:
-      case AST_NODE_TYPES.TSNumberKeyword:
+      case "TSAnyKeyword":
+      case "TSStringKeyword":
+      case "TSBooleanKeyword":
+      case "TSLiteralType":
+      case "TSNumberKeyword":
         return [];
-      case AST_NODE_TYPES.TSArrayType:
+      case "TSArrayType":
         return this._getChildrenFromNode(node.elementType);
-      case AST_NODE_TYPES.TSParenthesizedType:
+      case "TSParenthesizedType":
         return this._getChildrenFromNode(node.typeAnnotation);
-      case AST_NODE_TYPES.TSTypeReference:
+      case "TSTypeReference":
         throw new Error(
           `Internal Error: Unresolved type reference found: ${JSON5.stringify(
             node,
             removeParents
           )}`
         );
-      case AST_NODE_TYPES.TSTypeLiteral: {
+      case "TSTypeLiteral": {
         return node.members.map((member) => {
-          if (member.type === AST_NODE_TYPES.TSPropertySignature)
-            return this._getTypeRefFromAstNode(member);
+          if (member.type === "TSPropertySignature")
+            return this._getTypeRefFromAstNode(member, node);
           else
             throw new Error(
               "Unsupported object property type annotation: " +
@@ -1090,37 +1167,38 @@ export class ProgramDef {
             );
         });
       }
-      case AST_NODE_TYPES.TSUnionType:
-        return node.types.map((type) => this._getTypeRefFromAstNode(type));
-      case AST_NODE_TYPES.TSTypeAnnotation: {
+      case "TSUnionType":
+        return node.types.map((type) =>
+          this._getTypeRefFromAstNode(type, node)
+        );
+      case "TSTypeAnnotation": {
         // Collapse array and parenthesis annotations -- we previously handled those
-        let innerNode: any = node.typeAnnotation;
+        let innerNode = node.typeAnnotation;
         while (
-          innerNode.type === AST_NODE_TYPES.TSArrayType || 
-          innerNode.type === AST_NODE_TYPES.TSParenthesizedType
+          innerNode.type === "TSArrayType" ||
+          innerNode.type === "TSParenthesizedType"
         ) {
-          if (innerNode.type === AST_NODE_TYPES.TSArrayType) {
+          if (innerNode.type === "TSArrayType") {
             innerNode = innerNode.elementType;
           } else {
             innerNode = innerNode.typeAnnotation;
           }
         }
-        node.typeAnnotation = innerNode;
 
-        switch (node.typeAnnotation.type) {
-          case AST_NODE_TYPES.TSTypeReference: {
-            const typeName = getIdentifierName(node.typeAnnotation.typeName);
+        switch (innerNode.type) {
+          case "TSTypeReference": {
+            const typeName = getIdentifierName(innerNode.typeName);
             throw new Error(
               `Internal Error: Unable to find type reference '${typeName}' in program`
             );
           }
-          case AST_NODE_TYPES.TSUnionType: {
-            return this._getChildrenFromNode(node.typeAnnotation);
+          case "TSUnionType": {
+            return this._getChildrenFromNode(innerNode);
           }
-          case AST_NODE_TYPES.TSTypeLiteral: {
-            return node.typeAnnotation.members.map((member) => {
-              if (member.type === AST_NODE_TYPES.TSPropertySignature)
-                return this._getTypeRefFromAstNode(member);
+          case "TSTypeLiteral": {
+            return innerNode.members.map((member) => {
+              if (member.type === "TSPropertySignature")
+                return this._getTypeRefFromAstNode(member, node);
               else
                 throw new Error(
                   "Unsupported object property type annotation: " +
@@ -1131,7 +1209,7 @@ export class ProgramDef {
           default:
             throw new Error(
               "Unsupported object type annotation: " +
-                JSON5.stringify(node.typeAnnotation, removeParents, 2)
+                JSON5.stringify(innerNode, removeParents, 2)
             );
         }
       }
@@ -1151,11 +1229,7 @@ export class ProgramDef {
    * @param ast Program AST
    * @returns An object with two fields, `supported` and `unsupported`
    */
-  private _findFunctions(
-    ast: AST<{
-      range: true;
-    }>
-  ): {
+  private _findFunctions(ast: ParseResult<File>): {
     supported: Record<IdentifierName, FunctionRef>;
     unsupported: Record<IdentifierName, { reason: string; node: Node }>;
   } {
@@ -1164,39 +1238,36 @@ export class ProgramDef {
       {};
 
     // Traverse the AST to find function definitions
-    simpleTraverse(
-      ast,
-      {
-        enter: (node, parent) => {
-          // Only named functions are supported
-          if (!("id" in node && node.id !== null && "name" in node.id)) {
-            return;
-          }
-          const name = node.id.name;
+    traverse(ast, {
+      enter: (path) => {
+        // Only named functions are supported
+        if (!("id" in path.node && path.node.id && "name" in path.node.id)) {
+          return;
+        }
+        const name = path.node.id.name;
 
-          try {
-            const maybeFunction = this._getFunctionFromNode(name, node, parent);
-            if (maybeFunction) {
-              supported[name] = maybeFunction;
-            }
-          } catch (e: unknown) {
-            const msg = getErrorMessageOrJson(e);
-            console.debug(
-              `Error processing function '${this._src.substring(
-                node.range[0],
-                node.range[1]
-              )}' in module '${this._module}': ${msg}`
-            );
-            unsupported[name] = {
-              reason: msg,
-              node: node,
-            };
+        try {
+          const maybeFunction = this._getFunctionFromNode(
+            name,
+            path,
+            path.parentPath ?? undefined
+          );
+          if (maybeFunction) {
+            supported[name] = maybeFunction;
           }
-        },
-        // TODO: Add support for class methods
+        } catch (e: unknown) {
+          const msg = getErrorMessageOrJson(e);
+          console.debug(
+            `Error processing function '${name}' in module '${this._module}': ${msg}`
+          );
+          unsupported[name] = {
+            reason: msg,
+            node: path.node,
+          };
+        }
       }, // enter
-      true // set parent pointers
-    ); // traverse AST
+      // TODO: Add support for class methods
+    }); // traverse AST
 
     return {
       supported,
@@ -1210,91 +1281,127 @@ export class ProgramDef {
    * If the node is not a function, returns undefined.
    *
    * @param name The name of the function
-   * @param node The node to analyze
+   * @param path The node to analyze
    * @param parent The parent node of the node to analyze
    * @returns A FunctionRef if the node is a supported function
    */
   private _getFunctionFromNode(
     name: string,
-    node: Node,
-    parent: Node | undefined
+    path: NodePath<Node>,
+    parent: NodePath<Node> | undefined
   ): FunctionRef | undefined {
     if (
       // Arrow Function Definition: const xyz = (): void => { ... }
-      node.type === AST_NODE_TYPES.VariableDeclarator &&
+      path.isVariableDeclarator() &&
       parent !== undefined &&
-      parent.type === AST_NODE_TYPES.VariableDeclaration &&
-      node.init &&
-      node.init.type === AST_NODE_TYPES.ArrowFunctionExpression &&
-      node.id.type === AST_NODE_TYPES.Identifier &&
-      !isBlockScoped(node)
+      parent.isVariableDeclaration() &&
+      path.node.init &&
+      path.node.init.type === "ArrowFunctionExpression" &&
+      path.node.id.type === "Identifier" &&
+      !isBlockScoped(path) // ignore inner functions
     ) {
       // ReturnType is not as important for fuzzing, so we don't throw an error
       // if we encounter something we don't support.
       let returnType = undefined;
       let isVoid = false;
-      const typeNode = node.init.returnType;
+      const typeNode = path.node.init.returnType;
       try {
-        isVoid = typeNode?.typeAnnotation.type === AST_NODE_TYPES.TSVoidKeyword;
-        returnType = typeNode
-          ? this._getTypeRefFromAstNode(typeNode)
-          : undefined;
+        if (typeNode && typeNode.type !== "Noop") {
+          isVoid = typeNode.typeAnnotation.type === "TSVoidKeyword";
+          returnType = this._getTypeRefFromAstNode(typeNode, path.node.init);
+        }
       } catch {
         if (!isVoid) {
-          console.debug('Unsupported return type for function "' + name + '".');
+          // !!! console.debug('Unsupported return type for function "' + name + '".');
         }
+      }
+      const init = path.node.init;
+      if (!path.node.range) {
+        throw new Error("Source code ranges missing in AST");
       }
       return {
         name,
         module: this._module,
-        src:
-          parent.kind + " " + this._src.substring(node.range[0], node.range[1]),
-        startOffset: node.range[0],
-        endOffset: node.range[1],
-        isExported: parent.parent
-          ? parent.parent.type === AST_NODE_TYPES.ExportNamedDeclaration
-          : false,
-        args: node.init.params
-          .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
-          .map((arg) => this._getTypeRefFromAstNode(arg)),
+        src: parent.node.kind + " " + this._src.slice(...path.node.range),
+        startOffset: path.node.range[0],
+        endOffset: path.node.range[1],
+        isExported: parent.parent.type === "ExportNamedDeclaration",
+        args: path.node.init.params
+          .filter((arg) => arg.type === "Identifier")
+          .map((arg) => this._getTypeRefFromAstNode(arg, init)),
         returnType,
         isVoid,
+        cmt: this.getFunctionComment(path),
       };
     } else if (
       // Standard Function Definition: function xyz(): void => { ... }
-      node.type === AST_NODE_TYPES.FunctionDeclaration &&
-      !isBlockScoped(node)
+      path.isFunctionDeclaration() &&
+      !isBlockScoped(path) // ignore inner functions
     ) {
       // ReturnType is not as important for fuzzing, so we don't throw an error
       // if we encounter something we don't support.
       let returnType = undefined;
       let isVoid = false;
-      const typeNode = node.returnType;
+      const typeNode = path.node.returnType;
+      if (!path.node.range) {
+        throw new Error("Source code ranges missing in AST");
+      }
       try {
-        isVoid = typeNode?.typeAnnotation.type === AST_NODE_TYPES.TSVoidKeyword;
-        returnType = typeNode
-          ? this._getTypeRefFromAstNode(typeNode)
-          : undefined;
+        if (typeNode && typeNode.type !== "Noop") {
+          isVoid = typeNode.typeAnnotation.type === "TSVoidKeyword";
+          returnType = this._getTypeRefFromAstNode(typeNode, path.node);
+        }
       } catch {
         if (!isVoid) {
-          console.debug('Unsupported return type for function "' + name + '".');
+          // !!! console.debug('Unsupported return type for function "' + name + '".');
         }
       }
       return {
         name,
         module: this._module,
-        src: this._src.substring(node.range[0], node.range[1]),
-        startOffset: node.range[0],
-        endOffset: node.range[1],
-        isExported: parent
-          ? parent.type === AST_NODE_TYPES.ExportNamedDeclaration
-          : false,
-        args: node.params
-          .filter((arg) => arg.type === AST_NODE_TYPES.Identifier)
-          .map((arg) => this._getTypeRefFromAstNode(arg)),
+        src: this._src.slice(...path.node.range),
+        startOffset: path.node.range[0],
+        endOffset: path.node.range[1],
+        isExported: parent ? parent.type === "ExportNamedDeclaration" : false,
+        args: path.node.params
+          .filter((arg) => arg.type === "Identifier")
+          .map((arg) => this._getTypeRefFromAstNode(arg, path.node)),
         returnType,
         isVoid,
+        cmt: this.getFunctionComment(path),
       };
     }
   } // fn: _getFunctionFromNode()
+
+  /**
+   * Returns the function's leading comment, if it exists. This is
+   * determined by traversing the AST upward from the node where
+   * the function is declared.
+   *
+   * @param `path` function declaration node
+   * @returns the leading comment, if found; `undefined` otherwise
+   */
+  private getFunctionComment(
+    path: NodePath<VariableDeclarator | FunctionDeclaration>
+  ): string | undefined {
+    let thisPath: NodePath<Node> = path;
+    while (
+      thisPath.isVariableDeclaration() ||
+      thisPath.isVariableDeclarator() ||
+      thisPath.isExportNamedDeclaration() ||
+      thisPath.isFunctionDeclaration()
+    ) {
+      if (thisPath.node.leadingComments) {
+        return (
+          thisPath.node.leadingComments
+            .filter((c) => c.type === "CommentBlock")
+            .map((c) => `/*${c.value}*/`)
+            .join("/n") || undefined
+        );
+      } else {
+        thisPath = thisPath.parentPath;
+      }
+    }
+    return undefined;
+  } // fn: getFunctionComment
 } // class: ProgramDef

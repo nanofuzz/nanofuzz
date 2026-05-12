@@ -1,4 +1,9 @@
-import { ArgOptions, ArgValueType } from "./analysis/typescript/Types";
+import {
+  ArgOptions,
+  ArgValueType,
+  ArgValueTypeWrapped,
+} from "./analysis/typescript/Types";
+import { Judgment as _Judgment } from "./oracles/Types";
 
 /**
  * Single Fuzzer Test Result
@@ -11,10 +16,10 @@ export type FuzzTestResult = {
   exceptionMessage?: string; // exception message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
-  passedImplicit: boolean; // true if output matches implicit oracle; false, otherwise
-  passedHuman?: boolean; // true if actual output matches human-expected output
-  passedValidator?: boolean; // true if passed all custom validators; false, otherwise
-  passedValidators?: boolean[]; // for each custom validator, true if passed; false, otherwise
+  passedImplicit: Judgment; // "pass" if output passed implicit oracle
+  passedHuman: Judgment; // "pass" if actual output matches human-expected output
+  passedValidator: Judgment; // "pass" if passed all property oracles
+  passedValidators: Judgment[]; // "pass" if passed all property oracles
   validatorException: boolean; // true if validator threw an exception
   validatorExceptionMessage?: string; // validator exception message
   validatorExceptionFunction?: string; // name of validator throwing exception
@@ -25,7 +30,6 @@ export type FuzzTestResult = {
   };
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: FuzzResultCategory; // the ResultCategory of the test result
-  source: SupportedInputGenerators | "injected"; // generator source of the input
   interestingReasons: string[]; // reasons (measures) this input may be "interesting"
 };
 
@@ -75,18 +79,85 @@ export type FuzzIoElement = {
   isException?: boolean; // true if element is an exception
   isTimeout?: boolean; // true if element is a timeout
   value: ArgValueType; // value of element
+  origin: FuzzValueOrigin; // origin of value
 };
+
+/**
+ * Concrete input values and their source
+ */
+export type InputAndSource = {
+  tick: number;
+  value: ArgValueTypeWrapped[];
+  source: FuzzValueOrigin;
+  injected?: true;
+};
+
+/**
+ * Provenance of a test value (e.g., an input)
+ */
+export type FuzzValueOrigin =
+  | {
+      type: "user" | "put" | "unknown";
+    }
+  | {
+      type: "generator";
+      generator: "RandomInputGenerator";
+    }
+  | {
+      type: "generator";
+      generator: "MutationInputGenerator";
+      tick?: number;
+    }
+  | {
+      type: "generator";
+      generator: "AiInputGenerator";
+      model: string;
+    };
 
 /**
  * Category of a test result
  */
-export type FuzzResultCategory =
-  | "ok" // Judgment: passed
-  | "badValue" // Judgment: failed (not timeout or exception)
-  | "timeout" // Judgment: failed (timeout)
-  | "exception" // Judgment: failed (exception)
-  | "disagree" // Judgment: unknown
-  | "failure"; // Validator failure (e.g., threw an exception)
+export const FuzzResultCategoryValues = [
+  "ok", // Judgment: passed
+  "badValue", // Judgment: failed (not timeout or exception)
+  "timeout", // Judgment: failed (timeout)
+  "exception", // Judgment: failed (exception)
+  "disagree", // Judgment: unknown
+  "failure", // Validator failure (e.g., threw an exception)
+] as const;
+export type FuzzResultCategory = (typeof FuzzResultCategoryValues)[number];
+
+/**
+ * Type guard that returns true if the input object is a
+ * FuzzResultCategory.
+ *
+ * @param obj the object to check
+ * @returns `true` if `obj` is a `FuzzResultCategory`, `false` otherwise
+ */
+const fuzzResultCategoryValues: string[] = [...FuzzResultCategoryValues];
+export function isFuzzResultCategory(obj: unknown): obj is FuzzResultCategory {
+  return typeof obj === "string" && fuzzResultCategoryValues.includes(obj);
+} // fn: isFuzzResultCategory
+
+/**
+ * Result Tabs
+ */
+export const FuzzResultTabValues = [
+  ...FuzzResultCategoryValues,
+  "runInfo",
+] as const;
+export type FuzzResultTab = (typeof FuzzResultTabValues)[number];
+
+/**
+ * Type guard that returns true if the input object is a FuzzResultTab.
+ *
+ * @param obj the object to check
+ * @returns `true` if `obj` is a `FuzzResultTab`, `false` otherwise
+ */
+const fuzzResultTabValues: string[] = [...FuzzResultTabValues];
+export function isFuzzResultTab(obj: unknown): obj is FuzzResultTab {
+  return typeof obj === "string" && fuzzResultTabValues.includes(obj);
+} // fn: isFuzzResultTab
 
 /**
  * Fuzzer Options that specify the fuzzing behavior
@@ -159,6 +230,7 @@ export type FuzzArgOverride = {
  * Reason the fuzzer stopped
  */
 export enum FuzzStopReason {
+  PAUSE = "pause",
   CRASH = "crash",
   MAXTESTS = "maxTests",
   MAXFAILURES = "maxFailures",
@@ -177,12 +249,22 @@ export type VmGlobals = Record<string, unknown>;
  */
 export type SupportedInputGenerators =
   | "RandomInputGenerator"
-  | "MutationInputGenerator";
+  | "MutationInputGenerator"
+  | "AiInputGenerator";
 
 /**
  * List of supported input generators
  */
 export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
+
+/**
+ * Message about how busy the fuzzer is
+ */
+export type FuzzBusyStatusMessage = {
+  msg: string;
+  milestone?: boolean;
+  pct?: number;
+};
 
 /**
  * Exception class for TypeScript compiler errors
@@ -201,3 +283,5 @@ export class TscCompilerError extends Error {
     this.details = details;
   }
 }
+
+export type Judgment = _Judgment;

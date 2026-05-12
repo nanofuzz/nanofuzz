@@ -1,5 +1,4 @@
-import { FuzzTestResult } from "../Types";
-import { InputAndSource } from "fuzzer/generators/Types";
+import { FuzzTestResult, InputAndSource } from "../Types";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 import { CoverageMeasure } from "./CoverageMeasure";
 
@@ -37,15 +36,16 @@ export class FailedTestMeasure extends AbstractMeasure {
     let pseudoBugsFound = 0;
     const newlyFailingValidators: number[] = [];
 
-    // Make an array of all validator results
-    const validators = [result.passedImplicit, result.passedHuman];
-    if (result.passedValidators !== undefined) {
-      validators.push(...result.passedValidators);
-    }
+    // Make an array of all judgments
+    const judgments = [
+      result.passedImplicit,
+      result.passedHuman,
+      ...result.passedValidators,
+    ];
 
     // Init bugs data
     if (!Object.keys(this._pseudoBugsData).length) {
-      validators.forEach((value, v) => {
+      judgments.forEach((value, v) => {
         this._pseudoBugsData[v] = {};
       });
     }
@@ -60,8 +60,8 @@ export class FailedTestMeasure extends AbstractMeasure {
         : "";
 
     // Find new validator failures and coverage combinations exhibiting failures
-    validators.forEach((v, i) => {
-      if (v === false) {
+    judgments.forEach((j, i) => {
+      if (j === "fail") {
         if (!(coverageMapData in this._pseudoBugsData[i])) {
           this._pseudoBugsData[i][coverageMapData] = 1;
           newlyFailingValidators.push(Number(i));

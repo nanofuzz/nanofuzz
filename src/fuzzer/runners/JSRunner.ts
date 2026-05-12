@@ -69,7 +69,7 @@ export class JSRunner extends AbstractRunner {
     const script = new vm.Script(`returnValue = function_();`);
 
     const wrappedFunction = (
-      timeout: number,
+      timeout: number | undefined,
       ...arguments_: unknown[]
     ): [unknown, VmGlobals] => {
       // `function_` resides in the context of the original
@@ -79,7 +79,7 @@ export class JSRunner extends AbstractRunner {
         function_: () => function_(...arguments_),
       };
 
-      script.runInNewContext(context, { timeout: timeout });
+      script.runInNewContext(context, timeout ? { timeout: timeout } : {});
 
       return [context.returnValue, context];
     };

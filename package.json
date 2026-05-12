@@ -49,147 +49,225 @@
         "category": "NaNofuzz"
       }
     ],
-    "configuration": {
-      "title": "NaNofuzz",
-      "properties": {
-        "nanofuzz.name": {
-          "title": "Change NaNofuzz' name (for studies)",
-          "type": "string",
-          "default": "NaNofuzz",
-          "description": "Change NaNofuzz' name (for studies)"
-        },
-        "nanofuzz.fuzzer.maxTests": {
-          "title": "Maximum number of tests",
-          "type": "integer",
-          "default": 1000,
-          "minimum": 1,
-          "description": "Maximum number of tests the fuzzer should run before stopping."
-        },
-        "nanofuzz.fuzzer.maxDupeInputs": {
-          "title": "Maximum number of duplicate inputs",
-          "type": "integer",
-          "default": 1000,
-          "minimum": 0,
-          "description": "Maximum number of duplicate inputs the fuzzer should generate before stopping."
-        },
-        "nanofuzz.fuzzer.maxFailures": {
-          "title": "Maximum number of failures (0=no limit)",
-          "type": "integer",
-          "default": 0,
-          "minimum": 0,
-          "description": "Maximum number of failed tests the fuzzer should run before stopping."
-        },
-        "nanofuzz.fuzzer.suiteTimeout": {
-          "title": "Maximum time to run the fuzzer (ms)",
-          "type": "integer",
-          "default": 3000,
-          "minimum": 0,
-          "description": "Maximum time (in ms) to allow the fuzzer to run before stopping."
-        },
-        "nanofuzz.fuzzer.fnTimeout": {
-          "title": "Timeout test after (ms)",
-          "type": "integer",
-          "default": 100,
-          "minimum": 0,
-          "description": "Maximum time (in ms) to allow a test function to run before making it as a timeout."
-        },
-        "nanofuzz.ui.hideMoreOptionsButton": {
-          "title": "Hide the 'More options' button?",
-          "type": "boolean",
-          "default": false,
-          "description": "Hide the 'More options' button?"
-        },
-        "nanofuzz.ui.codeLens.includeValidators": {
-          "title": "Show 'NaNofuzz' buttons for property validator functions?",
-          "type": "boolean",
-          "default": true,
-          "description": "Show two buttons for validator functions, one to test the associated function with property validators enabled, and one to test the validator itself."
-        },
-        "nanofuzz.ui.codeLens.ignoreFilePattern": {
-          "title": "Regex of files for NaNofuzz to ignore",
-          "type": "string",
-          "default": "",
-          "description": "Regex of files for NaNofuzz to ignore"
-        },
-        "nanofuzz.argdef.strCharset": {
-          "title": "String character set",
-          "type": "string",
-          "default": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~",
-          "description": "Characters to select from when randomly generating string inputs"
-        },
-        "nanofuzz.argdef.strLength.min": {
-          "title": "Minimum string length",
-          "type": "integer",
-          "default": 0,
-          "minimum": 0,
-          "description": "Minimum length of a randomly-generated input string"
-        },
-        "nanofuzz.argdef.strLength.max": {
-          "title": "Maximum string length",
-          "type": "integer",
-          "default": 10,
-          "minimum": 0,
-          "description": "Maximum length of a randomly-generated input string"
-        },
-        "nanofuzz.argdef.numInteger": {
-          "title": "Generate integer inputs?",
-          "type": "boolean",
-          "default": true,
-          "description": "Generate integers as numeric inputs by default?"
-        },
-        "nanofuzz.argdef.numSigned": {
-          "title": "Generate signed inputs?",
-          "type": "boolean",
-          "default": false,
-          "description": "Generate signed values as numeric inputs by default?"
-        },
-        "nanofuzz.argdef.dftDimLength.min": {
-          "title": "Minimum array length",
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "description": "Minimum array length generate by default."
-        },
-        "nanofuzz.argdef.dftDimLength.max": {
-          "title": "Maximum array length",
-          "type": "number",
-          "default": 4,
-          "minimum": 0,
-          "description": "Minimum array length generate by default."
-        },
-        "nanofuzz.argdef.anyType": {
-          "title": "Treat any types as",
-          "type": "string",
-          "enum": [
-            "number",
-            "string",
-            "boolean"
-          ],
-          "default": "number",
-          "description": "Default type of any type arguments."
-        },
-        "nanofuzz.argdef.anyDims": {
-          "title": "Array dimensions for any types",
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "description": "Default number of array dimensions for any types.  0=not an array."
-        },
-        "telemetry.active": {
-          "title": "Activate telemetry? (requires restart)",
-          "type": "boolean",
-          "default": false,
-          "minimum": 0,
-          "description": "Activate telemetry?"
+    "configuration": [
+      {
+        "title": "Testing",
+        "order": 10,
+        "properties": {
+          "nanofuzz.fuzzer.maxTests": {
+            "title": "Maximum number of tests",
+            "type": "integer",
+            "default": 1000,
+            "minimum": 1,
+            "description": "Default maximum number of tests the fuzzer should run before stopping."
+          },
+          "nanofuzz.fuzzer.maxDupeInputs": {
+            "title": "Maximum number of duplicate inputs",
+            "type": "integer",
+            "default": 1000,
+            "minimum": 0,
+            "description": "Default maximum number of duplicate inputs the fuzzer should generate before stopping."
+          },
+          "nanofuzz.fuzzer.maxFailures": {
+            "title": "Maximum number of failures (0=no limit)",
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "description": "Default number of failed tests the fuzzer should run before stopping."
+          },
+          "nanofuzz.fuzzer.suiteTimeout": {
+            "title": "Maximum time to run the fuzzer (ms)",
+            "type": "integer",
+            "default": 3000,
+            "minimum": 0,
+            "description": "Default maximum time (in ms) to allow the fuzzer to run before stopping."
+          },
+          "nanofuzz.fuzzer.fnTimeout": {
+            "title": "Timeout test after (ms)",
+            "type": "integer",
+            "default": 100,
+            "minimum": 0,
+            "description": "Default maximum time (in ms) to allow a test function to run before making it as a timeout."
+          }
+        }
+      },
+      {
+        "title": "AI",
+        "order": 20,
+        "properties": {
+          "nanofuzz.ai.provider": {
+            "title": "Model provider",
+            "order": 10,
+            "enum": [
+              "disabled",
+              "openai",
+              "gemini",
+              "anthropic",
+              "deepseek",
+              "ollama",
+              "openrouter",
+              "bedrock",
+              "xai",
+              "mistral"
+            ],
+            "default": "disabled",
+            "description": "Provider"
+          },
+          "nanofuzz.ai.model": {
+            "title": "Provider's model name",
+            "order": 20,
+            "type": "string",
+            "description": "Provider's model name (e.g., gemini-flash-lite-latest)"
+          },
+          "nanofuzz.ai.apiKey": {
+            "title": "Model provider API key",
+            "order": 30,
+            "type": "string",
+            "description": "API key for accessing provider's model. If not provided, an attempt will be made to read it from the environment."
+          },
+          "nanofuzz.ai.retries": {
+            "title": "Maximum retries",
+            "order": 40,
+            "type": "integer",
+            "default": 5,
+            "description": "Number of failed retries prior to giving up"
+          },
+          "nanofuzz.ai.retryDelay": {
+            "title": "Retry delay (ms)",
+            "order": 50,
+            "type": "integer",
+            "default": 1000,
+            "description": "Delay (in ms) before retrying again"
+          },
+          "nanofuzz.ai.debug": {
+            "title": "Write AI debug info to console?",
+            "order": 60,
+            "type": "boolean",
+            "default": false,
+            "description": "Write AI debug information to the console"
+          }
+        }
+      },
+      {
+        "title": "Analysis",
+        "order": 30,
+        "properties": {
+          "nanofuzz.argdef.strCharset": {
+            "title": "String character set",
+            "type": "string",
+            "default": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~",
+            "description": "Default characters to select from when randomly generating string inputs"
+          },
+          "nanofuzz.argdef.strLength.min": {
+            "title": "Minimum string length",
+            "type": "integer",
+            "default": 0,
+            "minimum": 0,
+            "description": "Default minimum length of a randomly-generated input string"
+          },
+          "nanofuzz.argdef.strLength.max": {
+            "title": "Maximum string length",
+            "type": "integer",
+            "default": 10,
+            "minimum": 0,
+            "description": "Default maximum length of a randomly-generated input string"
+          },
+          "nanofuzz.argdef.numInteger": {
+            "title": "Generate integer inputs?",
+            "type": "boolean",
+            "default": true,
+            "description": "Generate integers as numeric inputs by default?"
+          },
+          "nanofuzz.argdef.numSigned": {
+            "title": "Generate signed inputs?",
+            "type": "boolean",
+            "default": false,
+            "description": "Generate signed values as numeric inputs by default?"
+          },
+          "nanofuzz.argdef.dftDimLength.min": {
+            "title": "Minimum array length",
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "description": "Minimum array length generated by default."
+          },
+          "nanofuzz.argdef.dftDimLength.max": {
+            "title": "Maximum array length",
+            "type": "number",
+            "default": 4,
+            "minimum": 0,
+            "description": "Minimum array length generated by default."
+          },
+          "nanofuzz.argdef.anyType": {
+            "title": "Treat any types as",
+            "type": "string",
+            "enum": [
+              "number",
+              "string",
+              "boolean"
+            ],
+            "default": "number",
+            "description": "Default type of any type arguments."
+          },
+          "nanofuzz.argdef.anyDims": {
+            "title": "Array dimensions for any types",
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "description": "Default number of array dimensions for any types. 0=not an array."
+          }
+        }
+      },
+      {
+        "title": "User Study Settings",
+        "order": 90,
+        "description": "These settings are primarily intended for scientists, who need to customize certain aspects of NaNofuzz for the purpose of running user studies.",
+        "properties": {
+          "nanofuzz.name": {
+            "title": "Change NaNofuzz' name (for studies)",
+            "type": "string",
+            "default": "NaNofuzz",
+            "description": "Change NaNofuzz' name (for studies)"
+          },
+          "nanofuzz.ui.showSourceColumn": {
+            "title": "Show the 'source' column in test results?",
+            "type": "boolean",
+            "default": false,
+            "description": "Show the `source` column?"
+          },
+          "nanofuzz.ui.hideMoreOptionsButton": {
+            "title": "Hide the 'More options' button?",
+            "type": "boolean",
+            "default": false,
+            "description": "Hide the 'More options' button?"
+          },
+          "nanofuzz.ui.codeLens.includeValidators": {
+            "title": "Show 'NaNofuzz' buttons for property validator functions?",
+            "type": "boolean",
+            "default": true,
+            "description": "Show two buttons for validator functions, one to test the associated function with property validators enabled, and one to test the validator itself."
+          },
+          "nanofuzz.ui.codeLens.ignoreFilePattern": {
+            "title": "Regex of files for NaNofuzz to ignore",
+            "type": "string",
+            "default": "",
+            "description": "Regex of files for NaNofuzz to ignore"
+          },
+          "telemetry.active": {
+            "title": "Activate telemetry? (requires restart)",
+            "type": "boolean",
+            "default": false,
+            "minimum": 0,
+            "description": "Activate telemetry?"
+          }
         }
       }
-    }
+    ]
   },
   "scripts": {
     "build": "node build.mjs",
     "test": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
-    "docs": "typedoc --plugin none --out docs",
-    "lint": "eslint --ext js,ts,tsx src",
+    "lint": "eslint src assets/ui",
     "vscode:prepublish": "yarn build",
     "publish": "vsce publish --yarn",
     "package": "vsce package --yarn",
@@ -209,49 +287,42 @@
     ]
   },
   "dependencies": {
-    "@datastructures-js/queue": "^4.2.1",
+    "@babel/core": "^7.27.1",
+    "@node-llm/core": "^1.14.1",
     "@types/vscode-webview": "^1.57.5",
-    "@vscode/codicons": "^0.0.43",
+    "@vscode/codicons": "^0.0.45",
     "@vscode/webview-ui-toolkit": "^1.2.2",
-    "eslint": "^7.3.2",
-    "immutable": "^4.1.0",
     "istanbul-lib-coverage": "^3.2.2",
     "istanbul-lib-hook": "^3.0.0",
     "istanbul-lib-instrument": "6.0.3",
     "istanbul-lib-source-maps": "^5.0.6",
     "json5": "^2.2.3",
     "seedrandom": "^3.0.5",
-    "typescript": "5.9.2"
+    "typescript": "5.9.2",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@babel/core": "^7.28.0",
     "@babel/plugin-transform-modules-commonjs": "^7.27.1",
     "@babel/preset-typescript": "^7.27.1",
     "@babel/register": "^7.27.1",
+    "@eslint/js": "^10.0.1",
+    "@types/babel__core": "^7.20.5",
     "@types/istanbul-lib-hook": "^2.0.4",
     "@types/istanbul-lib-instrument": "^1.7.7",
+    "@types/istanbul-lib-source-maps": "^4.0.4",
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
     "@types/seedrandom": "^2.4.28",
-    "@types/vscode": "^1.69.0",
-    "@typescript-eslint/eslint-plugin": "^4.5.0",
-    "@typescript-eslint/eslint-plugin-tslint": "^4.5.0",
-    "@typescript-eslint/parser": "^4.5.0",
+    "@types/vscode": "^1.75.0",
     "@vscode/vsce": "^3.6.0",
     "cross-env": "^10.0.0",
     "esbuild": "^0.25.0",
     "escape-goat": "^4.0.0",
-    "eslint-config-prettier": "^6.13.0",
-    "eslint-plugin-eslint-comments": "^3.2.0",
-    "eslint-plugin-import": "^2.22.1",
-    "eslint-plugin-jsdoc": "^30.7.3",
-    "eslint-plugin-react": "^7.28.0",
+    "eslint": "^9.26.0",
+    "eslint-config-prettier": "^10.1.8",
     "jasmine": "5.9.0",
-    "jsdom": "^26.1.0",
     "nanofuzz-study": "nanofuzz/nanofuzz-study#main",
-    "tsc-alias": "^1.6.7",
     "tslib": "^2.1.0",
-    "typedoc": "^0.22.11",
-    "typedoc-plugin-markdown": "^3.11.13"
+    "typescript-eslint": "^8.59.1"
   }
 }

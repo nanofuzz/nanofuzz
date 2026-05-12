@@ -403,6 +403,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
 
   it("NoInput test", function () {
     const prng = seedrandom("qwertyuiop");
+    /*
     const q = new ArgDef<ArgType>(
       "q",
       0,
@@ -418,6 +419,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
       undefined,
       []
     );
+    */
     const n = new ArgDef<ArgType>(
       "n",
       0,
@@ -444,6 +446,11 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
     expect(val.validate(input)).toBeTrue();
   });
 
+  /**
+   * This test generates random ArgDef specs, generates
+   * and mutates inputs from those specs, and validates
+   * the resulting inputs against the original spec.
+   */
   it("fuzz test gen/mutate/validate loop", function () {
     const prng = seedrandom("qwertyuiop");
     const stats: {
@@ -511,7 +518,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
 
                 // Revert to the previous input so that we don't confuse
                 // the issue about which mutator broke the input chain
-                input = JSON5.parse(inputStringBefore);
+                input = JSON5.parse<typeof input>(inputStringBefore);
               } else {
                 stats.muts.valid++;
               }
@@ -523,7 +530,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
                     `Double mutation is expected to fail but didn't`
                   );
                   expect(false).toBeTrue();
-                } catch (e: unknown) {
+                } catch (_e: unknown) {
                   // we expect this to throw an exception
                 }
               }
@@ -679,7 +686,8 @@ function getRandomArgDef(
     },
   ];
   const dims = dimOptions[Math.floor(prng() * (dimOptions.length - 1))];
-  const isOptional = parentType === ArgTag.OBJECT && prng() > 0.5;
+  const isOptional =
+    (parentType === ArgTag.OBJECT || parentType === undefined) && prng() > 0.5;
   const name = "abcdefghijklmnopqrstuvwxyz".split("")[Math.floor(prng() * 25)];
   let options: ArgOptions = {
     ...argOptions,
@@ -716,7 +724,7 @@ function getRandomArgDef(
       break;
     }
     case ArgTag.STRING: {
-      interval;
+      // interval; TODO: string min/max ranges
       options = {
         ...options,
         strLength: { min: Math.floor(prng() * 2), max: 2 },

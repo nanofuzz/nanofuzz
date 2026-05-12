@@ -24,10 +24,13 @@ export class ArgDefValidator {
    * @returns true if the values conform to the ArgDef specs, false otherwise
    */
   public validate(values: ArgValueTypeWrapped[]): boolean {
-    let i = 0;
     return (
       values.length <= this._specs.length &&
-      values.every((e) => ArgDefValidator.validate(e.value, this._specs[i++]))
+      values.every(
+        (e, i) =>
+          (e.value === undefined && this._specs[i].isOptional()) ||
+          ArgDefValidator.validate(e.value, this._specs[i])
+      )
     );
   } // fn: validate
 
@@ -159,9 +162,12 @@ const traverse = (
   for (const i in a) {
     if (Array.isArray(a[i]) && currDepth < spec.getDim()) {
       if (!traverse(a[i], spec, currDepth + 1)) {
-        return false;
+        return false; // next level of array is invalid
       }
     } else {
+      if (currDepth + 1 < spec.getDim()) {
+        return false; // value at insufficient depth
+      }
       if (!ArgDefValidator.validate(a[i], spec, true)) {
         return false;
       }

@@ -1,3 +1,4 @@
+import * as path from "path";
 import JSON5 from "json5";
 
 /**
@@ -7,11 +8,9 @@ import JSON5 from "json5";
  * exception types have the message and stack fields.
  *
  * @param obj the object to check
- * @returns type guard if `obj` has `message` and `stack` properties of type `string`
+ * @returns type guard if `obj` has `message`, `stack`, and `name` properties of type `string`
  */
-export function isError(
-  obj: unknown
-): obj is { message: string; stack: string } {
+export function isError(obj: unknown): obj is Error {
   return (
     obj !== undefined &&
     obj !== null &&
@@ -19,12 +18,32 @@ export function isError(
     !Array.isArray(obj) &&
     "message" in obj &&
     "stack" in obj &&
+    "name" in obj &&
     typeof obj.message === "string" &&
-    typeof obj.stack === "string"
+    typeof obj.stack === "string" &&
+    typeof obj.name === "string"
   );
 } // fn: isError
 
 /**
+ * Normalizes a file path string for use as a key (in maps) to avoid cross-platform issues.
+ *
+ * !!!!!!!! move this dependency on vscode into part of the UI codebase
+ */
+export function normalizePathForKey(rawPath: string): string {
+  let p = rawPath.trim();
+  p = path.normalize(p);
+
+  // On Windows, treat paths case-insensitively, but on POSIX, keep case,
+  // since it usually matters.
+  if (process.platform === "win32") {
+    p = p.toLowerCase();
+  }
+
+  return p;
+} // fn: normalizePathForKey
+
+/*
  * Extracts an error message from an unknown exception value.
  *
  * If the value is an Error-like object (has message and stack),
