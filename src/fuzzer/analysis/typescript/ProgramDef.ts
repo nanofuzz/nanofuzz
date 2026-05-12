@@ -165,9 +165,7 @@ export class ProgramDef {
           if (fnRef.args) {
             for (const fnArg of fnRef.args) {
               lastArgName = fnArg.name;
-              if (fnArg.typeRefName && !fnArg.type) {
-                this._resolveTypeRef(fnArg);
-              }
+              this._resolveTypeRef(fnArg);
             }
           }
         } catch (e: unknown) {
@@ -1095,6 +1093,9 @@ export class ProgramDef {
       case "TSUndefinedKeyword": {
         return [ArgTag.LITERAL, 0, undefined, undefined];
       }
+      case "TSParenthesizedType": {
+        return this._getTypeFromAstNode(node.typeAnnotation, options);
+      }
       case "TSTypeReference": {
         return [ArgTag.UNRESOLVED, 0, getIdentifierName(node.typeName)];
       }
@@ -1146,6 +1147,8 @@ export class ProgramDef {
         return [];
       case "TSArrayType":
         return this._getChildrenFromNode(node.elementType);
+      case "TSParenthesizedType":
+        return this._getChildrenFromNode(node.typeAnnotation);
       case "TSTypeReference":
         throw new Error(
           `Internal Error: Unresolved type reference found: ${JSON5.stringify(
@@ -1169,22 +1172,31 @@ export class ProgramDef {
           this._getTypeRefFromAstNode(type, node)
         );
       case "TSTypeAnnotation": {
-        // Collapse array annotations -- we previously handled those
-        while (node.typeAnnotation.type === "TSArrayType")
-          node.typeAnnotation = node.typeAnnotation.elementType;
+        // Collapse array and parenthesis annotations -- we previously handled those
+        let innerNode = node.typeAnnotation;
+        while (
+          innerNode.type === "TSArrayType" ||
+          innerNode.type === "TSParenthesizedType"
+        ) {
+          if (innerNode.type === "TSArrayType") {
+            innerNode = innerNode.elementType;
+          } else {
+            innerNode = innerNode.typeAnnotation;
+          }
+        }
 
-        switch (node.typeAnnotation.type) {
+        switch (innerNode.type) {
           case "TSTypeReference": {
-            const typeName = getIdentifierName(node.typeAnnotation.typeName);
+            const typeName = getIdentifierName(innerNode.typeName);
             throw new Error(
               `Internal Error: Unable to find type reference '${typeName}' in program`
             );
           }
           case "TSUnionType": {
-            return this._getChildrenFromNode(node.typeAnnotation);
+            return this._getChildrenFromNode(innerNode);
           }
           case "TSTypeLiteral": {
-            return node.typeAnnotation.members.map((member) => {
+            return innerNode.members.map((member) => {
               if (member.type === "TSPropertySignature")
                 return this._getTypeRefFromAstNode(member, node);
               else
@@ -1197,7 +1209,7 @@ export class ProgramDef {
           default:
             throw new Error(
               "Unsupported object type annotation: " +
-                JSON5.stringify(node.typeAnnotation, removeParents, 2)
+                JSON5.stringify(innerNode, removeParents, 2)
             );
         }
       }
