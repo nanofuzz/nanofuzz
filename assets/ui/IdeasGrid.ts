@@ -103,9 +103,7 @@ export class IdeasGrid {
       this._htmlTab.querySelector("#ideasCountBadge");
     if (ideasCountElement && ideasCountBadgeElement) {
       ideasCountElement.innerHTML = count.toString();
-      if (count) {
-        show(ideasCountBadgeElement);
-      }
+      (count ? show : hide)(ideasCountBadgeElement);
     }
   }
 
