@@ -92,7 +92,7 @@ export class CompositeJudgmentDiff {
     // into the test suite. Compare this judgment with the original
     // judgment of the test suite according to the groupings below.
     for (const e of this._examples) {
-      const oldJudgment = e.judgments.composite; // !!!!!!!!!! how are we handling exceptions here?
+      const oldJudgment = e.judgments.composite;
       let exceptions = false;
       const newJudgment = CompositeOracle.judge([
         [
@@ -102,8 +102,9 @@ export class CompositeJudgmentDiff {
               const j = e.addlJudgments[p];
               if (isError(j)) {
                 exceptions = true;
+                return "unknown";
               }
-              return isError(j) ? "unknown" : j;
+              return j;
             }),
           ]),
           e.judgments.example,
@@ -245,7 +246,11 @@ export class CompositeJudgmentDiff {
     const neutralAspects = diff.trueFailures.length + diff.truePasses.length;
     const positiveAspects = diff.prospectiveFailures.length;
 
-    const total = negativeAspects + neutralAspects + positiveAspects;
+    const total =
+      negativeAspects +
+      neutralAspects +
+      positiveAspects +
+      diff.exceptions.length;
     const factor = 100 / total;
 
     if (negativeAspects) {

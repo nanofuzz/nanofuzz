@@ -35,20 +35,28 @@ export class PropertyOracle {
             jj.push("unknown");
             break;
           default:
-            jj.push(
-              new Error(
-                `Property validator did not return: "pass" | "fail" | "unknown"`
-              )
-            );
+            jj.push({
+              name: `InvalidJudgmentException`,
+              message: `Property validator did not return: "pass" | "fail" | "unknown"`,
+            });
         }
       } catch (e: unknown) {
         jj.push(
-          isError(e)
-            ? e
-            : new Error(
-                `Property validator threw exception that is not an Error`,
-                { cause: e }
-              )
+          JSON.parse(
+            JSON.stringify(
+              isError(e)
+                ? {
+                    name: e.name,
+                    message: e.message,
+                    stack: e.stack,
+                  }
+                : {
+                    name: `UnknownException`,
+                    message: `Property validator threw exception that is not an Error`,
+                    cause: e,
+                  }
+            )
+          )
         );
       }
     }

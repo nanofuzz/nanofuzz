@@ -327,7 +327,7 @@ export class IdeasPanelView {
       switch (i.type) {
         case "property.suggestion": {
           const getExceptionMsg = (e: unknown) =>
-            isError(e) ? [e.name, e.message] : [JSON5.stringify(e)];
+            isError(e) ? `${e.name}: ${e.message}` : JSON5.stringify(e);
           const exceptions = i.diff.detail.exceptions.map((e) => ({
             ...e,
             color: "red",
@@ -362,7 +362,7 @@ export class IdeasPanelView {
                     <tr>
                       <th>&nbsp;</th>
                       <th>inputs</th>
-                      <th>validator threw exception</th>
+                      <th>validator would throw exception</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -372,11 +372,9 @@ export class IdeasPanelView {
                     <tr>
                       <td><span class="codicon codicon-warn"></span></td>
                       <td class="editorFont">${htmlEscape(JSON5.stringify(e.example.in))}</td>
-                      <td class="editorFont">${getExceptionMsg(
-                        e.addlJudgments[i.prop.name]
-                      )
-                        .map((e) => htmlEscape(e))
-                        .join("<br />")}
+                      <td class="editorFont">${htmlEscape(
+                        getExceptionMsg(e.addlJudgments[i.prop.name])
+                      )}
                       </td>
                     </tr>`
                       )
@@ -420,15 +418,14 @@ export class IdeasPanelView {
                     <td class="editorFont">${htmlEscape(j.example.out === undefined ? "undefined" : JSON5.stringify(j.example.out))}</td>
                     <td class="editorFont removedLine">${j.judgments.composite}</td>
                     <td class="editorFont addedLine">${j.rejudgment}</td>
-                    <td><span><span title="more info" class="clickable codicon codicon-info"><!-- event handler !!!!!!!!!! --></span></span></td>
+                    <td class="colorColumn"><span><span title="more info" class="clickable codicon codicon-info"><!-- event handler !!!!!!!!!! --></span></span></td>
                   </tr>`
                     )
                     .join("")}
                 </tbody>
               </table>
-
-              <div></div>
-            </div>`;
+            </div>
+            <div>&nbsp;</div>`;
           const exceptionToggleBtn = td.querySelector(
             `#idea-${i.type}-${i.id}-detail-exceptionToggle`.replaceAll(
               ".",
