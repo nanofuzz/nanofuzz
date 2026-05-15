@@ -351,7 +351,7 @@ ${vars.directives.length ? `Important details about the program's inputs:\n${var
     
 You are familiar with property tests, which are small programs that are called after each execution of the program ("${vars.fnName}") to determine whether that execution's one particular output is correct for its given input.
 
-The property tests you write to check an execution's inputs and output will use the following boilerplate TypeScript code and docstring comment. Replace "<name-suffix>" with an appropriate name including only ASCII letters and numbers. Replace "<explanation>" in the docstring comment with a natural language explanation of your code. Othwerwise, ONLY modify the code and docstring comment where indicated. The property test you write must include the docstring comment and must return \`"pass" | "fail" | "unknown"\`, where "unknown" indicates the property in undecidable for that particular example. 
+The property tests you write to check an execution's inputs and output will use the following boilerplate TypeScript code and docstring comment. Replace "<name-suffix>" with an appropriate name including only ASCII letters and numbers. Replace "<explanation>" in the docstring comment with a natural language explanation of your code. Othwerwise, ONLY modify the code and docstring comment where indicated. The property test you write must include the docstring comment and must return \`"pass" | "fail" | "unknown"\`, where "unknown" indicates the property in undecidable for that particular example. If the execution threw an exception, \`exception\` of the \`FuzzTestResult\` will be \`true\`. If the execution timed out, \`result.timeout\` of the \`FuzzTestResult\` will be \`true\`.
 
 The boilerplate property test code and docstring comment:
 \`\`\`

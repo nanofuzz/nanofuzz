@@ -66,3 +66,28 @@ export function hide(e: Element) {
 export function show(e: Element) {
   e.classList.remove("hidden");
 } // fn: show()
+
+// !!!!!!
+export function simpleToast(msg: string): void {
+  // Create the snackbar
+  const snackbarRoot = document.querySelector("#snackbarRoot");
+  if (!snackbarRoot) return;
+  const snackbar = document.createElement("div");
+  snackbar.classList.add("snackbar");
+
+  // Add the message
+  snackbar.innerHTML = `<big>${msg}</big>`;
+
+  // Position the snackbar at the bottom of the view
+  snackbar.style.position = "fixed";
+  snackbar.style.bottom = "5px";
+
+  // Attach and show the snackbar
+  snackbar.classList.add("snackbarShow");
+  snackbarRoot.parentElement?.append(snackbar);
+
+  // Remove the snackbar after 4s
+  setTimeout(async () => {
+    snackbar.remove();
+  }, 4000);
+} // !!!!!!

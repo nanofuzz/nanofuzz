@@ -1301,7 +1301,6 @@ function syncResultsTabsAndPanels(
   gridTabs: NodeListOf<Element>,
   clickedTab: Element
 ) {
-  console.debug(`Clicked tab: ${clickedTab.id}`); // !!!!!!!!!!
   lastResultsTabClicked = clickedTab;
   lastResultsTableShown = undefined;
 
@@ -2386,6 +2385,7 @@ function handleProposeProps(props: {
     if (document.getElementById("tab-ideas")) {
       // Ideas Grid
       ideasGrid = new IdeasGrid(
+        vscode,
         getElementByIdOrThrow("tab-ideas"),
         getElementByIdOrThrow("fuzzResultsGrid-ideas")
       );

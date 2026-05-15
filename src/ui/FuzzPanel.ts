@@ -403,7 +403,7 @@ export class FuzzPanel {
             this._saveColumnSortOrders(message.json);
             break;
           case "validator.add":
-            this._doAddValidatorCmd();
+            this._doAddValidatorCmd(message.prop);
             this._doGetValidators();
             break;
           case "validator.getList":
@@ -888,11 +888,12 @@ export class FuzzPanel {
   /**
    * Add code skeleton for a property validator to the program source code.
    */
-  private async _doAddValidatorCmd() {
+  private async _doAddValidatorCmd(prop?: { src: string; name: string }) {
+    let src: string;
+    let name: string;
+
     const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
-    const validatorPrefix = fn.getName() + "Validator";
-    let fnCounter = 0;
     let program: ProgramDef;
 
     try {
@@ -904,29 +905,39 @@ export class FuzzPanel {
       return;
     }
 
-    // Determine the next available validator name
-    Object.keys(program.getFunctions())
-      .filter((e) => e.startsWith(validatorPrefix))
-      .forEach((e) => {
-        if (e.endsWith(validatorPrefix)) {
-          fnCounter++;
-        } else {
-          const suffix = e.substring(validatorPrefix.length);
-          if (suffix.match(/^[0-9]+$/)) {
-            fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
-          }
-        }
-      });
-
     // Determine if we need to add an import
     const hasImport = Object.keys(program.getImports()).some(
       (e) => e === "FuzzTestResult"
     );
-    const validatorSuffix = fnCounter === 0 ? "" : fnCounter.toString();
-    const validatorName = `${validatorPrefix}${validatorSuffix}`;
-    const skeleton = `
-    
-${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
+
+    if (prop !== undefined) {
+      src = prop.src;
+      name = prop.name;
+    } else {
+      const validatorPrefix = fn.getName() + "Validator";
+      let fnCounter = 0;
+
+      // Determine the next available validator name
+      Object.keys(program.getFunctions())
+        .filter((e) => e.startsWith(validatorPrefix))
+        .forEach((e) => {
+          if (e.endsWith(validatorPrefix)) {
+            fnCounter++;
+          } else {
+            const suffix = e.substring(validatorPrefix.length);
+            if (suffix.match(/^[0-9]+$/)) {
+              fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
+            }
+          }
+        });
+
+      const validatorSuffix = fnCounter === 0 ? "" : fnCounter.toString();
+      name = `${validatorPrefix}${validatorSuffix}`;
+      src = `${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
+    }
+    src = `
+
+${src}`;
 
     // Save the editor if dirty
     for (const editor of vscode.window.visibleTextEditors) {
@@ -943,7 +954,7 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
         const importStmt =
           Buffer.from(`import { FuzzTestResult } from "@nanofuzz/runtime";
 `);
-        const validatorFn = Buffer.from(skeleton);
+        const validatorFn = Buffer.from(src);
         const fd = fs.openSync(module, "w+");
 
         fs.writeSync(fd, importStmt, 0, importStmt.length, 0);
@@ -959,23 +970,23 @@ ${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
       } else {
         // Append the validator to the end of the file
         const fd = fs.openSync(module, "as+");
-        fs.writeFileSync(fd, skeleton);
+        fs.writeFileSync(fd, src);
         fs.closeSync(fd);
       }
 
       // Change focus to the generated validator
       try {
-        const fn = ProgramDef.fromModule(module).getFunctions()[validatorName];
+        const fn = ProgramDef.fromModule(module).getFunctions()[name];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (_e: unknown) {
         vscode.window.showErrorMessage(
-          `Unable to navigate to the created validator '${validatorName}' in '${fn.getModule()}'`
+          `Unable to navigate to the created validator '${name}' in '${fn.getModule()}'`
         );
         return;
       }
     } catch {
       vscode.window.showErrorMessage(
-        `Unable to write property validator code skeleton to source file`
+        `Unable to write property validator code to source file`
       );
     }
   }
@@ -3560,11 +3571,11 @@ export type FuzzPanelMessageFromWebView =
         | "fuzz.coverage.show"
         | "fuzz.coverage.hide"
         | "fuzz.pause"
-        | "validator.add"
         | "validator.getList"
         | "open.source"
         | "open.settings.ai";
-    };
+    }
+  | { command: "validator.add"; prop?: { src: string; name: string } };
 
 /**
  * Represents the possible states of the FuzzPanel

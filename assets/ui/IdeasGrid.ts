@@ -1,7 +1,9 @@
 import * as JSON5 from "json5";
 import { htmlEscape } from "escape-goat";
 import { JudgmentDiff } from "../../src/fuzzer/oracles/CompositeJudgmentDiff";
-import { hide, isHidden, show } from "./Util";
+import { hide, isHidden, show, simpleToast } from "./Util";
+import { FuzzPanelMessageFromWebView } from "../../src/ui/FuzzPanel";
+import { WebviewApi } from "vscode-webview";
 
 // Ideas Grid
 export class IdeasGrid {
@@ -9,8 +11,14 @@ export class IdeasGrid {
   protected _drawnYet = false;
   protected _htmlTab: HTMLElement;
   protected _htmlGrid: HTMLElement;
+  protected _vscode: WebviewApi<unknown>;
 
-  constructor(htmlTab: HTMLElement, htmlGrid: HTMLElement) {
+  constructor(
+    vscode: WebviewApi<unknown>,
+    htmlTab: HTMLElement,
+    htmlGrid: HTMLElement
+  ) {
+    this._vscode = vscode;
     this._htmlGrid = htmlGrid;
     this._htmlTab = htmlTab;
     this._draw();
@@ -40,6 +48,26 @@ export class IdeasGrid {
       this._updateBadge(this._getIdeas().length);
     }
     return deleted;
+  }
+
+  public accept(type: Idea["type"], id: Idea["id"]): boolean {
+    const idea = this._ideas.get(type)?.get(id);
+    if (!idea) return false;
+    switch (idea.type) {
+      case "property.suggestion": {
+        const message: FuzzPanelMessageFromWebView = {
+          command: "validator.add",
+          prop: { ...idea.prop },
+        };
+        this._vscode.postMessage(message);
+      }
+    }
+    this.delete(type, id);
+    return true;
+  }
+
+  public reject(type: Idea["type"], id: Idea["id"]): boolean {
+    return this.delete(type, id);
   }
 
   public deleteAllOfType(ideaType: Idea["type"]): boolean {
@@ -90,9 +118,9 @@ export class IdeasGrid {
       { id: "impactReds", text: "impactReds" },
       { id: "impactSquares", text: "impactSquares" },
       {
-        id: "adopt",
-        text: "adopt suggestion",
-        icon: "codicon-run",
+        id: "accept",
+        text: "accept idea",
+        icon: "codicon-add",
         hspan: { cols: 2, text: "actions" },
       },
       { id: "reject", text: "reject suggestion", icon: "codicon-trash" },
@@ -238,10 +266,20 @@ export class IdeasGrid {
                 </div>
               </span>`;
             break;
-          case "adopt":
-            td.innerHTML = `<span title="${c.text}"><span class="clickable codicon ${c.icon}"></span>`;
-            // !!!!!!!!!! event handler
+          case "accept": {
+            const outerSpan = document.createElement("span");
+            outerSpan.setAttribute("title", c.text);
+            const innerSpan = document.createElement("span");
+            innerSpan.classList.add("clickable", "codicon", c.icon);
+            outerSpan.appendChild(innerSpan);
+            td.appendChild(outerSpan);
+            innerSpan.addEventListener("click", () => {
+              console.debug(`Accepting ${i.type} ${i.id}`); // !!!!!!!!!!
+              this.accept(i.type, i.id);
+              simpleToast("Idea accepted");
+            });
             break;
+          }
           case "reject": {
             const outerSpan = document.createElement("span");
             outerSpan.setAttribute("title", c.text);
@@ -250,8 +288,9 @@ export class IdeasGrid {
             outerSpan.appendChild(innerSpan);
             td.appendChild(outerSpan);
             innerSpan.addEventListener("click", () => {
-              console.debug(`Deleting ${i.type} ${i.id}`); // !!!!!!!!!!
-              this.delete(i.type, i.id);
+              console.debug(`Rejecting ${i.type} ${i.id}`); // !!!!!!!!!!
+              this.reject(i.type, i.id);
+              simpleToast("Idea rejected");
             });
             break;
           }
