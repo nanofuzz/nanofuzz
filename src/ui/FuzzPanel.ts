@@ -2459,7 +2459,8 @@ ${src}`;
           name: "ideas",
           icon: "codicon-lightbulb",
           payload: "ideasGrid",
-          description: "The ideas below might help you improve the test suite.",
+          description:
+            "Some of the ideas below might help you improve the test suite.",
         });
 
         // If the prior tab no longer exists in the display set, don't use it

@@ -45,7 +45,12 @@ export class IdeasGrid {
           `#idea-${type}-${id}-detail`.replaceAll(".", "-")
         ),
       ].forEach((e) => (e ? e.remove() : e)); // update DOM
-      this._updateBadge(this._getIdeas().length);
+      const ideas = this._getIdeas();
+      this._updateBadge(ideas.length);
+      const emptyRow = this._htmlGrid.querySelector(`#idea-empty`);
+      if (emptyRow) {
+        (ideas.length ? hide : show)(emptyRow);
+      }
     }
     return deleted;
   }
@@ -158,10 +163,17 @@ export class IdeasGrid {
 
     const tbody = this._htmlGrid.querySelector("tbody");
     if (!tbody) throw new Error("Cannot find idea grid tbody");
-    tbody.replaceChildren();
 
     const ideas = this._getIdeas();
     this._updateBadge(ideas.length);
+
+    // empty row
+    const emptyRow = document.createElement("tr");
+    emptyRow.id = `idea-empty`;
+    emptyRow.innerHTML = `<td colspan="${cols.length}"><span>No new ideas have been suggested</td>`;
+    (ideas.length ? hide : show)(emptyRow);
+
+    tbody.replaceChildren(emptyRow);
 
     const squareTitles = {
       green: `prospective failures detected`,

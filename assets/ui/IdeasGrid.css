@@ -47,17 +47,16 @@
   border-color: var(--vscode-widget-border);
 }
 
-tr.ideaDetail > td {
+.ideasGrid tr.ideaDetail > td {
   border-bottom: 1px solid var(--vscode-widget-border);
 }
 
-td.removedLine {
+.ideasGrid td.removedLine {
   background-color: var(--vscode-diffEditor-removedLineBackground);
 }
-td.addedLine {
+.ideasGrid td.addedLine {
   background-color: var(--vscode-diffEditor-insertedLineBackground);
 }
-
 .ideasGrid > tbody > tr.sticky {
   position: sticky;
   background-color: var(--vscode-editor-background);
@@ -67,4 +66,12 @@ td.addedLine {
 }
 .ideasGrid pre.slightIndent {
   margin-left: 1em;
+}
+.ideasGrid > tbody > tr#idea-empty > td {
+  padding-top: 0.5em;
+  padding-bottom: 0.5em;
+  text-align: center;
+}
+.ideasGrid > tbody > tr#idea-empty > td > span {
+  opacity: 60%;
 }
