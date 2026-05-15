@@ -9,6 +9,7 @@ import { Judgment as _Judgment } from "./oracles/Types";
  * Single Fuzzer Test Result
  */
 export type FuzzTestResult = {
+  testId: number; // id of test (unique within a runId)
   pinned: boolean; // true if the test was pinned (not randomly generated)
   input: FuzzIoElement[]; // function input
   output: FuzzIoElement[]; // function output

@@ -1,0 +1,77 @@
+.flexBoxes,
+.diffSummary {
+  display: flex;
+  flex-wrap: wrap;
+}
+.diffSummary span.greens {
+  font-weight: bold;
+  color: var(--vscode-terminal-ansiBrightGreen);
+}
+.diffSummary span.reds {
+  font-weight: bold;
+  color: var(--vscode-terminal-ansiRed);
+}
+.flexBoxes > div,
+.diffSummary > div {
+  box-sizing: border-box;
+  margin-right: 0.4em;
+}
+
+.diffSummary > div.colorSquares {
+  display: flex;
+}
+
+.diffSummary > div.colorSquares > div {
+  box-sizing: border-box;
+  height: 1.1em;
+  width: 1.1em;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 2px;
+  margin-left: 1px;
+  margin-right: 1px;
+}
+.diffSummary > div.colorSquares > div.green {
+  background-color: var(--vscode-charts-green);
+  border-color: var(--vscode-charts-green);
+}
+
+.diffSummary > div.colorSquares > div.red {
+  background-color: var(--vscode-terminal-ansiRed);
+  border-color: var(--vscode-terminal-ansiRed);
+}
+
+.diffSummary > div.colorSquares > div.gray {
+  background-color: var(--vscode-editor-background);
+  border-width: 2px;
+  border-color: var(--vscode-widget-border);
+}
+
+.ideasGrid tr.ideaDetail > td {
+  border-bottom: 1px solid var(--vscode-widget-border);
+}
+
+.ideasGrid td.removedLine {
+  background-color: var(--vscode-diffEditor-removedLineBackground);
+}
+.ideasGrid td.addedLine {
+  background-color: var(--vscode-diffEditor-insertedLineBackground);
+}
+.ideasGrid > tbody > tr.sticky {
+  position: sticky;
+  background-color: var(--vscode-editor-background);
+  opacity: 1;
+  top: 4em;
+  z-index: 1;
+}
+.ideasGrid pre.slightIndent {
+  margin-left: 1em;
+}
+.ideasGrid > tbody > tr#idea-empty > td {
+  padding-top: 0.5em;
+  padding-bottom: 0.5em;
+  text-align: center;
+}
+.ideasGrid > tbody > tr#idea-empty > td > span {
+  opacity: 60%;
+}

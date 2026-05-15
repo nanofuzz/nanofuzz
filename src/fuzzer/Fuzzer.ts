@@ -21,7 +21,7 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
-import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
+import { isError, getErrorMessageOrJson } from "../Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
@@ -45,6 +45,7 @@ export class Tester {
   protected _lastCompiler?: compiler.TypeScriptCompiler; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
+  protected _testId = 0; // next test id
 
   constructor(
     module: string,
@@ -169,6 +170,7 @@ export class Tester {
    */
   protected _getInitializedResults(): FuzzTestResults {
     return {
+      runId: crypto.randomUUID(),
       env: {
         options: JSON5.parse<typeof this._options>(
           JSON5.stringify(this._options)
@@ -470,12 +472,20 @@ export class Tester {
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
     // Build a test runner for executing tests
-    const runner = RunnerFactory(this.env, mod, this._function.getName());
+    const runner = RunnerFactory({
+      type: "NodeJS.Module",
+      module: mod,
+      fnName: this._function.getName(),
+    });
 
     // Build runners for the property validators
     const propertyOracle = new PropertyOracle(
       this._validators.map((vFnRef) =>
-        RunnerFactory(this.env, mod, vFnRef.name)
+        RunnerFactory({
+          type: "NodeJS.Module",
+          module: mod,
+          fnName: vFnRef.name,
+        })
       )
     );
 
@@ -597,6 +607,7 @@ export class Tester {
 
       // Initialized test result - overwritten below
       const result: FuzzTestResult = {
+        testId: -1,
         pinned: false,
         input: [],
         output: [],
@@ -826,6 +837,7 @@ export class Tester {
       }
 
       // Store the result for this iteration
+      result.testId = this._testId++;
       this._results.results.push(result);
 
       // Take measurements for this test run
@@ -1112,6 +1124,7 @@ export type FuzzEnv = {
  * Fuzzer Test Result
  */
 export type FuzzTestResults = {
+  runId: string; // fuzzer run id
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped
   stats: FuzzTestStats; // fuzzer statistics

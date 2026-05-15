@@ -145,6 +145,13 @@
             "type": "boolean",
             "default": false,
             "description": "Write AI debug information to the console"
+          },
+          "nanofuzz.ai.properties.generate": {
+            "title": "(experimental) Generate property candidates with the AI model?",
+            "order": 70,
+            "type": "boolean",
+            "default": false,
+            "description": "Generate property candidates with the AI model (experimental) "
           }
         }
       },
@@ -297,6 +304,7 @@
     "istanbul-lib-instrument": "6.0.3",
     "istanbul-lib-source-maps": "^5.0.6",
     "json5": "^2.2.3",
+    "require-from-string": "^2.0.2",
     "seedrandom": "^3.0.5",
     "typescript": "5.9.2",
     "zod": "^4.3.6"
@@ -312,6 +320,7 @@
     "@types/istanbul-lib-source-maps": "^4.0.4",
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
+    "@types/require-from-string": "^1.2.3",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.75.0",
     "@vscode/vsce": "^3.6.0",
