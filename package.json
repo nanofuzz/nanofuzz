@@ -145,6 +145,13 @@
             "type": "boolean",
             "default": false,
             "description": "Write AI debug information to the console"
+          },
+          "nanofuzz.ai.properties.generate": {
+            "title": "(experimental) Generate property candidates with the AI model?",
+            "order": 70,
+            "type": "boolean",
+            "default": false,
+            "description": "Generate property candidates with the AI model"
           }
         }
       },

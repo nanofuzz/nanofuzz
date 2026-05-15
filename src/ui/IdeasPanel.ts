@@ -42,6 +42,9 @@ export function proposeProperties(
   if (
     _isBusy ||
     !LlmAdapter.isConfigured() ||
+    !vscode.workspace
+      .getConfiguration("nanofuzz.ai.properties")
+      .get<boolean>("generate", false) ||
     !results.env.options.useProperty
   ) {
     return;
