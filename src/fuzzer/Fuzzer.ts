@@ -45,6 +45,7 @@ export class Tester {
   protected _lastCompiler?: compiler.TypeScriptCompiler; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
+  protected _testId = 0; // next test id
 
   constructor(
     module: string,
@@ -493,7 +494,6 @@ export class Tester {
 
     update({ msg: `Target ready to test.`, milestone: true, pct: 0.01 });
     this._state = "ready";
-    let testId = 0;
 
     // Main test loop
     while (true) {
@@ -837,7 +837,7 @@ export class Tester {
       }
 
       // Store the result for this iteration
-      result.testId = testId++;
+      result.testId = this._testId++;
       this._results.results.push(result);
 
       // Take measurements for this test run
