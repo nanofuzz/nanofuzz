@@ -3,7 +3,7 @@ import { Judgment, Result } from "../Types";
 import { CompositeOracle } from "./CompositeOracle";
 import { PropertyOracle } from "./PropertyOracle";
 import { AbstractRunner } from "../runners/AbstractRunner";
-import { isError } from "../Util";
+import { isError } from "../../Util";
 
 /**
  * Generates diffs that show how adding particular property

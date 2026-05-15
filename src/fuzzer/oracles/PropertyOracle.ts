@@ -1,6 +1,6 @@
 import { Judgment } from "./Types";
 import { Result } from "../Types";
-import { isError } from "../Util";
+import { isError } from "../../Util";
 import { AbstractRunner } from "../runners/AbstractRunner";
 
 export class PropertyOracle {

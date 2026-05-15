@@ -57,7 +57,7 @@ export function proposeProperties(
       example: {
         exception: r.exception,
         timeout: r.timeout,
-        out: r.output[0].value,
+        out: r.output[0]?.value,
         in: r.input.map((i) => i.value),
       },
       source: {

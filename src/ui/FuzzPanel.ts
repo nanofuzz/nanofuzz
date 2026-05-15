@@ -6,7 +6,7 @@ import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { ProgramDef } from "../fuzzer/analysis/typescript/ProgramDef";
-import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
+import { isError, getErrorMessageOrJson } from "../Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
 import {
@@ -1566,7 +1566,7 @@ ${src}`;
             <link rel="stylesheet" type="text/css" href="${getUri(
               webview,
               extensionUri,
-              ["assets", "ui", "IdeasGrid.css"]
+              ["assets", "ui", "IdeasPanelView.css"]
             )}">
             <link rel="stylesheet" type="text/css" href="${getUri(
               webview,

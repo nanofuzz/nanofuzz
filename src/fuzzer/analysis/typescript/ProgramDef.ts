@@ -30,7 +30,7 @@ import {
   ProgramImport,
   ArgType,
 } from "./Types";
-import { getErrorMessageOrJson } from "../../Util";
+import { getErrorMessageOrJson } from "../../../Util";
 
 // Default import nonsense for node
 // https://github.com/babel/babel/discussions/13093

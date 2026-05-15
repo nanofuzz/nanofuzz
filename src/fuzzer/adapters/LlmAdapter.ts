@@ -3,7 +3,7 @@ import * as JSON5 from "json5";
 import * as nodellm from "@node-llm/core";
 import { ArgValueType } from "../analysis/typescript/Types";
 import { FunctionDef } from "../analysis/typescript/FunctionDef";
-import { isError } from "../Util";
+import { isError } from "../../Util";
 import * as telemetry from "../../telemetry/Telemetry";
 import { getPropertyTestSkeleton } from "../analysis/typescript/Util";
 

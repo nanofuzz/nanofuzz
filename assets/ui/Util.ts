@@ -32,7 +32,7 @@ export function assertNonreachable(x: never): never {
  * @param e The DOM node to check for the 'hidden' class
  * @returns true if the DOM node is hidden; false otherwise
  */
-export function isHidden(e: HTMLElement) {
+export function isHidden(e: Element) {
   return e.classList.contains("hidden");
 } // fn: isHidden()
 

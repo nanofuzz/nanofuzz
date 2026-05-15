@@ -30,7 +30,7 @@ import {
   FuzzPanelPinMessage,
 } from "../../src/ui/FuzzPanel";
 import { JudgmentDiff } from "../../src/fuzzer/oracles/CompositeJudgmentDiff";
-import { IdeasGrid } from "./IdeasGrid";
+import { IdeasPanelView } from "./IdeasPanelView";
 
 const vscode = acquireVsCodeApi();
 
@@ -122,8 +122,8 @@ let lastResultsTableShown: Element | undefined = undefined;
 // Coverage Heatmap Status
 let coverageHeatmapIsStale = false;
 
-// Ideas Grid
-let ideasGrid: IdeasGrid;
+// Ideas Panel
+let ideasGrid: IdeasPanelView;
 
 /**
  * Sets up the UI when the page is loaded, including setting up
@@ -2383,8 +2383,8 @@ function handleProposeProps(props: {
   // Create the ideas grid if it doesn't exist yet
   if (ideasGrid === undefined) {
     if (document.getElementById("tab-ideas")) {
-      // Ideas Grid
-      ideasGrid = new IdeasGrid(
+      // Ideas Panel View
+      ideasGrid = new IdeasPanelView(
         vscode,
         getElementByIdOrThrow("tab-ideas"),
         getElementByIdOrThrow("fuzzResultsGrid-ideas")

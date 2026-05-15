@@ -1,12 +1,13 @@
 import * as JSON5 from "json5";
 import { htmlEscape } from "escape-goat";
 import { JudgmentDiff } from "../../src/fuzzer/oracles/CompositeJudgmentDiff";
-import { hide, isHidden, show, simpleToast } from "./Util";
+import { hide, isHidden, show, simpleToast, toggleHidden } from "./Util";
 import { FuzzPanelMessageFromWebView } from "../../src/ui/FuzzPanel";
 import { WebviewApi } from "vscode-webview";
+import { isError } from "../../src/Util";
 
 // Ideas Grid
-export class IdeasGrid {
+export class IdeasPanelView {
   protected _ideas = new Map<Idea["type"], Map<string, Idea>>();
   protected _drawnYet = false;
   protected _htmlTab: HTMLElement;
@@ -183,15 +184,9 @@ export class IdeasGrid {
     ideas.forEach((i) => {
       /* summary row */
       const detailTr = document.createElement("tr");
-      detailTr.setAttribute(
-        "id",
-        `idea-${i.type}-${i.id}-detail`.replaceAll(".", "-")
-      );
+      detailTr.id = `idea-${i.type}-${i.id}-detail`.replaceAll(".", "-");
       const tr = document.createElement("tr");
-      tr.setAttribute(
-        "id",
-        `idea-${i.type}-${i.id}-summary`.replaceAll(".", "-")
-      );
+      tr.id = `idea-${i.type}-${i.id}-summary`.replaceAll(".", "-");
       tr.classList.add("sticky", "lineBelow");
       cols.forEach((c) => {
         const td = document.createElement("td");
@@ -328,26 +323,30 @@ export class IdeasGrid {
       */
       const td = document.createElement("td");
       td.colSpan = cols.length - 1;
-      const exceptions = i.diff.detail.exceptions.map((e) => ({
-        ...e,
-        color: "red",
-      }));
-      const jj = [
-        ...i.diff.detail.prospectiveFailures.map((e) => ({
-          ...e,
-          color: "green",
-        })),
-        ...i.diff.detail.falseFailures.map((e) => ({
-          ...e,
-          color: "red",
-        })),
-        ...i.diff.detail.falsePasses.map((e) => ({
-          ...e,
-          color: "red",
-        })),
-      ];
+
       switch (i.type) {
-        case "property.suggestion":
+        case "property.suggestion": {
+          const getExceptionMsg = (e: unknown) =>
+            isError(e) ? [e.name, e.message] : [JSON5.stringify(e)];
+          const exceptions = i.diff.detail.exceptions.map((e) => ({
+            ...e,
+            color: "red",
+          }));
+          const jj = [
+            ...i.diff.detail.prospectiveFailures.map((e) => ({
+              ...e,
+              color: "green",
+            })),
+            ...i.diff.detail.falseFailures.map((e) => ({
+              ...e,
+              color: "red",
+            })),
+            ...i.diff.detail.falsePasses.map((e) => ({
+              ...e,
+              color: "red",
+            })),
+          ];
+
           td.innerHTML = /*html*/ `
             <div>Adding this property validator...
               <small><pre class="slightIndent">${htmlEscape(i.prop.src)}</pre></small>
@@ -356,7 +355,36 @@ export class IdeasGrid {
               exceptions.length === 0
                 ? ""
                 : /*html*/ `
-              <div>...would throw ${exceptions.length} new exceptions (<span class="clickable">show</span>)...</div> <!-- !!!!!!!!!! -->`
+              <div>...would throw ${exceptions.length} new exceptions (<a id="${`idea-${i.type}-${i.id}-detail-exceptionToggle`.replaceAll(".", "-")}" class="clickable">show</a>)...</div>
+              <div id="${`idea-${i.type}-${i.id}-detail-exceptions`.replaceAll(".", "-")}" class="hidden">
+                <table class="fuzzGrid">
+                  <thead> 
+                    <tr>
+                      <th>&nbsp;</th>
+                      <th>inputs</th>
+                      <th>validator threw exception</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${exceptions
+                      .map(
+                        (e) => /*html*/ `
+                    <tr>
+                      <td><span class="codicon codicon-warn"></span></td>
+                      <td class="editorFont">${htmlEscape(JSON5.stringify(e.example.in))}</td>
+                      <td class="editorFont">${getExceptionMsg(
+                        e.addlJudgments[i.prop.name]
+                      )
+                        .map((e) => htmlEscape(e))
+                        .join("<br />")}
+                      </td>
+                    </tr>`
+                      )
+                      .join("")}
+                  </tbody>              
+                </table>
+                <br />
+              </div>`
             }
             <div>...would alter ${jj.length ? `these ${jj.length}` : "no"} test judgments${jj.length ? ":" : "."}
               <table class="fuzzGrid${jj.length ? "" : " hidden"}">
@@ -401,7 +429,25 @@ export class IdeasGrid {
 
               <div></div>
             </div>`;
+          const exceptionToggleBtn = td.querySelector(
+            `#idea-${i.type}-${i.id}-detail-exceptionToggle`.replaceAll(
+              ".",
+              "-"
+            )
+          );
+          const exceptionToggleTable = td.querySelector(
+            `#idea-${i.type}-${i.id}-detail-exceptions`.replaceAll(".", "-")
+          );
+          if (exceptionToggleBtn && exceptionToggleTable) {
+            exceptionToggleBtn.addEventListener("click", () => {
+              toggleHidden(exceptionToggleTable);
+              exceptionToggleBtn.innerHTML = isHidden(exceptionToggleTable)
+                ? "show"
+                : "hide";
+            });
+          }
           break;
+        }
       }
 
       detailTr.appendChild(td);
