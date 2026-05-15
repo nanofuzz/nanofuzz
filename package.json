@@ -151,7 +151,7 @@
             "order": 70,
             "type": "boolean",
             "default": false,
-            "description": "Generate property candidates with the AI model"
+            "description": "Generate property candidates with the AI model (experimental) "
           }
         }
       },
