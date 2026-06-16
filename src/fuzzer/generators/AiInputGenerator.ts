@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/switch-exhaustiveness-check */
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import {
   ArgTag,
@@ -347,9 +346,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
               return zod.enum([literalValue]);
             case "object":
               throw new Error(`Array and Object literals not supported`);
-            default:
+            case "bigint": // fallsthrough
+            case "symbol": // fallsthrough
+            case "function":
               throw new Error(`Type not supported: ${typeof literalValue}`);
           }
+          break;
         }
         case ArgTag.OBJECT: {
           const obj: { [k: string]: zod.ZodType } = {};
@@ -375,7 +377,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
             ...unionMembers.slice(2),
           ]);
         }
-        default: {
+        case ArgTag.UNRESOLVED: {
           throw new Error(`Unexpected argument type: "${arg.getType()}"`);
         }
       }
@@ -456,7 +458,12 @@ function _decode(data: ArgValueType): ArgValueType {
           return data;
       }
     }
-    default:
+    case "number": // fallsthrough
+    case "bigint": // fallsthrough
+    case "boolean": // fallsthrough
+    case "symbol": // fallsthrough
+    case "undefined": // fallsthrough
+    case "function":
       return data;
   }
 } // fn: _decode
