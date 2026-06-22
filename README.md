@@ -37,14 +37,14 @@ NaNofuzz supports exported standard and arrow functions with any mixture of the 
  - Strings
  - Booleans
  - Literal object types
- - n-dimension arrays of any of the above
- - Optional and mandatory parameters
+ - Tuples, unions, and n-dimension arrays of any of the above
+ - Optional and mandatory parameters and members
 
 NaNofuzz automatically generates a test suite in these formats for use in CI:
  - Jest
 
 The following are not yet supported:
- - Deconstructed types, Tuples, Enums, Generics, Function, and built-in (e.g., Record) types
+ - Inputs of deconstructed, enum, generic, intersection, utility (e.g., Record), and function types
  - Non-finite numeric inputs (`NaN`, `Infinity`), `bigint`, `null`
  - Class and object methods
  - Compiling to module formats other than CommonJS (see [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
