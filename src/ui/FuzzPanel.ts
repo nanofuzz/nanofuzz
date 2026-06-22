@@ -2837,6 +2837,9 @@ ${inArgConsts}
       case fuzzer.ArgTag.OBJECT:
         sep = ` = {` + htmlEllipsis;
         break;
+      case fuzzer.ArgTag.TUPLE:
+        sep = ` = [` + htmlEllipsis;
+        break;
       default:
         sep = " = " + htmlEllipsis;
     }
@@ -2998,7 +3001,7 @@ ${inArgConsts}
               (html += this._argDefToHtmlForm(
                 child,
                 counter,
-                ", ",
+                "",
                 "",
                 arg.getType()
               ))
@@ -3020,8 +3023,8 @@ ${inArgConsts}
 
     html += `</div>`;
     // For objects: output the end of object character ("}") here
-    if (argType === fuzzer.ArgTag.OBJECT) {
-      html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close">}${endSep}</div>`;
+    if (argType === fuzzer.ArgTag.OBJECT || argType === fuzzer.ArgTag.TUPLE) {
+      html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close">${argType === fuzzer.ArgTag.OBJECT ? "}" : "]"}${endSep}</div>`;
     }
     html += `</div>`;
 
