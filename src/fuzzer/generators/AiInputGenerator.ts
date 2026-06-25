@@ -277,11 +277,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
     path: string,
     directives: string[]
   ): zod.ZodType {
-    // !!! do we handle optionality or dimensions in all cases here?
     const argIntervals = inArg.getIntervals();
-    const argChildren = inArg
-      .getChildren()
-      .filter((child) => !child.isNoInput());
+    const argChildren = inArg.getChildren();
     const argOptions = inArg.getOptions();
 
     // Helper function that creates a Zod schema from an ArgDef
