@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import { ArgValueType } from "../analysis/typescript/Types";
+import { ArgValueType } from "../analysis/Types";
 import * as JSON5 from "json5";
-import { FunctionDef } from "../analysis/typescript/FunctionDef";
+import { FunctionDef } from "../analysis/FunctionDef";
 import * as nodellm from "@node-llm/core";
 import { isError } from "../Util";
 import * as telemetry from "../../telemetry/Telemetry";

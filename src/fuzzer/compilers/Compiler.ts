@@ -16,13 +16,13 @@ import { Worker } from "worker_threads";
 import path from "path";
 import os from "os";
 import JSON5 from "json5";
-import { AbstractMeasure } from "./measures/AbstractMeasure";
+import { AbstractMeasure } from "../measures/AbstractMeasure";
 import {
   FuzzBusyStatusMessage,
   TscCompilerError,
   TscCompilerErrorDetails,
   VmGlobals,
-} from "./Types";
+} from "../Types";
 
 // Global list of compilations by entrypoint module
 const _compilationsByModule: {

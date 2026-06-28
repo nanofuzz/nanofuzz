@@ -2,7 +2,7 @@ import {
   ArgOptions,
   ArgValueType,
   ArgValueTypeWrapped,
-} from "./analysis/typescript/Types";
+} from "./analysis/Types";
 import { Judgment as _Judgment } from "./oracles/Types";
 
 /**

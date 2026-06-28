@@ -1,12 +1,12 @@
 import * as fs from "fs";
 import * as JSON5 from "json5";
 import vm from "vm";
-import { ArgDef } from "./analysis/typescript/ArgDef";
-import { ArgValueType, FunctionRef } from "./analysis/typescript/Types";
+import { ArgDef } from "./analysis/ArgDef";
+import { ArgValueType, FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
-import * as compiler from "./Compiler";
+import * as compiler from "./compilers/Compiler";
 import { ProgramDef } from "./analysis/typescript/ProgramDef";
-import { FunctionDef } from "./analysis/typescript/FunctionDef";
+import { FunctionDef } from "./analysis/FunctionDef";
 import {
   FuzzIoElement,
   FuzzPinnedTest,
@@ -1187,7 +1187,7 @@ export type FuzzMode = {
 };
 
 export * from "./analysis/typescript/ProgramDef";
-export * from "./analysis/typescript/FunctionDef";
-export * from "./analysis/typescript/ArgDef";
-export * from "./analysis/typescript/Types";
+export * from "./analysis/FunctionDef";
+export * from "./analysis/ArgDef";
+export * from "./analysis/Types";
 export * from "./Types";

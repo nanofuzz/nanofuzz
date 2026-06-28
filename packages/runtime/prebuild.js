@@ -34,10 +34,7 @@ copyfiles(["../../src/fuzzer/Types.ts", "./src/fuzzer"], true /* flat */, () =>
 
 // Copy the TypeScript analysis Types file
 copyfiles(
-  [
-    "../../src/fuzzer/analysis/typescript/Types.ts",
-    "./src/fuzzer/analysis/typescript",
-  ],
+  ["../../src/fuzzer/analysis/Types.ts", "./src/fuzzer/analysis"],
   true /* flat */,
   () => console.log("done copying argdef types")
 );

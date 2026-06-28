@@ -1,6 +1,6 @@
 import * as jestadapter from "./JestAdapter";
 import { FuzzTests, FuzzOptions } from "../Types";
-import { ArgOptions, ArgTag } from "../analysis/typescript/Types";
+import { ArgOptions, ArgTag } from "../analysis/Types";
 
 const argDefaults: ArgOptions = {
   strCharset: "abc",
@@ -12,7 +12,10 @@ const argDefaults: ArgOptions = {
   dimLength: [],
 };
 
-const baseOptions: Omit<FuzzOptions, "argDefaults" | "measures" | "generators"> = {
+const baseOptions: Omit<
+  FuzzOptions,
+  "argDefaults" | "measures" | "generators"
+> = {
   maxTests: 1,
   fnTimeout: 100,
   suiteTimeout: 1000,

@@ -1,7 +1,7 @@
-import { ArgDef } from "../analysis/typescript/ArgDef";
+import { ArgDef } from "../analysis/ArgDef";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { ProgramDef } from "../analysis/typescript/ProgramDef";
-import { ArgOptions, ArgValueType } from "../analysis/typescript/Types";
+import { ArgOptions, ArgValueType } from "../analysis/Types";
 
 /**
  * Provide a seed to ensure tests are deterministic.

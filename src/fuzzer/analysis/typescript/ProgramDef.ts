@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/switch-exhaustiveness-check */
 import * as JSON5 from "json5";
-import { ArgDef } from "./ArgDef";
-import { FunctionDef } from "./FunctionDef";
-import { getIdentifierName, isBlockScoped, removeParents } from "./Util";
+import { ArgDef } from "../ArgDef";
+import { FunctionDef } from "../FunctionDef";
+import { getIdentifierName, isBlockScoped, removeParents } from "../Util";
 import { parse, ParseResult } from "@babel/parser";
 import _traverse, { NodePath } from "@babel/traverse";
 import {
@@ -30,7 +30,7 @@ import {
   ArgOptions,
   ProgramImport,
   ArgType,
-} from "./Types";
+} from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
 
 // Default import nonsense for node

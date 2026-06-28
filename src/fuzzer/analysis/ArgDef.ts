@@ -1,5 +1,5 @@
 import * as JSON5 from "json5";
-import * as vscode from "../../../vscode";
+import * as vscode from "../../vscode";
 import {
   ArgOptionOverride,
   ArgOptions,
@@ -72,7 +72,7 @@ export class ArgDef<T extends ArgType> {
     this.optional = optional ?? false;
     this.children =
       type === ArgTag.OBJECT || type === ArgTag.UNION || type === ArgTag.TUPLE
-        ? children ?? []
+        ? (children ?? [])
         : [];
     this.typeRef = typeRef;
 

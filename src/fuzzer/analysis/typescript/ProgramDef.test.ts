@@ -1,5 +1,5 @@
 import { ProgramDef } from "./ProgramDef";
-import { ArgTag } from "./Types";
+import { ArgTag } from "../Types";
 
 describe("fuzzer/analysis/typescript/ProgramDef:", () => {
   it("Explicit default export type reference", () => {

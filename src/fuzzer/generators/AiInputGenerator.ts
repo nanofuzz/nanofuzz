@@ -4,11 +4,11 @@ import {
   ArgType,
   ArgValueType,
   ArgValueTypeWrapped,
-} from "../analysis/typescript/Types";
+} from "../analysis/Types";
 import * as JSON5 from "json5";
 import { LlmAdapter } from "../adapters/LlmAdapter";
 import { ArgDef, FunctionDef, InputAndSource } from "../Fuzzer";
-import { ArgDefValidator } from "../analysis/typescript/ArgDefValidator";
+import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import * as zod from "zod";
 import { InputGeneratorStatsAi } from "./Types";
 

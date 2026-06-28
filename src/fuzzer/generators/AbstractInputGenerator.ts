@@ -1,6 +1,6 @@
 import seedrandom from "seedrandom";
-import { ArgType } from "../analysis/typescript/Types";
-import { ArgDef } from "../analysis/typescript/ArgDef";
+import { ArgType } from "../analysis/Types";
+import { ArgDef } from "../analysis/ArgDef";
 import { InputAndSource } from "./../Types";
 import { InputGeneratorStats } from "./Types";
 

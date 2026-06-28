@@ -1,6 +1,6 @@
-import { ArgDef } from "../analysis/typescript/ArgDef";
-import { ArgType } from "../analysis/typescript/Types";
-import { ArgDefGenerator } from "../analysis/typescript/ArgDefGenerator";
+import { ArgDef } from "../analysis/ArgDef";
+import { ArgType } from "../analysis/Types";
+import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { InputAndSource } from "../Types";
 

@@ -1,8 +1,8 @@
 import { ArgDef, Tester } from "./Fuzzer";
-import { TypeScriptCompiler } from "./Compiler";
+import { TypeScriptCompiler } from "./compilers/Compiler";
 import { FuzzOptions } from "./Types";
 import * as JSON5 from "json5";
-import { ArgDefValidator } from "./analysis/typescript/ArgDefValidator";
+import { ArgDefValidator } from "./analysis/ArgDefValidator";
 
 // Extend default test timeout to 60s
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;

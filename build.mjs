@@ -44,7 +44,7 @@ await esbuild.build({
 
 // CompilerWorker
 await esbuild.build({
-  entryPoints: ["./src/fuzzer/CompilerWorker.ts"],
+  entryPoints: ["./src/fuzzer/compilers/CompilerWorker.ts"],
   outfile: "./build/workers/CompilerWorker.js",
   bundle: true,
   platform: "node",

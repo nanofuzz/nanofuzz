@@ -1,9 +1,9 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
-import { ArgDef } from "../analysis/typescript/ArgDef";
-import { ArgType } from "../analysis/typescript/Types";
+import { ArgDef } from "../analysis/ArgDef";
+import { ArgType } from "../analysis/Types";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
-import { ArgDefMutator } from "../analysis/typescript/ArgDefMutator";
+import { ArgDefMutator } from "../analysis/ArgDefMutator";
 
 /**
  * Generates new inputs by mutating prior "interesting" inputs
