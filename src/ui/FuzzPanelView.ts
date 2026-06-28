@@ -1,5 +1,5 @@
 import * as JSON5 from "json5";
-import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./utils";
+import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./Util";
 import {
   FuzzArgOverride,
   FuzzIoElement,
@@ -10,18 +10,18 @@ import {
   FuzzValueOrigin,
   isFuzzResultTab,
   Judgment,
-} from "../../src/fuzzer/Types";
+} from "../fuzzer/Types";
 import {
   ArgValueType,
   ArgValueTypeWrapped,
   FuzzTestResults,
-} from "../../src/fuzzer/Fuzzer";
+} from "../fuzzer/Fuzzer";
 import {
   FuzzPanelFuzzRunMessage,
   FuzzPanelMessageToWebView,
   FuzzPanelMessageFromWebView,
   FuzzPanelPinMessage,
-} from "../../src/ui/FuzzPanel";
+} from "./FuzzPanelController";
 
 const vscode = acquireVsCodeApi();
 

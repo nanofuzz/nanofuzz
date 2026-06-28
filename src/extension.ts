@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import * as fp from "./ui/FuzzPanel";
+import * as fp from "./ui/FuzzPanelController";
 import * as tm from "./telemetry/Telemetry";
 
 const disposables: vscode.Disposable[] = []; // Keep track of disposables
