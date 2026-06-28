@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "outDir": "build/extension",
+    "rootDir": "./src",
     "module": "nodenext",
     "target": "ES2022",
     "lib": ["ES2020", "ES2021.String", "ES2022", "WebWorker", "DOM"],
@@ -45,6 +46,6 @@
     "placeOpenBraceOnNewLineForFunctions": false,
     "placeOpenBraceOnNewLineForControlBlocks": false
   },
-  "include": ["src", "assets/ui"],
+  "include": ["src"],
   "exclude": []
 }

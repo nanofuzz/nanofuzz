@@ -6,7 +6,7 @@
   "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript that runs inside VS Code",
   "repository": "https://github.com/nanofuzz/nanofuzz.git",
   "author": "The NaNofuzz Team @ Carnegie Mellon University",
-  "icon": "assets/ui/logo.png",
+  "icon": "/src/ui/logo.png",
   "galleryBanner": {
     "color": "#050d3a",
     "theme": "dark"
@@ -261,8 +261,8 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
-    "lint": "eslint src assets/ui",
-    "lint:errors": "eslint --quiet src assets/ui",
+    "lint": "eslint src",
+    "lint:errors": "eslint --quiet src",
     "vscode:prepublish": "yarn build",
     "publish": "vsce publish --yarn",
     "package": "vsce package --yarn",
@@ -310,6 +310,7 @@
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.75.0",
     "@vscode/vsce": "^3.6.0",
+    "copyfiles": "^2.4.1",
     "cross-env": "^10.0.0",
     "esbuild": "^0.28.1",
     "escape-goat": "^4.0.0",
@@ -317,6 +318,7 @@
     "eslint-config-prettier": "^10.1.8",
     "jasmine": "5.9.0",
     "nanofuzz-study": "nanofuzz/nanofuzz-study#main",
+    "rimraf": "^5.0.5",
     "tslib": "^2.1.0",
     "typescript-eslint": "^8.59.1"
   }

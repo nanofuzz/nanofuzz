@@ -1,7 +1,20 @@
 #!/usr/bin/env node
 import * as esbuild from "esbuild";
+import copyfiles from "copyfiles";
+import * as rimraf from "rimraf";
 
-// VSCode Extension
+// Clear the build folder
+rimraf.sync("./build");
+
+// Copy static assets
+copyfiles(["./src/ui/*.css", "./build/ui"], true /* flat */, () =>
+  console.log("copied css assets")
+);
+copyfiles(["./src/ui/*.svg", "./build/ui"], true /* flat */, () =>
+  console.log("copied svg assets")
+);
+
+// VSCode Web Extension Back-end
 await esbuild.build({
   entryPoints: ["./src/extension.ts"],
   outfile: "./build/extension/extension.js",
@@ -15,21 +28,21 @@ await esbuild.build({
   external: ["path", "fs", "crypto", "vscode", "typescript"],
 });
 
-// VSCode Web Extension UI
+// VSCode Web Extension Front-end UI
 await esbuild.build({
-  entryPoints: ["./assets/ui/FuzzPanelMain.ts"],
+  entryPoints: ["./src/ui/FuzzPanelView.ts"],
   bundle: true,
   sourcemap: "inline",
   tsconfig: "./tsconfig.json",
   platform: "browser",
-  outfile: "./build/ui/FuzzPanelMain.js",
+  outfile: "./build/ui/FuzzPanelView.js",
   minify: true,
   format: "iife", // IIFE format is suitable for browser-based UI
   sourcemap: "both",
   external: [],
 });
 
-// VSCode Web Extension UI
+// CompilerWorker
 await esbuild.build({
   entryPoints: ["./src/fuzzer/CompilerWorker.ts"],
   outfile: "./build/workers/CompilerWorker.js",
