@@ -1,6 +1,6 @@
 import { FunctionRef, ArgTag } from "./Types";
 import { ArgDef } from "./ArgDef";
-import { ProgramDef } from "./typescript/TypescriptProgram";
+import { TypescriptProgram } from "./typescript/TypescriptProgram";
 import { makeArgDef, makeTypeRef } from "./TestUtils";
 
 const argOptions = ArgDef.getDefaultOptions();
@@ -14,7 +14,7 @@ const dummyRef: FunctionRef = {
   isExported: true,
   isVoid: false,
 };
-const dummyProgram: ProgramDef = ProgramDef.fromSource(
+const dummyProgram: TypescriptProgram = TypescriptProgram.fromSource(
   () => "",
   argOptions
 ).setModule(dummyModule);

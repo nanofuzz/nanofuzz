@@ -1,11 +1,11 @@
 import { parentPort } from "worker_threads";
 import {
-  TypeScriptCompiler,
+  TypescriptCompiler,
   TypeScriptCompilerMessageToWorker,
-  TypeScriptCompilerMessageFromWorker,
+  TypescriptCompilerMessageFromWorker,
 } from "./TypescriptCompiler";
 import { isError } from "../Util";
-import { TscCompilerError } from "../Types";
+import { TypescriptCompilerError } from "../Types";
 
 console.debug("CompilerWorker started");
 
@@ -16,25 +16,25 @@ function processMessage(message: TypeScriptCompilerMessageToWorker): void {
   switch (message.command) {
     case "compile": {
       try {
-        new TypeScriptCompiler(message.module).compileSync([], (msg) => {
+        new TypescriptCompiler(message.module).compileSync([], (msg) => {
           if (msg.milestone) {
             console.log(msg.msg);
           }
         });
-        const reply: TypeScriptCompilerMessageFromWorker = {
+        const reply: TypescriptCompilerMessageFromWorker = {
           command: "compile.result",
           success: true,
           id: message.id,
         };
         parentPort?.postMessage(reply);
       } catch (e: unknown) {
-        let reply: TypeScriptCompilerMessageFromWorker = {
+        let reply: TypescriptCompilerMessageFromWorker = {
           command: "compile.result",
           success: false,
           id: message.id,
         };
         if (isError(e)) {
-          if (e instanceof TscCompilerError) {
+          if (e instanceof TypescriptCompilerError) {
             reply = {
               ...reply,
               ...e.details,

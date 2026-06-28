@@ -1,10 +1,10 @@
-import { ProgramDef } from "./TypescriptProgram";
+import { TypescriptProgram } from "./TypescriptProgram";
 import { ArgTag } from "../Types";
 
 describe("fuzzer/analysis/typescript/ProgramDef:", () => {
   it("Explicit default export type reference", () => {
     expect(
-      ProgramDef.fromSource(
+      TypescriptProgram.fromSource(
         () => `type a = "b";export default a;`
       ).getDefaultExport()
     ).toEqual({
@@ -26,7 +26,9 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
 
   it("Explicit default export type literal", () => {
     expect(
-      ProgramDef.fromSource(() => `export default "b";`).getDefaultExport()
+      TypescriptProgram.fromSource(
+        () => `export default "b";`
+      ).getDefaultExport()
     ).toEqual({
       isExported: true,
       optional: false,
@@ -45,7 +47,7 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
 
   it("Implicit default export type reference", () => {
     expect(
-      ProgramDef.fromSource(
+      TypescriptProgram.fromSource(
         () => `type a = "b";export {a as default};`
       ).getDefaultExport()
     ).toEqual({
@@ -67,12 +69,14 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
 
   it("Implicit default export type literal (expect failure)", () => {
     expect(() =>
-      ProgramDef.fromSource(() => `export {"b" as default};`).getDefaultExport()
+      TypescriptProgram.fromSource(
+        () => `export {"b" as default};`
+      ).getDefaultExport()
     ).toThrow();
   });
 
   it("Issue #349 parenthesized types", () => {
-    const exportedFunctions = ProgramDef.fromSource(
+    const exportedFunctions = TypescriptProgram.fromSource(
       () => `type NumberOrString = number | string;
       export function test1a(arr: (number | string)[]): void {};
       export function test2a(a: { b: NumberOrString }): void {};

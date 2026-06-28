@@ -5,7 +5,7 @@ import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
-import { ProgramDef } from "../fuzzer/analysis/typescript/TypescriptProgram";
+import { TypescriptProgram } from "../fuzzer/analysis/typescript/TypescriptProgram";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
@@ -342,7 +342,7 @@ export class FuzzPanel {
       this._errorStack = error.stack ? htmlEscape(error.stack) : undefined;
 
       // Compiler-specific detailed messages
-      if (error instanceof fuzzer.TscCompilerError) {
+      if (error instanceof fuzzer.TypescriptCompilerError) {
         this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Source file</strong></p><small><pre style="margin-top:0;">${htmlEscape(error.details.inputFile)}</pre></small>`;
         if (error.details.output && error.details.output.length) {
           this._errorMessage += `<p style="margin-bottom:0.25em;"><strong>Compiler output</strong></p><small><pre style="margin-top:0;">${error.details.output.map((e) => htmlEscape(e)).join("")}</pre></small>`;
@@ -906,10 +906,10 @@ export class FuzzPanel {
     const module = this._fuzzEnv.function.getModule();
     const validatorPrefix = fn.getName() + "Validator";
     let fnCounter = 0;
-    let program: ProgramDef;
+    let program: TypescriptProgram;
 
     try {
-      program = ProgramDef.fromModule(module);
+      program = TypescriptProgram.fromModule(module);
     } catch (_e: unknown) {
       vscode.window.showErrorMessage(
         `Unable to add the validator. TypeScript source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
@@ -1010,7 +1010,8 @@ ${inArgConsts}
 
       // Change focus to the generated validator
       try {
-        const fn = ProgramDef.fromModule(module).getFunctions()[validatorName];
+        const fn =
+          TypescriptProgram.fromModule(module).getFunctions()[validatorName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (_e: unknown) {
         vscode.window.showErrorMessage(
@@ -1127,9 +1128,11 @@ ${inArgConsts}
    * front-end.
    */
   private _doGetValidators() {
-    let program: ProgramDef;
+    let program: TypescriptProgram;
     try {
-      program = ProgramDef.fromModule(this._fuzzEnv.function.getModule());
+      program = TypescriptProgram.fromModule(
+        this._fuzzEnv.function.getModule()
+      );
     } catch (e: unknown) {
       const errorMessage = getErrorMessageOrJson(e);
       vscode.commands.executeCommand(
@@ -3359,8 +3362,9 @@ export function provideCodeLenses(
 ): vscode.CodeLens[] {
   const codeLenses: vscode.CodeLens[] = [];
   try {
-    const program = ProgramDef.fromModuleAndSource(document.fileName, () =>
-      document.getText()
+    const program = TypescriptProgram.fromModuleAndSource(
+      document.fileName,
+      () => document.getText()
     );
 
     // Skip analyzing files that we are configured to ignore

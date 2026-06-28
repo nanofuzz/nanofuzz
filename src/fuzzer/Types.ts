@@ -269,16 +269,16 @@ export type FuzzBusyStatusMessage = {
 /**
  * Exception class for TypeScript compiler errors
  */
-export type TscCompilerErrorDetails = {
+export type TypescriptCompilerErrorDetails = {
   inputFile: string;
   outputFile: string;
   output?: string[];
   tscConfigFilename?: string;
   tscCli: string;
 };
-export class TscCompilerError extends Error {
-  public details: TscCompilerErrorDetails;
-  constructor(message: string, details: TscCompilerErrorDetails) {
+export class TypescriptCompilerError extends Error {
+  public details: TypescriptCompilerErrorDetails;
+  constructor(message: string, details: TypescriptCompilerErrorDetails) {
     super(message);
     this.details = details;
   }

@@ -5,7 +5,7 @@ import { ArgDef } from "./analysis/ArgDef";
 import { ArgValueType, FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as compiler from "./compilers/TypescriptCompiler";
-import { ProgramDef } from "./analysis/typescript/TypescriptProgram";
+import { TypescriptProgram } from "./analysis/typescript/TypescriptProgram";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
   FuzzIoElement,
@@ -38,11 +38,11 @@ export class Tester {
     "init"; // tester state
 
   protected _options: FuzzOptions; // testing options
-  protected _program: ProgramDef; // program under test
+  protected _program: TypescriptProgram; // program under test
   protected _function: FunctionDef; // function under test
   protected _compositeInputGenerator: CompositeInputGenerator; // composite input generator
   protected _validators: FunctionRef[] = []; // property validator functions
-  protected _lastCompiler?: compiler.TypeScriptCompiler; // last compiler object used
+  protected _lastCompiler?: compiler.TypescriptCompiler; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
 
@@ -57,7 +57,10 @@ export class Tester {
 
     // Get the program & function definitions
     try {
-      this._program = ProgramDef.fromModule(this._module, options.argDefaults);
+      this._program = TypescriptProgram.fromModule(
+        this._module,
+        options.argDefaults
+      );
     } catch (e: unknown) {
       throw new Error(
         `The TypeScript program could not be parsed. Please fix the errors and retest.${
@@ -111,7 +114,7 @@ export class Tester {
 
     // Start a background compilation
     if (mode.precompile) {
-      compiler.TypeScriptCompiler.compileAsync(module);
+      compiler.TypescriptCompiler.compileAsync(module);
     }
   }
 
@@ -124,7 +127,7 @@ export class Tester {
   public isStale(
     options: FuzzOptions
   ):
-    | ReturnType<compiler.TypeScriptCompiler["isStale"]>
+    | ReturnType<compiler.TypescriptCompiler["isStale"]>
     | "optionschanged"
     | "crashed" {
     // Stale: compilation is stale
@@ -465,7 +468,7 @@ export class Tester {
     // it to JavaScript (and possibly instrument it) prior to execution.
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
-    this._lastCompiler = new compiler.TypeScriptCompiler(fqSrcFile);
+    this._lastCompiler = new compiler.TypescriptCompiler(fqSrcFile);
     const mod = this._lastCompiler.compileSync(this._measures, update);
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
@@ -1029,7 +1032,7 @@ export function isTimeoutError(error: unknown): boolean {
  * @returns an array of validator FunctionRefs
  */
 export function getValidators(
-  program: ProgramDef,
+  program: TypescriptProgram,
   fnUnderTest: FunctionDef
 ): FunctionRef[] {
   const fnUnderTestName = fnUnderTest.getName();

@@ -52,16 +52,16 @@ const traverse: typeof _traverse =
  * - Default imports/exports are limited to named type definitions
  * - Analysis of classes and class methods are not supported
  */
-export class ProgramDef {
+export class TypescriptProgram {
   private _module: string; // Path to the module source file
   private _src: string; // Source code of the program
   private _options: ArgOptions; // Arg options for the program
   private _getSource: () => string; // Function to retrieve the source code
 
-  private _root: ProgramDef; // Root program
-  private _parents: Record<ProgramPath, ProgramDef> = {}; // Parent programs
-  private _children: Record<ProgramPath, ProgramDef> = {}; // Child programs
-  private _allChildren: Record<ProgramPath, ProgramDef> = {}; // All children of children (if root)
+  private _root: TypescriptProgram; // Root program
+  private _parents: Record<ProgramPath, TypescriptProgram> = {}; // Parent programs
+  private _children: Record<ProgramPath, TypescriptProgram> = {}; // Child programs
+  private _allChildren: Record<ProgramPath, TypescriptProgram> = {}; // All children of children (if root)
 
   private _functions: Record<IdentifierName, FunctionRef> = {}; // Functions defined in the program
   private _unsupportedFunctions: Record<
@@ -100,7 +100,7 @@ export class ProgramDef {
     getSource: () => string,
     module: string,
     options?: ArgOptions,
-    parent?: ProgramDef
+    parent?: TypescriptProgram
   ) {
     // Setup program information
     this._module = module;
@@ -216,12 +216,17 @@ export class ProgramDef {
   public static fromModule(
     module: string,
     options?: ArgOptions,
-    parent?: ProgramDef
-  ): ProgramDef {
+    parent?: TypescriptProgram
+  ): TypescriptProgram {
     if (module !== "") module = require.resolve(module);
     const getSource = () => fs.readFileSync(module).toString(); // Callback fn to read the source code
 
-    return ProgramDef.fromModuleAndSource(module, getSource, options, parent);
+    return TypescriptProgram.fromModuleAndSource(
+      module,
+      getSource,
+      options,
+      parent
+    );
   } // fn: fromModule()
 
   /**
@@ -235,9 +240,14 @@ export class ProgramDef {
   public static fromSource(
     getSource: () => string,
     options?: ArgOptions,
-    parent?: ProgramDef
-  ): ProgramDef {
-    return ProgramDef.fromModuleAndSource("", getSource, options, parent);
+    parent?: TypescriptProgram
+  ): TypescriptProgram {
+    return TypescriptProgram.fromModuleAndSource(
+      "",
+      getSource,
+      options,
+      parent
+    );
   } // fn: fromSource()
 
   /**
@@ -253,8 +263,8 @@ export class ProgramDef {
     module: string,
     getSource: () => string,
     options?: ArgOptions,
-    parent?: ProgramDef
-  ): ProgramDef {
+    parent?: TypescriptProgram
+  ): TypescriptProgram {
     if (module !== "") module = require.resolve(module);
 
     // If a ProgramDef already exists within this program hierarchy,
@@ -262,7 +272,7 @@ export class ProgramDef {
     if (parent && module in parent._root._allChildren) {
       return parent._root._allChildren[module];
     } else {
-      return new ProgramDef(getSource, module, options, parent);
+      return new TypescriptProgram(getSource, module, options, parent);
     }
   } // fn: fromModule()
 
@@ -271,7 +281,7 @@ export class ProgramDef {
    *
    * @returns The root ProgramDef object
    */
-  public getRoot(): ProgramDef {
+  public getRoot(): TypescriptProgram {
     return this._root;
   } // fn: getRoot()
 
@@ -289,7 +299,7 @@ export class ProgramDef {
    *
    * @param child The child to add to this node
    */
-  private _addChild(child: ProgramDef): void {
+  private _addChild(child: TypescriptProgram): void {
     child._parents[child._module] = child;
     this._children[child._module] = child;
     this._root._allChildren[child._module] = child;
@@ -326,14 +336,14 @@ export class ProgramDef {
    *
    * @returns new ProgramDef object
    */
-  public setSrc(getSource: () => string): ProgramDef {
+  public setSrc(getSource: () => string): TypescriptProgram {
     // Requires this be a root node
     if (!this.isRoot()) {
       throw new Error(
         `Cannot change module of non-root program (${this._module})`
       );
     }
-    return new ProgramDef(getSource, this._module, this._options);
+    return new TypescriptProgram(getSource, this._module, this._options);
   } // fn: setSrc()
 
   /**
@@ -351,14 +361,14 @@ export class ProgramDef {
    *
    * @returns new ProgramDef object
    */
-  public setModule(module: string): ProgramDef {
+  public setModule(module: string): TypescriptProgram {
     // Requires this be a root node.
     if (!this.isRoot()) {
       throw new Error(
         `Cannot change module of non-root program (${this._module})`
       );
     }
-    return new ProgramDef(this._getSource, module, this._options);
+    return new TypescriptProgram(this._getSource, module, this._options);
   } // fn: setModule()
 
   /**
@@ -376,14 +386,14 @@ export class ProgramDef {
    *
    * @returns new ProgramDef object
    */
-  public setOptions(options: ArgOptions): ProgramDef {
+  public setOptions(options: ArgOptions): TypescriptProgram {
     // Requires this be a root node
     if (!this.isRoot()) {
       throw new Error(
         `Cannot change module of non-root program (${this._module})`
       );
     }
-    return new ProgramDef(this._getSource, this._module, options);
+    return new TypescriptProgram(this._getSource, this._module, options);
   } // fn: setOptions()
 
   /**
@@ -753,7 +763,7 @@ export class ProgramDef {
       const importRef = this._imports.identifiers[localNameParts[0]];
 
       // Get the imported module
-      const importProgram = ProgramDef.fromModule(
+      const importProgram = TypescriptProgram.fromModule(
         importRef.programPath,
         this._options,
         this
