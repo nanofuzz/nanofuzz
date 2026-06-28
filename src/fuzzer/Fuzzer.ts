@@ -4,8 +4,8 @@ import vm from "vm";
 import { ArgDef } from "./analysis/ArgDef";
 import { ArgValueType, FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
-import * as compiler from "./compilers/Compiler";
-import { ProgramDef } from "./analysis/typescript/ProgramDef";
+import * as compiler from "./compilers/TypescriptCompiler";
+import { ProgramDef } from "./analysis/typescript/TypescriptProgram";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
   FuzzIoElement,
@@ -1186,7 +1186,7 @@ export type FuzzMode = {
   gen?: true;
 };
 
-export * from "./analysis/typescript/ProgramDef";
+export * from "./analysis/typescript/TypescriptProgram";
 export * from "./analysis/FunctionDef";
 export * from "./analysis/ArgDef";
 export * from "./analysis/Types";

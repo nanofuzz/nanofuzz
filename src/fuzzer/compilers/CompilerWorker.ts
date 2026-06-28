@@ -3,7 +3,7 @@ import {
   TypeScriptCompiler,
   TypeScriptCompilerMessageToWorker,
   TypeScriptCompilerMessageFromWorker,
-} from "./Compiler";
+} from "./TypescriptCompiler";
 import { isError } from "../Util";
 import { TscCompilerError } from "../Types";
 

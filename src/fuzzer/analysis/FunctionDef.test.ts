@@ -1,6 +1,6 @@
 import { FunctionRef, ArgTag } from "./Types";
 import { ArgDef } from "./ArgDef";
-import { ProgramDef } from "./typescript/ProgramDef";
+import { ProgramDef } from "./typescript/TypescriptProgram";
 import { makeArgDef, makeTypeRef } from "./TestUtils";
 
 const argOptions = ArgDef.getDefaultOptions();

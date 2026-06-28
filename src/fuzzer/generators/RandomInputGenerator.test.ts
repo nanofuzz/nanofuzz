@@ -1,6 +1,6 @@
 import { ArgDef } from "../analysis/ArgDef";
 import { RandomInputGenerator } from "./RandomInputGenerator";
-import { ProgramDef } from "../analysis/typescript/ProgramDef";
+import { ProgramDef } from "../analysis/typescript/TypescriptProgram";
 import { ArgOptions, ArgValueType } from "../analysis/Types";
 
 /**

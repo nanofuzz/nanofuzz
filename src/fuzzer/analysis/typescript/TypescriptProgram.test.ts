@@ -1,4 +1,4 @@
-import { ProgramDef } from "./ProgramDef";
+import { ProgramDef } from "./TypescriptProgram";
 import { ArgTag } from "../Types";
 
 describe("fuzzer/analysis/typescript/ProgramDef:", () => {

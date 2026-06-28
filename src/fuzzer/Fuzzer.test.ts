@@ -1,5 +1,5 @@
 import { ArgDef, Tester } from "./Fuzzer";
-import { TypeScriptCompiler } from "./compilers/Compiler";
+import { TypeScriptCompiler } from "./compilers/TypescriptCompiler";
 import { FuzzOptions } from "./Types";
 import * as JSON5 from "json5";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
