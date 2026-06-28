@@ -34,7 +34,7 @@ const maxOutVarSuffix = 1000;
  *
  * For its user interface, this extension relies on the VS Code Webview
  * API and WebView controls.  Client-side Javascript is contained in
- * a separate FuzzPanelMain.ts.
+ * a separate FuzzPanelView.ts.
  */
 export class FuzzPanel {
   // Static variables
@@ -115,7 +115,7 @@ export class FuzzPanel {
       );
       panel.iconPath = vscode.Uri.joinPath(
         extensionUri,
-        "assets",
+        "build",
         "ui",
         "icon.svg"
       );
@@ -144,6 +144,14 @@ export class FuzzPanel {
     state: FuzzPanelStateSerialized
   ): void {
     let fuzzPanel: FuzzPanel | undefined;
+
+    // Update the icon on the panel
+    panel.iconPath = vscode.Uri.joinPath(
+      extensionUri,
+      "build",
+      "ui",
+      "icon.svg"
+    );
 
     // Revive the FuzzPanel using the previous state
     if (
@@ -225,7 +233,7 @@ export class FuzzPanel {
       retainContextWhenHidden: true,
 
       // Restrict the webview to only loading extension content.
-      // !!! localResourceRoots: [vscode.Uri.joinPath(extensionUri, "assets", "ui")],
+      // !!! localResourceRoots: [vscode.Uri.joinPath(extensionUri, "build", "ui")],
     };
   }
 
@@ -1669,12 +1677,12 @@ ${inArgConsts}
             <script type="module" src="${getUri(webview, extensionUri, [
               "build",
               "ui",
-              "FuzzPanelMain.js",
+              "FuzzPanelView.js",
             ])}"></script>
             <link rel="stylesheet" type="text/css" href="${getUri(
               webview,
               extensionUri,
-              ["assets", "ui", "FuzzPanelMain.css"]
+              ["build", "ui", "FuzzPanelView.css"]
             )}">
             <link rel="stylesheet" type="text/css" href="${getUri(
               webview,
