@@ -1,12 +1,13 @@
-import { TypescriptProgram } from "./TypescriptProgram";
+import * as ProgramFactory from "../ProgramFactory";
 import { ArgTag } from "../Types";
 
 describe("fuzzer/analysis/typescript/ProgramDef:", () => {
   it("Explicit default export type reference", () => {
     expect(
-      TypescriptProgram.fromSource(
-        () => `type a = "b";export default a;`
-      ).getDefaultExport()
+      ProgramFactory.fromSource(
+        () => `type a = "b";export default a;`,
+        "typescript"
+      ).defaultExport
     ).toEqual({
       isExported: true,
       optional: false,
@@ -26,9 +27,8 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
 
   it("Explicit default export type literal", () => {
     expect(
-      TypescriptProgram.fromSource(
-        () => `export default "b";`
-      ).getDefaultExport()
+      ProgramFactory.fromSource(() => `export default "b";`, "typescript")
+        .defaultExport
     ).toEqual({
       isExported: true,
       optional: false,
@@ -47,9 +47,10 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
 
   it("Implicit default export type reference", () => {
     expect(
-      TypescriptProgram.fromSource(
-        () => `type a = "b";export {a as default};`
-      ).getDefaultExport()
+      ProgramFactory.fromSource(
+        () => `type a = "b";export {a as default};`,
+        "typescript"
+      ).defaultExport
     ).toEqual({
       isExported: true,
       optional: false,
@@ -68,21 +69,24 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
   });
 
   it("Implicit default export type literal (expect failure)", () => {
-    expect(() =>
-      TypescriptProgram.fromSource(
-        () => `export {"b" as default};`
-      ).getDefaultExport()
+    expect(
+      () =>
+        ProgramFactory.fromSource(
+          () => `export {"b" as default};`,
+          "typescript"
+        ).defaultExport
     ).toThrow();
   });
 
   it("Issue #349 parenthesized types", () => {
-    const exportedFunctions = TypescriptProgram.fromSource(
+    const exportedFunctions = ProgramFactory.fromSource(
       () => `type NumberOrString = number | string;
       export function test1a(arr: (number | string)[]): void {};
       export function test2a(a: { b: NumberOrString }): void {};
       export function test1b(arr: NumberOrString[]): void {};
-      export function test2b(a: { b:  number | string }): void {};`
-    ).getExportedFunctions();
+      export function test2b(a: { b:  number | string }): void {};`,
+      "typescript"
+    ).functionsExported;
     expect(
       exportedFunctions["test1a"].getArgDefs().map((a) => a.getTypeAnnotation())
     ).toEqual(["(number | string)[]"]);

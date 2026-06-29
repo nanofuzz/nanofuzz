@@ -5,7 +5,7 @@ import { ArgDef } from "./analysis/ArgDef";
 import { ArgValueType, FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as compiler from "./compilers/TypescriptCompiler";
-import { TypescriptProgram } from "./analysis/typescript/TypescriptProgram";
+import * as ProgramFactory from "./analysis/ProgramFactory";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
   FuzzIoElement,
@@ -27,6 +27,7 @@ import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
+import { AbstractProgram } from "./analysis/AbstractProgram";
 
 export class Tester {
   protected _module: string; // module filename
@@ -38,7 +39,7 @@ export class Tester {
     "init"; // tester state
 
   protected _options: FuzzOptions; // testing options
-  protected _program: TypescriptProgram; // program under test
+  protected _program: AbstractProgram; // program under test
   protected _function: FunctionDef; // function under test
   protected _compositeInputGenerator: CompositeInputGenerator; // composite input generator
   protected _validators: FunctionRef[] = []; // property validator functions
@@ -57,8 +58,9 @@ export class Tester {
 
     // Get the program & function definitions
     try {
-      this._program = TypescriptProgram.fromModule(
+      this._program = ProgramFactory.fromFile(
         this._module,
+        undefined,
         options.argDefaults
       );
     } catch (e: unknown) {
@@ -69,7 +71,7 @@ export class Tester {
         { cause: e }
       );
     }
-    const fnList = this._program.getExportedFunctions();
+    const fnList = this._program.functionsExported;
     if (!(this._fnName in fnList)) {
       throw new Error(
         `Could not find exported function ${this._fnName} in: ${this._module}`
@@ -1032,11 +1034,11 @@ export function isTimeoutError(error: unknown): boolean {
  * @returns an array of validator FunctionRefs
  */
 export function getValidators(
-  program: TypescriptProgram,
+  program: AbstractProgram,
   fnUnderTest: FunctionDef
 ): FunctionRef[] {
   const fnUnderTestName = fnUnderTest.getName();
-  return Object.values(program.getExportedFunctions())
+  return Object.values(program.functionsExported)
     .filter(
       (fn) =>
         fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName

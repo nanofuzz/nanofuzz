@@ -5,7 +5,6 @@ import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
-import { TypescriptProgram } from "../fuzzer/analysis/typescript/TypescriptProgram";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
@@ -15,6 +14,8 @@ import {
 } from "./CoverageHeatmap";
 import { normalizePathForKey } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
+import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
+import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -906,10 +907,10 @@ export class FuzzPanel {
     const module = this._fuzzEnv.function.getModule();
     const validatorPrefix = fn.getName() + "Validator";
     let fnCounter = 0;
-    let program: TypescriptProgram;
+    let program: AbstractProgram;
 
     try {
-      program = TypescriptProgram.fromModule(module);
+      program = ProgramFactory.fromFile(module);
     } catch (_e: unknown) {
       vscode.window.showErrorMessage(
         `Unable to add the validator. TypeScript source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
@@ -918,7 +919,7 @@ export class FuzzPanel {
     }
 
     // Determine the next available validator name
-    Object.keys(program.getFunctions())
+    Object.keys(program.functions)
       .filter((e) => e.startsWith(validatorPrefix))
       .forEach((e) => {
         if (e.endsWith(validatorPrefix)) {
@@ -932,7 +933,7 @@ export class FuzzPanel {
       });
 
     // Determine if we need to add an import
-    const hasImport = Object.keys(program.getImports()).some(
+    const hasImport = Object.keys(program.imports).some(
       (e) => e === "FuzzTestResult"
     );
 
@@ -1010,8 +1011,7 @@ ${inArgConsts}
 
       // Change focus to the generated validator
       try {
-        const fn =
-          TypescriptProgram.fromModule(module).getFunctions()[validatorName];
+        const fn = ProgramFactory.fromFile(module).functions[validatorName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (_e: unknown) {
         vscode.window.showErrorMessage(
@@ -1128,11 +1128,9 @@ ${inArgConsts}
    * front-end.
    */
   private _doGetValidators() {
-    let program: TypescriptProgram;
+    let program: AbstractProgram;
     try {
-      program = TypescriptProgram.fromModule(
-        this._fuzzEnv.function.getModule()
-      );
+      program = ProgramFactory.fromFile(this._fuzzEnv.function.getModule());
     } catch (e: unknown) {
       const errorMessage = getErrorMessageOrJson(e);
       vscode.commands.executeCommand(
@@ -3362,9 +3360,8 @@ export function provideCodeLenses(
 ): vscode.CodeLens[] {
   const codeLenses: vscode.CodeLens[] = [];
   try {
-    const program = TypescriptProgram.fromModuleAndSource(
-      document.fileName,
-      () => document.getText()
+    const program = ProgramFactory.fromFileAndSource(document.fileName, () =>
+      document.getText()
     );
 
     // Skip analyzing files that we are configured to ignore
@@ -3379,7 +3376,7 @@ export function provideCodeLenses(
     const fuzzValidators = vscode.workspace
       .getConfiguration("nanofuzz.ui.codeLens")
       .get("includeValidators");
-    const allFunctions = Object.values(program.getExportedFunctions());
+    const allFunctions = Object.values(program.functionsExported);
     const functions = (fuzzValidators === undefined ? true : fuzzValidators)
       ? allFunctions
       : allFunctions.filter((fn) => !fn.isValidator());

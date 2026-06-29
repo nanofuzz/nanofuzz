@@ -1,6 +1,6 @@
 import { FunctionRef, ArgTag } from "./Types";
 import { ArgDef } from "./ArgDef";
-import { TypescriptProgram } from "./typescript/TypescriptProgram";
+import * as ProgramFactory from "./ProgramFactory";
 import { makeArgDef, makeTypeRef } from "./TestUtils";
 
 const argOptions = ArgDef.getDefaultOptions();
@@ -14,10 +14,6 @@ const dummyRef: FunctionRef = {
   isExported: true,
   isVoid: false,
 };
-const dummyProgram: TypescriptProgram = TypescriptProgram.fromSource(
-  () => "",
-  argOptions
-).setModule(dummyModule);
 
 /**
  * Test that the TypeScript analyzer retrieves function parameters correctly in
@@ -29,9 +25,14 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
   it("arrowFunction", () => {
     const src = `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], lit: 5, obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[], lit:6, litA:6[]}):void => {
       const whatever:string = name + offset + happy + JSON5.stringify(nums);}`;
-    const thisProgram = dummyProgram.setSrc(() => src);
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
 
-    expect(thisProgram.getFunctions()["$_f"].getArgDefs()).toEqual([
+    expect(thisProgram.functions["$_f"].getArgDefs()).toEqual([
       makeArgDef(dummyRef.module, "name", 0, ArgTag.STRING, argOptions, 0),
       makeArgDef(dummyRef.module, "offset", 1, ArgTag.NUMBER, argOptions, 0),
       makeArgDef(dummyRef.module, "happy", 2, ArgTag.BOOLEAN, argOptions, 0),
@@ -91,9 +92,14 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
   it("standardFunction", () => {
     const src = `function $_f(name: string, offset: number, happy: boolean, nums: number[][], lit: 5, obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[], lit: 6, litA: 6[]}):void {
       const whatever:string = name + offset + happy + JSON5.stringify(nums);}`;
-    const thisProgram = dummyProgram.setSrc(() => src);
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
 
-    expect(thisProgram.getFunctions()["$_f"].getArgDefs()).toEqual([
+    expect(thisProgram.functions["$_f"].getArgDefs()).toEqual([
       makeArgDef(dummyRef.module, "name", 0, ArgTag.STRING, argOptions, 0),
       makeArgDef(dummyRef.module, "offset", 1, ArgTag.NUMBER, argOptions, 0),
       makeArgDef(dummyRef.module, "happy", 2, ArgTag.BOOLEAN, argOptions, 0),
@@ -154,11 +160,14 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     const src = `function totalDinnerExpenses( total?: number ): number {
       items.forEach((item) => (total += item.dinner));
       return total;}`;
-    const thisProgram = dummyProgram.setSrc(() => src);
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
 
-    expect(
-      thisProgram.getFunctions()["totalDinnerExpenses"].getArgDefs()
-    ).toEqual([
+    expect(thisProgram.functions["totalDinnerExpenses"].getArgDefs()).toEqual([
       makeArgDef(
         dummyRef.module,
         "total",
@@ -175,62 +184,66 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
   const result = Math.sqrt(2);
   export function test2() {const test = (array:string[]):string => {return "";}};
   const test3 = 0;`;
-  const thisProgram = dummyProgram.setSrc(() => src);
+  const thisProgram = ProgramFactory.fromSource(
+    () => src,
+    "typescript",
+    dummyModule,
+    argOptions
+  );
 
   it("findFnInSource: All", () => {
-    expect(
-      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toEqual([
-      {
-        name: "test",
-        module: "dummy.ts",
-        src: 'function test(array: string[]): string {return "";}',
-        cmt: undefined,
-        startOffset: 7,
-        endOffset: 58,
-        isExported: true,
-        isVoid: false,
-        args: [
-          {
+    expect(Object.values(thisProgram.functions).map((e) => e.getRef())).toEqual(
+      [
+        {
+          name: "test",
+          module: "dummy.ts",
+          src: 'function test(array: string[]): string {return "";}',
+          cmt: undefined,
+          startOffset: 7,
+          endOffset: 58,
+          isExported: true,
+          isVoid: false,
+          args: [
+            {
+              dims: 0,
+              isExported: false,
+              module: thisProgram.filename,
+              name: "array",
+              optional: false,
+              type: {
+                dims: 1,
+                children: [],
+                resolved: true,
+                type: ArgTag.STRING,
+              },
+            },
+          ],
+          returnType: {
             dims: 0,
             isExported: false,
-            module: thisProgram.getModule(),
-            name: "array",
+            module: "dummy.ts",
             optional: false,
             type: {
-              dims: 1,
+              dims: 0,
               children: [],
               resolved: true,
               type: ArgTag.STRING,
             },
           },
-        ],
-        returnType: {
-          dims: 0,
-          isExported: false,
-          module: "dummy.ts",
-          optional: false,
-          type: {
-            dims: 0,
-            children: [],
-            resolved: true,
-            type: ArgTag.STRING,
-          },
         },
-      },
-      {
-        name: "test2",
-        module: "dummy.ts",
-        src: 'function test2() {const test = (array:string[]):string => {return "";}}',
-        cmt: undefined,
-        startOffset: 99,
-        endOffset: 170,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-      },
-      /*
+        {
+          name: "test2",
+          module: "dummy.ts",
+          src: 'function test2() {const test = (array:string[]):string => {return "";}}',
+          cmt: undefined,
+          startOffset: 99,
+          endOffset: 170,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+        },
+        /*
       {
         name: "test",
         module: "dummy.ts",
@@ -255,11 +268,12 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         ],
       },
       */
-    ]);
+      ]
+    );
   });
 
   it("findFnInSource: By Name, non-exported", () => {
-    expect(thisProgram.getFunctions()["test"].getRef()).toEqual({
+    expect(thisProgram.functions["test"].getRef()).toEqual({
       name: "test",
       module: "dummy.ts",
       src: 'function test(array: string[]): string {return "";}',
@@ -272,7 +286,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         {
           dims: 0,
           isExported: false,
-          module: thisProgram.getModule(),
+          module: thisProgram.filename,
           name: "array",
           optional: false,
           type: {
@@ -299,7 +313,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
   });
 
   it("findFnInSource: By Name, Exported", () => {
-    expect(thisProgram.getExportedFunctions()["test"].getRef()).toEqual({
+    expect(thisProgram.functionsExported["test"].getRef()).toEqual({
       name: "test",
       module: "dummy.ts",
       src: 'function test(array: string[]): string {return "";}',
@@ -312,7 +326,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         {
           dims: 0,
           isExported: false,
-          module: thisProgram.getModule(),
+          module: thisProgram.filename,
           name: "array",
           optional: false,
           type: {
@@ -347,94 +361,99 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     export function noReturnF2():void {const z2 = [1,2,3].map((z) => {return z*z;});}
     export function noReturnF3():void {const x = () => {return 1;}}
     `;
-    const thisProgram = dummyProgram.setSrc(() => src);
-    expect(
-      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toEqual([
-      {
-        name: "returnF1",
-        module: "dummy.ts",
-        src: "function returnF1() {return;}",
-        cmt: undefined,
-        startOffset: 12,
-        endOffset: 41,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-      },
-      {
-        name: "returnF2",
-        module: "dummy.ts",
-        src: "function returnF2():number {return 1;}",
-        cmt: undefined,
-        startOffset: 53,
-        endOffset: 91,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: {
-          dims: 0,
-          isExported: false,
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
+    expect(Object.values(thisProgram.functions).map((e) => e.getRef())).toEqual(
+      [
+        {
+          name: "returnF1",
           module: "dummy.ts",
-          optional: false,
-          type: {
+          src: "function returnF1() {return;}",
+          cmt: undefined,
+          startOffset: 12,
+          endOffset: 41,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+        },
+        {
+          name: "returnF2",
+          module: "dummy.ts",
+          src: "function returnF2():number {return 1;}",
+          cmt: undefined,
+          startOffset: 53,
+          endOffset: 91,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: {
             dims: 0,
-            children: [],
-            resolved: true,
-            type: ArgTag.NUMBER,
+            isExported: false,
+            module: "dummy.ts",
+            optional: false,
+            type: {
+              dims: 0,
+              children: [],
+              resolved: true,
+              type: ArgTag.NUMBER,
+            },
           },
         },
-      },
-      {
-        name: "returnF3",
-        module: "dummy.ts",
-        src: "function returnF3() {return () => {return 1;}}",
-        cmt: undefined,
-        startOffset: 103,
-        endOffset: 149,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-      },
-      {
-        name: "noReturnF1",
-        module: "dummy.ts",
-        src: "function noReturnF1():void {const x = 2;}",
-        cmt: undefined,
-        startOffset: 161,
-        endOffset: 202,
-        isExported: true,
-        isVoid: true,
-        args: [],
-        returnType: undefined,
-      },
-      {
-        name: "noReturnF2",
-        module: "dummy.ts",
-        src: "function noReturnF2():void {const z2 = [1,2,3].map((z) => {return z*z;});}",
-        cmt: undefined,
-        startOffset: 214,
-        endOffset: 288,
-        isExported: true,
-        isVoid: true,
-        args: [],
-        returnType: undefined,
-      },
-      {
-        name: "noReturnF3",
-        module: "dummy.ts",
-        src: "function noReturnF3():void {const x = () => {return 1;}}",
-        cmt: undefined,
-        startOffset: 300,
-        endOffset: 356,
-        isExported: true,
-        isVoid: true,
-        args: [],
-        returnType: undefined,
-      },
-    ]);
+        {
+          name: "returnF3",
+          module: "dummy.ts",
+          src: "function returnF3() {return () => {return 1;}}",
+          cmt: undefined,
+          startOffset: 103,
+          endOffset: 149,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+        },
+        {
+          name: "noReturnF1",
+          module: "dummy.ts",
+          src: "function noReturnF1():void {const x = 2;}",
+          cmt: undefined,
+          startOffset: 161,
+          endOffset: 202,
+          isExported: true,
+          isVoid: true,
+          args: [],
+          returnType: undefined,
+        },
+        {
+          name: "noReturnF2",
+          module: "dummy.ts",
+          src: "function noReturnF2():void {const z2 = [1,2,3].map((z) => {return z*z;});}",
+          cmt: undefined,
+          startOffset: 214,
+          endOffset: 288,
+          isExported: true,
+          isVoid: true,
+          args: [],
+          returnType: undefined,
+        },
+        {
+          name: "noReturnF3",
+          module: "dummy.ts",
+          src: "function noReturnF3():void {const x = () => {return 1;}}",
+          cmt: undefined,
+          startOffset: 300,
+          endOffset: 356,
+          isExported: true,
+          isVoid: true,
+          args: [],
+          returnType: undefined,
+        },
+      ]
+    );
   });
 
   it("findFnInSource: void, arrow fn", () => {
@@ -446,94 +465,99 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     export const noReturnA2 = ():void => {const z2 = [1,2,3].map((z) => {return z*z;});}
     export const noReturnA3 = ():void => {const x = () => {return 1;}}
     `;
-    const thisProgram = dummyProgram.setSrc(() => src);
-    expect(
-      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toEqual([
-      {
-        name: "returnA1",
-        module: "dummy.ts",
-        src: "const returnA1 = () => {return;}",
-        startOffset: 18,
-        endOffset: 44,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "returnA2",
-        module: "dummy.ts",
-        src: "const returnA2 = ():number => {return 1;}",
-        startOffset: 62,
-        endOffset: 97,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: {
-          dims: 0,
-          isExported: false,
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
+    expect(Object.values(thisProgram.functions).map((e) => e.getRef())).toEqual(
+      [
+        {
+          name: "returnA1",
           module: "dummy.ts",
-          optional: false,
-          type: {
-            dims: 0,
-            children: [],
-            resolved: true,
-            type: ArgTag.NUMBER,
-          },
+          src: "const returnA1 = () => {return;}",
+          startOffset: 18,
+          endOffset: 44,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
         },
-        cmt: undefined,
-      },
-      {
-        name: "returnA3",
-        module: "dummy.ts",
-        src: "const returnA3 = () => {return () => {return 1;}}",
-        startOffset: 115,
-        endOffset: 158,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "noReturnA1",
-        module: "dummy.ts",
-        src: "const noReturnA1 = ():void => {const x = 2;}",
-        startOffset: 176,
-        endOffset: 214,
-        isExported: true,
-        isVoid: true,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "noReturnA2",
-        module: "dummy.ts",
-        src: "const noReturnA2 = ():void => {const z2 = [1,2,3].map((z) => {return z*z;});}",
-        startOffset: 232,
-        endOffset: 303,
-        isExported: true,
-        isVoid: true,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "noReturnA3",
-        module: "dummy.ts",
-        src: "const noReturnA3 = ():void => {const x = () => {return 1;}}",
-        startOffset: 321,
-        endOffset: 374,
-        isExported: true,
-        isVoid: true,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-    ]);
+        {
+          name: "returnA2",
+          module: "dummy.ts",
+          src: "const returnA2 = ():number => {return 1;}",
+          startOffset: 62,
+          endOffset: 97,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: {
+            dims: 0,
+            isExported: false,
+            module: "dummy.ts",
+            optional: false,
+            type: {
+              dims: 0,
+              children: [],
+              resolved: true,
+              type: ArgTag.NUMBER,
+            },
+          },
+          cmt: undefined,
+        },
+        {
+          name: "returnA3",
+          module: "dummy.ts",
+          src: "const returnA3 = () => {return () => {return 1;}}",
+          startOffset: 115,
+          endOffset: 158,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "noReturnA1",
+          module: "dummy.ts",
+          src: "const noReturnA1 = ():void => {const x = 2;}",
+          startOffset: 176,
+          endOffset: 214,
+          isExported: true,
+          isVoid: true,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "noReturnA2",
+          module: "dummy.ts",
+          src: "const noReturnA2 = ():void => {const z2 = [1,2,3].map((z) => {return z*z;});}",
+          startOffset: 232,
+          endOffset: 303,
+          isExported: true,
+          isVoid: true,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "noReturnA3",
+          module: "dummy.ts",
+          src: "const noReturnA3 = ():void => {const x = () => {return 1;}}",
+          startOffset: 321,
+          endOffset: 374,
+          isExported: true,
+          isVoid: true,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+      ]
+    );
   });
 
   it("findFnInSource: void, loops", () => {
@@ -544,71 +568,76 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     export const returnForOf = () => {const arr: number[] = [1,2,3]; for (const x of arr) {return NaN;}}
     export const returnDoWhile = () => {const x = undefined; do {const y = 1; return x;} while (1 == 1)}
     `;
-    const thisProgram = dummyProgram.setSrc(() => src);
-    expect(
-      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toEqual([
-      {
-        name: "returnWhile",
-        module: "dummy.ts",
-        src: "const returnWhile = () => {let x: number = 0; while (x < 10) {return Infinity;}}",
-        startOffset: 18,
-        endOffset: 92,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "returnForIn",
-        module: "dummy.ts",
-        src: "const returnForIn = () => {const arr: number[] = [1,2,3]; for (var idx in arr) {if (arr[idx] === 2) {return undefined;}} return 0;}",
-        startOffset: 110,
-        endOffset: 235,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "returnFor",
-        module: "dummy.ts",
-        src: "const returnFor = () => {const z = undefined; for (let x =0; x<10; ++x) {if (x === 9) {return z;}} return 0;}",
-        startOffset: 253,
-        endOffset: 356,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "returnForOf",
-        module: "dummy.ts",
-        src: "const returnForOf = () => {const arr: number[] = [1,2,3]; for (const x of arr) {return NaN;}}",
-        startOffset: 374,
-        endOffset: 461,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "returnDoWhile",
-        module: "dummy.ts",
-        src: "const returnDoWhile = () => {const x = undefined; do {const y = 1; return x;} while (1 == 1)}",
-        startOffset: 479,
-        endOffset: 566,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-    ]);
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
+    expect(Object.values(thisProgram.functions).map((e) => e.getRef())).toEqual(
+      [
+        {
+          name: "returnWhile",
+          module: "dummy.ts",
+          src: "const returnWhile = () => {let x: number = 0; while (x < 10) {return Infinity;}}",
+          startOffset: 18,
+          endOffset: 92,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "returnForIn",
+          module: "dummy.ts",
+          src: "const returnForIn = () => {const arr: number[] = [1,2,3]; for (var idx in arr) {if (arr[idx] === 2) {return undefined;}} return 0;}",
+          startOffset: 110,
+          endOffset: 235,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "returnFor",
+          module: "dummy.ts",
+          src: "const returnFor = () => {const z = undefined; for (let x =0; x<10; ++x) {if (x === 9) {return z;}} return 0;}",
+          startOffset: 253,
+          endOffset: 356,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "returnForOf",
+          module: "dummy.ts",
+          src: "const returnForOf = () => {const arr: number[] = [1,2,3]; for (const x of arr) {return NaN;}}",
+          startOffset: 374,
+          endOffset: 461,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "returnDoWhile",
+          module: "dummy.ts",
+          src: "const returnDoWhile = () => {const x = undefined; do {const y = 1; return x;} while (1 == 1)}",
+          startOffset: 479,
+          endOffset: 566,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+      ]
+    );
   });
 
   it("findFnInSource: void, other cases", () => {
@@ -621,71 +650,76 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     /* Dummy comment2 */
     export const returnLabeled = () => {const arr: number[] = []; loop1: for (let x=0; x<5; ++x) {if (x === 1) {continue loop1;} arr.push(x); if (x === 4) {return undefined;}} return 0;}
     `;
-    const thisProgram = dummyProgram.setSrc(() => src);
-    expect(
-      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toEqual([
-      {
-        name: "returnIf",
-        module: "dummy.ts",
-        src: "const returnIf = () => {const x = undefined; if (x) {return x} else {return Infinity;}}",
-        startOffset: 18,
-        endOffset: 99,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "returnSwitch",
-        module: "dummy.ts",
-        src: "const returnSwitch = () => {switch(1) {case 1: {return undefined;} default: {return undefined;}}}",
-        startOffset: 117,
-        endOffset: 208,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "returnTry",
-        module: "dummy.ts",
-        src: "const returnTry = () => {try {return Infinity;} catch {return NaN;}}",
-        startOffset: 226,
-        endOffset: 288,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "returnThrow",
-        module: "dummy.ts",
-        src: "const returnThrow = () => {const x = undefined; if (!x) {throw Error();} else {throw Error();}}",
-        startOffset: 327,
-        endOffset: 416,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: undefined,
-      },
-      {
-        name: "returnLabeled",
-        module: "dummy.ts",
-        src: "const returnLabeled = () => {const arr: number[] = []; loop1: for (let x=0; x<5; ++x) {if (x === 1) {continue loop1;} arr.push(x); if (x === 4) {return undefined;}} return 0;}",
-        startOffset: 459,
-        endOffset: 628,
-        isExported: true,
-        isVoid: false,
-        args: [],
-        returnType: undefined,
-        cmt: "/* Dummy comment2 */",
-      },
-    ]);
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
+    expect(Object.values(thisProgram.functions).map((e) => e.getRef())).toEqual(
+      [
+        {
+          name: "returnIf",
+          module: "dummy.ts",
+          src: "const returnIf = () => {const x = undefined; if (x) {return x} else {return Infinity;}}",
+          startOffset: 18,
+          endOffset: 99,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "returnSwitch",
+          module: "dummy.ts",
+          src: "const returnSwitch = () => {switch(1) {case 1: {return undefined;} default: {return undefined;}}}",
+          startOffset: 117,
+          endOffset: 208,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "returnTry",
+          module: "dummy.ts",
+          src: "const returnTry = () => {try {return Infinity;} catch {return NaN;}}",
+          startOffset: 226,
+          endOffset: 288,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "returnThrow",
+          module: "dummy.ts",
+          src: "const returnThrow = () => {const x = undefined; if (!x) {throw Error();} else {throw Error();}}",
+          startOffset: 327,
+          endOffset: 416,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: undefined,
+        },
+        {
+          name: "returnLabeled",
+          module: "dummy.ts",
+          src: "const returnLabeled = () => {const arr: number[] = []; loop1: for (let x=0; x<5; ++x) {if (x === 1) {continue loop1;} arr.push(x); if (x === 4) {return undefined;}} return 0;}",
+          startOffset: 459,
+          endOffset: 628,
+          isExported: true,
+          isVoid: false,
+          args: [],
+          returnType: undefined,
+          cmt: "/* Dummy comment2 */",
+        },
+      ]
+    );
   });
 
   it("findFnInSource: literal args", () => {
@@ -696,69 +730,74 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     export function testLit(n:litn,a:lita,b:litb) {return;}
     const world = "earth";
     `;
-    const thisProgram = dummyProgram.setSrc(() => src);
-    expect(
-      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toEqual([
-      {
-        name: "testLit",
-        module: "dummy.ts",
-        src: "function testLit(n:litn,a:lita,b:litb) {return;}",
-        cmt: undefined,
-        startOffset: 95,
-        endOffset: 143,
-        isExported: true,
-        isVoid: false,
-        args: [
-          {
-            dims: 0,
-            isExported: false,
-            module: "dummy.ts",
-            name: "n",
-            optional: false,
-            type: {
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
+    expect(Object.values(thisProgram.functions).map((e) => e.getRef())).toEqual(
+      [
+        {
+          name: "testLit",
+          module: "dummy.ts",
+          src: "function testLit(n:litn,a:lita,b:litb) {return;}",
+          cmt: undefined,
+          startOffset: 95,
+          endOffset: 143,
+          isExported: true,
+          isVoid: false,
+          args: [
+            {
               dims: 0,
-              children: [],
-              resolved: true,
-              value: 3,
-              type: ArgTag.LITERAL,
+              isExported: false,
+              module: "dummy.ts",
+              name: "n",
+              optional: false,
+              type: {
+                dims: 0,
+                children: [],
+                resolved: true,
+                value: 3,
+                type: ArgTag.LITERAL,
+              },
+              typeRefName: "litn",
             },
-            typeRefName: "litn",
-          },
-          {
-            dims: 0,
-            isExported: false,
-            module: "dummy.ts",
-            name: "a",
-            optional: false,
-            type: {
+            {
               dims: 0,
-              children: [],
-              resolved: true,
-              value: "a",
-              type: ArgTag.LITERAL,
+              isExported: false,
+              module: "dummy.ts",
+              name: "a",
+              optional: false,
+              type: {
+                dims: 0,
+                children: [],
+                resolved: true,
+                value: "a",
+                type: ArgTag.LITERAL,
+              },
+              typeRefName: "lita",
             },
-            typeRefName: "lita",
-          },
-          {
-            dims: 0,
-            isExported: false,
-            module: "dummy.ts",
-            name: "b",
-            optional: false,
-            type: {
+            {
               dims: 0,
-              children: [],
-              resolved: true,
-              type: ArgTag.LITERAL,
-              value: true,
+              isExported: false,
+              module: "dummy.ts",
+              name: "b",
+              optional: false,
+              type: {
+                dims: 0,
+                children: [],
+                resolved: true,
+                type: ArgTag.LITERAL,
+                value: true,
+              },
+              typeRefName: "litb",
             },
-            typeRefName: "litb",
-          },
-        ],
-        returnType: undefined,
-      },
-    ]);
+          ],
+          returnType: undefined,
+        },
+      ]
+    );
   });
 
   it("findFnInSource: union args", () => {
@@ -771,67 +810,113 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     // Dummy comment2
     export function test2(a:boolean):boolean {return a;}
     `;
-    const thisProgram = dummyProgram.setSrc(() => src);
-    expect(
-      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toEqual([
-      {
-        name: "test",
-        module: "dummy.ts",
-        src: "function test(a:stringOrNumber,b:maybeString[]):boolean | undefined {return;}",
-        cmt: `/* Dummy comment */`,
-        startOffset: 186,
-        endOffset: 263,
-        isExported: true,
-        isVoid: false,
-        args: [
-          {
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
+    expect(Object.values(thisProgram.functions).map((e) => e.getRef())).toEqual(
+      [
+        {
+          name: "test",
+          module: "dummy.ts",
+          src: "function test(a:stringOrNumber,b:maybeString[]):boolean | undefined {return;}",
+          cmt: `/* Dummy comment */`,
+          startOffset: 186,
+          endOffset: 263,
+          isExported: true,
+          isVoid: false,
+          args: [
+            {
+              dims: 0,
+              isExported: false,
+              module: "dummy.ts",
+              name: "a",
+              optional: false,
+              type: {
+                dims: 0,
+                children: [
+                  {
+                    dims: 0,
+                    isExported: false,
+                    module: "dummy.ts",
+                    optional: false,
+                    type: {
+                      dims: 0,
+                      children: [],
+                      resolved: true,
+                      type: ArgTag.STRING,
+                    },
+                  },
+                  {
+                    dims: 0,
+                    isExported: false,
+                    module: "dummy.ts",
+                    optional: false,
+                    type: {
+                      dims: 0,
+                      children: [],
+                      resolved: true,
+                      type: ArgTag.NUMBER,
+                    },
+                  },
+                ],
+                resolved: true,
+                type: ArgTag.UNION,
+              },
+              typeRefName: "stringOrNumber",
+            },
+            {
+              dims: 1,
+              isExported: false,
+              module: "dummy.ts",
+              name: "b",
+              optional: false,
+              type: {
+                dims: 0,
+                children: [
+                  {
+                    dims: 0,
+                    isExported: false,
+                    module: "dummy.ts",
+                    optional: false,
+                    type: {
+                      dims: 0,
+                      children: [],
+                      resolved: true,
+                      type: ArgTag.STRING,
+                    },
+                  },
+                  {
+                    dims: 0,
+                    isExported: false,
+                    module: "dummy.ts",
+                    optional: false,
+                    type: {
+                      dims: 0,
+                      children: [],
+                      resolved: true,
+                      type: ArgTag.LITERAL,
+                      value: undefined,
+                    },
+                  },
+                ],
+                resolved: true,
+                type: ArgTag.UNION,
+              },
+              typeRefName: "maybeString",
+            },
+          ],
+          returnType: {
             dims: 0,
             isExported: false,
             module: "dummy.ts",
-            name: "a",
             optional: false,
             type: {
               dims: 0,
-              children: [
-                {
-                  dims: 0,
-                  isExported: false,
-                  module: "dummy.ts",
-                  optional: false,
-                  type: {
-                    dims: 0,
-                    children: [],
-                    resolved: true,
-                    type: ArgTag.STRING,
-                  },
-                },
-                {
-                  dims: 0,
-                  isExported: false,
-                  module: "dummy.ts",
-                  optional: false,
-                  type: {
-                    dims: 0,
-                    children: [],
-                    resolved: true,
-                    type: ArgTag.NUMBER,
-                  },
-                },
-              ],
               resolved: true,
               type: ArgTag.UNION,
-            },
-            typeRefName: "stringOrNumber",
-          },
-          {
-            dims: 1,
-            isExported: false,
-            module: "dummy.ts",
-            name: "b",
-            optional: false,
-            type: {
-              dims: 0,
               children: [
                 {
                   dims: 0,
@@ -842,7 +927,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
                     dims: 0,
                     children: [],
                     resolved: true,
-                    type: ArgTag.STRING,
+                    type: ArgTag.BOOLEAN,
                   },
                 },
                 {
@@ -855,69 +940,41 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
                     children: [],
                     resolved: true,
                     type: ArgTag.LITERAL,
+                    value: undefined,
                   },
                 },
               ],
-              resolved: true,
-              type: ArgTag.UNION,
             },
-            typeRefName: "maybeString",
-          },
-        ],
-        returnType: {
-          dims: 0,
-          isExported: false,
-          module: "dummy.ts",
-          optional: false,
-          type: {
-            dims: 0,
-            resolved: true,
-            type: ArgTag.UNION,
-            children: [
-              {
-                dims: 0,
-                isExported: false,
-                module: "dummy.ts",
-                optional: false,
-                type: {
-                  dims: 0,
-                  children: [],
-                  resolved: true,
-                  type: ArgTag.BOOLEAN,
-                },
-              },
-              {
-                dims: 0,
-                isExported: false,
-                module: "dummy.ts",
-                optional: false,
-                type: {
-                  dims: 0,
-                  children: [],
-                  resolved: true,
-                  type: ArgTag.LITERAL,
-                  value: undefined,
-                },
-              },
-            ],
           },
         },
-      },
-      {
-        name: "test2",
-        module: "dummy.ts",
-        src: "function test2(a:boolean):boolean {return a;}",
-        cmt: undefined,
-        startOffset: 297,
-        endOffset: 342,
-        isExported: true,
-        isVoid: false,
-        args: [
-          {
+        {
+          name: "test2",
+          module: "dummy.ts",
+          src: "function test2(a:boolean):boolean {return a;}",
+          cmt: undefined,
+          startOffset: 297,
+          endOffset: 342,
+          isExported: true,
+          isVoid: false,
+          args: [
+            {
+              dims: 0,
+              isExported: false,
+              module: "dummy.ts",
+              name: "a",
+              optional: false,
+              type: {
+                dims: 0,
+                children: [],
+                resolved: true,
+                type: ArgTag.BOOLEAN,
+              },
+            },
+          ],
+          returnType: {
             dims: 0,
             isExported: false,
             module: "dummy.ts",
-            name: "a",
             optional: false,
             type: {
               dims: 0,
@@ -926,21 +983,9 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
               type: ArgTag.BOOLEAN,
             },
           },
-        ],
-        returnType: {
-          dims: 0,
-          isExported: false,
-          module: "dummy.ts",
-          optional: false,
-          type: {
-            dims: 0,
-            children: [],
-            resolved: true,
-            type: ArgTag.BOOLEAN,
-          },
         },
-      },
-    ]);
+      ]
+    );
   });
 
   it("findFnInSource: tuple args", () => {
@@ -959,54 +1004,149 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     export ` +
       buildLocationSrc +
       ";";
-    const thisProgram = dummyProgram.setSrc(() => src);
-    expect(
-      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toEqual([
-      {
-        name: "test",
-        module: "dummy.ts",
-        src: buildLocationSrc,
-        cmt: `/* Dummy comment */`,
-        startOffset: 171,
-        endOffset: 328,
-        isExported: true,
-        isVoid: false,
-        args: [
-          {
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
+    expect(Object.values(thisProgram.functions).map((e) => e.getRef())).toEqual(
+      [
+        {
+          name: "test",
+          module: "dummy.ts",
+          src: buildLocationSrc,
+          cmt: `/* Dummy comment */`,
+          startOffset: 171,
+          endOffset: 328,
+          isExported: true,
+          isVoid: false,
+          args: [
+            {
+              dims: 0,
+              isExported: false,
+              module: "dummy.ts",
+              name: "name",
+              optional: false,
+              type: {
+                dims: 0,
+                children: [],
+                resolved: true,
+                type: ArgTag.STRING,
+              },
+            },
+            {
+              dims: 1,
+              isExported: false,
+              module: "dummy.ts",
+              name: "latLngs",
+              optional: false,
+              type: {
+                type: ArgTag.TUPLE,
+                resolved: true,
+                dims: 0,
+                children: [
+                  {
+                    dims: 0,
+                    isExported: false,
+                    module: "dummy.ts",
+                    optional: false,
+                    type: {
+                      type: ArgTag.NUMBER,
+                      resolved: true,
+                      dims: 0,
+                      children: [],
+                    },
+                  },
+                  {
+                    dims: 0,
+                    isExported: false,
+                    module: "dummy.ts",
+                    optional: false,
+                    type: {
+                      type: ArgTag.NUMBER,
+                      dims: 0,
+                      children: [],
+                      resolved: true,
+                    },
+                  },
+                ],
+              },
+              typeRefName: "LatLng",
+            },
+          ],
+          returnType: {
+            module: "dummy.ts",
+            typeRefName: "MaybeLocation",
             dims: 0,
             isExported: false,
-            module: "dummy.ts",
-            name: "name",
             optional: false,
             type: {
               dims: 0,
-              children: [],
-              resolved: true,
-              type: ArgTag.STRING,
-            },
-          },
-          {
-            dims: 1,
-            isExported: false,
-            module: "dummy.ts",
-            name: "latLngs",
-            optional: false,
-            type: {
-              type: ArgTag.TUPLE,
-              resolved: true,
-              dims: 0,
+              type: ArgTag.UNION,
               children: [
                 {
+                  module: "dummy.ts",
+                  typeRefName: "Location",
                   dims: 0,
                   isExported: false,
-                  module: "dummy.ts",
                   optional: false,
                   type: {
-                    type: ArgTag.NUMBER,
-                    resolved: true,
                     dims: 0,
-                    children: [],
+                    children: [
+                      {
+                        dims: 0,
+                        isExported: false,
+                        module: "dummy.ts",
+                        optional: false,
+                        type: {
+                          type: ArgTag.STRING,
+                          resolved: true,
+                          dims: 0,
+                          children: [],
+                        },
+                      },
+                      {
+                        module: "dummy.ts",
+                        typeRefName: "LatLng",
+                        dims: 0,
+                        isExported: false,
+                        optional: false,
+                        type: {
+                          type: ArgTag.TUPLE,
+                          dims: 0,
+                          children: [
+                            {
+                              dims: 0,
+                              isExported: false,
+                              module: "dummy.ts",
+                              optional: false,
+                              type: {
+                                type: ArgTag.NUMBER,
+                                resolved: true,
+                                dims: 0,
+                                children: [],
+                              },
+                            },
+                            {
+                              dims: 0,
+                              isExported: false,
+                              module: "dummy.ts",
+                              optional: false,
+                              type: {
+                                type: ArgTag.NUMBER,
+                                dims: 0,
+                                children: [],
+                                resolved: true,
+                              },
+                            },
+                          ],
+                          resolved: true,
+                        },
+                      },
+                    ],
+                    resolved: true,
+                    type: ArgTag.TUPLE,
                   },
                 },
                 {
@@ -1015,109 +1155,20 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
                   module: "dummy.ts",
                   optional: false,
                   type: {
-                    type: ArgTag.NUMBER,
                     dims: 0,
                     children: [],
                     resolved: true,
+                    type: ArgTag.LITERAL,
+                    value: undefined,
                   },
                 },
               ],
+              resolved: true,
             },
-            typeRefName: "LatLng",
-          },
-        ],
-        returnType: {
-          module: "dummy.ts",
-          typeRefName: "MaybeLocation",
-          dims: 0,
-          isExported: false,
-          optional: false,
-          type: {
-            dims: 0,
-            type: ArgTag.UNION,
-            children: [
-              {
-                module: "dummy.ts",
-                typeRefName: "Location",
-                dims: 0,
-                isExported: false,
-                optional: false,
-                type: {
-                  dims: 0,
-                  children: [
-                    {
-                      dims: 0,
-                      isExported: false,
-                      module: "dummy.ts",
-                      optional: false,
-                      type: {
-                        type: ArgTag.STRING,
-                        resolved: true,
-                        dims: 0,
-                        children: [],
-                      },
-                    },
-                    {
-                      module: "dummy.ts",
-                      typeRefName: "LatLng",
-                      dims: 0,
-                      isExported: false,
-                      optional: false,
-                      type: {
-                        type: ArgTag.TUPLE,
-                        dims: 0,
-                        children: [
-                          {
-                            dims: 0,
-                            isExported: false,
-                            module: "dummy.ts",
-                            optional: false,
-                            type: {
-                              type: ArgTag.NUMBER,
-                              resolved: true,
-                              dims: 0,
-                              children: [],
-                            },
-                          },
-                          {
-                            dims: 0,
-                            isExported: false,
-                            module: "dummy.ts",
-                            optional: false,
-                            type: {
-                              type: ArgTag.NUMBER,
-                              dims: 0,
-                              children: [],
-                              resolved: true,
-                            },
-                          },
-                        ],
-                        resolved: true,
-                      },
-                    },
-                  ],
-                  resolved: true,
-                  type: ArgTag.TUPLE,
-                },
-              },
-              {
-                dims: 0,
-                isExported: false,
-                module: "dummy.ts",
-                optional: false,
-                type: {
-                  dims: 0,
-                  children: [],
-                  resolved: true,
-                  type: ArgTag.LITERAL,
-                },
-              },
-            ],
-            resolved: true,
           },
         },
-      },
-    ]);
+      ]
+    );
   });
 
   it("findFnInSource: type references w/arrays", () => {
@@ -1128,127 +1179,137 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     export function test6(a: onlyNumbers[]): void {return;}
     export function test7(a: onlyNumber): void {return;}
     export function test8(a: onlyNumber[]): void {return;}`;
-    const thisProgram = dummyProgram.setSrc(() => src);
-    expect(
-      Object.values(thisProgram.getFunctions()).map((e) => e.getRef())
-    ).toEqual([
-      {
-        name: "test5",
-        module: "dummy.ts",
-        src: "function test5(a: onlyNumbers): void {return;}",
-        cmt: undefined,
-        startOffset: 75,
-        endOffset: 121,
-        isExported: true,
-        isVoid: true,
-        args: [
-          {
-            dims: 0,
-            isExported: false,
-            module: "dummy.ts",
-            name: "a",
-            optional: false,
-            type: {
-              dims: 1,
-              children: [],
-              resolved: true,
-              type: ArgTag.NUMBER,
-            },
-            typeRefName: "onlyNumbers",
-          },
-        ],
-        returnType: undefined,
-      },
-      {
-        name: "test6",
-        module: "dummy.ts",
-        src: "function test6(a: onlyNumbers[]): void {return;}",
-        cmt: undefined,
-        startOffset: 133,
-        endOffset: 181,
-        isExported: true,
-        isVoid: true,
-        args: [
-          {
-            dims: 1,
-            isExported: false,
-            module: "dummy.ts",
-            name: "a",
-            optional: false,
-            type: {
-              dims: 1,
-              children: [],
-              resolved: true,
-              type: ArgTag.NUMBER,
-            },
-            typeRefName: "onlyNumbers",
-          },
-        ],
-        returnType: undefined,
-      },
-      {
-        name: "test7",
-        module: "dummy.ts",
-        src: "function test7(a: onlyNumber): void {return;}",
-        cmt: undefined,
-        startOffset: 193,
-        endOffset: 238,
-        isExported: true,
-        isVoid: true,
-        args: [
-          {
-            dims: 0,
-            isExported: false,
-            module: "dummy.ts",
-            name: "a",
-            optional: false,
-            type: {
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
+    expect(Object.values(thisProgram.functions).map((e) => e.getRef())).toEqual(
+      [
+        {
+          name: "test5",
+          module: "dummy.ts",
+          src: "function test5(a: onlyNumbers): void {return;}",
+          cmt: undefined,
+          startOffset: 75,
+          endOffset: 121,
+          isExported: true,
+          isVoid: true,
+          args: [
+            {
               dims: 0,
-              children: [],
-              resolved: true,
-              type: ArgTag.NUMBER,
+              isExported: false,
+              module: "dummy.ts",
+              name: "a",
+              optional: false,
+              type: {
+                dims: 1,
+                children: [],
+                resolved: true,
+                type: ArgTag.NUMBER,
+              },
+              typeRefName: "onlyNumbers",
             },
-            typeRefName: "onlyNumber",
-          },
-        ],
-        returnType: undefined,
-      },
-      {
-        name: "test8",
-        module: "dummy.ts",
-        src: "function test8(a: onlyNumber[]): void {return;}",
-        cmt: undefined,
-        startOffset: 250,
-        endOffset: 297,
-        isExported: true,
-        isVoid: true,
-        args: [
-          {
-            dims: 1,
-            isExported: false,
-            module: "dummy.ts",
-            name: "a",
-            optional: false,
-            type: {
+          ],
+          returnType: undefined,
+        },
+        {
+          name: "test6",
+          module: "dummy.ts",
+          src: "function test6(a: onlyNumbers[]): void {return;}",
+          cmt: undefined,
+          startOffset: 133,
+          endOffset: 181,
+          isExported: true,
+          isVoid: true,
+          args: [
+            {
+              dims: 1,
+              isExported: false,
+              module: "dummy.ts",
+              name: "a",
+              optional: false,
+              type: {
+                dims: 1,
+                children: [],
+                resolved: true,
+                type: ArgTag.NUMBER,
+              },
+              typeRefName: "onlyNumbers",
+            },
+          ],
+          returnType: undefined,
+        },
+        {
+          name: "test7",
+          module: "dummy.ts",
+          src: "function test7(a: onlyNumber): void {return;}",
+          cmt: undefined,
+          startOffset: 193,
+          endOffset: 238,
+          isExported: true,
+          isVoid: true,
+          args: [
+            {
               dims: 0,
-              children: [],
-              resolved: true,
-              type: ArgTag.NUMBER,
+              isExported: false,
+              module: "dummy.ts",
+              name: "a",
+              optional: false,
+              type: {
+                dims: 0,
+                children: [],
+                resolved: true,
+                type: ArgTag.NUMBER,
+              },
+              typeRefName: "onlyNumber",
             },
-            typeRefName: "onlyNumber",
-          },
-        ],
-        returnType: undefined,
-      },
-    ]);
+          ],
+          returnType: undefined,
+        },
+        {
+          name: "test8",
+          module: "dummy.ts",
+          src: "function test8(a: onlyNumber[]): void {return;}",
+          cmt: undefined,
+          startOffset: 250,
+          endOffset: 297,
+          isExported: true,
+          isVoid: true,
+          args: [
+            {
+              dims: 1,
+              isExported: false,
+              module: "dummy.ts",
+              name: "a",
+              optional: false,
+              type: {
+                dims: 0,
+                children: [],
+                resolved: true,
+                type: ArgTag.NUMBER,
+              },
+              typeRefName: "onlyNumber",
+            },
+          ],
+          returnType: undefined,
+        },
+      ]
+    );
   });
 
   it("literal union type ref", () => {
     //const src = `function $_f(union: "hello" | "bonjour"):void {}`;
     const src = `function $_f(union: unionType):void {};type unionType = "hello" | "bonjour";`;
-    const thisProgram = dummyProgram.setSrc(() => src);
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
 
-    expect(thisProgram.getFunctions()["$_f"].getArgDefs()).toEqual([
+    expect(thisProgram.functions["$_f"].getArgDefs()).toEqual([
       makeArgDef(
         dummyRef.module,
         "union",
@@ -1286,9 +1347,14 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
 
   it("literal union literal type", () => {
     const src = `function $_f(union: "hello" | "bonjour"):void {}`;
-    const thisProgram = dummyProgram.setSrc(() => src);
+    const thisProgram = ProgramFactory.fromSource(
+      () => src,
+      "typescript",
+      dummyModule,
+      argOptions
+    );
 
-    expect(thisProgram.getFunctions()["$_f"].getArgDefs()).toEqual([
+    expect(thisProgram.functions["$_f"].getArgDefs()).toEqual([
       makeArgDef(
         dummyRef.module,
         "union",

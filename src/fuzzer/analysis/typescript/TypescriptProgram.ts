@@ -1,12 +1,11 @@
 /* eslint-disable @typescript-eslint/switch-exhaustiveness-check */
 import * as JSON5 from "json5";
-import { ArgDef } from "../ArgDef";
-import { FunctionDef } from "../FunctionDef";
-import { getIdentifierName, isBlockScoped, removeParents } from "../Util";
+import { removeParents } from "../Util";
 import { parse, ParseResult } from "@babel/parser";
 import _traverse, { NodePath } from "@babel/traverse";
 import {
   File,
+  TSEntityName,
   TSTypeAliasDeclaration,
   TSTypeAnnotation,
   TSLiteralType,
@@ -28,10 +27,11 @@ import {
   ProgramPath,
   TypeRef,
   ArgOptions,
-  ProgramImport,
   ArgType,
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
+import { AbstractProgram } from "../AbstractProgram";
+import * as ProgramFactory from "../ProgramFactory";
 
 // Default import nonsense for node
 // https://github.com/babel/babel/discussions/13093
@@ -39,10 +39,10 @@ const traverse: typeof _traverse =
   typeof _traverse === "function" ? _traverse : (_traverse as any).default;
 
 /**
- * The ProgramDef class represents a program definition in a TypeScript source
- * file. It provides methods for extracting information about the functions
- * and types defined by the program, which are represented by the FunctionDef
- * and TypeDef classes.
+ * The TypescriptProgram class represents a TypeScript program definition in a
+ * source file. It provides methods for extracting information about the
+ * functions and types defined by the program, which are represented by the
+ * FunctionDef and TypeDef classes.
  *
  * Limitations of the current implementation
  * - Only top-level functions and types are supported
@@ -52,41 +52,11 @@ const traverse: typeof _traverse =
  * - Default imports/exports are limited to named type definitions
  * - Analysis of classes and class methods are not supported
  */
-export class TypescriptProgram {
-  private _module: string; // Path to the module source file
-  private _src: string; // Source code of the program
-  private _options: ArgOptions; // Arg options for the program
-  private _getSource: () => string; // Function to retrieve the source code
+export class TypescriptProgram extends AbstractProgram {
+  public readonly lang = "typescript";
+  public readonly extensions = Object.freeze([".ts"]);
 
-  private _root: TypescriptProgram; // Root program
-  private _parents: Record<ProgramPath, TypescriptProgram> = {}; // Parent programs
-  private _children: Record<ProgramPath, TypescriptProgram> = {}; // Child programs
-  private _allChildren: Record<ProgramPath, TypescriptProgram> = {}; // All children of children (if root)
-
-  private _functions: Record<IdentifierName, FunctionRef> = {}; // Functions defined in the program
-  private _unsupportedFunctions: Record<
-    IdentifierName,
-    {
-      reason: string;
-    } & (
-      | {
-          // Functions that are unsupported due to an argument type that could not be resolved
-          argument?: IdentifierName;
-          function: FunctionRef;
-        }
-      | {
-          // Functions that are supported due to being unrepresentable using FunctionRef,
-          // e.g., use of unsupported types
-          node: Node;
-        }
-    )
-  > = {}; // Functions defined but not supported
-  private _functionCache: Record<IdentifierName, FunctionDef> = {}; // Cached FunctionDef objects
-  private _exportedFunctions: Record<IdentifierName, FunctionRef> = {}; // Functions exported by the program
-  private _types: Record<IdentifierName, TypeRef> = {}; // Types defined in the program
-  private _exportedTypes: Record<IdentifierName, TypeRef> = {}; // Types exported by the program
-  private _defaultExport: TypeRef | undefined; // Default type export, if any
-  private _imports: ProgramImports = { programs: {}, identifiers: {} }; // Imported modules
+  protected _ast: ParseResult<File> | undefined;
 
   /**
    * Constructs a new ProgramDef instance using a FunctionRef object.
@@ -96,387 +66,32 @@ export class TypescriptProgram {
    * @param path Path to the source file (optional)
    * @param options Options for the function analysis (optional)
    */
-  private constructor(
+  constructor(
     getSource: () => string,
-    module: string,
+    filename: string,
     options?: ArgOptions,
-    parent?: TypescriptProgram
+    parent?: AbstractProgram
   ) {
-    // Setup program information
-    this._module = module;
-    this._getSource = getSource;
-    this._src = getSource();
-    this._options = options ?? ArgDef.getDefaultOptions();
-
-    // Make sure we're not adding this module to the hierarchy twice
-    if (parent && this._module in parent._root._allChildren) {
-      throw new Error(
-        `Internal error: module already exists in ProgramDef hierarchy (${module})`
-      );
-    }
-
-    // Setup inter-program relationships
-    if (parent) {
-      this._root = parent._root;
-      parent._addChild(this);
-    } else {
-      this._root = this;
-    }
-
-    // Parse the program source to generate the AST
-    const ast = parse(this._src, {
-      sourceType: "unambiguous",
-      plugins: ["typescript"],
-      attachComment: true,
-      ranges: true,
-    });
-
-    // Retrieve the imports defined in this program
-    this._imports = this._findImports(ast);
-
-    // Extract local types
-    this._types = this._findTypes(ast);
-    for (const name in this._types) {
-      if (this._types[name].isExported) {
-        this._exportedTypes[name] = this._types[name];
-      }
-    }
-
-    // Extract local functions
-    const functions = this._findFunctions(ast);
-    this._functions = functions.supported;
-    this._unsupportedFunctions = functions.unsupported;
-    for (const name in this._functions) {
-      if (this._functions[name].isExported) {
-        this._exportedFunctions[name] = this._functions[name];
-      }
-    }
-
-    // Retrieve the default type export, if it exists
-    // (we don't look for other default exports at this time)
-    this._defaultExport = this._findDefaultTypeExport(ast);
-
-    // If this is the root program, resolve all the imports that we need
-    if (this._root === this) {
-      for (const fnRef of Object.values(this._functions)) {
-        let lastArgName: string | undefined;
-        try {
-          // Attempt to resolve function argument types
-          // Note: failure to resolve any argument makes fn unsupported
-          if (fnRef.args) {
-            for (const fnArg of fnRef.args) {
-              lastArgName = fnArg.name;
-              this._resolveTypeRef(fnArg);
-            }
-          }
-        } catch (e: unknown) {
-          const msg = getErrorMessageOrJson(e);
-          console.debug(
-            `Error resolving types for function '${fnRef.name}' argument '${
-              lastArgName ?? "(unknown)"
-            }'; marking fn as unsupported. Reason: ${msg}`
-          );
-
-          // Remove functions that we couldn't resolve
-          this._unsupportedFunctions[fnRef.name] = {
-            reason: msg,
-            argument: lastArgName,
-            function: fnRef,
-          };
-          delete this._functions[fnRef.name];
-          delete this._exportedFunctions[fnRef.name];
-        }
-        // Attempt to resolve function return types
-        // Note: failure to resolve return type does not make function unsupported
-        try {
-          if (fnRef.returnType) {
-            lastArgName = "return";
-            this._resolveTypeRef(fnRef.returnType);
-          }
-        } catch (e: unknown) {
-          console.debug(
-            `Error resolving return type for function '${
-              fnRef.name
-            }'; Reason: ${getErrorMessageOrJson(e)}`
-          );
-        }
-      }
-    }
+    super(getSource, filename, options, parent);
   } // end constructor
 
-  /**
-   * Returns a ProgramDef object for the given module.
-   * Note: Uses a caching strategy
-   *
-   * @param module Path of the module to load
-   * @param options Argument options
-   * @param parent Parent ProgramDef parent object
-   * @returns A ProgramDef object
-   */
-  public static fromModule(
-    module: string,
-    options?: ArgOptions,
-    parent?: TypescriptProgram
-  ): TypescriptProgram {
-    if (module !== "") module = require.resolve(module);
-    const getSource = () => fs.readFileSync(module).toString(); // Callback fn to read the source code
+  // !!!!!!
+  protected _parse(src: string): void {
+    // Parse the program source to generate the AST
+    this._ast =
+      this._ast ??
+      parse(src, {
+        sourceType: "unambiguous",
+        plugins: ["typescript"],
+        attachComment: true,
+        ranges: true,
+      });
+  }
 
-    return TypescriptProgram.fromModuleAndSource(
-      module,
-      getSource,
-      options,
-      parent
-    );
-  } // fn: fromModule()
-
-  /**
-   * Returns a ProgramDef object for the given source code.
-   * Note: Uses a caching strategy
-   *
-   * @param src Source code for the module
-   * @param options Argument options
-   * @returns A ProgramDef object
-   */
-  public static fromSource(
-    getSource: () => string,
-    options?: ArgOptions,
-    parent?: TypescriptProgram
-  ): TypescriptProgram {
-    return TypescriptProgram.fromModuleAndSource(
-      "",
-      getSource,
-      options,
-      parent
-    );
-  } // fn: fromSource()
-
-  /**
-   * Returns a ProgramDef object for the given module.
-   * Note: Uses a caching strategy
-   *
-   * @param module Path of the module to load
-   * @param src Source code for the module
-   * @param options Argument options
-   * @returns A ProgramDef object
-   */
-  public static fromModuleAndSource(
-    module: string,
-    getSource: () => string,
-    options?: ArgOptions,
-    parent?: TypescriptProgram
-  ): TypescriptProgram {
-    if (module !== "") module = require.resolve(module);
-
-    // If a ProgramDef already exists within this program hierarchy,
-    // return it. Otherwise, create a new one
-    if (parent && module in parent._root._allChildren) {
-      return parent._root._allChildren[module];
-    } else {
-      return new TypescriptProgram(getSource, module, options, parent);
-    }
-  } // fn: fromModule()
-
-  /**
-   * Returns the root ProgramDef object for this hierarchy
-   *
-   * @returns The root ProgramDef object
-   */
-  public getRoot(): TypescriptProgram {
-    return this._root;
-  } // fn: getRoot()
-
-  /**
-   * Returns true if this is the root ProgramDef object
-   *
-   * @returns true if this is the root ProgramDef object
-   */
-  public isRoot(): boolean {
-    return this._root === this;
-  } // fn: isRoot()
-
-  /**
-   * Adds a child program to the current ProgramDef node
-   *
-   * @param child The child to add to this node
-   */
-  private _addChild(child: TypescriptProgram): void {
-    child._parents[child._module] = child;
-    this._children[child._module] = child;
-    this._root._allChildren[child._module] = child;
-  } // fn: addChild()
-
-  /**
-   * Returns true if the source code for any program in the hierarchy
-   * has changed since the hierarchty was built.
-   *
-   * @returns true if the program does not match the file system
-   */
-  public isStale(): boolean {
-    // Check each program in the hierarchy
-    for (const program of Object.values(this._root._allChildren)) {
-      if (program._getSource() !== program._src) {
-        return true; // Change detected
-      }
-    }
-    return false; // No changes/staleness detected
-  } // fn: _isStale()
-
-  /**
-   * Returns the function's source code
-   *
-   * @returns Source code of the function
-   */
-  public getSrc(): string {
-    return this._src;
-  } // fn: getSrc()
-
-  /**
-   * Returns a new ProgramDef with the given source code.
-   * May only be executed on a ProgramDef where isRoot() === true.
-   *
-   * @returns new ProgramDef object
-   */
-  public setSrc(getSource: () => string): TypescriptProgram {
-    // Requires this be a root node
-    if (!this.isRoot()) {
-      throw new Error(
-        `Cannot change module of non-root program (${this._module})`
-      );
-    }
-    return new TypescriptProgram(getSource, this._module, this._options);
-  } // fn: setSrc()
-
-  /**
-   * Returns the module filename where the function is defined
-   *
-   * @returns the module filename where the function is defined
-   */
-  public getModule(): string {
-    return this._module;
-  } // fn: getModule()
-
-  /**
-   * Returns a new ProgramDef with the given options code
-   * May only be executed on a ProgramDef where isRoot() === true.
-   *
-   * @returns new ProgramDef object
-   */
-  public setModule(module: string): TypescriptProgram {
-    // Requires this be a root node.
-    if (!this.isRoot()) {
-      throw new Error(
-        `Cannot change module of non-root program (${this._module})`
-      );
-    }
-    return new TypescriptProgram(this._getSource, module, this._options);
-  } // fn: setModule()
-
-  /**
-   * Returns the module filename where the function is defined
-   *
-   * @returns the options for this program
-   */
-  public getOptions(): ArgOptions {
-    return this._options;
-  } // fn: getOptions()
-
-  /**
-   * Returns a new ProgramDef with the given options
-   * May only be executed on a ProgramDef where isRoot() === true.
-   *
-   * @returns new ProgramDef object
-   */
-  public setOptions(options: ArgOptions): TypescriptProgram {
-    // Requires this be a root node
-    if (!this.isRoot()) {
-      throw new Error(
-        `Cannot change module of non-root program (${this._module})`
-      );
-    }
-    return new TypescriptProgram(this._getSource, this._module, options);
-  } // fn: setOptions()
-
-  /**
-   * Returns this program's imports
-   *
-   * @returns the list of imports by identifier name
-   */
-  public getImports(): Record<IdentifierName, ProgramImport> {
-    return JSON5.parse<typeof this._imports.identifiers>(
-      JSON5.stringify(this._imports.identifiers)
-    );
-  } // fn: getImports()
-
-  /**
-   * Returns the functions defined in the program
-   *
-   * @returns the functions defined in the program
-   */
-  public getFunctions(): Record<IdentifierName, FunctionDef> {
-    const ret: Record<IdentifierName, FunctionDef> = {};
-    for (const [key, value] of Object.entries(this._functions)) {
-      if (!(key in this._functionCache)) {
-        this._functionCache[key] = FunctionDef.fromFunctionRef(
-          value,
-          this._options
-        );
-      }
-      ret[key] = this._functionCache[key];
-    }
-    return ret;
-  } // fn: getFunctions()
-
-  /**
-   * Returns the functions exported by the program
-   *
-   * @returns the functions exported by the program
-   */
-  public getExportedFunctions(): Record<IdentifierName, FunctionDef> {
-    const ret: Record<IdentifierName, FunctionDef> = {};
-    for (const [key, value] of Object.entries(this._exportedFunctions)) {
-      if (!(key in this._functionCache)) {
-        this._functionCache[key] = FunctionDef.fromFunctionRef(
-          value,
-          this._options
-        );
-      }
-      ret[key] = this._functionCache[key];
-    }
-    return ret;
-  } // fn: getExportedFunctions()
-
-  /**
-   * Returns the types defined in the program
-   *
-   * @returns the types defined in the program
-   */
-  public getTypes(): Record<string, TypeRef> {
-    return JSON5.parse<typeof this._types>(JSON5.stringify(this._types));
-  } // fn: getTypes()
-
-  /**
-   * Returns the types exported by the program
-   *
-   * @returns the types exported by the program
-   */
-  public getExportedTypes(): Record<string, TypeRef> {
-    return JSON5.parse<typeof this._exportedTypes>(
-      JSON5.stringify(this._exportedTypes)
-    );
-  } // fn: getExportedTypes()
-
-  /**
-   * Returns the default type export, if it exists.
-   *
-   * @returns the default type export or `undefined` if it does not exist
-   */
-  public getDefaultExport(): TypeRef | undefined {
-    if (this._defaultExport) {
-      return JSON5.parse<TypeRef>(JSON5.stringify(this._defaultExport));
-    } else {
-      return undefined;
-    }
-  } // fn: getExportedTypes()
+  // !!!!!!
+  protected _afterLoad(): void {
+    this._ast = undefined;
+  }
 
   /**
    * Returns the imports defined in the program
@@ -484,8 +99,12 @@ export class TypescriptProgram {
    * @param ast The parsed AST for the program
    * @returns A record of the imports defined in the program
    */
-  private _findImports(ast: ParseResult<File>): ProgramImports {
+  protected _findImports(): ProgramImports {
     const imports: ProgramImports = { programs: {}, identifiers: {} };
+    if (this._ast === undefined) {
+      throw new Error(`AST not loaded`);
+    }
+    const ast = this._ast;
 
     traverse(ast, {
       enter: (path) => {
@@ -560,8 +179,12 @@ export class TypescriptProgram {
    * @param `ast` Program AST
    * @returns A default export, if found; otherwise, `undefined`
    */
-  private _findDefaultTypeExport(ast: ParseResult<File>): TypeRef | undefined {
-    const module = this._module;
+  protected _findDefaultTypeExport(): TypeRef | undefined {
+    const filename = this._filename;
+    if (this._ast === undefined) {
+      throw new Error(`AST not loaded`);
+    }
+    const ast = this._ast;
     let defaultExport: TypeRef | undefined;
 
     // Traverse the AST and find top-level type alias declarations
@@ -584,7 +207,7 @@ export class TypescriptProgram {
                       isExported: true,
                       optional: false,
                       dims: 0,
-                      module: module,
+                      module: filename,
                       name: "default",
                       typeRefName: specifier.local.name,
                     };
@@ -592,7 +215,7 @@ export class TypescriptProgram {
 
                   default:
                     console.debug(
-                      `Unsupported implicit default export specifier '${specifier.exported.type}' in module '${module}'`
+                      `Unsupported implicit default export specifier '${specifier.exported.type}' in module '${filename}'`
                     );
                 }
               }
@@ -610,7 +233,7 @@ export class TypescriptProgram {
                   isExported: true,
                   optional: false,
                   dims: 0,
-                  module: module,
+                  module: filename,
                   name: "default",
                   typeRefName: decl.name,
                 };
@@ -623,7 +246,7 @@ export class TypescriptProgram {
                   isExported: true,
                   optional: false,
                   dims: 0,
-                  module: module,
+                  module: filename,
                   name: "default",
                   type: {
                     children: [],
@@ -637,7 +260,7 @@ export class TypescriptProgram {
 
               default: {
                 console.debug(
-                  `Unsupported explicit default export type '${path.node.declaration.type}' in module '${module}'`
+                  `Unsupported explicit default export type '${path.node.declaration.type}' in module '${filename}'`
                 );
               }
             }
@@ -654,8 +277,8 @@ export class TypescriptProgram {
       defaultExport.typeRefName &&
       defaultExport.typeRefName in this._types
     ) {
-      defaultExport.type = JSON5.parse<TypeRef["type"]>(
-        JSON5.stringify(this._types[defaultExport.typeRefName].type)
+      defaultExport.type = structuredClone(
+        this._types[defaultExport.typeRefName].type
       );
     }
 
@@ -670,8 +293,12 @@ export class TypescriptProgram {
    * @param ast Program AST
    * @returns A dictionary of type aliases defined in the program
    */
-  private _findTypes(ast: ParseResult<File>): Record<IdentifierName, TypeRef> {
-    const module = this._module;
+  protected _findTypes(): Record<IdentifierName, TypeRef> {
+    const filename = this._filename;
+    if (this._ast === undefined) {
+      throw new Error(`AST not loaded`);
+    }
+    const ast = this._ast;
 
     // List of nodes
     const types: Record<string, TypeRef> = {};
@@ -686,7 +313,7 @@ export class TypescriptProgram {
             // Throw an error for duplicate type aliases
             if (path.node.id.name in types) {
               throw new Error(
-                `Duplicate type alias '${path.node.id.name}' found in module '${module}'`
+                `Duplicate type alias '${path.node.id.name}' found in module '${filename}'`
               );
             } else {
               types[path.node.id.name] = this._getTypeRefFromAstNode(
@@ -710,7 +337,7 @@ export class TypescriptProgram {
    * @param typeRef The TypeRef object to resolve to a concrete type
    * @returns A concrete, resolved TypeRef object
    */
-  private _resolveTypeRef(typeRef: TypeRef): TypeRef {
+  public _resolveTypeRef(typeRef: TypeRef): TypeRef {
     // Handle any resolved or partially-resolved type references
     if (typeRef.type) {
       if (typeRef.type.resolved) {
@@ -738,9 +365,7 @@ export class TypescriptProgram {
       const resolvedType = this._resolveTypeRef(
         this._types[typeRef.typeRefName]
       );
-      typeRef.type = JSON5.parse<typeof resolvedType.type>(
-        JSON5.stringify(resolvedType.type)
-      );
+      typeRef.type = structuredClone(resolvedType.type);
 
       if (typeRef.type) {
         typeRef.type.dims += resolvedType.dims;
@@ -757,14 +382,15 @@ export class TypescriptProgram {
       // Lookup the import reference
       if (!(localNameParts[0] in this._imports.identifiers)) {
         throw new Error(
-          `Internal error: ${this._module} did not find local import ${localNameParts[0]}`
+          `Internal error: ${this._filename} did not find local import ${localNameParts[0]}`
         );
       }
       const importRef = this._imports.identifiers[localNameParts[0]];
 
       // Get the imported module
-      const importProgram = TypescriptProgram.fromModule(
+      const importProgram = ProgramFactory.fromFile(
         importRef.programPath,
+        this.lang,
         this._options,
         this
       );
@@ -775,18 +401,18 @@ export class TypescriptProgram {
           // Default import: create one default import
           importRef.resolved = true;
           if (
-            importProgram._defaultExport !== undefined &&
-            importProgram._defaultExport.name
+            importProgram.defaultExport !== undefined &&
+            importProgram.defaultExport.name
           ) {
-            importRef.imported = importProgram._defaultExport.name;
+            importRef.imported = importProgram.defaultExport.name;
           } else {
             throw new Error(
-              `Unable to find default type export in module '${importProgram._module}' when processing imports for module '${this._module}'`
+              `Unable to find default type export in module '${importProgram.filename}' when processing imports for module '${this._filename}'`
             );
           }
         } else {
           // Namespace import: create concrete imports for each of the imports
-          for (const exported of Object.values(importProgram._exportedTypes)) {
+          for (const exported of Object.values(importProgram.typesExported)) {
             const localName = localNameParts[0] + "." + exported.name;
             this._imports.identifiers[localName] = {
               local: localName,
@@ -812,26 +438,22 @@ export class TypescriptProgram {
         const defaultImport =
           this._imports.identifiers[typeRef.typeRefName].default;
 
-        if (defaultImport && importProgram._defaultExport) {
+        if (defaultImport && importProgram.defaultExport) {
           // Resolve default export
           const resolvedType = importProgram._resolveTypeRef(
-            importProgram._defaultExport
+            importProgram.defaultExport
           );
-          typeRef.type = JSON5.parse<typeof resolvedType.type>(
-            JSON5.stringify(resolvedType.type)
-          );
+          typeRef.type = structuredClone(resolvedType.type);
           if (typeRef.type) {
             typeRef.type.dims += resolvedType.dims;
           }
           typeRef.optional = typeRef.optional || resolvedType.optional;
-        } else if (importName in importProgram._exportedTypes) {
+        } else if (importName in importProgram.typesExported) {
           // Resolve named export
           const resolvedType = importProgram._resolveTypeRef(
-            importProgram._exportedTypes[importName]
+            importProgram.typesExported[importName]
           );
-          typeRef.type = JSON5.parse<typeof resolvedType.type>(
-            JSON5.stringify(resolvedType.type)
-          );
+          typeRef.type = structuredClone(resolvedType.type);
 
           if (typeRef.type) {
             typeRef.type.dims += resolvedType.dims;
@@ -840,12 +462,12 @@ export class TypescriptProgram {
         } else {
           // Unable to find exported type
           throw new Error(
-            `Unable to find exported type '${importName}' in module '${importProgram._module}' when processing imports for module '${this._module}`
+            `Unable to find exported type '${importName}' in module '${importProgram.filename}' when processing imports for module '${this._filename}`
           );
         }
       } else {
         throw new Error(
-          `Internal error: ${this._module} did not find import: ${typeRef.typeRefName}`
+          `Internal error: ${this._filename} did not find import: ${typeRef.typeRefName}`
         );
       }
 
@@ -860,7 +482,7 @@ export class TypescriptProgram {
    * @param importModule The module to import
    * @returns Path to the import module
    */
-  private _resolveImportModule(importModule: string): ProgramPath {
+  protected _resolveImportModule(importModule: string): ProgramPath {
     const extensions = [".ts", ".d.ts", ""];
 
     // Resolve imports relative to the current module
@@ -870,7 +492,7 @@ export class TypescriptProgram {
         if (importModule.startsWith(".")) {
           // Resolve the module relative to the current module
           const resolved = path.resolve(
-            path.dirname(this._module),
+            path.dirname(this._filename),
             importModule + ext
           );
 
@@ -880,7 +502,7 @@ export class TypescriptProgram {
           }
         } else {
           const resolved = require.resolve(importModule + ext, {
-            paths: [path.dirname(this._module)], // Resolve from the importing module's path
+            paths: [path.dirname(this._filename)], // Resolve from the importing module's path
           });
           const extension = path.extname(resolved);
 
@@ -904,7 +526,7 @@ export class TypescriptProgram {
     // Throw an exception if we did not resolve the import
     throw new Error(
       `Unable to resolve import from: '${
-        this._module
+        this._filename
       }': cannot resolve '${importModule}'. Also tried extensions: ${JSON.stringify(
         extensions
       )}.`
@@ -917,7 +539,7 @@ export class TypescriptProgram {
    * @param node An identifier, property, or type alias AST node
    * @returns The TypeRef object for the given AST node
    */
-  private _getTypeRefFromAstNode(
+  protected _getTypeRefFromAstNode(
     node:
       | Identifier
       | TSPropertySignature
@@ -962,7 +584,7 @@ export class TypescriptProgram {
 
     // Add the type alias to the running list
     const thisType: TypeRef = {
-      module: this._module,
+      module: this._filename,
       dims: 0, // override later if needed
       optional: false, // override later if needed
       isExported:
@@ -1069,7 +691,7 @@ export class TypescriptProgram {
    * @param options ArgOptions
    * @returns [type tag, dimensions, type reference name, literal value]
    */
-  private _getTypeFromAstNode(
+  protected _getTypeFromAstNode(
     node: TSTypeAnnotation | TSType | TypeAnnotation,
     options: ArgOptions
   ): [ArgTag, number, string?, ArgType?] {
@@ -1128,7 +750,7 @@ export class TypescriptProgram {
    * @param node a TSLiteralType AST node
    * @returns an ArgType literal value
    */
-  private _getLiteralValueFromNode(node: TSLiteralType): ArgType {
+  protected _getLiteralValueFromNode(node: TSLiteralType): ArgType {
     const literalNode = node.literal;
     switch (literalNode.type) {
       case "StringLiteral":
@@ -1150,7 +772,7 @@ export class TypescriptProgram {
    * @param node The AST type node or type annotation
    * @returns An array of child TypeRef objects
    */
-  private _getChildrenFromNode(
+  protected _getChildrenFromNode(
     node: TSTypeAnnotation | TSType | TypeAnnotation
   ): TypeRef[] {
     switch (node.type) {
@@ -1260,13 +882,16 @@ export class TypescriptProgram {
    * @param ast Program AST
    * @returns An object with two fields, `supported` and `unsupported`
    */
-  private _findFunctions(ast: ParseResult<File>): {
-    supported: Record<IdentifierName, FunctionRef>;
-    unsupported: Record<IdentifierName, { reason: string; node: Node }>;
+  protected _findFunctions(): {
+    supported: AbstractProgram["_functions"]["supported"];
+    unsupported: AbstractProgram["_functions"]["unsupported"];
   } {
-    const supported: Record<IdentifierName, FunctionRef> = {};
-    const unsupported: Record<IdentifierName, { reason: string; node: Node }> =
-      {};
+    if (this._ast === undefined) {
+      throw new Error(`AST not loaded`);
+    }
+    const ast = this._ast;
+    const supported: AbstractProgram["_functions"]["supported"] = {};
+    const unsupported: AbstractProgram["_functions"]["unsupported"] = {};
 
     // Traverse the AST to find function definitions
     traverse(ast, {
@@ -1289,11 +914,11 @@ export class TypescriptProgram {
         } catch (e: unknown) {
           const msg = getErrorMessageOrJson(e);
           console.debug(
-            `Error processing function '${name}' in module '${this._module}': ${msg}`
+            `Error processing function '${name}' in module '${this._filename}': ${msg}`
           );
           unsupported[name] = {
             reason: msg,
-            node: path.node,
+            node: JSON5.stringify(path.node),
           };
         }
       }, // enter
@@ -1316,7 +941,7 @@ export class TypescriptProgram {
    * @param parent The parent node of the node to analyze
    * @returns A FunctionRef if the node is a supported function
    */
-  private _getFunctionFromNode(
+  protected _getFunctionFromNode(
     name: string,
     path: NodePath<Node>,
     parent: NodePath<Node> | undefined
@@ -1352,7 +977,7 @@ export class TypescriptProgram {
       }
       return {
         name,
-        module: this._module,
+        module: this._filename,
         src: parent.node.kind + " " + this._src.slice(...path.node.range),
         startOffset: path.node.range[0],
         endOffset: path.node.range[1],
@@ -1389,7 +1014,7 @@ export class TypescriptProgram {
       }
       return {
         name,
-        module: this._module,
+        module: this._filename,
         src: this._src.slice(...path.node.range),
         startOffset: path.node.range[0],
         endOffset: path.node.range[1],
@@ -1412,7 +1037,7 @@ export class TypescriptProgram {
    * @param `path` function declaration node
    * @returns the leading comment, if found; `undefined` otherwise
    */
-  private getFunctionComment(
+  protected getFunctionComment(
     path: NodePath<VariableDeclarator | FunctionDeclaration>
   ): string | undefined {
     let thisPath: NodePath<Node> = path;
@@ -1435,4 +1060,40 @@ export class TypescriptProgram {
     }
     return undefined;
   } // fn: getFunctionComment
-} // class: ProgramDef
+} // class: TypescriptProgram
+
+/**
+ * Gets a qualified identifier name for a given entity node
+ *
+ * @param node The node to get the identifier name for
+ * @returns Qualified name as a string
+ */
+function getIdentifierName(node: TSEntityName): string {
+  switch (node.type) {
+    case "Identifier": {
+      return node.name;
+    }
+    case "TSQualifiedName": {
+      return getIdentifierName(node.left) + "." + node.right.name;
+    }
+  }
+} // fn: getIdentifierName()
+
+/**
+ * Determines whether an AST node is block scoped
+ * Note: Requires that nodes have the parent property set
+ *
+ * @param `node` The node to check
+ * @returns `true` if the node is block scoped, `false` otherwise
+ */
+function isBlockScoped(node: NodePath<Node>): boolean {
+  let thisNode = node;
+  while (thisNode.parentPath) {
+    if (thisNode.parentPath.node.type === "BlockStatement") {
+      return true; // block scoped
+    } else {
+      thisNode = thisNode.parentPath; // move up the tree
+    }
+  }
+  return false; // at root; block not encountered
+} // fn: isBlockScoped()
