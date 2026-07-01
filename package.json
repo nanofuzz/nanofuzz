@@ -283,7 +283,7 @@
   },
   "dependencies": {
     "@babel/core": "^7.27.1",
-    "@node-llm/core": "^1.14.1",
+    "@node-llm/core": "^1.16.2",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/codicons": "^0.0.45",
     "@vscode/webview-ui-toolkit": "^1.2.2",

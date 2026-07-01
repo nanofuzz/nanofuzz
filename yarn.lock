@@ -694,10 +694,10 @@
   dependencies:
     exenv-es6 "^1.1.1"
 
-"@node-llm/core@^1.14.1":
-  version "1.14.1"
-  resolved "https://registry.yarnpkg.com/@node-llm/core/-/core-1.14.1.tgz#5cbe3399c7e55e831addecc196a648cbbb62d81a"
-  integrity sha512-3/sgGbcLWXHvnh4nlFvKvv/VEPi4Yv9rUU1klyTw1pnQpTy6G/DcSeikL+OIZ/fbohVNrr5neER1Qh7qKS9CIQ==
+"@node-llm/core@^1.16.2":
+  version "1.16.2"
+  resolved "https://registry.yarnpkg.com/@node-llm/core/-/core-1.16.2.tgz#61017926700c7ddb6de756321c8c2633b55d714c"
+  integrity sha512-0pybx+JGt2kNx8ajvDKb4virIlshg60fdFnUi0N2eUplb2rjGixRZl3Kjwm53T3AHJpoCUKNnW9h1m+giAR4Ew==
   dependencies:
     zod "^3.23.8"
     zod-to-json-schema "^3.25.1"
