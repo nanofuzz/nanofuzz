@@ -216,7 +216,7 @@ describe("fuzzer:", () => {
 
   it("Fuzz example 15 - coverageOneFile", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testCoverageOneFile",
       {
         ...intOptions,
@@ -259,7 +259,7 @@ describe("fuzzer:", () => {
 
   it("Fuzz example 16 - coverageMultiFile", async () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testCoverageMultiFile",
       intOptions
     ).testSync();
@@ -290,7 +290,7 @@ describe("fuzzer:", () => {
    */
   it("Fuzz example 17 - dimensioned typerefs", () => {
     const tester = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testDimensionedTypeRefs",
       {
         ...intOptions,
@@ -340,7 +340,7 @@ describe("fuzzer:", () => {
    */
   it("Fuzz target cannot change fuzzer input record", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testChangeInput",
       intOptions
     ).testSync();
@@ -360,7 +360,7 @@ describe("fuzzer:", () => {
    */
   it("Standard fn void fuzz target fails if return is !==undefined", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnNumber",
       intOptions
     ).testSync();
@@ -372,7 +372,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow fn void fuzz target fails if return is !==undefined", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnNumber",
       intOptions
     ).testSync();
@@ -389,7 +389,7 @@ describe("fuzzer:", () => {
    */
   it("Standard fn void fuzz target passes if return is undefined", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnUndefined",
       intOptions
     ).testSync();
@@ -401,7 +401,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow fn void fuzz target passes if return is undefined", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnUndefined",
       intOptions
     ).testSync();
@@ -418,7 +418,7 @@ describe("fuzzer:", () => {
    */
   it("Standard fn void fuzz target fails if exception is thrown", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnException",
       intOptions
     ).testSync();
@@ -431,7 +431,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow fn void fuzz target fails if exception is thrown", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnException",
       intOptions
     ).testSync();
@@ -449,7 +449,7 @@ describe("fuzzer:", () => {
    */
   it("Standard void literal arg fuzz target", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidLiteralArgs",
       intOptions
     ).testSync();
@@ -461,7 +461,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow void literal arg fuzz target", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidLiteralArgs",
       intOptions
     ).testSync();
@@ -477,7 +477,7 @@ describe("fuzzer:", () => {
    */
   it("Standard union arg fuzz target", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testStandardUnionArgs",
       intOptions
     ).testSync();
@@ -489,7 +489,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow union arg fuzz target", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testArrowUnionArgs",
       intOptions
     ).testSync();
@@ -505,7 +505,7 @@ describe("fuzzer:", () => {
    */
   it("Optional boolean inputs", () => {
     const fuzzResult = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./fuzzer_testfixtures/Fuzzer.testfixtures.ts",
       "testBoolean",
       intOptions
     ).testSync();
@@ -545,5 +545,23 @@ describe("fuzzer:", () => {
         r.some((e) => e.input.length && e.input[0].value === false)
       ).toBeTruthy();
     });
+  });
+});
+
+/**
+ * Tests for type references and imports.
+ */
+describe("fuzzer: type references and imports", () => {
+  it("Simple default import", () => {
+    const fuzzResult = new Tester(
+      "./fuzzer_testfixtures/type_references_and_imports.ts",
+      "test1",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(
+      fuzzResult.results.every((e) => e.passedImplicit === "pass")
+    ).toBeTruthy();
   });
 });
