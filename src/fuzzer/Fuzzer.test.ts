@@ -242,7 +242,7 @@ describe("fuzzer:", () => {
       fuzzResult.results.some((e) => e.input[0].value === "bugs")
     ).toBeTruthy();
 
-    // Expect that some of the validtor tests will pass
+    // Expect that some of the validator tests will pass
     expect(
       fuzzResult.results.some((e) =>
         e.passedValidators.some((v) => v === "pass")

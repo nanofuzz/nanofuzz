@@ -29,8 +29,13 @@ export abstract class AbstractRunner {
    * @param `inputs` test inputs
    * @param timeout  timeout threshold
    */
-  public abstract run(
-    inputs: unknown[],
-    timeout?: number
-  ): [unknown, VmGlobals];
+  public abstract run(inputs: unknown[], timeout?: number): RunnerResult;
 }
+
+export type RunnerResult = {
+  result:
+    | { tag: "timeout" }
+    | { tag: "error"; name: string; message: string; stack?: string }
+    | { tag: "value"; value: unknown };
+  env: VmGlobals;
+};

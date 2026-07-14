@@ -1,3 +1,4 @@
+import { PythonProgram } from "../analysis/python/PythonProgram";
 import { FuzzEnv } from "../Fuzzer";
 import { AbstractRunner } from "./AbstractRunner";
 import { JavascriptRunner } from "./JavascriptRunner";
@@ -18,7 +19,7 @@ export function RunnerFactory(
   fn: string
 ): AbstractRunner {
   if (typeof module === "string") {
-    if (module.endsWith(".py")) {
+    if (PythonProgram.understands({ filename: module })) {
       return new PythonRunner(module, fn);
     } else {
       throw new Error("Not yet implemented");

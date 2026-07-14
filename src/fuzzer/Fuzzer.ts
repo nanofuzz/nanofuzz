@@ -21,13 +21,14 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
-import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
+import { isError } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
+import { TypescriptProgram } from "./analysis/typescript/TypescriptProgram";
 
 export class Tester {
   protected _module: string; // module filename
@@ -470,8 +471,13 @@ export class Tester {
     // it to JavaScript (and possibly instrument it) prior to execution.
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
-    this._lastCompiler = new compiler.TypescriptCompiler(fqSrcFile);
-    const mod = this._lastCompiler.compileSync(this._measures, update);
+    const isNativeTs = TypescriptProgram.understands({ filename: fqSrcFile });
+    if (isNativeTs) {
+      this._lastCompiler = new compiler.TypescriptCompiler(fqSrcFile);
+    }
+    const mod = this._lastCompiler
+      ? this._lastCompiler.compileSync(this._measures, update) // native ts
+      : fqSrcFile; // something other than native ts
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
     // Build a test runner for executing tests
@@ -726,33 +732,57 @@ export class Tester {
         pct: typeof stopCondition === "number" ? stopCondition : 100,
       });
 
-      // Call the function via the runner
+      // Call the PUT via its runner
       const startRunTime = performance.now(); // start timer
+      let exeOutput: ReturnType<(typeof runner)["run"]>;
       try {
-        const inputValues = result.input.map((e) => e.value);
-        const [exeOutput] = runner.run(
-          JSON5.parse<typeof inputValues>(JSON5.stringify(inputValues)),
+        exeOutput = runner.run(
+          structuredClone(result.input.map((e) => e.value)),
           this._options.fnTimeout
-        ); // <-- Runner (protect the input)
-        result.output.push({
-          name: "0",
-          offset: 0,
-          value: exeOutput as ArgValueType,
-          origin: { type: "put" },
-        });
-        result.timers.run = performance.now() - startRunTime; // stop timer
+        );
       } catch (e: unknown) {
-        result.timers.run = performance.now() - startRunTime; // stop timer
-        const msg = getErrorMessageOrJson(e);
-        const stack = isError(e) ? e.stack : "<no stack>";
-        if (isTimeoutError(e)) {
-          result.timeout = true;
+        if (isError(e)) {
+          exeOutput = {
+            result: {
+              tag: "error",
+              name: e.name,
+              message: e.message,
+              stack: e.stack ?? "<no stack>",
+            },
+            env: {},
+          };
         } else {
-          result.exception = true;
-          result.exceptionMessage = msg;
-          result.stack = stack;
+          exeOutput = {
+            result: {
+              tag: "error",
+              name: "unknown internal runner error",
+              message: "unknown",
+              stack: "<no stack>",
+            },
+            env: {},
+          };
         }
       }
+      result.timers.run = performance.now() - startRunTime; // stop timer
+      switch (exeOutput.result.tag) {
+        case "value":
+          result.output.push({
+            name: "0",
+            offset: 0,
+            value: exeOutput.result.value as ArgValueType,
+            origin: { type: "put" },
+          });
+          break;
+        case "error":
+          result.exception = true;
+          result.exceptionMessage = exeOutput.result.message;
+          result.stack = exeOutput.result.stack;
+          break;
+        case "timeout":
+          result.timeout = true;
+          break;
+      }
+
       this._results.stats.timers.put += result.timers.run;
       if (genStats) {
         genStats.timers.run += result.timers.run;
@@ -988,10 +1018,13 @@ const isOptionValid = (options: FuzzOptions): boolean => {
  * @param param1
  * @returns
  */
-export function functionTimeout(function_: any, timeout: number): any {
+export function functionTimeout(
+  function_: (...inputs: unknown[]) => unknown,
+  timeout: number
+): (...inputs: unknown[]) => unknown {
   const script = new vm.Script("returnValue = function_()");
 
-  const wrappedFunction = (...arguments_: ArgValueType[]) => {
+  const wrappedFunction = (...arguments_: unknown[]) => {
     const context = {
       returnValue: undefined,
       function_: () => function_(...arguments_),
@@ -1009,22 +1042,6 @@ export function functionTimeout(function_: any, timeout: number): any {
 
   return wrappedFunction;
 } // fn: functionTimeout()
-
-/**
- * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
- *
- * Returns true if the exception is a timeout.
- *
- * @param error exception
- * @returns true if the exeception is a timeout exception, false otherwise
- */
-export function isTimeoutError(error: unknown): boolean {
-  return (
-    isError(error) &&
-    "code" in error &&
-    error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT"
-  );
-} // fn: isTimeoutError()
 
 /**
  * Returns a list of validator FunctionRefs found within the ProgramDef

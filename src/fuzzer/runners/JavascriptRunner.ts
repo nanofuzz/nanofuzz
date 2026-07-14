@@ -1,5 +1,6 @@
-import { AbstractRunner } from "./AbstractRunner";
+import { AbstractRunner, RunnerResult } from "./AbstractRunner";
 import { VmGlobals } from "../Types";
+import { isError } from "../Util";
 import vm from "vm";
 
 /**
@@ -8,7 +9,7 @@ import vm from "vm";
 export class JavascriptRunner extends AbstractRunner {
   protected readonly _module: NodeJS.Module; // Node module
   protected readonly _jsFn: string; // Function to call
-  protected _fnWrapper: any; // wrapper function for calling `jsFn`
+  protected _fnWrapper; // wrapper function for calling `jsFn`
 
   /**
    * Create a new Javascript function runner
@@ -40,7 +41,7 @@ export class JavascriptRunner extends AbstractRunner {
     }
 
     // Build function wrapper that we will call with inputs
-    this._fnWrapper = this.functionTimeout((inputs: unknown[]): unknown => {
+    this._fnWrapper = this.functionTimeout((...inputs: unknown[]): unknown => {
       return fnToCall(...inputs);
     });
   } // fn: constructor
@@ -52,11 +53,48 @@ export class JavascriptRunner extends AbstractRunner {
    * @param `timeout` stop and fail after `timeout` ms
    * @returns
    */
-  public run(
-    inputs: unknown[],
-    timeout: number | undefined = 0
-  ): [unknown, VmGlobals] {
-    return this._fnWrapper(timeout, inputs);
+  public run(inputs: unknown[], timeout: number | undefined = 0): RunnerResult {
+    try {
+      const [outputs, context] = this._fnWrapper(timeout, ...inputs);
+      return {
+        result: {
+          tag: "value",
+          value: outputs,
+        },
+        env: context,
+      };
+    } catch (e: unknown) {
+      if (isTimeoutError(e)) {
+        return {
+          result: {
+            tag: "timeout",
+          },
+          env: {},
+        };
+      } else {
+        if (isError(e)) {
+          return {
+            result: {
+              tag: "error",
+              name: e.name,
+              message: e.message,
+              stack: e.stack,
+            },
+            env: {},
+          };
+        } else {
+          return {
+            result: {
+              tag: "error",
+              name: "UnknownJavsscriptRunnerError",
+              message: "unknown",
+              stack: "<no stack>",
+            },
+            env: {},
+          };
+        }
+      }
+    }
   } // fn: run
 
   /**
@@ -70,7 +108,12 @@ export class JavascriptRunner extends AbstractRunner {
    * @param param1
    * @returns
    */
-  private functionTimeout(function_: any): any {
+  private functionTimeout(
+    function_: (...inputs: unknown[]) => unknown
+  ): (
+    timeout: number | undefined,
+    ...arguments_: unknown[]
+  ) => [unknown, VmGlobals] {
     const script = new vm.Script(`returnValue = function_();`);
 
     const wrappedFunction = (
@@ -99,3 +142,19 @@ export class JavascriptRunner extends AbstractRunner {
     return wrappedFunction;
   } // fn: functionTimeout()
 } // class: JavascriptRunner
+
+/**
+ * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
+ *
+ * Returns true if the exception is a timeout.
+ *
+ * @param error exception
+ * @returns true if the exeception is a timeout exception, false otherwise
+ */
+function isTimeoutError(error: unknown): boolean {
+  return (
+    isError(error) &&
+    "code" in error &&
+    error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT"
+  );
+} // fn: isTimeoutError()
