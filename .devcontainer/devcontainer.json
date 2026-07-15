@@ -9,6 +9,9 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "version": "22"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.13"
     }
   },
 
@@ -16,7 +19,11 @@
   // "forwardPorts": [],
 
   // Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "yarn install"
+  "postCreateCommand": [
+    "python -m venv .",
+    "yarn install",
+    "pip install -r requirements.txt"
+  ]
 
   // Configure tool-specific properties.
   // "customizations": {},

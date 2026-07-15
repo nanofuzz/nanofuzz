@@ -14,15 +14,14 @@ jobs:
       # Visual Studio Code Extension
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Set up Python
+      - name: Install Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
-      - name: Setup Pytest
-        run: |
-          python -m pip install --upgrade pip
-          pip install pytest
-      - uses: actions/setup-node@v4
+          python-version: 3.13
+      - name: Create Python virtual env
+        run: python -m venv .
+      - name: Install Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: yarn
@@ -31,8 +30,10 @@ jobs:
         uses: crazy-max/ghaction-chocolatey@v4
         with:
           args: install python visualstudio2022-workload-vctools -y
-      - name: Install packages
+      - name: Install yarn packages
         run: yarn
+      - name: Install Python packages
+        run: pip install -r requirements.txt
       - name: Run all builds
         run: yarn build
       - name: Run Typescript tests
@@ -41,7 +42,7 @@ jobs:
         run: pytest
 
       # npm runtime package
-      - name: Install packages
+      - name: Install Yarn packages
         working-directory: packages/runtime
         run: yarn
       - name: Check for matching version numbers
