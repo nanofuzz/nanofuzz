@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import * as fs from "node:fs";
 import * as esbuild from "esbuild";
 import copyfiles from "copyfiles";
 import * as rimraf from "rimraf";
@@ -13,6 +14,24 @@ copyfiles(["./src/ui/*.css", "./build/ui"], true /* flat */, () =>
 copyfiles(["./src/ui/*.svg", "./build/ui"], true /* flat */, () =>
   console.log("copied svg assets")
 );
+
+// Copy PythonRunnerHost.py
+copyfiles(
+  ["./src/fuzzer/runners/PythonRunnerHost.py", "./build/extension"],
+  true,
+  () => console.log("copied .py runner")
+);
+
+// Copy Python imports
+[{ name: "json5" }].forEach((pkg) => {
+  fs.cpSync(
+    `./.venv/lib/python3.13/site-packages/${pkg.name}`,
+    `./build/extension/${pkg.name}`,
+    { recursive: true }
+  );
+  rimraf.sync(`./build/extension/${pkg.name}/__pycache__`);
+  console.log(`copied .py ${pkg.name}`);
+});
 
 // VSCode Web Extension Back-end
 await esbuild.build({

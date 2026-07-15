@@ -30,21 +30,35 @@ export class PythonRunner extends AbstractRunner {
    * @returns [an unknown output type,environment]
    */
   public run(inputs: unknown[], timeout: number | undefined = 0): RunnerResult {
-    // !!!!!!!!!! wrap python function to return json
-    const result = ChildProcess.spawnSync(
-      "python3",
-      [this._filename, this._fn, ...inputs.map((i) => JSON5.stringify(i))],
-      {
-        cwd: path.dirname(this._filename),
-        timeout: timeout,
-        windowsHide: true,
-      }
-    );
+    const filenameBase = path.basename(this._filename);
+    const args = [
+      path.resolve(
+        path.join(
+          path.dirname(path.resolve(module.filename)),
+          "PythonRunnerHost.py"
+        )
+      ),
+      this._filename,
+      filenameBase.substring(
+        0,
+        filenameBase.length - path.extname(filenameBase).length
+      ),
+      this._fn,
+      ...inputs.map((i) => JSON5.stringify(i)),
+    ];
+    const result = ChildProcess.spawnSync("python3", args, {
+      cwd: path.dirname(module.filename),
+      timeout: timeout, // !!!!!!!!!!
+      windowsHide: true,
+    });
     console.debug(`-----------------------------`);
+    console.debug(`args  : ${JSON5.stringify(args)}`);
     console.debug(`stdout: (raw) ${result.stdout}`);
     console.debug(`stderr: (raw) ${result.stderr}`);
     console.debug(`error : (raw) ${result.error}`);
     console.debug(`status: (raw) ${result.status}`);
+    console.debug(`output: (raw) ${result.output}`);
+
     if (result.error) {
       if (result.error.message === "spawnSync python3 ETIMEDOUT") {
         return {
