@@ -495,6 +495,7 @@ export class PythonProgram extends AbstractProgram {
       case "binary_operator":
         return [ArgTag.UNION, 0];
       case "member_type":
+      case "attribute":
         return [ArgTag.UNRESOLVED, 0, node.text];
       default:
         throw new Error(
@@ -530,6 +531,7 @@ export class PythonProgram extends AbstractProgram {
       case "none":
       case "string":
       case "member_type":
+      case "attribute":
         return [];
 
       // PEP 604 `A | B` parses to `binary_operator`; `union_type` is handled
@@ -607,9 +609,14 @@ export class PythonProgram extends AbstractProgram {
         // `name` is the parameter (variable) name — the `identifier` child —
         // matching the TS backend, which sets `name` to the entity name, not
         // the type. The type itself comes from the `type` field.
-        thisType.name = node.namedChildren.find(
-          (c) => c.type === "identifier"
-        )?.text;
+        const pattern = node.namedChildren.find(
+          (c) =>
+            c.type === "list_splat_pattern" ||
+            c.type === "dictionary_splat_pattern"
+        );
+        thisType.name =
+          node.namedChildren.find((c) => c.type === "identifier")?.text ??
+          pattern?.firstNamedChild?.text;
         typeNode = node.childForFieldName("type") ?? node;
         break;
       }
@@ -693,7 +700,10 @@ export class PythonProgram extends AbstractProgram {
       isVoid: false,
       args: argsNode?.node.namedChildren
         .filter(
-          (arg) => arg.type === "identifier" || arg.type === "typed_parameter"
+          (arg) =>
+            arg.type === "identifier" ||
+            arg.type === "typed_parameter" ||
+            arg.type === "typed_default_parameter"
         )
         .map((arg) => this._getTypeRefFromAstNode(arg)),
       returnType: undefined,
@@ -737,7 +747,10 @@ export class PythonProgram extends AbstractProgram {
       isVoid,
       args: argsNode?.node.namedChildren
         .filter(
-          (arg) => arg.type === "identifier" || arg.type === "typed_parameter"
+          (arg) =>
+            arg.type === "identifier" ||
+            arg.type === "typed_parameter" ||
+            arg.type === "typed_default_parameter"
         )
         .map((arg) => this._getTypeRefFromAstNode(arg)),
       returnType,

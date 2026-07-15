@@ -24,7 +24,7 @@ The `nanofuzz/nanofuzz` repository is already configured for this to work withou
 Be sure you have these tools installed:
 
 - [Git][]
-- [Node.js][] v16+ (if using Linux or Mac, we recommend installing via [nvm][])
+- [Node.js][] v22+ (if using Linux or Mac, we recommend installing via [nvm][])
 - [Yarn][] v1.x
 
 If you're using [Nix][], all dependencies other than Git will be automatically provided by the `flake.nix` file in this repo once you've cloned it.
@@ -94,13 +94,18 @@ To run the local version of the NaNofuzz extension:
 
 ## Contributing
 
+NaNofuzz is an open science project that aims to help software engineers write
+better tests that find more bugs in less time during active development. Community 
+contributions that align with these aims are important to our project,
+and we encourage folks to collaborate with us to make NaNofuzz better!
+
 ### Creating your fork
 
 If you'd like to make a change and contribute it back to the project, but you
 don't have write permissions to this repository, you'll need to [create a
-fork][]. Click the **Fork** button in the top-right corner of this page.
+fork][]. Click the **Fork** button in the top-right corner of the `nanofuzz/nanofuzz` repo's home page.
 
-You should already have a clone of this repo by following the instructions at
+You should already have a clone of this repo if you followed the instructions at
 the start of this document, so now you simply need to add your fork as another
 [remote][]:
 
@@ -112,8 +117,8 @@ git remote add fork https://github.com/<your-github-account-name>/nanofuzz.git
 
 Check out our list of [good first issues][].
 
-- Before working on one of them, let us know that you are interested so we can
-  give you more guidance! (Currently the issue descriptions are fairly brief.)
+- Before working on a particular issue, let us know that you are interested in it by commenting
+  in the issue so we can provide guidance and background that might help you with the change.
 
 - Create a separate [branch][] in your forked repo to work on the issue:
 
@@ -140,7 +145,7 @@ git push
 
 ### Adding tests
 
-For some PRs, it can be helpful to add tests that help verify the correctness of new features, and which ensure features don't break in future versions. Tests can be added to new or existing `.test.ts` files.
+For most PRs, it can be helpful to add tests that help verify the correctness of new features and that help ensure existing features don't break in future changes. Tests can be added to new or existing `.test.ts` files. We currently use Jasmine for NaNofuzz' unit tests, partially because Jest prohibits hooking `require()`, which NaNofuzz currently uses to transpile TypeScript on-the-fly during module loads.
 
 ### Opening a pull request (PR)
 
@@ -151,14 +156,14 @@ When your work is ready for review:
   (`https://github.com/<your-github-account-name>/nanofuzz`).
 - Put `fix:` or `feat:` or `chore:` at the beginning of the PR title depending on if it's a
   fix or a feature. We follow [conventional commit guidelines][].
-- Document your changes and rationale in the PR's description (including link(s) to any issue(s) you address).
-- Some things will be checked automatically by our [CI][]:
-  - Make sure the system passes the regression tests (`yarn test`).
-- If you have permission, request review from the relevant person. Otherwise, no
-  worries: we'll take a look at your PR and assign it to a maintainer.
-- When your PR is approved, a maintainer will merge it.
+- If the change is a work in progress not yet ready for review, create the PR as a draft and prefix the title with `[WIP]`.
+- Document your changes and rationale for the change in the PR's description (including a link to any issues you PR addresses).
+- Make sure the system passes the regression tests locally (`yarn test`).
+- If you have permission, request review from the relevant maintainer. Otherwise, we'll take a look at your PR unless the PR is a draft and has the prefix `[WIP]`.
+- A maintainer might give tips or suggestions in the discussion that you might consider and address prior to the change being merged.
+- Once your PR is approved, a maintainer will merge it. Congratulations on a successful contribution!
 
-If you hit any snags in the process, run into bugs, or just have questions, please file an issue!
+If you hit any snags in the process, run into bugs, or just have questions, please open an issue.
 
 ## Release
 
