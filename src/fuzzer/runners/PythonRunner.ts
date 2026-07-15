@@ -2,6 +2,7 @@ import { AbstractRunner, RunnerResult } from "./AbstractRunner";
 import JSON5 from "json5";
 import * as ChildProcess from "node:child_process";
 import * as path from "node:path";
+import { isError } from "../Util";
 
 /**
  * Python runner
@@ -89,16 +90,30 @@ export class PythonRunner extends AbstractRunner {
         env: {},
       };
     }
-    return {
-      result: {
-        tag: "value",
-        value: [
-          result.output.map(
-            (o) => (o === null ? undefined : "somevalue") // <-- !!!!!!!!!! Buffer.from(o).toString("base64")
-          ),
-        ], // !!!!!!!!!! too many arrays
-      },
-      env: {},
-    };
+
+    let parsedOutput: { stdout: string; output: unknown };
+    try {
+      parsedOutput = JSON5.parse(`${result.stdout}`);
+      return {
+        result: {
+          tag: "value",
+          value: parsedOutput.output,
+        },
+        env: {},
+      };
+    } catch (e: unknown) {
+      const error = isError(e);
+      return {
+        result: {
+          tag: "error",
+          name: error ? e.name : "JsonParseError",
+          message: error
+            ? `${e.message}: ${result.stdout}`
+            : `Internal error: unable to parse JSON output: ${result.stdout}`,
+          stack: error ? e.stack : "<no stack>",
+        },
+        env: {},
+      };
+    }
   } // fn: run
 } // class: PythonRunner

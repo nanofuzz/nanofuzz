@@ -1,7 +1,9 @@
 import importlib.util
+from contextlib import redirect_stdout
 import json5
 import sys
 import os
+import io
 
 filename: str
 fnname: str
@@ -39,13 +41,20 @@ if __name__ == "__main__":
     # De-serialize arguments for calling the function
     args = [json5.loads(a) for a in sys.argv[4:]]
         
-    fn = loadPythonFn(filename, modulename, fnname)
+    stdoutLoad = io.StringIO()
+    with redirect_stdout(stdoutLoad):
+        fn = loadPythonFn(filename, modulename, fnname)
     
+    # Change cwd from the extension to that of the Python script
+    os.chdir(os.path.dirname(filename))
+
     try:
-        print(f"cwd was: {os.getcwd()}")
-        os.chdir(os.path.dirname(filename))
-        print(f"cwd now: {os.getcwd()}")
-        output = json5.dumps(fn(*args))
-        print(f"Result: {output}")
+        stdoutRun = io.StringIO()
+        with redirect_stdout(stdoutRun):
+            output = fn(*args)
+        print(json5.dumps({
+            "stdout": stdoutRun.getvalue(),
+            "output": output
+        }))
     except Exception as e:
         print(f"Error: {e}")
