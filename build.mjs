@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as esbuild from "esbuild";
 import copyfiles from "copyfiles";
 import * as rimraf from "rimraf";
+import path from "node:path";
 
 // Clear the build folder
 rimraf.sync("./build");
@@ -25,8 +26,8 @@ copyfiles(
 // Copy Python imports
 [{ name: "json5" }].forEach((pkg) => {
   fs.cpSync(
-    `./.venv/lib/python3.13/site-packages/${pkg.name}`,
-    `./build/extension/${pkg.name}`,
+    path.join(`.`, `.venv`, `lib`, `python3.13`, `site-packages`, pkg.name),
+    path.join(`.`, `build`, `extension`, pkg.name),
     { recursive: true }
   );
   rimraf.sync(`./build/extension/${pkg.name}/__pycache__`);
