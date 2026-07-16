@@ -23,12 +23,12 @@ jobs:
       - name: Install Python packages (Windows)
         if: runner.os == 'Windows'
         run: |
-          .venv\Scripts\activate
+          source .venv\Scripts\activate
           pip install -r requirements.txt
       - name: Install Python packages (Linux, MacOS)
         if: runner.os != 'Windows'
         run: |
-          .venv/bin/activate;which pip;which pip3
+          source .venv/bin/activate;which pip;which pip3
           which python
           which python3
           pip install -r requirements.txt
