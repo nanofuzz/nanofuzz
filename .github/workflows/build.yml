@@ -28,7 +28,12 @@ jobs:
       - name: Install Python packages (Linux, MacOS)
         if: runner.os != 'Windows'
         run: |
-          .venv/bin/activate;pip install -r requirements.txt
+          .venv/bin/activate
+          which pip
+          which pip3
+          which python
+          which python3
+          pip install -r requirements.txt
       - name: ls project
         if: runner.os == 'Linux'
         run: |
