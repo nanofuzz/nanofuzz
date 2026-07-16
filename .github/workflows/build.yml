@@ -20,6 +20,8 @@ jobs:
           python-version: 3.13
       - name: Create Python virtual env
         run: python -m venv .venv
+      - name: ls project
+        run: ls -a
       - name: Install Node
         uses: actions/setup-node@v4
         with:
