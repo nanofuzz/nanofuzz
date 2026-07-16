@@ -20,6 +20,12 @@ jobs:
           python-version: 3.13
       - name: Create Python virtual env
         run: python -m venv .venv
+      - name: Activate Python venv (Windows)
+        if: runner.os == 'Windows'
+        run: .venv\Scripts\activate
+      - name: Activate Python venv (Linux, MacOS)
+        if: runner.os != 'Windows'
+        run: .venv/bin/activate
       - name: Install Python packages
         run: pip install -r requirements.txt
       - name: ls project
