@@ -20,6 +20,8 @@ jobs:
           python-version: 3.13
       - name: Create Python virtual env
         run: python -m venv .venv
+      - name: Install Python packages
+        run: pip install -r requirements.txt
       - name: ls project
         if: runner.os == 'Linux'
         run: |
@@ -28,8 +30,6 @@ jobs:
           ls -a ./.venv/lib
           ls -a ./.venv/lib/python3.13
           ls -a ./.venv/lib/python3.13/site-packages
-      - name: Install Python packages
-        run: pip install -r requirements.txt
       - name: Install Node
         uses: actions/setup-node@v4
         with:
