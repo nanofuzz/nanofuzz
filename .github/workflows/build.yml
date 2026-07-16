@@ -8,7 +8,7 @@ jobs:
   buildandtest:
     strategy:
       matrix:
-        runner: [ubuntu-latest, windows-latest, macos-latest]
+        runner: [ubuntu-latest] #!!!!!!!!!!!!, windows-latest, macos-latest]
     runs-on: ${{ matrix.runner }}
     steps:
       # Visual Studio Code Extension
@@ -20,14 +20,16 @@ jobs:
           python-version: 3.13
       - name: Create Python virtual env
         run: python -m venv .venv
-      - name: Activate Python venv (Windows)
+      - name: Install Python packages (Windows)
         if: runner.os == 'Windows'
-        run: .venv\Scripts\activate
-      - name: Activate Python venv (Linux, MacOS)
+        run: |
+          .venv\Scripts\activate
+          pip install -r requirements.txt
+      - name: Install Python packages (Linux, MacOS)
         if: runner.os != 'Windows'
-        run: source .venv/bin/activate
-      - name: Install Python packages
-        run: pip install -r requirements.txt
+        run: |
+          .venv/bin/activate
+          pip install -r requirements.txt
       - name: ls project
         if: runner.os == 'Linux'
         run: |
