@@ -22,7 +22,14 @@ jobs:
         run: python -m venv .venv
       - name: ls project
         if: runner.os == 'Linux'
-        run: ls -a
+        run: |
+          ls -a
+          ls -a ./.venv
+          ls -a ./.venv/lib
+          ls -a ./.venv/lib/python3.13
+          ls -a ./.venv/lib/python3.13/site-packages
+      - name: Install Python packages
+        run: pip install -r requirements.txt
       - name: Install Node
         uses: actions/setup-node@v4
         with:
@@ -35,8 +42,6 @@ jobs:
           args: install python visualstudio2022-workload-vctools -y
       - name: Install yarn packages
         run: yarn
-      - name: Install Python packages
-        run: pip install -r requirements.txt
       - name: Run all builds
         run: yarn build
       - name: Run Typescript tests
