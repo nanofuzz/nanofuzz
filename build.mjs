@@ -26,8 +26,10 @@ copyfiles(
 // Copy Python imports
 [{ name: "json5" }].forEach((pkg) => {
   fs.cpSync(
-    path.join(`.`, `.venv`, `lib`, `python3.13`, `site-packages`, pkg.name),
-    path.join(`.`, `build`, `extension`, pkg.name),
+    fs.existsSync(`./.venv/lib/python3.13`)
+      ? `./.venv/lib/python3.13/site-packages/${pkg.name}` // Linux, Mac
+      : `./.venv/lib/site-packages/${pkg.name}`, // Windows
+    `./build/extension/${pkg.name}`,
     { recursive: true }
   );
   rimraf.sync(`./build/extension/${pkg.name}/__pycache__`);
