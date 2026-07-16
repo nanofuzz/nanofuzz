@@ -23,7 +23,7 @@ jobs:
       - name: Install Python packages (Windows)
         if: runner.os == 'Windows'
         run: |
-          source .venv\Scripts\activate
+          .venv\Scripts\activate
           pip install -r requirements.txt
       - name: Install Python packages (Linux, MacOS)
         if: runner.os != 'Windows'
@@ -57,7 +57,7 @@ jobs:
       - name: Run Python tests (Windows)
         if: runner.os == 'Windows'
         run: |
-          source .venv\Scripts\activate
+          .venv\Scripts\activate
           pytest
       - name: Run Python tests (Linux, MacOS)
         if: runner.os != 'Windows'
