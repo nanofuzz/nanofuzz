@@ -26,14 +26,15 @@ Be sure you have these tools installed:
 - [Git][]
 - [Node.js][] v22+ (if using Linux or Mac, we recommend installing via [nvm][])
 - [Yarn][] v1.x
+- [python][] v3.13+
 
 If you're using [Nix][], all dependencies other than Git will be automatically provided by the `flake.nix` file in this repo once you've cloned it.
 
-If you're using Windows, you also need to install the VC++ bits needed to build `tree-sitter`.
+If you're using Windows, install the VC++ bits needed to build `tree-sitter`.
 More details may be found [here](https://github.com/nodejs/node-gyp#on-windows).
 You can use Cocolatey for this:
 
-```
+```cmd
 choco install python visualstudio2022-workload-vctools -y
 ```
 
@@ -48,6 +49,23 @@ Here are some WSL-specific guides:
 
 Once you've installed all prerequisites, [clone][] [this repo][] in VS Code.
 The rest of this document assumes you are running commands from the root directory of your repo from the terminal in VS Code, unless otherwise specified.
+
+Next, create a virtual Python environment within your local clone of the NaNofuzz repo and install Python packages. On Linux or MacOS:
+
+```sh
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Or on Windows:
+
+```
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
 Next [install dependencies][]:
 
 ```sh
@@ -70,6 +88,7 @@ Test NaNofuzz:
 
 ```sh
 yarn test
+pytest
 ```
 
 ### Run
@@ -95,7 +114,7 @@ To run the local version of the NaNofuzz extension:
 ## Contributing
 
 NaNofuzz is an open science project that aims to help software engineers write
-better tests that find more bugs in less time during active development. Community 
+better tests that find more bugs in less time during active development. Community
 contributions that align with these aims are important to our project,
 and we encourage folks to collaborate with us to make NaNofuzz better!
 
@@ -210,3 +229,4 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 [yarn]: https://classic.yarnpkg.com/lang/en/docs/install/
 [semantic versioning]: https://semver.org
 [github release]: https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository
+[python]: https://www.python.org/
