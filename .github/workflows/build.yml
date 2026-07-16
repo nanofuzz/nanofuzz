@@ -28,9 +28,7 @@ jobs:
       - name: Install Python packages (Linux, MacOS)
         if: runner.os != 'Windows'
         run: |
-          source .venv/bin/activate;which pip;which pip3
-          which python
-          which python3
+          source .venv/bin/activate
           pip install -r requirements.txt
       - name: ls project
         if: runner.os == 'Linux'
@@ -56,8 +54,16 @@ jobs:
         run: yarn build
       - name: Run Typescript tests
         run: yarn test
-      - name: Run Python tests
-        run: pytest
+      - name: Run Python tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          source .venv\Scripts\activate
+          pytest
+      - name: Run Python tests (Linux, MacOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          pytest
 
       # npm runtime package
       - name: Install Yarn packages
