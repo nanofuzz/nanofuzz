@@ -2,7 +2,7 @@ import { AbstractRunner, RunnerResult } from "./AbstractRunner";
 import JSON5 from "json5";
 import * as ChildProcess from "node:child_process";
 import * as path from "node:path";
-import { isError } from "../Util";
+import * as fs from "node:fs";
 
 /**
  * Python runner
@@ -10,6 +10,7 @@ import { isError } from "../Util";
 export class PythonRunner extends AbstractRunner {
   protected _filename: string;
   protected _fn: string;
+  protected _proc: ChildProcess.ChildProcessWithoutNullStreams | undefined;
 
   /**
    * Create a new Python runner
@@ -17,20 +18,20 @@ export class PythonRunner extends AbstractRunner {
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
    */
-  public constructor(filename: string, fn: string) {
+  constructor(filename: string, fn: string) {
     super(fn);
     this._filename = filename;
     this._fn = fn;
+
+    this._proc = this.newHost();
   } // fn: constructor
 
   /**
-   * Run `fn` in `module` with `inputs`
+   * Creates and returns a new child host Python process
    *
-   * @param `inputs` inputs to function
-   * @param `timeout` stop and fail after `timeout` ms
-   * @returns [an unknown output type,environment]
+   * @returns host process reference
    */
-  public run(inputs: unknown[], timeout: number | undefined = 0): RunnerResult {
+  protected newHost(): ChildProcess.ChildProcessWithoutNullStreams {
     const filenameBase = path.basename(this._filename);
     const args = [
       path.resolve(
@@ -44,76 +45,86 @@ export class PythonRunner extends AbstractRunner {
         0,
         filenameBase.length - path.extname(filenameBase).length
       ),
-      this._fn,
-      ...inputs.map((i) => JSON5.stringify(i)),
     ];
-    const result = ChildProcess.spawnSync("python3", args, {
+    return ChildProcess.spawn("python3", args, {
       cwd: path.dirname(module.filename),
-      timeout: timeout, // !!!!!!!!!!
       windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"],
     });
-    console.debug(`-----------------------------`);
-    console.debug(`args  : ${JSON5.stringify(args)}`);
-    console.debug(`stdout: (raw) ${result.stdout}`);
-    console.debug(`stderr: (raw) ${result.stderr}`);
-    console.debug(`error : (raw) ${result.error}`);
-    console.debug(`status: (raw) ${result.status}`);
-    console.debug(`output: (raw) ${result.output}`);
+    // Handle case where this doesn't work? (syntax error) !!!!!!!!!!!!
+  } // fn: newHost
 
-    if (result.error) {
-      if (result.error.message === "spawnSync python3 ETIMEDOUT") {
-        return {
-          result: {
-            tag: "timeout",
-          },
-          env: {},
-        };
-      } else {
-        return {
-          result: {
-            tag: "error",
-            name: result.error.name,
-            message: `(raw) ${result.error.message}`, // !!!!!!!!!!
-            stack: result.error.stack,
-          },
-          env: {},
-        };
+  /**
+   * Get the current Python host process (creates a new one if needed)
+   */
+  protected get _host(): ChildProcess.ChildProcessWithoutNullStreams {
+    if (this._proc === undefined) {
+      this._proc = this.newHost();
+    }
+    return this._proc;
+  } // get: host
+
+  /**
+   * Kill the Python host
+   */
+  protected _killHost(): void {
+    if (this._proc !== undefined) {
+      this._proc.kill();
+      this._proc = undefined;
+    }
+  }
+
+  /**
+   * Run `fn` in `module` with `inputs`
+   *
+   * @param `inputs` inputs to function
+   * @param `timeout` stop and fail after `timeout` ms
+   * @returns Runner result
+   */
+  public run(inputs: unknown[]): RunnerResult {
+    const host = this._host;
+
+    const payload = JSON5.stringify(inputs);
+    const lengthBuffer = Buffer.alloc(4);
+    lengthBuffer.writeUInt32BE(Buffer.byteLength(payload), 0);
+
+    // Send length + payload
+    host.stdin.write(lengthBuffer);
+    host.stdin.write(payload);
+
+    // Read response: first 6 bytes for length, then the rest
+    const length = this._readBytes(4).readUInt32BE(0);
+    const response = JSON5.parse(this._readBytes(length).toString());
+
+    return { result: { tag: "value", value: response.output }, env: {} };
+  }
+
+  /**
+   * Reads bytes from the buffer
+   *
+   * @param n number of bytes to read
+   * @returns n bytes
+   */
+  protected _readBytes(n: number): Buffer {
+    const buff = Buffer.alloc(n);
+    let bytesRead = 0;
+
+    // We read from the file descriptor synchronously
+    while (bytesRead < n) {
+      const read = fs.readSync(
+        (this._host.stdout as any).fd, // present but missing in type defs
+        buff,
+        bytesRead,
+        n - bytesRead,
+        null // position is null for pipes
+      );
+
+      if (read === 0) {
+        throw new Error("Python process closed stdout unexpectedly.");
       }
-    }
-    if (result.status !== 0) {
-      return {
-        result: {
-          tag: "error",
-          name: `PythonErrorReturncode`,
-          message: `(raw) ${result.status}`, // !!!!!!!!!!
-        },
-        env: {},
-      };
+      bytesRead += read;
     }
 
-    let parsedOutput: { stdout: string; output: unknown };
-    try {
-      parsedOutput = JSON5.parse(`${result.stdout}`);
-      return {
-        result: {
-          tag: "value",
-          value: parsedOutput.output,
-        },
-        env: {},
-      };
-    } catch (e: unknown) {
-      const error = isError(e);
-      return {
-        result: {
-          tag: "error",
-          name: error ? e.name : "JsonParseError",
-          message: error
-            ? `${e.message}: ${result.stdout}`
-            : `Internal error: unable to parse JSON output: ${result.stdout}`,
-          stack: error ? e.stack : "<no stack>",
-        },
-        env: {},
-      };
-    }
-  } // fn: run
+    return buff;
+  } // fn: _readBytes
 } // class: PythonRunner
