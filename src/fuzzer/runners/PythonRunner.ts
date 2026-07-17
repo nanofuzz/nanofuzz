@@ -2,7 +2,6 @@ import { AbstractRunner, RunnerResult } from "./AbstractRunner";
 import JSON5 from "json5";
 import * as ChildProcess from "node:child_process";
 import * as path from "node:path";
-import * as fs from "node:fs";
 
 /**
  * Python runner
@@ -49,7 +48,6 @@ export class PythonRunner extends AbstractRunner {
     return ChildProcess.spawn("python3", args, {
       cwd: path.dirname(module.filename),
       windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"],
     });
     // Handle case where this doesn't work? (syntax error) !!!!!!!!!!!!
   } // fn: newHost
@@ -81,7 +79,7 @@ export class PythonRunner extends AbstractRunner {
    * @param `timeout` stop and fail after `timeout` ms
    * @returns Runner result
    */
-  public run(inputs: unknown[]): RunnerResult {
+  public async run(inputs: unknown[]): Promise<RunnerResult> {
     const host = this._host;
 
     const payload = JSON5.stringify(inputs);
@@ -93,7 +91,7 @@ export class PythonRunner extends AbstractRunner {
     host.stdin.write(payload);
 
     // Read response: first 6 bytes for length, then the rest
-    const length = this._readBytes(4).readUInt32BE(0);
+    const length = (await this._readBytes(4)).readUInt32BE(0);
     const response = JSON5.parse(this._readBytes(length).toString());
 
     return { result: { tag: "value", value: response.output }, env: {} };
@@ -105,26 +103,20 @@ export class PythonRunner extends AbstractRunner {
    * @param n number of bytes to read
    * @returns n bytes
    */
-  protected _readBytes(n: number): Buffer {
-    const buff = Buffer.alloc(n);
-    let bytesRead = 0;
-
-    // We read from the file descriptor synchronously
-    while (bytesRead < n) {
-      const read = fs.readSync(
-        (this._host.stdout as any).fd, // present but missing in type defs
-        buff,
-        bytesRead,
-        n - bytesRead,
-        null // position is null for pipes
-      );
-
-      if (read === 0) {
-        throw new Error("Python process closed stdout unexpectedly.");
-      }
-      bytesRead += read;
-    }
-
-    return buff;
+  protected async _readBytes(n: number): Promise<Buffer> {
+    return new Promise((resolve) => {
+      const proc = this._host;
+      const chunks: Buffer[] = [];
+      let total = 0;
+      const onData = (chunk: Buffer) => {
+        chunks.push(chunk);
+        total += chunk.length;
+        if (total >= n) {
+          proc.stdout.removeListener("data", onData);
+          resolve(Buffer.concat(chunks));
+        }
+      };
+      proc.stdout.on("data", onData);
+    });
   } // fn: _readBytes
 } // class: PythonRunner

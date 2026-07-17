@@ -49,8 +49,8 @@ def run_loop():
             send_msg({"error": str(e), "source": "put"})
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("Usage: python PythonRunnerHost.py <filename.py> <moduile_name> <function_name> <function_arg_1> ... <function_arg_n>")
+    if len(sys.argv) != 3:
+        print("Usage: python PythonRunnerHost.py <filename.py> <module_name> <function_name>")
         sys.exit(1)
 
     # Arguments for loading the function

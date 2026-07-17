@@ -53,27 +53,30 @@ export class JavascriptRunner extends AbstractRunner {
    * @param `timeout` stop and fail after `timeout` ms
    * @returns
    */
-  public run(inputs: unknown[], timeout: number | undefined = 0): RunnerResult {
+  public async run(
+    inputs: unknown[],
+    timeout: number | undefined = 0
+  ): Promise<RunnerResult> {
     try {
       const [outputs, context] = this._fnWrapper(timeout, ...inputs);
-      return {
+      return Promise.resolve({
         result: {
           tag: "value",
           value: outputs,
         },
         env: context,
-      };
+      });
     } catch (e: unknown) {
       if (isTimeoutError(e)) {
-        return {
+        return Promise.resolve({
           result: {
             tag: "timeout",
           },
           env: {},
-        };
+        });
       } else {
         if (isError(e)) {
-          return {
+          return Promise.resolve({
             result: {
               tag: "error",
               name: e.name,
@@ -81,9 +84,9 @@ export class JavascriptRunner extends AbstractRunner {
               stack: e.stack,
             },
             env: {},
-          };
+          });
         } else {
-          return {
+          return Promise.resolve({
             result: {
               tag: "error",
               name: "UnknownJavsscriptRunnerError",
@@ -91,7 +94,7 @@ export class JavascriptRunner extends AbstractRunner {
               stack: "<no stack>",
             },
             env: {},
-          };
+          });
         }
       }
     }

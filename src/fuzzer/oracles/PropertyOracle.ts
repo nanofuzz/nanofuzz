@@ -16,11 +16,11 @@ export class PropertyOracle {
    * @param `result` result of executing the program
    * @returns one judgment or one exception for each property validator
    */
-  public judge(result: Result): (Judgment | Error)[] {
+  public async judge(result: Result): Promise<(Judgment | Error)[]> {
     const jj: (Judgment | Error)[] = [];
     for (const r of this._propRunners) {
       try {
-        const validatorOut = r.run([result]);
+        const validatorOut = await r.run([result]);
         switch (validatorOut.result.tag) {
           case "error":
             jj.push({ ...validatorOut.result });

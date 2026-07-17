@@ -74,148 +74,178 @@ const floatOptions: FuzzOptions = {
  * for each example. TODO: Add tests that check the fuzzer output.
  */
 describe("fuzzer:", () => {
-  it("Fuzz example 01 - minValue", () => {
+  it("Fuzz example 01 - minValue", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/1.ts",
-        "minValue",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/1.ts",
+          "minValue",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 02 - getSortSetting", () => {
+  it("Fuzz example 02 - getSortSetting", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/2.ts",
-        "getSortSetting",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/2.ts",
+          "getSortSetting",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 03 - totalDinnerExpenses", () => {
+  it("Fuzz example 03 - totalDinnerExpenses", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/3.ts",
-        "totalDinnerExpenses",
-        floatOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/3.ts",
+          "totalDinnerExpenses",
+          floatOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 04 - maxOfArray", () => {
+  it("Fuzz example 04 - maxOfArray", async () => {
     expect(
-      new Tester("nanofuzz-study/examples/4.ts", "maxOfArray", {
-        ...intOptions,
-        argDefaults: { ...intOptions.argDefaults, anyDims: 1 },
-      }).testSync().results.length
+      (
+        await new Tester("nanofuzz-study/examples/4.ts", "maxOfArray", {
+          ...intOptions,
+          argDefaults: { ...intOptions.argDefaults, anyDims: 1 },
+        }).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 05 - getRandomNumber", () => {
+  it("Fuzz example 05 - getRandomNumber", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/5.ts",
-        "getRandomNumber",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/5.ts",
+          "getRandomNumber",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 06 - getZero", () => {
+  it("Fuzz example 06 - getZero", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/6.ts",
-        "getZero",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/6.ts",
+          "getZero",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 07 - sortByWinLoss", () => {
+  it("Fuzz example 07 - sortByWinLoss", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/7.ts",
-        "sortByWinLoss",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/7.ts",
+          "sortByWinLoss",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 08 - minSalary", () => {
+  it("Fuzz example 08 - minSalary", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/8.ts",
-        "minSalary",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/8.ts",
+          "minSalary",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 09 - getOffsetOrDefault", () => {
+  it("Fuzz example 09 - getOffsetOrDefault", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/9.ts",
-        "getOffsetOrDefault",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/9.ts",
+          "getOffsetOrDefault",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
   // TODO: Vector length is randomized here - probably do not want that !!!
-  it("Fuzz example 10 - gramSchmidt", () => {
+  it("Fuzz example 10 - gramSchmidt", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/10.ts",
-        "gramSchmidt",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/10.ts",
+          "gramSchmidt",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 11 - idMatrix", () => {
+  it("Fuzz example 11 - idMatrix", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/11.ts",
-        "idMatrix",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/11.ts",
+          "idMatrix",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 12 - levenshtein", () => {
+  it("Fuzz example 12 - levenshtein", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/12.ts",
-        "levenshtein",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/12.ts",
+          "levenshtein",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 13 - isSteady", () => {
+  it("Fuzz example 13 - isSteady", async () => {
     expect(
-      new Tester(
-        "nanofuzz-study/examples/13.ts",
-        "isSteady",
-        intOptions
-      ).testSync().results.length
+      (
+        await new Tester(
+          "nanofuzz-study/examples/13.ts",
+          "isSteady",
+          intOptions
+        ).testSync()
+      ).results.length
     ).not.toBe(0);
   });
 
-  it("Fuzz example 14 - modInv", () => {
-    const fuzzResult = new Tester("nanofuzz-study/examples/14.ts", "modInv", {
-      ...intOptions,
-      suiteTimeout: 3000,
-    }).testSync();
+  it("Fuzz example 14 - modInv", async () => {
+    const fuzzResult = await new Tester(
+      "nanofuzz-study/examples/14.ts",
+      "modInv",
+      {
+        ...intOptions,
+        suiteTimeout: 3000,
+      }
+    ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
     expect(fuzzResult.results.some((e) => e.timeout)).toBe(true);
   });
 
-  it("Fuzz example 15 - coverageOneFile", () => {
-    const fuzzResult = new Tester(
+  it("Fuzz example 15 - coverageOneFile", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testCoverageOneFile",
       {
@@ -258,7 +288,7 @@ describe("fuzzer:", () => {
   });
 
   it("Fuzz example 16 - coverageMultiFile", async () => {
-    const fuzzResult = new Tester(
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testCoverageMultiFile",
       intOptions
@@ -288,7 +318,7 @@ describe("fuzzer:", () => {
    * of dimensions, including both local and imported typerefs. As an
    * end-to-end test, this also tests the input generator.
    */
-  it("Fuzz example 17 - dimensioned typerefs", () => {
+  it("Fuzz example 17 - dimensioned typerefs", async () => {
     const tester = new Tester(
       "./Fuzzer.testfixtures.ts",
       "testDimensionedTypeRefs",
@@ -305,7 +335,7 @@ describe("fuzzer:", () => {
     expect(args[0].getDim()).toBe(3);
     expect(args[1].getDim()).toBe(3);
 
-    const fuzzResult = tester.testSync();
+    const fuzzResult = await tester.testSync();
     const validator = new ArgDefValidator(args);
     expect(fuzzResult.results.length).not.toBe(0); // Ensure we have results
     fuzzResult.results.forEach((result) => {
@@ -338,8 +368,8 @@ describe("fuzzer:", () => {
    * Ensure fuzz targets that mutate their inputs cannot alter
    * the input the fuzzer recorded for the function.
    */
-  it("Fuzz target cannot change fuzzer input record", () => {
-    const fuzzResult = new Tester(
+  it("Fuzz target cannot change fuzzer input record", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testChangeInput",
       intOptions
@@ -358,8 +388,8 @@ describe("fuzzer:", () => {
    * Test that `void` functions (standard and arrow) fail the implicit
    * oracle in the case that they return values other than `undefined`
    */
-  it("Standard fn void fuzz target fails if return is !==undefined", () => {
-    const fuzzResult = new Tester(
+  it("Standard fn void fuzz target fails if return is !==undefined", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testStandardVoidReturnNumber",
       intOptions
@@ -370,8 +400,8 @@ describe("fuzzer:", () => {
       fuzzResult.results.some((e) => e.passedImplicit === "pass")
     ).toBeFalsy();
   });
-  it("Arrow fn void fuzz target fails if return is !==undefined", () => {
-    const fuzzResult = new Tester(
+  it("Arrow fn void fuzz target fails if return is !==undefined", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testArrowVoidReturnNumber",
       intOptions
@@ -387,8 +417,8 @@ describe("fuzzer:", () => {
    * Test that `void` functions (standard and arrow) pass the implicit
    * oracle in the case that they only return `undefined`
    */
-  it("Standard fn void fuzz target passes if return is undefined", () => {
-    const fuzzResult = new Tester(
+  it("Standard fn void fuzz target passes if return is undefined", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testStandardVoidReturnUndefined",
       intOptions
@@ -399,8 +429,8 @@ describe("fuzzer:", () => {
       fuzzResult.results.some((e) => e.passedImplicit === "pass")
     ).toBeTruthy();
   });
-  it("Arrow fn void fuzz target passes if return is undefined", () => {
-    const fuzzResult = new Tester(
+  it("Arrow fn void fuzz target passes if return is undefined", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testArrowVoidReturnUndefined",
       intOptions
@@ -416,8 +446,8 @@ describe("fuzzer:", () => {
    * Test that `void` functions (standard and arrow) fail the implicit
    * oracle when they throw an exception.
    */
-  it("Standard fn void fuzz target fails if exception is thrown", () => {
-    const fuzzResult = new Tester(
+  it("Standard fn void fuzz target fails if exception is thrown", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testStandardVoidReturnException",
       intOptions
@@ -429,8 +459,8 @@ describe("fuzzer:", () => {
     ).toBeFalsy();
     expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
   });
-  it("Arrow fn void fuzz target fails if exception is thrown", () => {
-    const fuzzResult = new Tester(
+  it("Arrow fn void fuzz target fails if exception is thrown", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testArrowVoidReturnException",
       intOptions
@@ -447,8 +477,8 @@ describe("fuzzer:", () => {
    * Test that `void` functions w/literal arguments (standard and arrow) pass
    * when they return undefined.
    */
-  it("Standard void literal arg fuzz target", () => {
-    const fuzzResult = new Tester(
+  it("Standard void literal arg fuzz target", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testStandardVoidLiteralArgs",
       intOptions
@@ -459,8 +489,8 @@ describe("fuzzer:", () => {
       fuzzResult.results.some((e) => e.passedImplicit === "pass")
     ).toBeTruthy();
   });
-  it("Arrow void literal arg fuzz target", () => {
-    const fuzzResult = new Tester(
+  it("Arrow void literal arg fuzz target", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testArrowVoidLiteralArgs",
       intOptions
@@ -475,8 +505,8 @@ describe("fuzzer:", () => {
   /**
    * Test that we can fuzz functions with union arguments.
    */
-  it("Standard union arg fuzz target", () => {
-    const fuzzResult = new Tester(
+  it("Standard union arg fuzz target", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testStandardUnionArgs",
       intOptions
@@ -487,8 +517,8 @@ describe("fuzzer:", () => {
       fuzzResult.results.some((e) => e.passedImplicit === "pass")
     ).toBeFalsy();
   });
-  it("Arrow union arg fuzz target", () => {
-    const fuzzResult = new Tester(
+  it("Arrow union arg fuzz target", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testArrowUnionArgs",
       intOptions
@@ -503,8 +533,8 @@ describe("fuzzer:", () => {
   /**
    * Test that we can fuzz optional boolean inputs.
    */
-  it("Optional boolean inputs", () => {
-    const fuzzResult = new Tester(
+  it("Optional boolean inputs", async () => {
+    const fuzzResult = await new Tester(
       "./Fuzzer.testfixtures.ts",
       "testBoolean",
       intOptions

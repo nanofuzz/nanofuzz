@@ -96,7 +96,7 @@ pytest
 To run the local version of the NaNofuzz extension:
 
 - Build NaNofuzz (`yarn build`)
-- Press `Fn`+`F5` to open a new VS Code window running VSC's Extension Development Host. (Note that the top of the new window says `[Extension Development Host]`)
+- Press `F5` to open a new VS Code window running VSC's Extension Development Host. (Note that the top of the new window says `[Extension Development Host]`)
 - The first time you do this, [clone]() a repo like `nanofuzz/nanofuzz-examples` so that you have some programs available for testing your changes to NaNofuzz.
   - ```sh
     git clone https://github.com/nanofuzz/nanofuzz-examples.git

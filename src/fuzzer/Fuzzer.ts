@@ -29,6 +29,7 @@ import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { TypescriptProgram } from "./analysis/typescript/TypescriptProgram";
+import { RunnerResult } from "./runners/AbstractRunner";
 
 export class Tester {
   protected _module: string; // module filename
@@ -299,15 +300,15 @@ export class Tester {
    * @param `mode` testing mode
    * @returns `FuzzTestResults`
    */
-  public testSync(
+  public async testSync(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true }
-  ): FuzzTestResults {
+  ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
     try {
       const run = this._run(injectTests, mode);
       while (!result) {
-        result = run.next().value;
+        result = (await run.next()).value;
       }
       return result;
     } catch (e: unknown) {
@@ -347,16 +348,16 @@ export class Tester {
    * @param `callbackFn` called when testing completes
    * @param `run` generator function
    */
-  protected _runBatchAsync(
+  protected async _runBatchAsync(
     callbackFn: (result: FuzzTestResults | Error) => void,
     run: ReturnType<typeof this._run>
-  ): void {
+  ): Promise<void> {
     let result: FuzzTestResults | undefined;
     const timer = performance.now();
 
     while (!result && performance.now() - timer < 100) {
       try {
-        result = run.next().value;
+        result = (await run.next()).value;
         if (result) {
           callbackFn(result);
           return;
@@ -388,12 +389,12 @@ export class Tester {
    * @param `cancelFn` called to check cancel status
    * @returns test results
    */
-  protected *_run(
+  protected async *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: (payload: FuzzBusyStatusMessage) => void,
     cancelFn?: () => boolean
-  ): Generator<
+  ): AsyncGenerator<
     FuzzTestResults | undefined,
     FuzzTestResults,
     FuzzTestResults | undefined
@@ -734,9 +735,9 @@ export class Tester {
 
       // Call the PUT via its runner
       const startRunTime = performance.now(); // start timer
-      let exeOutput: ReturnType<(typeof runner)["run"]>;
+      let exeOutput: RunnerResult;
       try {
-        exeOutput = runner.run(
+        exeOutput = await runner.run(
           structuredClone(result.input.map((e) => e.value)),
           this._options.fnTimeout
         );
@@ -813,8 +814,8 @@ export class Tester {
       // PROPERTY ORACLE --------------------------------------------
       // If a property validator is selected, call it to evaluate the result
       if (this._options.useProperty) {
-        propertyOracle
-          .judge(
+        (
+          await propertyOracle.judge(
             Object.freeze({
               in: result.input.map((i) => i.value), // inputs
               out:
@@ -825,17 +826,17 @@ export class Tester {
               timeout: result.timeout,
             })
           )
-          .forEach((j, i) => {
-            if (isError(j)) {
-              result.passedValidators.push("unknown");
-              result.validatorException = true;
-              result.validatorExceptionMessage = j.message;
-              result.validatorExceptionFunction = this._validators[i].name;
-              result.validatorExceptionStack = j.stack;
-            } else {
-              result.passedValidators.push(j);
-            }
-          });
+        ).forEach((j, i) => {
+          if (isError(j)) {
+            result.passedValidators.push("unknown");
+            result.validatorException = true;
+            result.validatorExceptionMessage = j.message;
+            result.validatorExceptionFunction = this._validators[i].name;
+            result.validatorExceptionStack = j.stack;
+          } else {
+            result.passedValidators.push(j);
+          }
+        });
 
         // Summarize propert judgments.
         result.passedValidator = PropertyOracle.summarize(
