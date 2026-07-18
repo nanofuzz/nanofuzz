@@ -38,7 +38,13 @@ export abstract class AbstractRunner {
 export type RunnerResult = {
   result:
     | { tag: "timeout" }
-    | { tag: "error"; name: string; message: string; stack?: string }
+    | {
+        tag: "error";
+        name: string;
+        message: string;
+        stack?: string;
+        source?: "put" | "host"; // if the error originated within the put !!!!!!!!!! ts
+      }
     | { tag: "value"; value: unknown };
   env: VmGlobals;
 };
