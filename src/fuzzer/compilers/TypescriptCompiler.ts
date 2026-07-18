@@ -224,7 +224,7 @@ export class TypescriptCompiler {
           }
 
           // Load the module & collect measurements from the initial load
-          const context: VmGlobals = this.run(
+          const context: VmGlobals = this._run(
             jsname,
             module,
             src,
@@ -608,7 +608,7 @@ export class TypescriptCompiler {
    * @param module Javqscript module
    * @returns The script result, if any
    */
-  protected run(
+  protected _run(
     jsname: string,
     module: NodeJS.Module,
     src: string,

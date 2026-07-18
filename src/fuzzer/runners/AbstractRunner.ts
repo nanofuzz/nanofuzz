@@ -17,7 +17,7 @@ export abstract class AbstractRunner {
   } // fn: constructor
 
   /**
-   * Returns the measure's name
+   * Returns the runner's name
    */
   public get name(): string {
     return this._name;
