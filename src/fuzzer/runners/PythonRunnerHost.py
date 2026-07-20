@@ -9,10 +9,15 @@ from contextlib import redirect_stdout
 from typing import Any, Literal, List, Union, TypedDict, NotRequired
 
 
+class RunnerInput(TypedDict):
+    args: List[any]
+    seq: int
+
+
 class RunnerValueResult(TypedDict):
     tag: Literal["value"]
     value: Any
-    stdout: NotRequired[str]
+    seq: int
 
 
 class RunnerErrorResult(TypedDict):
@@ -21,7 +26,7 @@ class RunnerErrorResult(TypedDict):
     message: str
     stack: NotRequired[str]
     source: Literal["put", "host"]
-    stdout: NotRequired[str]
+    seq: int
 
 
 type RunnerResult = Union[RunnerValueResult, RunnerErrorResult]
@@ -34,7 +39,8 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Union[RunnerErrorRe
             tag="error",
             name="PythonRunnerHostError",
             message=f"Could not import python module: {filename}",
-            source="host"
+            source="host",
+            seq=-1
         ), None]
     module = importlib.util.module_from_spec(spec)
 
@@ -48,7 +54,8 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Union[RunnerErrorRe
             tag="error",
             name="PythonPutLoadError",
             message=str(e),
-            source="put"
+            source="put",
+            seq=-1
         ), None]
 
 
@@ -67,23 +74,24 @@ def get_inputs() -> List[any]:
         logging.debug(f" - With value {payload}")
 
         # De-serialize arguments for calling the function
-        args = json5.loads(payload)
+        input: RunnerInput = json5.loads(payload)
         logging.debug(f" - Parsed ok")
 
-        return args
+        return input
 
 
-def run_put(inputs: List[any]) -> RunnerResult:
-    logging.debug(f"Running function '{fnname}'")
+def run_put(input: RunnerInput) -> RunnerResult:
+    logging.debug(f"Running function '{fnname}' for {input}")
     try:
         with redirect_stdout(io.StringIO()) as f:
-            return RunnerValueResult(tag="value", value=fn(*inputs))
+            return RunnerValueResult(tag="value", value=fn(*input["args"]), seq=input["seq"])
     except Exception as e:
         return RunnerErrorResult(
             tag="error",
             name="PythonPutError",
             message=str(e),
-            source="put"
+            source="put",
+            seq=input["seq"]
         )
 
 
@@ -96,7 +104,8 @@ def put_result(result: RunnerResult) -> None:
 def send_msg(data: RunnerResult):
     msg = json5.dumps(data).encode('utf-8')
     logging.debug(f" - Writing {len(msg)} bytes: {msg}")
-    sys.stdout.buffer.write(struct.pack('>I', len(msg)))  # payload size
+    sys.stdout.buffer.write(struct.pack(
+        '>I', len(msg)))  # payload size
     sys.stdout.buffer.write(msg)  # payload
     sys.stdout.buffer.flush()
 
@@ -127,9 +136,15 @@ if __name__ == "__main__":
     # Change cwd from the extension to that of the Python script
     os.chdir(os.path.dirname(filename))
 
+    # Ready for inputs
+    msg = "READY".encode('utf-8')
+    sys.stdout.buffer.write(msg)
+    sys.stdout.buffer.flush()
+    logging.debug(f"Sent READY message (length {len(msg)})")
+
     # Start the run loop
-    logging.debug("In main loop")
     while True:
+        logging.debug("Top of main loop")
         if (loadError == None):
             put_result(run_put(get_inputs()))  # Call the put
         else:

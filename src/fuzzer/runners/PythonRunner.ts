@@ -1,4 +1,4 @@
-import { AbstractRunner, RunnerResult } from "./AbstractRunner";
+import { AbstractRunner, RunnerInput, RunnerResult } from "./AbstractRunner";
 import JSON5 from "json5";
 import * as ChildProcess from "node:child_process";
 import * as path from "node:path";
@@ -9,10 +9,11 @@ import { isError } from "../Util";
  */
 export class PythonRunner extends AbstractRunner {
   protected _filename: string;
+  protected _timeout: number;
   protected _runDepth = 0;
   protected _fn: string;
-  protected _proc: ChildProcess.ChildProcessWithoutNullStreams | undefined;
-  protected _buff: Buffer | undefined;
+  protected _host: PythonHost | undefined = undefined;
+  protected _seq = 0;
 
   /**
    * Create a new Python runner
@@ -20,20 +21,118 @@ export class PythonRunner extends AbstractRunner {
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
    */
-  constructor(filename: string, fn: string) {
+  constructor(filename: string, fn: string, timeout: number = 0) {
     super(fn);
     this._filename = filename;
+    this._timeout = timeout;
     this._fn = fn;
-
-    [this._proc, this._buff] = this._newHost();
   } // fn: constructor
 
   /**
-   * Creates and returns a new child host process
+   * Prepares the runner for the start of the test run
    *
-   * @returns host process reference
+   * @returns void
    */
-  protected _newHost(): [ChildProcess.ChildProcessWithoutNullStreams, Buffer] {
+  public async onRunStart(): Promise<void> {
+    await super.onRunStart();
+    this._killHost();
+    await this._getHost();
+  }
+
+  /**
+   * Run `fn` in `module` with `inputs`
+   *
+   * @param `inputs` inputs to function
+   * @param `timeout` stop and fail after `timeout` ms
+   * @returns Runner result
+   */
+  public async run(
+    inputs: unknown[],
+    timeout: number | undefined = 0
+  ): Promise<RunnerResult> {
+    const thisSeq = this._seq++;
+    if (this._runDepth++ > 0) {
+      throw new Error(
+        "Internal error: PythonRunner.run calls cannot be interleaved."
+      );
+    }
+
+    try {
+      const host = await this._getHost();
+      const input: RunnerInput = {
+        args: inputs,
+        seq: thisSeq,
+      };
+
+      const payload = JSON5.stringify(input);
+      const lengthBuffer = Buffer.alloc(4);
+      lengthBuffer.writeUInt32BE(Buffer.byteLength(payload), 0);
+
+      // Send length + payload
+      host.write(lengthBuffer);
+      host.write(payload);
+
+      // Get response length + payload
+      const length = (await host.readStdout(4, timeout)).readUInt32BE(0);
+      const result: RunnerResult = {
+        result: JSON5.parse(
+          (await host.readStdout(length, timeout)).toString()
+        ),
+        env: {},
+      };
+      if (result.result.seq >= 0 && result.result.seq !== thisSeq) {
+        throw new Error(
+          `Internal error: RunnerResult seq# does not match RunnerInput`
+        );
+      }
+      return result;
+    } catch (e: unknown) {
+      this._killHost();
+      if (!isError(e)) {
+        throw e;
+      }
+      if (e.name === putTimeoutName) {
+        return { result: { tag: "timeout", seq: thisSeq }, env: {} };
+      } else {
+        return {
+          result: {
+            tag: "error",
+            name: e.name,
+            message: e.message,
+            stack: e.stack,
+            seq: thisSeq,
+          },
+          env: {},
+        };
+      }
+    } finally {
+      this._runDepth--;
+    }
+  }
+
+  /**
+   * Tears down the runner host at the end of the test run
+   *
+   * @returns void
+   */
+  public async onRunEnd(): Promise<void> {
+    await super.onRunEnd();
+    this._killHost();
+  }
+
+  /**
+   * Get the current Python host process (creates a new one if needed)
+   */
+  protected async _getHost(): Promise<PythonHost> {
+    if (this._host !== undefined) {
+      if (this._host.isActive) {
+        return this._host;
+      } else {
+        this._host.kill();
+        this._host = undefined;
+      }
+    }
+
     const filenameBase = path.basename(this._filename);
     const args = [
       path.resolve(
@@ -50,170 +149,189 @@ export class PythonRunner extends AbstractRunner {
       this._fn,
     ];
 
-    return [
-      ChildProcess.spawn("python3", args, {
-        cwd: path.dirname(module.filename),
-        windowsHide: true,
-      }),
-      Buffer.alloc(0),
-    ];
-    // Handle case where this doesn't work? (syntax error) !!!!!!!!!!!!
-  } // fn: newHost
+    const host = new PythonHost(args, path.dirname(module.filename));
+    const okcode = await host.readStdout(5, 1000);
 
-  /**
-   * Get the current Python host process (creates a new one if needed)
-   */
-  protected get _host(): ChildProcess.ChildProcessWithoutNullStreams {
-    if (this._proc === undefined || this._proc.exitCode !== null) {
-      [this._proc, this._buff] = this._newHost();
+    if (okcode.toString() === "READY") {
+      this._host = host;
+      return host;
+    } else {
+      host.kill();
+      throw new Error(
+        `Internal error: PythonHost not ready (okcode: ${okcode})`
+      );
     }
-    return this._proc;
   } // get: host
 
   /**
-   * Kill the Python host
+   * Kill the current Python host
    */
   protected _killHost(): void {
-    if (this._proc !== undefined) {
-      this._proc.kill();
-      this._proc = undefined;
-      this._buff = undefined;
+    if (this._host !== undefined) {
+      this._host.kill();
+      this._host = undefined;
     }
-    console.debug("Python host killed"); // !!!!!!!!!!
+  }
+} // class: PythonRunner
+
+/**
+ * Wrapper for running and interacting with running Python programs
+ */
+class PythonHost {
+  protected _proc: ChildProcess.ChildProcessWithoutNullStreams;
+  protected _isActive: boolean = true;
+  protected _stdout: Buffer<ArrayBuffer>;
+  protected _stderr: Buffer<ArrayBuffer>;
+  protected _errors: Error[];
+
+  constructor(args: string[], cwd: string | undefined) {
+    this._stdout = Buffer.alloc(0);
+    this._stderr = Buffer.alloc(0);
+    this._errors = [];
+
+    this._proc = ChildProcess.spawn("python3", args, {
+      cwd,
+      windowsHide: true,
+    });
+
+    this._proc.stdout.on("data", this._onStdout);
+    this._proc.stdout.on("error", this._onError);
+    this._proc.stderr.on("data", this._onStderr);
+    this._proc.stderr.on("error", this._onError);
+    this._proc.once("close", this._onClose);
+
+    this._isActive = true;
+  }
+
+  public get isActive(): boolean {
+    return this._isActive;
+  }
+
+  protected _onStdout = (chunk: Buffer): void => {
+    this._stdout = Buffer.concat([this._stdout, chunk]);
+  };
+
+  protected _onStderr = (chunk: Buffer): void => {
+    this._stderr = Buffer.concat([this._stderr, chunk]);
+  };
+
+  protected _onError = (err: Error): void => {
+    this._errors.push(new Error(`PythonHost pipe error: ${err.message}`));
+    this.kill();
+  };
+
+  protected _onClose = (): void => {
+    this._errors.push(
+      new Error(
+        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._proc.stderr.read()}, stdout: ${this._proc.stdout.read()})`
+      )
+    );
+    this.kill();
+  };
+
+  public kill(): void {
+    this._isActive = false;
+
+    this._proc.stdout.removeListener("data", this._onStdout);
+    this._proc.stdout.removeListener("error", this._onError);
+    this._proc.stderr.removeListener("data", this._onStderr);
+    this._proc.stderr.removeListener("error", this._onError);
+    this._proc.removeListener("close", this._onClose);
+
+    this._proc.kill();
+  }
+
+  public write(chunk: Parameters<typeof this._proc.stdin.write>[0]): void {
+    if (!this._isActive) {
+      throw new Error("Internal error: Cannot write to an inactive host");
+    }
+    this._proc.stdin.write(chunk);
   }
 
   /**
-   * Run `fn` in `module` with `inputs`
+   * Reads bytes from the stdout buffer. If the bytes have not arrived yet,
+   * then wait `timeout` ms.
    *
-   * @param `inputs` inputs to function
-   * @param `timeout` stop and fail after `timeout` ms
-   * @returns Runner result
+   * @param `n` number of bytes to read ("all"=return the entire current buffer)
+   * @param `timeout` number of ms before giving up (0=don't wait, Infinity=no timeout)
+   * @returns `n` bytes, or the entire buffer if n is 0
    */
-  public async run(
-    inputs: unknown[],
-    timeout: number | undefined = 0
-  ): Promise<RunnerResult> {
-    if (this._runDepth++ > 0) {
-      throw new Error(
-        "Internal error: PythonRunner.run calls cannot be interleaved."
-      );
-    }
-
-    try {
-      const host = this._host;
-
-      const payload = JSON5.stringify(inputs);
-      const lengthBuffer = Buffer.alloc(4);
-      lengthBuffer.writeUInt32BE(Buffer.byteLength(payload), 0);
-
-      // Send length + payload
-      host.stdin.write(lengthBuffer);
-      host.stdin.write(payload);
-
-      // Get response length + payload
-      const length = (await this._readBytes(4, timeout)).readUInt32BE(0);
-      return {
-        result: JSON5.parse(
-          (await this._readBytes(length, timeout)).toString()
-        ),
-        env: {},
-      };
-    } catch (e: unknown) {
-      this._killHost();
-      if (!isError(e)) {
-        throw e;
+  public async readStdout(
+    n: number | "all",
+    timeout: number = 0
+  ): Promise<Buffer> {
+    return new Promise<Buffer>((resolve, reject) => {
+      if (!this._isActive) {
+        reject(new Error("Internal error: Cannot read from an inactive host"));
+        return;
       }
-      if (e.name === putTimeoutName) {
-        return { result: { tag: "timeout" }, env: {} };
-      } else {
-        return {
-          result: {
-            tag: "error",
-            name: e.name,
-            message: e.message,
-            stack: e.stack,
-          },
-          env: {},
-        };
-      }
-    } finally {
-      this._runDepth--;
-    }
-  }
+      const bytes = n === "all" ? this._stdout.length : n;
 
-  /**
-   * Reads bytes from the buffer
-   *
-   * @param `n` number of bytes to read
-   * @param `timeout` number of ms before giving up (0=no limit)
-   * @returns n bytes
-   */
-  protected async _readBytes(n: number, timeout: number): Promise<Buffer> {
-    const host = this._host;
-
-    if (this._buff === undefined) {
-      throw new Error(`Internal error: host without a buffer`);
-    }
-
-    return new Promise((resolve, reject) => {
-      if (this._buff!.length >= n) {
+      if (this._stdout.length >= bytes) {
         // Return the data if it's already in the buffer
-        const result = this._buff!.subarray(0, n);
-        this._buff = this._buff!.subarray(n);
+        const result = this._stdout!.subarray(0, bytes);
+        this._stdout = this._stdout!.subarray(bytes);
         resolve(result);
-      } else {
-        // Otherwise, wait for the data
-        const onData = (chunk: Buffer) => {
-          this._buff! = Buffer.concat([this._buff!, chunk]);
-          if (this._buff.length >= n) {
-            cleanup();
-            const result = this._buff.subarray(0, n);
-            this._buff = this._buff.subarray(n);
-            resolve(result);
-          }
-        };
-
-        const onError = (err: Error) => {
-          cleanup();
-          reject(new Error(`PythonRunnerHost pipe error: ${err.message}`));
-        };
-
-        const onClose = () => {
-          reject(
-            new Error(
-              `PythonRunnerHost exited unexpectedly (exit code: ${host.exitCode}, stderr: ${host.stderr.read()}, stdout: ${host.stdout.read()})`
-            )
-          );
-          cleanup();
-        };
-
-        const timer =
-          timeout > 0
-            ? setTimeout(() => {
-                cleanup();
-                const exception = new Error(
-                  `PythonRunnerHost run exceeded ${timeout} ms timneout`
-                );
-                exception.name = putTimeoutName;
-                reject(exception);
-              }, timeout)
-            : undefined;
-
-        const cleanup = () => {
-          if (timer) {
-            clearTimeout(timer);
-          }
-          host.stdout.removeListener("data", onData);
-          host.stdout.removeListener("error", onError);
-          host.removeListener("close", onClose);
-        };
-
-        host.stdout.on("data", onData);
-        host.stdout.on("error", onError);
-        host.once("close", onClose);
+        return;
       }
+
+      if (timeout === 0) {
+        reject(new Error(`Read past buffer end`));
+        return;
+      }
+
+      const onData = (_chunk: Buffer) => {
+        // Another listener writes to the buffer
+        if (this._stdout.length >= bytes) {
+          cleanup();
+          try {
+            resolve(this.readStdout(n, 0));
+          } catch (e: unknown) {
+            reject(e);
+          }
+        }
+      };
+
+      const onError = (err: Error) => {
+        cleanup();
+        reject(err);
+      };
+
+      const onClose = () => {
+        const exitCode = this._proc.exitCode;
+        cleanup();
+        reject(
+          new Error(`Host exited unexpectedly with exit code: ${exitCode}`)
+        );
+      };
+
+      const timer =
+        timeout > 0 && timeout !== Infinity
+          ? setTimeout(() => {
+              cleanup();
+              const exception = new Error(
+                `Host did not return expected ${n} bytes within ${timeout} ms timeout`
+              );
+              exception.name = putTimeoutName;
+              this.kill();
+              reject(exception);
+            }, timeout)
+          : undefined;
+
+      const cleanup = () => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        this._proc.stdout.removeListener("data", onData);
+        this._proc.stdout.removeListener("error", onError);
+        this._proc.removeListener("close", onClose);
+      };
+
+      this._proc.stdout.on("data", onData);
+      this._proc.stdout.on("error", onError);
+      this._proc.once("close", onClose);
     });
   } // fn: _readBytes
-} // class: PythonRunner
+} // class: PythonHost
 
 const putTimeoutName = "PythonRunnerPutTimeout";

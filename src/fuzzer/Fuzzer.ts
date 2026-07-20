@@ -5,6 +5,7 @@ import { ArgDef } from "./analysis/ArgDef";
 import { ArgValueType, FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as compiler from "./compilers/TypescriptCompiler";
+import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as ProgramFactory from "./analysis/ProgramFactory";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
@@ -117,7 +118,7 @@ export class Tester {
     );
 
     // Start a background compilation
-    if (mode.precompile) {
+    if (mode.precompile && CompilerFactory.needsCompilation(module)) {
       compiler.TypescriptCompiler.compileAsync(module);
     }
   }
@@ -483,13 +484,14 @@ export class Tester {
 
     // Build a test runner for executing tests
     const runner = RunnerFactory(this.env, mod, this._function.getName());
+    await runner.onRunStart();
 
     // Build runners for the property validators
-    const propertyOracle = new PropertyOracle(
-      this._validators.map((vFnRef) =>
-        RunnerFactory(this.env, mod, vFnRef.name)
-      )
+    const propRunners = this._validators.map((vFnRef) =>
+      RunnerFactory(this.env, mod, vFnRef.name)
     );
+    //propRunners.forEach(async (p) => await p.onRunStart());
+    const propertyOracle = new PropertyOracle(propRunners);
 
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
@@ -545,6 +547,10 @@ export class Tester {
           e.onRunEnd(this._results);
         });
         this._compositeInputGenerator.onRunEnd(); // also handles shutdown for subgens
+
+        // Shut down runners
+        await runner.onRunEnd();
+        await propRunners.forEach(async (p) => p.onRunEnd());
 
         console.log(
           ` - Executed ${
@@ -749,6 +755,7 @@ export class Tester {
               name: e.name,
               message: e.message,
               stack: e.stack ?? "<no stack>",
+              seq: -1,
             },
             env: {},
           };
@@ -759,6 +766,7 @@ export class Tester {
               name: "unknown internal runner error",
               message: "unknown",
               stack: "<no stack>",
+              seq: -1,
             },
             env: {},
           };

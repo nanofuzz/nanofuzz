@@ -24,6 +24,13 @@ export abstract class AbstractRunner {
   } // property: get name
 
   /**
+   * Called prior to the start of the run
+   */
+  public onRunStart(): Promise<void> {
+    return new Promise((resolve, _reject) => resolve());
+  }
+
+  /**
    * Executes the test with a set of inputs and a timeout threshold.
    *
    * @param `inputs` test inputs
@@ -33,10 +40,17 @@ export abstract class AbstractRunner {
     inputs: unknown[],
     timeout?: number
   ): Promise<RunnerResult>;
+
+  /**
+   * Called after the end of the run
+   */
+  public async onRunEnd(): Promise<void> {
+    return new Promise((resolve, _reject) => resolve());
+  }
 }
 
 export type RunnerResult = {
-  result:
+  result: (
     | { tag: "timeout" }
     | {
         tag: "error";
@@ -45,6 +59,12 @@ export type RunnerResult = {
         stack?: string;
         source?: "put" | "host"; // if the error originated within the put !!!!!!!!!! ts
       }
-    | { tag: "value"; value: unknown };
+    | { tag: "value"; value: unknown }
+  ) & { seq: number };
   env: VmGlobals;
+};
+
+export type RunnerInput = {
+  args: unknown[];
+  seq: number;
 };

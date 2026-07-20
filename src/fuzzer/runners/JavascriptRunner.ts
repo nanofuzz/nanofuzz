@@ -10,6 +10,7 @@ export class JavascriptRunner extends AbstractRunner {
   protected readonly _module: NodeJS.Module; // Node module
   protected readonly _jsFn: string; // Function to call
   protected _fnWrapper; // wrapper function for calling `jsFn`
+  protected _seq = 0;
 
   /**
    * Create a new Javascript function runner
@@ -57,12 +58,14 @@ export class JavascriptRunner extends AbstractRunner {
     inputs: unknown[],
     timeout: number | undefined = 0
   ): Promise<RunnerResult> {
+    const thisSeq = this._seq++;
     try {
       const [outputs, context] = this._fnWrapper(timeout, ...inputs);
       return Promise.resolve({
         result: {
           tag: "value",
           value: outputs,
+          seq: thisSeq,
         },
         env: context,
       });
@@ -71,6 +74,7 @@ export class JavascriptRunner extends AbstractRunner {
         return Promise.resolve({
           result: {
             tag: "timeout",
+            seq: thisSeq,
           },
           env: {},
         });
@@ -82,6 +86,7 @@ export class JavascriptRunner extends AbstractRunner {
               name: e.name,
               message: e.message,
               stack: e.stack,
+              seq: thisSeq,
             },
             env: {},
           });
@@ -92,6 +97,7 @@ export class JavascriptRunner extends AbstractRunner {
               name: "UnknownJavsscriptRunnerError",
               message: "unknown",
               stack: "<no stack>",
+              seq: thisSeq,
             },
             env: {},
           });
