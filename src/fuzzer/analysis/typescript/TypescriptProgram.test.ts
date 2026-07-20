@@ -96,4 +96,25 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
       exportedFunctions["test2b"].getArgDefs().map((a) => a.getTypeAnnotation())
     ).toEqual(["{ b: number | string }"]);
   });
+
+  it("Issue 387: unsupport types do not affect other types", () => {
+    const exportedTypes = TypescriptProgram.fromSource(
+      () => 'export type a = "a";export type b = bigint;'
+    ).getExportedTypes();
+    expect(exportedTypes["a"]).toEqual({
+      isExported: true,
+      optional: false,
+      dims: 0,
+      module: "",
+      name: "a",
+      type: {
+        dims: 0,
+        type: ArgTag.LITERAL,
+        children: [],
+        value: "a",
+        resolved: true,
+      },
+    });
+    expect(exportedTypes).not.toContain("b");
+  });
 });
