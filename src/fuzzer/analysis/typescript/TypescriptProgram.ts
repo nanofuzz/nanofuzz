@@ -689,10 +689,18 @@ export class TypescriptProgram {
                 `Duplicate type alias '${path.node.id.name}' found in module '${module}'`
               );
             } else {
-              types[path.node.id.name] = this._getTypeRefFromAstNode(
-                path.node,
-                path.parent
-              );
+              const name = path.node.id.name;
+              try {
+                types[name] = this._getTypeRefFromAstNode(
+                  path.node,
+                  path.parent
+                );
+              } catch (e) {
+                console.debug(
+                  `Error getting TypeRef from the AST node for ${name} in module ${this._module}, ignoring.
+                   Reason: ${e}`
+                );
+              }
             }
           }
         }
