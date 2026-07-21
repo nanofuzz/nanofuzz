@@ -1,4 +1,4 @@
-import * as jestadapter from "./JestTestAdapter";
+import { JestTestAdapter } from "./JestTestAdapter";
 import { FuzzTests, FuzzOptions } from "../Types";
 import { ArgOptions, ArgTag } from "../analysis/Types";
 
@@ -27,15 +27,16 @@ const baseOptions: Omit<
   useProperty: false,
 };
 
-const measures = {
+const measures: FuzzOptions["measures"] = {
   FailedTestMeasure: { enabled: true, weight: 1 },
   CoverageMeasure: { enabled: false, weight: 0 },
-} as FuzzOptions["measures"];
+};
 
-const generators = {
+const generators: FuzzOptions["generators"] = {
   RandomInputGenerator: { enabled: true },
   MutationInputGenerator: { enabled: false },
-} as FuzzOptions["generators"];
+  AiInputGenerator: { enabled: false },
+};
 
 const makeOptions = (overrides: Partial<FuzzOptions> = {}): FuzzOptions => ({
   ...baseOptions,
@@ -127,7 +128,7 @@ describe("fuzzer/adapters/JestAdapter:", () => {
       },
     };
 
-    const out = jestadapter.toString(tests, "mymodule.ts");
+    const out = new JestTestAdapter(tests, "mymodule.ts").toString();
 
     expect(out).toContain('it("sampleFn.0.human"');
     expect(out).toContain('it("sampleFn.0.isValid"');
@@ -140,7 +141,13 @@ describe("fuzzer/adapters/JestAdapter:", () => {
   });
 
   it("keeps nano test filename helper", () => {
-    const fname = jestadapter.getFilename("mymodule.ts");
+    const fname = new JestTestAdapter(
+      {
+        version: "0.0.0",
+        functions: {},
+      },
+      "mymodule.ts"
+    ).filename;
     expect(fname).toBe("mymodule.nano.test.ts");
   });
 });
