@@ -1,7 +1,14 @@
-# from typing import Any, Literal, List, TypedDict
+from typing import Any, Literal, List, TypedDict
 
 
 type a = str
+
+
+class FuzzTestResult(TypedDict):
+    input: List[any]  # function input
+    output: any  # function output
+    exception: bool  # true if an exception was thrown
+    timeout: bool  # true if the fn call timed out
 
 
 def greeting(name: a) -> a:

@@ -913,7 +913,7 @@ export class FuzzPanel {
       program = ProgramFactory.fromFile(module);
     } catch (_e: unknown) {
       vscode.window.showErrorMessage(
-        `Unable to add the validator. TypeScript source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
+        `Unable to add the property validator: source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
       );
       return;
     }
@@ -939,24 +939,99 @@ export class FuzzPanel {
 
     const inArgs = fn.getArgDefs();
     const validatorArgs = this._getValidatorArgs(inArgs);
-    const inArgConsts = inArgs
-      .map(
-        (argDef, i) =>
-          `  const ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
+
+    // vvvvvvv Language-specific logic vvvvvvv
+    const skelGenerators = {
+      typescript: {
+        inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
+          return `  const ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
             validatorArgs.resultArgName
-          }.in[${i}];`
-      )
+          }.in[${i}];`;
+        },
+        outputMapper: (
+          inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
+          resultArgName: string,
+          returnType?: string
+        ): string => {
+          const outVarName = this._getIdentifierNameAvoidingConflicts(
+            inArgs,
+            outVarCandidateNames,
+            maxOutVarSuffix
+          );
+          const outVarString = `const ${outVarName.name}${
+            returnType ? ": " + returnType : ""
+          } = ${resultArgName}.out;`;
+          return outVarString;
+        },
+        importMapper: () => `import { FuzzTestResult } from "@nanofuzz/runtime";
+`,
+        skelMapper: (
+          validatorName: string,
+          validatorArgs: ReturnType<typeof this._getValidatorArgs>,
+          inArgConsts: string,
+          outArgConst: string
+        ) => `
+
+export function ${validatorName}${validatorArgs.str}: "pass" | "fail" | "unknown" {
+${inArgConsts}
+  ${outArgConst}
+
+  return "pass";
+}`,
+      },
+      python: {
+        inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
+          return `  ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
+            validatorArgs.resultArgName
+          }.input[${i}]`;
+        },
+        outputMapper: (
+          inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
+          resultArgName: string,
+          returnType?: string
+        ): string => {
+          const outVarName = this._getIdentifierNameAvoidingConflicts(
+            inArgs,
+            outVarCandidateNames,
+            maxOutVarSuffix
+          );
+          const outVarString = `${outVarName.name}${
+            returnType ? ": " + returnType : ""
+          } = ${resultArgName}.output`;
+          return outVarString;
+        },
+        importMapper: () => `from nanofuzz.runtime import FuzzTestResult
+`,
+        skelMapper: (
+          validatorName: string,
+          validatorArgs: ReturnType<typeof this._getValidatorArgs>,
+          inArgConsts: string,
+          outArgConst: string
+        ) => `
+
+def ${validatorName}${validatorArgs.str} -> Literal["pass", "fail", "unknown"]:
+${inArgConsts}
+  ${outArgConst}
+
+  return "pass"
+`,
+      },
+      "*": {},
+    };
+    // ^^^^^^^ Language-specific logic ^^^^^^^
+
+    if (program.lang === "*") {
+      throw new Error("Internal error: program is of invalid language: *");
+    }
+    const inArgConsts = inArgs
+      .map(skelGenerators[program.lang].inputMapper)
       .join("\n");
 
     const outTypeAsArg = fn.getReturnArg();
-    const outTypeAsString = outTypeAsArg
-      ? outTypeAsArg.getTypeAnnotation()
-      : undefined;
-
-    const outArgConst = this._getOutArgConst(
+    const outArgConst = skelGenerators[program.lang].outputMapper(
       inArgs,
       validatorArgs.resultArgName,
-      outTypeAsString
+      outTypeAsArg ? outTypeAsArg.getTypeAnnotation() : undefined
     );
 
     // Name of the validator generated
@@ -964,15 +1039,12 @@ export class FuzzPanel {
       fnCounter === 0 ? "" : fnCounter
     }`;
 
-    // prettier-ignore
-    const skeleton = `
-
-export function ${validatorName}${validatorArgs.str}: "pass" | "fail" | "unknown" {
-${inArgConsts}
-  ${outArgConst}
-
-  return "pass";
-}`;
+    const skeleton = skelGenerators[program.lang].skelMapper(
+      validatorName,
+      validatorArgs,
+      inArgConsts,
+      outArgConst
+    );
 
     // Save the editor if dirty
     for (const editor of vscode.window.visibleTextEditors) {
@@ -986,9 +1058,9 @@ ${inArgConsts}
       if (!hasImport) {
         // Pre-pend the import & append the validator
         const fileData = fs.readFileSync(module);
-        const importStmt =
-          Buffer.from(`import { FuzzTestResult } from "@nanofuzz/runtime";
-`);
+        const importStmt = Buffer.from(
+          skelGenerators[program.lang].importMapper()
+        );
         const validatorFn = Buffer.from(skeleton);
         const fd = fs.openSync(module, "w+");
 
@@ -1015,7 +1087,7 @@ ${inArgConsts}
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (_e: unknown) {
         vscode.window.showErrorMessage(
-          `Unable to navigate to the created validator '${validatorName}' in '${fn.getModule()}'`
+          `Unable to navigate to the created property validator '${validatorName}' in '${fn.getModule()}'`
         );
         return;
       }
@@ -1094,33 +1166,6 @@ ${inArgConsts}
       resultArgName: resultArgName.name,
     };
   } // fn: getValidatorArgs()
-
-  /**
-   * Get the string for the declaration of the out variable.
-   *
-   * The out variable is the variable that will hold the result of the function
-   * under test.
-   *
-   * @param inArgs The input arguments
-   * @param resultArgName The name of the argument that will hold the result
-   * @param returnType The return type of the function
-   * @returns The string for the declaration of the out variable
-   */
-  private _getOutArgConst(
-    inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
-    resultArgName: string,
-    returnType?: string
-  ): string {
-    const outVarName = this._getIdentifierNameAvoidingConflicts(
-      inArgs,
-      outVarCandidateNames,
-      maxOutVarSuffix
-    );
-    const outVarString = `const ${outVarName.name}${
-      returnType ? ": " + returnType : ""
-    } = ${resultArgName}.out;`;
-    return outVarString;
-  } // fn: getOutConst()
 
   /**
    * Message handler for the `validator.getList` command. Gets the list
