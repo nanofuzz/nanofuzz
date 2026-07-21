@@ -1,4 +1,4 @@
-import * as jestadapter from "./JestAdapter";
+import * as jestadapter from "./JestTestAdapter";
 import { FuzzTests, FuzzOptions } from "../Types";
 import { ArgOptions, ArgTag } from "../analysis/Types";
 
