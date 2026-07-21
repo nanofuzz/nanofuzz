@@ -25,13 +25,9 @@ copyfiles(
 
 // Copy Python imports
 [{ name: "json5" }].forEach((pkg) => {
-  fs.cpSync(
-    fs.existsSync(`./.venv/lib/python3.13`)
-      ? `./.venv/lib/python3.13/site-packages/${pkg.name}` // Linux, Mac
-      : `./.venv/lib/site-packages/${pkg.name}`, // Windows
-    `./build/extension/${pkg.name}`,
-    { recursive: true }
-  );
+  fs.cpSync(findInDescendants(".", pkg.name), `./build/extension/${pkg.name}`, {
+    recursive: true,
+  });
   rimraf.sync(`./build/extension/${pkg.name}/__pycache__`);
   console.log(`copied .py ${pkg.name}`);
 });
@@ -85,3 +81,46 @@ await esbuild.build({
   tsconfig: "./tsconfig.json",
   external: ["path", "fs", "typescript"],
 });
+
+/**
+ * Returns the nearest item by searching recursively through descendant paths.
+ * Returns `undefined` if not found.
+ *
+ * @param dir path
+ * @param item to find
+ * @returns path to closest item (or `undefined`` if not found)
+ */
+export function findInDescendants(dir, item) {
+  const queue = [path.resolve(dir)];
+  const visited = new Set();
+
+  while (queue.length > 0) {
+    const currentDir = queue.shift();
+
+    // Check if item exists in the current directory
+    const targetPath = path.resolve(path.join(currentDir, item));
+    if (fs.existsSync(targetPath)) {
+      return targetPath;
+    }
+
+    // Add subdirectories to the queue
+    try {
+      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const subDir = path.resolve(path.join(currentDir, entry.name));
+          // Prevent infinite loops from symlinks
+          if (!visited.has(subDir)) {
+            visited.add(subDir);
+            queue.push(subDir);
+          }
+        }
+      }
+    } catch (_e) {
+      // Ignore directories we don't have permission to read
+      continue;
+    }
+  }
+
+  return undefined;
+}
