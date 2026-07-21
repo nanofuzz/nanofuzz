@@ -5,6 +5,7 @@ import os
 import io
 import struct
 import logging
+import traceback
 from contextlib import redirect_stdout
 from typing import Any, Literal, List, Union, TypedDict, NotRequired
 
@@ -55,11 +56,12 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Union[RunnerErrorRe
             name="PythonPutLoadError",
             message=str(e),
             source="put",
+            stack=traceback.format_exc(),
             seq=-1
         ), None]
 
 
-def get_inputs() -> List[any]:
+def get_inputs() -> RunnerInput:
     logging.debug("Waiting for input")
     while True:
         # Read the 4-byte length header
@@ -91,6 +93,7 @@ def run_put(input: RunnerInput) -> RunnerResult:
             name="PythonPutError",
             message=str(e),
             source="put",
+            stack=traceback.format_exc(),
             seq=input["seq"]
         )
 

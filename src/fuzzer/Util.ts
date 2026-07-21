@@ -1,4 +1,5 @@
-import * as path from "path";
+import * as path from "node:path";
+import * as fs from "node:fs";
 import JSON5 from "json5";
 
 /**
@@ -56,3 +57,22 @@ export function normalizePathForKey(rawPath: string): string {
 export function getErrorMessageOrJson(e: unknown): string {
   return isError(e) ? e.message : JSON5.stringify(e);
 } // fn: getErrorMessageOrJson
+
+/**
+ * Returns `dir`'s nearest item by traversing ancestor paths or `undefined` if not found.
+ *
+ * Adapted from: https://github.com/joshrtay/find-mod/blob/master/lib/index.js
+ *
+ * @param dir path
+ * @param item file to find
+ * @returns path to closest item (or exception if not found)
+ */
+export function findInAncestor(dir: string, item: string): string | undefined {
+  while (!fs.existsSync(path.resolve(path.join(dir, item)))) {
+    dir = path.resolve(path.join(dir, "..")); // ascend to parent
+    if (dir === path.dirname(dir)) {
+      return undefined;
+    }
+  }
+  return path.resolve(path.join(dir, item));
+} // fn: findInAncestor

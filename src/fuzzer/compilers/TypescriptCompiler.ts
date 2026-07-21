@@ -23,6 +23,7 @@ import {
   TypescriptCompilerErrorDetails,
   VmGlobals,
 } from "../Types";
+import { findInAncestor } from "../Util";
 
 // Global list of compilations by entrypoint module
 const _compilationsByModule: {
@@ -870,25 +871,6 @@ function compact<T>(arr: T[]) {
   });
   return narr;
 } // fn: compact
-
-/**
- * Returns `dir`'s nearest item by traversing ancestor paths or `undefined` if not found.
- *
- * Adapted from: https://github.com/joshrtay/find-mod/blob/master/lib/index.js
- *
- * @param dir path
- * @param item file to find
- * @returns path to closest item (or exception if not found)
- */
-function findInAncestor(dir: string, item: string): string | undefined {
-  while (!fs.existsSync(path.resolve(path.join(dir, item)))) {
-    dir = path.resolve(path.join(dir, "..")); // ascend to parent
-    if (dir === path.dirname(dir)) {
-      return undefined;
-    }
-  }
-  return path.resolve(path.join(dir, item));
-} // fn: findInAncestor
 
 /**
  * Type of modulles to hook for compilation

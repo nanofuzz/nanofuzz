@@ -2,7 +2,8 @@ import { AbstractRunner, RunnerInput, RunnerResult } from "./AbstractRunner";
 import JSON5 from "json5";
 import * as ChildProcess from "node:child_process";
 import * as path from "node:path";
-import { isError } from "../Util";
+import * as fs from "node:fs";
+import { findInAncestor, isError } from "../Util";
 
 /**
  * Python runner
@@ -183,14 +184,39 @@ class PythonHost {
   protected _stdout: Buffer<ArrayBuffer>;
   protected _stderr: Buffer<ArrayBuffer>;
   protected _errors: Error[];
+  protected _cli: string;
+  protected _cwd: string | undefined;
+  protected static _pythonLibs: string | undefined | null;
 
   constructor(args: string[], cwd: string | undefined) {
     this._stdout = Buffer.alloc(0);
     this._stderr = Buffer.alloc(0);
     this._errors = [];
+    this._cwd = cwd;
+    this._cli = ["python3", ...args].join(" ");
 
+    // Append to PYTHONPATH if needed
+    const env = { ...process.env };
+    if (PythonHost._pythonLibs === undefined) {
+      PythonHost._pythonLibs = findPythonLibDir(
+        path.dirname(module.filename),
+        "json5"
+      );
+    }
+    if (
+      PythonHost._pythonLibs !== null &&
+      !env.PYTHONPATH?.includes(PythonHost._pythonLibs)
+    ) {
+      env.PYTHONPATH =
+        (env.PYTHONPATH ?? "") +
+        (process.platform === "win32" ? ";" : ":") +
+        PythonHost._pythonLibs;
+    }
+
+    // Spawn the host
     this._proc = ChildProcess.spawn("python3", args, {
       cwd,
+      env,
       windowsHide: true,
     });
 
@@ -223,7 +249,7 @@ class PythonHost {
   protected _onClose = (): void => {
     this._errors.push(
       new Error(
-        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._proc.stderr.read()}, stdout: ${this._proc.stdout.read()})`
+        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._proc.stderr.read()}, stdout: ${this._proc.stdout.read()}, cli: ${this._cli}, cwd: ${this._cwd})`
       )
     );
     this.kill();
@@ -293,16 +319,17 @@ class PythonHost {
       };
 
       const onError = (err: Error) => {
-        cleanup();
         reject(err);
+        cleanup();
       };
 
       const onClose = () => {
         const exitCode = this._proc.exitCode;
-        cleanup();
         reject(
-          new Error(`Host exited unexpectedly with exit code: ${exitCode}`)
+          this._errors.at(-1) ??
+            new Error(`Host exited unexpectedly with exit code: ${exitCode}`)
         );
+        cleanup();
       };
 
       const timer =
@@ -335,3 +362,18 @@ class PythonHost {
 } // class: PythonHost
 
 const putTimeoutName = "PythonRunnerPutTimeout";
+
+function findPythonLibDir(dir: string, item: string): string | null {
+  // Co-located with this module (e.g., as built)
+  if (fs.existsSync(path.resolve(path.join(dir, item)))) {
+    return dir;
+  }
+
+  // Find build folder (e.g., during development)
+  const buildFolder = findInAncestor(module.filename, "build");
+  if (buildFolder) {
+    return path.resolve(path.join(buildFolder, "extension"));
+  }
+
+  return null;
+}

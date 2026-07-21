@@ -22,7 +22,7 @@ import * as fs from "fs";
  * Measures code coverage of test executions
  */
 export class CoverageMeasure extends AbstractMeasure {
-  protected _coverageData?: CoverageMapData; // coverage data maintained by instrumented code
+  protected _coverageData: CoverageMapData = emptyCoverageMapData([]); // coverage data maintained by instrumented code
   protected _globalCoverageMap = createCoverageMap({}); // global code coverage map
   protected _history: CoverageMeasurementNode[] = []; // measurement history
   protected _sourceMapStore: MapStore = createSourceMapStore();
@@ -374,5 +374,21 @@ export type CodeCoverageMeasureStats = {
   // Per-file breakdown, including line-level hit counts
   files: CodeCoverageFileStats[];
 };
+
+export function emptyCoverageMapData(files: string[]): CoverageMapData {
+  const cov: CoverageMapData = {};
+  files.forEach((file) => {
+    cov[file] = {
+      path: file,
+      statementMap: {},
+      fnMap: {},
+      branchMap: {},
+      s: {},
+      f: {},
+      b: {},
+    };
+  });
+  return cov;
+}
 
 export { FileCoverage } from "istanbul-lib-coverage";
