@@ -295,7 +295,7 @@ export class Tester {
   } // property: get state
 
   /**
-   * Runs the tester in sync mode and returns its results.
+   * Runs the tester and returns its results.
    *
    * @param `injectTests` tests to inject
    * @param `mode` testing mode

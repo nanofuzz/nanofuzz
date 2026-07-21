@@ -24,8 +24,20 @@ copyfiles(
 );
 
 // Copy Python imports
+if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
+  throw new Error(
+    `Could not find Python virtual environment in ./.venv (see ./CONTRIBUTING.md)`
+  );
+}
 [{ name: "json5" }].forEach((pkg) => {
-  fs.cpSync(findInDescendants(".", pkg.name), `./build/extension/${pkg.name}`, {
+  const libdir = findInDescendants("./.venv", pkg.name);
+  console.debug(libdir);
+  if (libdir === undefined) {
+    throw new Error(
+      `Could not find Python package ${pkg.name}. Is it installed in the python virtual environment? (see ./CONTRIBUTING.md)`
+    );
+  }
+  fs.cpSync(libdir, `./build/extension/${pkg.name}`, {
     recursive: true,
   });
   rimraf.sync(`./build/extension/${pkg.name}/__pycache__`);
