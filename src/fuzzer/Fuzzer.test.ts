@@ -576,4 +576,72 @@ describe("fuzzer:", () => {
       ).toBeTruthy();
     });
   });
+
+  it("Python string input", async () => {
+    const fuzzResult = await new Tester(
+      "./Fuzzer.testfixtures.py",
+      "greeting",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(
+      fuzzResult.results.every((e) => e.passedImplicit === "pass")
+    ).toBeTrue();
+    expect(
+      fuzzResult.results.every(
+        (e) =>
+          e.output.length &&
+          typeof e.output[0].value === "string" &&
+          e.input.length &&
+          typeof e.input[0].value === "string" &&
+          e.output[0].value.endsWith(e.input[0].value)
+      )
+    ).toBeTrue();
+  });
+
+  it("Python timeouts", async () => {
+    const fuzzResult = await new Tester(
+      "./Fuzzer.testfixtures.py",
+      "timeouts",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeTrue();
+    expect(fuzzResult.results.some((e) => e.timeout)).toBeTrue();
+  });
+
+  it("Python exceptions", async () => {
+    const fuzzResult = await new Tester(
+      "./Fuzzer.testfixtures.py",
+      "throws",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(
+      fuzzResult.results.some((e) => e.passedImplicit === "pass")
+    ).toBeTrue();
+    expect(fuzzResult.results.some((e) => e.exception)).toBeTrue();
+  });
+
+  it("Python valid target in invalid file", async () => {
+    const fuzzResult = await new Tester(
+      "./Fuzzer.testfixtures2.py",
+      "valid",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).not.toBe(0);
+    expect(fuzzResult.results.every((e) => e.exception)).toBeTrue();
+  });
+
+  it("Python invalid target in invalid file", async () => {
+    expect(() => {
+      new Tester("./Fuzzer.testfixtures2.py", "invalid", intOptions).testSync();
+    }).toThrowError();
+  });
 });
