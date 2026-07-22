@@ -246,7 +246,7 @@ describe("fuzzer:", () => {
 
   it("Fuzz example 15 - coverageOneFile", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testCoverageOneFile",
       {
         ...intOptions,
@@ -289,7 +289,7 @@ describe("fuzzer:", () => {
 
   it("Fuzz example 16 - coverageMultiFile", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testCoverageMultiFile",
       intOptions
     ).testSync();
@@ -320,7 +320,7 @@ describe("fuzzer:", () => {
    */
   it("Fuzz example 17 - dimensioned typerefs", async () => {
     const tester = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testDimensionedTypeRefs",
       {
         ...intOptions,
@@ -370,7 +370,7 @@ describe("fuzzer:", () => {
    */
   it("Fuzz target cannot change fuzzer input record", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testChangeInput",
       intOptions
     ).testSync();
@@ -390,7 +390,7 @@ describe("fuzzer:", () => {
    */
   it("Standard fn void fuzz target fails if return is !==undefined", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnNumber",
       intOptions
     ).testSync();
@@ -402,7 +402,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow fn void fuzz target fails if return is !==undefined", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnNumber",
       intOptions
     ).testSync();
@@ -419,7 +419,7 @@ describe("fuzzer:", () => {
    */
   it("Standard fn void fuzz target passes if return is undefined", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnUndefined",
       intOptions
     ).testSync();
@@ -431,7 +431,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow fn void fuzz target passes if return is undefined", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnUndefined",
       intOptions
     ).testSync();
@@ -448,7 +448,7 @@ describe("fuzzer:", () => {
    */
   it("Standard fn void fuzz target fails if exception is thrown", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnException",
       intOptions
     ).testSync();
@@ -461,7 +461,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow fn void fuzz target fails if exception is thrown", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnException",
       intOptions
     ).testSync();
@@ -479,7 +479,7 @@ describe("fuzzer:", () => {
    */
   it("Standard void literal arg fuzz target", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidLiteralArgs",
       intOptions
     ).testSync();
@@ -491,7 +491,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow void literal arg fuzz target", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidLiteralArgs",
       intOptions
     ).testSync();
@@ -507,7 +507,7 @@ describe("fuzzer:", () => {
    */
   it("Standard union arg fuzz target", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardUnionArgs",
       intOptions
     ).testSync();
@@ -519,7 +519,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow union arg fuzz target", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowUnionArgs",
       intOptions
     ).testSync();
@@ -535,7 +535,7 @@ describe("fuzzer:", () => {
    */
   it("Optional boolean inputs", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testBoolean",
       intOptions
     ).testSync();
@@ -579,7 +579,7 @@ describe("fuzzer:", () => {
 
   it("Python string input", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.py",
+      "./test_fixtures/Fuzzer.testfixtures.py",
       "greeting",
       intOptions
     ).testSync();
@@ -602,7 +602,7 @@ describe("fuzzer:", () => {
 
   it("Python timeouts", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.py",
+      "./test_fixtures/Fuzzer.testfixtures.py",
       "timeouts",
       intOptions
     ).testSync();
@@ -616,7 +616,7 @@ describe("fuzzer:", () => {
 
   it("Python exceptions", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.py",
+      "./test_fixtures/Fuzzer.testfixtures.py",
       "throws",
       intOptions
     ).testSync();
@@ -630,7 +630,7 @@ describe("fuzzer:", () => {
 
   it("Python valid target in invalid file", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures2.py",
+      "./test_fixtures/Fuzzer.testfixtures2.py",
       "valid",
       intOptions
     ).testSync();
@@ -641,7 +641,11 @@ describe("fuzzer:", () => {
 
   it("Python invalid target in invalid file", async () => {
     expect(() => {
-      new Tester("./Fuzzer.testfixtures2.py", "invalid", intOptions).testSync();
+      new Tester(
+        "./test_fixtures/Fuzzer.testfixtures2.py",
+        "invalid",
+        intOptions
+      ).testSync();
     }).toThrowError();
   });
 });
