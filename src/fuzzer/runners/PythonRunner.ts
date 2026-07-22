@@ -157,9 +157,10 @@ export class PythonRunner extends AbstractRunner {
       this._host = host;
       return host;
     } else {
+      const stdout = await host.readStdout();
       host.kill();
       throw new Error(
-        `Internal error: PythonHost not ready (okcode: ${okcode})`
+        `PythonHost not ready (okcode: ${okcode}, stdout: ${stdout})`
       );
     }
   } // get: host
@@ -283,7 +284,7 @@ class PythonHost {
    * @returns `n` bytes, or the entire buffer if n is 0
    */
   public async readStdout(
-    n: number | "all",
+    n: number | "all" = "all",
     timeout: number = 0
   ): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {

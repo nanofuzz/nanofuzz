@@ -1,5 +1,4 @@
 import importlib.util
-import json5
 import sys
 import os
 import io
@@ -8,6 +7,12 @@ import logging
 import traceback
 from contextlib import redirect_stdout
 from typing import Any, Literal, List, Union, TypedDict, NotRequired
+
+try:
+    import json5
+except ModuleNotFoundError as e:
+    print(f"ERROR {e}")
+    exit(3)
 
 
 class RunnerInput(TypedDict):
