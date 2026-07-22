@@ -324,7 +324,7 @@ export class TypescriptProgram extends AbstractProgram {
                 );
               } catch (e) {
                 console.debug(
-                  `Error getting TypeRef from the AST node for ${name} in module ${this._module}, ignoring.
+                  `Error getting TypeRef from the AST node for ${name} in module ${this.filename}, ignoring.
                    Reason: ${e}`
                 );
               }
