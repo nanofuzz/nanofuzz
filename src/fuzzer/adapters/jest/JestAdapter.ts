@@ -1,17 +1,12 @@
 import * as vscode from "vscode";
-import { FuzzTests, Result } from "../Fuzzer";
+import { FuzzTests, Result } from "../../Fuzzer";
 import * as JSON5 from "json5";
 import * as os from "os";
 import * as path from "path";
-import { implicitOracle } from "../oracles/ImplicitOracle";
-import { AbstractTestAdapter } from "./AbstractTestAdapter";
+import { implicitOracle } from "../../oracles/ImplicitOracle";
+import { AbstractTestAdapter } from "../AbstractTestAdapter";
 
-/**
- * The tool's current name (used for studies)
- */
-const toolName = vscode.workspace.getConfiguration("nanofuzz").get("name");
-
-export class JestTestAdapter extends AbstractTestAdapter {
+export class JestAdapter extends AbstractTestAdapter {
   protected _testSet;
   protected _module;
 
@@ -38,7 +33,7 @@ export class JestTestAdapter extends AbstractTestAdapter {
    */
   public toString(): string {
     const jestData: string[] = [];
-    const moduleFn = path
+    const moduleName = path
       .basename(this._module)
       .split(".")
       .slice(0, -1)
@@ -55,15 +50,15 @@ export class JestTestAdapter extends AbstractTestAdapter {
       `/**`,
       ` *              * * * DO NOT MODIFY * * *`,
       ` *`,
-      ` * This file is auto-generated and maintained by ${toolName}.`,
-      ` * ${toolName} will overwrite changes made to this file.`,
+      ` * This file is auto-generated and maintained by ${nanofuzzName}.`,
+      ` * ${nanofuzzName} will overwrite changes made to this file.`,
       ` *`,
-      ` * ${toolName} test file version: ${this._testSet.version}`,
+      ` * ${nanofuzzName} test file version: ${this._testSet.version}`,
       ` */`
     );
 
     // Import the module under test
-    jestData.push(`import * as themodule from './${moduleFn}';`, ``);
+    jestData.push(`import * as themodule from './${moduleName}';`, ``);
 
     // Emit the implicit oracle and custom validator wrappers
     jestData.push(
@@ -71,24 +66,22 @@ export class JestTestAdapter extends AbstractTestAdapter {
       `const implicitOracle: (x:unknown) => boolean = ${implicitOracle.toString()};`,
       ``,
       `// @ts-ignore`,
-      `const runPropertyValidator = (input,testFn,validFn,timeout) => {`,
-      `  const result = {...${JSON5.stringify(result)},out:undefined};`,
-      `  result.in = input;`,
+      `const runPropertyValidator = (input, testFn, validFn, timeout) => {`,
+      `  const result = {...${JSON5.stringify(result)}, out: undefined, in: input};`,
       `  const startElapsedTime = performance.now(); // start timer`,
       `  try {`,
       `    result.out = testFn();`,
-      `  } catch(e: any) {`,
+      `    result.exception = false;`,
+      `  } catch(_e: unknown) {`,
       `    result.exception = true;`,
       `  }`,
       `  const elapsedTime = performance.now() - startElapsedTime; // stop timer`,
       `  result.timeout = elapsedTime > timeout;`,
       `  return validFn({...result});`,
       `}`,
-      ``
+      ``,
+      `describe("${moduleName}", () => {`
     );
-
-    // Specify the timeout
-    jestData.push(`describe("${moduleFn}", () => {`, ``);
 
     // Emit a Jest test for each saved test
     for (const fn in this._testSet.functions) {
@@ -98,7 +91,7 @@ export class JestTestAdapter extends AbstractTestAdapter {
       for (const testId in thisFn.tests) {
         const thisTest = thisFn.tests[testId];
         if (!thisTest.pinned) {
-          continue; // Don't generate Jest tests for saved tests that have correct icons but aren't pinned
+          continue; // Don't generate unit tests for examples that aren't pinned
         }
         i++;
         let x = 0;
@@ -118,19 +111,16 @@ export class JestTestAdapter extends AbstractTestAdapter {
           expectedOutput.length
         ) {
           if (expectedOutput[0].isTimeout) {
-            // Expected timeouts -- not currently supported in Jest format!
             console.error(
-              `Expected timeouts not currently supported in Jest format`
+              `Expected timeouts not currently supported in ${this.toolname} format`
             );
           } else if (expectedOutput[0].isException) {
-            // Expected exception
             jestData.push(
-              `  // Expect thrown exception`,
+              `  // Expect exception`,
               `  it("${fn}.${i}.human", () => {expect(() => {themodule.${fn}(${inputStr})}).toThrow();},${timeout});`,
               ``
             );
           } else {
-            // Expected output value
             jestData.push(
               `  // Expect output value`,
               `  it("${fn}.${i}.human", () => {expect(themodule.${fn}(${inputStr})).toEqual(${JSON5.stringify(
@@ -143,14 +133,13 @@ export class JestTestAdapter extends AbstractTestAdapter {
         // Property validators
         if (thisFn.options.useProperty) {
           for (const validator of thisFn.validators) {
-            // prettier-ignore
             jestData.push(
-            `  // Expect property validator to not return false`,
-            `  it("${fn}.${i}.${validator}", () => {`,
-            `    expect(runPropertyValidator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toBeFalse();`,
-            `  });`,
-            ``,
-          );
+              `  // Expect property validator to not return "fail"`,
+              `  it("${fn}.${i}.${validator}", () => {`,
+              `    expect(runPropertyValidator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toEqual("fail");`,
+              `  });`,
+              ``
+            );
           }
         }
 
@@ -179,7 +168,7 @@ export class JestTestAdapter extends AbstractTestAdapter {
     jestData.push(`});`);
 
     return jestData.join(os.EOL);
-  } // fn: toJest()
+  } // fn: toString()
 
   /**
    * Returns the filename where jest tests are persisted.
@@ -190,6 +179,11 @@ export class JestTestAdapter extends AbstractTestAdapter {
     return (
       (this._module.split(".").slice(0, -1).join(".") || module) +
       ".nano.test.ts"
-    ); // remove .ts/.tsx
+    );
   } // fn: getFilename()
 } // class: JestTestAdapter
+
+/**
+ * The tool's current name (used for studies)
+ */
+const nanofuzzName = vscode.workspace.getConfiguration("nanofuzz").get("name");

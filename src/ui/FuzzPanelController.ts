@@ -4,7 +4,7 @@ import * as fuzzer from "../fuzzer/Fuzzer";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
-import * as jestadapter from "../fuzzer/adapters/JestTestAdapter";
+import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
@@ -744,9 +744,9 @@ export class FuzzPanel {
     }
 
     // Build the Test Adapter
-    const testAdapter = new jestadapter.JestTestAdapter(
-      this._getFuzzTestsForModule(),
-      this._fuzzEnv.function.getModule()
+    const testAdapter = TestAdapterFactory.fromSourceFilename(
+      this._fuzzEnv.function.getModule(),
+      this._getFuzzTestsForModule()
     );
 
     if (pinnedCount) {

@@ -1,6 +1,6 @@
-import { JestTestAdapter } from "./JestTestAdapter";
-import { FuzzTests, FuzzOptions } from "../Types";
-import { ArgOptions, ArgTag } from "../analysis/Types";
+import { JestAdapter } from "./JestAdapter";
+import { FuzzTests, FuzzOptions } from "../../Types";
+import { ArgOptions, ArgTag } from "../../analysis/Types";
 
 const argDefaults: ArgOptions = {
   strCharset: "abc",
@@ -128,7 +128,7 @@ describe("fuzzer/adapters/JestAdapter:", () => {
       },
     };
 
-    const out = new JestTestAdapter(tests, "mymodule.ts").toString();
+    const out = new JestAdapter(tests, "mymodule.ts").toString();
 
     expect(out).toContain('it("sampleFn.0.human"');
     expect(out).toContain('it("sampleFn.0.isValid"');
@@ -141,7 +141,7 @@ describe("fuzzer/adapters/JestAdapter:", () => {
   });
 
   it("keeps nano test filename helper", () => {
-    const fname = new JestTestAdapter(
+    const fname = new JestAdapter(
       {
         version: "0.0.0",
         functions: {},
