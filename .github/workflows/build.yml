@@ -69,3 +69,8 @@ jobs:
       - name: Build npm package
         working-directory: packages/runtime/typescript
         run: yarn build
+
+      # pip runtime package
+      - name: Build pip package
+        working-directory: packages/runtime/python
+        run: python -m build

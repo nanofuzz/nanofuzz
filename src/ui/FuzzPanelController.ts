@@ -998,7 +998,7 @@ ${inArgConsts}
           } = ${resultArgName}['out']`;
           return outVarString;
         },
-        importMapper: () => `from nanofuzz.runtime import FuzzTestResult
+        importMapper: () => `from nanofuzz_runtime import FuzzTestResult
 `,
         skelMapper: (
           validatorName: string,
