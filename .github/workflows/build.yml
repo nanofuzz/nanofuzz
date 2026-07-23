@@ -24,6 +24,8 @@ jobs:
         run: yarn build
       - name: Run all tests
         run: yarn test
+      - name: Build vsix package
+        run: yarn package
 
       # npm runtime package
       - name: Install packages
