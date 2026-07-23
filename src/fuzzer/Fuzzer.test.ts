@@ -577,11 +577,15 @@ describe("fuzzer:", () => {
     });
   });
 
-  it("Python string input", async () => {
+  it("Python string input and property test", async () => {
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "greeting",
-      intOptions
+      {
+        ...intOptions,
+        useProperty: true,
+        suiteTimeout: 3000,
+      }
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
@@ -598,6 +602,13 @@ describe("fuzzer:", () => {
           e.output[0].value.endsWith(e.input[0].value)
       )
     ).toBeTrue();
+    // Check property test results
+    expect(fuzzResult.env.validators.length).toEqual(1);
+    fuzzResult.results.forEach((r) => {
+      expect(r.passedValidators.length).toBe(1);
+      expect(r.validatorException).toBeFalse();
+      expect(r.passedValidator).toBe("pass");
+    });
   });
 
   it("Python timeouts", async () => {

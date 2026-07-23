@@ -832,7 +832,8 @@ export class Tester {
                   : result.output[0].value,
               exception: result.exception,
               timeout: result.timeout,
-            })
+            }),
+            this._options.fnTimeout
           )
         ).forEach((j, i) => {
           if (isError(j)) {
