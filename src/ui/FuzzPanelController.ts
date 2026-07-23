@@ -983,7 +983,7 @@ ${inArgConsts}
         inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
           return `  ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
             validatorArgs.resultArgName
-          }.input[${i}]`;
+          }['in'][${i}]`;
         },
         outputMapper: (
           inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
@@ -997,7 +997,7 @@ ${inArgConsts}
           );
           const outVarString = `${outVarName.name}${
             returnType ? ": " + returnType : ""
-          } = ${resultArgName}.output`;
+          } = ${resultArgName}['out']`;
           return outVarString;
         },
         importMapper: () => `from nanofuzz.runtime import FuzzTestResult
@@ -1016,7 +1016,6 @@ ${inArgConsts}
   return "pass"
 `,
       },
-      "*": {},
     };
     // ^^^^^^^ Language-specific logic ^^^^^^^
 

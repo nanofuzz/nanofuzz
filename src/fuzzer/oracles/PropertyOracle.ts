@@ -14,13 +14,17 @@ export class PropertyOracle {
    * Judge an execution result of a program using property validators
    *
    * @param `result` result of executing the program
+   * @param `timeout` time in ms before cancelling a property validator
    * @returns one judgment or one exception for each property validator
    */
-  public async judge(result: Result): Promise<(Judgment | Error)[]> {
+  public async judge(
+    result: Result,
+    timeout: number | undefined = 0
+  ): Promise<(Judgment | Error)[]> {
     const jj: (Judgment | Error)[] = [];
     for (const r of this._propRunners) {
       try {
-        const validatorOut = await r.run([result]);
+        const validatorOut = await r.run([result], timeout);
         switch (validatorOut.result.tag) {
           case "error":
             jj.push({ ...validatorOut.result });
