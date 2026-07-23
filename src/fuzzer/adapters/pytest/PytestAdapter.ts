@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { FuzzTests, Result } from "../../Fuzzer";
+import { FuzzTests } from "../../Fuzzer";
 import * as JSON5 from "json5";
 import * as fs from "node:fs";
 import * as os from "os";
@@ -39,12 +39,6 @@ export class PytestAdapter extends AbstractTestAdapter {
       .split(".")
       .slice(0, -1)
       .join("."); // remove .py
-    const result: Result = {
-      timeout: false,
-      exception: false,
-      in: [],
-      out: undefined,
-    };
 
     // Auto-generated warning comment
     pytestData.push(
@@ -55,49 +49,43 @@ export class PytestAdapter extends AbstractTestAdapter {
       `# ${nanofuzzName} will overwrite changes made to this file.`,
       `#`,
       `# ${nanofuzzName} test file version: ${this._testSet.version}`,
-      `#`
-    );
-
-    // Emit the implicit oracle and custom validator wrappers
-    pytestData.push(
-      `import time`,
+      `#`,
       `import ${moduleName} as themodule`, //  <-- module under test
+      `import pytest`,
+      `import pytest_timeout`,
+      `import time`,
       `${this.implicitOracle};`,
       ``,
       `def run_property_validator(input, testFn, validFn, timeout):`,
-      `  result = {**${JSON5.stringify(result)}, output: None, input: input}`,
+      `  result = { 'timeout': False, 'exception': False, 'in': input }`,
+      `  result['in'] = input`,
+      `  result['out'] = None`,
       `  startElapsedTime = time.time() # start timer`,
       `  try:`,
-      `    result.out = testFn()`,
-      `    result.exception = False`,
+      `    result['out'] = testFn()`,
+      `    result['exception'] = False`,
       `  except Exception as e:`,
-      `    result.exception = True`,
+      `    result['exception'] = True`,
       `  elapsedTime = time.time() - startElapsedTime # stop timer`,
-      `  result.timeout = elapsedTime > timeout`,
-      `  return validFn({**result})`,
-      ``,
-      `def test_${moduleName}():`
+      `  result['timeout'] = elapsedTime > timeout`,
+      `  return validFn(result)`,
+      ``
     );
 
     // Emit a test for each saved example
     for (const fn in this._testSet.functions) {
       const thisFn = this._testSet.functions[fn];
-      //const timeout = thisFn.options.fnTimeout;
-      //let i = -1;
+      const timeout = thisFn.options.fnTimeout;
+      let i = -1;
       for (const testId in thisFn.tests) {
         const thisTest = thisFn.tests[testId];
         if (!thisTest.pinned) {
           continue; // Don't generate unit tests for examples that aren't pinned
         }
-        //i++;
-        let x = 0;
-        let inputStr = "";
-        thisTest.input
-          .map((e) => e.value)
-          .forEach((e) => {
-            inputStr += x++ ? "," : "";
-            inputStr += JSON5.stringify(e);
-          });
+        i++;
+        const inputArrStr = `[${thisTest.input
+          .map((e) => JSON5.stringify(e.value))
+          .join(",")}]`; // !!!!!!!!!! translation
 
         // Human-annotated expected output - if human validation is turned on
         const expectedOutput = thisTest.expectedOutput;
@@ -112,15 +100,19 @@ export class PytestAdapter extends AbstractTestAdapter {
             );
           } else if (expectedOutput[0].isException) {
             pytestData.push(
-              `  # Expect thrown exception`,
+              `@pytest.mark.timeout(${timeout} / 1000)`,
+              `def test_${moduleName}_${fn}_${i}_expect_exception():`,
+              `  # Expect raised exception`,
               `  with pytest.raises(Exception):`,
-              `     themodule.${fn}(${inputStr})})`,
+              `     themodule.${fn}(*${inputArrStr})`,
               ``
             );
           } else {
             pytestData.push(
+              `@pytest.mark.timeout(${timeout} / 1000)`,
+              `def test_${moduleName}_${fn}_${i}_expect_value():`,
               `  # Expect output value`,
-              `  assert themodule.${fn}(${inputStr})) == ${JSON5.stringify(expectedOutput[0].value)}`,
+              `  assert themodule.${fn}(*${inputArrStr}) == ${JSON5.stringify(expectedOutput[0].value)}`, // !!!!!!!!!! translation
               ``
             );
           }
@@ -129,8 +121,11 @@ export class PytestAdapter extends AbstractTestAdapter {
         if (thisFn.options.useProperty) {
           for (const validator of thisFn.validators) {
             pytestData.push(
-              `  # Expect property validator to not return false`,
-              `  assert run_property_validator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, lambda _: themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout}) != "fail"`,
+              `@pytest.mark.timeout(${timeout} / 1000)`,
+              `def test_${moduleName}_${fn}_${i}_prop_${validator.slice(fn.length)}():`,
+              `  # Expect property validator to not return "fail"`,
+              `  input = ${inputArrStr}`,
+              `  assert run_property_validator( input, lambda: themodule.${fn}(*input), themodule.${validator}, ${thisFn.options.fnTimeout}) != "fail"`,
               ``
             );
           }
@@ -144,14 +139,18 @@ export class PytestAdapter extends AbstractTestAdapter {
         ) {
           if (thisFn.isVoid) {
             pytestData.push(
+              `@pytest.mark.timeout(${timeout} / 1000)`,
+              `def test_${moduleName}_${fn}_${i}_expect_None():`,
               `  # As a void function, expect only None and no timeout or exception`,
-              `  assert themodule.${fn}(${inputStr})) == None`,
+              `  assert themodule.${fn}(*${inputArrStr}) == None`,
               ``
             );
           } else {
             pytestData.push(
+              `@pytest.mark.timeout(${timeout} / 1000)`,
+              `def test_${moduleName}_${fn}_${i}_heuristic():`,
               `  # Expect no timeout, exception, NaN, None, or infinity`,
-              `  assert implicit_oracle(themodule.${fn}(${inputStr})) != "fail"`,
+              `  assert implicit_oracle(themodule.${fn}(*${inputArrStr})) != "fail"`,
               ``
             );
           }
