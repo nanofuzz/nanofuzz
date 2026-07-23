@@ -30,20 +30,6 @@ jobs:
         run: |
           source .venv/bin/activate
           pip install -r requirements.txt
-      - name: ls project (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          ls -a
-          ls -a ./.venv
-          ls -a ./.venv/lib
-          ls -a ./.venv/lib/python3.13
-          ls -a ./.venv/lib/python3.13/site-packages
-      - name: ls project (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          dir
-          dir .\.venv
-          dir .\.venv\lib
       - name: Install Node
         uses: actions/setup-node@v4
         with:

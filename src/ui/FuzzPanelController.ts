@@ -4,7 +4,7 @@ import * as fuzzer from "../fuzzer/Fuzzer";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
-import * as jestadapter from "../fuzzer/adapters/JestAdapter";
+import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
@@ -743,37 +743,35 @@ export class FuzzPanel {
       );
     }
 
-    // Get the filename of the Jest file
-    const jestFile = jestadapter.getFilename(
-      this._fuzzEnv.function.getModule()
+    // Build the Test Adapter
+    const testAdapter = TestAdapterFactory.fromSourceFilename(
+      this._fuzzEnv.function.getModule(),
+      this._getFuzzTestsForModule()
     );
 
     if (pinnedCount) {
       // Generate the Jest test data for CI
       // The Jest file should contain all tests that are pinned
-      const jestTests = jestadapter.toString(
-        this._getFuzzTestsForModule(),
-        this._fuzzEnv.function.getModule()
-      );
+      const jestTests = testAdapter.toString();
 
       // Persist the Jest tests for CI
       try {
-        fs.writeFileSync(jestFile, jestTests);
+        fs.writeFileSync(testAdapter.filename, jestTests);
       } catch (e: unknown) {
         const msg = isError(e) ? e.message : JSON5.stringify(e);
 
         vscode.window.showErrorMessage(
-          `Unable to update Jest test file: ${jestFile} (${msg})`
+          `Unable to update ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
         );
       }
-    } else if (fs.existsSync(jestFile)) {
+    } else if (fs.existsSync(testAdapter.filename)) {
       // Delete the test file: it would contain no tests
       try {
-        fs.rmSync(jestFile);
+        fs.rmSync(testAdapter.filename);
       } catch (e: unknown) {
         const msg = isError(e) ? e.message : JSON5.stringify(e);
         vscode.window.showErrorMessage(
-          `Unable to remove Jest test file: ${jestFile} (${msg})`
+          `Unable to remove ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
         );
       }
     }

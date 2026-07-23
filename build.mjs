@@ -16,11 +16,16 @@ copyfiles(["./src/ui/*.svg", "./build/ui"], true /* flat */, () =>
   console.log("copied svg assets")
 );
 
-// Copy PythonRunnerHost.py
+// Copy Python assets
 copyfiles(
   ["./src/fuzzer/runners/PythonRunnerHost.py", "./build/extension"],
   true,
   () => console.log("copied .py runner")
+);
+copyfiles(
+  ["./src/fuzzer/oracles/ImplicitOracle.py", "./build/extension"],
+  true,
+  () => console.log("copied .py oracle")
 );
 
 // Copy Python imports
