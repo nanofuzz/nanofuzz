@@ -83,7 +83,7 @@ jobs:
           cd packages/runtime/python
           python -m build
       - name: Build Python package (Windows)
-        working-directory: packages/runtime/python
+        if: runner.os == 'Windows'
         run: |
           .venv\Scripts\activate
           cd packages\runtime\python
