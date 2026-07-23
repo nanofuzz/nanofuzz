@@ -389,6 +389,8 @@ export class PythonProgram extends AbstractProgram {
       }
       return this._imports.identifiers[node.text]?.imported === "TypedDict";
     };
+
+    // 1. Class-based TypedDict: class Foo(TypedDict): ...
     for (const classNode of ast.rootNode.namedChildren.filter(
       (node) => node.type === "class_definition"
     )) {
@@ -396,9 +398,7 @@ export class PythonProgram extends AbstractProgram {
       const inheritedFields =
         superclasses?.namedChildren.flatMap((node) => {
           const base = types[node.text];
-          return base?.type?.type === ArgTag.OBJECT
-            ? base.type.children
-            : [];
+          return base?.type?.type === ArgTag.OBJECT ? base.type.children : [];
         }) ?? [];
       const isTypedDict =
         superclasses?.namedChildren.some(isTypedDictBase) ||
@@ -421,7 +421,12 @@ export class PythonProgram extends AbstractProgram {
         );
         const fieldName = assignment?.childForFieldName("left");
         const fieldType = assignment?.childForFieldName("type");
-        if (!assignment || !fieldName || !fieldType || fieldName.type !== "identifier") {
+        if (
+          !assignment ||
+          !fieldName ||
+          !fieldType ||
+          fieldName.type !== "identifier"
+        ) {
           continue;
         }
         const field = this._getTypeRefFromAstNode(fieldType);
@@ -436,6 +441,76 @@ export class PythonProgram extends AbstractProgram {
         isExported: true,
         type: { type: ArgTag.OBJECT, dims: 0, children },
       };
+    }
+
+    // 2. Functional-style TypedDict: Foo = TypedDict('Foo', {'in': int, 'out': str})
+    for (const expressionNode of ast.rootNode.namedChildren.filter(
+      (node) => node.type === "expression_statement"
+    )) {
+      for (const assignmentNode of expressionNode.children.filter(
+        (node) => node.type === "assignment"
+      )) {
+        const left = assignmentNode.childForFieldName("left");
+        const right = assignmentNode.childForFieldName("right");
+        if (
+          !left ||
+          !right ||
+          left.type !== "identifier" ||
+          right.type !== "call"
+        ) {
+          continue;
+        }
+
+        const funcNode = right.childForFieldName("function");
+        if (!funcNode || !isTypedDictBase(funcNode)) {
+          continue;
+        }
+
+        const argumentsNode = right.childForFieldName("arguments");
+        if (!argumentsNode) continue;
+
+        // The second argument of TypedDict('Name', {fields}) should be a dictionary
+        const dictArg = argumentsNode.namedChildren.find(
+          (node) => node.type === "dictionary"
+        );
+        if (!dictArg) continue;
+
+        if (left.text in types) {
+          throw new Error(
+            `Duplicate type alias '${left.text}' found in module '${filename}'`
+          );
+        }
+
+        const children: TypeRef[] = [];
+        for (const pair of dictArg.namedChildren.filter(
+          (node) => node.type === "pair"
+        )) {
+          const keyNode = pair.childForFieldName("key");
+          const valueNode = pair.childForFieldName("value");
+          if (!keyNode || !valueNode) continue;
+
+          // Extract field name (handles both quoted strings and identifiers as keys)
+          let fieldName = keyNode.text;
+          if (keyNode.type === "string") {
+            const content = keyNode.namedChildren.find(
+              (c) => c.type === "string_content"
+            );
+            fieldName = content?.text ?? fieldName.replace(/^['"]|['"]$/g, "");
+          }
+
+          const field = this._getTypeRefFromAstNode(valueNode);
+          field.name = fieldName;
+          children.push(field);
+        }
+
+        types[left.text] = {
+          module: this._filename,
+          dims: 0,
+          optional: false,
+          isExported: true,
+          type: { type: ArgTag.OBJECT, dims: 0, children },
+        };
+      }
     }
     return types;
   }
@@ -993,6 +1068,14 @@ export class PythonProgram extends AbstractProgram {
       typeRef.optional = typeRef.optional || resolvedType.optional;
 
       return typeRef; // this._types[typeRef.typeRefName];
+    } else if (typeRef.typeRefName === "Any") {
+      typeRef.type = {
+        type: this.options.anyType,
+        dims: this.options.anyDims,
+        children: [],
+        resolved: true,
+      };
+      return typeRef;
     } else {
       // Follow the imported type reference
       // Split the local name into parts (e.g., "foo.bar" => ["foo", "bar"])
