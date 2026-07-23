@@ -174,7 +174,12 @@ export abstract class AbstractProgram {
     this._afterLoad();
   } // end constructor
 
-  // !!!!!!
+  /**
+   * Returns `true` if the program is understandable to this class.
+   *
+   * @param `details` filename and language to understand
+   * @returns `true` if understandable, `false` otherwise
+   */
   public static understands(details: {
     filename?: string;
     lang?: ProgramLanguage;
@@ -192,7 +197,13 @@ export abstract class AbstractProgram {
     return false;
   }
 
-  // !!!!!!
+  /**
+   * Returns the AbstractProgram object for `filename` if it is a child
+   * of this program. Othewrwise, `undefined`.
+   *
+   * @param `filename` of program to search for
+   * @returns an `AbstractProgram` object or `undefined`
+   */
   public find(filename: string): AbstractProgram | undefined {
     if (filename in this._root._allChildren) {
       return this._root._allChildren[filename];
