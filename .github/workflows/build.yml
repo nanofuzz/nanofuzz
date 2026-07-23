@@ -70,6 +70,8 @@ jobs:
         run: |
           source .venv/bin/activate
           pytest
+      - name: Build vsix package
+        run: yarn package
 
       # npm runtime package
       - name: Install Yarn packages
