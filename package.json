@@ -265,8 +265,8 @@
     "lint": "eslint src",
     "lint:errors": "eslint --quiet src",
     "vscode:prepublish": "yarn build",
-    "publish": "vsce publish --yarn",
-    "package": "vsce package --yarn",
+    "publish": "npx @vscode/vsce publish --yarn",
+    "package": "npx @vscode/vsce package --yarn",
     "pretest": "yarn build && yarn run lint"
   },
   "babel": {
