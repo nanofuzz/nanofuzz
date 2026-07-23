@@ -101,7 +101,7 @@ export class PytestAdapter extends AbstractTestAdapter {
           } else if (expectedOutput[0].isException) {
             pytestData.push(
               `@pytest.mark.timeout(${timeout} / 1000)`,
-              `def test_${moduleName}_${fn}_${i}_expect_exception():`,
+              `def test_${fn}_${i}_expect():`,
               `  # Expect raised exception`,
               `  with pytest.raises(Exception):`,
               `     themodule.${fn}(*${inputArrStr})`,
@@ -110,7 +110,7 @@ export class PytestAdapter extends AbstractTestAdapter {
           } else {
             pytestData.push(
               `@pytest.mark.timeout(${timeout} / 1000)`,
-              `def test_${moduleName}_${fn}_${i}_expect_value():`,
+              `def test_${fn}_${i}_expect():`,
               `  # Expect output value`,
               `  assert themodule.${fn}(*${inputArrStr}) == ${JSON5.stringify(expectedOutput[0].value)}`, // !!!!!!!!!! translation
               ``
@@ -122,7 +122,7 @@ export class PytestAdapter extends AbstractTestAdapter {
           for (const validator of thisFn.validators) {
             pytestData.push(
               `@pytest.mark.timeout(${timeout} / 1000)`,
-              `def test_${moduleName}_${fn}_${i}_prop_${validator.slice(fn.length)}():`,
+              `def test_${fn}_${i}_prop_${validator.slice(fn.length)}():`,
               `  # Expect property validator to not return "fail"`,
               `  input = ${inputArrStr}`,
               `  assert run_property_validator( input, lambda: themodule.${fn}(*input), themodule.${validator}, ${thisFn.options.fnTimeout}) != "fail"`,
@@ -140,7 +140,7 @@ export class PytestAdapter extends AbstractTestAdapter {
           if (thisFn.isVoid) {
             pytestData.push(
               `@pytest.mark.timeout(${timeout} / 1000)`,
-              `def test_${moduleName}_${fn}_${i}_expect_None():`,
+              `def test_${fn}_${i}_heuristic():`,
               `  # As a void function, expect only None and no timeout or exception`,
               `  assert themodule.${fn}(*${inputArrStr}) == None`,
               ``
@@ -148,7 +148,7 @@ export class PytestAdapter extends AbstractTestAdapter {
           } else {
             pytestData.push(
               `@pytest.mark.timeout(${timeout} / 1000)`,
-              `def test_${moduleName}_${fn}_${i}_heuristic():`,
+              `def test_${fn}_${i}_heuristic():`,
               `  # Expect no timeout, exception, NaN, None, or infinity`,
               `  assert implicit_oracle(themodule.${fn}(*${inputArrStr})) != "fail"`,
               ``

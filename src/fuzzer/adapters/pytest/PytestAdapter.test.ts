@@ -1,8 +1,6 @@
 import { PytestAdapter } from "./PytestAdapter";
-/*
-import { FuzzOptions } from "../../Types";
+import { FuzzOptions, FuzzTests } from "../../Types";
 import { ArgOptions, ArgTag } from "../../analysis/Types";
-
 
 const argDefaults: ArgOptions = {
   strCharset: "abc",
@@ -55,16 +53,15 @@ const makeOptions = (overrides: Partial<FuzzOptions> = {}): FuzzOptions => ({
   useHuman: overrides.useHuman ?? baseOptions.useHuman,
   useProperty: overrides.useProperty ?? baseOptions.useProperty,
 });
-*/
-describe("fuzzer/adapters/PytestAdapter:", () => {
-  /*
-  it("emits 'it' for all generated scenarios", () => {
+
+describe("fuzzer/adapters/pytest/PytestAdapter:", () => {
+  it("emits unit test fn for all generated scenarios", () => {
     const tests: FuzzTests = {
       version: "0.0.0",
       functions: {
         sampleFn: {
           options: makeOptions({ useHuman: true, useProperty: true }),
-          validators: ["isValid"],
+          validators: ["sampleFnValidator"],
           tests: {
             "0": {
               input: [
@@ -133,16 +130,15 @@ describe("fuzzer/adapters/PytestAdapter:", () => {
 
     const out = new PytestAdapter(tests, "mymodule.ts").toString();
 
-    expect(out).toContain('it("sampleFn.0.human"');
-    expect(out).toContain('it("sampleFn.0.isValid"');
-    expect(out).toContain('it("sampleFn.1.human"');
-    expect(out).toContain('it("voidFn.0.heuristic"');
+    expect(out).toContain("def test_sampleFn_0_expect(");
+    expect(out).toContain("def test_sampleFn_0_prop_Validator(");
+    expect(out).toContain("def test_sampleFn_1_expect(");
+    expect(out).toContain("def test_voidFn_0_heuristic(");
 
-    const itMatches = out.match(/\bit\(/g) ?? [];
+    const itMatches = out.match(/\bdef test_/g) ?? [];
     expect(itMatches.length).toBeGreaterThanOrEqual(4);
     expect(out.includes("test(")).toBeFalse();
   });
-  */
 
   it("keeps nano test filename helper", () => {
     const fname = new PytestAdapter(

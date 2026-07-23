@@ -117,13 +117,13 @@ export class JestAdapter extends AbstractTestAdapter {
           } else if (expectedOutput[0].isException) {
             jestData.push(
               `  // Expect exception`,
-              `  it("${fn}.${i}.human", () => {expect(() => {themodule.${fn}(${inputStr})}).toThrow();},${timeout});`,
+              `  it("${fn}.${i}.expect", () => {expect(() => {themodule.${fn}(${inputStr})}).toThrow();},${timeout});`,
               ``
             );
           } else {
             jestData.push(
               `  // Expect output value`,
-              `  it("${fn}.${i}.human", () => {expect(themodule.${fn}(${inputStr})).toEqual(${JSON5.stringify(
+              `  it("${fn}.${i}.expect", () => {expect(themodule.${fn}(${inputStr})).toEqual(${JSON5.stringify(
                 expectedOutput[0].value
               )});},${timeout});`,
               ``
@@ -135,7 +135,7 @@ export class JestAdapter extends AbstractTestAdapter {
           for (const validator of thisFn.validators) {
             jestData.push(
               `  // Expect property validator to not return "fail"`,
-              `  it("${fn}.${i}.${validator}", () => {`,
+              `  it("${fn}.${i}.prop.${validator.slice(fn.length)}", () => {`,
               `    expect(runPropertyValidator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toEqual("fail");`,
               `  });`,
               ``
