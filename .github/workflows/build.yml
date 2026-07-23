@@ -71,6 +71,20 @@ jobs:
         run: yarn build
 
       # pip runtime package
-      - name: Build pip package
+      - name: Run Python tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .venv\Scripts\activate
+          pytest
+      - name: Build Python package (Linux, MacOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          cd packages/runtime/python
+          python -m build
+      - name: Build Python package (Windows)
         working-directory: packages/runtime/python
-        run: python -m build
+        run: |
+          .venv\Scripts\activate
+          cd packages\runtime\python
+          python -m build
