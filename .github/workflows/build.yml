@@ -61,11 +61,11 @@ jobs:
 
       # npm runtime package
       - name: Install Yarn packages
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn
       - name: Check for matching version numbers
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn run checkver
       - name: Build npm package
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn build
