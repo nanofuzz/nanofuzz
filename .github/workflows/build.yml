@@ -61,11 +61,25 @@ jobs:
 
       # npm runtime package
       - name: Install Yarn packages
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn
       - name: Check for matching version numbers
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn run checkver
       - name: Build npm package
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn build
+
+      # pip runtime package
+      - name: Build Python package (Linux, MacOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          cd packages/runtime/python
+          python -m build
+      - name: Build Python package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .venv\Scripts\activate
+          cd packages\runtime\python
+          python -m build
