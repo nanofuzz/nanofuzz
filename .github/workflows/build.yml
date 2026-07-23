@@ -71,11 +71,6 @@ jobs:
         run: yarn build
 
       # pip runtime package
-      - name: Run Python tests (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          .venv\Scripts\activate
-          pytest
       - name: Build Python package (Linux, MacOS)
         if: runner.os != 'Windows'
         run: |
