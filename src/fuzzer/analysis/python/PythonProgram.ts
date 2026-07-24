@@ -11,13 +11,12 @@ import {
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
 import * as ProgramFactory from "../ProgramFactory";
-
 import * as JSON5 from "json5";
 import Parser, { Query, QueryCapture } from "tree-sitter";
 import PythonGrammar from "tree-sitter-python";
 import * as fs from "fs";
 import * as path from "path";
-import { execFileSync } from "child_process";
+import { PythonRunner } from "../../runners/PythonRunner";
 
 // Type definitions are broken in tree-sitter-python
 // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
@@ -27,12 +26,6 @@ export class PythonProgram extends AbstractProgram {
   public static readonly lang = "python";
   public static readonly extensions = Object.freeze([".py"]);
   protected _ast: Parser.Tree | undefined;
-
-  // Cache of `sys.path` entries (site-packages, stdlib, etc.) for the Python
-  // interpreter used to resolve external-package imports. `undefined` means
-  // "not yet queried"; `[]` means the interpreter query failed (e.g. no
-  // Python on PATH), in which case external imports stay unresolved.
-  private static _sysPath: string[] | undefined;
 
   constructor(
     getSource: () => string,
@@ -221,40 +214,6 @@ export class PythonProgram extends AbstractProgram {
   }
 
   /**
-   * Returns the interpreter's `sys.path` (stdlib, site-packages, etc.),
-   * queried once per process and cached. Mirrors why the TypeScript resolver
-   * can lean on `require.resolve`: only the interpreter that will actually
-   * run the code knows where its packages are installed (venvs, `.pth`
-   * files, editable installs) — there's no heuristic-free way to guess it
-   * from the filesystem alone.
-   *
-   * @returns Directories on the interpreter's module search path, or `[]` if
-   *   the interpreter could not be queried (e.g. no Python on PATH)
-   */
-  private static _getSysPath(): string[] {
-    if (PythonProgram._sysPath === undefined) {
-      try {
-        const output = execFileSync(
-          "python3",
-          ["-c", "import sys, json; print(json.dumps(sys.path))"],
-          { encoding: "utf8" }
-        );
-        const entries: unknown = JSON.parse(output);
-        PythonProgram._sysPath = Array.isArray(entries)
-          ? entries.filter(
-              (e): e is string => typeof e === "string" && e !== ""
-            )
-          : [];
-      } catch {
-        // No interpreter on PATH, or it failed to run — external imports
-        // remain unresolved rather than breaking analysis.
-        PythonProgram._sysPath = [];
-      }
-    }
-    return PythonProgram._sysPath;
-  }
-
-  /**
    * Resolves a Python module reference to an on-disk `.py` file path.
    * Relative imports resolve against the current module's directory.
    * Absolute imports are tried, in order, against: the root program's
@@ -305,7 +264,7 @@ export class PythonProgram extends AbstractProgram {
     // Absolute import: project source first, then the interpreter's own
     // search path for external (stdlib/third-party) packages.
     const rootDir = path.dirname(this._root.filename);
-    const searchDirs = [rootDir, ...PythonProgram._getSysPath()];
+    const searchDirs = [rootDir, ...PythonRunner.envFor(this._filename).paths];
     for (const dir of searchDirs) {
       const found = probe(dir, moduleRef);
       if (found) {

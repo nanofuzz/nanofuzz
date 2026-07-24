@@ -489,7 +489,7 @@ export class Tester {
     const propRunners = this._validators.map((vFnRef) =>
       RunnerFactory(this.env, mod, vFnRef.name)
     );
-    //propRunners.forEach(async (p) => await p.onRunStart());
+    propRunners.forEach(async (p) => await p.onRunStart());
     const propertyOracle = new PropertyOracle(propRunners);
 
     // Are we currently injecting inputs?
