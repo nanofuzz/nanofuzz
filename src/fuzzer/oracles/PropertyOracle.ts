@@ -21,54 +21,48 @@ export class PropertyOracle {
     result: Result,
     timeout: number | undefined = 0
   ): Promise<(Judgment | Error)[]> {
-    const jj: (Judgment | Error)[] = [];
-    for (const r of this._propRunners) {
-      try {
-        const validatorOut = await r.run([result], timeout);
-        switch (validatorOut.result.tag) {
+    return (
+      await Promise.allSettled(
+        this._propRunners.map((r) => r.run([result], timeout))
+      )
+    ).map((result, runnerId) => {
+      const runner = this._propRunners[runnerId];
+      if (result.status === "fulfilled") {
+        const vOut = result.value;
+        switch (vOut.result.tag) {
           case "error":
-            jj.push({ ...validatorOut.result });
-            break;
+            return { ...vOut.result };
           case "timeout":
-            jj.push({
+            return {
               name: `PropertyValidatorTimeout`,
-              message: `property validator "${r.name} timed out`,
-            });
-            break;
+              message: `property validator "${runner.name} timed out`,
+            };
           case "value":
-            switch (validatorOut.result.value) {
+            switch (vOut.result.value) {
               case true: // v0.3
               case "pass": // v0.4
-                jj.push("pass");
-                break;
+                return "pass";
               case false: // v0.3
               case "fail": // v0.4
-                jj.push("fail");
-                break;
+                return "fail";
               case undefined: // v0.3
               case "unknown": // v0.4
-                jj.push("unknown");
-                break;
+                return "unknown";
               default:
-                jj.push(
-                  new Error(
-                    `Property validator did not return: "pass" | "fail" | "unknown"`
-                  )
+                return new Error(
+                  `Property validator did not return: "pass" | "fail" | "unknown"`
                 );
             }
         }
-      } catch (e: unknown) {
-        jj.push(
-          isError(e)
-            ? e
-            : new Error(
-                `Property validator threw exception that is not an Error`,
-                { cause: e }
-              )
-        );
+      } else {
+        return isError(result.reason)
+          ? result.reason
+          : new Error(
+              `Property validator threw exception that is not an Error`,
+              { cause: result.reason }
+            );
       }
-    }
-    return jj;
+    });
   } // fn: judge
 
   /**
