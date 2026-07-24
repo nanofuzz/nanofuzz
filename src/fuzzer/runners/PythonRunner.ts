@@ -215,7 +215,7 @@ export class PythonRunner extends AbstractRunner {
         pythonEnv.interpreter = pythonEnv.venv.interpreter;
       }
     }
-    pythonEnv.paths = PythonRunner._pathsFor(pythonEnv.interpreter);
+    pythonEnv.paths = PythonRunner._pathsFor(pythonEnv);
 
     PythonRunner._envs[filename] = Object.freeze(pythonEnv);
     setTimeout(() => {
@@ -231,17 +231,20 @@ export class PythonRunner extends AbstractRunner {
    * @param `interpreter` path to python interpreter
    * @returns array of paths
    */
-  protected static _pathsFor(interpreter: string): readonly string[] {
+  protected static _pathsFor(pythonEnv: PythonEnv): readonly string[] {
+    const interpreter = pythonEnv.interpreter;
     if (!(interpreter in PythonRunner._paths)) {
       try {
         const output = ChildProcess.execFileSync(
           interpreter,
           ["-c", "import sys, json; print(json.dumps(sys.path))"],
-          { encoding: "utf8" }
+          { encoding: "utf8", env: pythonEnv.env }
         );
         const entries: unknown = JSON.parse(output);
         PythonRunner._paths[interpreter] = Array.isArray(entries)
-          ? entries.filter((e) => typeof e === "string" && e !== "")
+          ? Object.freeze(
+              entries.filter((e) => typeof e === "string" && e !== "")
+            )
           : [];
       } catch (_e: unknown) {
         // No interpreter on PATH, or it failed to run
