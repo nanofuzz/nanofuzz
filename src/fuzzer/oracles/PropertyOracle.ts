@@ -21,9 +21,11 @@ export class PropertyOracle {
     result: Result,
     timeout: number | undefined = 0
   ): Promise<(Judgment | Error)[]> {
-    const promises = this._propRunners.map((r) => r.run([result], timeout));
-    const results = await Promise.allSettled(promises);
-    return results.map((result, runnerId) => {
+    return (
+      await Promise.allSettled(
+        this._propRunners.map((r) => r.run([result], timeout))
+      )
+    ).map((result, runnerId) => {
       const runner = this._propRunners[runnerId];
       if (result.status === "fulfilled") {
         const vOut = result.value;
