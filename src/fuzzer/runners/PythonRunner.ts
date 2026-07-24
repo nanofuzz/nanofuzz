@@ -1,5 +1,7 @@
 import { AbstractRunner, RunnerInput, RunnerResult } from "./AbstractRunner";
 import JSON5 from "json5";
+import DotEnv from "dotenv";
+import vscode from "vscode";
 import * as ChildProcess from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -15,6 +17,13 @@ export class PythonRunner extends AbstractRunner {
   protected _fn: string;
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
+  protected _pythonEnv: PythonEnv | undefined;
+  protected static _envs: {
+    [file: string]: PythonEnv;
+  } = {};
+  protected static _paths: {
+    [path: string]: readonly string[];
+  } = {};
 
   /**
    * Create a new Python runner
@@ -37,8 +46,9 @@ export class PythonRunner extends AbstractRunner {
   public async onRunStart(): Promise<void> {
     await super.onRunStart();
     this._killHost();
+    this._pythonEnv = PythonRunner.envFor(this._filename);
     await this._getHost();
-  }
+  } // fn: onRunStart
 
   /**
    * Run `fn` in `module` with `inputs`
@@ -56,6 +66,9 @@ export class PythonRunner extends AbstractRunner {
       throw new Error(
         "Internal error: PythonRunner.run calls cannot be interleaved."
       );
+    }
+    if (!this._pythonEnv) {
+      throw new Error("Internal error: cannot 'run' prior to 'runStart'");
     }
 
     try {
@@ -119,7 +132,130 @@ export class PythonRunner extends AbstractRunner {
   public async onRunEnd(): Promise<void> {
     await super.onRunEnd();
     this._killHost();
+    this._pythonEnv = undefined;
   }
+
+  /**
+   * Returns the python environment for a file
+   *
+   * @param `filename` Python source file in a workspace
+   * @returns a python environment
+   */
+  public static envFor(filename: string): PythonEnv {
+    if (filename in PythonRunner._envs) {
+      return PythonRunner._envs[filename];
+    }
+
+    const pythonEnv: PythonEnv = {
+      env: { ...process.env },
+      libs: findPythonLibDir(path.dirname(module.filename), "json5"),
+      paths: [],
+      interpreter: vscode.workspace
+        .getConfiguration("python")
+        .get("defaultInterpreterPath", "python3"),
+    };
+
+    // Load .env file if configured
+    if (
+      vscode.workspace
+        .getConfiguration("python.terminal")
+        .get("useEnvFile", false)
+    ) {
+      const envFile = vscode.workspace
+        .getConfiguration("python")
+        .get("envFile", undefined);
+      if (envFile && fs.existsSync(envFile)) {
+        DotEnv.config({ processEnv: pythonEnv.env, path: envFile });
+      }
+    }
+
+    // Append own own modules to PYTHONPATH if needed
+    if (pythonEnv.libs && !pythonEnv.env.PYTHONPATH?.includes(pythonEnv.libs)) {
+      pythonEnv.env.PYTHONPATH =
+        (pythonEnv.env.PYTHONPATH ?? "") +
+        (process.platform === "win32" ? ";" : ":") +
+        pythonEnv.libs;
+    }
+
+    // Use a virtual environment if specified & found
+    const searchGlobs: string[] = vscode.workspace
+      .getConfiguration("python-envs")
+      .get<string[]>("workspaceSearchPaths", []);
+    const workspace = vscode.workspace.getWorkspaceFolder(
+      vscode.Uri.file(filename)
+    )?.uri.fsPath;
+    if (
+      searchGlobs.length &&
+      workspace &&
+      vscode.workspace
+        .getConfiguration("python.terminal")
+        .get<boolean>("activateEnvironment", false) &&
+      vscode.workspace
+        .getConfiguration("python-envs.terminal")
+        .get<string>("autoActivationType", "command") ===
+        "command" /* TODO shellStartup */
+    ) {
+      const matches = fs.globSync(searchGlobs, { cwd: workspace });
+      if (matches.length) {
+        const venvPath = path.resolve(path.join(workspace, matches[0]));
+        const venvBins =
+          process.platform === "win32"
+            ? path.resolve(path.join(venvPath, "Scripts"))
+            : path.resolve(path.join(venvPath, "bin"));
+        const venvActivateCmd =
+          process.platform === "win32"
+            ? path.resolve(path.join(venvBins, "activate"))
+            : `source ${path.resolve(path.join(venvBins, "activate"))}`;
+
+        pythonEnv.venv = {
+          path: venvPath,
+          activateCmd: venvActivateCmd,
+          interpreter: path.resolve(path.join(venvBins, "python3")),
+        };
+        pythonEnv.interpreter = pythonEnv.venv.interpreter;
+      }
+    }
+    pythonEnv.paths = PythonRunner._pathsFor(pythonEnv);
+
+    PythonRunner._envs[filename] = Object.freeze(pythonEnv);
+    setTimeout(() => {
+      delete PythonRunner._envs[filename];
+    }, 10000);
+
+    return pythonEnv;
+  }
+
+  /**
+   * Returns the syspaths used by the interpreter
+   *
+   * @param `interpreter` path to python interpreter
+   * @returns array of paths
+   */
+  protected static _pathsFor(pythonEnv: PythonEnv): readonly string[] {
+    const interpreter = pythonEnv.interpreter;
+    if (!(interpreter in PythonRunner._paths)) {
+      try {
+        const output = ChildProcess.execFileSync(
+          interpreter,
+          ["-c", "import sys, json; print(json.dumps(sys.path))"],
+          { encoding: "utf8", env: pythonEnv.env }
+        );
+        const entries: unknown = JSON.parse(output);
+        PythonRunner._paths[interpreter] = Array.isArray(entries)
+          ? Object.freeze(
+              entries.filter((e) => typeof e === "string" && e !== "")
+            )
+          : [];
+      } catch (_e: unknown) {
+        // No interpreter on PATH, or it failed to run
+        PythonRunner._paths[interpreter] = Object.freeze([]);
+      }
+      setTimeout(() => {
+        delete PythonRunner._paths[interpreter];
+      }, 15000);
+    }
+    return PythonRunner._paths[interpreter];
+  } //fn: _pathsFor
 
   /**
    * Get the current Python host process (creates a new one if needed)
@@ -132,6 +268,10 @@ export class PythonRunner extends AbstractRunner {
         this._host.kill();
         this._host = undefined;
       }
+    }
+
+    if (!this._pythonEnv) {
+      throw new Error("Internal error: cannot '_getHost' prior to 'runStart'");
     }
 
     const filenameBase = path.basename(this._filename);
@@ -150,7 +290,11 @@ export class PythonRunner extends AbstractRunner {
       this._fn,
     ];
 
-    const host = new PythonHost(args, path.dirname(module.filename));
+    const host = new PythonHost(
+      args,
+      path.dirname(module.filename),
+      this._pythonEnv
+    );
     const okcode = await host.readStdout(5, 1000);
 
     if (okcode.toString() === "READY") {
@@ -187,37 +331,18 @@ class PythonHost {
   protected _errors: Error[];
   protected _cli: string;
   protected _cwd: string | undefined;
-  protected static _pythonLibs: string | undefined | null;
 
-  constructor(args: string[], cwd: string | undefined) {
+  constructor(args: string[], cwd: string | undefined, pythonEnv: PythonEnv) {
     this._stdout = Buffer.alloc(0);
     this._stderr = Buffer.alloc(0);
     this._errors = [];
     this._cwd = cwd;
-    this._cli = ["python3", ...args].join(" ");
-
-    // Append to PYTHONPATH if needed
-    const env = { ...process.env };
-    if (PythonHost._pythonLibs === undefined) {
-      PythonHost._pythonLibs = findPythonLibDir(
-        path.dirname(module.filename),
-        "json5"
-      );
-    }
-    if (
-      PythonHost._pythonLibs !== null &&
-      !env.PYTHONPATH?.includes(PythonHost._pythonLibs)
-    ) {
-      env.PYTHONPATH =
-        (env.PYTHONPATH ?? "") +
-        (process.platform === "win32" ? ";" : ":") +
-        PythonHost._pythonLibs;
-    }
+    this._cli = [pythonEnv.interpreter, ...args].join(" ");
 
     // Spawn the host
-    this._proc = ChildProcess.spawn("python3", args, {
+    this._proc = ChildProcess.spawn(pythonEnv.interpreter, args, {
       cwd,
-      env,
+      env: pythonEnv.env,
       windowsHide: true,
     });
 
@@ -338,7 +463,7 @@ class PythonHost {
           ? setTimeout(() => {
               cleanup();
               const exception = new Error(
-                `Host did not return expected ${n} bytes within ${timeout} ms timeout`
+                `PythonRunnerHost did not return expected data within ${timeout} ms timeout`
               );
               exception.name = putTimeoutName;
               this.kill();
@@ -378,3 +503,15 @@ function findPythonLibDir(dir: string, item: string): string | null {
 
   return null;
 }
+
+export type PythonEnv = {
+  env: { [k: string]: string | undefined };
+  libs: string | undefined | null;
+  interpreter: string;
+  paths: readonly string[];
+  venv?: {
+    activateCmd: string;
+    path: string;
+    interpreter: string;
+  };
+};

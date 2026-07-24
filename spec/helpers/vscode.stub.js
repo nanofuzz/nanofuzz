@@ -10,6 +10,13 @@ module.exports = {
     onDidChangeConfiguration: {},
     onDidChangeTextDocument: {},
     onDidChangeActiveTextEditor: {},
+    getWorkspaceFolder: function () {
+      return {
+        uri: {
+          fsPath: () => process.cwd(),
+        },
+      };
+    },
   },
   window: {
     onDidChangeActiveTextEditor: {},
@@ -26,4 +33,11 @@ module.exports = {
   TextEditorSelectionChangeEvent: {},
   TextEditorVisibleRangesChangeEvent: {},
   Terminal: {},
+  Uri: {
+    file: (k) => {
+      return {
+        fsPath: k,
+      };
+    },
+  },
 };
