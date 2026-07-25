@@ -16,6 +16,7 @@ import { normalizePathForKey } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
+import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -942,7 +943,7 @@ export class FuzzPanel {
     const skelGenerators = {
       typescript: {
         inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
-          return `  const ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
+          return `  const ${argDef.getName()}: ${fuzzer.TypescriptProgram.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
           }.in[${i}];`;
         },
@@ -976,10 +977,11 @@ ${inArgConsts}
 
   return "pass";
 }`,
+        getTypeAnnotation: fuzzer.TypescriptProgram.getTypeAnnotation,
       },
       python: {
         inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
-          return `  ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
+          return `  ${argDef.getName()}: ${PythonProgram.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
           }['in'][${i}]`;
         },
@@ -1013,6 +1015,7 @@ ${inArgConsts}
 
   return "pass"
 `,
+        getTypeAnnotation: PythonProgram.getTypeAnnotation,
       },
     };
     // ^^^^^^^ Language-specific logic ^^^^^^^
@@ -1028,7 +1031,9 @@ ${inArgConsts}
     const outArgConst = skelGenerators[program.lang].outputMapper(
       inArgs,
       validatorArgs.resultArgName,
-      outTypeAsArg ? outTypeAsArg.getTypeAnnotation() : undefined
+      outTypeAsArg
+        ? skelGenerators[program.lang].getTypeAnnotation(outTypeAsArg)
+        : undefined
     );
 
     // Name of the validator generated

@@ -28,10 +28,13 @@ import {
   TypeRef,
   ArgOptions,
   ArgType,
+  TypeAnnotationOptions,
+  TypeAnnotationOptionDefaults,
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
 import { AbstractProgram } from "../AbstractProgram";
 import * as ProgramFactory from "../ProgramFactory";
+import { ArgDef } from "../ArgDef";
 
 // Default import nonsense for node
 // https://github.com/babel/babel/discussions/13093
@@ -1076,6 +1079,103 @@ export class TypescriptProgram extends AbstractProgram {
   public get extensions(): readonly string[] {
     return TypescriptProgram.extensions;
   }
+
+  /**
+   * Returns a string that works as the type annotation for the argument.
+   *
+   * @param `arg` ArgDef to describe
+   * @param `options` Description options
+   * @returns a string that works as the type annotation for the argument
+   */
+  public static getTypeAnnotation(
+    arg: ArgDef<ArgType>,
+    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    // Get the base type annotation
+    let baseType = TypescriptProgram.getBaseType(arg, options);
+
+    // Wrap union types w/dims in parens prior to adding the dims
+    if (
+      arg.getType() === ArgTag.UNION &&
+      arg.getDim() &&
+      (arg.getTypeRef() === undefined || !options.useTypeRefs)
+    ) {
+      baseType = `(${baseType})`;
+    }
+
+    // Add the dimensions to the annotation
+    let type = `${baseType}${arg.getDim() ? "[]".repeat(arg.getDim()) : ""}`;
+
+    // Add optionality (if specified and not already part of the union type)
+    if (
+      arg.isOptional() &&
+      !(
+        arg.getType() === ArgTag.UNION &&
+        arg.getDim() === 0 &&
+        arg
+          .getChildren()
+          .some(
+            (child) =>
+              child.getType() === ArgTag.LITERAL &&
+              child.isConstant() &&
+              child.getConstantValue() === undefined
+          )
+      )
+    ) {
+      type = `${type} | undefined`;
+    }
+    return type;
+  } // fn: getTypeAnnotation()
+
+  /**
+   * Returns the base type of this ArgDef, i.e., its type without any
+   * dimensions or optionality.
+   */
+  protected static getBaseType(
+    arg: ArgDef<ArgType>,
+    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    const typeRef = arg.getTypeRef();
+    if (typeRef && options.useTypeRefs) {
+      return typeRef;
+    }
+
+    switch (arg.getType()) {
+      case ArgTag.OBJECT: {
+        // Literal object, no type. Recursively walk the children to build the type.
+        const childTypeAnnotations = arg
+          .getChildren()
+          .map(
+            (child) =>
+              `${child.getName()}${
+                child.isOptional() && !options.useOptionality ? "?" : ""
+              }: ${TypescriptProgram.getTypeAnnotation(child, options)}`
+          );
+        return `{ ${childTypeAnnotations.join("; ")} }`;
+      }
+
+      case ArgTag.UNION: {
+        const childTypeAnnotations = arg
+          .getChildren()
+          .map((child) => TypescriptProgram.getTypeAnnotation(child, options));
+        return childTypeAnnotations.join(" | ");
+      }
+
+      case ArgTag.LITERAL: {
+        return `${JSON5.stringify(arg.getConstantValue())}`;
+      }
+
+      case ArgTag.TUPLE: {
+        const childTypeAnnotations = arg
+          .getChildren()
+          .map((child) => TypescriptProgram.getTypeAnnotation(child, options));
+        return `[${childTypeAnnotations.join(", ")}]`;
+      }
+
+      default:
+        return arg.getType();
+    }
+  } // fn: getBaseType()
 } // class: TypescriptProgram
 
 /**

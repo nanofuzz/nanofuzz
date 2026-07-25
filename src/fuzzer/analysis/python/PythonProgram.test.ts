@@ -57,7 +57,7 @@ def greeting(name: a) -> a:
     expect(args[0].getType()).toEqual(ArgTag.STRING);
     expect(args[0].isConstant()).toBeFalse();
     expect(args[0].getTypeRef()).toEqual("a");
-    expect(args[0].getTypeAnnotation()).toEqual("a");
+    expect(PythonProgram.getTypeAnnotation(args[0])).toEqual("a");
   });
 
   it("extracts primitive, collection, union, and literal aliases", () => {
@@ -392,7 +392,9 @@ from .schemas import *`,
         "edges",
       ]);
       expect(
-        bfs.getArgDefs().map((argument) => argument.getTypeAnnotation())
+        bfs
+          .getArgDefs()
+          .map((argument) => PythonProgram.getTypeAnnotation(argument))
       ).toEqual(["Vertex", "ImportedEdges[]"]);
       expect(bfs.getReturnType()).toEqual(
         jasmine.objectContaining({ typeRefName: "Traversal" })
@@ -403,15 +405,15 @@ from .schemas import *`,
         topological.getArgDefs().map((argument) => argument.getName())
       ).toEqual(["vertex_count", "edges"]);
       expect(topological.getArgDefs()[0].getType()).toEqual(ArgTag.NUMBER);
-      expect(topological.getArgDefs()[1].getTypeAnnotation()).toEqual(
-        "ImportedEdges[]"
-      );
+      expect(
+        PythonProgram.getTypeAnnotation(topological.getArgDefs()[1])
+      ).toEqual("ImportedEdges[]");
 
       const knapsack = functions["knapsack_from_imported_helper"];
       expect(
         knapsack.getArgDefs().map((argument) => argument.getName())
       ).toEqual(["items", "capacity"]);
-      expect(knapsack.getArgDefs()[0].getTypeAnnotation()).toEqual(
+      expect(PythonProgram.getTypeAnnotation(knapsack.getArgDefs()[0])).toEqual(
         "KnapsackItems[][]"
       );
       expect(knapsack.getArgDefs()[1].getType()).toEqual(ArgTag.NUMBER);

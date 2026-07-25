@@ -8,6 +8,8 @@ import {
   ArgOptions,
   ArgTag,
   ArgType,
+  TypeAnnotationOptions,
+  TypeAnnotationOptionDefaults,
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
 import * as ProgramFactory from "../ProgramFactory";
@@ -17,6 +19,7 @@ import PythonGrammar from "tree-sitter-python";
 import * as fs from "fs";
 import * as path from "path";
 import { PythonRunner } from "../../runners/PythonRunner";
+import { ArgDef } from "../ArgDef";
 
 // Type definitions are broken in tree-sitter-python
 // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
@@ -1182,4 +1185,101 @@ export class PythonProgram extends AbstractProgram {
   public get extensions(): readonly string[] {
     return PythonProgram.extensions;
   }
-}
+
+  /**
+   * Returns a string that works as the type annotation for the argument.
+   *
+   * @param `arg` ArgDef to describe
+   * @param `options` Description options
+   * @returns a string that works as the type annotation for the argument
+   */
+  public static getTypeAnnotation(
+    arg: ArgDef<ArgType>,
+    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    // Get the base type annotation
+    const baseType = PythonProgram.getBaseType(arg, options);
+    const dims = arg.getDim();
+
+    // Add the dimensions to the annotation
+    let type = `${"List[".repeat(dims)}${baseType}${arg.getDim()}${"]".repeat(dims)}`;
+
+    // Add optionality (if specified and not already part of the union type)
+    if (
+      arg.isOptional() &&
+      !(
+        arg.getType() === ArgTag.UNION &&
+        arg.getDim() === 0 &&
+        arg
+          .getChildren()
+          .some(
+            (child) =>
+              child.getType() === ArgTag.LITERAL &&
+              child.isConstant() &&
+              child.getConstantValue() === undefined
+          )
+      )
+    ) {
+      type = `Union[${type}, None]`;
+    }
+    return type;
+  } // fn: getTypeAnnotation()
+
+  /**
+   * Returns the base type of this ArgDef, i.e., its type without any
+   * dimensions or optionality.
+   */
+  protected static getBaseType(
+    arg: ArgDef<ArgType>,
+    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    const typeRef = arg.getTypeRef();
+    if (typeRef && options.useTypeRefs) {
+      return typeRef;
+    }
+
+    switch (arg.getType()) {
+      case ArgTag.OBJECT: {
+        // Literal object, no type. Recursively walk the children to build the type.
+        const childTypeAnnotations = arg.getChildren().map((child) => {
+          let type = PythonProgram.getTypeAnnotation(child, options);
+          if (child.isOptional() && !options.useOptionality) {
+            type = `NotRequired[${type}]`;
+          }
+          return `'${child.getName()}': ${type}`;
+        });
+        return `TypedDict('${arg.getName()}',{${childTypeAnnotations.join(", ")} }`;
+      }
+
+      case ArgTag.UNION: {
+        const childTypeAnnotations = arg
+          .getChildren()
+          .map((child) => PythonProgram.getTypeAnnotation(child, options));
+        return `Union[${childTypeAnnotations.join(", ")}]`;
+      }
+
+      case ArgTag.LITERAL: {
+        return `Literal[${JSON5.stringify(arg.getConstantValue())}]`; // !!!!!!!!!! translation
+      }
+
+      case ArgTag.TUPLE: {
+        const childTypeAnnotations = arg
+          .getChildren()
+          .map((child) => PythonProgram.getTypeAnnotation(child, options));
+        return `tuple[${childTypeAnnotations.join(", ")}]`;
+      }
+
+      case ArgTag.BOOLEAN:
+        return "bool";
+
+      case ArgTag.NUMBER:
+        return arg.getOptions().numInteger ? "int" : "float";
+
+      case ArgTag.STRING:
+        return "str";
+
+      case ArgTag.UNRESOLVED:
+        throw new Error(`Internal error: unresolved types cannot be annotated`);
+    }
+  } // fn: getBaseType()
+} // class: PythonProgram

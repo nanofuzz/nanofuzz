@@ -6,8 +6,6 @@ import {
   ArgTag,
   ArgType,
   Interval,
-  TypeAnnotationOptionDefaults,
-  TypeAnnotationOptions,
   TypeRef,
 } from "./Types";
 
@@ -471,95 +469,6 @@ export class ArgDef<T extends ArgType> {
     }
     return ret;
   } // fn: getChildrenFlat()
-
-  /**
-   * Returns the base type of this ArgDef, i.e., its type without any
-   * dimensions or optionality.
-   */
-  private getBaseType(
-    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
-  ): string {
-    if (this.typeRef && options.useTypeRefs) {
-      return this.typeRef;
-    }
-
-    // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
-    switch (this.type) {
-      case ArgTag.OBJECT: {
-        // Literal object, no type. Recursively walk
-        // the children to build the type.
-        const childTypeAnnotations = this.children.map(
-          (child) =>
-            `${child.getName()}${
-              child.optional && !options.useOptionality ? "?" : ""
-            }: ${child.getTypeAnnotation(options)}`
-        );
-        return `{ ${childTypeAnnotations.join("; ")} }`;
-      }
-
-      case ArgTag.UNION: {
-        const childTypeAnnotations = this.children.map((child) =>
-          child.getTypeAnnotation(options)
-        );
-        return childTypeAnnotations.join(" | ");
-      }
-
-      case ArgTag.LITERAL: {
-        return `${JSON5.stringify(this.getConstantValue())}`;
-      }
-
-      case ArgTag.TUPLE: {
-        const childTypeAnnotations = this.children.map((child) =>
-          child.getTypeAnnotation(options)
-        );
-        return `[${childTypeAnnotations.join(", ")}]`;
-      }
-
-      default:
-        return this.type;
-    }
-  } // fn: getBaseType()
-
-  /**
-   * Returns a string that works as the type annotation for the argument.
-   * @returns a string that works as the type annotation for the argument
-   */
-  public getTypeAnnotation(
-    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
-  ): string {
-    // Get the base type annotation
-    let baseType = this.getBaseType(options);
-
-    // Wrap union types w/dims in parens prior to adding the dims
-    if (
-      this.type === ArgTag.UNION &&
-      this.dims &&
-      (this.typeRef === undefined || !options.useTypeRefs)
-    ) {
-      baseType = `(${baseType})`;
-    }
-
-    // Add the dimensions to the annotation
-    let type = `${baseType}${this.dims ? "[]".repeat(this.dims) : ""}`;
-
-    // Add optionality (if specified and not already part of the union type)
-    if (
-      this.optional &&
-      !(
-        this.type === ArgTag.UNION &&
-        this.dims === 0 &&
-        this.children.some(
-          (child) =>
-            child.getType() === ArgTag.LITERAL &&
-            child.isConstant() &&
-            child.getConstantValue() === undefined
-        )
-      )
-    ) {
-      type = `${type} | undefined`;
-    }
-    return type;
-  } // fn: getTypeAnnotation()
 
   /**
    * Returns the default option set.

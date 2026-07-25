@@ -6,8 +6,11 @@ import {
   ProgramImports,
   ProgramPath,
   TypeRef,
+  ArgType,
   ArgOptions,
   ProgramImport,
+  TypeAnnotationOptions,
+  TypeAnnotationOptionDefaults,
 } from "./Types";
 import { getErrorMessageOrJson } from "../Util";
 import { ProgramLanguage } from "./ProgramFactory";
@@ -375,4 +378,18 @@ export abstract class AbstractProgram {
   public get defaultExport(): TypeRef | undefined {
     return structuredClone(this._exports.default);
   } // fn: get defaultExport()
+
+  /**
+   * Returns a string that works as the type annotation for the argument.
+   *
+   * @param `arg` ArgDef to describe
+   * @param `options` Description options
+   * @returns a string that works as the type annotation for the argument
+   */
+  public static getTypeAnnotation(
+    _arg: ArgDef<ArgType>,
+    _options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    throw new Error("Method must be implemented");
+  } // fn: getTypeAnnotation
 } // class: AbstractProgram
