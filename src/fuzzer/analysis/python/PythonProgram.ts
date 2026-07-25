@@ -10,6 +10,7 @@ import {
   ArgType,
   TypeAnnotationOptions,
   TypeAnnotationOptionDefaults,
+  ProgramLanguage,
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
 import * as ProgramFactory from "../ProgramFactory";
@@ -838,6 +839,7 @@ export class PythonProgram extends AbstractProgram {
       module: this._filename,
       name: nameNode.node.text,
       src: defNode.node.text,
+      lang: PythonProgram.lang,
       startOffset: defNode.node.startIndex,
       endOffset: defNode.node.endIndex,
       isExported: true,
@@ -885,6 +887,7 @@ export class PythonProgram extends AbstractProgram {
       module: this._filename,
       name: nameNode.node.text,
       src: defNode.node.text,
+      lang: PythonProgram.lang,
       startOffset: defNode.node.startIndex,
       endOffset: defNode.node.endIndex,
       isExported: true,
@@ -1178,7 +1181,7 @@ export class PythonProgram extends AbstractProgram {
     }
   }
 
-  public get lang(): ProgramFactory.ProgramLanguage {
+  public get lang(): ProgramLanguage {
     return PythonProgram.lang;
   }
 
@@ -1202,7 +1205,7 @@ export class PythonProgram extends AbstractProgram {
     const dims = arg.getDim();
 
     // Add the dimensions to the annotation
-    let type = `${"List[".repeat(dims)}${baseType}${arg.getDim()}${"]".repeat(dims)}`;
+    let type = `${"List[".repeat(dims)}${baseType}${"]".repeat(dims)}`;
 
     // Add optionality (if specified and not already part of the union type)
     if (

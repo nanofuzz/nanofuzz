@@ -395,7 +395,7 @@ from .schemas import *`,
         bfs
           .getArgDefs()
           .map((argument) => PythonProgram.getTypeAnnotation(argument))
-      ).toEqual(["Vertex", "ImportedEdges[]"]);
+      ).toEqual(["Vertex", "List[ImportedEdges]"]);
       expect(bfs.getReturnType()).toEqual(
         jasmine.objectContaining({ typeRefName: "Traversal" })
       );
@@ -407,14 +407,14 @@ from .schemas import *`,
       expect(topological.getArgDefs()[0].getType()).toEqual(ArgTag.NUMBER);
       expect(
         PythonProgram.getTypeAnnotation(topological.getArgDefs()[1])
-      ).toEqual("ImportedEdges[]");
+      ).toEqual("List[ImportedEdges]");
 
       const knapsack = functions["knapsack_from_imported_helper"];
       expect(
         knapsack.getArgDefs().map((argument) => argument.getName())
       ).toEqual(["items", "capacity"]);
       expect(PythonProgram.getTypeAnnotation(knapsack.getArgDefs()[0])).toEqual(
-        "KnapsackItems[][]"
+        "List[List[KnapsackItems]]"
       );
       expect(knapsack.getArgDefs()[1].getType()).toEqual(ArgTag.NUMBER);
 

@@ -30,6 +30,7 @@ import {
   ArgType,
   TypeAnnotationOptions,
   TypeAnnotationOptionDefaults,
+  ProgramLanguage,
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
 import { AbstractProgram } from "../AbstractProgram";
@@ -990,6 +991,7 @@ export class TypescriptProgram extends AbstractProgram {
         name,
         module: this._filename,
         src: parent.node.kind + " " + this._src.slice(...path.node.range),
+        lang: TypescriptProgram.lang,
         startOffset: path.node.range[0],
         endOffset: path.node.range[1],
         isExported: parent.parent.type === "ExportNamedDeclaration",
@@ -1027,6 +1029,7 @@ export class TypescriptProgram extends AbstractProgram {
         name,
         module: this._filename,
         src: this._src.slice(...path.node.range),
+        lang: TypescriptProgram.lang,
         startOffset: path.node.range[0],
         endOffset: path.node.range[1],
         isExported: parent ? parent.type === "ExportNamedDeclaration" : false,
@@ -1072,7 +1075,7 @@ export class TypescriptProgram extends AbstractProgram {
     return undefined;
   } // fn: getFunctionComment
 
-  public get lang(): ProgramFactory.ProgramLanguage {
+  public get lang(): ProgramLanguage {
     return TypescriptProgram.lang;
   }
 

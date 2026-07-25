@@ -2438,12 +2438,12 @@ ${inArgConsts}
             validatorsUsedText = `
               ${toolName} categorized outputs using the ${toPrettyList(
                 validatorsUsed
-              )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
+              )} validator${validatorsUsed.length !== 1 ? "s" : ""}. `;
             if (validatorsNotUsed.length) {
               validatorsUsedText += `The ${toPrettyList(
                 validatorsNotUsed
               )} validator${
-                validatorsNotUsed.length > 1 ? "s were" : " was"
+                validatorsNotUsed.length !== 1 ? "s were" : " was"
               } not enabled.`;
             }
           } else {
@@ -2514,7 +2514,7 @@ ${inArgConsts}
               The selected measures classified ${
                 this._results.interesting.inputs.length
               } input${
-                this._results.interesting.inputs.length > 1 ? "s" : ""
+                this._results.interesting.inputs.length !== 1 ? "s" : ""
               } as interesting. (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span></a>)
               <table class="fuzzGrid hidden" id="fuzz.options.interesting.inputs">
                 <thead>

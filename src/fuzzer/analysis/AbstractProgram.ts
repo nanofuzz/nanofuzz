@@ -9,11 +9,11 @@ import {
   ArgType,
   ArgOptions,
   ProgramImport,
+  ProgramLanguage,
   TypeAnnotationOptions,
   TypeAnnotationOptionDefaults,
 } from "./Types";
 import { getErrorMessageOrJson } from "../Util";
-import { ProgramLanguage } from "./ProgramFactory";
 
 /**
  * The AbstractProgram class represents a program definition in a source
