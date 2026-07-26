@@ -34,9 +34,8 @@ if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
     `Could not find Python virtual environment in ./.venv (see ./CONTRIBUTING.md)`
   );
 }
-[{ name: "json5" }].forEach((pkg) => {
-  const libdir = findInDescendants("./.venv", pkg.name);
-  console.debug(libdir);
+[{ name: "json5" }, { name: "coverage" }].forEach((pkg) => {
+  const libdir = findInDescendants("./.venv/lib", pkg.name);
   if (libdir === undefined) {
     throw new Error(
       `Could not find Python package ${pkg.name}. Is it installed in the python virtual environment? (see ./CONTRIBUTING.md)`
