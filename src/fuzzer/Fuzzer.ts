@@ -1,6 +1,5 @@
 import * as fs from "fs";
 import * as JSON5 from "json5";
-import vm from "vm";
 import { ArgDef } from "./analysis/ArgDef";
 import { ArgValueType, FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
@@ -496,7 +495,7 @@ export class Tester {
     const propRunners = this._validators.map((vFnRef) =>
       RunnerFactory(this.env, mod, vFnRef.name)
     );
-    //propRunners.forEach(async (p) => await p.onRunStart());
+    propRunners.forEach(async (p) => await p.onRunStart());
     const propertyOracle = new PropertyOracle(propRunners);
 
     // Are we currently injecting inputs?
@@ -751,7 +750,7 @@ export class Tester {
       try {
         exeOutput = await runner.run(
           structuredClone(result.input.map((e) => e.value)),
-          this._options.fnTimeout
+          Math.max(this._options.fnTimeout, 1)
         );
       } catch (e: unknown) {
         if (isError(e)) {
@@ -838,7 +837,8 @@ export class Tester {
                   : result.output[0].value,
               exception: result.exception,
               timeout: result.timeout,
-            })
+            }),
+            Math.max(this._options.fnTimeout, 1)
           )
         ).forEach((j, i) => {
           if (isError(j)) {
@@ -1016,47 +1016,6 @@ const isOptionValid = (options: FuzzOptions): boolean => {
     typeof options.measures === "object"
   );
 }; // fn: isOptionValid()
-
-/**
- * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
- *
- * The original function-timeout is an ES module; incorporating it here
- * avoids adding Babel to the dev toolchain solely for the benefit of Jest,
- * for which ESM support without Babel remains buggy / experimental. Maybe
- * we can remove this in the future or just add Babel for Jest.
- *
- * This function accepts a function and a timeout as input.  It then returns
- * a wrapper function that will throw an exception if the function does not
- * complete within, roughly, the timeout.
- *
- * @param function_ function to be executed with the timeout
- * @param param1
- * @returns
- */
-export function functionTimeout(
-  function_: (...inputs: unknown[]) => unknown,
-  timeout: number
-): (...inputs: unknown[]) => unknown {
-  const script = new vm.Script("returnValue = function_()");
-
-  const wrappedFunction = (...arguments_: unknown[]) => {
-    const context = {
-      returnValue: undefined,
-      function_: () => function_(...arguments_),
-    };
-
-    script.runInNewContext(context, { timeout: timeout });
-
-    return context.returnValue;
-  };
-
-  Object.defineProperty(wrappedFunction, "name", {
-    value: `functionTimeout(${function_.name || "<anonymous>"})`,
-    configurable: true,
-  });
-
-  return wrappedFunction;
-} // fn: functionTimeout()
 
 /**
  * Returns a list of validator FunctionRefs found within the ProgramDef

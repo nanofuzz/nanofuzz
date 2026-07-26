@@ -1,5 +1,6 @@
 import * as ProgramFactory from "../ProgramFactory";
 import { ArgTag } from "../Types";
+import { TypescriptProgram } from "./TypescriptProgram";
 
 describe("fuzzer/analysis/typescript/ProgramDef:", () => {
   it("Explicit default export type reference", () => {
@@ -88,16 +89,46 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
       "typescript"
     ).functionsExported;
     expect(
-      exportedFunctions["test1a"].getArgDefs().map((a) => a.getTypeAnnotation())
+      exportedFunctions["test1a"]
+        .getArgDefs()
+        .map((a) => TypescriptProgram.getTypeAnnotation(a))
     ).toEqual(["(number | string)[]"]);
     expect(
-      exportedFunctions["test2a"].getArgDefs().map((a) => a.getTypeAnnotation())
+      exportedFunctions["test2a"]
+        .getArgDefs()
+        .map((a) => TypescriptProgram.getTypeAnnotation(a))
     ).toEqual(["{ b: NumberOrString }"]);
     expect(
-      exportedFunctions["test1b"].getArgDefs().map((a) => a.getTypeAnnotation())
+      exportedFunctions["test1b"]
+        .getArgDefs()
+        .map((a) => TypescriptProgram.getTypeAnnotation(a))
     ).toEqual(["NumberOrString[]"]);
     expect(
-      exportedFunctions["test2b"].getArgDefs().map((a) => a.getTypeAnnotation())
+      exportedFunctions["test2b"]
+        .getArgDefs()
+        .map((a) => TypescriptProgram.getTypeAnnotation(a))
     ).toEqual(["{ b: number | string }"]);
+  });
+
+  it("Issue 387: unsupport types do not affect other types", () => {
+    const exportedTypes = ProgramFactory.fromSource(
+      () => 'export type a = "a";export type b = bigint;',
+      "typescript"
+    ).typesExported;
+    expect(exportedTypes["a"]).toEqual({
+      isExported: true,
+      optional: false,
+      dims: 0,
+      module: "",
+      name: "a",
+      type: {
+        dims: 0,
+        type: ArgTag.LITERAL,
+        children: [],
+        value: "a",
+        resolved: true,
+      },
+    });
+    expect(exportedTypes).not.toContain("b");
   });
 });

@@ -1,6 +1,5 @@
-import pytest
-import math
 from ImplicitOracle import implicit_oracle
+
 
 def test_implicit_oracle():
     assert implicit_oracle(float('nan')) is False

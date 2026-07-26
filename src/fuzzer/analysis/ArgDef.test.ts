@@ -6,6 +6,7 @@ import { ArgDefValidator } from "./ArgDefValidator";
 import { ArgDefGenerator } from "./ArgDefGenerator";
 import { ArgDefMutator } from "./ArgDefMutator";
 import { makeArgDef, makeTypeRef } from "./TestUtils";
+import { TypescriptProgram } from "./typescript/TypescriptProgram";
 
 const argOptions = ArgDef.getDefaultOptions();
 const dummyModule = "dummy.ts";
@@ -14,7 +15,7 @@ const dummyModule = "dummy.ts";
  * Test that getTypeAnnotation returns the correct type annotation for a given
  * function argument.
  */
-describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
+describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
   [ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL].forEach(
     (tag: ArgTag) => {
       it(`should return %s for primitive type '${tag}'`, () => {
@@ -31,9 +32,9 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
           tag === ArgTag.LITERAL ? 5 : undefined
         );
         if (tag === ArgTag.LITERAL) {
-          expect(argDef.getTypeAnnotation()).toBe("5");
+          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe("5");
         } else {
-          expect(argDef.getTypeAnnotation()).toBe(tag);
+          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(tag);
         }
       });
     }
@@ -49,7 +50,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         argOptions,
         dims
       );
-      expect(argDef.getTypeAnnotation()).toBe(
+      expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
         ArgTag.STRING + "[]".repeat(dims)
       );
     });
@@ -71,9 +72,13 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
           tag === ArgTag.LITERAL ? 5 : undefined
         );
         if (tag === ArgTag.LITERAL) {
-          expect(argDef.getTypeAnnotation()).toBe("5 | undefined");
+          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
+            "5 | undefined"
+          );
         } else {
-          expect(argDef.getTypeAnnotation()).toBe(tag + " | undefined");
+          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
+            tag + " | undefined"
+          );
         }
       });
     }
@@ -91,7 +96,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
       [],
       "Type"
     );
-    expect(argDef.getTypeAnnotation()).toBe("Type");
+    expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe("Type");
   });
 
   it("should return the literal type for literal types", () => {
@@ -108,7 +113,9 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         makeTypeRef(dummyModule, "str", ArgTag.STRING, 0),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toBe("{ bool: boolean; str: string }");
+    expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
+      "{ bool: boolean; str: string }"
+    );
   });
 
   it("type annotation for union with dimensions", () => {
@@ -155,7 +162,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         ),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toBe(
+    expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
       "(boolean[] | string | 5 | 'x' | undefined)[]"
     );
   });
@@ -204,7 +211,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         ),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toBe(
+    expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
       "(boolean[] | string | 5 | 'x' | undefined)[] | undefined"
     );
   });
@@ -253,7 +260,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         ),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toBe(
+    expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
       "boolean[] | string | 5 | 'x' | undefined"
     );
   });
@@ -302,7 +309,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         ),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toBe(
+    expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
       "boolean[] | string | 5 | 'x' | undefined"
     );
   });
@@ -341,7 +348,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         ),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toBe(
+    expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
       "boolean[] | string | 5 | 'x' | undefined"
     );
   });
@@ -360,7 +367,9 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
         makeTypeRef(dummyModule, "str", ArgTag.STRING, 0),
       ]
     );
-    expect(argDef.getTypeAnnotation()).toBe("[boolean[], string]");
+    expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
+      "[boolean[], string]"
+    );
   });
 
   it("NoInput test", function () {
@@ -542,7 +551,7 @@ function abbrSpec(spec: ArgDef<ArgType>, indents = 0): string[] {
   const space = "  ".repeat(indents);
   const line: string[] = [];
   line.push(space);
-  line.push(`${spec.getName()}:${spec.getTypeAnnotation()}`);
+  line.push(`${spec.getName()}:${TypescriptProgram.getTypeAnnotation(spec)}`);
   line.push(`dims: ${JSON5.stringify(spec.getOptions().dimLength)}`);
   if (spec.isNoInput()) line.push(`NOINPUT`);
   if (spec.isOptional()) line.push(`OPTIONAL`);
