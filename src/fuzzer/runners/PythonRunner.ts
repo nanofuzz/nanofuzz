@@ -309,16 +309,18 @@ export class PythonRunner extends AbstractRunner {
       path.dirname(module.filename),
       this._pythonEnv
     );
-    const okcode = await host.readStdout(5, 1000);
+    const okcode = await host.readStdout(5, 30000); // a longer timeout tolerance for the host to pre-warm the coverage
 
     if (okcode.toString() === "READY") {
       this._host = host;
-      
+
       // Get the static coverage structure, which the host sends once. The
       // dynamic `lines`/`arcs` are filled in by each `run`.
-      const length = (await host.readStdout(4, 1000)).readUInt32BE(0);
+      const length = (
+        await host.readStdout(4, 30000)
+      ).readUInt32BE(0);
       const data = JSON5.parse<CoverageInfo>(
-        (await host.readStdout(length, 1000)).toString()
+        (await host.readStdout(length, 30000)).toString()
       );
       this._coverageInfo = {
         file: data.file,

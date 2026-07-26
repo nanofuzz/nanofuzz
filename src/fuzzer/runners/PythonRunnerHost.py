@@ -247,10 +247,6 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
             with open(outfile, encoding="utf-8") as f:
                 report = json.load(f)
     except coverage.exceptions.CoverageException as e:
-        # The PUT may be unreadable or unparsable (e.g. a syntax error), which
-        # coverage.py reports by raising. That is not fatal here: the load
-        # failure is reported to the caller as a normal result for every input,
-        # so degrade to empty static coverage rather than taking down the host.
         logging.debug(f"coverage.py could not analyze {filename}: {e}")
         return empty
 
@@ -272,8 +268,8 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
 def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> RunnerResult:
     logging.debug(f"Running function '{fnname}' for {input}")
 
-    # Measure only the call itself: module-level code already ran at load
-    cov.erase()
+    # cov.erase() is too expensive. Seems like only erasing the data works too
+    cov.get_data().erase()
     cov.start()
     error = None
     value = None
@@ -285,8 +281,7 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
     finally:
         cov.stop()
 
-    # Read coverage after stopping: a failing input still covers lines, and
-    # those inputs are often the interesting ones.
+    # Read coverage after stopping: a failing input still covers lines
     coverageData = coverage_lines(cov, filename)
     coverageArcs = coverage_arcs(cov, filename)
 
@@ -345,9 +340,7 @@ if __name__ == "__main__":
     # and `include` patterns must match it.
     filename = os.path.realpath(filename)
 
-    # One in-memory coverage instance for the whole run. `branch=True` makes
-    # coverage.py record arcs (line transitions) in addition to lines, which
-    # is what both branch and per-function coverage are derived from.
+    # One in-memory coverage instance for the whole run
     cov = coverage.Coverage(include=[filename], branch=True, data_file=None)
 
     # Static analysis of the PUT: the executable lines, functions, and branches
@@ -364,6 +357,22 @@ if __name__ == "__main__":
 
     # Change cwd from the extension to that of the Python script
     os.chdir(os.path.dirname(filename))
+
+    # Pre-warm the coverage machinery. The first `cov.start()` installs the
+    # tracer, which costs far more than a steady-state call and can push the
+    # first test over `fnTimeout` on its own -- and because a timeout kills
+    # the host, the respawned host pays it again, cascading into a run where
+    # every test times out.
+    #
+    # This must happen *before* the handshake below, so the cost is charged to
+    # the caller's startup budget (seconds) rather than its per-test budget
+    # (~100ms). Nothing runs between start and stop, so no coverage is
+    # recorded, and the final erase leaves the data empty for the first test.
+    cov.get_data().erase()
+    cov.start()
+    cov.stop()
+    cov.get_data().erase()
+    logging.debug("Pre-warmed coverage tracer")
 
     # Ready for inputs
     msg = "READY".encode('utf-8')
