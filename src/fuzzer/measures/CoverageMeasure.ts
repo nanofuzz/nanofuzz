@@ -358,7 +358,7 @@ type CodeCoverageCounters = {
  * Per-file Code Coverage Statistics. Includes line-level hit counts, which necessitates
  * per-file stats since line numbers are file-specific.
  */
-type CodeCoverageFileStats = {
+export type CodeCoverageFileStats = {
   path: string;
   counters: CodeCoverageCounters;
   fileMap: FileCoverage;

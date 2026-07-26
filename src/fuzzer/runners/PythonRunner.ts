@@ -15,6 +15,7 @@ export class PythonRunner extends AbstractRunner {
   protected _fn: string;
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
+  protected _coverageInfo?: CoverageInfo = undefined;
 
   /**
    * Create a new Python runner
@@ -81,10 +82,17 @@ export class PythonRunner extends AbstractRunner {
         ),
         env: {},
       };
+      
       if (result.result.seq >= 0 && result.result.seq !== thisSeq) {
         throw new Error(
           `Internal error: RunnerResult seq# does not match RunnerInput`
         );
+      }
+
+      if (this._coverageInfo && result.result.tag !== "timeout" ) {
+        this._coverageInfo.lines = result.result.coverageData;
+      } else if (this._coverageInfo && result.result.tag === "timeout") {
+        this._coverageInfo.lines = undefined;
       }
       return result;
     } catch (e: unknown) {
@@ -155,6 +163,14 @@ export class PythonRunner extends AbstractRunner {
 
     if (okcode.toString() === "READY") {
       this._host = host;
+      
+      // get preliminary coverage data
+      const length = (await host.readStdout(4, 1000)).readUInt32BE(0); 
+      const data = JSON5.parse((await host.readStdout(length, 1000)).toString());
+      this._coverageInfo = {
+        "file": data.file,
+        "executable": data.executable
+      }
       return host;
     } else {
       const stdout = await host.readStdout();
@@ -174,6 +190,15 @@ export class PythonRunner extends AbstractRunner {
       this._host = undefined;
     }
   }
+
+  /**
+   * Get coverage info
+   * Needs to be a shallow copy since the covered lines changes every run
+   */
+  public get coverageInfo(): CoverageInfo | undefined {
+    return this._coverageInfo ? { ...this._coverageInfo } : undefined;
+  }
+
 } // class: PythonRunner
 
 /**
@@ -378,3 +403,10 @@ function findPythonLibDir(dir: string, item: string): string | null {
 
   return null;
 }
+
+
+export type CoverageInfo = {
+  file: string;
+  executable: number[];   // static: all executable lines
+  lines?: number[];        // dynamic: lines executed by this one call
+};

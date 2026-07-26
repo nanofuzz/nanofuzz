@@ -486,6 +486,12 @@ export class Tester {
     const runner = RunnerFactory(this.env, mod, this._function.getName());
     await runner.onRunStart();
 
+    // Connect the measures to the runner. Measures that source their data
+    // from the runner (e.g., Python coverage) need it before the first test.
+    this._measures.forEach((m) => {
+      m.onRunStart(runner);
+    });
+
     // Build runners for the property validators
     const propRunners = this._validators.map((vFnRef) =>
       RunnerFactory(this.env, mod, vFnRef.name)

@@ -58,8 +58,9 @@ export type RunnerResult = {
         message: string;
         stack?: string;
         source?: "put" | "host"; // if the error originated within the put !!!!!!!!!! ts
+        coverageData?: number[];
       }
-    | { tag: "value"; value: unknown }
+    | { tag: "value"; value: unknown; coverageData?: number[] }
   ) & { seq: number };
   env: VmGlobals;
 };
