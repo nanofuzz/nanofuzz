@@ -235,20 +235,30 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     # `run_put` erases this before measuring the first test.
     cov.get_data().add_arcs({filename: set()})
 
+    empty = {"file": filename, "executable": [],
+             "functions": [], "branches": []}
+
     # `json_report` writes to a path rather than returning the report, and
     # stdout is reserved for the protocol, so route it through a temp file.
-    with tempfile.TemporaryDirectory() as tmpdir:
-        outfile = os.path.join(tmpdir, "coverage.json")
-        cov.json_report(morfs=[filename], outfile=outfile)
-        with open(outfile, encoding="utf-8") as f:
-            report = json.load(f)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outfile = os.path.join(tmpdir, "coverage.json")
+            cov.json_report(morfs=[filename], outfile=outfile)
+            with open(outfile, encoding="utf-8") as f:
+                report = json.load(f)
+    except coverage.exceptions.CoverageException as e:
+        # The PUT may be unreadable or unparsable (e.g. a syntax error), which
+        # coverage.py reports by raising. That is not fatal here: the load
+        # failure is reported to the caller as a normal result for every input,
+        # so degrade to empty static coverage rather than taking down the host.
+        logging.debug(f"coverage.py could not analyze {filename}: {e}")
+        return empty
 
     # Only `filename` was reported, so there is at most one entry
     files = report.get("files", {})
     if not files:
         logging.debug(f"coverage.py reported no coverage data for {filename}")
-        return {"file": filename, "executable": [],
-                "functions": [], "branches": []}
+        return empty
     entry = next(iter(files.values()))
 
     return {
