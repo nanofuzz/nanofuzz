@@ -7,10 +7,15 @@ import {
 import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
 import { PythonRunner } from "../runners/PythonRunner";
 import { AbstractRunner } from "../runners/AbstractRunner";
-import { AbstractMeasure } from "./AbstractMeasure";
-import { CodeCoverageFileStats, CodeCoverageMeasureStats, CoverageMeasurement } from "./CoverageMeasure";
 import * as JSON5 from "json5";
 import { normalizePathForKey } from "../Util";
+import {
+  AbstractCoverageMeasure,
+  CodeCoverageFileStats,
+  CodeCoverageMeasureStats,
+  CoverageMeasurement,
+  CoverageMeasurementNode,
+} from "./AbstractCoverageMeasure";
 
 /**
  * End column for a synthesized statement location. coverage.py reports
@@ -20,10 +25,10 @@ import { normalizePathForKey } from "../Util";
  */
 const END_OF_LINE_COLUMN = Number.MAX_SAFE_INTEGER;
 
-export class PythonCoverageMeasure extends AbstractMeasure {
+export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   protected _runner?: PythonRunner;
   protected _globalCoverageMap = createCoverageMap({});
-  protected _history: PythonCoverageMeasurementNode[] = []; // measurement history
+  protected _history: CoverageMeasurementNode[] = []; // measurement history
 
   /**
    * Connects this measure to the run's Python runner, which is the source of
@@ -213,14 +218,15 @@ export class PythonCoverageMeasure extends AbstractMeasure {
   public delta(a: CoverageMeasurement): number {
     return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
   } // fn: delta
-}
 
-/**
- * A node in a directed graph of input relations. A mutated input points to its
- * predecessor's measurement so we can accumulate coverage along the chain.
- */
-type PythonCoverageMeasurementNode = {
-  input: InputAndSource;
-  pred: PythonCoverageMeasurementNode | undefined;
-  meas: CoverageMeasurement;
-};
+
+  public hasCoverage(tick: number): boolean {
+    return !!this._history[tick];
+  }
+  public getCoverage(tick: number): CoverageMeasurement {
+    if (this.hasCoverage(tick)) {
+      return this._history[tick].meas; // rep leak !!!!!!!
+    }
+    throw new Error(`No coverahe data for "${tick}"`);
+  }
+}
