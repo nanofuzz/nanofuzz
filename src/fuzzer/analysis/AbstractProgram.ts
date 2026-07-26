@@ -138,7 +138,7 @@ export abstract class AbstractProgram {
           if (fnRef.args) {
             for (const fnArg of fnRef.args) {
               lastArgName = fnArg.name;
-              this._resolveTypeRef(fnArg);
+              this.resolveTypeRef(fnArg);
             }
           }
         } catch (e: unknown) {
@@ -163,7 +163,7 @@ export abstract class AbstractProgram {
         try {
           if (fnRef.returnType) {
             lastArgName = "return";
-            this._resolveTypeRef(fnRef.returnType);
+            this.resolveTypeRef(fnRef.returnType);
           }
         } catch (e: unknown) {
           console.debug(
@@ -225,7 +225,7 @@ export abstract class AbstractProgram {
 
   protected abstract _findDefaultTypeExport(): TypeRef | undefined;
 
-  public abstract _resolveTypeRef(t: TypeRef): TypeRef;
+  public abstract resolveTypeRef(t: TypeRef): TypeRef;
 
   public abstract get lang(): ProgramLanguage;
 

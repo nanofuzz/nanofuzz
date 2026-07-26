@@ -997,7 +997,7 @@ export class PythonProgram extends AbstractProgram {
     return undefined;
   }
 
-  public _resolveTypeRef(typeRef: TypeRef): TypeRef {
+  public resolveTypeRef(typeRef: TypeRef): TypeRef {
     // Handle any resolved or partially-resolved type references
     if (typeRef.type) {
       if (typeRef.type.resolved) {
@@ -1005,7 +1005,7 @@ export class PythonProgram extends AbstractProgram {
         return typeRef; // Return resolved type
       } else {
         // Type is only partially resolved
-        typeRef.type.children.forEach((child) => this._resolveTypeRef(child));
+        typeRef.type.children.forEach((child) => this.resolveTypeRef(child));
         typeRef.type.resolved = true;
         return typeRef; // Return resolved type
       }
@@ -1022,7 +1022,7 @@ export class PythonProgram extends AbstractProgram {
     // Type is not yet resolved. Look up and resolve the type reference
     if (typeRef.typeRefName in this._types) {
       // Resolve and use the local type reference
-      const resolvedType = this._resolveTypeRef(
+      const resolvedType = this.resolveTypeRef(
         this._types[typeRef.typeRefName]
       );
       typeRef.type = structuredClone(resolvedType.type);
@@ -1156,7 +1156,7 @@ export class PythonProgram extends AbstractProgram {
 
         if (importName in importProgram.typesExported) {
           // Resolve named export
-          const resolvedType = importProgram._resolveTypeRef(
+          const resolvedType = importProgram.resolveTypeRef(
             importProgram.typesExported[importName]
           );
           typeRef.type = structuredClone(resolvedType.type);
