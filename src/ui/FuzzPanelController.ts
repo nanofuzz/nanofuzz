@@ -4,7 +4,7 @@ import * as fuzzer from "../fuzzer/Fuzzer";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
-import * as jestadapter from "../fuzzer/adapters/JestAdapter";
+import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
@@ -16,6 +16,7 @@ import { normalizePathForKey } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
+import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -743,37 +744,35 @@ export class FuzzPanel {
       );
     }
 
-    // Get the filename of the Jest file
-    const jestFile = jestadapter.getFilename(
-      this._fuzzEnv.function.getModule()
+    // Build the Test Adapter
+    const testAdapter = TestAdapterFactory.fromSourceFilename(
+      this._fuzzEnv.function.getModule(),
+      this._getFuzzTestsForModule()
     );
 
     if (pinnedCount) {
       // Generate the Jest test data for CI
       // The Jest file should contain all tests that are pinned
-      const jestTests = jestadapter.toString(
-        this._getFuzzTestsForModule(),
-        this._fuzzEnv.function.getModule()
-      );
+      const jestTests = testAdapter.toString();
 
       // Persist the Jest tests for CI
       try {
-        fs.writeFileSync(jestFile, jestTests);
+        fs.writeFileSync(testAdapter.filename, jestTests);
       } catch (e: unknown) {
         const msg = isError(e) ? e.message : JSON5.stringify(e);
 
         vscode.window.showErrorMessage(
-          `Unable to update Jest test file: ${jestFile} (${msg})`
+          `Unable to update ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
         );
       }
-    } else if (fs.existsSync(jestFile)) {
+    } else if (fs.existsSync(testAdapter.filename)) {
       // Delete the test file: it would contain no tests
       try {
-        fs.rmSync(jestFile);
+        fs.rmSync(testAdapter.filename);
       } catch (e: unknown) {
         const msg = isError(e) ? e.message : JSON5.stringify(e);
         vscode.window.showErrorMessage(
-          `Unable to remove Jest test file: ${jestFile} (${msg})`
+          `Unable to remove ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
         );
       }
     }
@@ -944,7 +943,7 @@ export class FuzzPanel {
     const skelGenerators = {
       typescript: {
         inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
-          return `  const ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
+          return `  const ${argDef.getName()}: ${fuzzer.TypescriptProgram.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
           }.in[${i}];`;
         },
@@ -978,12 +977,13 @@ ${inArgConsts}
 
   return "pass";
 }`,
+        getTypeAnnotation: fuzzer.TypescriptProgram.getTypeAnnotation,
       },
       python: {
         inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
-          return `  ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
+          return `  ${argDef.getName()}: ${PythonProgram.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
-          }.input[${i}]`;
+          }['in'][${i}]`;
         },
         outputMapper: (
           inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
@@ -997,10 +997,10 @@ ${inArgConsts}
           );
           const outVarString = `${outVarName.name}${
             returnType ? ": " + returnType : ""
-          } = ${resultArgName}.output`;
+          } = ${resultArgName}['out']`;
           return outVarString;
         },
-        importMapper: () => `from nanofuzz.runtime import FuzzTestResult
+        importMapper: () => `from nanofuzz_runtime import FuzzTestResult
 `,
         skelMapper: (
           validatorName: string,
@@ -1015,8 +1015,8 @@ ${inArgConsts}
 
   return "pass"
 `,
+        getTypeAnnotation: PythonProgram.getTypeAnnotation,
       },
-      "*": {},
     };
     // ^^^^^^^ Language-specific logic ^^^^^^^
 
@@ -1031,7 +1031,9 @@ ${inArgConsts}
     const outArgConst = skelGenerators[program.lang].outputMapper(
       inArgs,
       validatorArgs.resultArgName,
-      outTypeAsArg ? outTypeAsArg.getTypeAnnotation() : undefined
+      outTypeAsArg
+        ? skelGenerators[program.lang].getTypeAnnotation(outTypeAsArg)
+        : undefined
     );
 
     // Name of the validator generated
@@ -2436,12 +2438,12 @@ ${inArgConsts}
             validatorsUsedText = `
               ${toolName} categorized outputs using the ${toPrettyList(
                 validatorsUsed
-              )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
+              )} validator${validatorsUsed.length !== 1 ? "s" : ""}. `;
             if (validatorsNotUsed.length) {
               validatorsUsedText += `The ${toPrettyList(
                 validatorsNotUsed
               )} validator${
-                validatorsNotUsed.length > 1 ? "s were" : " was"
+                validatorsNotUsed.length !== 1 ? "s were" : " was"
               } not enabled.`;
             }
           } else {
@@ -2512,7 +2514,7 @@ ${inArgConsts}
               The selected measures classified ${
                 this._results.interesting.inputs.length
               } input${
-                this._results.interesting.inputs.length > 1 ? "s" : ""
+                this._results.interesting.inputs.length !== 1 ? "s" : ""
               } as interesting. (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span></a>)
               <table class="fuzzGrid hidden" id="fuzz.options.interesting.inputs">
                 <thead>

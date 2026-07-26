@@ -7,6 +7,7 @@ import {
   ArgOptions,
   TypeRef,
 } from "./Types";
+import { ProgramLanguage } from "./Types";
 
 /**
  * The FunctionDef class represents a function definition in a Typescript source
@@ -109,6 +110,15 @@ export class FunctionDef {
   public getArgDefs(): ArgDef<ArgType>[] {
     return [...this._argDefs];
   } // fn: getArgDefs()
+
+  /**
+   * Returns the function's language
+   *
+   * @returns function language
+   */
+  public getLang(): ProgramLanguage {
+    return this._ref.lang;
+  } // fn: getLang()
 
   /**
    * Returns the starting offset of the function in the source file.

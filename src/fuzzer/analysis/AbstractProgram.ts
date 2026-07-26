@@ -6,11 +6,14 @@ import {
   ProgramImports,
   ProgramPath,
   TypeRef,
+  ArgType,
   ArgOptions,
   ProgramImport,
+  ProgramLanguage,
+  TypeAnnotationOptions,
+  TypeAnnotationOptionDefaults,
 } from "./Types";
 import { getErrorMessageOrJson } from "../Util";
-import { ProgramLanguage } from "./ProgramFactory";
 
 /**
  * The AbstractProgram class represents a program definition in a source
@@ -174,7 +177,12 @@ export abstract class AbstractProgram {
     this._afterLoad();
   } // end constructor
 
-  // !!!!!!
+  /**
+   * Returns `true` if the program is understandable to this class.
+   *
+   * @param `details` filename and language to understand
+   * @returns `true` if understandable, `false` otherwise
+   */
   public static understands(details: {
     filename?: string;
     lang?: ProgramLanguage;
@@ -192,7 +200,13 @@ export abstract class AbstractProgram {
     return false;
   }
 
-  // !!!!!!
+  /**
+   * Returns the AbstractProgram object for `filename` if it is a child
+   * of this program. Othewrwise, `undefined`.
+   *
+   * @param `filename` of program to search for
+   * @returns an `AbstractProgram` object or `undefined`
+   */
   public find(filename: string): AbstractProgram | undefined {
     if (filename in this._root._allChildren) {
       return this._root._allChildren[filename];
@@ -364,4 +378,18 @@ export abstract class AbstractProgram {
   public get defaultExport(): TypeRef | undefined {
     return structuredClone(this._exports.default);
   } // fn: get defaultExport()
+
+  /**
+   * Returns a string that works as the type annotation for the argument.
+   *
+   * @param `arg` ArgDef to describe
+   * @param `options` Description options
+   * @returns a string that works as the type annotation for the argument
+   */
+  public static getTypeAnnotation(
+    _arg: ArgDef<ArgType>,
+    _options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    throw new Error("Method must be implemented");
+  } // fn: getTypeAnnotation
 } // class: AbstractProgram

@@ -1,6 +1,8 @@
 import * as ProgramFactory from "../ProgramFactory";
 import { ArgTag } from "../Types";
 import { PythonProgram } from "./PythonProgram";
+import * as fs from "fs";
+import * as path from "path";
 
 class InspectablePythonProgram extends PythonProgram {
   public get unsupportedFunctions() {
@@ -55,7 +57,7 @@ def greeting(name: a) -> a:
     expect(args[0].getType()).toEqual(ArgTag.STRING);
     expect(args[0].isConstant()).toBeFalse();
     expect(args[0].getTypeRef()).toEqual("a");
-    expect(args[0].getTypeAnnotation()).toEqual("a");
+    expect(PythonProgram.getTypeAnnotation(args[0])).toEqual("a");
   });
 
   it("extracts primitive, collection, union, and literal aliases", () => {
@@ -81,14 +83,12 @@ type Status = Literal["ok"]`,
     expect(types["Matrix"].type).toEqual(
       jasmine.objectContaining({ type: ArgTag.NUMBER, dims: 2 })
     );
-    expect(types["Pair"].type?.children.map((child) => child.type?.type)).toEqual([
-      ArgTag.STRING,
-      ArgTag.NUMBER,
-    ]);
-    expect(types["Result"].type?.children.map((child) => child.type?.type)).toEqual([
-      ArgTag.NUMBER,
-      ArgTag.STRING,
-    ]);
+    expect(
+      types["Pair"].type?.children.map((child) => child.type?.type)
+    ).toEqual([ArgTag.STRING, ArgTag.NUMBER]);
+    expect(
+      types["Result"].type?.children.map((child) => child.type?.type)
+    ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
     expect(types["Status"].type).toEqual(
       jasmine.objectContaining({ type: ArgTag.LITERAL, value: "ok" })
     );
@@ -123,16 +123,104 @@ type MixedColumn = list[int | str]`,
     expect(types["Row"].type?.children[0].type).toEqual(
       jasmine.objectContaining({ type: ArgTag.NUMBER, dims: 1 })
     );
-    expect(types["Row"].type?.children[1].type?.children.map((child) => child.type?.type)).toEqual([
-      ArgTag.STRING,
-      ArgTag.BOOLEAN,
-    ]);
+    expect(
+      types["Row"].type?.children[1].type?.children.map(
+        (child) => child.type?.type
+      )
+    ).toEqual([ArgTag.STRING, ArgTag.BOOLEAN]);
     expect(types["MixedColumn"].type).toEqual(
       jasmine.objectContaining({ type: ArgTag.UNION, dims: 1 })
     );
     expect(
       types["MixedColumn"].type?.children.map((child) => child.type?.type)
     ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
+  });
+
+  it("extracts TypedDict annotations as fixed objects", () => {
+    const types = ProgramFactory.fromSource(
+      () => `class Player(TypedDict):
+    name: str
+    rating: int
+    tags: list[str]`,
+      "python"
+    ).types;
+
+    expect(types["Player"].type?.type).toEqual(ArgTag.OBJECT);
+    expect(types["Player"].type?.children.map((child) => child.name)).toEqual([
+      "name",
+      "rating",
+      "tags",
+    ]);
+    expect(types["Player"].type?.children[0].type?.type).toEqual(ArgTag.STRING);
+    expect(types["Player"].type?.children[1].type?.type).toEqual(ArgTag.NUMBER);
+    expect(types["Player"].type?.children[2].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.STRING, dims: 1 })
+    );
+  });
+
+  it("recognizes qualified TypedDict bases and composite field annotations", () => {
+    const types = ProgramFactory.fromSource(
+      () => `class Settings(typing.TypedDict):
+    retries: int | None
+    labels: tuple[str, bool]`,
+      "python"
+    ).types;
+
+    expect(types["Settings"].type?.type).toEqual(ArgTag.OBJECT);
+    expect(types["Settings"].type?.children.map((child) => child.name)).toEqual(
+      ["retries", "labels"]
+    );
+    expect(types["Settings"].type?.children[0].type?.type).toEqual(
+      ArgTag.UNION
+    );
+    expect(types["Settings"].type?.children[1].type?.type).toEqual(
+      ArgTag.TUPLE
+    );
+  });
+
+  it("recognizes aliased and typing_extensions TypedDict bases", () => {
+    const types = ProgramFactory.fromSource(
+      () => `from typing import TypedDict as TD
+
+class User(TD):
+    id: int
+
+class Flags(typing_extensions.TypedDict):
+    enabled: bool
+
+class Admin(User):
+    role: str`,
+      "python"
+    ).types;
+
+    expect(types["User"].type?.type).toEqual(ArgTag.OBJECT);
+    expect(types["User"].type?.children[0].name).toEqual("id");
+    expect(types["Flags"].type?.type).toEqual(ArgTag.OBJECT);
+    expect(types["Flags"].type?.children[0].type?.type).toEqual(ArgTag.BOOLEAN);
+    expect(types["Admin"].type?.children.map((child) => child.name)).toEqual([
+      "id",
+      "role",
+    ]);
+  });
+
+  it("does not export ordinary Python classes as TypedDict objects", () => {
+    const types = ProgramFactory.fromSource(
+      () => `class Player:
+    name: str`,
+      "python"
+    ).types;
+
+    expect(types["Player"]).toBeUndefined();
+  });
+
+  it("does not model ordinary dictionaries as fixed objects", () => {
+    const types = ProgramFactory.fromSource(
+      () => "type DynamicConfig = dict[str, int]",
+      "python"
+    ).types;
+
+    expect(types["DynamicConfig"].type).toBeUndefined();
+    expect(types["DynamicConfig"].typeRefName).toEqual("dict");
   });
 
   it("handles Python numeric literal spellings", () => {
@@ -186,7 +274,11 @@ from pandas import DataFrame as Frame`,
       jasmine.objectContaining({ local: "np", imported: "*", default: false })
     );
     expect(imports["torch"]).toEqual(
-      jasmine.objectContaining({ local: "torch", imported: "*", default: false })
+      jasmine.objectContaining({
+        local: "torch",
+        imported: "*",
+        default: false,
+      })
     );
     expect(imports["train_test_split"]).toEqual(
       jasmine.objectContaining({
@@ -220,6 +312,238 @@ from .schemas import *`,
     expect(imports["*:.schemas"]).toEqual(
       jasmine.objectContaining({ local: "*", imported: "*" })
     );
+  });
+
+  describe("Python fuzzer test-fixture imports", () => {
+    // These tests use real `.py` files instead of inline source strings. They
+    // cover the same multi-file setup a Python fuzz target would use: fixture
+    // one imports graph helpers and type aliases from fixture two.
+    const fixtureDir = path.join(__dirname, "test_fixtures");
+    const fixtureOne = path.join(fixtureDir, "fuzzer_testfixtures.py");
+    const fixtureTwo = path.join(fixtureDir, "fuzzer_testfixtures2.py");
+    const frameworkFixture = path.join(fixtureDir, "framework_dependencies.py");
+
+    const loadFixtureOne = () =>
+      new PythonProgram(() => fs.readFileSync(fixtureOne, "utf8"), fixtureOne);
+
+    const loadFixtureTwo = () =>
+      new PythonProgram(() => fs.readFileSync(fixtureTwo, "utf8"), fixtureTwo);
+
+    const loadFrameworkFixture = () =>
+      new InspectablePythonProgram(
+        () => fs.readFileSync(frameworkFixture, "utf8"),
+        frameworkFixture
+      );
+
+    it("resolves imported graph functions and type aliases", () => {
+      const program = loadFixtureOne();
+      const expectedImports = [
+        "AdjacencyList",
+        "EdgeList",
+        "Items",
+        "Matrix",
+        "Vertex",
+        "bfs_adj_list",
+        "dfs_adj_list",
+        "fibonacci",
+        "knapsack_max_value",
+        "make_adj_list",
+        "minimum_coin_count",
+        "multi_bfs",
+        "topological_sort",
+        "torch_probability_sum",
+      ];
+
+      expect(Object.keys(program.imports).sort()).toEqual(
+        expectedImports.sort()
+      );
+      for (const name of expectedImports) {
+        const sourceProgram =
+          name === "torch_probability_sum" ? frameworkFixture : fixtureTwo;
+        expect(program.imports[name]).toEqual(
+          jasmine.objectContaining({
+            local: name,
+            imported: name,
+            programPath: sourceProgram,
+            resolved: true,
+            default: false,
+          })
+        );
+      }
+    });
+
+    it("finds every fixture-one wrapper and preserves its typed signature", () => {
+      const functions = loadFixtureOne().functionsExported;
+      expect(Object.keys(functions).sort()).toEqual([
+        "bfs_from_imported_edges",
+        "coin_count_from_imported_helper",
+        "dfs_from_imported_edges",
+        "fibonacci_from_imported_helper",
+        "graph_fixture_demo",
+        "knapsack_from_imported_helper",
+        "source_distances_from_imported_grid",
+        "topological_order_from_imported_edges",
+        "torch_score_from_imported_helper",
+      ]);
+
+      const bfs = functions["bfs_from_imported_edges"];
+      expect(bfs.getArgDefs().map((argument) => argument.getName())).toEqual([
+        "start",
+        "edges",
+      ]);
+      expect(
+        bfs
+          .getArgDefs()
+          .map((argument) => PythonProgram.getTypeAnnotation(argument))
+      ).toEqual(["Vertex", "List[ImportedEdges]"]);
+      expect(bfs.getReturnType()).toEqual(
+        jasmine.objectContaining({ typeRefName: "Traversal" })
+      );
+
+      const topological = functions["topological_order_from_imported_edges"];
+      expect(
+        topological.getArgDefs().map((argument) => argument.getName())
+      ).toEqual(["vertex_count", "edges"]);
+      expect(topological.getArgDefs()[0].getType()).toEqual(ArgTag.NUMBER);
+      expect(
+        PythonProgram.getTypeAnnotation(topological.getArgDefs()[1])
+      ).toEqual("List[ImportedEdges]");
+
+      const knapsack = functions["knapsack_from_imported_helper"];
+      expect(
+        knapsack.getArgDefs().map((argument) => argument.getName())
+      ).toEqual(["items", "capacity"]);
+      expect(PythonProgram.getTypeAnnotation(knapsack.getArgDefs()[0])).toEqual(
+        "List[List[KnapsackItems]]"
+      );
+      expect(knapsack.getArgDefs()[1].getType()).toEqual(ArgTag.NUMBER);
+
+      const torchScore = functions["torch_score_from_imported_helper"];
+      expect(torchScore.getArgDefs()[0].getType()).toEqual(ArgTag.NUMBER);
+      expect(torchScore.getArgDefs()[0].getDim()).toEqual(1);
+      expect(torchScore.getReturnType()?.type?.type).toEqual(ArgTag.NUMBER);
+    });
+
+    it("extracts exported graph aliases and algorithms from fixture two", () => {
+      const program = loadFixtureTwo();
+      expect(Object.keys(program.types).sort()).toEqual([
+        "AdjacencyList",
+        "Coordinate",
+        "Edge",
+        "EdgeList",
+        "Items",
+        "Matrix",
+        "Vertex",
+      ]);
+      for (const name of Object.keys(program.types)) {
+        expect(program.types[name]).toEqual(
+          jasmine.objectContaining({ isExported: true, module: fixtureTwo })
+        );
+      }
+
+      expect(Object.keys(program.functionsExported).sort()).toEqual([
+        "bfs_adj_list",
+        "bfs_matrix",
+        "dfs_adj_list",
+        "dfs_matrix",
+        "fibonacci",
+        "is_source",
+        "knapsack_max_value",
+        "make_adj_list",
+        "minimum_coin_count",
+        "multi_bfs",
+        "topological_sort",
+      ]);
+      expect(
+        program.functionsExported["bfs_matrix"]
+          .getArgDefs()
+          .map((argument) => argument.getName())
+      ).toEqual(["start", "matrix"]);
+      expect(
+        program.functionsExported["topological_sort"].getReturnType()
+      ).toEqual(
+        // `list[Vertex]` resolves to the shared numeric element type plus
+        // one array dimension, so the retained type reference is `Vertex`.
+        jasmine.objectContaining({ typeRefName: "Vertex" })
+      );
+    });
+
+    it("keeps fixture-one aliases as module exports", () => {
+      const types = loadFixtureOne().types;
+      expect(Object.keys(types).sort()).toEqual([
+        "DistanceGrid",
+        "ImportedEdges",
+        "ImportedGraph",
+        "KnapsackItems",
+        "Traversal",
+      ]);
+      expect(types["ImportedEdges"]).toEqual(
+        jasmine.objectContaining({ isExported: true, typeRefName: "EdgeList" })
+      );
+    });
+
+    it("records FastAPI, Pydantic, and PyTorch dependency import styles", () => {
+      // Accessing the program may also analyze its decorated endpoint. The
+      // Pydantic request type is intentionally unsupported in this fixture.
+      spyOn(console, "debug");
+      const imports = loadFrameworkFixture().imports;
+
+      expect(imports["FastAPI"]).toEqual(
+        jasmine.objectContaining({
+          local: "FastAPI",
+          imported: "FastAPI",
+          default: false,
+        })
+      );
+      expect(imports["Depends"]).toEqual(
+        jasmine.objectContaining({
+          local: "Depends",
+          imported: "Depends",
+          default: false,
+        })
+      );
+      expect(imports["BaseModel"]).toEqual(
+        jasmine.objectContaining({
+          local: "BaseModel",
+          imported: "BaseModel",
+          default: false,
+        })
+      );
+      expect(imports["torch"]).toEqual(
+        jasmine.objectContaining({
+          local: "torch",
+          imported: "*",
+          resolved: false,
+        })
+      );
+      expect(imports["torch_functional"]).toEqual(
+        jasmine.objectContaining({
+          local: "torch_functional",
+          imported: "*",
+          resolved: false,
+        })
+      );
+    });
+
+    it("keeps PyTorch-backed helpers fuzzable and safely rejects model endpoints", () => {
+      // Framework request models are intentionally unsupported today. Silence
+      // the expected diagnostic while asserting that analysis remains safe.
+      spyOn(console, "debug");
+      const program = loadFrameworkFixture();
+      const torchHelper = program.functionsExported["torch_probability_sum"];
+
+      expect(torchHelper).toBeDefined();
+      expect(torchHelper.getArgDefs()[0].getType()).toEqual(ArgTag.NUMBER);
+      expect(torchHelper.getArgDefs()[0].getDim()).toEqual(1);
+      expect(torchHelper.getReturnType()?.type?.type).toEqual(ArgTag.NUMBER);
+      // Pydantic request objects are not a supported fuzz-input shape yet;
+      // the analyzer must report this endpoint as unsupported, not crash.
+      expect(program.functionsExported["create_prediction"]).toBeUndefined();
+      expect(program.unsupportedFunctions["create_prediction"]).toEqual(
+        jasmine.objectContaining({ argument: "payload" })
+      );
+      expect(console.debug).toHaveBeenCalled();
+    });
   });
 
   it("handles Python parameter conventions and default values", () => {
@@ -333,6 +657,98 @@ def create_item(item_id: int, db: Session = Depends(get_db)) -> str:
     expect(program.functions["create_item"]).toBeUndefined();
     expect(program.unsupportedFunctions["create_item"]).toEqual(
       jasmine.objectContaining({ argument: "db" })
+    );
+  });
+
+  it("Compare functional and class-based TypeDicts", () => {
+    const program = new PythonProgram(
+      () => `import from typing import Any, Literal, List, TypedDict
+
+TypedDictFunc = TypedDict('FuzzTestResult', {
+                           'input': List[Any], 'output': Any, 'exception': bool, 'timeout': bool})
+
+class TypedDictClass(TypedDict):
+    input: List[Any]
+    output: Any
+    exception: bool
+    timeout: bool
+
+def func(tdclass: TypedDictClass, tdFunc: TypedDictFunc):
+    return
+    `,
+      "dummy.py"
+    );
+
+    expect(program.types["TypedDictClass"]).toEqual({
+      module: "dummy.py",
+      dims: 0,
+      optional: false,
+      isExported: true,
+      type: {
+        type: ArgTag.OBJECT,
+        dims: 0,
+        resolved: true,
+        children: [
+          {
+            module: "dummy.py",
+            dims: 1,
+            optional: false,
+            isExported: true,
+            typeRefName: "Any",
+            type: {
+              dims: 0,
+              type: ArgTag.NUMBER,
+              children: [],
+              resolved: true,
+            },
+            name: "input",
+          },
+          {
+            module: "dummy.py",
+            dims: 0,
+            optional: false,
+            isExported: true,
+            typeRefName: "Any",
+            type: {
+              dims: 0,
+              type: ArgTag.NUMBER,
+              children: [],
+              resolved: true,
+            },
+            name: "output",
+          },
+          {
+            module: "dummy.py",
+            dims: 0,
+            optional: false,
+            isExported: true,
+            type: {
+              dims: 0,
+              type: ArgTag.BOOLEAN,
+              children: [],
+              resolved: true,
+            },
+            name: "exception",
+          },
+          {
+            module: "dummy.py",
+            dims: 0,
+            optional: false,
+            isExported: true,
+            type: {
+              dims: 0,
+              type: ArgTag.BOOLEAN,
+              children: [],
+              resolved: true,
+            },
+            name: "timeout",
+          },
+        ],
+      },
+    });
+
+    expect(program.types["TypedDictFunc"]).toEqual(
+      program.types["TypedDictClass"]
     );
   });
 });

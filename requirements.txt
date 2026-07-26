@@ -1,3 +1,6 @@
 pytest==7.2.2
+pytest-timeout==2.4.0
 json5==0.15.0
 coverage==7.15.2
+build==1.5.0
+twine==6.2.0
