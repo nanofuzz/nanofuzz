@@ -1,95 +1,128 @@
 import { PropertyOracle } from "./PropertyOracle";
-import { Judgment } from "./Types";
+import { Judgment, NamedJudgment } from "./Types";
 
 describe("fuzzer.oracles.PropertyOracle", () => {
   it("Property Oracle - summary - empty", () => {
-    const judgments: Judgment[] = [];
-    expect(PropertyOracle.summarize(judgments)).toBe("unknown");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("unknown");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 
   it("Property Oracle - summary - all unknown", () => {
-    const judgments: Judgment[] = ["unknown", "unknown"];
-    expect(PropertyOracle.summarize(judgments)).toBe("unknown");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [makeUnknown(), makeUnknown()];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("unknown");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 
   it("Property Oracle - summary - unknowns and fails - 1", () => {
-    const judgments: Judgment[] = ["unknown", "fail", "unknown"];
-    expect(PropertyOracle.summarize(judgments)).toBe("fail");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [
+      makeUnknown(),
+      makeFail(),
+      makeUnknown(),
+    ];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("fail");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 
   it("Property Oracle - summary - unknowns and fails - 2", () => {
-    const judgments: Judgment[] = ["fail", "unknown", "fail", "unknown"];
-    expect(PropertyOracle.summarize(judgments)).toBe("fail");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [
+      makeFail(),
+      makeUnknown(),
+      makeFail(),
+      makeUnknown(),
+    ];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("fail");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 
   it("Property Oracle - summary - unknowns and passes - 1", () => {
-    const judgments: Judgment[] = ["unknown", "pass", "unknown"];
-    expect(PropertyOracle.summarize(judgments)).toBe("pass");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [
+      makeUnknown(),
+      makePass(),
+      makeUnknown(),
+    ];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("pass");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 
   it("Property Oracle - summary - unknowns and passes - 2", () => {
-    const judgments: Judgment[] = ["pass", "unknown", "pass", "unknown"];
-    expect(PropertyOracle.summarize(judgments)).toBe("pass");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [
+      makePass(),
+      makeUnknown(),
+      makePass(),
+      makeUnknown(),
+    ];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("pass");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 
   it("Property Oracle - summary - passes and fails - 1", () => {
-    const judgments: Judgment[] = ["pass", "fail"];
-    expect(PropertyOracle.summarize(judgments)).toBe("fail");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [makePass(), makeFail()];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("fail");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 
   it("Property Oracle - summary - passes and fails - 2", () => {
-    const judgments: Judgment[] = ["pass", "pass", "fail"];
-    expect(PropertyOracle.summarize(judgments)).toBe("fail");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [makePass(), makePass(), makeFail()];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("fail");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 
   it("Property Oracle - summary - passes and fails - 3", () => {
-    const judgments: Judgment[] = ["fail", "pass", "pass"];
-    expect(PropertyOracle.summarize(judgments)).toBe("fail");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [makeFail(), makePass(), makePass()];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("fail");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 
   it("Property Oracle - summary - passes, fails, and unknowns - 1", () => {
-    const judgments: Judgment[] = ["unknown", "pass", "fail"];
-    expect(PropertyOracle.summarize(judgments)).toBe("fail");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [makeUnknown(), makePass(), makeFail()];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("fail");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 
   it("Property Oracle - summary - passes, fails, and unknowns - 2", () => {
-    const judgments: Judgment[] = ["pass", "unknown", "pass", "fail"];
-    expect(PropertyOracle.summarize(judgments)).toBe("fail");
-    expect(PropertyOracle.summarize(judgments)).toEqual(
-      summarizeOld(judgments)
+    const judgments: NamedJudgment[] = [
+      makePass(),
+      makeUnknown(),
+      makePass(),
+      makeFail(),
+    ];
+    expect(PropertyOracle.summarize(judgments).judgment).toBe("fail");
+    expect(PropertyOracle.summarize(judgments).judgment).toEqual(
+      summarizeOld(judgments.map((j) => j.judgment))
     );
   });
 });
+
+const make: (j: Judgment) => NamedJudgment = (j) => ({
+  name: j,
+  judgment: j,
+  trace: [],
+  deciders: [],
+});
+const makeUnknown: () => NamedJudgment = () => make("unknown");
+const makePass: () => NamedJudgment = () => make("pass");
+const makeFail: () => NamedJudgment = () => make("fail");
 
 /**
  * This is a prior and particular implementation of the summary

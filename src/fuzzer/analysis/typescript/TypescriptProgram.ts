@@ -31,7 +31,7 @@ import {
   ProgramImport,
   ArgType,
 } from "../Types";
-import { getErrorMessageOrJson } from "../../Util";
+import { getErrorMessageOrJson } from "../../../Util";
 
 // Default import nonsense for node
 // https://github.com/babel/babel/discussions/13093
@@ -1435,7 +1435,7 @@ export class TypescriptProgram {
           thisPath.node.leadingComments
             .filter((c) => c.type === "CommentBlock")
             .map((c) => `/*${c.value}*/`)
-            .join("/n") || undefined
+            .join("\n") || undefined
         );
       } else {
         thisPath = thisPath.parentPath;

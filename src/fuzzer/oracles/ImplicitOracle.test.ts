@@ -153,7 +153,7 @@ describe("fuzzer.oracles.ImplicitOracle", () => {
     expect(
       ImplicitOracle.judge(true, false, false, [
         { name: "", offset: 0, origin: { type: "unknown" }, value: undefined },
-      ])
+      ]).judgment
     ).toBe("fail");
   });
 
@@ -161,7 +161,7 @@ describe("fuzzer.oracles.ImplicitOracle", () => {
     expect(
       ImplicitOracle.judge(false, true, false, [
         { name: "", offset: 0, origin: { type: "unknown" }, value: undefined },
-      ])
+      ]).judgment
     ).toBe("fail");
   });
 
@@ -169,7 +169,7 @@ describe("fuzzer.oracles.ImplicitOracle", () => {
     expect(
       ImplicitOracle.judge(false, false, true, [
         { name: "", offset: 0, origin: { type: "unknown" }, value: undefined },
-      ])
+      ]).judgment
     ).toBe("pass");
   });
 
@@ -177,7 +177,7 @@ describe("fuzzer.oracles.ImplicitOracle", () => {
     expect(
       ImplicitOracle.judge(false, false, true, [
         { name: "", offset: 0, origin: { type: "unknown" }, value: 1 },
-      ])
+      ]).judgment
     ).toBe("fail");
   });
 
@@ -185,7 +185,7 @@ describe("fuzzer.oracles.ImplicitOracle", () => {
     expect(
       ImplicitOracle.judge(true, false, true, [
         { name: "", offset: 0, origin: { type: "unknown" }, value: undefined },
-      ])
+      ]).judgment
     ).toBe("fail");
   });
 
@@ -193,7 +193,7 @@ describe("fuzzer.oracles.ImplicitOracle", () => {
     expect(
       ImplicitOracle.judge(false, true, true, [
         { name: "", offset: 0, origin: { type: "unknown" }, value: undefined },
-      ])
+      ]).judgment
     ).toBe("fail");
   });
 });

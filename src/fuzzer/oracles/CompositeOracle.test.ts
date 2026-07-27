@@ -154,7 +154,30 @@ export function tester(
 ): { old: Judgment; new: Judgment } {
   return {
     old: judgeOld(implicit, property, human),
-    new: CompositeOracle.judge([[property, human], [implicit]]),
+    new: CompositeOracle.judge([
+      [
+        {
+          name: "PropertyOracle",
+          judgment: property,
+          trace: [],
+          deciders: [],
+        },
+        {
+          name: "ExampleOracle",
+          judgment: human,
+          trace: [],
+          deciders: [],
+        },
+      ],
+      [
+        {
+          name: "HeuristicOracle",
+          judgment: implicit,
+          trace: [],
+          deciders: [],
+        },
+      ],
+    ]).judgment,
   };
 }
 

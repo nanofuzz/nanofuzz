@@ -24,7 +24,7 @@ describe("fuzzer.oracles.ExampleOracle", () => {
             isTimeout: true,
           },
         ]
-      )
+      ).judgment
     ).toBe("pass");
   });
 
@@ -50,7 +50,7 @@ describe("fuzzer.oracles.ExampleOracle", () => {
             value: undefined,
           },
         ]
-      )
+      ).judgment
     ).toBe("fail");
   });
 
@@ -77,7 +77,7 @@ describe("fuzzer.oracles.ExampleOracle", () => {
             isException: true,
           },
         ]
-      )
+      ).judgment
     ).toBe("pass");
   });
 
@@ -103,7 +103,7 @@ describe("fuzzer.oracles.ExampleOracle", () => {
             value: undefined,
           },
         ]
-      )
+      ).judgment
     ).toBe("fail");
   });
 
@@ -129,7 +129,7 @@ describe("fuzzer.oracles.ExampleOracle", () => {
             isTimeout: true,
           },
         ]
-      )
+      ).judgment
     ).toBe("fail");
   });
 
@@ -155,7 +155,7 @@ describe("fuzzer.oracles.ExampleOracle", () => {
             isException: true,
           },
         ]
-      )
+      ).judgment
     ).toBe("fail");
   });
 
@@ -180,7 +180,7 @@ describe("fuzzer.oracles.ExampleOracle", () => {
             value: 1,
           },
         ]
-      )
+      ).judgment
     ).toBe("pass");
   });
 
@@ -205,7 +205,7 @@ describe("fuzzer.oracles.ExampleOracle", () => {
             value: 2,
           },
         ]
-      )
+      ).judgment
     ).toBe("fail");
   });
 });

@@ -1,5 +1,15 @@
 import * as JSON5 from "json5";
-import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./Util";
+import hljs from "highlight.js";
+import {
+  getElementByIdOrThrow,
+  getElementByIdWithTypeOrThrow,
+  hide,
+  htmlEscape,
+  htmlUnescape,
+  isHidden,
+  show,
+  toggleHidden,
+} from "./Util";
 import {
   FuzzArgOverride,
   FuzzIoElement,
@@ -9,8 +19,8 @@ import {
   FuzzSortOrder,
   FuzzValueOrigin,
   isFuzzResultTab,
-  Judgment,
-} from "../fuzzer/Types";
+  NamedJudgment,
+} from "../../src/fuzzer/Types";
 import {
   ArgValueType,
   ArgValueTypeWrapped,
@@ -21,7 +31,8 @@ import {
   FuzzPanelMessageToWebView,
   FuzzPanelMessageFromWebView,
   FuzzPanelPinMessage,
-} from "./FuzzPanelController";
+} from "../../src/ui/FuzzPanelController";
+import { IdeasPanelView } from "./IdeasPanelView";
 
 const vscode = acquireVsCodeApi();
 
@@ -112,6 +123,9 @@ let lastResultsTableShown: Element | undefined = undefined;
 
 // Coverage Heatmap Status
 let coverageHeatmapIsStale = false;
+
+// Ideas Panel
+let ideasGrid: IdeasPanelView | undefined;
 
 /**
  * Sets up the UI when the page is loaded, including setting up
@@ -447,6 +461,20 @@ function main() {
           show(getElementByIdOrThrow("fuzzWarnings.coverage.stale"));
         }
         break;
+      case "ideas.updated": {
+        const ideas: Required<typeof data>["ideas"] = JSON5.parse(
+          data.ideasSerialized
+        );
+        if (ideasGrid) {
+          ideasGrid.update(ideas);
+        } else {
+          console.error(
+            `No IdeasGrid present for ${data.command}; discarding ${ideas.length} ideas.`
+          );
+        }
+        hljs.highlightAll(); // !!!!!!!!!!
+        break;
+      }
     }
   });
 
@@ -472,11 +500,10 @@ function main() {
     });
 
     // Loop over each result
-    let idx = 0;
     for (const e of resultsData.results) {
       // Indicate which tests are pinned
       const pinned = { [pinnedLabel]: !!e.pinned };
-      const id = { [idLabel]: idx++ };
+      const id = { [idLabel]: e.testId };
 
       // Input Source
       const inputSrc: FuzzValueOrigin = e.input.length
@@ -493,6 +520,9 @@ function main() {
         case "put":
           src = { [srcLabel]: "pgm" };
           break;
+        case "mutator":
+          src = { [srcLabel]: "mtr" }; // should not happen
+          break;
         case "generator":
           switch (inputSrc.generator) {
             case "AiInputGenerator":
@@ -506,7 +536,7 @@ function main() {
               break;
             default:
               throw new Error(
-                `Unexpected FuzzValueOrigin generator at input# ${idx}: ${JSON5.stringify(
+                `Unexpected FuzzValueOrigin generator at input# ${id}: ${JSON5.stringify(
                   inputSrc
                 )}`
               );
@@ -514,38 +544,38 @@ function main() {
           break;
         default:
           throw new Error(
-            `Unexpected FuzzValueOrigin at input# ${idx}: ${JSON5.stringify(
+            `Unexpected FuzzValueOrigin at input# ${id}: ${JSON5.stringify(
               inputSrc
             )}`
           );
       }
 
       // Implicit validation result
-      const passedImplicit = resultsData.env.options.useImplicit
-        ? { [implicitLabel]: e.passedImplicit }
+      const implicitOracle = resultsData.env.options.useImplicit
+        ? { [implicitLabel]: e.oracles.implicit }
         : {};
 
       // Human validation expectation and result
-      const passedHuman = resultsData.env.options.useHuman
-        ? { [correctLabel]: e.passedHuman }
+      const exampleOracle = resultsData.env.options.useHuman
+        ? { [correctLabel]: e.oracles.example }
         : {};
       const expectedOutput = resultsData.env.options.useHuman
         ? { [expectedLabel]: e.expectedOutput }
         : {};
 
       // Property validator summary ("pass" if passed all validator functions)
-      const passedValidator = resultsData.env.options.useProperty
-        ? { [validatorLabel]: e.passedValidator }
+      const propertyOracle = resultsData.env.options.useProperty
+        ? { [validatorLabel]: e.oracles.property }
         : {};
 
       // Array of all property validator results (array of bools, each is true if passed)
       // const allValidators = resultsData.env.options.useProperty
-      //   ? { [allValidatorsLabel]: e.passedValidators }
+      //   ? { [allValidatorsLabel]: e.oracles.properties }
       //   : {};
 
       // Result for each property validator ("pass"" if passed)
-      const validatorFns: Record<string, Judgment> = {};
-      e.passedValidators.forEach((j, i) => {
+      const validatorFns: Record<string, NamedJudgment> = {};
+      e.oracles.propertyDetail.forEach((j, i) => {
         validatorFns[validators[i]] = j;
       });
 
@@ -566,9 +596,9 @@ function main() {
         outputs[`output`] =
           o.value === undefined ? "undefined" : JSON5.stringify(o.value);
       });
-      if (e.validatorException) {
+      if (e.oracles.property.error) {
         outputs[`output`] =
-          `(${e.validatorExceptionFunction} exception) ${e.validatorExceptionMessage}`;
+          `(${e.oracles.property.deciders[0]?.name ?? "Validator"} exception) ${e.oracles.property.error.message}`;
       } else if (e.exception) {
         outputs[`output`] = "(exception) " + e.exceptionMessage;
       }
@@ -590,12 +620,10 @@ function main() {
           ...src,
           ...inputs,
           ...outputs,
-          //...elapsedTimes,
-          ...passedImplicit,
-          ...passedValidator,
-          // ...allValidators,
+          ...implicitOracle,
+          ...propertyOracle,
           ...validatorFns,
-          ...passedHuman,
+          ...exampleOracle,
           ...pinned,
           ...expectedOutput,
         });
@@ -662,7 +690,7 @@ function main() {
                     ? "Property validator"
                     : "Property validator summary"
                 }">
-                  <span class="codicon codicon-hubot"></span>
+                  <span class="codicon codicon-robot"></span>
                 </span>`;
               cell.id = type + "-" + k;
               cell.addEventListener("click", () => {
@@ -696,7 +724,7 @@ function main() {
               cell.classList.add("colorColumn", "clickable");
               cell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-sw" aria-label="${k}">
-                  <span class="codicon codicon-hubot" style="font-size: 1em;"></span> <!-- small -->
+                  <span class="codicon codicon-robot" style="font-size: 1em;"></span> <!-- small -->
                 </span>`;
               cell.id = type + "-" + k;
               cell.style.paddingLeft = "0px";
@@ -817,6 +845,20 @@ function main() {
       }
     }
   } // if we have results data
+
+  // Create the IdeasGrid
+  try {
+    ideasGrid = new IdeasPanelView(
+      vscode,
+      JSON5.parse<string[]>(
+        getElementByIdOrThrow("fuzzFnInputNames").innerText
+      ),
+      getElementByIdOrThrow("tab-ideas"),
+      getElementByIdOrThrow("fuzzResultsGrid-ideas")
+    );
+  } catch (_e: unknown) {
+    // this is exepected to fail in some modes
+  }
 } // fn: main()
 
 /**
@@ -1156,21 +1198,21 @@ function handleCorrectToggle(
     // clicking check off
     button.className = correctState.classCheckOff;
     button.setAttribute("onOff", "false");
-    data[type][index][correctLabel] = "unknown";
+    data[type][index][correctLabel].judgment = "unknown";
     // delete saved expected value
     delete data[type][index][expectedLabel];
   } else if (button.classList.contains(correctState.classErrorOn)) {
     // clicking error off
     button.className = correctState.classErrorOff;
     button.setAttribute("onOff", "false");
-    data[type][index][correctLabel] = "unknown";
+    data[type][index][correctLabel].judgment = "unknown";
     // delete saved expected value
     delete data[type][index][expectedLabel];
   } else if (button.classList.contains(correctState.classCheckOff)) {
     // clicking check on
     button.className = correctState.classCheckOn;
     button.setAttribute("onOff", "true");
-    data[type][index][correctLabel] = "pass";
+    data[type][index][correctLabel].judgment = "pass";
     // turn others off
     cell2.className = correctState.classErrorOff;
     cell2.setAttribute("onOff", "false");
@@ -1190,7 +1232,7 @@ function handleCorrectToggle(
     // clicking error on
     button.className = correctState.classErrorOn;
     button.setAttribute("onOff", "true");
-    data[type][index][correctLabel] = "fail";
+    data[type][index][correctLabel].judgment = "fail";
     // turn others off
     cell1.className = correctState.classCheckOff;
     cell1.setAttribute("onOff", "false");
@@ -1277,7 +1319,7 @@ function toggleExpandColumn(type: FuzzResultCategory) {
 
 /**
  * Syncs the tabs and panels so that only the pane for the
- * selected tab is shown. are displaying
+ * selected tab is shown.
  *
  * @param `clickedTab` the tab clicked
  */
@@ -1357,7 +1399,10 @@ function handleColumnSort(
   // Sort current column value based on sort order
   const sortFn = (a: any, b: any, thisCol: string) => {
     const sortOrder = columnSortOrders[type][thisCol];
-    if (sortOrder !== FuzzSortOrder.desc && sortOrder !== FuzzSortOrder.asc) {
+    if (
+      (sortOrder !== FuzzSortOrder.desc && sortOrder !== FuzzSortOrder.asc) ||
+      hiddenColumns.includes(thisCol) // don't sort by hidden columns
+    ) {
       return 0; // no need to sort
     } else if (sortOrder === FuzzSortOrder.desc) {
       const temp = a;
@@ -1382,7 +1427,7 @@ function handleColumnSort(
       )
     ) {
       // Special sort order for judgments
-      [a, b] = [a[thisCol], b[thisCol]].map((j) =>
+      [a, b] = [a[thisCol].judgment, b[thisCol].judgment].map((j) =>
         j === "pass" ? 2 : j === "fail" ? 1 : 0
       );
     } else {
@@ -1546,6 +1591,7 @@ function drawTableBody({
   data[type].forEach((e) => {
     let id = -1;
     const row = tbody.appendChild(document.createElement("tr"));
+    row.classList.add("lineAbove");
     Object.keys(e).forEach((k) => {
       if (k === idLabel) {
         id = parseInt(e[k]);
@@ -1582,16 +1628,16 @@ function drawTableBody({
           const span = cell.appendChild(document.createElement("span"));
           // Fade the indicator if overridden by another validator
           if (
-            (e[correctLabel] ?? "unknown") !== "unknown" ||
-            (e[validatorLabel] ?? "unknown") !== "unknown"
+            (e[correctLabel].judgment ?? "unknown") !== "unknown" ||
+            (e[validatorLabel]?.judgment ?? "unknown") !== "unknown"
           ) {
             span.classList.add("overridden");
           }
-          if (e[k] === "unknown") {
+          if (e[k].judgment === "unknown") {
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-circle-large");
             span.setAttribute("title", "undecided");
-          } else if (e[k] === "pass") {
+          } else if (e[k].judgment === "pass") {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-pass");
             span.setAttribute("title", "passed");
@@ -1608,12 +1654,12 @@ function drawTableBody({
           if (validators.length > 1) {
             cell.style.paddingRight = "0px"; // close to twistie column if multiple validators
           }
-          if (e[k] === "unknown") {
+          if (e[k].judgment === "unknown") {
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-circle-large");
             span.setAttribute("title", "undecided");
-          } else if (e[k] === "pass") {
+          } else if (e[k].judgment === "pass") {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-pass");
@@ -1640,11 +1686,11 @@ function drawTableBody({
           const cell = row.appendChild(document.createElement("td"));
           const span = cell.appendChild(document.createElement("span"));
           cell.style.textAlign = "right";
-          if (e[k] === "unknown") {
+          if (e[k].judgment === "unknown") {
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-circle-large");
             span.setAttribute("title", "undecided");
-          } else if (e[k] === "pass") {
+          } else if (e[k].judgment === "pass") {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-pass", "overridden"); // Fade check mark for passed tests
             span.setAttribute("title", "passed");
@@ -1690,7 +1736,7 @@ function drawTableBody({
         });
 
         // Update the front-end buttons to match the back-end state
-        switch (e[k] ?? "unknown") {
+        switch (e[k].judgment ?? "unknown") {
           case "unknown":
             break;
           case "pass":
@@ -1783,7 +1829,7 @@ function handleExpectedOutput({
   const correctType = data[type][index][correctLabel];
 
   // If actual output does not match expected output, show expected/actual output
-  if (correctType === "fail") {
+  if (correctType.judgment === "fail") {
     const expectedRow = row.insertAdjacentElement(
       "afterend",
       document.createElement("tr")
@@ -2368,47 +2414,6 @@ function handleGetListOfValidators() {
 } // fn: handleGetListOfValidators()
 
 /**
- * Returns true if the DOM node is hidden using the 'hidden' class.
- *
- * @param e The DOM node to check for the 'hidden' class
- * @returns true if the DOM node is hidden; false otherwise
- */
-function isHidden(e: HTMLElement) {
-  return e.classList.contains("hidden");
-} // fn: isHidden()
-
-/**
- * Toggles whether an element is hidden or not
- *
- * @param e DOM element to toggle
- */
-function toggleHidden(e: Element) {
-  if (e.classList.contains("hidden")) {
-    e.classList.remove("hidden");
-  } else {
-    e.classList.add("hidden");
-  }
-} // fn: toggleHidden()
-
-/**
- * Hides a DOM element
- *
- * @param e DOM element to hide
- */
-function hide(e: Element) {
-  e.classList.add("hidden");
-} // fn: hide()
-
-/**
- * Shows a DOM element
- *
- * @param e DOM element to hide
- */
-function show(e: Element) {
-  e.classList.remove("hidden");
-} // fn: show()
-
-/**
  * Returns the number of columns in a table
  *
  * @param type Table type key
@@ -2475,37 +2480,3 @@ function listForValidatorFnTooltip(validatorList: string[]) {
 function getIdBase(i: number) {
   return "argDef-" + i;
 } // fn: getIdBase()
-
-/**
- * Adapted from: escape-goat/index.js
- *
- * Unescapes an HTML string.
- *
- * @param html HTML to unescape
- * @returns unescaped string
- */
-function htmlUnescape(html: string) {
-  return html
-    .replace(/&gt;/g, ">")
-    .replace(/&lt;/g, "<")
-    .replace(/&#0?39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&");
-} // fn: htmlUnescape()
-
-/**
- * Adapted from: escape-goat/index.js
- *
- * Escapes a string for use in HTML.
- *
- * @param str string to escape
- * @returns escaped string
- */
-function htmlEscape(str: string) {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-} // fn: htmlEscape()

@@ -20,7 +20,7 @@ export class JSRunner extends AbstractRunner {
     // Ensure we found an export module member
     if (!(jsFn in module)) {
       throw new Error(
-        `Could not find exported function ${jsFn} in ${module.filename} to fuzz`
+        `Could not find exported function ${jsFn} in ${module.filename}`
       );
     }
 

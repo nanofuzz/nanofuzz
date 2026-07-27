@@ -21,12 +21,13 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
-import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
+import { isError, getErrorMessageOrJson, deepFreeze } from "../Util";
 import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
+import { propertyOracleFromNodeModule } from "./oracles/Util";
 
 export class Tester {
   protected _module: string; // module filename
@@ -45,6 +46,7 @@ export class Tester {
   protected _lastCompiler?: compiler.TypescriptCompiler; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
+  protected _testId = 0; // next test id
 
   constructor(
     module: string,
@@ -172,6 +174,7 @@ export class Tester {
    */
   protected _getInitializedResults(): FuzzTestResults {
     return {
+      runId: crypto.randomUUID(),
       env: {
         options: JSON5.parse<typeof this._options>(
           JSON5.stringify(this._options)
@@ -288,6 +291,17 @@ export class Tester {
   public get state(): typeof this._state {
     return this._state;
   } // property: get state
+
+  /**
+   * Returns the current module and compiles it if necessary
+   */
+  public getModule(
+    update: (payload: FuzzBusyStatusMessage) => void = () => {}
+  ): NodeJS.Module {
+    const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
+    this._lastCompiler = new compiler.TypescriptCompiler(fqSrcFile);
+    return this._lastCompiler.compileSync(this._measures, update);
+  } // property: get module
 
   /**
    * Runs the tester in sync mode and returns its results.
@@ -466,20 +480,21 @@ export class Tester {
 
     // The target will be a TypeScript function, so we must compile
     // it to JavaScript (and possibly instrument it) prior to execution.
-    const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
-    this._lastCompiler = new compiler.TypescriptCompiler(fqSrcFile);
-    const mod = this._lastCompiler.compileSync(this._measures, update);
+    const mod = this.getModule(update);
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
     // Build a test runner for executing tests
-    const runner = RunnerFactory(this.env, mod, this._function.getName());
+    const runner = RunnerFactory({
+      type: "NodeJS.Module",
+      module: mod,
+      fnName: this._function.getName(),
+    });
 
-    // Build runners for the property validators
-    const propertyOracle = new PropertyOracle(
-      this._validators.map((vFnRef) =>
-        RunnerFactory(this.env, mod, vFnRef.name)
-      )
+    // Build the property oracle, which contains runners
+    const propertyOracle = propertyOracleFromNodeModule(
+      mod,
+      this._validators.map((v) => v.name)
     );
 
     // Are we currently injecting inputs?
@@ -554,27 +569,35 @@ export class Tester {
         );
         console.log(
           ` - Total tests where human validator passed: ${
-            this._results.results.filter((e) => e.passedHuman === "pass").length
+            this._results.results.filter(
+              (e) => e.oracles.example.judgment === "pass"
+            ).length
           }, failed: ${
-            this._results.results.filter((e) => e.passedHuman === "fail").length
+            this._results.results.filter(
+              (e) => e.oracles.example.judgment === "fail"
+            ).length
           }`
         );
         console.log(
           ` - Total tests where property validator passed: ${
-            this._results.results.filter((e) => e.passedValidator === "pass")
-              .length
+            this._results.results.filter(
+              (e) => e.oracles.property.judgment === "pass"
+            ).length
           }, failed: ${
-            this._results.results.filter((e) => e.passedValidator === "fail")
-              .length
+            this._results.results.filter(
+              (e) => e.oracles.property.judgment === "fail"
+            ).length
           }`
         );
         console.log(
           ` - Total tests where heuristic validator passed: ${
-            this._results.results.filter((e) => e.passedImplicit === "pass")
-              .length
+            this._results.results.filter(
+              (e) => e.oracles.implicit.judgment === "pass"
+            ).length
           }, failed: ${
-            this._results.results.filter((e) => e.passedImplicit === "fail")
-              .length
+            this._results.results.filter(
+              (e) => e.oracles.implicit.judgment === "fail"
+            ).length
           }`
         );
 
@@ -600,16 +623,19 @@ export class Tester {
 
       // Initialized test result - overwritten below
       const result: FuzzTestResult = {
+        testId: -1,
         pinned: false,
         input: [],
         output: [],
         exception: false,
-        validatorException: false,
         timeout: false,
-        passedImplicit: "unknown",
-        passedHuman: "unknown",
-        passedValidator: "unknown",
-        passedValidators: [],
+        oracles: {
+          composite: CompositeOracle.unknown,
+          implicit: ImplicitOracle.unknown,
+          example: ExampleOracle.unknown,
+          property: PropertyOracle.unknown,
+          propertyDetail: [],
+        },
         timers: {
           run: 0,
           gen: 0,
@@ -727,6 +753,7 @@ export class Tester {
       // Call the function via the runner
       const startRunTime = performance.now(); // start timer
       try {
+        deepFreeze(result.input);
         const inputValues = result.input.map((e) => e.value);
         const [exeOutput] = runner.run(
           JSON5.parse<typeof inputValues>(JSON5.stringify(inputValues)),
@@ -738,6 +765,7 @@ export class Tester {
           value: exeOutput as ArgValueType,
           origin: { type: "put" },
         });
+        deepFreeze(result.output);
         result.timers.run = performance.now() - startRunTime; // stop timer
       } catch (e: unknown) {
         result.timers.run = performance.now() - startRunTime; // stop timer
@@ -759,7 +787,7 @@ export class Tester {
       const startValTime = performance.now(); // start timer
       // IMPLICIT ORACLE --------------------------------------------
       if (this._options.useImplicit) {
-        result.passedImplicit = ImplicitOracle.judge(
+        result.oracles.implicit = ImplicitOracle.judge(
           result.timeout,
           result.exception,
           this._function.isVoid(),
@@ -770,7 +798,7 @@ export class Tester {
       // EXAMPLE ORACLE ---------------------------------------------
       // If a human annotated an expected output, then check it
       if (this._options.useHuman && result.expectedOutput) {
-        result.passedHuman = ExampleOracle.judge(
+        result.oracles.example = ExampleOracle.judge(
           result.timeout,
           result.exception,
           result.expectedOutput,
@@ -781,35 +809,29 @@ export class Tester {
       // PROPERTY ORACLE --------------------------------------------
       // If a property validator is selected, call it to evaluate the result
       if (this._options.useProperty) {
-        propertyOracle
-          .judge(
-            Object.freeze({
-              in: result.input.map((i) => i.value), // inputs
-              out:
-                result.output.length === 0
-                  ? "timeout or exception"
-                  : result.output[0].value,
-              exception: result.exception,
-              timeout: result.timeout,
-            })
-          )
-          .forEach((j, i) => {
-            if (isError(j)) {
-              result.passedValidators.push("unknown");
-              result.validatorException = true;
-              result.validatorExceptionMessage = j.message;
-              result.validatorExceptionFunction = this._validators[i].name;
-              result.validatorExceptionStack = j.stack;
-            } else {
-              result.passedValidators.push(j);
-            }
-          });
+        result.oracles.propertyDetail = propertyOracle.judge(
+          deepFreeze({
+            in: result.input.map((i) => i.value), // inputs
+            out:
+              result.output.length === 0
+                ? "timeout or exception"
+                : result.output[0].value,
+            exception: result.exception,
+            timeout: result.timeout,
+          })
+        );
 
-        // Summarize propert judgments.
-        result.passedValidator = PropertyOracle.summarize(
-          result.passedValidators
+        // Summarize property judgments
+        result.oracles.property = PropertyOracle.summarize(
+          result.oracles.propertyDetail
         );
       } // if validator
+
+      // COMPOSITE ORACLE --------------------------------------------
+      result.oracles.composite = CompositeOracle.judge([
+        [result.oracles.property, result.oracles.example],
+        [result.oracles.implicit],
+      ]);
 
       // Validator stats
       const valTime = performance.now() - startValTime; // stop timer
@@ -829,6 +851,7 @@ export class Tester {
       }
 
       // Store the result for this iteration
+      result.testId = this._testId++;
       this._results.results.push(result);
 
       // Take measurements for this test run
@@ -1051,7 +1074,7 @@ export function getValidators(
  * @returns the category of the result
  */
 export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
-  if (result.validatorException) {
+  if (result.oracles.property.error) {
     return "failure"; // Validator failed
   }
 
@@ -1073,12 +1096,8 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   // https://doi.org/10.1145/3580446
   //
   // Subsequently, map the judgment to a FuzzResultCategory
-  switch (
-    CompositeOracle.judge([
-      [result.passedValidator, result.passedHuman],
-      [result.passedImplicit],
-    ])
-  ) {
+
+  switch (result.oracles.composite.judgment) {
     case "pass":
       return "ok";
     case "fail":
@@ -1115,6 +1134,7 @@ export type FuzzEnv = {
  * Fuzzer Test Result
  */
 export type FuzzTestResults = {
+  runId: string; // fuzzer run id
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped
   stats: FuzzTestStats; // fuzzer statistics

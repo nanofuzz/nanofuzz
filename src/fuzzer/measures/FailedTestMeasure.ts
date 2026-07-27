@@ -38,9 +38,9 @@ export class FailedTestMeasure extends AbstractMeasure {
 
     // Make an array of all judgments
     const judgments = [
-      result.passedImplicit,
-      result.passedHuman,
-      ...result.passedValidators,
+      result.oracles.implicit,
+      result.oracles.example,
+      ...result.oracles.propertyDetail,
     ];
 
     // Init bugs data

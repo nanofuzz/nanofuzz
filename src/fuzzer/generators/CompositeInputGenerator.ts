@@ -4,7 +4,7 @@ import { Leaderboard } from "./Leaderboard";
 import * as JSON5 from "json5";
 import { ScoredInput } from "./Types";
 import { FuzzOptions, InputAndSource } from "./../Types";
-import { FunctionDef, FuzzTestStats } from "fuzzer/Fuzzer";
+import { FunctionDef, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
 import { AiInputGenerator } from "./AiInputGenerator";
 

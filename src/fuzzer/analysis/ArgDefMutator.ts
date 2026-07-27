@@ -9,6 +9,37 @@ import * as JSON5 from "json5";
  */
 export class ArgDefMutator {
   /**
+   * Convenience method to mutate a set of values once.
+   *
+   * Note: Throws an exception if no mutations are possible.
+   *
+   * @param `specs` ArgDefs that describe the values to mutate
+   * @param `values` Values to mutate
+   * @param `prng` random number generator
+   * @returns array of mutated inputs
+   */
+  public static mutate(
+    specs: ArgDef<ArgType>[],
+    values: ArgValueTypeWrapped[],
+    prng: seedrandom.prng
+  ): ArgValueTypeWrapped[] {
+    const valuesClone = structuredClone(values);
+
+    // Calculate possible mutations for the values
+    const mutators = ArgDefMutator.getMutators(specs, valuesClone, prng);
+
+    if (mutators.length === 0) {
+      throw new Error(
+        `Unable to mutate values: ${JSON5.stringify(valuesClone, null, 2)}`
+      );
+    }
+
+    // Mutate and return the value
+    mutators[Math.floor(prng() * mutators.length)].fn();
+    return valuesClone;
+  } // fn: mutate
+
+  /**
    * Returns a list of mutator functions for the provided value and
    * ArgDef spec. To mutate the value, call one of the returned
    * mutator functions.
@@ -18,21 +49,21 @@ export class ArgDefMutator {
    * mutator function will raise an exception.
    *
    * @param `specs` ArgDef that describes the value to mutate
-   * @param `value`` Value to mutate
-   * @param `prng`` random number generator
+   * @param `values` Value to mutate
+   * @param `prng` random number generator
    * @returns array of mutator functions
    */
   public static getMutators(
     specs: ArgDef<ArgType>[],
-    value: ArgValueTypeWrapped[],
+    values: ArgValueTypeWrapped[],
     prng: seedrandom.prng
   ): mutatorFn[] {
     // Sanity check: ensure we have specs to cover our inputs
-    if (ArgDef.length < value.length) {
+    if (ArgDef.length < values.length) {
       throw new Error(
-        `Different number of inputs (${value.length}) relative to ArgDefs (${
+        `Different number of inputs (${values.length}) relative to ArgDefs (${
           ArgDef.length
-        }) for input: ${JSON5.stringify(value)}`
+        }) for input: ${JSON5.stringify(values)}`
       );
     }
 
@@ -133,7 +164,7 @@ export class ArgDefMutator {
       subElement: ArgValueType;
       subSpec: ArgDef<ArgType>;
       inArray: boolean;
-    }[] = value.map((e, i) => {
+    }[] = values.map((e, i) => {
       return {
         subPath: [Number(i), "value"],
         subElement: e.value,
@@ -438,7 +469,7 @@ export class ArgDefMutator {
             );
           } else {
             wasMutated = true;
-            return this._mutateValueInPlace(value, e.path, e.value);
+            return this._mutateValueInPlace(values, e.path, e.value);
           }
         },
       };

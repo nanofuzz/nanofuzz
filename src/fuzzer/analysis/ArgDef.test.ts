@@ -432,7 +432,7 @@ describe("fuzzer/analysis/typescript/ArgDef: getTypeAnnotation", () => {
     let i = 50;
     while (i--) {
       const spec = [getRandomArgDef(prng, Math.floor(prng() * 2))];
-      const stxt = abbrSpec(spec[0]).join("\r\n");
+      const stxt = abbrSpec(spec[0]).join("\r\n").trim();
       const gen = new ArgDefGenerator(spec, prng);
       const val = new ArgDefValidator(spec);
 

@@ -6,7 +6,7 @@ import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as jestadapter from "../fuzzer/adapters/JestAdapter";
 import { TypescriptProgram } from "../fuzzer/analysis/typescript/TypescriptProgram";
-import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
+import { isError, getErrorMessageOrJson } from "../Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
 import {
@@ -15,14 +15,10 @@ import {
 } from "./CoverageHeatmap";
 import { normalizePathForKey } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
-
-// Consts for validator result arg name generation
-const resultArgCandidateNames = ["r", "result", "_r", "_result"];
-const maxResultArgSuffix = 1000;
-
-// Consts for validator out variable name generation
-const outVarCandidateNames = ["out", "output", "_out", "_output"];
-const maxOutVarSuffix = 1000;
+import { getPropertyTestSkeleton } from "../fuzzer/analysis/Util";
+import { IdeasPanelController } from "./IdeasPanelController";
+import seedrandom from "seedrandom";
+import { IdeaData } from "../fuzzer/ideas/Types";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -78,6 +74,7 @@ export class FuzzPanel {
   private _retestingReason: ReturnType<typeof this.resultsAreStale> | "user" =
     false; // retesting reason
   private _pauseTesting = false; // indicates that testing should stop
+  private _ideasPanel: IdeasPanelController | undefined; // controller for ideas panel
 
   // ------------------------ Static Methods ------------------------ //
 
@@ -416,7 +413,7 @@ export class FuzzPanel {
             this._saveColumnSortOrders(message.json);
             break;
           case "validator.add":
-            this._doAddValidatorCmd();
+            this._doAddValidatorCmd(message.prop);
             this._doGetValidators();
             break;
           case "validator.getList":
@@ -434,6 +431,24 @@ export class FuzzPanel {
               "workbench.action.openSettings",
               "nanofuzz.ai"
             );
+            break;
+          }
+          case "idea.accept": {
+            if (this._ideasPanel) {
+              const idea: Required<typeof message>["idea"] = JSON5.parse(
+                message.ideaSerialized
+              );
+              this._ideasPanel.accept(idea);
+            }
+            break;
+          }
+          case "idea.reject": {
+            if (this._ideasPanel) {
+              const idea: Required<typeof message>["idea"] = JSON5.parse(
+                message.ideaSerialized
+              );
+              this._ideasPanel.reject(idea);
+            }
             break;
           }
         }
@@ -901,11 +916,12 @@ export class FuzzPanel {
   /**
    * Add code skeleton for a property validator to the program source code.
    */
-  private async _doAddValidatorCmd() {
+  public async _doAddValidatorCmd(prop?: { src: string; name: string }) {
+    let src: string;
+    let name: string;
+
     const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
-    const validatorPrefix = fn.getName() + "Validator";
-    let fnCounter = 0;
     let program: TypescriptProgram;
 
     try {
@@ -917,61 +933,39 @@ export class FuzzPanel {
       return;
     }
 
-    // Determine the next available validator name
-    Object.keys(program.getFunctions())
-      .filter((e) => e.startsWith(validatorPrefix))
-      .forEach((e) => {
-        if (e.endsWith(validatorPrefix)) {
-          fnCounter++;
-        } else {
-          const suffix = e.substring(validatorPrefix.length);
-          if (suffix.match(/^[0-9]+$/)) {
-            fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
-          }
-        }
-      });
-
     // Determine if we need to add an import
     const hasImport = Object.keys(program.getImports()).some(
       (e) => e === "FuzzTestResult"
     );
 
-    const inArgs = fn.getArgDefs();
-    const validatorArgs = this._getValidatorArgs(inArgs);
-    const inArgConsts = inArgs
-      .map(
-        (argDef, i) =>
-          `  const ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
-            validatorArgs.resultArgName
-          }.in[${i}];`
-      )
-      .join("\n");
+    if (prop !== undefined) {
+      src = prop.src;
+      name = prop.name;
+    } else {
+      const validatorPrefix = fn.getName() + "Validator";
+      let fnCounter = 0;
 
-    const outTypeAsArg = fn.getReturnArg();
-    const outTypeAsString = outTypeAsArg
-      ? outTypeAsArg.getTypeAnnotation()
-      : undefined;
+      // Determine the next available validator name
+      Object.keys(program.getFunctions())
+        .filter((e) => e.startsWith(validatorPrefix))
+        .forEach((e) => {
+          if (e.endsWith(validatorPrefix)) {
+            fnCounter++;
+          } else {
+            const suffix = e.substring(validatorPrefix.length);
+            if (suffix.match(/^[0-9]+$/)) {
+              fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
+            }
+          }
+        });
 
-    const outArgConst = this._getOutArgConst(
-      inArgs,
-      validatorArgs.resultArgName,
-      outTypeAsString
-    );
+      const validatorSuffix = fnCounter === 0 ? "" : fnCounter.toString();
+      name = `${validatorPrefix}${validatorSuffix}`;
+      src = `${getPropertyTestSkeleton(this._fuzzEnv.function, validatorSuffix)}`;
+    }
+    src = `
 
-    // Name of the validator generated
-    const validatorName = `${validatorPrefix}${
-      fnCounter === 0 ? "" : fnCounter
-    }`;
-
-    // prettier-ignore
-    const skeleton = `
-
-export function ${validatorName}${validatorArgs.str}: "pass" | "fail" | "unknown" {
-${inArgConsts}
-  ${outArgConst}
-
-  return "pass";
-}`;
+${src}`;
 
     // Save the editor if dirty
     for (const editor of vscode.window.visibleTextEditors) {
@@ -988,7 +982,7 @@ ${inArgConsts}
         const importStmt =
           Buffer.from(`import { FuzzTestResult } from "@nanofuzz/runtime";
 `);
-        const validatorFn = Buffer.from(skeleton);
+        const validatorFn = Buffer.from(src);
         const fd = fs.openSync(module, "w+");
 
         fs.writeSync(fd, importStmt, 0, importStmt.length, 0);
@@ -1004,123 +998,26 @@ ${inArgConsts}
       } else {
         // Append the validator to the end of the file
         const fd = fs.openSync(module, "as+");
-        fs.writeFileSync(fd, skeleton);
+        fs.writeFileSync(fd, src);
         fs.closeSync(fd);
       }
 
       // Change focus to the generated validator
       try {
-        const fn =
-          TypescriptProgram.fromModule(module).getFunctions()[validatorName];
+        const fn = TypescriptProgram.fromModule(module).getFunctions()[name];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (_e: unknown) {
         vscode.window.showErrorMessage(
-          `Unable to navigate to the created validator '${validatorName}' in '${fn.getModule()}'`
+          `Unable to navigate to the created validator '${name}' in '${fn.getModule()}'`
         );
         return;
       }
     } catch {
       vscode.window.showErrorMessage(
-        `Unable to write property validator code skeleton to source file`
+        `Unable to write property validator code to source file`
       );
     }
   }
-
-  /**
-   * Choose a name for an identifier that doesn't conflict with the input arguments
-   *
-   * @param inArgs The input arguments
-   * @param candidateNames The candidate names to choose from
-   * @param maxSuffix The maximum suffix to use when generating a new name
-   * @returns The chosen name and whether it was generated
-   */
-  private _getIdentifierNameAvoidingConflicts(
-    // The input arguments
-    inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
-    // The candidate names to choose from
-    candidateNames: string[],
-    // The maximum suffix to use when generating a new name
-    maxSuffix: number
-  ): {
-    // The chosen name
-    name: string;
-    // Whether the name was generated (as opposed to being in possibleResultArgNames)
-    generated: boolean;
-  } {
-    const inArgNames = inArgs.map((argDef) => argDef.getName());
-    for (const name of candidateNames) {
-      if (!inArgNames.includes(name)) {
-        return { name, generated: false };
-      }
-    }
-
-    let i = 1;
-    // Generate a new name with a suffix
-    for (const candidateName of candidateNames) {
-      while (i <= maxSuffix) {
-        const name = `${candidateName}_${i}`;
-        if (!inArgNames.includes(name)) {
-          return { name, generated: true };
-        }
-        i++;
-      }
-    }
-
-    // In the extremely unlikely event that all the names generated above are
-    // already in `inArgNames`, we'll just return `r_conflicted` and not worry
-    // about potential conflicts.
-    return { name: "r_conflicted", generated: true };
-  } // fn: getIdentifierNameAvoidingConflicts()
-
-  /**
-   * Get the string representation for the validator arguments, along with the
-   * name of the argument that will hold the result.
-   *
-   * @param inArgs The input arguments
-   * @returns An object containing the above information
-   */
-  private _getValidatorArgs(inArgs: fuzzer.ArgDef<fuzzer.ArgType>[]): {
-    str: string;
-    resultArgName: string;
-  } {
-    const resultArgName = this._getIdentifierNameAvoidingConflicts(
-      inArgs,
-      resultArgCandidateNames,
-      maxResultArgSuffix
-    );
-    const resultArgString = `${resultArgName.name}: FuzzTestResult`;
-    return {
-      str: `(${resultArgString})`,
-      resultArgName: resultArgName.name,
-    };
-  } // fn: getValidatorArgs()
-
-  /**
-   * Get the string for the declaration of the out variable.
-   *
-   * The out variable is the variable that will hold the result of the function
-   * under test.
-   *
-   * @param inArgs The input arguments
-   * @param resultArgName The name of the argument that will hold the result
-   * @param returnType The return type of the function
-   * @returns The string for the declaration of the out variable
-   */
-  private _getOutArgConst(
-    inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
-    resultArgName: string,
-    returnType?: string
-  ): string {
-    const outVarName = this._getIdentifierNameAvoidingConflicts(
-      inArgs,
-      outVarCandidateNames,
-      maxOutVarSuffix
-    );
-    const outVarString = `const ${outVarName.name}${
-      returnType ? ": " + returnType : ""
-    } = ${resultArgName}.out;`;
-    return outVarString;
-  } // fn: getOutConst()
 
   /**
    * Message handler for the `validator.getList` command. Gets the list
@@ -1233,7 +1130,7 @@ ${inArgConsts}
               } else {
                 return {
                   input: i.input.map((e) => {
-                    const e2 = { ...e };
+                    const e2 = structuredClone(e);
                     // ticks are tester-specific
                     if (
                       e2.origin.type === "generator" &&
@@ -1379,6 +1276,21 @@ ${inArgConsts}
               this._panel.webview.postMessage(message);
               this._updateHtml();
               this._focusInput = undefined;
+
+              setTimeout(() => {
+                if (!this._ideasPanel) {
+                  this._ideasPanel = new IdeasPanelController({
+                    webview: this._panel.webview,
+                    module: this._tester.getModule(),
+                    fn: this._fuzzEnv.function,
+                    results: result,
+                    prng: seedrandom(),
+                    panel: this,
+                  });
+                } else {
+                  this._ideasPanel.refresh(); // !!!!!!!!!!
+                }
+              }, 0);
             }
           },
           // Fn that provides test status feedback to the panel => {
@@ -1448,6 +1360,7 @@ ${inArgConsts}
     this._errorStack = undefined;
     this._focusInput = undefined;
     this._coverageStats = undefined;
+    this._ideasPanel = undefined;
     this._updateHtml();
 
     // Save the argument overrides
@@ -1664,6 +1577,7 @@ ${inArgConsts}
 				    <meta http-equiv="Content-Security-Policy" content="${csp}">
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <!-- VS Code UI Toolkit -->
             <script type="module" src="${getUri(webview, extensionUri, [
               "node_modules",
               "@vscode",
@@ -1671,12 +1585,32 @@ ${inArgConsts}
               "dist",
               "toolkit.js",
             ])}"></script>
+            <!-- JSON5 -->
             <script src="${getUri(webview, extensionUri, [
               "node_modules",
               "json5",
               "dist",
               "index.js",
             ])}"></script>
+            <!-- VSCode icons -->
+            <link rel="stylesheet" type="text/css" href="${getUri(
+              webview,
+              extensionUri,
+              ["node_modules", "@vscode", "codicons", "dist", "codicon.css"]
+            )}">
+            <!-- Syntax highligting -->
+            <link rel="stylesheet" href="${getUri(webview, extensionUri, [
+              "node_modules",
+              "highlight.js",
+              "styles",
+              vscode.window.activeColorTheme.kind ===
+                vscode.ColorThemeKind.Dark ||
+              vscode.window.activeColorTheme.kind ===
+                vscode.ColorThemeKind.HighContrast
+                ? "dark.min.css"
+                : "default.min.css",
+            ])}">
+            <!-- NaNofuzz Assets -->
             <script type="module" src="${getUri(webview, extensionUri, [
               "build",
               "ui",
@@ -1690,7 +1624,7 @@ ${inArgConsts}
             <link rel="stylesheet" type="text/css" href="${getUri(
               webview,
               extensionUri,
-              ["node_modules", "@vscode", "codicons", "dist", "codicon.css"]
+              ["build", "ui", "IdeasPanelView.css"]
             )}">
             <title>${toolName} Panel</title>
           </head>
@@ -2119,38 +2053,47 @@ ${inArgConsts}
               id: fuzzer.FuzzResultCategory;
               name: string;
               description: string;
-              hasGrid: boolean;
+              payload: "fuzzGrid";
+              icon?: string;
             }
           | {
               id: "runInfo";
               name: string;
               description: string;
-              hasGrid: false;
+              payload: "html";
+              icon?: string;
+            }
+          | {
+              id: "ideas";
+              name: string;
+              description: string;
+              payload: "ideasGrid";
+              icon?: string;
             }
         )[] = [
           {
             id: "failure",
             name: "Validator Error",
             description: `A property validator threw an exception for these inputs. Fix the bug in the property validator and retest.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "disagree",
             name: "Disagree",
             description: `The property and human validators disagreed about how to categorize these outputs. Usually this indicates the property validator has a bug.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "timeout",
             name: "Timeouts",
             description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator categorized them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "exception",
             name: "Exceptions",
             description: `These inputs resulted in a runtime exception, and no validator categorized them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "badValue",
@@ -2163,7 +2106,7 @@ ${inArgConsts}
                   : `The human validator categorized these outputs as failed.`
             }`,
             // description: `A validator categorized these outputs as failed. The heuristic validator by default fails outputs that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "ok",
@@ -2171,7 +2114,7 @@ ${inArgConsts}
             description: `A validator categorized these outputs as passed, or no validator categorized them as failed.`,
             // description: `Passed. No validator categorized these outputs as failed.`,
             // description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
         ];
         if (this._results) {
@@ -2409,6 +2352,7 @@ ${inArgConsts}
           tabs.push({
             id: "runInfo",
             name: `Run info`,
+            icon: "codicon-info",
             description: /*html*/ `
 
             <div class="fuzzResultHeading">What did ${toolName} do?</div>
@@ -2558,16 +2502,27 @@ ${inArgConsts}
                 : ``
             }
             `,
-            hasGrid: false,
+            payload: "html",
           });
         }
+
+        // Add the ideas grid tab to the panel
+        tabs.push({
+          id: "ideas",
+          name: "ideas",
+          icon: "codicon-lightbulb",
+          payload: "ideasGrid",
+          description:
+            "The ideas below are based on the prior test run and might help you improve the test suite.",
+        });
 
         // If the prior tab no longer exists in the display set, don't use it
         if (
           this._lastTab &&
           !tabs.filter(
             (t) =>
-              t.id === this._lastTab && (!t.hasGrid || resultSummary[t.id] > 0)
+              t.id === this._lastTab &&
+              (t.payload !== "fuzzGrid" || resultSummary[t.id] > 0)
           ).length
         ) {
           this._lastTab = undefined;
@@ -2587,18 +2542,20 @@ ${inArgConsts}
               }>`;
 
         tabs.forEach((e) => {
-          if (!e.hasGrid || resultSummary[e.id] > 0) {
+          if (e.payload !== "fuzzGrid" || resultSummary[e.id] > 0) {
             html += /*html*/ `
                 <vscode-panel-tab id="tab-${e.id}">
                   ${
-                    e.id === "runInfo"
-                      ? `<div class="codicon codicon-info"></div>`
+                    e.icon
+                      ? `<div class="codicon ${e.icon}"></div>`
                       : `<span class="FuzzResultTabLabel">${e.name}</span>`
                   }`;
-            if (e.hasGrid) {
+            if (e.payload === "fuzzGrid" || e.payload === "ideasGrid") {
               html += /*html*/ `
-                  <vscode-badge appearance="secondary">${
-                    resultSummary[e.id]
+                  <vscode-badge ${e.payload === "ideasGrid" ? `id="ideasPanelCountBadge" class="hidden"` : ""} appearance="secondary">${
+                    e.payload === "fuzzGrid"
+                      ? resultSummary[e.id]
+                      : /*html */ `<span id="ideasPanelCount">0</span>`
                   }</vscode-badge>`;
             }
             html += /*html*/ `
@@ -2613,7 +2570,7 @@ ${inArgConsts}
 
         let i = 0;
         tabs.forEach((e) => {
-          if (!e.hasGrid || resultSummary[e.id] > 0) {
+          if (e.payload !== "fuzzGrid" || resultSummary[e.id] > 0) {
             const showThisGrid = this._focusInput
               ? this._focusInput[0] === e.id
               : this._lastTab
@@ -2624,15 +2581,16 @@ ${inArgConsts}
             html += /*html*/ `
                   <div class="fuzzGridPanel${showThisGrid ? `` : ` hidden`}" id="view-${e.id}">
                     <div class="fuzzPanelDescription">${e.description}</div>`;
-            if (e.hasGrid) {
+            if (e.payload === "fuzzGrid" || e.payload === "ideasGrid") {
               html += /*html*/ `
                     <div id="fuzzResultsGrid-${e.id}">
-                      <table class="fuzzGrid">
+                      <table class="fuzzGrid${e.payload === "ideasGrid" ? ` ideasGrid` : ``}">
                         <thead class="columnSortOrder sticky" id="fuzzResultsGrid-${e.id}-thead" /> 
                         <tbody id="fuzzResultsGrid-${e.id}-tbody" />
                       </table>
                     </div>`;
             }
+
             html += /*html*/ `
                   </div> <!-- fuzzGridPanel -->`;
           }
@@ -2730,6 +2688,11 @@ ${inArgConsts}
             <!-- Fuzzer Sort Columns: for the client script to process -->
             <div id="fuzzHideColumns" class="hidden">
               ${htmlEscape(JSON5.stringify(hiddenColumns))}
+            </div>
+
+            <!-- Function Input Names -->
+            <div id="fuzzFnInputNames" class="hidden">
+              ${htmlEscape(JSON5.stringify(this._fuzzEnv.function.getArgDefs().map((a) => a.getName())))}
             </div>
 
             <!-- Validator Functions: for the client script to process -->
@@ -3706,10 +3669,15 @@ export type FuzzPanelMessageFromWebView =
         | "fuzz.coverage.show"
         | "fuzz.coverage.hide"
         | "fuzz.pause"
-        | "validator.add"
         | "validator.getList"
         | "open.source"
         | "open.settings.ai";
+    }
+  | { command: "validator.add"; prop?: { src: string; name: string } }
+  | {
+      command: "idea.accept" | "idea.reject";
+      ideaSerialized: string;
+      idea?: IdeaData;
     };
 
 /**
@@ -3786,4 +3754,9 @@ export type FuzzPanelMessageToWebView =
       };
     }
   | { command: "coverage.hidden" }
-  | { command: "coverage.stale" };
+  | { command: "coverage.stale" }
+  | {
+      command: "ideas.updated";
+      ideasSerialized: string; // IdeaData[]
+      ideas?: IdeaData[];
+    };

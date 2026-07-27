@@ -3,7 +3,7 @@
   "displayName": "NaNofuzz",
   "publisher": "penrose",
   "version": "0.3.6",
-  "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript that runs inside VS Code",
+  "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript that runs inside VS Code and supports fuzz, example, and property-based testing",
   "repository": "https://github.com/nanofuzz/nanofuzz.git",
   "author": "The NaNofuzz Team @ Carnegie Mellon University",
   "icon": "/src/ui/logo.png",
@@ -145,6 +145,13 @@
             "type": "boolean",
             "default": false,
             "description": "Write AI debug information to the console"
+          },
+          "nanofuzz.ai.properties.generate": {
+            "title": "(experimental) Generate property candidates with the AI model?",
+            "order": 70,
+            "type": "boolean",
+            "default": false,
+            "description": "Generate property candidates with the AI model (experimental) "
           }
         }
       },
@@ -287,11 +294,13 @@
     "@types/vscode-webview": "^1.57.5",
     "@vscode/codicons": "^0.0.45",
     "@vscode/webview-ui-toolkit": "^1.2.2",
+    "highlight.js": "^11.11.1",
     "istanbul-lib-coverage": "^3.2.2",
     "istanbul-lib-hook": "^3.0.0",
     "istanbul-lib-instrument": "6.0.3",
     "istanbul-lib-source-maps": "^5.0.6",
     "json5": "^2.2.3",
+    "require-from-string": "^2.0.2",
     "seedrandom": "^3.0.5",
     "typescript": "5.9.2",
     "zod": "^4.3.6"
@@ -307,6 +316,7 @@
     "@types/istanbul-lib-source-maps": "^4.0.4",
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
+    "@types/require-from-string": "^1.2.3",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.75.0",
     "@vscode/vsce": "^3.6.0",

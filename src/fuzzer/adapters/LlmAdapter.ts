@@ -1,10 +1,11 @@
 import * as vscode from "vscode";
-import { ArgValueType } from "../analysis/Types";
 import * as JSON5 from "json5";
-import { FunctionDef } from "../analysis/FunctionDef";
 import * as nodellm from "@node-llm/core";
-import { isError } from "../Util";
+import { ArgValueType } from "../analysis/Types";
+import { FunctionDef } from "../analysis/FunctionDef";
+import { isError } from "../../Util";
 import * as telemetry from "../../telemetry/Telemetry";
+import { getPropertyTestSkeleton } from "../analysis/Util"; // !!!!!!!!!! wrong location
 import * as zod from "zod";
 import { zodOutputFormat } from "./AnthropicUtils";
 
@@ -130,6 +131,51 @@ export class LlmAdapter {
   } // fn: genInputs
 
   /**
+   * Prompt an LLM to generate property assertions for a function
+   *
+   * @param `fn` function for which assertions should be generated
+   * @returns a set of property assertions
+   */
+  public async genProps(
+    fn: FunctionDef,
+    schema?: zod.ZodArray
+  ): Promise<{ functionSourceCode: string[]; functionName: string }[]> {
+    try {
+      const response = await this._query(
+        [prompt.genProps(this._getPromptVars(fn, []))],
+        schema
+      );
+
+      // const response = await this._query(
+      //   [prompt.genProps(this._getPromptVars(fn, []))],
+      //   schema
+      // );
+      const props: unknown = JSON5.parse(response.response);
+      if (
+        Array.isArray(props) &&
+        props.every(
+          (e) =>
+            typeof e === "object" &&
+            !Array.isArray(e) &&
+            "functionSourceCode" in e &&
+            typeof e.functionSourceCode === "object" &&
+            Array.isArray(e.functionSourceCode) &&
+            e.functionSourceCode.every((l: unknown) => typeof l === "string") &&
+            "functionName" in e &&
+            typeof e.functionName === "string"
+        )
+      ) {
+        return props;
+      } else {
+        console.debug(`Got some invalid data`); // !!!!!!!!!!
+        return []; // !!!!!!!!!! error handling
+      }
+    } catch (_e: unknown) {
+      return []; // !!!!!!!!!! error handling
+    }
+  } // fn: genProps
+
+  /**
    * Returns a commmunication structure of data for building prompts
    * for a program.
    *
@@ -143,6 +189,7 @@ export class LlmAdapter {
     fnName: string;
     fnSource: string;
     fnSpec: string;
+    fnPropSkel: string;
     directives: string[];
   } {
     const fnRef = fn.getRef();
@@ -150,6 +197,7 @@ export class LlmAdapter {
       fnName: fnRef.name,
       fnSource: fnRef.src,
       fnSpec: fn.getCmt() ?? "",
+      fnPropSkel: getPropertyTestSkeleton(fn, "<name-suffix>"),
       directives,
     };
   } // fn: _getPromptVars
@@ -163,7 +211,7 @@ export class LlmAdapter {
    */
   private async _query(
     prompt: string[],
-    schema?: zod.ZodObject
+    schema?: zod.ZodObject | zod.ZodArray
   ): Promise<{
     response: string;
     stats: {
@@ -315,6 +363,33 @@ ${vars.fnSource}
 \`\`\`
 
 ${vars.directives.length ? `Important details about the program's inputs:\n${vars.directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+`;
+  },
+  genProps: (vars: ReturnType<LlmAdapter["_getPromptVars"]>): string => {
+    return `To evaluate whether the following TypeScript program "${vars.fnName}" behaves correctly relative to its specification, write 15 to 20 property tests that determine whether the program satisfies its specification. 
+    
+You are familiar with property tests, which are small programs that are called after each execution of the program ("${vars.fnName}") to determine whether that execution's one particular output is correct for its given input.
+
+The property tests you write to check an execution's inputs and output will use the following boilerplate TypeScript code and docstring comment. Replace "<name-suffix>" with an appropriate name including only ASCII characters ("<name-suffix>" must NOT be all numbers). Replace "<explanation>" in the docstring comment with a natural language explanation of your code. Othwerwise, ONLY modify the code and docstring comment where indicated. The property test you write must include the docstring comment and must return \`"fail"\` if the property does not hold for the particular example or \`"unknown"\` otherwise. NEVER return \`"pass"\`: return \`"unknown"\` if the test does not \`"fail"\`. If the execution threw an exception, \`exception\` of the \`FuzzTestResult\` will be \`true\`. If the execution timed out, \`result.timeout\` of the \`FuzzTestResult\` will be \`true\`.
+
+The boilerplate property test code and docstring comment:
+\`\`\`
+/**
+ * <explanation>
+ */
+${vars.fnPropSkel}
+\`\`\`
+
+The specification for the "${vars.fnName}" program:
+\`\`\`
+${vars.fnSpec ? vars.fnSpec : `(no specification was found. try to infer the spec from the program below)`}
+\`\`\`
+
+The "${vars.fnName}" program:
+\`\`\`
+${vars.fnSource}
+\`\`\`
+
 `;
   },
 };

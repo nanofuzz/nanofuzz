@@ -3,12 +3,13 @@ import {
   ArgValueType,
   ArgValueTypeWrapped,
 } from "./analysis/Types";
-import { Judgment as _Judgment } from "./oracles/Types";
+import { NamedJudgment as _NamedJudgment } from "./oracles/Types";
 
 /**
  * Single Fuzzer Test Result
  */
 export type FuzzTestResult = {
+  testId: number; // id of test (unique within a runId)
   pinned: boolean; // true if the test was pinned (not randomly generated)
   input: FuzzIoElement[]; // function input
   output: FuzzIoElement[]; // function output
@@ -16,14 +17,13 @@ export type FuzzTestResult = {
   exceptionMessage?: string; // exception message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
-  passedImplicit: Judgment; // "pass" if output passed implicit oracle
-  passedHuman: Judgment; // "pass" if actual output matches human-expected output
-  passedValidator: Judgment; // "pass" if passed all property oracles
-  passedValidators: Judgment[]; // "pass" if passed all property oracles
-  validatorException: boolean; // true if validator threw an exception
-  validatorExceptionMessage?: string; // validator exception message
-  validatorExceptionFunction?: string; // name of validator throwing exception
-  validatorExceptionStack?: string; // validator stack trace if exception was thrown
+  oracles: {
+    composite: NamedJudgment;
+    implicit: NamedJudgment;
+    example: NamedJudgment;
+    property: NamedJudgment;
+    propertyDetail: NamedJudgment[];
+  };
   timers: {
     gen: number; // time to generate the input in ms
     run: number; // elapsed time of test in ms
@@ -38,10 +38,37 @@ export type FuzzTestResult = {
  */
 export type Result = {
   in: ArgValueType[]; // function input
-  out: unknown; // function output
+  out: ArgValueType; // function output
   exception: boolean; // true if an exception was thrown
   timeout: boolean; // true if the fn call timed out
 };
+
+/**
+ * Simplified wrapped single test result for serialization
+ */
+export type ResultWrapped = {
+  inWrapped: ArgValueTypeWrapped[]; // function input
+  outWrapped: ArgValueTypeWrapped; // function output
+  exception: boolean; // true if an exception was thrown
+  timeout: boolean; // true if the fn call timed out
+};
+
+export function wrapResult(r: Result): ResultWrapped {
+  return {
+    inWrapped: r.in.map((i) => ({ tag: "ArgValueTypeWrapped", value: i })),
+    outWrapped: { tag: "ArgValueTypeWrapped", value: r.out },
+    exception: r.exception,
+    timeout: r.timeout,
+  };
+}
+export function unwrapResult(r: ResultWrapped): Result {
+  return {
+    in: r.inWrapped.map((i) => i.value),
+    out: r.outWrapped.value,
+    exception: r.exception,
+    timeout: r.timeout,
+  };
+}
 
 /**
  * Fuzzer Tests - intended to be persisted a fuzzer configuration and
@@ -97,7 +124,7 @@ export type InputAndSource = {
  */
 export type FuzzValueOrigin =
   | {
-      type: "user" | "put" | "unknown";
+      type: "user" | "put" | "mutator" | "unknown";
     }
   | {
       type: "generator";
@@ -284,4 +311,4 @@ export class TypescriptCompilerError extends Error {
   }
 }
 
-export type Judgment = _Judgment;
+export type NamedJudgment = _NamedJudgment;
