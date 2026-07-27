@@ -1,8 +1,6 @@
 import * as JSON5 from "json5";
 import { isKeyedObject } from "./Util";
 
-const JSONN_PREDICATE = `/*JSONN:1.0.0*/`;
-
 /**
  * JSONN: JavaScript Object Notation for NaNofuzz
  *
@@ -61,7 +59,7 @@ export function stringify(
         },
     space
   );
-  return `${stats.replacements ? JSONN_PREDICATE : ""}${text}`;
+  return `${stats.replacements ? predicate : ""}${text}`;
 }
 
 /**
@@ -81,11 +79,11 @@ export function parse<T>(
     | undefined
 ): T {
   let result: unknown;
-  if (!text.startsWith(JSONN_PREDICATE)) {
+  if (!text.startsWith(predicate)) {
     result =
       text.trim() === "undefined" ? undefined : JSON5.parse(text, reviver);
   } else {
-    if (text.slice(JSONN_PREDICATE.length).trim() === "undefined") {
+    if (text.slice(predicate.length).trim() === "undefined") {
       result = undefined;
     } else {
       // Parse the data while keeping a list of any values we need to replace.
@@ -118,6 +116,20 @@ export function parse<T>(
   }
   return result as T;
 }
+
+/**
+ * Returns the stringified placeholder for a particular special value.
+ *
+ * @param _key 'undefined'
+ * @returns stringified placeholder value
+ */
+export function getPlaceholder(_key: "undefined"): string {
+  return `{${PlaceHolderKey}:'${UndefinedKey}'}`;
+  //  return Undefined;
+}
+
+export const predicate = `/*JSONN:1.0.0*/`;
+//const Undefined = Symbol("____JSONN____61581952310____UNDEFINED____");
 
 /**
  * Replaces special values with a JSONN placeholder
