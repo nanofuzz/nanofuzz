@@ -32,7 +32,7 @@ export function fromPython<T>(text: string): T {
   return toJavascriptValues(text) as T;
 }
 
-// ---------------------- From Javascript to Python ----------------------
+// --------------- From Javascript value to Python string ---------------
 
 /**
  * Recursively converts Javascript booleans, null/undefined, arrays, and objects
@@ -64,6 +64,10 @@ function toPythonValues(val: unknown): unknown {
 
   if (typeof val === "bigint") {
     throw new Error("Bigints are not supported");
+  }
+
+  if (typeof val === "symbol") {
+    throw new Error("Symbols are not supported");
   }
 
   return val; // Passthrough strings, numbers, booleans
@@ -107,13 +111,13 @@ function toPythonFormat(val: unknown): string {
   return String(val);
 }
 
-// ---------------------- From Python to Javascript ----------------------
+// --------------- From Python string to Javascript value ---------------
 
 /**
  * Accepts a Python literal string (the output of `valueToPython`)
  * and parses it back into a corresponding JavaScript value.
  *
- * @param text A string formatted as a Python literal (e.g., `{"a": True, "b": None}`)
+ * @param `text` string formatted as a Python literal (e.g., `{"a": True, "b": None}`)
  * @returns The corresponding JavaScript value
  */
 function toJavascriptValues(text: string): unknown {

@@ -4,6 +4,7 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
   it("round-trip values", () => {
     [
       //null,
+      NaN,
       undefined,
       true,
       false,
@@ -17,8 +18,10 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
         trueValue: true,
         noValue: undefined,
         //nullValue: null,
+        nanValue: NaN,
         arrayValue: [
           //null,
+          NaN,
           undefined,
           true,
           false,
@@ -32,6 +35,7 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
       },
       [
         //null,
+        NaN,
         undefined,
         true,
         false,
@@ -45,6 +49,7 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
           trueValue: true,
           noValue: undefined,
           //nullValue: null
+          nanValue: NaN,
         },
       ],
     ].forEach((value) => {
@@ -56,12 +61,12 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
 
   it("single/double quoted strings", () => {
     [
-      { python: `"hello"`, js: "hello" },
-      { python: `"hello 'bob'"`, js: "hello 'bob'" },
-      { python: `'hello'`, js: "hello" },
-      { python: `'hello "bob"'`, js: `hello "bob"` },
+      { str: `"hello"`, val: "hello" },
+      { str: `"hello 'bob'"`, val: "hello 'bob'" },
+      { str: `'hello'`, val: "hello" },
+      { str: `'hello "bob"'`, val: `hello "bob"` },
     ].forEach((value) => {
-      expect(PythonValueMapper.fromPython(value.python)).toEqual(value.js);
+      expect(PythonValueMapper.fromPython(value.str)).toEqual(value.val);
     });
   });
 });

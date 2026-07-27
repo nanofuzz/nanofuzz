@@ -5,6 +5,7 @@ describe("JSONN: ", () => {
   it("round-trip values", () => {
     [
       null,
+      NaN,
       undefined,
       true,
       false,
@@ -18,8 +19,10 @@ describe("JSONN: ", () => {
         trueValue: true,
         noValue: undefined,
         nullValue: null,
+        nanValue: NaN,
         arrayValue: [
           null,
+          NaN,
           undefined,
           true,
           false,
@@ -33,6 +36,7 @@ describe("JSONN: ", () => {
       },
       [
         null,
+        NaN,
         undefined,
         true,
         false,
@@ -42,7 +46,7 @@ describe("JSONN: ", () => {
         "hello",
         true,
         false,
-        { trueValue: true, noValue: undefined, nullValue: null },
+        { trueValue: true, noValue: undefined, nanValue: NaN, nullValue: null },
       ],
     ].forEach((value) => {
       const roundtripValue = JSONN.parse<typeof value>(JSONN.stringify(value));
