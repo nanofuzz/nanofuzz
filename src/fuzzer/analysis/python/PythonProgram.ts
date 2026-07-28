@@ -6,6 +6,7 @@ import {
   IdentifierName,
   TypeRef,
   ArgOptions,
+  ArgOptionOverride,
   ArgTag,
   ArgType,
 } from "../Types";
@@ -500,7 +501,7 @@ export class PythonProgram extends AbstractProgram {
   protected _getTypeFromAstNode(
     node: Parser.SyntaxNode,
     options: ArgOptions
-  ): [ArgTag, number, string?, ArgType?] {
+  ): [ArgTag, number, string?, ArgType?, ArgOptionOverride?] {
     switch (node.type) {
       case "type":
         if (node.firstChild) {
@@ -511,7 +512,12 @@ export class PythonProgram extends AbstractProgram {
       case "identifier":
         switch (node.text) {
           case "int":
+            // Python int and float share NanoFuzz's NUMBER tag. Keep the
+            // integer constraint as an option so input generation can still
+            // distinguish the two without another ArgTag.
+            return [ArgTag.NUMBER, 0, undefined, undefined, { numInteger: true }];
           case "float":
+            return [ArgTag.NUMBER, 0, undefined, undefined, { numInteger: false }];
           case "complex":
             return [ArgTag.NUMBER, 0];
           case "str":
@@ -541,9 +547,9 @@ export class PythonProgram extends AbstractProgram {
             const arg = args[0];
             if (!arg) throw new Error(`Missing element type in '${node.text}'`);
 
-            const [type, dims, typeName, literalValue] =
+            const [type, dims, typeName, literalValue, typeOptions] =
               this._getTypeFromAstNode(arg, options);
-            return [type, dims + 1, typeName, literalValue];
+            return [type, dims + 1, typeName, literalValue, typeOptions];
           }
 
           case "tuple":
@@ -739,7 +745,7 @@ export class PythonProgram extends AbstractProgram {
     // python has no ? to mark parameters as optional. Its optional type is in fact a union between the type and None, so we don't need to handle optional here. optional stays false
 
     // Get the node's type and dimensions
-    const [type, dims, typeRefNode, literalValue] = this._getTypeFromAstNode(
+    const [type, dims, typeRefNode, literalValue, typeOptions] = this._getTypeFromAstNode(
       typeNode,
       this._options
     );
@@ -753,6 +759,7 @@ export class PythonProgram extends AbstractProgram {
           dims: dims,
           type: type,
           children: [],
+          ...(typeOptions ? { options: typeOptions } : {}),
           resolved: true,
         };
         break;
