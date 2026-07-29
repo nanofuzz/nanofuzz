@@ -1,10 +1,5 @@
 import * as JSONN from "../../../Jsonn";
-import Parser from "tree-sitter";
-import PythonGrammar from "tree-sitter-python";
-
-// Type definitions are broken in tree-sitter-python
-// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-const Python: Parser.Language = PythonGrammar as Parser.Language;
+import * as Parser from "../../adapters/ParserAdapter";
 
 /**
  * Converts an arbitrary JavaScript value of type `unknown` into a Python literal string.
@@ -32,7 +27,7 @@ export function fromPython<T>(text: string): T {
   return toJavascriptValues(text) as T;
 }
 
-// --------------- From Javascript value to Python string ---------------
+// --------------- From Javascript value to Python string --------------- //
 
 /**
  * Recursively converts Javascript booleans, null/undefined, arrays, and objects
@@ -128,12 +123,13 @@ function toJavascriptValues(text: string): unknown {
   const trimmed = text.trim();
   if (trimmed === "True") return true;
   if (trimmed === "False") return false;
-  if (trimmed === "None") return undefined;
+  if (trimmed === "None") return null;
 
-  // Use tree-sitter to replace Python values with Javascript values
-  const parser = new Parser();
-  parser.setLanguage(Python);
-  const tree = parser.parse(text);
+  // Parse and replace Python values with Javascript values
+  const tree = Parser.parse(`python`, text);
+  if (tree === null) {
+    throw new Error(`parser returned null`);
+  }
   const replacements: Array<{ start: number; end: number; text: string }> = [];
   const collectReplacements = (node: Parser.SyntaxNode) => {
     switch (node.type) {
@@ -155,16 +151,13 @@ function toJavascriptValues(text: string): unknown {
         replacements.push({
           start: node.startIndex,
           end: node.endIndex,
-          text: JSONN.getPlaceholder("undefined"),
+          text: "null",
         });
         break;
       default:
         // Recursively traverse children
-        for (let i = 0; i < node.childCount; i++) {
-          const child = node.child(i);
-          if (child) {
-            collectReplacements(child);
-          }
+        for (const child of node.children) {
+          collectReplacements(child);
         }
         break;
     }
@@ -180,6 +173,5 @@ function toJavascriptValues(text: string): unknown {
   }
 
   // Offload the rest to JSONN
-  const result = JSONN.parse(`${JSONN.predicate}${modifiedText}`);
-  return result === null ? undefined : result;
+  return JSONN.parse(modifiedText);
 }

@@ -142,3 +142,10 @@ export type FuzzTestResult = {
   exception: boolean;
   timeout: boolean;
 };
+
+export function issue301(r: number): { a: number | undefined } {
+  if (r === 6) {
+    return { a: undefined };
+  }
+  return { a: r };
+}

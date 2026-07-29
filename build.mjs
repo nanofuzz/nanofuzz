@@ -36,7 +36,6 @@ if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
 }
 [{ name: "json5" }].forEach((pkg) => {
   const libdir = findInDescendants("./.venv", pkg.name);
-  console.debug(libdir);
   if (libdir === undefined) {
     throw new Error(
       `Could not find Python package ${pkg.name}. Is it installed in the python virtual environment? (see ./CONTRIBUTING.md)`
@@ -47,6 +46,18 @@ if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
   });
   rimraf.sync(`./build/extension/${pkg.name}/__pycache__`);
   console.log(`copied .py ${pkg.name}`);
+});
+
+// Copy wasm imports (web-tree-sitter)
+[
+  "./node_modules/web-tree-sitter/web-tree-sitter.wasm",
+  "./node_modules/tree-sitter-python/tree-sitter-python.wasm",
+  "./node_modules/tree-sitter-typescript/tree-sitter-typescript.wasm",
+  "./node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm",
+].forEach((wasmFile) => {
+  copyfiles([wasmFile, "./build/ui"], true, () =>
+    console.log(`copied ${path.basename(wasmFile)}`)
+  );
 });
 
 // VSCode Web Extension Back-end
@@ -68,7 +79,10 @@ await esbuild.build({
     "typescript",
     "tree-sitter",
     "tree-sitter-python",
+    "tree-sitter-typescript",
+    "tree-sitter-javascript",
   ],
+  define: { "process.env.TARGET_WEB": "false" },
 });
 
 // VSCode Web Extension Front-end UI
@@ -80,9 +94,10 @@ await esbuild.build({
   platform: "browser",
   outfile: "./build/ui/FuzzPanelView.js",
   minify: true,
-  format: "iife", // IIFE format is suitable for browser-based UI
+  format: "esm", // for web-tree-sitter (was iife)
   sourcemap: "both",
-  external: [],
+  external: ["module", "fs/promises", "path"],
+  define: { "process.env.TARGET_WEB": "true" },
 });
 
 // CompilerWorker
@@ -97,6 +112,7 @@ await esbuild.build({
   sourcemap: "both",
   tsconfig: "./tsconfig.json",
   external: ["path", "fs", "typescript"],
+  define: { "process.env.TARGET_WEB": "false" },
 });
 
 /**

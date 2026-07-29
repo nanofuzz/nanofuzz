@@ -1,12 +1,6 @@
 import * as JSONN from "../../../Jsonn";
-import Parser from "tree-sitter";
-import TypescriptGrammar from "tree-sitter-typescript";
 import { isKeyedObject } from "../../../Util";
-
-// Type definitions are broken in tree-sitter-typescript
-// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-const Typescript: Parser.Language =
-  TypescriptGrammar.typescript as Parser.Language;
+import * as Parser from "../../adapters/ParserAdapter";
 
 /**
  * Accepts an arbitrary JavaScript value and returns a string representing
@@ -99,7 +93,7 @@ function toJavascriptValues(val: unknown): string {
   return String(val);
 }
 
-// ------------- From Javascript string to Javascript value -------------
+// ------------- From Javascript string to Javascript value ------------- //
 
 /**
  * Accepts a Javascript literal string (the output of `valueToTypescript`)
@@ -121,12 +115,12 @@ function toJavascriptValue(text: string): unknown {
   if (trimmed === "true") return true;
   if (trimmed === "false") return false;
 
-  // Use tree-sitter to parse the Javascript
-  const parser = new Parser();
-  parser.setLanguage(Typescript);
-  const tree = parser.parse(text);
+  // Parse the Javascript value
+  const tree = Parser.parse(`typescript`, text);
+  if (tree === null) {
+    throw new Error(`parser returned null`);
+  }
   const replacements: Array<{ start: number; end: number; text: string }> = [];
-
   const collectReplacements = (node: Parser.SyntaxNode) => {
     switch (node.type) {
       case "undefined":
@@ -160,5 +154,5 @@ function toJavascriptValue(text: string): unknown {
   }
 
   // Offload the rest to JSONN
-  return JSONN.parse(`${JSONN.predicate}${modifiedText}`);
+  return JSONN.parse(modifiedText);
 }

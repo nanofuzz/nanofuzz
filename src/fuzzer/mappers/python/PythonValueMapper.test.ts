@@ -5,7 +5,7 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
     [
       //null,
       NaN,
-      undefined,
+      //undefined, not round trippable
       true,
       false,
       Infinity,
@@ -16,13 +16,13 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
       false,
       {
         trueValue: true,
-        noValue: undefined,
-        //nullValue: null,
+        //noValue: undefined, not round trippable
+        nullValue: null,
         nanValue: NaN,
         arrayValue: [
-          //null,
+          null,
           NaN,
-          undefined,
+          //undefined, not round trippable
           true,
           false,
           Infinity,
@@ -34,9 +34,9 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
         ],
       },
       [
-        //null,
+        null,
         NaN,
-        undefined,
+        //undefined, not round trippable
         true,
         false,
         Infinity,
@@ -47,8 +47,8 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
         false,
         {
           trueValue: true,
-          noValue: undefined,
-          //nullValue: null
+          //noValue: undefined, not round trippable
+          nullValue: null,
           nanValue: NaN,
         },
       ],

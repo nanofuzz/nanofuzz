@@ -59,7 +59,7 @@ export function stringify(
         },
     space
   );
-  return `${stats.replacements ? predicate : ""}${text}`;
+  return text;
 }
 
 /**
@@ -79,41 +79,37 @@ export function parse<T>(
     | undefined
 ): T {
   let result: unknown;
-  if (!text.startsWith(predicate)) {
-    result =
-      text.trim() === "undefined" ? undefined : JSON5.parse(text, reviver);
+  if (text.trim() === "undefined") {
+    result = undefined;
   } else {
-    if (text.slice(predicate.length).trim() === "undefined") {
-      result = undefined;
-    } else {
-      // Parse the data while keeping a list of any values we need to replace.
-      // We do this in two steps because JSON5 strips `undefined` AFTER revive.
-      const valuesToRevive: ReviveTarget[] = [];
-      result = JSON5.parse<T>(
-        text,
-        reviver
-          ? function (this: unknown, key: string, value: unknown): unknown {
-              return reviver.call(
-                this,
-                key,
-                jsonnReviver.call(this, key, value, valuesToRevive)
-              );
-            }
-          : function (this: unknown, key: string, value: unknown): unknown {
-              return jsonnReviver.call(this, key, value, valuesToRevive);
-            }
-      );
+    // Parse the data while keeping a list of any values we need to replace.
+    // We do this in two steps because JSON5 strips `undefined` AFTER revive.
+    const valuesToRevive: ReviveTarget[] = [];
+    result = JSON5.parse<T>(
+      text,
+      reviver
+        ? function (this: unknown, key: string, value: unknown): unknown {
+            return reviver.call(
+              this,
+              key,
+              jsonnReviver.call(this, key, value, valuesToRevive)
+            );
+          }
+        : function (this: unknown, key: string, value: unknown): unknown {
+            return jsonnReviver.call(this, key, value, valuesToRevive);
+          }
+    );
 
-      // Now replace the values we kept track of
-      valuesToRevive.forEach((t) => {
-        if ("obj" in t) {
-          t.obj[t.key] = t.value;
-        } else {
-          t.arr[Number(t.key)] = t.value;
-        }
-      });
-    }
+    // Now replace the values we kept track of
+    valuesToRevive.forEach((t) => {
+      if ("obj" in t) {
+        t.obj[t.key] = t.value;
+      } else {
+        t.arr[Number(t.key)] = t.value;
+      }
+    });
   }
+
   return result as T;
 }
 
@@ -127,9 +123,6 @@ export function getPlaceholder(_key: "undefined"): string {
   return `{${PlaceHolderKey}:'${UndefinedKey}'}`;
   //  return Undefined;
 }
-
-export const predicate = `/*JSONN:1.0.0*/`;
-//const Undefined = Symbol("____JSONN____61581952310____UNDEFINED____");
 
 /**
  * Replaces special values with a JSONN placeholder

@@ -2,6 +2,7 @@ import { ArgDef, Tester } from "./Fuzzer";
 import { TypescriptCompiler } from "./compilers/TypescriptCompiler";
 import { FuzzOptions } from "./Types";
 import * as JSON5 from "json5";
+import * as ValueMapper from "./mappers/ValueMapper";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
 
 // Extend default test timeout to 60s
@@ -658,5 +659,57 @@ describe("fuzzer:", () => {
         intOptions
       ).testSync();
     }).toThrowError();
+  });
+
+  it("Issue #301 (Python) include object members if value is `None`", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "issue301",
+      intOptions
+    ).testSync();
+
+    const failures = fuzzResult.results.filter(
+      (r) => r.passedImplicit === "fail"
+    );
+
+    expect(fuzzResult.results.length).toBeGreaterThan(1);
+    expect(failures.length).toEqual(1);
+    expect(ValueMapper.toLang("python", failures[0].input[0].value)).toEqual(
+      "6"
+    );
+    expect(
+      typeof failures[0].output[0].value === "object" &&
+        "a" in failures[0].output[0].value &&
+        failures[0].output[0].value["a"] === null
+    ).toBeTrue();
+    expect(ValueMapper.toLang("python", failures[0].output[0].value)).toEqual(
+      `{"a": None}`
+    );
+  });
+
+  it("Issue #301 (Typescript) include object members if value is `undefined`", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "issue301",
+      intOptions
+    ).testSync();
+
+    const failures = fuzzResult.results.filter(
+      (r) => r.passedImplicit === "fail"
+    );
+
+    expect(fuzzResult.results.length).toBeGreaterThan(1);
+    expect(failures.length).toEqual(1);
+    expect(
+      ValueMapper.toLang("typescript", failures[0].input[0].value)
+    ).toEqual("6");
+    expect(
+      typeof failures[0].output[0].value === "object" &&
+        "a" in failures[0].output[0].value &&
+        failures[0].output[0].value["a"] === undefined
+    ).toBeTrue();
+    expect(
+      ValueMapper.toLang("typescript", failures[0].output[0].value)
+    ).toEqual(`{a: undefined}`);
   });
 });
