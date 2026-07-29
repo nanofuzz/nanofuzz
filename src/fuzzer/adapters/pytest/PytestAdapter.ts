@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { FuzzTests } from "../../Fuzzer";
-import * as JSON5 from "json5";
+import * as ValueMapper from "../../mappers/ValueMapper";
 import * as fs from "node:fs";
 import * as os from "os";
 import * as path from "path";
@@ -84,8 +84,8 @@ export class PytestAdapter extends AbstractTestAdapter {
         }
         i++;
         const inputArrStr = `[${thisTest.input
-          .map((e) => JSON5.stringify(e.value))
-          .join(",")}]`; // !!!!!!!!!! translation
+          .map((e) => ValueMapper.toLang("python", e.value))
+          .join(",")}]`;
 
         // Human-annotated expected output - if human validation is turned on
         const expectedOutput = thisTest.expectedOutput;
@@ -112,7 +112,7 @@ export class PytestAdapter extends AbstractTestAdapter {
               `@pytest.mark.timeout(${timeout} / 1000)`,
               `def test_${fn}_${i}_expect():`,
               `  # Expect output value`,
-              `  assert themodule.${fn}(*${inputArrStr}) == ${JSON5.stringify(expectedOutput[0].value)}`, // !!!!!!!!!! translation
+              `  assert themodule.${fn}(*${inputArrStr}) == ${ValueMapper.toLang("python", expectedOutput[0].value)}`,
               ``
             );
           }

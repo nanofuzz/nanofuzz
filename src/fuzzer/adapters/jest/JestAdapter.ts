@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { FuzzTests, Result } from "../../Fuzzer";
-import * as JSON5 from "json5";
+import * as ValueMapper from "../../mappers/ValueMapper";
 import * as os from "os";
 import * as path from "path";
 import { implicitOracle } from "../../oracles/ImplicitOracle";
@@ -67,7 +67,7 @@ export class JestAdapter extends AbstractTestAdapter {
       ``,
       `// @ts-ignore`,
       `const runPropertyValidator = (input, testFn, validFn, timeout) => {`,
-      `  const result = {...${JSON5.stringify(result)}, out: undefined, in: input};`,
+      `  const result = {...${ValueMapper.toLang("typescript", result)}, out: undefined, in: input};`,
       `  const startElapsedTime = performance.now(); // start timer`,
       `  try {`,
       `    result.out = testFn();`,
@@ -100,7 +100,7 @@ export class JestAdapter extends AbstractTestAdapter {
           .map((e) => e.value)
           .forEach((e) => {
             inputStr += x++ ? "," : "";
-            inputStr += JSON5.stringify(e);
+            inputStr += ValueMapper.toLang("typescript", e);
           });
 
         // Human-annotated expected output - if human validation is turned on
@@ -123,7 +123,8 @@ export class JestAdapter extends AbstractTestAdapter {
           } else {
             jestData.push(
               `  // Expect output value`,
-              `  it("${fn}.${i}.expect", () => {expect(themodule.${fn}(${inputStr})).toEqual(${JSON5.stringify(
+              `  it("${fn}.${i}.expect", () => {expect(themodule.${fn}(${inputStr})).toEqual(${ValueMapper.toLang(
+                "typescript",
                 expectedOutput[0].value
               )});},${timeout});`,
               ``
@@ -136,7 +137,10 @@ export class JestAdapter extends AbstractTestAdapter {
             jestData.push(
               `  // Expect property validator to not return "fail"`,
               `  it("${fn}.${i}.prop.${validator.slice(fn.length)}", () => {`,
-              `    expect(runPropertyValidator( ${JSON5.stringify(thisTest.input.map((e) => e.value))}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toEqual("fail");`,
+              `    expect(runPropertyValidator( ${ValueMapper.toLang(
+                "typescript",
+                thisTest.input.map((e) => e.value)
+              )}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toEqual("fail");`,
               `  });`,
               ``
             );

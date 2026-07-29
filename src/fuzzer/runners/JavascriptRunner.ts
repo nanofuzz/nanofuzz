@@ -4,7 +4,7 @@ import { isError } from "../Util";
 import vm from "vm";
 
 /**
- * Javascript test runner
+ * Javascript runner
  */
 export class JavascriptRunner extends AbstractRunner {
   protected readonly _module: NodeJS.Module; // Node module

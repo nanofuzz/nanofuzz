@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/switch-exhaustiveness-check */
 import * as JSON5 from "json5";
+import * as ValueMapper from "../../mappers/ValueMapper";
 import { removeParents } from "../Util";
 import { parse, ParseResult } from "@babel/parser";
 import _traverse, { NodePath } from "@babel/traverse";
@@ -1165,7 +1166,7 @@ export class TypescriptProgram extends AbstractProgram {
       }
 
       case ArgTag.LITERAL: {
-        return `${JSON5.stringify(arg.getConstantValue())}`;
+        return `${ValueMapper.toLang("typescript", arg.getConstantValue())}`;
       }
 
       case ArgTag.TUPLE: {
