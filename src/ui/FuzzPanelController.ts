@@ -1753,9 +1753,16 @@ ${inArgConsts}
       const lang = this._fuzzEnv.function.getLang(); // function language
       const argDefs = fn.getArgDefs();
       const counterArgDef = { id: 0 }; // Unique counter for argument ids
+      const heuristicFailValues = [
+        ...new Set(
+          (fn.isVoid() ? [undefined] : [null, undefined, Infinity, NaN]).map(
+            (v) => ValueMapper.toLang(lang, v)
+          )
+        ),
+      ].join(", "); // translate to language values, discard dupes, add commas
       const heuristicValidatorDescription = fn.isVoid()
-        ? "Heuristic validator (for void functions). Fails: timeout, exception, values !==undefined"
-        : "Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN";
+        ? `Heuristic validator (for void functions). Fails: timeout, exception, values!==${heuristicFailValues}`
+        : `Heuristic validator. Fails: timeout, exception, ${heuristicFailValues}`;
 
       // If fuzzer results are available, calculate how many tests passed, failed, etc.
       if (this._state === FuzzPanelState.done && this._results !== undefined) {
