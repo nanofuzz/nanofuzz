@@ -1,7 +1,6 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
-import * as JSON5 from "json5";
 import { ScoredInput } from "./Types";
 import { FuzzOptions, InputAndSource } from "./../Types";
 import { FunctionDef, FuzzTestStats } from "../Fuzzer";
@@ -329,7 +328,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       }
     }
     throw new Error(
-      `Internal failure selecting subgen: ${JSON5.stringify(
+      `Internal failure selecting subgen: ${JSON.stringify(
         {
           progress,
           cost,

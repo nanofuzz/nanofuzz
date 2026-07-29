@@ -1,4 +1,3 @@
-import * as JSON5 from "json5";
 import vscode from "vscode";
 import {
   ArgOptionOverride,
@@ -77,7 +76,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(options))
       throw new Error(
-        `Invalid options provided.  Check intervals and length values: ${JSON5.stringify(
+        `Invalid options provided.  Check intervals and length values: ${JSON.stringify(
           options,
           null,
           2
@@ -97,7 +96,7 @@ export class ArgDef<T extends ArgType> {
       this.options.dimLength.filter((e) => e.min > e.max || e.min < 0).length
     ) {
       throw new Error(
-        `Invalid dimension length: ${JSON5.stringify(this.options.dimLength)}`
+        `Invalid dimension length: ${JSON.stringify(this.options.dimLength)}`
       );
     }
 
@@ -117,7 +116,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure each non-array dimension is valid
     if (this.intervals.filter((e) => e.min > e.max).length) {
       throw new Error(
-        `Invalid interval: ${JSON5.stringify(this.intervals, undefined, 2)}`
+        `Invalid interval: ${JSON.stringify(this.intervals, undefined, 2)}`
       );
     }
   } // end: constructor
@@ -142,7 +141,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure we have a resolved type
     if (!ref.type)
       throw new Error(
-        `Internal error: unable to create ArgDef for unresolved TypeRef: ${JSON5.stringify(
+        `Internal error: unable to create ArgDef for unresolved TypeRef: ${JSON.stringify(
           ref
         )}`
       );
@@ -311,7 +310,7 @@ export class ArgDef<T extends ArgType> {
   public setIntervals(intervals: Interval<T>[]): void {
     if (intervals.some((e) => e.min > e.max))
       throw new Error(
-        `Invalid interval provided (max>min): ${JSON5.stringify(intervals)}`
+        `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
       );
     this.intervals = intervals;
   } // fn: setIntervals()
@@ -330,7 +329,7 @@ export class ArgDef<T extends ArgType> {
     ) as Interval<T>[];
     if (intervals.some((e) => e.min > e.max))
       throw new Error(
-        `Invalid interval provided (max>min): ${JSON5.stringify(intervals)}`
+        `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
       );
     this.intervals = intervals;
   } // fn: setIntervals()
@@ -429,7 +428,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(newOptions))
       throw new Error(
-        `Invalid options provided. Check intervals and length values: ${JSON5.stringify(
+        `Invalid options provided. Check intervals and length values: ${JSON.stringify(
           newOptions,
           null,
           2

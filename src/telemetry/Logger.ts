@@ -47,7 +47,7 @@ export class Logger {
     const chunkUri = vscode.Uri.joinPath(
       workspaceFolders[0].uri,
       "telemetry",
-      chunkName + ".json"
+      chunkName + ".json5"
     );
 
     // Persist the log chunk if data is present

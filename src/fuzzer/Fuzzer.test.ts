@@ -1,7 +1,6 @@
 import { ArgDef, Tester } from "./Fuzzer";
 import { TypescriptCompiler } from "./compilers/TypescriptCompiler";
 import { FuzzOptions } from "./Types";
-import * as JSON5 from "json5";
 import * as ValueMapper from "./mappers/ValueMapper";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
 
@@ -353,13 +352,13 @@ describe("fuzzer:", () => {
       ).toBeTrue();
       expect(input.length).toBe(2);
       expect(
-        ["[]", "[[]]", "[[[]]]", "[[['hello']]]"].includes(
-          JSON5.stringify(input[0])
+        ["[]", "[[]]", "[[[]]]", `[[["hello"]]]`].includes(
+          ValueMapper.toLang("typescript", input[0])
         )
       ).toBeTrue();
       expect(
-        ["[]", "[[]]", "[[[]]]", "[[['goodbye']]]"].includes(
-          JSON5.stringify(input[1])
+        ["[]", "[[]]", "[[[]]]", `[[["goodbye"]]]`].includes(
+          ValueMapper.toLang("typescript", input[1])
         )
       ).toBeTrue();
     });
@@ -546,13 +545,8 @@ describe("fuzzer:", () => {
       fuzzResult.results.every((e) => e.passedImplicit === "pass")
     ).toBeTruthy();
 
-    // Run the following tests on the raw and JSON5-cloned results
-    [
-      fuzzResult.results,
-      JSON5.parse<typeof fuzzResult.results>(
-        JSON5.stringify(fuzzResult.results)
-      ),
-    ].forEach((r) => {
+    // Run the following tests on the raw and cloned results
+    [fuzzResult.results, structuredClone(fuzzResult.results)].forEach((r) => {
       // Every input should be true, false, or undefined
       expect(
         r.every(
