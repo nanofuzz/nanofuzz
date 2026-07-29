@@ -13,6 +13,7 @@ import {
   ProgramLanguage,
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
+import * as ValueMapper from "../../mappers/ValueMapper";
 import * as ProgramFactory from "../ProgramFactory";
 import * as JSON5 from "json5";
 import Parser, { Query, QueryCapture } from "tree-sitter";
@@ -1262,7 +1263,7 @@ export class PythonProgram extends AbstractProgram {
       }
 
       case ArgTag.LITERAL: {
-        return `Literal[${JSON5.stringify(arg.getConstantValue())}]`; // !!!!!!!!!! translation
+        return `Literal[${ValueMapper.toLang("python", arg.getConstantValue())}]`;
       }
 
       case ArgTag.TUPLE: {

@@ -1,4 +1,4 @@
-from typing import Any, Literal, List, TypedDict
+from typing import Any, Literal, List, TypedDict, Union
 
 
 type a = str
@@ -27,3 +27,12 @@ def throws(n: int) -> int:
     if (n % 2 == 0):
         raise Exception("some put exception")
     return n
+
+
+Issue301Out = TypedDict('Issue301Out', {'a': Union[int, None]})
+
+
+def issue301(r: int) -> Issue301Out:
+    if r == 6:
+        return {'a': None}
+    return {'a': r}

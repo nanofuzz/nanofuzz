@@ -1,4 +1,3 @@
-import * as JSON5 from "json5";
 import { ArgDef } from "./ArgDef";
 import {
   ArgType,
@@ -41,7 +40,7 @@ export class FunctionDef {
     this._cmt = ref.cmt;
 
     if (!ref.args) {
-      throw new Error(`FunctionRef.args is undefined: ${JSON5.stringify(ref)}`);
+      throw new Error(`FunctionRef.args is undefined: ${JSON.stringify(ref)}`);
     }
 
     // Extract the function arguments

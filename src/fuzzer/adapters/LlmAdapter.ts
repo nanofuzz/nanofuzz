@@ -304,7 +304,7 @@ const prompt = {
     return `You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.`;
   },
   genInputs: (vars: ReturnType<LlmAdapter["_getPromptVars"]>): string => {
-    return `To evaluate whether the following  ${vars.lang} program "${vars.fnName}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+    return `To evaluate whether the following ${vars.lang} program "${vars.fnName}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
 
 The specification for the "${vars.fnName}" program:
 \`\`\`
