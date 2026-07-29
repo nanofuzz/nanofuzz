@@ -180,9 +180,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       ...this._subgens[this._selectedSubgenIndex].next(),
       tick: this._tick,
     };
-    return JSON5.parse<typeof this._lastInput>(
-      JSON5.stringify(this._lastInput)
-    );
+    return structuredClone(this._lastInput);
   } // fn: next
 
   /**
