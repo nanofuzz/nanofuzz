@@ -2870,10 +2870,7 @@ ${inArgConsts}
         case fuzzer.ArgTag.LITERAL:
           if (arg.isConstant()) {
             const constantValue = arg.getConstantValue();
-            typeString =
-              constantValue === undefined
-                ? "undefined"
-                : htmlEscape(ValueMapper.toLang(lang, constantValue));
+            typeString = htmlEscape(ValueMapper.toLang(lang, constantValue));
           }
           break;
       }
