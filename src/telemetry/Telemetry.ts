@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { Logger, LoggerEntry } from "./Logger";
-import { Listener } from "../extension";
+import { Listener } from "../Extension";
 
 let currentWindow = ""; // Current editor window filename / uri
 let currentTerm = ""; // Current terminal window name

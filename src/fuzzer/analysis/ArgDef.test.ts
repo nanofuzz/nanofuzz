@@ -1,7 +1,7 @@
 import { ArgTag, ArgType, ArgOptions, Interval } from "./Types";
 import { ArgDef } from "./ArgDef";
 import seedrandom from "seedrandom";
-import * as JSON5 from "json5";
+import * as JSON5 from "../../Jsonn";
 import { ArgDefValidator } from "./ArgDefValidator";
 import { ArgDefGenerator } from "./ArgDefGenerator";
 import { ArgDefMutator } from "./ArgDefMutator";
@@ -163,7 +163,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       ]
     );
     expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
-      "(boolean[] | string | 5 | 'x' | undefined)[]"
+      `(boolean[] | string | 5 | "x" | undefined)[]`
     );
   });
 
@@ -212,7 +212,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       ]
     );
     expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
-      "(boolean[] | string | 5 | 'x' | undefined)[] | undefined"
+      `(boolean[] | string | 5 | "x" | undefined)[] | undefined`
     );
   });
 
@@ -261,7 +261,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       ]
     );
     expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
-      "boolean[] | string | 5 | 'x' | undefined"
+      `boolean[] | string | 5 | "x" | undefined`
     );
   });
 
@@ -310,7 +310,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       ]
     );
     expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
-      "boolean[] | string | 5 | 'x' | undefined"
+      `boolean[] | string | 5 | "x" | undefined`
     );
   });
 
@@ -349,7 +349,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       ]
     );
     expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
-      "boolean[] | string | 5 | 'x' | undefined"
+      `boolean[] | string | 5 | "x" | undefined`
     );
   });
 

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/switch-exhaustiveness-check */
 import * as JSON5 from "json5";
+import * as ValueMapper from "../../mappers/ValueMapper";
 import { removeParents } from "../Util";
 import { parse, ParseResult } from "@babel/parser";
 import _traverse, { NodePath } from "@babel/traverse";
@@ -349,7 +350,7 @@ export class TypescriptProgram extends AbstractProgram {
    * @param typeRef The TypeRef object to resolve to a concrete type
    * @returns A concrete, resolved TypeRef object
    */
-  public _resolveTypeRef(typeRef: TypeRef): TypeRef {
+  public resolveTypeRef(typeRef: TypeRef): TypeRef {
     // Handle any resolved or partially-resolved type references
     if (typeRef.type) {
       if (typeRef.type.resolved) {
@@ -357,7 +358,7 @@ export class TypescriptProgram extends AbstractProgram {
         return typeRef; // Return resolved type
       } else {
         // Type is only partially resolved
-        typeRef.type.children.forEach((child) => this._resolveTypeRef(child));
+        typeRef.type.children.forEach((child) => this.resolveTypeRef(child));
         typeRef.type.resolved = true;
         return typeRef; // Return resolved type
       }
@@ -374,7 +375,7 @@ export class TypescriptProgram extends AbstractProgram {
     // Type is not yet resolved. Look up and resolve the type reference
     if (typeRef.typeRefName in this._types) {
       // Resolve and use the local type reference
-      const resolvedType = this._resolveTypeRef(
+      const resolvedType = this.resolveTypeRef(
         this._types[typeRef.typeRefName]
       );
       typeRef.type = structuredClone(resolvedType.type);
@@ -452,7 +453,7 @@ export class TypescriptProgram extends AbstractProgram {
 
         if (defaultImport && importProgram.defaultExport) {
           // Resolve default export
-          const resolvedType = importProgram._resolveTypeRef(
+          const resolvedType = importProgram.resolveTypeRef(
             importProgram.defaultExport
           );
           typeRef.type = structuredClone(resolvedType.type);
@@ -462,7 +463,7 @@ export class TypescriptProgram extends AbstractProgram {
           typeRef.optional = typeRef.optional || resolvedType.optional;
         } else if (importName in importProgram.typesExported) {
           // Resolve named export
-          const resolvedType = importProgram._resolveTypeRef(
+          const resolvedType = importProgram.resolveTypeRef(
             importProgram.typesExported[importName]
           );
           typeRef.type = structuredClone(resolvedType.type);
@@ -1165,7 +1166,7 @@ export class TypescriptProgram extends AbstractProgram {
       }
 
       case ArgTag.LITERAL: {
-        return `${JSON5.stringify(arg.getConstantValue())}`;
+        return `${ValueMapper.toLang("typescript", arg.getConstantValue())}`;
       }
 
       case ArgTag.TUPLE: {
