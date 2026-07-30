@@ -419,7 +419,7 @@ export class FuzzPanel {
             this._saveColumnSortOrders(message.json);
             break;
           case "validator.add":
-            this._doAddValidatorCmd();
+            await this._doAddValidatorCmd();
             this._doGetValidators();
             break;
           case "validator.getList":
@@ -934,11 +934,6 @@ export class FuzzPanel {
         }
       });
 
-    // Determine if we need to add an import
-    const hasImport = Object.keys(program.imports).some(
-      (e) => e === "FuzzTestResult"
-    );
-
     const inArgs = fn.getArgDefs();
     const validatorArgs = this._getValidatorArgs(inArgs);
 
@@ -965,8 +960,13 @@ export class FuzzPanel {
           } = ${resultArgName}.out;`;
           return outVarString;
         },
-        importMapper: () => `import { FuzzTestResult } from "@nanofuzz/runtime";
+        importMapper: () => [
+          {
+            name: `FuzzTestResult`,
+            stmt: `import { FuzzTestResult } from "@nanofuzz/runtime";
 `,
+          },
+        ],
         skelMapper: (
           validatorName: string,
           validatorArgs: ReturnType<typeof this._getValidatorArgs>,
@@ -1003,8 +1003,18 @@ ${inArgConsts}
           } = ${resultArgName}['out']`;
           return outVarString;
         },
-        importMapper: () => `from nanofuzz_runtime import FuzzTestResult
+        importMapper: () => [
+          {
+            name: "FuzzTestResult",
+            stmt: `from nanofuzz_runtime import FuzzTestResult
 `,
+          },
+          {
+            name: "Literal",
+            stmt: `from typing import Literal
+`,
+          },
+        ],
         skelMapper: (
           validatorName: string,
           validatorArgs: ReturnType<typeof this._getValidatorArgs>,
@@ -1060,12 +1070,18 @@ ${inArgConsts}
 
     // Append the code skeleton to the source file
     try {
-      if (!hasImport) {
+      let importData = "";
+      skelGenerators[program.lang].importMapper().forEach((i) => {
+        // If there is no import, then add it
+        if (!Object.keys(program.imports).some((e) => e === i.name)) {
+          importData += i.stmt;
+        }
+      });
+
+      if (importData.length) {
         // Pre-pend the import & append the validator
         const fileData = fs.readFileSync(module);
-        const importStmt = Buffer.from(
-          skelGenerators[program.lang].importMapper()
-        );
+        const importStmt = Buffer.from(importData);
         const validatorFn = Buffer.from(skeleton);
         const fd = fs.openSync(module, "w+");
 
@@ -1086,7 +1102,7 @@ ${inArgConsts}
         fs.closeSync(fd);
       }
 
-      // Change focus to the generated validator
+      // Change focus and scroll to the generated validator
       try {
         const fn = ProgramFactory.fromFile(module).functions[validatorName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
