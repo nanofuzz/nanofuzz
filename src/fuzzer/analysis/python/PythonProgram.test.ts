@@ -1,4 +1,5 @@
 import * as ProgramFactory from "../ProgramFactory";
+import { ArgDef } from "../ArgDef";
 import { ArgTag } from "../Types";
 import { PythonProgram } from "./PythonProgram";
 import * as fs from "fs";
@@ -11,6 +12,35 @@ class InspectablePythonProgram extends PythonProgram {
 }
 
 describe("fuzzer/analysis/python/PythonProgram:", () => {
+  it("distinguishes int and float input options", () => {
+    // Set the global default to false so this verifies that `int` supplies
+    // its own constraint rather than inheriting the default by coincidence.
+    const options = ArgDef.getDefaultOptions();
+    options.numInteger = false;
+    const fn = ProgramFactory.fromSource(
+      () => `type UserId = int
+def update(user_id: UserId, count: int, ratio: float, values: list[float]) -> None:
+  pass`,
+      "python",
+      "",
+      options
+    ).functionsExported["update"];
+
+    const args = fn.getArgDefs();
+    expect(args.map((arg) => arg.getType())).toEqual([
+      ArgTag.NUMBER,
+      ArgTag.NUMBER,
+      ArgTag.NUMBER,
+      ArgTag.NUMBER,
+    ]);
+    expect(args.map((arg) => arg.getOptions().numInteger)).toEqual([
+      true,
+      true,
+      false,
+      false,
+    ]);
+  });
+
   it("Local type alias", () => {
     expect(
       ProgramFactory.fromSource(

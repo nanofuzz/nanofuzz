@@ -63,6 +63,7 @@ export type TypeRef = {
     dims: number; // Concrete type dims (the concrete type may have its own dimensions)
     children: TypeRef[]; // Array of child types
     value?: ArgType; // Value if a literal type
+    options?: ArgOptionOverride; // Type-specific input-generation options
     resolved?: boolean; // True if the type's children have been resolved; false, otherwise
   };
   isExported: boolean; // True if the type is exported; false, otherwise
