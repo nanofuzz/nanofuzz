@@ -7,7 +7,7 @@ import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
-import { Listener } from "../Extension";
+import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
 import {
   applyCoverageHeatmapToEditor,
