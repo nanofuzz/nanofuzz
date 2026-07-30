@@ -14,7 +14,7 @@ import {
   clearCoverageHeatmapFromEditor,
 } from "./CoverageHeatmap";
 import { normalizePathForKey } from "../fuzzer/Util";
-import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
+import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";

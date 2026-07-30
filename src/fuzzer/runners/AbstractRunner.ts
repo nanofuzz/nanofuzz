@@ -58,8 +58,15 @@ export type RunnerResult = {
         message: string;
         stack?: string;
         source?: "put" | "host"; // if the error originated within the put !!!!!!!!!! ts
+        coverageData?: number[]; // lines executed by this call
+        coverageArcs?: Arc[]; // arcs taken by this call
       }
-    | { tag: "value"; value: unknown }
+    | {
+        tag: "value";
+        value: unknown;
+        coverageData?: number[]; // lines executed by this call
+        coverageArcs?: Arc[]; // arcs taken by this call
+      }
   ) & { seq: number };
   env: VmGlobals;
 };
@@ -68,3 +75,9 @@ export type RunnerInput = {
   args: unknown[];
   seq: number;
 };
+
+/**
+ * A transition between two lines, as `[from, to]`. Runners that measure branch
+ * coverage report which of these a call took.
+ */
+export type Arc = [number, number];

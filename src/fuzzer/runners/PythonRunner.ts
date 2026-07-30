@@ -1,4 +1,4 @@
-import { AbstractRunner, RunnerInput, RunnerResult } from "./AbstractRunner";
+import { AbstractRunner, Arc, RunnerInput, RunnerResult } from "./AbstractRunner";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
@@ -17,6 +17,7 @@ export class PythonRunner extends AbstractRunner {
   protected _fn: string;
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
+  protected _coverageInfo?: CoverageInfo = undefined;
   protected _pythonEnv: PythonEnv | undefined;
   protected static _envs: {
     [file: string]: PythonEnv;
@@ -94,10 +95,23 @@ export class PythonRunner extends AbstractRunner {
         ),
         env: {},
       };
+      
       if (result.result.seq >= 0 && result.result.seq !== thisSeq) {
         throw new Error(
           `Internal error: RunnerResult seq# does not match RunnerInput`
         );
+      }
+
+      // Refresh the dynamic coverage with what this call executed. A timeout
+      // is killed mid-run, so the host never reports coverage for it.
+      if (this._coverageInfo) {
+        if (result.result.tag === "timeout") {
+          this._coverageInfo.lines = undefined;
+          this._coverageInfo.arcs = undefined;
+        } else {
+          this._coverageInfo.lines = result.result.coverageData;
+          this._coverageInfo.arcs = result.result.coverageArcs;
+        }
       }
       return result;
     } catch (e: unknown) {
@@ -295,10 +309,25 @@ export class PythonRunner extends AbstractRunner {
       path.dirname(module.filename),
       this._pythonEnv
     );
-    const okcode = await host.readStdout(5, 1000);
+    const okcode = await host.readStdout(5, 30000); // a longer timeout tolerance for the host to pre-warm the coverage
 
     if (okcode.toString() === "READY") {
       this._host = host;
+
+      // Get the static coverage structure, which the host sends once. The
+      // dynamic `lines`/`arcs` are filled in by each `run`.
+      const length = (
+        await host.readStdout(4, 30000)
+      ).readUInt32BE(0);
+      const data = JSON5.parse<CoverageInfo>(
+        (await host.readStdout(length, 30000)).toString()
+      );
+      this._coverageInfo = {
+        file: data.file,
+        executable: data.executable ?? [],
+        functions: data.functions ?? [],
+        branches: data.branches ?? [],
+      };
       return host;
     } else {
       const stdout = await host.readStdout();
@@ -318,6 +347,15 @@ export class PythonRunner extends AbstractRunner {
       this._host = undefined;
     }
   }
+
+  /**
+   * Get coverage info
+   * Needs to be a shallow copy since the covered lines changes every run
+   */
+  public get coverageInfo(): CoverageInfo | undefined {
+    return this._coverageInfo ? { ...this._coverageInfo } : undefined;
+  }
+
 } // class: PythonRunner
 
 /**
@@ -503,6 +541,57 @@ function findPythonLibDir(dir: string, item: string): string | null {
 
   return null;
 }
+
+
+/**
+ * Coverage reported by the Python host for the program under test.
+ *
+ * The static fields describe what the program *can* execute and are sent once
+ * at startup; the dynamic fields describe what a single call *did* execute and
+ * are refreshed on every `run`.
+ */
+export type CoverageInfo = {
+  file: string;
+  executable: number[]; // static: all executable lines
+  functions: FunctionInfo[]; // static: all functions
+  branches: BranchInfo[]; // static: all branch points
+  lines?: number[]; // dynamic: lines executed by this one call
+  arcs?: Arc[]; // dynamic: arcs taken by this one call
+};
+
+/**
+ * A function in the program under test. `lines` holds only the function's own
+ * executable lines: coverage.py attributes lines per function, so lines inside
+ * a nested function are not charged to its parent.
+ */
+export type FunctionInfo = {
+  name: string; // e.g. "fn" or "Class.method"
+  declLine: number; // the `def` line
+  startLine: number; // first executable line of the body
+  endLine: number; // last executable line of the body
+  lines: number[]; // the function's own executable lines
+};
+
+/**
+ * A branch point: a line with more than one possible exit.
+ */
+export type BranchInfo = {
+  line: number; // the branching line
+  exits: BranchExit[]; // every destination it can reach
+};
+
+/**
+ * One possible exit from a branch. `dest` is the raw arc target, used to match
+ * against the arcs actually taken. coverage.py uses non-positive `dest` values
+ * to mean "left the enclosing scope"; those have no line of their own, so
+ * `line` reports where to display them (the branch line itself).
+ */
+export type BranchExit = {
+  dest: number; // arc target, for matching against `Arc`s
+  line: number; // where to display this exit
+};
+
+export { Arc } from "./AbstractRunner";
 
 export type PythonEnv = {
   env: { [k: string]: string | undefined };

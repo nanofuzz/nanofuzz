@@ -23,7 +23,7 @@ import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
 import { isError } from "../fuzzer/Util";
-import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
+import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
@@ -100,7 +100,7 @@ export class Tester {
     //       not when testing is paused.
     const optMeasures: Record<string, BaseMeasureConfig> =
       this._options.measures;
-    this._measures = MeasureFactory().filter((m) =>
+    this._measures = MeasureFactory(this._program.lang).filter((m) =>
       m.name in optMeasures ? optMeasures[m.name].enabled : false
     );
 
@@ -477,6 +477,12 @@ export class Tester {
     // Build a test runner for executing tests
     const runner = RunnerFactory(this.env, mod, this._function.getName());
     await runner.onRunStart();
+
+    // Connect the measures to the runner. Measures that source their data
+    // from the runner (e.g., Python coverage) need it before the first test.
+    this._measures.forEach((m) => {
+      m.onRunStart(runner);
+    });
 
     // Build runners for the property validators
     const propRunners = this._validators.map((vFnRef) =>
