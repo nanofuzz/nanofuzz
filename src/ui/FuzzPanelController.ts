@@ -491,6 +491,16 @@ export class FuzzPanel {
    * @returns filename of pinned tests
    */
   private _getFuzzTestsFilename(): string {
+    return this._fuzzEnv.function.getModule() + ".nano.json5";
+  } // fn: _getPinnedTestFilename()
+
+  /**
+   * Returns the filename where pinned tests were persisted
+   * for NaNofuzz v0.1-0.3
+   *
+   * @returns filename of pinned tests
+   */
+  private _getFuzzTestsFilenameOld(): string {
     let module = this._fuzzEnv.function.getModule();
     module = module.split(".").slice(0, -1).join(".") || module;
     return module + ".nano.test.json";
@@ -502,8 +512,16 @@ export class FuzzPanel {
    * @returns all pinned tests for all functions in the current module
    */
   private _getFuzzTestsForModule(): fuzzer.FuzzTests {
+    const jsonFileOld = this._getFuzzTestsFilenameOld();
     const jsonFile = this._getFuzzTestsFilename();
     let inputTests, testSet: fuzzer.FuzzTests;
+
+    // Migrate to the v0.4 naming convention, which avoids
+    // collisions between Typescript and Python modules.
+    if (fs.existsSync(jsonFileOld) && !fs.existsSync(jsonFile)) {
+      fs.renameSync(jsonFileOld, jsonFile);
+      console.info(`Moved test set in file ${jsonFileOld} to ${jsonFile}`);
+    }
 
     // Read the file; if it doesn't exist, load default values
     try {
