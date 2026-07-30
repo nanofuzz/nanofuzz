@@ -1,5 +1,5 @@
 const subpackageVersion = require("./package.json").version.split("-")[0];
-const packageVersion = require("../../package.json").version.split("-")[0];
+const packageVersion = require("../../../package.json").version.split("-")[0];
 
 // Return an error if the versions are different
 //

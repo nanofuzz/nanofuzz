@@ -1,12 +1,13 @@
 import * as vscode from "vscode";
-import * as JSON5 from "json5";
+import * as JSON5 from "../Jsonn";
+import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import * as fuzzer from "../fuzzer/Fuzzer";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
-import * as jestadapter from "../fuzzer/adapters/JestAdapter";
+import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
-import { Listener } from "../extension";
+import { Listener } from "../Extension";
 import { Tester } from "../fuzzer/Fuzzer";
 import {
   applyCoverageHeatmapToEditor,
@@ -16,6 +17,7 @@ import { normalizePathForKey } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/CoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
+import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -417,7 +419,7 @@ export class FuzzPanel {
             this._saveColumnSortOrders(message.json);
             break;
           case "validator.add":
-            this._doAddValidatorCmd();
+            await this._doAddValidatorCmd();
             this._doGetValidators();
             break;
           case "validator.getList":
@@ -505,7 +507,9 @@ export class FuzzPanel {
 
     // Read the file; if it doesn't exist, load default values
     try {
-      inputTests = JSON5.parse(fs.readFileSync(jsonFile).toString());
+      inputTests = JSON5.parse<fuzzer.FuzzTests>(
+        fs.readFileSync(jsonFile).toString()
+      );
       testSet = inputTests;
     } catch (_e: unknown) {
       return this._initFuzzTestsForThisFn();
@@ -660,7 +664,7 @@ export class FuzzPanel {
    *          tests with an expected output.
    */
   private _pruneTestSet(testSet: fuzzer.FuzzTests): fuzzer.FuzzTests {
-    const prunedTestSet = JSON5.parse<typeof testSet>(JSON5.stringify(testSet));
+    const prunedTestSet = structuredClone(testSet);
     for (const fn in prunedTestSet.functions) {
       for (const test in prunedTestSet.functions[fn].tests) {
         const thisTest = prunedTestSet.functions[fn].tests[test];
@@ -743,37 +747,35 @@ export class FuzzPanel {
       );
     }
 
-    // Get the filename of the Jest file
-    const jestFile = jestadapter.getFilename(
-      this._fuzzEnv.function.getModule()
+    // Build the Test Adapter
+    const testAdapter = TestAdapterFactory.fromSourceFilename(
+      this._fuzzEnv.function.getModule(),
+      this._getFuzzTestsForModule()
     );
 
     if (pinnedCount) {
       // Generate the Jest test data for CI
       // The Jest file should contain all tests that are pinned
-      const jestTests = jestadapter.toString(
-        this._getFuzzTestsForModule(),
-        this._fuzzEnv.function.getModule()
-      );
+      const jestTests = testAdapter.toString();
 
       // Persist the Jest tests for CI
       try {
-        fs.writeFileSync(jestFile, jestTests);
+        fs.writeFileSync(testAdapter.filename, jestTests);
       } catch (e: unknown) {
         const msg = isError(e) ? e.message : JSON5.stringify(e);
 
         vscode.window.showErrorMessage(
-          `Unable to update Jest test file: ${jestFile} (${msg})`
+          `Unable to update ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
         );
       }
-    } else if (fs.existsSync(jestFile)) {
+    } else if (fs.existsSync(testAdapter.filename)) {
       // Delete the test file: it would contain no tests
       try {
-        fs.rmSync(jestFile);
+        fs.rmSync(testAdapter.filename);
       } catch (e: unknown) {
         const msg = isError(e) ? e.message : JSON5.stringify(e);
         vscode.window.showErrorMessage(
-          `Unable to remove Jest test file: ${jestFile} (${msg})`
+          `Unable to remove ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
         );
       }
     }
@@ -932,11 +934,6 @@ export class FuzzPanel {
         }
       });
 
-    // Determine if we need to add an import
-    const hasImport = Object.keys(program.imports).some(
-      (e) => e === "FuzzTestResult"
-    );
-
     const inArgs = fn.getArgDefs();
     const validatorArgs = this._getValidatorArgs(inArgs);
 
@@ -944,7 +941,7 @@ export class FuzzPanel {
     const skelGenerators = {
       typescript: {
         inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
-          return `  const ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
+          return `  const ${argDef.getName()}: ${fuzzer.TypescriptProgram.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
           }.in[${i}];`;
         },
@@ -963,8 +960,13 @@ export class FuzzPanel {
           } = ${resultArgName}.out;`;
           return outVarString;
         },
-        importMapper: () => `import { FuzzTestResult } from "@nanofuzz/runtime";
+        importMapper: () => [
+          {
+            name: `FuzzTestResult`,
+            stmt: `import { FuzzTestResult } from "@nanofuzz/runtime";
 `,
+          },
+        ],
         skelMapper: (
           validatorName: string,
           validatorArgs: ReturnType<typeof this._getValidatorArgs>,
@@ -978,12 +980,13 @@ ${inArgConsts}
 
   return "pass";
 }`,
+        getTypeAnnotation: fuzzer.TypescriptProgram.getTypeAnnotation,
       },
       python: {
         inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
-          return `  ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
+          return `  ${argDef.getName()}: ${PythonProgram.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
-          }.input[${i}]`;
+          }['in'][${i}]`;
         },
         outputMapper: (
           inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
@@ -997,11 +1000,21 @@ ${inArgConsts}
           );
           const outVarString = `${outVarName.name}${
             returnType ? ": " + returnType : ""
-          } = ${resultArgName}.output`;
+          } = ${resultArgName}['out']`;
           return outVarString;
         },
-        importMapper: () => `from nanofuzz.runtime import FuzzTestResult
+        importMapper: () => [
+          {
+            name: "FuzzTestResult",
+            stmt: `from nanofuzz_runtime import FuzzTestResult
 `,
+          },
+          {
+            name: "Literal",
+            stmt: `from typing import Literal
+`,
+          },
+        ],
         skelMapper: (
           validatorName: string,
           validatorArgs: ReturnType<typeof this._getValidatorArgs>,
@@ -1015,8 +1028,8 @@ ${inArgConsts}
 
   return "pass"
 `,
+        getTypeAnnotation: PythonProgram.getTypeAnnotation,
       },
-      "*": {},
     };
     // ^^^^^^^ Language-specific logic ^^^^^^^
 
@@ -1031,7 +1044,9 @@ ${inArgConsts}
     const outArgConst = skelGenerators[program.lang].outputMapper(
       inArgs,
       validatorArgs.resultArgName,
-      outTypeAsArg ? outTypeAsArg.getTypeAnnotation() : undefined
+      outTypeAsArg
+        ? skelGenerators[program.lang].getTypeAnnotation(outTypeAsArg)
+        : undefined
     );
 
     // Name of the validator generated
@@ -1055,12 +1070,18 @@ ${inArgConsts}
 
     // Append the code skeleton to the source file
     try {
-      if (!hasImport) {
+      let importData = "";
+      skelGenerators[program.lang].importMapper().forEach((i) => {
+        // If there is no import, then add it
+        if (!Object.keys(program.imports).some((e) => e === i.name)) {
+          importData += i.stmt;
+        }
+      });
+
+      if (importData.length) {
         // Pre-pend the import & append the validator
         const fileData = fs.readFileSync(module);
-        const importStmt = Buffer.from(
-          skelGenerators[program.lang].importMapper()
-        );
+        const importStmt = Buffer.from(importData);
         const validatorFn = Buffer.from(skeleton);
         const fd = fs.openSync(module, "w+");
 
@@ -1081,7 +1102,7 @@ ${inArgConsts}
         fs.closeSync(fd);
       }
 
-      // Change focus to the generated validator
+      // Change focus and scroll to the generated validator
       try {
         const fn = ProgramFactory.fromFile(module).functions[validatorName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
@@ -1699,7 +1720,7 @@ ${inArgConsts}
       `style-src ${webview.cspSource} 'unsafe-inline' 'self'`,
       `font-src ${webview.cspSource} data: 'self'`,
       `img-src ${webview.cspSource} data: blob:`,
-      `script-src ${webview.cspSource} 'self'`,
+      `script-src ${webview.cspSource} 'self' 'wasm-unsafe-eval'`,
       `connect-src ${webview.cspSource}`,
     ].join("; ");
     const htmlHead = /*html*/ `
@@ -1713,12 +1734,6 @@ ${inArgConsts}
               "webview-ui-toolkit",
               "dist",
               "toolkit.js",
-            ])}"></script>
-            <script src="${getUri(webview, extensionUri, [
-              "node_modules",
-              "json5",
-              "dist",
-              "index.js",
             ])}"></script>
             <script type="module" src="${getUri(webview, extensionUri, [
               "build",
@@ -1751,11 +1766,19 @@ ${inArgConsts}
       }; // Summary of fuzzing results
       const env = this._fuzzEnv; // Fuzzer environment
       const fn = env.function; // Function under test
+      const lang = this._fuzzEnv.function.getLang(); // function language
       const argDefs = fn.getArgDefs();
       const counterArgDef = { id: 0 }; // Unique counter for argument ids
+      const heuristicFailValues = [
+        ...new Set(
+          (fn.isVoid() ? [undefined] : [null, undefined, Infinity, NaN]).map(
+            (v) => ValueMapper.toLang(lang, v)
+          )
+        ),
+      ].join(", "); // translate to language values, discard dupes, add commas
       const heuristicValidatorDescription = fn.isVoid()
-        ? "Heuristic validator (for void functions). Fails: timeout, exception, values !==undefined"
-        : "Heuristic validator. Fails: timeout, exception, null, undefined, Infinity, NaN";
+        ? `Heuristic validator (for void functions). Fails: timeout, exception, values!==${heuristicFailValues}`
+        : `Heuristic validator. Fails: timeout, exception, ${heuristicFailValues}`;
 
       // If fuzzer results are available, calculate how many tests passed, failed, etc.
       if (this._state === FuzzPanelState.done && this._results !== undefined) {
@@ -2061,7 +2084,7 @@ ${inArgConsts}
               </div>
               <h2 style="margin-bottom:.3em;">Add a test input</h2>
               <p class="fuzzPanelDescription">
-                Enter literal Javascript input value${ argDefs.length ===1 ? "" : "s"} below in JSON format. 
+                Enter literal ${lang} input value${ argDefs.length ===1 ? "" : "s"} below. 
                 ${ argDefs.length ===1 ? "It" : "They"} won't be type-checked.
                 Click <span class="codicon codicon-run-below"></span> to test.
               </p>
@@ -2080,7 +2103,7 @@ ${inArgConsts}
                       .map(
                         (arg,i) => /*html*/
                           `<td>
-                            <vscode-text-field ${disabledFlag} id="addInputArg-${i}-value" name="addInputArg-${i}-value" placeholder="Literal value (JSON)" value=""></vscode-text-field>
+                            <vscode-text-field ${disabledFlag} id="addInputArg-${i}-value" name="addInputArg-${i}-value" placeholder="Literal value (${lang})" value=""></vscode-text-field>
                           </td>`
                       )
                       .join("\r\n")}
@@ -2436,12 +2459,12 @@ ${inArgConsts}
             validatorsUsedText = `
               ${toolName} categorized outputs using the ${toPrettyList(
                 validatorsUsed
-              )} validator${validatorsUsed.length > 1 ? "s" : ""}. `;
+              )} validator${validatorsUsed.length !== 1 ? "s" : ""}. `;
             if (validatorsNotUsed.length) {
               validatorsUsedText += `The ${toPrettyList(
                 validatorsNotUsed
               )} validator${
-                validatorsNotUsed.length > 1 ? "s were" : " was"
+                validatorsNotUsed.length !== 1 ? "s were" : " was"
               } not enabled.`;
             }
           } else {
@@ -2512,7 +2535,7 @@ ${inArgConsts}
               The selected measures classified ${
                 this._results.interesting.inputs.length
               } input${
-                this._results.interesting.inputs.length > 1 ? "s" : ""
+                this._results.interesting.inputs.length !== 1 ? "s" : ""
               } as interesting. (<a id="fuzz.options.interesting.inputs.button" href=""><span id="fuzz.options.interesting.inputs.show">show</span><span id="fuzz.options.interesting.inputs.hide" class="hidden">hide</span></a>)
               <table class="fuzzGrid hidden" id="fuzz.options.interesting.inputs">
                 <thead>
@@ -2533,10 +2556,11 @@ ${inArgConsts}
                         `<tr class="editorFont"><td><span>${htmlEscape(
                           i.input.tick.toString()
                         )}</span></td>${i.input.value
-                          .map((i) =>
-                            i.value === undefined
-                              ? `<td class="noInput">(no input)</td>`
-                              : `<td>${htmlEscape(JSON5.stringify(i.value))}</td>`
+                          .map(
+                            (i) =>
+                              i.value === undefined
+                                ? `<td class="noInput">(no input)</td>`
+                                : `<td>${htmlEscape(ValueMapper.toLang(lang, i.value))}</td>` // !!!!!!!!!!!!
                           )
                           .join("\r\n")}
                         <td>${htmlEscape(
@@ -2666,7 +2690,7 @@ ${inArgConsts}
 
             html += /*html*/ `
                   <div class="fuzzGridPanel${showThisGrid ? `` : ` hidden`}" id="view-${e.id}">
-                    <div class="fuzzPanelDescription">${e.description}</div>`;
+                    <div class="fuzzPanelDescription">${htmlEscape(e.description)}</div>`;
             if (e.hasGrid) {
               html += /*html*/ `
                     <div id="fuzzResultsGrid-${e.id}">
@@ -2782,6 +2806,11 @@ ${inArgConsts}
               )}
             </div>
 
+            <!-- Lamguage: for the client script to process -->
+            <div id="fuzzLang" class="hidden">
+              ${htmlEscape(JSON5.stringify(lang))}
+            </div>
+
             <!-- Fuzzer State Payload: for the client script to persist -->
             <div id="fuzzPanelState" class="hidden">
               ${htmlEscape(JSON5.stringify(this.getState()))}
@@ -2838,6 +2867,7 @@ ${inArgConsts}
     const optionalString = arg.isOptional() ? "?" : ""; // Text indication arg optionality
     const htmlEllipsis = `<span class="hidden argDef-ellipsis">...</span>`;
     const isArgArray = arg.getDim() > 0; // Is this an array argument?
+    const lang = this._fuzzEnv.function.getLang();
 
     let typeString: string; // Text indicating the type of argument
     const argTypeRef = arg.getTypeRef();
@@ -2856,10 +2886,7 @@ ${inArgConsts}
         case fuzzer.ArgTag.LITERAL:
           if (arg.isConstant()) {
             const constantValue = arg.getConstantValue();
-            typeString =
-              constantValue === undefined
-                ? "undefined"
-                : htmlEscape(JSON5.stringify(constantValue, undefined, 2));
+            typeString = htmlEscape(ValueMapper.toLang(lang, constantValue));
           }
           break;
       }

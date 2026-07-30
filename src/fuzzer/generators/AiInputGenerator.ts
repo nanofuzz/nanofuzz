@@ -4,8 +4,10 @@ import {
   ArgType,
   ArgValueType,
   ArgValueTypeWrapped,
+  ProgramLanguage,
 } from "../analysis/Types";
 import * as JSON5 from "json5";
+import * as ValueMapper from "../mappers/ValueMapper";
 import { LlmAdapter } from "../adapters/LlmAdapter";
 import { ArgDef, FunctionDef, InputAndSource } from "../Fuzzer";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
@@ -112,7 +114,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
         const validator = new ArgDefValidator(this._specs);
 
         this._stats.calls.sent++;
-        const [schema, directives] = this._getInputsSchema();
+        const [schema, directives] = this._getInputsSchema(this._fn.getLang());
 
         // Fetch inputs from the llm
         this._llm.genInputs(this._fn, [schema, directives]).then((inputs) => {
@@ -228,7 +230,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    *
    * @returns JSON schema
    */
-  protected _getInputsSchema(): [zod.ZodObject, string[]] {
+  protected _getInputsSchema(lang: ProgramLanguage): [zod.ZodObject, string[]] {
     const zodObj: { [k: string]: zod.ZodType } = {};
     const directives: string[] = [];
     this._specs.forEach((arg) => {
@@ -239,16 +241,16 @@ export class AiInputGenerator extends AbstractInputGenerator {
       );
     });
     directives.push(
-      `${NANOFUZZ_UNDEFINED} is a placeholder for the actual value \`undefined\``
+      `${NANOFUZZ_UNDEFINED} is a placeholder for the actual value \`${ValueMapper.toLang(lang, undefined)}\``
     );
     directives.push(
       `${NANOFUZZ_MISSING_PROPERTY} is a placeholder for a missing property`
     );
     directives.push(
-      `${NANOFUZZ_TRUE} is a placeholder for the actual value \`true\``
+      `${NANOFUZZ_TRUE} is a placeholder for the actual value \`${ValueMapper.toLang(lang, true)}\``
     );
     directives.push(
-      `${NANOFUZZ_FALSE} is a placeholder for the actual value \`false\``
+      `${NANOFUZZ_FALSE} is a placeholder for the actual value \`${ValueMapper.toLang(lang, false)}\``
     );
     return [
       zod.strictObject({ programInputs: zod.array(zod.strictObject(zodObj)) }),

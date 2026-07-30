@@ -1,7 +1,7 @@
 import { ArgDef, Tester } from "./Fuzzer";
 import { TypescriptCompiler } from "./compilers/TypescriptCompiler";
 import { FuzzOptions } from "./Types";
-import * as JSON5 from "json5";
+import * as ValueMapper from "./mappers/ValueMapper";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
 
 // Extend default test timeout to 60s
@@ -246,7 +246,7 @@ describe("fuzzer:", () => {
 
   it("Fuzz example 15 - coverageOneFile", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testCoverageOneFile",
       {
         ...intOptions,
@@ -289,7 +289,7 @@ describe("fuzzer:", () => {
 
   it("Fuzz example 16 - coverageMultiFile", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testCoverageMultiFile",
       intOptions
     ).testSync();
@@ -320,7 +320,7 @@ describe("fuzzer:", () => {
    */
   it("Fuzz example 17 - dimensioned typerefs", async () => {
     const tester = new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testDimensionedTypeRefs",
       {
         ...intOptions,
@@ -352,13 +352,13 @@ describe("fuzzer:", () => {
       ).toBeTrue();
       expect(input.length).toBe(2);
       expect(
-        ["[]", "[[]]", "[[[]]]", "[[['hello']]]"].includes(
-          JSON5.stringify(input[0])
+        ["[]", "[[]]", "[[[]]]", `[[["hello"]]]`].includes(
+          ValueMapper.toLang("typescript", input[0])
         )
       ).toBeTrue();
       expect(
-        ["[]", "[[]]", "[[[]]]", "[[['goodbye']]]"].includes(
-          JSON5.stringify(input[1])
+        ["[]", "[[]]", "[[[]]]", `[[["goodbye"]]]`].includes(
+          ValueMapper.toLang("typescript", input[1])
         )
       ).toBeTrue();
     });
@@ -370,7 +370,7 @@ describe("fuzzer:", () => {
    */
   it("Fuzz target cannot change fuzzer input record", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testChangeInput",
       intOptions
     ).testSync();
@@ -390,7 +390,7 @@ describe("fuzzer:", () => {
    */
   it("Standard fn void fuzz target fails if return is !==undefined", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnNumber",
       intOptions
     ).testSync();
@@ -402,7 +402,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow fn void fuzz target fails if return is !==undefined", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnNumber",
       intOptions
     ).testSync();
@@ -419,7 +419,7 @@ describe("fuzzer:", () => {
    */
   it("Standard fn void fuzz target passes if return is undefined", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnUndefined",
       intOptions
     ).testSync();
@@ -431,7 +431,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow fn void fuzz target passes if return is undefined", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnUndefined",
       intOptions
     ).testSync();
@@ -448,7 +448,7 @@ describe("fuzzer:", () => {
    */
   it("Standard fn void fuzz target fails if exception is thrown", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnException",
       intOptions
     ).testSync();
@@ -461,7 +461,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow fn void fuzz target fails if exception is thrown", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnException",
       intOptions
     ).testSync();
@@ -479,7 +479,7 @@ describe("fuzzer:", () => {
    */
   it("Standard void literal arg fuzz target", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidLiteralArgs",
       intOptions
     ).testSync();
@@ -491,7 +491,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow void literal arg fuzz target", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidLiteralArgs",
       intOptions
     ).testSync();
@@ -507,7 +507,7 @@ describe("fuzzer:", () => {
    */
   it("Standard union arg fuzz target", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardUnionArgs",
       intOptions
     ).testSync();
@@ -519,7 +519,7 @@ describe("fuzzer:", () => {
   });
   it("Arrow union arg fuzz target", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowUnionArgs",
       intOptions
     ).testSync();
@@ -535,7 +535,7 @@ describe("fuzzer:", () => {
    */
   it("Optional boolean inputs", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.ts",
+      "./test_fixtures/Fuzzer.testfixtures.ts",
       "testBoolean",
       intOptions
     ).testSync();
@@ -545,13 +545,8 @@ describe("fuzzer:", () => {
       fuzzResult.results.every((e) => e.passedImplicit === "pass")
     ).toBeTruthy();
 
-    // Run the following tests on the raw and JSON5-cloned results
-    [
-      fuzzResult.results,
-      JSON5.parse<typeof fuzzResult.results>(
-        JSON5.stringify(fuzzResult.results)
-      ),
-    ].forEach((r) => {
+    // Run the following tests on the raw and cloned results
+    [fuzzResult.results, structuredClone(fuzzResult.results)].forEach((r) => {
       // Every input should be true, false, or undefined
       expect(
         r.every(
@@ -577,11 +572,15 @@ describe("fuzzer:", () => {
     });
   });
 
-  it("Python string input", async () => {
+  it("Python string input and property test", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.py",
+      "./test_fixtures/Fuzzer.testfixtures.py",
       "greeting",
-      intOptions
+      {
+        ...intOptions,
+        useProperty: true,
+        suiteTimeout: 3000,
+      }
     ).testSync();
 
     expect(fuzzResult.results.length).not.toBe(0);
@@ -598,11 +597,18 @@ describe("fuzzer:", () => {
           e.output[0].value.endsWith(e.input[0].value)
       )
     ).toBeTrue();
+    // Check property test results
+    expect(fuzzResult.env.validators.length).toEqual(1);
+    fuzzResult.results.forEach((r) => {
+      expect(r.passedValidators.length).toBe(1);
+      expect(r.validatorException).toBeFalse();
+      expect(r.passedValidator).toBe("pass");
+    });
   });
 
   it("Python timeouts", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.py",
+      "./test_fixtures/Fuzzer.testfixtures.py",
       "timeouts",
       intOptions
     ).testSync();
@@ -616,7 +622,7 @@ describe("fuzzer:", () => {
 
   it("Python exceptions", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures.py",
+      "./test_fixtures/Fuzzer.testfixtures.py",
       "throws",
       intOptions
     ).testSync();
@@ -630,7 +636,7 @@ describe("fuzzer:", () => {
 
   it("Python valid target in invalid file", async () => {
     const fuzzResult = await new Tester(
-      "./Fuzzer.testfixtures2.py",
+      "./test_fixtures/Fuzzer.testfixtures2.py",
       "valid",
       intOptions
     ).testSync();
@@ -641,7 +647,63 @@ describe("fuzzer:", () => {
 
   it("Python invalid target in invalid file", async () => {
     expect(() => {
-      new Tester("./Fuzzer.testfixtures2.py", "invalid", intOptions).testSync();
+      new Tester(
+        "./test_fixtures/Fuzzer.testfixtures2.py",
+        "invalid",
+        intOptions
+      ).testSync();
     }).toThrowError();
+  });
+
+  it("Issue #301 (Python) include object members if value is `None`", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "issue301",
+      intOptions
+    ).testSync();
+
+    const failures = fuzzResult.results.filter(
+      (r) => r.passedImplicit === "fail"
+    );
+
+    expect(fuzzResult.results.length).toBeGreaterThan(1);
+    expect(failures.length).toEqual(1);
+    expect(ValueMapper.toLang("python", failures[0].input[0].value)).toEqual(
+      "6"
+    );
+    expect(
+      typeof failures[0].output[0].value === "object" &&
+        "a" in failures[0].output[0].value &&
+        failures[0].output[0].value["a"] === null
+    ).toBeTrue();
+    expect(ValueMapper.toLang("python", failures[0].output[0].value)).toEqual(
+      `{"a": None}`
+    );
+  });
+
+  it("Issue #301 (Typescript) include object members if value is `undefined`", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "issue301",
+      intOptions
+    ).testSync();
+
+    const failures = fuzzResult.results.filter(
+      (r) => r.passedImplicit === "fail"
+    );
+
+    expect(fuzzResult.results.length).toBeGreaterThan(1);
+    expect(failures.length).toEqual(1);
+    expect(
+      ValueMapper.toLang("typescript", failures[0].input[0].value)
+    ).toEqual("6");
+    expect(
+      typeof failures[0].output[0].value === "object" &&
+        "a" in failures[0].output[0].value &&
+        failures[0].output[0].value["a"] === undefined
+    ).toBeTrue();
+    expect(
+      ValueMapper.toLang("typescript", failures[0].output[0].value)
+    ).toEqual(`{a: undefined}`);
   });
 });

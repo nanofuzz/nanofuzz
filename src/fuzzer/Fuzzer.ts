@@ -1,12 +1,12 @@
 import * as fs from "fs";
-import * as JSON5 from "json5";
-import vm from "vm";
+import * as JSONN from "../Jsonn";
 import { ArgDef } from "./analysis/ArgDef";
 import { ArgValueType, FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as compiler from "./compilers/TypescriptCompiler";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as ProgramFactory from "./analysis/ProgramFactory";
+import * as ValueMapper from "./mappers/ValueMapper";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
   FuzzIoElement,
@@ -88,10 +88,10 @@ export class Tester {
     // Options
     if (!isOptionValid(options)) {
       throw new Error(
-        `Invalid options provided: ${JSON5.stringify(options, null, 2)}`
+        `Invalid options provided: ${JSONN.stringify(options, null, 2)}`
       );
     }
-    this._options = JSON5.parse<typeof options>(JSON5.stringify(options));
+    this._options = structuredClone(options);
 
     // Get the active measures, which will take various measurements
     // during execution that guide the composite generator
@@ -155,8 +155,8 @@ export class Tester {
 
     // Stale: options are stale
     if (
-      JSON5.stringify(retestRelevantOptions(options)) !==
-      JSON5.stringify(retestRelevantOptions(this._options))
+      JSONN.stringify(retestRelevantOptions(options)) !==
+      JSONN.stringify(retestRelevantOptions(this._options))
     ) {
       return "optionschanged";
     }
@@ -178,13 +178,9 @@ export class Tester {
   protected _getInitializedResults(): FuzzTestResults {
     return {
       env: {
-        options: JSON5.parse<typeof this._options>(
-          JSON5.stringify(this._options)
-        ),
+        options: structuredClone(this._options),
         function: this._function,
-        validators: JSON5.parse<typeof this._validators>(
-          JSON5.stringify(this._validators)
-        ),
+        validators: structuredClone(this._validators),
       },
       stopReason: FuzzStopReason.CRASH, // updated later
       stats: {
@@ -257,16 +253,15 @@ export class Tester {
     // Ensure we have a valid set of Fuzz options
     if (!isOptionValid(options)) {
       throw new Error(
-        `Invalid options provided: ${JSON5.stringify(options, null, 2)}`
+        `Invalid options provided: ${JSONN.stringify(options, null, 2)}`
       );
     }
 
     // If we already have an option set and it differs
     // from the new one, use the new options.
-    const strOptions = JSON5.stringify(options);
-    if (JSON5.stringify(this._options) !== strOptions) {
-      this._options = JSON5.parse<typeof options>(strOptions);
-      this._results.env.options = JSON5.parse<typeof options>(strOptions);
+    if (JSONN.stringify(this._options) !== JSONN.stringify(options)) {
+      this._options = structuredClone(options);
+      this._results.env.options = structuredClone(options);
       this._compositeInputGenerator.options = this._options.generators;
     }
   } // property: set options
@@ -277,13 +272,9 @@ export class Tester {
    */
   public get env(): FuzzEnv {
     return {
-      options: JSON5.parse<typeof this._options>(
-        JSON5.stringify(this._options)
-      ),
+      options: structuredClone(this._options),
       function: this._function,
-      validators: JSON5.parse<typeof this._validators>(
-        JSON5.stringify(this._validators)
-      ),
+      validators: structuredClone(this._validators),
     };
   } // property: get env
 
@@ -370,7 +361,7 @@ export class Tester {
         callbackFn(
           isError(e)
             ? e
-            : { name: "unknown error", message: JSON5.stringify(e) }
+            : { name: "unknown error", message: JSONN.stringify(e) }
         );
         return;
       }
@@ -441,6 +432,7 @@ export class Tester {
     });
 
     const argDefs = this._function.getArgDefs();
+    const lang = this._function.getLang();
 
     // Inject pinned tests into the composite generator so that they generate
     // first: we want the composite generator to know about these inputs so that
@@ -490,7 +482,7 @@ export class Tester {
     const propRunners = this._validators.map((vFnRef) =>
       RunnerFactory(this.env, mod, vFnRef.name)
     );
-    //propRunners.forEach(async (p) => await p.onRunStart());
+    propRunners.forEach(async (p) => await p.onRunStart());
     const propertyOracle = new PropertyOracle(propRunners);
 
     // Are we currently injecting inputs?
@@ -597,7 +589,7 @@ export class Tester {
         if (this._options.outputFile) {
           fs.writeFileSync(
             this._options.outputFile,
-            JSON5.stringify(this._results)
+            JSONN.stringify(this._results)
           );
           update({
             msg: `Wrote results to: ${this._options.outputFile}`,
@@ -655,14 +647,14 @@ export class Tester {
       // we need to retain any saved details for injected tests.
       if (genInput.injected) {
         // Ensure the injected inputs are in the expected order
-        const expectedInput = JSON5.stringify(
+        const expectedInput = JSONN.stringify(
           injectTests[runStats.counters.inputsInjected].input
         );
-        const returnedInput = JSON5.stringify(result.input);
+        const returnedInput = JSONN.stringify(result.input);
         if (expectedInput !== returnedInput) {
           throw new Error(
             `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
-              JSON5.stringify(injectTests, null, 3)
+              JSONN.stringify(injectTests, null, 3)
           );
         }
 
@@ -732,7 +724,7 @@ export class Tester {
         msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Generating new test"} input# ${
           runStats.counters.passedTests + runStats.counters.failedTests + 1
         }: ${this._function.getName()}(${result.input
-          .map((i) => JSON5.stringify(i.value))
+          .map((i) => ValueMapper.toLang(lang, i.value))
           .join(",")})\r\n  Tests passed: ${
           runStats.counters.passedTests
         }\r\n  Tests failed: ${runStats.counters.failedTests}`,
@@ -745,7 +737,7 @@ export class Tester {
       try {
         exeOutput = await runner.run(
           structuredClone(result.input.map((e) => e.value)),
-          this._options.fnTimeout
+          Math.max(this._options.fnTimeout, 1)
         );
       } catch (e: unknown) {
         if (isError(e)) {
@@ -832,7 +824,8 @@ export class Tester {
                   : result.output[0].value,
               exception: result.exception,
               timeout: result.timeout,
-            })
+            }),
+            Math.max(this._options.fnTimeout, 1)
           )
         ).forEach((j, i) => {
           if (isError(j)) {
@@ -876,10 +869,7 @@ export class Tester {
       {
         const startMeasureTime = performance.now(); // start timer
         const measurements = this._measures.map((e) =>
-          e.measure(
-            JSON5.parse<typeof genInput>(JSON5.stringify(genInput)),
-            JSON5.parse<typeof result>(JSON5.stringify(result))
-          )
+          e.measure(structuredClone(genInput), structuredClone(result))
         );
 
         // Provide measures feedback to the composite input generator
@@ -1012,47 +1002,6 @@ const isOptionValid = (options: FuzzOptions): boolean => {
 }; // fn: isOptionValid()
 
 /**
- * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
- *
- * The original function-timeout is an ES module; incorporating it here
- * avoids adding Babel to the dev toolchain solely for the benefit of Jest,
- * for which ESM support without Babel remains buggy / experimental. Maybe
- * we can remove this in the future or just add Babel for Jest.
- *
- * This function accepts a function and a timeout as input.  It then returns
- * a wrapper function that will throw an exception if the function does not
- * complete within, roughly, the timeout.
- *
- * @param function_ function to be executed with the timeout
- * @param param1
- * @returns
- */
-export function functionTimeout(
-  function_: (...inputs: unknown[]) => unknown,
-  timeout: number
-): (...inputs: unknown[]) => unknown {
-  const script = new vm.Script("returnValue = function_()");
-
-  const wrappedFunction = (...arguments_: unknown[]) => {
-    const context = {
-      returnValue: undefined,
-      function_: () => function_(...arguments_),
-    };
-
-    script.runInNewContext(context, { timeout: timeout });
-
-    return context.returnValue;
-  };
-
-  Object.defineProperty(wrappedFunction, "name", {
-    value: `functionTimeout(${function_.name || "<anonymous>"})`,
-    configurable: true,
-  });
-
-  return wrappedFunction;
-} // fn: functionTimeout()
-
-/**
  * Returns a list of validator FunctionRefs found within the ProgramDef
  * associated with a FunctionDef
  *
@@ -1123,7 +1072,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
  * @returns string representation of input key
  */
 export function getIoKey(io: FuzzIoElement[]): string {
-  return JSON5.stringify(
+  return JSONN.stringify(
     io.map((input) => {
       return { value: input.value };
     })

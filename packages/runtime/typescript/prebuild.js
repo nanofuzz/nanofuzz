@@ -1,5 +1,5 @@
 const npmpkg = require("./package.json");
-const nanopkg = require("../../package.json");
+const nanopkg = require("../../../package.json");
 const copyfiles = require("copyfiles");
 const fs = require("fs");
 const rimraf = require("rimraf");
@@ -23,25 +23,27 @@ fs.writeFileSync(
 rimraf.sync("./build");
 
 // Copy the license file
-copyfiles(["../../LICENSE", "."], true /* flat */, () =>
+copyfiles(["../../../LICENSE", "."], true /* flat */, () =>
   console.log("done copying license file")
 );
 
 // Copy the Fuzzer Types file
-copyfiles(["../../src/fuzzer/Types.ts", "./src/fuzzer"], true /* flat */, () =>
-  console.log("done copying fuzzer types")
+copyfiles(
+  ["../../../src/fuzzer/Types.ts", "./src/fuzzer"],
+  true /* flat */,
+  () => console.log("done copying fuzzer types")
 );
 
 // Copy the TypeScript analysis Types file
 copyfiles(
-  ["../../src/fuzzer/analysis/Types.ts", "./src/fuzzer/analysis"],
+  ["../../../src/fuzzer/analysis/Types.ts", "./src/fuzzer/analysis"],
   true /* flat */,
   () => console.log("done copying argdef types")
 );
 
 // Copy the Oracle types file
 copyfiles(
-  ["../../src/fuzzer/oracles/Types.ts", "./src/fuzzer/oracles"],
+  ["../../../src/fuzzer/oracles/Types.ts", "./src/fuzzer/oracles"],
   true /* flat */,
   () => console.log("done copying oracle types")
 );

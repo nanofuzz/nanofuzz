@@ -150,9 +150,7 @@ export class TypescriptCompiler {
     updateFn: (msg: FuzzBusyStatusMessage) => void
   ): ReturnType<NodeJS.Require> {
     // Determine options using the module path
-    this._options = JSON5.parse<typeof defaultOptions>(
-      JSON5.stringify(defaultOptions)
-    );
+    this._options = structuredClone(defaultOptions);
     this._determineOptions();
 
     // Track local compilations

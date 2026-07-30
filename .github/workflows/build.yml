@@ -13,7 +13,7 @@ jobs:
     steps:
       # Visual Studio Code Extension
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
       - name: Install Python
         uses: actions/setup-python@v5
         with:
@@ -30,22 +30,8 @@ jobs:
         run: |
           source .venv/bin/activate
           pip install -r requirements.txt
-      - name: ls project (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          ls -a
-          ls -a ./.venv
-          ls -a ./.venv/lib
-          ls -a ./.venv/lib/python3.13
-          ls -a ./.venv/lib/python3.13/site-packages
-      - name: ls project (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          dir
-          dir .\.venv
-          dir .\.venv\lib
       - name: Install Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: yarn
@@ -70,14 +56,30 @@ jobs:
         run: |
           source .venv/bin/activate
           pytest
+      - name: Build vsix package
+        run: yarn package
 
       # npm runtime package
       - name: Install Yarn packages
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn
       - name: Check for matching version numbers
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn run checkver
       - name: Build npm package
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn build
+
+      # pip runtime package
+      - name: Build Python package (Linux, MacOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          cd packages/runtime/python
+          python -m build
+      - name: Build Python package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .venv\Scripts\activate
+          cd packages\runtime\python
+          python -m build

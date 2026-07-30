@@ -1,6 +1,6 @@
 import { FuzzIoElement } from "../Types";
 import { Judgment } from "./Types";
-import * as JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 
 export class ExampleOracle {
   public static judge(
@@ -28,12 +28,12 @@ export class ExampleOracle {
       }
 
       // Compare expected to actual values.
-      return JSON5.stringify(
+      return JSONN.stringify(
         outputValue.map((output) => {
           return { value: output.value };
         })
       ) ===
-        JSON5.stringify(
+        JSONN.stringify(
           expectedOutput.map((output) => {
             return { value: output.value };
           })

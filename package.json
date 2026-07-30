@@ -265,8 +265,8 @@
     "lint": "eslint src",
     "lint:errors": "eslint --quiet src",
     "vscode:prepublish": "yarn build",
-    "publish": "vsce publish --yarn",
-    "package": "vsce package --yarn",
+    "publish": "npx @vscode/vsce publish --yarn",
+    "package": "npx @vscode/vsce package --yarn",
     "pretest": "yarn build && yarn run lint"
   },
   "babel": {
@@ -296,7 +296,9 @@
     "seedrandom": "^3.0.5",
     "tree-sitter": "^0.25.0",
     "tree-sitter-python": "^0.25.0",
+    "tree-sitter-typescript": "^0.23.2",
     "typescript": "5.9.2",
+    "web-tree-sitter": "^0.26.11",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -315,6 +317,7 @@
     "@vscode/vsce": "^3.6.0",
     "copyfiles": "^2.4.1",
     "cross-env": "^10.0.0",
+    "dotenv": "^17.4.2",
     "esbuild": "^0.28.1",
     "escape-goat": "^4.0.0",
     "eslint": "^9.26.0",

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/switch-exhaustiveness-check */
 import * as JSON5 from "json5";
+import * as ValueMapper from "../../mappers/ValueMapper";
 import { removeParents } from "../Util";
 import { parse, ParseResult } from "@babel/parser";
 import _traverse, { NodePath } from "@babel/traverse";
@@ -28,10 +29,14 @@ import {
   TypeRef,
   ArgOptions,
   ArgType,
+  TypeAnnotationOptions,
+  TypeAnnotationOptionDefaults,
+  ProgramLanguage,
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
 import { AbstractProgram } from "../AbstractProgram";
 import * as ProgramFactory from "../ProgramFactory";
+import { ArgDef } from "../ArgDef";
 
 // Default import nonsense for node
 // https://github.com/babel/babel/discussions/13093
@@ -316,10 +321,18 @@ export class TypescriptProgram extends AbstractProgram {
                 `Duplicate type alias '${path.node.id.name}' found in module '${filename}'`
               );
             } else {
-              types[path.node.id.name] = this._getTypeRefFromAstNode(
-                path.node,
-                path.parent
-              );
+              const name = path.node.id.name;
+              try {
+                types[name] = this._getTypeRefFromAstNode(
+                  path.node,
+                  path.parent
+                );
+              } catch (e) {
+                console.debug(
+                  `Error getting TypeRef from the AST node for ${name} in module ${this.filename}, ignoring.
+                   Reason: ${e}`
+                );
+              }
             }
           }
         }
@@ -337,7 +350,7 @@ export class TypescriptProgram extends AbstractProgram {
    * @param typeRef The TypeRef object to resolve to a concrete type
    * @returns A concrete, resolved TypeRef object
    */
-  public _resolveTypeRef(typeRef: TypeRef): TypeRef {
+  public resolveTypeRef(typeRef: TypeRef): TypeRef {
     // Handle any resolved or partially-resolved type references
     if (typeRef.type) {
       if (typeRef.type.resolved) {
@@ -345,7 +358,7 @@ export class TypescriptProgram extends AbstractProgram {
         return typeRef; // Return resolved type
       } else {
         // Type is only partially resolved
-        typeRef.type.children.forEach((child) => this._resolveTypeRef(child));
+        typeRef.type.children.forEach((child) => this.resolveTypeRef(child));
         typeRef.type.resolved = true;
         return typeRef; // Return resolved type
       }
@@ -362,7 +375,7 @@ export class TypescriptProgram extends AbstractProgram {
     // Type is not yet resolved. Look up and resolve the type reference
     if (typeRef.typeRefName in this._types) {
       // Resolve and use the local type reference
-      const resolvedType = this._resolveTypeRef(
+      const resolvedType = this.resolveTypeRef(
         this._types[typeRef.typeRefName]
       );
       typeRef.type = structuredClone(resolvedType.type);
@@ -440,7 +453,7 @@ export class TypescriptProgram extends AbstractProgram {
 
         if (defaultImport && importProgram.defaultExport) {
           // Resolve default export
-          const resolvedType = importProgram._resolveTypeRef(
+          const resolvedType = importProgram.resolveTypeRef(
             importProgram.defaultExport
           );
           typeRef.type = structuredClone(resolvedType.type);
@@ -450,7 +463,7 @@ export class TypescriptProgram extends AbstractProgram {
           typeRef.optional = typeRef.optional || resolvedType.optional;
         } else if (importName in importProgram.typesExported) {
           // Resolve named export
-          const resolvedType = importProgram._resolveTypeRef(
+          const resolvedType = importProgram.resolveTypeRef(
             importProgram.typesExported[importName]
           );
           typeRef.type = structuredClone(resolvedType.type);
@@ -979,6 +992,7 @@ export class TypescriptProgram extends AbstractProgram {
         name,
         module: this._filename,
         src: parent.node.kind + " " + this._src.slice(...path.node.range),
+        lang: TypescriptProgram.lang,
         startOffset: path.node.range[0],
         endOffset: path.node.range[1],
         isExported: parent.parent.type === "ExportNamedDeclaration",
@@ -1016,6 +1030,7 @@ export class TypescriptProgram extends AbstractProgram {
         name,
         module: this._filename,
         src: this._src.slice(...path.node.range),
+        lang: TypescriptProgram.lang,
         startOffset: path.node.range[0],
         endOffset: path.node.range[1],
         isExported: parent ? parent.type === "ExportNamedDeclaration" : false,
@@ -1061,13 +1076,110 @@ export class TypescriptProgram extends AbstractProgram {
     return undefined;
   } // fn: getFunctionComment
 
-  public get lang(): ProgramFactory.ProgramLanguage {
+  public get lang(): ProgramLanguage {
     return TypescriptProgram.lang;
   }
 
   public get extensions(): readonly string[] {
     return TypescriptProgram.extensions;
   }
+
+  /**
+   * Returns a string that works as the type annotation for the argument.
+   *
+   * @param `arg` ArgDef to describe
+   * @param `options` Description options
+   * @returns a string that works as the type annotation for the argument
+   */
+  public static getTypeAnnotation(
+    arg: ArgDef<ArgType>,
+    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    // Get the base type annotation
+    let baseType = TypescriptProgram.getBaseType(arg, options);
+
+    // Wrap union types w/dims in parens prior to adding the dims
+    if (
+      arg.getType() === ArgTag.UNION &&
+      arg.getDim() &&
+      (arg.getTypeRef() === undefined || !options.useTypeRefs)
+    ) {
+      baseType = `(${baseType})`;
+    }
+
+    // Add the dimensions to the annotation
+    let type = `${baseType}${arg.getDim() ? "[]".repeat(arg.getDim()) : ""}`;
+
+    // Add optionality (if specified and not already part of the union type)
+    if (
+      arg.isOptional() &&
+      !(
+        arg.getType() === ArgTag.UNION &&
+        arg.getDim() === 0 &&
+        arg
+          .getChildren()
+          .some(
+            (child) =>
+              child.getType() === ArgTag.LITERAL &&
+              child.isConstant() &&
+              child.getConstantValue() === undefined
+          )
+      )
+    ) {
+      type = `${type} | undefined`;
+    }
+    return type;
+  } // fn: getTypeAnnotation()
+
+  /**
+   * Returns the base type of this ArgDef, i.e., its type without any
+   * dimensions or optionality.
+   */
+  protected static getBaseType(
+    arg: ArgDef<ArgType>,
+    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    const typeRef = arg.getTypeRef();
+    if (typeRef && options.useTypeRefs) {
+      return typeRef;
+    }
+
+    switch (arg.getType()) {
+      case ArgTag.OBJECT: {
+        // Literal object, no type. Recursively walk the children to build the type.
+        const childTypeAnnotations = arg
+          .getChildren()
+          .map(
+            (child) =>
+              `${child.getName()}${
+                child.isOptional() && !options.useOptionality ? "?" : ""
+              }: ${TypescriptProgram.getTypeAnnotation(child, options)}`
+          );
+        return `{ ${childTypeAnnotations.join("; ")} }`;
+      }
+
+      case ArgTag.UNION: {
+        const childTypeAnnotations = arg
+          .getChildren()
+          .map((child) => TypescriptProgram.getTypeAnnotation(child, options));
+        return childTypeAnnotations.join(" | ");
+      }
+
+      case ArgTag.LITERAL: {
+        return `${ValueMapper.toLang("typescript", arg.getConstantValue())}`;
+      }
+
+      case ArgTag.TUPLE: {
+        const childTypeAnnotations = arg
+          .getChildren()
+          .map((child) => TypescriptProgram.getTypeAnnotation(child, options));
+        return `[${childTypeAnnotations.join(", ")}]`;
+      }
+
+      default:
+        return arg.getType();
+    }
+  } // fn: getBaseType()
 } // class: TypescriptProgram
 
 /**

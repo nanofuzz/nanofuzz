@@ -7,3 +7,4 @@
 !node_modules/typescript/
 !package.json
 !README.md
+!src/ui/logo.png
