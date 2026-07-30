@@ -62,7 +62,7 @@ if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
 
 // VSCode Web Extension Back-end
 await esbuild.build({
-  entryPoints: ["./src/Extension.ts"],
+  entryPoints: ["./src/extension.ts"],
   outfile: "./build/extension/extension.js",
   bundle: true,
   platform: "node",
