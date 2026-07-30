@@ -554,9 +554,21 @@ export class PythonProgram extends AbstractProgram {
             // Python int and float share NanoFuzz's NUMBER tag. Keep the
             // integer constraint as an option so input generation can still
             // distinguish the two without another ArgTag.
-            return [ArgTag.NUMBER, 0, undefined, undefined, { numInteger: true }];
+            return [
+              ArgTag.NUMBER,
+              0,
+              undefined,
+              undefined,
+              { numInteger: true },
+            ];
           case "float":
-            return [ArgTag.NUMBER, 0, undefined, undefined, { numInteger: false }];
+            return [
+              ArgTag.NUMBER,
+              0,
+              undefined,
+              undefined,
+              { numInteger: false },
+            ];
           case "complex":
             return [ArgTag.NUMBER, 0];
           case "str":
@@ -621,35 +633,6 @@ export class PythonProgram extends AbstractProgram {
         );
     }
   } // fn: _getTypeFromAstNode()
-
-  /**
-   * Extracts the base name and arguments from built-in and qualified generic
-   * annotations. Tree-sitter uses different node shapes for those spellings,
-   * so keeping the normalization here ensures container cases behave
-   * identically.
-   */
-  private _getGenericParts(node: Parser.SyntaxNode): {
-    base: string;
-    args: Parser.SyntaxNode[];
-  } {
-    if (node.type === "generic_type") {
-      const base = node.namedChildren.find(
-        (child) => child.type === "identifier"
-      );
-      const parameters = node.namedChildren.find(
-        (child) => child.type === "type_parameter"
-      );
-      if (!base || !parameters)
-        throw new Error(`Malformed generic type: ${node.text}`);
-      return { base: base.text, args: parameters.namedChildren };
-    }
-
-    const base = node.childForFieldName("value");
-    const args = node.childrenForFieldName("subscript");
-    if (!base || !args.length)
-      throw new Error(`Malformed subscript type: ${node.text}`);
-    return { base: base.text.split(".").at(-1) ?? base.text, args };
-  }
 
   /**
    * Extracts the base name and arguments from built-in and qualified generic
@@ -813,10 +796,8 @@ export class PythonProgram extends AbstractProgram {
     // python has no ? to mark parameters as optional. Its optional type is in fact a union between the type and None, so we don't need to handle optional here. optional stays false
 
     // Get the node's type and dimensions
-    const [type, dims, typeRefNode, literalValue, typeOptions] = this._getTypeFromAstNode(
-      typeNode,
-      this._options
-    );
+    const [type, dims, typeRefNode, literalValue, typeOptions] =
+      this._getTypeFromAstNode(typeNode, this._options);
 
     // Create the TypeRef data structure
     switch (type) {
