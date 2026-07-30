@@ -57,7 +57,7 @@ export type RunnerResult = {
         name: string;
         message: string;
         stack?: string;
-        source?: "put" | "host"; // if the error originated within the put !!!!!!!!!! ts
+        source?: "put" | "host"; // if the error originated within the put
         coverageData?: number[]; // lines executed by this call
         coverageArcs?: Arc[]; // arcs taken by this call
       }

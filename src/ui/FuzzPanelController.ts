@@ -2556,11 +2556,10 @@ ${inArgConsts}
                         `<tr class="editorFont"><td><span>${htmlEscape(
                           i.input.tick.toString()
                         )}</span></td>${i.input.value
-                          .map(
-                            (i) =>
-                              i.value === undefined
-                                ? `<td class="noInput">(no input)</td>`
-                                : `<td>${htmlEscape(ValueMapper.toLang(lang, i.value))}</td>` // !!!!!!!!!!!!
+                          .map((i) =>
+                            i.value === undefined
+                              ? `<td class="noInput">(no input)</td>`
+                              : `<td>${htmlEscape(ValueMapper.toLang(lang, i.value))}</td>`
                           )
                           .join("\r\n")}
                         <td>${htmlEscape(
