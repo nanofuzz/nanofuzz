@@ -34,7 +34,6 @@ export async function init(): Promise<void> {
     let sep: string | undefined;
     TSWeb.Parser.init({
       locateFile(name: string, dir: string) {
-        console.debug(`Wasm resolver input file: ${name}, dir: ${dir}`); // !!!!!!!!!!
         if (modulesUrl === undefined) {
           // detect posix/windows separator without `node:path`
           sep =
@@ -51,29 +50,26 @@ export async function init(): Promise<void> {
           }
           modulesUrl = `${dir.split(sep).slice(0, -2).join(sep)}${sep}`;
         }
-        const wasmUrl = `${dir}${name}`;
-        console.debug(`Wasm Url: ${wasmUrl}`); // !!!!!!!!!!!
-        return wasmUrl;
+        return `${dir}${name}`;
       },
     }).then(
       async (_fulfilled) => {
-        console.debug(`init complete. modulesUrl: ${modulesUrl}`); // !!!!!!!!!!!
         for (const g of grammarsToLoad) {
           const url = `${modulesUrl}${g}${sep}${g}.wasm`;
-          console.debug(`Trying to load grammar: ${url}`);
           const grammar = await TSWeb.Language.load(url);
           const parser = new TSWeb.Parser();
           parser.setLanguage(grammar);
           grammars[g] = { parser, grammar };
-          console.debug(`Grammar loaded: ${url}`);
         }
         loaded = "yes";
         resolve();
       },
       (rejectReason) => {
         reject(rejectReason);
-        loaded = "no"; // !!!!!!!!!!
-        initPromise = undefined; // !!!!!!!!!!
+
+        // allow retries
+        loaded = "no";
+        initPromise = undefined;
       }
     );
   });
