@@ -1,3 +1,4 @@
+# What to package into NaNofuzz VSIX
 **
 !build/
 !LICENSE
@@ -9,3 +10,4 @@
 !node_modules/typescript/
 !package.json
 !README.md
+!logo.png
