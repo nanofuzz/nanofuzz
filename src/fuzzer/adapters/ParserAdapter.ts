@@ -31,33 +31,41 @@ export async function init(): Promise<void> {
   initPromise = new Promise<void>((resolve, reject) => {
     loaded = "pending";
     let modulesUrl: string | undefined;
+    let sep: string | undefined;
     TSWeb.Parser.init({
       locateFile(name: string, dir: string) {
+        console.debug(`Wasm resolver input file: ${name}, dir: ${dir}`); // !!!!!!!!!!
         if (modulesUrl === undefined) {
+          sep = dir.at(-1) ?? "/";
           // front-end bundled `web-tree-sitter`
-          if (dir.endsWith("/ui/")) {
-            dir = `${dir.split("/").slice(0, -3).join("/")}/node_modules/web-tree-sitter/`;
+          if (dir.endsWith(`${sep}ui${sep}`)) {
+            dir = `${dir.split(sep).slice(0, -3).join(sep)}${sep}node_modules${sep}web-tree-sitter${sep}`;
           }
-          modulesUrl = `${dir.split("/").slice(0, -2).join("/")}/`;
+          modulesUrl = `${dir.split(sep).slice(0, -2).join(sep)}${sep}`;
         }
-        return `${dir}${name}`;
+        const wasmUrl = `${dir}${name}`;
+        console.debug(`Wasm Url: ${wasmUrl}`); // !!!!!!!!!!!
+        return wasmUrl;
       },
     }).then(
       async (_fulfilled) => {
+        console.debug(`init complete. modulesUrl: ${modulesUrl}`); // !!!!!!!!!!!
         for (const g of grammarsToLoad) {
-          const url = `${modulesUrl}${g}/${g}.wasm`;
+          const url = `${modulesUrl}${g}${sep}${g}.wasm`;
+          console.debug(`Trying to load grammar: ${url}`);
           const grammar = await TSWeb.Language.load(url);
           const parser = new TSWeb.Parser();
           parser.setLanguage(grammar);
           grammars[g] = { parser, grammar };
+          console.debug(`Grammar loaded: ${url}`);
         }
         loaded = "yes";
         resolve();
       },
       (rejectReason) => {
         reject(rejectReason);
-        loaded = "no";
-        initPromise = undefined;
+        loaded = "no"; // !!!!!!!!!!
+        initPromise = undefined; // !!!!!!!!!!
       }
     );
   });
