@@ -36,7 +36,11 @@ export async function init(): Promise<void> {
       locateFile(name: string, dir: string) {
         console.debug(`Wasm resolver input file: ${name}, dir: ${dir}`); // !!!!!!!!!!
         if (modulesUrl === undefined) {
-          sep = dir.at(-1) ?? "/";
+          // web-tree-sitter on node can "helpfully" add "/" to the end of windows paths
+          sep = dir.charAt(1) === ":" || dir.charAt(2) === `\\` ? "\\" : "/";
+          if (sep === "\\" && dir.at(-1) === "/") {
+            dir = `${dir.slice(0, -1)}\\`;
+          }
           // front-end bundled `web-tree-sitter`
           if (dir.endsWith(`${sep}ui${sep}`)) {
             dir = `${dir.split(sep).slice(0, -3).join(sep)}${sep}node_modules${sep}web-tree-sitter${sep}`;
