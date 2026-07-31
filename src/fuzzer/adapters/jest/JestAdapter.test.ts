@@ -1,6 +1,6 @@
-import * as jestadapter from "./JestAdapter";
-import { FuzzTests, FuzzOptions } from "../Types";
-import { ArgOptions, ArgTag } from "../analysis/Types";
+import { JestAdapter } from "./JestAdapter";
+import { FuzzTests, FuzzOptions } from "../../Types";
+import { ArgOptions, ArgTag } from "../../analysis/Types";
 
 const argDefaults: ArgOptions = {
   strCharset: "abc",
@@ -27,15 +27,16 @@ const baseOptions: Omit<
   useProperty: false,
 };
 
-const measures = {
+const measures: FuzzOptions["measures"] = {
   FailedTestMeasure: { enabled: true, weight: 1 },
   CoverageMeasure: { enabled: false, weight: 0 },
-} as FuzzOptions["measures"];
+};
 
-const generators = {
+const generators: FuzzOptions["generators"] = {
   RandomInputGenerator: { enabled: true },
   MutationInputGenerator: { enabled: false },
-} as FuzzOptions["generators"];
+  AiInputGenerator: { enabled: false },
+};
 
 const makeOptions = (overrides: Partial<FuzzOptions> = {}): FuzzOptions => ({
   ...baseOptions,
@@ -53,14 +54,14 @@ const makeOptions = (overrides: Partial<FuzzOptions> = {}): FuzzOptions => ({
   useProperty: overrides.useProperty ?? baseOptions.useProperty,
 });
 
-describe("fuzzer/adapters/JestAdapter:", () => {
-  it("emits 'it' for all generated scenarios", () => {
+describe("fuzzer/adapters/jest/JestAdapter:", () => {
+  it("emits unit test for all generated scenarios", () => {
     const tests: FuzzTests = {
       version: "0.0.0",
       functions: {
         sampleFn: {
           options: makeOptions({ useHuman: true, useProperty: true }),
-          validators: ["isValid"],
+          validators: ["sampleFnValidator"],
           tests: {
             "0": {
               input: [
@@ -68,6 +69,10 @@ describe("fuzzer/adapters/JestAdapter:", () => {
                   name: "0",
                   offset: 0,
                   value: 1,
+                  origin: {
+                    type: "generator",
+                    generator: "RandomInputGenerator",
+                  },
                 },
               ],
               output: [],
@@ -77,6 +82,7 @@ describe("fuzzer/adapters/JestAdapter:", () => {
                   name: "0",
                   offset: 0,
                   value: "value",
+                  origin: { type: "user" },
                 },
               ],
             },
@@ -86,6 +92,10 @@ describe("fuzzer/adapters/JestAdapter:", () => {
                   name: "0",
                   offset: 0,
                   value: 2,
+                  origin: {
+                    type: "generator",
+                    generator: "RandomInputGenerator",
+                  },
                 },
               ],
               output: [],
@@ -96,6 +106,7 @@ describe("fuzzer/adapters/JestAdapter:", () => {
                   offset: 0,
                   isException: true,
                   value: undefined,
+                  origin: { type: "user" },
                 },
               ],
             },
@@ -117,11 +128,11 @@ describe("fuzzer/adapters/JestAdapter:", () => {
       },
     };
 
-    const out = jestadapter.toString(tests, "mymodule.ts");
+    const out = new JestAdapter(tests, "mymodule.ts").toString();
 
-    expect(out).toContain('it("sampleFn.0.human"');
-    expect(out).toContain('it("sampleFn.0.isValid"');
-    expect(out).toContain('it("sampleFn.1.human"');
+    expect(out).toContain('it("sampleFn.0.expect"');
+    expect(out).toContain('it("sampleFn.0.prop.Validator"');
+    expect(out).toContain('it("sampleFn.1.expect"');
     expect(out).toContain('it("voidFn.0.heuristic"');
 
     const itMatches = out.match(/\bit\(/g) ?? [];
@@ -130,7 +141,13 @@ describe("fuzzer/adapters/JestAdapter:", () => {
   });
 
   it("keeps nano test filename helper", () => {
-    const fname = jestadapter.getFilename("mymodule.ts");
+    const fname = new JestAdapter(
+      {
+        version: "0.0.0",
+        functions: {},
+      },
+      "mymodule.ts"
+    ).filename;
     expect(fname).toBe("mymodule.nano.test.ts");
   });
 });

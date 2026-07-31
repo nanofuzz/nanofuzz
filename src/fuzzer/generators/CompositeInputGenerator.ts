@@ -1,10 +1,9 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
-import * as JSON5 from "json5";
 import { ScoredInput } from "./Types";
 import { FuzzOptions, InputAndSource } from "./../Types";
-import { FunctionDef, FuzzTestStats } from "fuzzer/Fuzzer";
+import { FunctionDef, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
 import { AiInputGenerator } from "./AiInputGenerator";
 
@@ -180,9 +179,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       ...this._subgens[this._selectedSubgenIndex].next(),
       tick: this._tick,
     };
-    return JSON5.parse<typeof this._lastInput>(
-      JSON5.stringify(this._lastInput)
-    );
+    return structuredClone(this._lastInput);
   } // fn: next
 
   /**
@@ -331,7 +328,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       }
     }
     throw new Error(
-      `Internal failure selecting subgen: ${JSON5.stringify(
+      `Internal failure selecting subgen: ${JSON.stringify(
         {
           progress,
           cost,

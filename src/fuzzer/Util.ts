@@ -1,4 +1,5 @@
-import * as path from "path";
+import * as path from "node:path";
+import * as fs from "node:fs";
 import JSON5 from "json5";
 
 /**
@@ -56,3 +57,68 @@ export function normalizePathForKey(rawPath: string): string {
 export function getErrorMessageOrJson(e: unknown): string {
   return isError(e) ? e.message : JSON5.stringify(e);
 } // fn: getErrorMessageOrJson
+
+/**
+ * Returns `dir`'s nearest item by traversing ancestor paths or `undefined` if not found.
+ *
+ * Adapted from: https://github.com/joshrtay/find-mod/blob/master/lib/index.js
+ *
+ * @param dir path
+ * @param item file to find
+ * @returns path to closest item (or `undefined`` if not found)
+ */
+export function findInAncestor(dir: string, item: string): string | undefined {
+  while (!fs.existsSync(path.resolve(path.join(dir, item)))) {
+    dir = path.resolve(path.join(dir, "..")); // ascend to parent
+    if (dir === path.dirname(dir)) {
+      return undefined;
+    }
+  }
+  return path.resolve(path.join(dir, item));
+} // fn: findInAncestor
+
+/**
+ * Returns the nearest item by searching recursively through descendant paths.
+ * Returns `undefined` if not found.
+ *
+ * @param dir path
+ * @param item to find
+ * @returns path to closest item (or `undefined`` if not found)
+ */
+export function findInDescendants(
+  dir: string,
+  item: string
+): string | undefined {
+  const queue: string[] = [path.resolve(dir)];
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const currentDir = queue.shift()!;
+
+    // Check if item exists in the current directory
+    const targetPath = path.resolve(path.join(currentDir, item));
+    if (fs.existsSync(targetPath)) {
+      return targetPath;
+    }
+
+    // Add subdirectories to the queue
+    try {
+      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const subDir = path.resolve(path.join(currentDir, entry.name));
+          // Prevent infinite loops from symlinks
+          if (!visited.has(subDir)) {
+            visited.add(subDir);
+            queue.push(subDir);
+          }
+        }
+      }
+    } catch (_e: unknown) {
+      // Ignore directories we don't have permission to read
+      continue;
+    }
+  }
+
+  return undefined;
+}

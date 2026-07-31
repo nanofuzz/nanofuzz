@@ -1,11 +1,12 @@
 import * as fs from "fs";
-import * as JSON5 from "json5";
-import vm from "vm";
+import * as JSONN from "../Jsonn";
 import { ArgDef } from "./analysis/ArgDef";
 import { ArgValueType, FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as compiler from "./compilers/TypescriptCompiler";
-import { TypescriptProgram } from "./analysis/typescript/TypescriptProgram";
+import * as CompilerFactory from "./compilers/CompilerFactory";
+import * as ProgramFactory from "./analysis/ProgramFactory";
+import * as ValueMapper from "./mappers/ValueMapper";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
   FuzzIoElement,
@@ -21,12 +22,15 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
-import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
-import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
+import { isError } from "../fuzzer/Util";
+import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
+import { AbstractProgram } from "./analysis/AbstractProgram";
+import { TypescriptProgram } from "./analysis/typescript/TypescriptProgram";
+import { RunnerResult } from "./runners/AbstractRunner";
 
 export class Tester {
   protected _module: string; // module filename
@@ -38,7 +42,7 @@ export class Tester {
     "init"; // tester state
 
   protected _options: FuzzOptions; // testing options
-  protected _program: TypescriptProgram; // program under test
+  protected _program: AbstractProgram; // program under test
   protected _function: FunctionDef; // function under test
   protected _compositeInputGenerator: CompositeInputGenerator; // composite input generator
   protected _validators: FunctionRef[] = []; // property validator functions
@@ -57,8 +61,9 @@ export class Tester {
 
     // Get the program & function definitions
     try {
-      this._program = TypescriptProgram.fromModule(
+      this._program = ProgramFactory.fromFile(
         this._module,
+        undefined,
         options.argDefaults
       );
     } catch (e: unknown) {
@@ -69,7 +74,7 @@ export class Tester {
         { cause: e }
       );
     }
-    const fnList = this._program.getExportedFunctions();
+    const fnList = this._program.functionsExported;
     if (!(this._fnName in fnList)) {
       throw new Error(
         `Could not find exported function ${this._fnName} in: ${this._module}`
@@ -83,10 +88,10 @@ export class Tester {
     // Options
     if (!isOptionValid(options)) {
       throw new Error(
-        `Invalid options provided: ${JSON5.stringify(options, null, 2)}`
+        `Invalid options provided: ${JSONN.stringify(options, null, 2)}`
       );
     }
-    this._options = JSON5.parse<typeof options>(JSON5.stringify(options));
+    this._options = structuredClone(options);
 
     // Get the active measures, which will take various measurements
     // during execution that guide the composite generator
@@ -95,7 +100,7 @@ export class Tester {
     //       not when testing is paused.
     const optMeasures: Record<string, BaseMeasureConfig> =
       this._options.measures;
-    this._measures = MeasureFactory().filter((m) =>
+    this._measures = MeasureFactory(this._program.lang).filter((m) =>
       m.name in optMeasures ? optMeasures[m.name].enabled : false
     );
 
@@ -113,7 +118,7 @@ export class Tester {
     );
 
     // Start a background compilation
-    if (mode.precompile) {
+    if (mode.precompile && CompilerFactory.needsCompilation(module)) {
       compiler.TypescriptCompiler.compileAsync(module);
     }
   }
@@ -150,8 +155,8 @@ export class Tester {
 
     // Stale: options are stale
     if (
-      JSON5.stringify(retestRelevantOptions(options)) !==
-      JSON5.stringify(retestRelevantOptions(this._options))
+      JSONN.stringify(retestRelevantOptions(options)) !==
+      JSONN.stringify(retestRelevantOptions(this._options))
     ) {
       return "optionschanged";
     }
@@ -173,13 +178,9 @@ export class Tester {
   protected _getInitializedResults(): FuzzTestResults {
     return {
       env: {
-        options: JSON5.parse<typeof this._options>(
-          JSON5.stringify(this._options)
-        ),
+        options: structuredClone(this._options),
         function: this._function,
-        validators: JSON5.parse<typeof this._validators>(
-          JSON5.stringify(this._validators)
-        ),
+        validators: structuredClone(this._validators),
       },
       stopReason: FuzzStopReason.CRASH, // updated later
       stats: {
@@ -252,16 +253,15 @@ export class Tester {
     // Ensure we have a valid set of Fuzz options
     if (!isOptionValid(options)) {
       throw new Error(
-        `Invalid options provided: ${JSON5.stringify(options, null, 2)}`
+        `Invalid options provided: ${JSONN.stringify(options, null, 2)}`
       );
     }
 
     // If we already have an option set and it differs
     // from the new one, use the new options.
-    const strOptions = JSON5.stringify(options);
-    if (JSON5.stringify(this._options) !== strOptions) {
-      this._options = JSON5.parse<typeof options>(strOptions);
-      this._results.env.options = JSON5.parse<typeof options>(strOptions);
+    if (JSONN.stringify(this._options) !== JSONN.stringify(options)) {
+      this._options = structuredClone(options);
+      this._results.env.options = structuredClone(options);
       this._compositeInputGenerator.options = this._options.generators;
     }
   } // property: set options
@@ -272,13 +272,9 @@ export class Tester {
    */
   public get env(): FuzzEnv {
     return {
-      options: JSON5.parse<typeof this._options>(
-        JSON5.stringify(this._options)
-      ),
+      options: structuredClone(this._options),
       function: this._function,
-      validators: JSON5.parse<typeof this._validators>(
-        JSON5.stringify(this._validators)
-      ),
+      validators: structuredClone(this._validators),
     };
   } // property: get env
 
@@ -290,21 +286,21 @@ export class Tester {
   } // property: get state
 
   /**
-   * Runs the tester in sync mode and returns its results.
+   * Runs the tester and returns its results.
    *
    * @param `injectTests` tests to inject
    * @param `mode` testing mode
    * @returns `FuzzTestResults`
    */
-  public testSync(
+  public async testSync(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true }
-  ): FuzzTestResults {
+  ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
     try {
       const run = this._run(injectTests, mode);
       while (!result) {
-        result = run.next().value;
+        result = (await run.next()).value;
       }
       return result;
     } catch (e: unknown) {
@@ -344,16 +340,16 @@ export class Tester {
    * @param `callbackFn` called when testing completes
    * @param `run` generator function
    */
-  protected _runBatchAsync(
+  protected async _runBatchAsync(
     callbackFn: (result: FuzzTestResults | Error) => void,
     run: ReturnType<typeof this._run>
-  ): void {
+  ): Promise<void> {
     let result: FuzzTestResults | undefined;
     const timer = performance.now();
 
     while (!result && performance.now() - timer < 100) {
       try {
-        result = run.next().value;
+        result = (await run.next()).value;
         if (result) {
           callbackFn(result);
           return;
@@ -365,7 +361,7 @@ export class Tester {
         callbackFn(
           isError(e)
             ? e
-            : { name: "unknown error", message: JSON5.stringify(e) }
+            : { name: "unknown error", message: JSONN.stringify(e) }
         );
         return;
       }
@@ -385,12 +381,12 @@ export class Tester {
    * @param `cancelFn` called to check cancel status
    * @returns test results
    */
-  protected *_run(
+  protected async *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: (payload: FuzzBusyStatusMessage) => void,
     cancelFn?: () => boolean
-  ): Generator<
+  ): AsyncGenerator<
     FuzzTestResults | undefined,
     FuzzTestResults,
     FuzzTestResults | undefined
@@ -436,6 +432,7 @@ export class Tester {
     });
 
     const argDefs = this._function.getArgDefs();
+    const lang = this._function.getLang();
 
     // Inject pinned tests into the composite generator so that they generate
     // first: we want the composite generator to know about these inputs so that
@@ -468,19 +465,31 @@ export class Tester {
     // it to JavaScript (and possibly instrument it) prior to execution.
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
-    this._lastCompiler = new compiler.TypescriptCompiler(fqSrcFile);
-    const mod = this._lastCompiler.compileSync(this._measures, update);
+    const isNativeTs = TypescriptProgram.understands({ filename: fqSrcFile });
+    if (isNativeTs) {
+      this._lastCompiler = new compiler.TypescriptCompiler(fqSrcFile);
+    }
+    const mod = this._lastCompiler
+      ? this._lastCompiler.compileSync(this._measures, update) // native ts
+      : fqSrcFile; // something other than native ts
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
     // Build a test runner for executing tests
     const runner = RunnerFactory(this.env, mod, this._function.getName());
+    await runner.onRunStart();
+
+    // Connect the measures to the runner. Measures that source their data
+    // from the runner (e.g., Python coverage) need it before the first test.
+    this._measures.forEach((m) => {
+      m.onRunStart(runner);
+    });
 
     // Build runners for the property validators
-    const propertyOracle = new PropertyOracle(
-      this._validators.map((vFnRef) =>
-        RunnerFactory(this.env, mod, vFnRef.name)
-      )
+    const propRunners = this._validators.map((vFnRef) =>
+      RunnerFactory(this.env, mod, vFnRef.name)
     );
+    propRunners.forEach(async (p) => await p.onRunStart());
+    const propertyOracle = new PropertyOracle(propRunners);
 
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
@@ -537,6 +546,10 @@ export class Tester {
         });
         this._compositeInputGenerator.onRunEnd(); // also handles shutdown for subgens
 
+        // Shut down runners
+        await runner.onRunEnd();
+        await propRunners.forEach(async (p) => p.onRunEnd());
+
         console.log(
           ` - Executed ${
             runStats.counters.passedTests + runStats.counters.failedTests
@@ -582,7 +595,7 @@ export class Tester {
         if (this._options.outputFile) {
           fs.writeFileSync(
             this._options.outputFile,
-            JSON5.stringify(this._results)
+            JSONN.stringify(this._results)
           );
           update({
             msg: `Wrote results to: ${this._options.outputFile}`,
@@ -640,14 +653,14 @@ export class Tester {
       // we need to retain any saved details for injected tests.
       if (genInput.injected) {
         // Ensure the injected inputs are in the expected order
-        const expectedInput = JSON5.stringify(
+        const expectedInput = JSONN.stringify(
           injectTests[runStats.counters.inputsInjected].input
         );
-        const returnedInput = JSON5.stringify(result.input);
+        const returnedInput = JSONN.stringify(result.input);
         if (expectedInput !== returnedInput) {
           throw new Error(
             `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
-              JSON5.stringify(injectTests, null, 3)
+              JSONN.stringify(injectTests, null, 3)
           );
         }
 
@@ -717,40 +730,66 @@ export class Tester {
         msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Generating new test"} input# ${
           runStats.counters.passedTests + runStats.counters.failedTests + 1
         }: ${this._function.getName()}(${result.input
-          .map((i) => JSON5.stringify(i.value))
+          .map((i) => ValueMapper.toLang(lang, i.value))
           .join(",")})\r\n  Tests passed: ${
           runStats.counters.passedTests
         }\r\n  Tests failed: ${runStats.counters.failedTests}`,
         pct: typeof stopCondition === "number" ? stopCondition : 100,
       });
 
-      // Call the function via the runner
+      // Call the PUT via its runner
       const startRunTime = performance.now(); // start timer
+      let exeOutput: RunnerResult;
       try {
-        const inputValues = result.input.map((e) => e.value);
-        const [exeOutput] = runner.run(
-          JSON5.parse<typeof inputValues>(JSON5.stringify(inputValues)),
-          this._options.fnTimeout
-        ); // <-- Runner (protect the input)
-        result.output.push({
-          name: "0",
-          offset: 0,
-          value: exeOutput as ArgValueType,
-          origin: { type: "put" },
-        });
-        result.timers.run = performance.now() - startRunTime; // stop timer
+        exeOutput = await runner.run(
+          structuredClone(result.input.map((e) => e.value)),
+          Math.max(this._options.fnTimeout, 1)
+        );
       } catch (e: unknown) {
-        result.timers.run = performance.now() - startRunTime; // stop timer
-        const msg = getErrorMessageOrJson(e);
-        const stack = isError(e) ? e.stack : "<no stack>";
-        if (isTimeoutError(e)) {
-          result.timeout = true;
+        if (isError(e)) {
+          exeOutput = {
+            result: {
+              tag: "error",
+              name: e.name,
+              message: e.message,
+              stack: e.stack ?? "<no stack>",
+              seq: -1,
+            },
+            env: {},
+          };
         } else {
-          result.exception = true;
-          result.exceptionMessage = msg;
-          result.stack = stack;
+          exeOutput = {
+            result: {
+              tag: "error",
+              name: "unknown internal runner error",
+              message: "unknown",
+              stack: "<no stack>",
+              seq: -1,
+            },
+            env: {},
+          };
         }
       }
+      result.timers.run = performance.now() - startRunTime; // stop timer
+      switch (exeOutput.result.tag) {
+        case "value":
+          result.output.push({
+            name: "0",
+            offset: 0,
+            value: exeOutput.result.value as ArgValueType,
+            origin: { type: "put" },
+          });
+          break;
+        case "error":
+          result.exception = true;
+          result.exceptionMessage = exeOutput.result.message;
+          result.stack = exeOutput.result.stack;
+          break;
+        case "timeout":
+          result.timeout = true;
+          break;
+      }
+
       this._results.stats.timers.put += result.timers.run;
       if (genStats) {
         genStats.timers.run += result.timers.run;
@@ -781,8 +820,8 @@ export class Tester {
       // PROPERTY ORACLE --------------------------------------------
       // If a property validator is selected, call it to evaluate the result
       if (this._options.useProperty) {
-        propertyOracle
-          .judge(
+        (
+          await propertyOracle.judge(
             Object.freeze({
               in: result.input.map((i) => i.value), // inputs
               out:
@@ -791,19 +830,20 @@ export class Tester {
                   : result.output[0].value,
               exception: result.exception,
               timeout: result.timeout,
-            })
+            }),
+            Math.max(this._options.fnTimeout, 1)
           )
-          .forEach((j, i) => {
-            if (isError(j)) {
-              result.passedValidators.push("unknown");
-              result.validatorException = true;
-              result.validatorExceptionMessage = j.message;
-              result.validatorExceptionFunction = this._validators[i].name;
-              result.validatorExceptionStack = j.stack;
-            } else {
-              result.passedValidators.push(j);
-            }
-          });
+        ).forEach((j, i) => {
+          if (isError(j)) {
+            result.passedValidators.push("unknown");
+            result.validatorException = true;
+            result.validatorExceptionMessage = j.message;
+            result.validatorExceptionFunction = this._validators[i].name;
+            result.validatorExceptionStack = j.stack;
+          } else {
+            result.passedValidators.push(j);
+          }
+        });
 
         // Summarize propert judgments.
         result.passedValidator = PropertyOracle.summarize(
@@ -835,10 +875,7 @@ export class Tester {
       {
         const startMeasureTime = performance.now(); // start timer
         const measurements = this._measures.map((e) =>
-          e.measure(
-            JSON5.parse<typeof genInput>(JSON5.stringify(genInput)),
-            JSON5.parse<typeof result>(JSON5.stringify(result))
-          )
+          e.measure(structuredClone(genInput), structuredClone(result))
         );
 
         // Provide measures feedback to the composite input generator
@@ -971,60 +1008,6 @@ const isOptionValid = (options: FuzzOptions): boolean => {
 }; // fn: isOptionValid()
 
 /**
- * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
- *
- * The original function-timeout is an ES module; incorporating it here
- * avoids adding Babel to the dev toolchain solely for the benefit of Jest,
- * for which ESM support without Babel remains buggy / experimental. Maybe
- * we can remove this in the future or just add Babel for Jest.
- *
- * This function accepts a function and a timeout as input.  It then returns
- * a wrapper function that will throw an exception if the function does not
- * complete within, roughly, the timeout.
- *
- * @param function_ function to be executed with the timeout
- * @param param1
- * @returns
- */
-export function functionTimeout(function_: any, timeout: number): any {
-  const script = new vm.Script("returnValue = function_()");
-
-  const wrappedFunction = (...arguments_: ArgValueType[]) => {
-    const context = {
-      returnValue: undefined,
-      function_: () => function_(...arguments_),
-    };
-
-    script.runInNewContext(context, { timeout: timeout });
-
-    return context.returnValue;
-  };
-
-  Object.defineProperty(wrappedFunction, "name", {
-    value: `functionTimeout(${function_.name || "<anonymous>"})`,
-    configurable: true,
-  });
-
-  return wrappedFunction;
-} // fn: functionTimeout()
-
-/**
- * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
- *
- * Returns true if the exception is a timeout.
- *
- * @param error exception
- * @returns true if the exeception is a timeout exception, false otherwise
- */
-export function isTimeoutError(error: unknown): boolean {
-  return (
-    isError(error) &&
-    "code" in error &&
-    error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT"
-  );
-} // fn: isTimeoutError()
-
-/**
  * Returns a list of validator FunctionRefs found within the ProgramDef
  * associated with a FunctionDef
  *
@@ -1032,11 +1015,11 @@ export function isTimeoutError(error: unknown): boolean {
  * @returns an array of validator FunctionRefs
  */
 export function getValidators(
-  program: TypescriptProgram,
+  program: AbstractProgram,
   fnUnderTest: FunctionDef
 ): FunctionRef[] {
   const fnUnderTestName = fnUnderTest.getName();
-  return Object.values(program.getExportedFunctions())
+  return Object.values(program.functionsExported)
     .filter(
       (fn) =>
         fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName
@@ -1095,7 +1078,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
  * @returns string representation of input key
  */
 export function getIoKey(io: FuzzIoElement[]): string {
-  return JSON5.stringify(
+  return JSONN.stringify(
     io.map((input) => {
       return { value: input.value };
     })

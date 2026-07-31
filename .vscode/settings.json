@@ -6,6 +6,7 @@
   "[jsonc]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
   "[markdown]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
   "[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[python]": { "editor.defaultFormatter": "ms-python.autopep8" },
   "[yaml]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
   "search.exclude": {
     "build": true // set this to false to include build folder in search results
@@ -13,6 +14,7 @@
   // Turn off tsc task auto detection since we have the necessary tasks as npm scripts
   "js/ts.tsc.autoDetect": "off",
   "js/ts.tsdk.path": "./node_modules/typescript/lib",
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true,
   "editor.formatOnSave": true,
   "jasmineExplorer.nodeArgv": ["--no-experimental-strip-types"],
   "eslint.validate": ["javascript", "typescript"],

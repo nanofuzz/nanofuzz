@@ -1,12 +1,14 @@
-import { TypescriptProgram } from "./TypescriptProgram";
+import * as ProgramFactory from "../ProgramFactory";
 import { ArgTag } from "../Types";
+import { TypescriptProgram } from "./TypescriptProgram";
 
 describe("fuzzer/analysis/typescript/ProgramDef:", () => {
   it("Explicit default export type reference", () => {
     expect(
-      TypescriptProgram.fromSource(
-        () => `type a = "b";export default a;`
-      ).getDefaultExport()
+      ProgramFactory.fromSource(
+        () => `type a = "b";export default a;`,
+        "typescript"
+      ).defaultExport
     ).toEqual({
       isExported: true,
       optional: false,
@@ -26,9 +28,8 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
 
   it("Explicit default export type literal", () => {
     expect(
-      TypescriptProgram.fromSource(
-        () => `export default "b";`
-      ).getDefaultExport()
+      ProgramFactory.fromSource(() => `export default "b";`, "typescript")
+        .defaultExport
     ).toEqual({
       isExported: true,
       optional: false,
@@ -47,9 +48,10 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
 
   it("Implicit default export type reference", () => {
     expect(
-      TypescriptProgram.fromSource(
-        () => `type a = "b";export {a as default};`
-      ).getDefaultExport()
+      ProgramFactory.fromSource(
+        () => `type a = "b";export {a as default};`,
+        "typescript"
+      ).defaultExport
     ).toEqual({
       isExported: true,
       optional: false,
@@ -68,39 +70,51 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
   });
 
   it("Implicit default export type literal (expect failure)", () => {
-    expect(() =>
-      TypescriptProgram.fromSource(
-        () => `export {"b" as default};`
-      ).getDefaultExport()
+    expect(
+      () =>
+        ProgramFactory.fromSource(
+          () => `export {"b" as default};`,
+          "typescript"
+        ).defaultExport
     ).toThrow();
   });
 
   it("Issue #349 parenthesized types", () => {
-    const exportedFunctions = TypescriptProgram.fromSource(
+    const exportedFunctions = ProgramFactory.fromSource(
       () => `type NumberOrString = number | string;
       export function test1a(arr: (number | string)[]): void {};
       export function test2a(a: { b: NumberOrString }): void {};
       export function test1b(arr: NumberOrString[]): void {};
-      export function test2b(a: { b:  number | string }): void {};`
-    ).getExportedFunctions();
+      export function test2b(a: { b:  number | string }): void {};`,
+      "typescript"
+    ).functionsExported;
     expect(
-      exportedFunctions["test1a"].getArgDefs().map((a) => a.getTypeAnnotation())
+      exportedFunctions["test1a"]
+        .getArgDefs()
+        .map((a) => TypescriptProgram.getTypeAnnotation(a))
     ).toEqual(["(number | string)[]"]);
     expect(
-      exportedFunctions["test2a"].getArgDefs().map((a) => a.getTypeAnnotation())
+      exportedFunctions["test2a"]
+        .getArgDefs()
+        .map((a) => TypescriptProgram.getTypeAnnotation(a))
     ).toEqual(["{ b: NumberOrString }"]);
     expect(
-      exportedFunctions["test1b"].getArgDefs().map((a) => a.getTypeAnnotation())
+      exportedFunctions["test1b"]
+        .getArgDefs()
+        .map((a) => TypescriptProgram.getTypeAnnotation(a))
     ).toEqual(["NumberOrString[]"]);
     expect(
-      exportedFunctions["test2b"].getArgDefs().map((a) => a.getTypeAnnotation())
+      exportedFunctions["test2b"]
+        .getArgDefs()
+        .map((a) => TypescriptProgram.getTypeAnnotation(a))
     ).toEqual(["{ b: number | string }"]);
   });
 
   it("Issue 387: unsupport types do not affect other types", () => {
-    const exportedTypes = TypescriptProgram.fromSource(
-      () => 'export type a = "a";export type b = bigint;'
-    ).getExportedTypes();
+    const exportedTypes = ProgramFactory.fromSource(
+      () => 'export type a = "a";export type b = bigint;',
+      "typescript"
+    ).typesExported;
     expect(exportedTypes["a"]).toEqual({
       isExported: true,
       optional: false,

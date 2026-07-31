@@ -1,4 +1,3 @@
-import * as JSON5 from "json5";
 import { ArgDef } from "./ArgDef";
 import {
   ArgType,
@@ -7,6 +6,7 @@ import {
   ArgOptions,
   TypeRef,
 } from "./Types";
+import { ProgramLanguage } from "./Types";
 
 /**
  * The FunctionDef class represents a function definition in a Typescript source
@@ -40,7 +40,7 @@ export class FunctionDef {
     this._cmt = ref.cmt;
 
     if (!ref.args) {
-      throw new Error(`FunctionRef.args is undefined: ${JSON5.stringify(ref)}`);
+      throw new Error(`FunctionRef.args is undefined: ${JSON.stringify(ref)}`);
     }
 
     // Extract the function arguments
@@ -109,6 +109,15 @@ export class FunctionDef {
   public getArgDefs(): ArgDef<ArgType>[] {
     return [...this._argDefs];
   } // fn: getArgDefs()
+
+  /**
+   * Returns the function's language
+   *
+   * @returns function language
+   */
+  public getLang(): ProgramLanguage {
+    return this._ref.lang;
+  } // fn: getLang()
 
   /**
    * Returns the starting offset of the function in the source file.

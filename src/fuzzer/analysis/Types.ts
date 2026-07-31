@@ -1,4 +1,9 @@
 /**
+ * Languages that NaNofuzz can analyze
+ */
+export type ProgramLanguage = "typescript" | "python" | "*";
+
+/**
  * Represents a single import declaration within a TypeScript program
  */
 export type ProgramImport = {
@@ -34,6 +39,7 @@ export type FunctionRef = {
   module: ProgramPath; // Module where the function resides
   name: IdentifierName; // Name of the function
   src: string; // Function source code
+  lang: ProgramLanguage; // language of the function
   startOffset: number; // Starting offset of the function in the source file
   endOffset: number; // Ending offset of the function in the source file
   isExported: boolean; // True if the function is exported; false, otherwise
@@ -57,6 +63,7 @@ export type TypeRef = {
     dims: number; // Concrete type dims (the concrete type may have its own dimensions)
     children: TypeRef[]; // Array of child types
     value?: ArgType; // Value if a literal type
+    options?: ArgOptionOverride; // Type-specific input-generation options
     resolved?: boolean; // True if the type's children have been resolved; false, otherwise
   };
   isExported: boolean; // True if the type is exported; false, otherwise

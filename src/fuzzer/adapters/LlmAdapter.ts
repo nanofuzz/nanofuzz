@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ArgValueType } from "../analysis/Types";
+import { ArgValueType, ProgramLanguage } from "../analysis/Types";
 import * as JSON5 from "json5";
 import { FunctionDef } from "../analysis/FunctionDef";
 import * as nodellm from "@node-llm/core";
@@ -140,6 +140,7 @@ export class LlmAdapter {
     fn: FunctionDef,
     directives: string[]
   ): {
+    lang: ProgramLanguage;
     fnName: string;
     fnSource: string;
     fnSpec: string;
@@ -147,6 +148,7 @@ export class LlmAdapter {
   } {
     const fnRef = fn.getRef();
     return {
+      lang: fnRef.lang,
       fnName: fnRef.name,
       fnSource: fnRef.src,
       fnSpec: fn.getCmt() ?? "",
@@ -299,10 +301,10 @@ export class LlmAdapter {
  */
 const prompt = {
   system: (): string => {
-    return `You are an experienced Typescript developer who writes efficient tests that thoroughly evaluate the correctness of TypeScript programs. You are aware of the important differences between TypeScript’s === and == operators.`;
+    return `You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.`;
   },
   genInputs: (vars: ReturnType<LlmAdapter["_getPromptVars"]>): string => {
-    return `To evaluate whether the following TypeScript program "${vars.fnName}" behaves correctly relative to its specification, generate 10 to 20 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+    return `To evaluate whether the following ${vars.lang} program "${vars.fnName}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
 
 The specification for the "${vars.fnName}" program:
 \`\`\`
@@ -310,7 +312,7 @@ ${vars.fnSpec ? vars.fnSpec : `(no specification was found. try to infer the spe
 \`\`\`
 
 The "${vars.fnName}" program:
-\`\`\`
+\`\`\`${vars.lang}
 ${vars.fnSource}
 \`\`\`
 
