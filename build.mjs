@@ -48,18 +48,6 @@ if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
   console.log(`copied .py ${pkg.name}`);
 });
 
-// Copy wasm imports (web-tree-sitter)
-[
-  "./node_modules/web-tree-sitter/web-tree-sitter.wasm",
-  "./node_modules/tree-sitter-python/tree-sitter-python.wasm",
-  "./node_modules/tree-sitter-typescript/tree-sitter-typescript.wasm",
-  "./node_modules/tree-sitter-javascript/tree-sitter-javascript.wasm",
-].forEach((wasmFile) => {
-  copyfiles([wasmFile, "./build/ui"], true, () =>
-    console.log(`copied ${path.basename(wasmFile)}`)
-  );
-});
-
 // VSCode Web Extension Back-end
 await esbuild.build({
   entryPoints: ["./src/extension.ts"],
@@ -77,10 +65,10 @@ await esbuild.build({
     "crypto",
     "vscode",
     "typescript",
-    "tree-sitter",
     "tree-sitter-python",
     "tree-sitter-typescript",
     "tree-sitter-javascript",
+    "web-tree-sitter",
   ],
   define: { "process.env.TARGET_WEB": "false" },
 });

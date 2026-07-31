@@ -1,6 +1,11 @@
 import * as PythonValueMapper from "./PythonValueMapper";
+import * as Parser from "../../adapters/ParserAdapter";
 
 describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
+  beforeAll(async () => {
+    await Parser.init();
+  });
+
   it("round-trip values", () => {
     [
       //null,

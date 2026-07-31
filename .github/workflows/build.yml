@@ -35,11 +35,6 @@ jobs:
         with:
           node-version: 22
           cache: yarn
-      - name: Setup MSVC (Windows)
-        if: runner.os == 'Windows'
-        uses: crazy-max/ghaction-chocolatey@v4
-        with:
-          args: install python visualstudio2022-workload-vctools -y
       - name: Install yarn packages
         run: yarn
       - name: Run all builds

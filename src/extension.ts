@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fp from "./ui/FuzzPanelController";
 import * as tm from "./telemetry/Telemetry";
+import * as Parser from "./fuzzer/adapters/ParserAdapter";
 
 const disposables: vscode.Disposable[] = []; // Keep track of disposables
 
@@ -9,9 +10,12 @@ const disposables: vscode.Disposable[] = []; // Keep track of disposables
  *
  * @param context extension context provided by the VS Code extension host
  */
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(
+  context: vscode.ExtensionContext
+): Promise<void> {
   tm.init(context);
   fp.init(context);
+  await Parser.init();
 
   // --------------------------- Commands --------------------------- //
 

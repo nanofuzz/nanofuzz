@@ -4,6 +4,7 @@ import { ArgTag } from "../Types";
 import { PythonProgram } from "./PythonProgram";
 import * as fs from "fs";
 import * as path from "path";
+import * as Parser from "../../adapters/ParserAdapter";
 
 class InspectablePythonProgram extends PythonProgram {
   public get unsupportedFunctions() {
@@ -12,6 +13,10 @@ class InspectablePythonProgram extends PythonProgram {
 }
 
 describe("fuzzer/analysis/python/PythonProgram:", () => {
+  beforeAll(async () => {
+    await Parser.init();
+  });
+
   it("distinguishes int and float input options", () => {
     // Set the global default to false so this verifies that `int` supplies
     // its own constraint rather than inheriting the default by coincidence.

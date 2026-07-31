@@ -17,16 +17,11 @@ import { getErrorMessageOrJson } from "../../Util";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as ProgramFactory from "../ProgramFactory";
 import * as JSON5 from "json5";
-import Parser, { Query, QueryCapture } from "tree-sitter";
-import PythonGrammar from "tree-sitter-python";
-import * as fs from "fs";
-import * as path from "path";
+import * as Parser from "../../adapters/ParserAdapter";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { PythonRunner } from "../../runners/PythonRunner";
 import { ArgDef } from "../ArgDef";
-
-// Type definitions are broken in tree-sitter-python
-// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-const Python: Parser.Language = PythonGrammar as Parser.Language;
 
 export class PythonProgram extends AbstractProgram {
   public static readonly lang = "python";
@@ -47,10 +42,8 @@ export class PythonProgram extends AbstractProgram {
     }
   }
 
-  protected _parse(_src: string): void {
-    const parser = new Parser();
-    parser.setLanguage(Python);
-    this._ast = parser.parse(_src);
+  protected _parse(src: string): void {
+    this._ast = Parser.parse("python", src) ?? undefined;
   }
 
   protected _findImports(): ProgramImports {
@@ -60,8 +53,8 @@ export class PythonProgram extends AbstractProgram {
     }
     const ast = this._ast;
 
-    const traverse = new Query(
-      Python,
+    const traverse = Parser.query(
+      "python",
       `
 [
   (import_statement) @import.stmt
@@ -287,7 +280,7 @@ export class PythonProgram extends AbstractProgram {
    * @param `node` The node to check
    * @returns `true` if the node is block scoped, `false` otherwise
    */
-  private static isBlockScoped(node: Parser.SyntaxNode): boolean {
+  protected static isBlockScoped(node: Parser.SyntaxNode): boolean {
     let thisNode = node;
     while (thisNode.parent) {
       if (thisNode.parent.type === "block") {
@@ -308,8 +301,8 @@ export class PythonProgram extends AbstractProgram {
     // List of nodes
     const types: Record<string, TypeRef> = {};
 
-    const typeQuery = new Query(
-      Python,
+    const typeQuery = Parser.query(
+      "python",
       `
 (type_alias_statement
   left: (type (identifier)) @type.name
@@ -342,7 +335,7 @@ export class PythonProgram extends AbstractProgram {
     // existing object type rather than a dynamic mapping type. Resolve the
     // standard spelling, qualified spellings, and an imported alias; do not
     // treat ordinary `dict[...]` annotations as objects.
-    const isTypedDictBase = (node: Parser.SyntaxNode): boolean => {
+    const isTypedDictBase = (node: Parser.Node): boolean => {
       if (
         [
           "TypedDict",
@@ -640,7 +633,7 @@ export class PythonProgram extends AbstractProgram {
    * so keeping the normalization here ensures container cases behave
    * identically.
    */
-  private _getGenericParts(node: Parser.SyntaxNode): {
+  protected _getGenericParts(node: Parser.SyntaxNode): {
     base: string;
     args: Parser.SyntaxNode[];
   } {
@@ -844,7 +837,7 @@ export class PythonProgram extends AbstractProgram {
   }
 
   protected _getLambdaFromNode(
-    captures: QueryCapture[]
+    captures: Parser.QueryCapture[]
   ): FunctionRef | undefined {
     const nameNode = captures.find((c) => c.name === "function.name");
     const bodyNode = captures.find((c) => c.name === "function.body");
@@ -877,7 +870,7 @@ export class PythonProgram extends AbstractProgram {
 
   // standard functions
   protected _getFunctionFromNode(
-    captures: QueryCapture[]
+    captures: Parser.QueryCapture[]
   ): FunctionRef | undefined {
     let returnType = undefined;
     let isVoid = false;
@@ -932,8 +925,8 @@ export class PythonProgram extends AbstractProgram {
     const unsupported: AbstractProgram["_functions"]["unsupported"] = {};
 
     // Traverse the AST to find function definitions
-    const functionQuery = new Query(
-      Python,
+    const functionQuery = Parser.query(
+      "python",
       `
 (function_definition
   name: (identifier) @function.name
@@ -967,8 +960,8 @@ export class PythonProgram extends AbstractProgram {
         };
       }
     }
-    const lambdaQuery = new Query(
-      Python,
+    const lambdaQuery = Parser.query(
+      "python",
       `
 (assignment
   left: (identifier) @function.name
