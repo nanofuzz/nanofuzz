@@ -38,7 +38,7 @@ export async function init(): Promise<void> {
         if (modulesUrl === undefined) {
           // detect posix/windows separator without `node:path`
           sep =
-            dir.slice(1, 2) === ":\\" || dir.slice(0, 1) === `\\\\`
+            dir.slice(1, 3) === ":\\" || dir.slice(0, 2) === `\\\\`
               ? "\\"
               : "/";
           // web-tree-sitter on node can "helpfully" append "/" to the end of windows paths
