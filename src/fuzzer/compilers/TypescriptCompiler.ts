@@ -10,12 +10,12 @@
  *
  * Note: Because it hooks require, this module is not compatible with Jest.
  */
-import vm from "vm";
-import fs from "fs";
+import vm from "node:vm";
+import fs from "node:fs";
 import { Worker } from "worker_threads";
-import path from "path";
-import os from "os";
-import JSON5 from "json5";
+import path from "node:path";
+import os from "node:os";
+import * as JSONN from "../../Jsonn";
 import { AbstractMeasure } from "../measures/AbstractMeasure";
 import {
   FuzzBusyStatusMessage,
@@ -152,6 +152,8 @@ export class TypescriptCompiler {
     // Determine options using the module path
     this._options = structuredClone(defaultOptions);
     this._determineOptions();
+    this._tscPath = this._findTsc();
+    this._tscVersion = this._findTscVersion(this._tscPath) ?? "unknown";
 
     // Track local compilations
     const localCompilations: string[] = [];
@@ -403,7 +405,7 @@ export class TypescriptCompiler {
       //process.cwd(),
 
       "--target",
-      options.target ? options.target : "ES2020",
+      options.target ? options.target : "ES2022",
 
       options.moduleKind ? "--module" : "",
       options.moduleKind ? options.moduleKind : "",
@@ -549,7 +551,7 @@ export class TypescriptCompiler {
    * @returns filename of compilation details
    */
   protected _getCompilationRecordFilename(moduleFile: string): string {
-    return `${this._getJsFilename(moduleFile)}.comp.json`;
+    return `${this._getJsFilename(moduleFile)}.comp.json5`;
   } // fn: _getCompilationRecordFilename
 
   /**
@@ -562,36 +564,8 @@ export class TypescriptCompiler {
   ): CompilationRecord | undefined {
     const compRecFile = this._getCompilationRecordFilename(moduleFile);
     try {
-      const compRecRaw = JSON5.parse(fs.readFileSync(compRecFile).toString());
-      if (
-        typeof compRecRaw === "object" &&
-        !Array.isArray(compRecRaw) &&
-        compRecRaw !== null &&
-        "fileVersion" in compRecRaw &&
-        compRecRaw.fileVersion === CURR_COMPILATION_FILE_VER &&
-        "details" in compRecRaw &&
-        typeof compRecRaw.details === "object" &&
-        !Array.isArray(compRecRaw.details) &&
-        compRecRaw.details !== null &&
-        "srcFile" in compRecRaw.details &&
-        typeof compRecRaw.details.srcFile === "string" &&
-        "srcDatetime" in compRecRaw.details &&
-        typeof compRecRaw.details.srcDatetime === "string" &&
-        "jsFile" in compRecRaw.details &&
-        typeof compRecRaw.details.jsFile === "string" &&
-        "jsDatetime" in compRecRaw.details &&
-        typeof compRecRaw.details.jsDatetime === "string" &&
-        "tscFile" in compRecRaw.details &&
-        typeof compRecRaw.details.tscFile === "string" &&
-        "tscVersion" in compRecRaw.details &&
-        typeof compRecRaw.details.tscVersion === "string" &&
-        "tscDatetime" in compRecRaw.details &&
-        typeof compRecRaw.details.tscDatetime === "string" &&
-        (!("tsconfigFile" in compRecRaw.details) ||
-          typeof compRecRaw.details.tsconfigFile === "string") &&
-        (!("tsconfigDatetime" in compRecRaw.details) ||
-          typeof compRecRaw.details.tsconfigDatetime === "string")
-      ) {
+      const compRecRaw = JSONN.parse(fs.readFileSync(compRecFile).toString());
+      if (isCompilationRecord(compRecRaw)) {
         return compRecRaw;
       }
     } catch (_e: unknown) {
@@ -670,7 +644,7 @@ export class TypescriptCompiler {
     }
 
     throw new Error(
-      `No copy of tsc found. Checked: ${JSON5.stringify(tscPriority, null, 2)}`
+      `No copy of tsc found. Checked: ${JSONN.stringify(tscPriority, null, 2)}`
     );
   } // fn: _findTsc
 
@@ -684,7 +658,7 @@ export class TypescriptCompiler {
     const packageJson = findInAncestor(path.dirname(tscPath), "package.json");
     if (packageJson) {
       try {
-        const packageJsonData: unknown = JSON5.parse<unknown>(
+        const packageJsonData: unknown = JSONN.parse<unknown>(
           fs.readFileSync(packageJson).toString()
         );
         return packageJsonData !== null &&
@@ -742,7 +716,7 @@ export class TypescriptCompiler {
     }
 
     try {
-      const tsConfig: unknown = JSON5.parse(tsConfigData);
+      const tsConfig: unknown = JSONN.parse(tsConfigData);
       this._options.tscConfigFilename = tsConfigFilename;
       try {
         const projectDir = path.dirname(tsConfigFilename);
@@ -871,6 +845,45 @@ function compact<T>(arr: T[]) {
 } // fn: compact
 
 /**
+ * Type guard function that returns true if the input object
+ * is a Compilation Record.
+ *
+ * @param obj the object to check
+ * @returns true if `obj` is a CompilationRecord
+ */
+export function isCompilationRecord(obj: unknown): obj is CompilationRecord {
+  return (
+    typeof obj === "object" &&
+    !Array.isArray(obj) &&
+    obj !== null &&
+    "fileVersion" in obj &&
+    obj.fileVersion === CURR_COMPILATION_FILE_VER &&
+    "details" in obj &&
+    typeof obj.details === "object" &&
+    !Array.isArray(obj.details) &&
+    obj.details !== null &&
+    "srcFile" in obj.details &&
+    typeof obj.details.srcFile === "string" &&
+    "srcDatetime" in obj.details &&
+    typeof obj.details.srcDatetime === "string" &&
+    "jsFile" in obj.details &&
+    typeof obj.details.jsFile === "string" &&
+    "jsDatetime" in obj.details &&
+    typeof obj.details.jsDatetime === "string" &&
+    "tscFile" in obj.details &&
+    typeof obj.details.tscFile === "string" &&
+    "tscVersion" in obj.details &&
+    typeof obj.details.tscVersion === "string" &&
+    "tscDatetime" in obj.details &&
+    typeof obj.details.tscDatetime === "string" &&
+    (!("tsconfigFile" in obj.details) ||
+      typeof obj.details.tsconfigFile === "string") &&
+    (!("tsconfigDatetime" in obj.details) ||
+      typeof obj.details.tsconfigDatetime === "string")
+  );
+} // fn: isError
+
+/**
  * Type of modulles to hook for compilation
  */
 const hookType = ".ts";
@@ -885,11 +898,11 @@ const tsconfigFilename = "tsconfig.json";
  */
 const defaultOptions: CompilerOptions = {
   nodeLib: false,
-  target: "ES2020", // default to ES2020
+  target: "ES2022", // default to ES2022
   moduleKind: "nodenext", // cjs is required for running inside express
   emitOnError: false, // fail compilation in case of errors
   tmpDir: path.join(os.tmpdir(), "nanofuzz", "tsc"), // path for compiled files
-  lib: ["DOM", "ScriptHost", "ES2020"], // default to ES2020
+  lib: ["DOM", "ScriptHost", "ES2020", "ES2021.String", "ES2022"], // default to ES2020
   types: [""], // do not automatically import types
   typeRoots: [], // do not automatically import types
   baseUrl: "./",
