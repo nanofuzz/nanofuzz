@@ -95,6 +95,36 @@ def greeting(name: a) -> a:
     expect(PythonProgram.getTypeAnnotation(args[0])).toEqual("a");
   });
 
+  it("extracts Python function docstrings", () => {
+    const functions = ProgramFactory.fromSource(
+      () => `def plain():
+  "one line"
+def multiline():
+  r"""first line
+  second line"""
+def concatenated():
+  "first" " second"
+def formatted():
+  f"value {1}"
+def not_first():
+  pass
+  "not a docstring"`,
+      "python"
+    ).functionsExported;
+
+    expect(
+      ["plain", "multiline", "concatenated", "formatted", "not_first"].map(
+        (name) => functions[name].getCmt()
+      )
+    ).toEqual([
+      '"one line"',
+      'r"""first line\n  second line"""',
+      '"first" " second"',
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("extracts primitive, collection, union, and literal aliases", () => {
     // PEP 695 aliases are analyzed without importing a runtime typing module.
     const types = ProgramFactory.fromSource(
