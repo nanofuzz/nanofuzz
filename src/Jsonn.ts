@@ -114,7 +114,7 @@ export function parse<T>(
  * @returns stringified placeholder value
  */
 export function getPlaceholder(_key: "undefined"): string {
-  return `{${PlaceHolderValueKey}:'${UndefinedKey}'}`;
+  return `{${PlaceHolderValueKey}:'${UndefinedValue}'}`;
   //  return Undefined;
 }
 
@@ -131,12 +131,11 @@ function jsonnReplacer(this: unknown, key: string, value: unknown): unknown {
   switch (typeof value) {
     case "undefined":
       return {
-        [PlaceHolderValueKey]: UndefinedKey,
+        [PlaceHolderValueKey]: UndefinedValue,
       };
     case "bigint":
       return {
-        [PlaceHolderTypeKey]: BigIntKey,
-        [PlaceHolderValueKey]: value.toString(),
+        [PlaceHolderBigIntKey]: value.toString(),
       };
     default:
       return value;
@@ -161,35 +160,27 @@ function jsonnReviver(
   targets: ReviveTarget[]
 ): unknown {
   if (isKeyedObject(value)) {
-    const valueType = value[PlaceHolderTypeKey];
-    const valueValue = value[PlaceHolderValueKey];
-    switch (valueType) {
-      case undefined: {
-        if (valueValue === UndefinedKey) {
-          if (key === "") {
-            return undefined;
-          } else {
-            if (Array.isArray(this)) {
-              targets.push({ arr: this, key, value: undefined });
-            } else if (isKeyedObject(this)) {
-              targets.push({ obj: this, key, value: undefined });
-            }
-          }
+    if (value[PlaceHolderValueKey] === UndefinedValue) {
+      if (key === "") {
+        return undefined;
+      } else {
+        if (Array.isArray(this)) {
+          targets.push({ arr: this, key, value: undefined });
+        } else if (isKeyedObject(this)) {
+          targets.push({ obj: this, key, value: undefined });
         }
-        break;
       }
-      case BigIntKey: {
-        const newValue = BigInt(String(valueValue));
-        if (key === "") {
-          return newValue;
-        } else {
-          if (Array.isArray(this)) {
-            targets.push({ arr: this, key, value: newValue });
-          } else if (isKeyedObject(this)) {
-            targets.push({ obj: this, key, value: newValue });
-          }
+    }
+    if (typeof value[PlaceHolderBigIntKey] === "string") {
+      const newValue = BigInt(String(value[PlaceHolderBigIntKey]));
+      if (key === "") {
+        return newValue;
+      } else {
+        if (Array.isArray(this)) {
+          targets.push({ arr: this, key, value: newValue });
+        } else if (isKeyedObject(this)) {
+          targets.push({ obj: this, key, value: newValue });
         }
-        break;
       }
     }
   }
@@ -202,6 +193,5 @@ type ReviveTarget = {
 } & ({ obj: Record<string, unknown> } | { arr: unknown[] });
 
 const PlaceHolderValueKey = "____JSONN____61581952310____VALUE____";
-const PlaceHolderTypeKey = "____JSONN____61581952310____TYPE____";
-const UndefinedKey = "__undefined__";
-const BigIntKey = "__bigint__";
+const PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____";
+const UndefinedValue = "__undefined__";
