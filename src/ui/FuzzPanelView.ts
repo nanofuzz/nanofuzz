@@ -1,4 +1,5 @@
-import * as JSON5 from "json5";
+import * as JSON5 from "../Jsonn";
+import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./Util";
 import {
   FuzzArgOverride,
@@ -11,10 +12,12 @@ import {
   isFuzzResultTab,
   Judgment,
 } from "../fuzzer/Types";
+import * as Parser from "../fuzzer/adapters/ParserAdapter";
 import {
   ArgValueType,
   ArgValueTypeWrapped,
   FuzzTestResults,
+  ProgramLanguage,
 } from "../fuzzer/Fuzzer";
 import {
   FuzzPanelFuzzRunMessage,
@@ -91,6 +94,8 @@ const defaultColumnSortOrders: FuzzSortColumns = {
 let columnSortOrders: FuzzSortColumns;
 // Fuzzer Results (filled by main during load event)
 let resultsData: FuzzTestResults;
+// Fuzzer Language (filled by main during load event)
+let lang: ProgramLanguage;
 // Results grouped by type (filled by main during load event)
 const data: Record<FuzzResultCategory, any[]> = {
   ok: [],
@@ -117,7 +122,12 @@ let coverageHeatmapIsStale = false;
  * Sets up the UI when the page is loaded, including setting up
  * event handlers and filling the output grids if data is available.
  */
-function main() {
+async function main() {
+  // Initialize the parser
+  const parserPromise = Parser.init();
+
+  // --------------------- Event Handlers --------------------- //
+
   // Add event listener for the fuzz.run button
   getElementByIdOrThrow("fuzz.run").addEventListener("click", () => {
     handleFuzzRun();
@@ -235,11 +245,6 @@ function main() {
     // Undo the the parent checkbox click
     getElementByIdOrThrow("fuzz-gen-AiInputGenerator-enabled").click();
   });
-
-  // Load the fuzzer results data from the HTML
-  resultsData = JSON5.parse(
-    htmlUnescape(getElementByIdOrThrow("fuzzResultsData").innerHTML)
-  );
 
   // Add event listener for the validator buttons
   getElementByIdOrThrow("validator.add").addEventListener(
@@ -382,6 +387,13 @@ function main() {
     }); // onScroll event handler
   } // if: tabstrip found
 
+  // ----------------------- Data Loads ----------------------- //
+
+  // Load the fuzzer results data from the HTML
+  resultsData = JSON5.parse(
+    htmlUnescape(getElementByIdOrThrow("fuzzResultsData").innerHTML)
+  );
+
   // Load & display the validator functions from the HTML
   validators = JSON5.parse(
     htmlUnescape(getElementByIdOrThrow("validators").innerHTML)
@@ -464,6 +476,16 @@ function main() {
   if (Array.isArray(addlHiddenColumns)) {
     hiddenColumns.push(...addlHiddenColumns);
   }
+
+  // Get the fuzzer language
+  lang = JSON5.parse<ProgramLanguage>(
+    htmlUnescape(getElementByIdOrThrow("fuzzLang").innerHTML)
+  );
+
+  // ----------------------- Fill Grids ----------------------- //
+
+  // Await parser init
+  await parserPromise;
 
   // Fill the result grids
   if (Object.keys(resultsData).length) {
@@ -555,7 +577,9 @@ function main() {
       const inputs: Record<string, string> = {};
       e.input.forEach((i) => {
         inputs[`input: ${i.name}`] =
-          i.value === undefined ? "(no input)" : JSON5.stringify(i.value);
+          i.value === undefined
+            ? "(no input)"
+            : ValueMapper.toLang(lang, i.value);
       });
 
       // There are 0-1 outputs: if an output is present, just name it `output`
@@ -564,7 +588,9 @@ function main() {
       const outputs: Record<string, string> = {};
       e.output.forEach((o) => {
         outputs[`output`] =
-          o.value === undefined ? "undefined" : JSON5.stringify(o.value);
+          o.value === undefined
+            ? "undefined"
+            : ValueMapper.toLang(lang, o.value);
       });
       if (e.validatorException) {
         outputs[`output`] =
@@ -931,10 +957,10 @@ function getInputValues(): ArgValueTypeWrapped[] | undefined {
         tag: "ArgValueTypeWrapped",
         value:
           unparsedValue === null ||
-          unparsedValue === "undefined" ||
+          //unparsedValue === "undefined" ||
           unparsedValue === ""
             ? undefined
-            : JSON5.parse(unparsedValue),
+            : ValueMapper.fromLang(lang, unparsedValue),
       });
     } catch (_err) {
       // Error feedback
@@ -1882,8 +1908,7 @@ function handleExpectedOutput({
         } else if (expectedOutput[0].isException) {
           expectedText = "exception";
         } else {
-          // expectedText = `output value: ${JSON5.stringify(expectedOutput[0].value)}`;
-          expectedText = `output: ${JSON5.stringify(expectedOutput[0].value)}`;
+          expectedText = `output: ${ValueMapper.toLang(lang, expectedOutput[0].value)}`;
         }
       } else {
         expectedText = "value: undefined";
@@ -1954,7 +1979,7 @@ function expectedOutputHtml(
       <vscode-radio id="fuzz-radioValue${id}" ${isValueAnnotation ? " checked " : ""}>Value:</vscode-radio>
     </vscode-radio-group> 
     <div>
-      <vscode-text-field id="fuzz-expectedOutput${id}" class="${isValueAnnotation ? "" : "hidden"}" placeholder="Literal value (JSON)" value=${JSON5.stringify(defaultOutput.value)}></vscode-text-field>
+      <vscode-text-field id="fuzz-expectedOutput${id}" class="${isValueAnnotation ? "" : "hidden"}" placeholder="Literal value (${lang})" value="${htmlEscape(ValueMapper.toLang(lang,defaultOutput.value))}"></vscode-text-field>
       <span><vscode-button id="fuzz-expectedOutputOk${id}" aria-label="ok" style="display: table-cell; vertical-align: top;">ok</vscode-button></span>
       <span id="fuzz-expectedOutputMessage${id}"></span>
     </div>
@@ -1983,17 +2008,17 @@ function buildExpectedTestCase(
   const errorMessage = getElementByIdOrThrow(`fuzz-expectedOutputMessage${id}`);
   const okButton = getElementByIdOrThrow(`fuzz-expectedOutputOk${id}`);
 
-  // Check if the expected value is valid JSON
+  // Check if the expected value is valid
   const expectedValue = textField.getAttribute("current-value");
   let parsedExpectedValue: ArgValueType;
   try {
     // Attempt to parse the expected value
     parsedExpectedValue =
       expectedValue === null ||
-      expectedValue === "undefined" ||
+      // expectedValue === "undefined" ||
       expectedValue === ""
         ? undefined
-        : JSON5.parse(expectedValue);
+        : ValueMapper.fromLang(lang, expectedValue);
   } catch (_e) {
     // Only validate the value if we are doing a value check
     if ("checked" in radioValue && radioValue.checked) {

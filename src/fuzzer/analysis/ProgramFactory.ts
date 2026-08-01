@@ -1,5 +1,5 @@
 import { AbstractProgram } from "./AbstractProgram";
-import { ArgOptions } from "./Types";
+import { ArgOptions, ProgramLanguage } from "./Types";
 import * as fs from "fs";
 import { TypescriptProgram } from "./typescript/TypescriptProgram";
 import { PythonProgram } from "./python/PythonProgram";
@@ -100,5 +100,3 @@ function factory(
     return new TypescriptProgram(getSource, filename, options, parent);
   }
 } // fn: factory
-
-export type ProgramLanguage = "typescript" | "python" | "*";

@@ -23,6 +23,7 @@ import {
   TypescriptCompilerErrorDetails,
   VmGlobals,
 } from "../Types";
+import { findInAncestor } from "../Util";
 
 // Global list of compilations by entrypoint module
 const _compilationsByModule: {
@@ -149,9 +150,7 @@ export class TypescriptCompiler {
     updateFn: (msg: FuzzBusyStatusMessage) => void
   ): ReturnType<NodeJS.Require> {
     // Determine options using the module path
-    this._options = JSON5.parse<typeof defaultOptions>(
-      JSON5.stringify(defaultOptions)
-    );
+    this._options = structuredClone(defaultOptions);
     this._determineOptions();
 
     // Track local compilations
@@ -224,7 +223,7 @@ export class TypescriptCompiler {
           }
 
           // Load the module & collect measurements from the initial load
-          const context: VmGlobals = this.run(
+          const context: VmGlobals = this._run(
             jsname,
             module,
             src,
@@ -608,7 +607,7 @@ export class TypescriptCompiler {
    * @param module Javqscript module
    * @returns The script result, if any
    */
-  protected run(
+  protected _run(
     jsname: string,
     module: NodeJS.Module,
     src: string,
@@ -870,25 +869,6 @@ function compact<T>(arr: T[]) {
   });
   return narr;
 } // fn: compact
-
-/**
- * Returns `dir`'s nearest item by traversing ancestor paths or `undefined` if not found.
- *
- * Adapted from: https://github.com/joshrtay/find-mod/blob/master/lib/index.js
- *
- * @param dir path
- * @param item file to find
- * @returns path to closest item (or exception if not found)
- */
-function findInAncestor(dir: string, item: string): string | undefined {
-  while (!fs.existsSync(path.resolve(path.join(dir, item)))) {
-    dir = path.resolve(path.join(dir, "..")); // ascend to parent
-    if (dir === path.dirname(dir)) {
-      return undefined;
-    }
-  }
-  return path.resolve(path.join(dir, item));
-} // fn: findInAncestor
 
 /**
  * Type of modulles to hook for compilation

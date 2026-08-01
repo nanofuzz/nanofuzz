@@ -38,11 +38,7 @@ bower_components
 .lock-wscript
 
 # Compiled binary addons (https://nodejs.org/api/addons.html)
-build/Release
-build/dist
-build/extension
-build/ui
-build/workers
+build/
 
 # Dependency directories
 node_modules/
@@ -119,8 +115,9 @@ dist
 # Telemetry data
 /telemetry
 
+# Python residue
+__pycache__/
+
 # direnv files
 /.direnv/
 /.envrc
-src/fuzzer/oracles/__pycache__/ImplicitOracle_test.cpython-311-pytest-7.2.2.pyc
-src/fuzzer/oracles/__pycache__/ImplicitOracle.cpython-311.pyc

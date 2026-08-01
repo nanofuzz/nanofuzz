@@ -2,7 +2,7 @@ import { ArgDef } from "./ArgDef";
 import { ArgDefGenerator } from "./ArgDefGenerator";
 import { ArgDefValidator } from "./ArgDefValidator";
 import { ArgTag, ArgType, ArgValueType, ArgValueTypeWrapped } from "./Types";
-import * as JSON5 from "json5";
+import * as JSON5 from "../../Jsonn";
 
 /**
  * Utilities for mutating values described by an ArgDef spec

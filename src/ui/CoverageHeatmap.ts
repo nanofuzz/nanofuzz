@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { FileCoverage } from "../fuzzer/measures/CoverageMeasure";
+import { FileCoverage } from "../fuzzer/measures/AbstractCoverageMeasure";
 import { TextSpans } from "./TextSpans";
 
 // The number of different heat levels to visualize

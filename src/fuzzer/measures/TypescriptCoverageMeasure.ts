@@ -1,5 +1,4 @@
 import * as JSON5 from "json5";
-import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createSourceMapStore, MapStore } from "istanbul-lib-source-maps";
 import { RawSourceMap } from "source-map";
@@ -17,12 +16,19 @@ import {
 } from "../Fuzzer";
 import { normalizePathForKey } from "../Util";
 import * as fs from "fs";
+import {
+  AbstractCoverageMeasure,
+  CodeCoverageFileStats,
+  CodeCoverageMeasureStats,
+  CoverageMeasurement,
+  CoverageMeasurementNode,
+} from "./AbstractCoverageMeasure";
 
 /**
  * Measures code coverage of test executions
  */
-export class CoverageMeasure extends AbstractMeasure {
-  protected _coverageData?: CoverageMapData; // coverage data maintained by instrumented code
+export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
+  protected _coverageData: CoverageMapData = emptyCoverageMapData([]); // coverage data maintained by instrumented code
   protected _globalCoverageMap = createCoverageMap({}); // global code coverage map
   protected _history: CoverageMeasurementNode[] = []; // measurement history
   protected _sourceMapStore: MapStore = createSourceMapStore();
@@ -322,57 +328,18 @@ export function isCoverageMapData(obj: unknown): obj is CoverageMapData {
   );
 } // fn: isCoverageData
 
-/**
- * Extends BaseMeasurement with code coverage details
- */
-export type CoverageMeasurement = BaseMeasurement & {
-  name: string;
-  coverageMeasure: {
-    current: CoverageMap; // coverage of the current test input
-    accum: CoverageMap; // accumulated coverage of successors (root only)
-    accumDelta: number; // code coverage improvement vs. root aggregate coverage
-    globalDelta: number; // code coverage improvement vs. global aggregate coverage
-  };
-};
-
-/**
- * A node in a directed graph of input relations. For instance, a mutated input
- * points to its predecessor's measurement.
- */
-type CoverageMeasurementNode = {
-  input: InputAndSource;
-  pred: CoverageMeasurementNode | undefined;
-  meas: CoverageMeasurement;
-};
-
-type CodeCoverageCounters = {
-  functionsTotal: number;
-  functionsCovered: number;
-  statementsTotal: number;
-  statementsCovered: number;
-  branchesTotal: number;
-  branchesCovered: number;
-};
-
-/**
- * Per-file Code Coverage Statistics. Includes line-level hit counts, which necessitates
- * per-file stats since line numbers are file-specific.
- */
-type CodeCoverageFileStats = {
-  path: string;
-  counters: CodeCoverageCounters;
-  fileMap: FileCoverage;
-};
-
-/**
- * Code Coverage Statistics
- */
-export type CodeCoverageMeasureStats = {
-  // Global counters
-  counters: CodeCoverageCounters;
-
-  // Per-file breakdown, including line-level hit counts
-  files: CodeCoverageFileStats[];
-};
-
-export { FileCoverage } from "istanbul-lib-coverage";
+export function emptyCoverageMapData(files: string[]): CoverageMapData {
+  const cov: CoverageMapData = {};
+  files.forEach((file) => {
+    cov[file] = {
+      path: file,
+      statementMap: {},
+      fnMap: {},
+      branchMap: {},
+      s: {},
+      f: {},
+      b: {},
+    };
+  });
+  return cov;
+}

@@ -1,13 +1,10 @@
-import * as JSON5 from "json5";
-import * as vscode from "../../vscode";
+import vscode from "vscode";
 import {
   ArgOptionOverride,
   ArgOptions,
   ArgTag,
   ArgType,
   Interval,
-  TypeAnnotationOptionDefaults,
-  TypeAnnotationOptions,
   TypeRef,
 } from "./Types";
 
@@ -82,7 +79,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(options))
       throw new Error(
-        `Invalid options provided.  Check intervals and length values: ${JSON5.stringify(
+        `Invalid options provided.  Check intervals and length values: ${JSON.stringify(
           options,
           null,
           2
@@ -102,7 +99,7 @@ export class ArgDef<T extends ArgType> {
       this.options.dimLength.filter((e) => e.min > e.max || e.min < 0).length
     ) {
       throw new Error(
-        `Invalid dimension length: ${JSON5.stringify(this.options.dimLength)}`
+        `Invalid dimension length: ${JSON.stringify(this.options.dimLength)}`
       );
     }
 
@@ -122,7 +119,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure each non-array dimension is valid
     if (this.intervals.filter((e) => e.min > e.max).length) {
       throw new Error(
-        `Invalid interval: ${JSON5.stringify(this.intervals, undefined, 2)}`
+        `Invalid interval: ${JSON.stringify(this.intervals, undefined, 2)}`
       );
     }
   } // end: constructor
@@ -147,7 +144,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure we have a resolved type
     if (!ref.type)
       throw new Error(
-        `Internal error: unable to create ArgDef for unresolved TypeRef: ${JSON5.stringify(
+        `Internal error: unable to create ArgDef for unresolved TypeRef: ${JSON.stringify(
           ref
         )}`
       );
@@ -158,12 +155,17 @@ export class ArgDef<T extends ArgType> {
         ? [{ min: ref.type.value, max: ref.type.value }]
         : undefined;
 
+    // A source language may provide additional constraints for an otherwise
+    // shared ArgTag. For example, Python `int` and `float` are both NUMBERs,
+    // but only an int requires numInteger input generation.
+    const typeOptions: ArgOptions = { ...options, ...ref.type.options };
+
     // Use the type reference to build the ArgDef
     return new ArgDef<ArgType>(
       ref.name ?? "unknown", // name
       offset, // offset
       ref.type.type, // type
-      options, // options
+      typeOptions, // options
       ref.dims + ref.type.dims, // type reference dims + concrete type dims
       ref.optional, // optional
       intervals, // intervals
@@ -317,7 +319,7 @@ export class ArgDef<T extends ArgType> {
   public setIntervals(intervals: Interval<T>[]): void {
     if (intervals.some((e) => e.min > e.max))
       throw new Error(
-        `Invalid interval provided (max>min): ${JSON5.stringify(intervals)}`
+        `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
       );
     this.intervals = intervals;
   } // fn: setIntervals()
@@ -336,7 +338,7 @@ export class ArgDef<T extends ArgType> {
     ) as Interval<T>[];
     if (intervals.some((e) => e.min > e.max))
       throw new Error(
-        `Invalid interval provided (max>min): ${JSON5.stringify(intervals)}`
+        `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
       );
     this.intervals = intervals;
   } // fn: setIntervals()
@@ -435,7 +437,7 @@ export class ArgDef<T extends ArgType> {
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(newOptions))
       throw new Error(
-        `Invalid options provided. Check intervals and length values: ${JSON5.stringify(
+        `Invalid options provided. Check intervals and length values: ${JSON.stringify(
           newOptions,
           null,
           2
@@ -475,102 +477,6 @@ export class ArgDef<T extends ArgType> {
     }
     return ret;
   } // fn: getChildrenFlat()
-
-  /**
-   * Returns the base type of this ArgDef, i.e., its type without any
-   * dimensions or optionality.
-   */
-  private getBaseType(
-    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
-  ): string {
-    if (this.typeRef && options.useTypeRefs) {
-      return this.typeRef;
-    }
-
-    // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
-    switch (this.type) {
-      case ArgTag.OBJECT: {
-        // Literal object, no type. Recursively walk
-        // the children to build the type.
-        const childTypeAnnotations = this.children.map(
-          (child) =>
-            `${child.getName()}${
-              child.optional && !options.useOptionality ? "?" : ""
-            }: ${child.getTypeAnnotation(options)}`
-        );
-        return `{ ${childTypeAnnotations.join("; ")} }`;
-      }
-
-      case ArgTag.DICTIONARY: {
-        const [key, value] = this.children;
-        return `Record<${key?.getTypeAnnotation(options) ?? "string"}, ${
-          value?.getTypeAnnotation(options) ?? "unknown"
-        }>`;
-      }
-
-      case ArgTag.UNION: {
-        const childTypeAnnotations = this.children.map((child) =>
-          child.getTypeAnnotation(options)
-        );
-        return childTypeAnnotations.join(" | ");
-      }
-
-      case ArgTag.LITERAL: {
-        return `${JSON5.stringify(this.getConstantValue())}`;
-      }
-
-      case ArgTag.TUPLE: {
-        const childTypeAnnotations = this.children.map((child) =>
-          child.getTypeAnnotation(options)
-        );
-        return `[${childTypeAnnotations.join(", ")}]`;
-      }
-
-      default:
-        return this.type;
-    }
-  } // fn: getBaseType()
-
-  /**
-   * Returns a string that works as the type annotation for the argument.
-   * @returns a string that works as the type annotation for the argument
-   */
-  public getTypeAnnotation(
-    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
-  ): string {
-    // Get the base type annotation
-    let baseType = this.getBaseType(options);
-
-    // Wrap union types w/dims in parens prior to adding the dims
-    if (
-      this.type === ArgTag.UNION &&
-      this.dims &&
-      (this.typeRef === undefined || !options.useTypeRefs)
-    ) {
-      baseType = `(${baseType})`;
-    }
-
-    // Add the dimensions to the annotation
-    let type = `${baseType}${this.dims ? "[]".repeat(this.dims) : ""}`;
-
-    // Add optionality (if specified and not already part of the union type)
-    if (
-      this.optional &&
-      !(
-        this.type === ArgTag.UNION &&
-        this.dims === 0 &&
-        this.children.some(
-          (child) =>
-            child.getType() === ArgTag.LITERAL &&
-            child.isConstant() &&
-            child.getConstantValue() === undefined
-        )
-      )
-    ) {
-      type = `${type} | undefined`;
-    }
-    return type;
-  } // fn: getTypeAnnotation()
 
   /**
    * Returns the default option set.

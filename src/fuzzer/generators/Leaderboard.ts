@@ -1,5 +1,3 @@
-import * as JSON5 from "json5";
-
 /**
  * Running list of "interesting" inputs.
  */
@@ -68,7 +66,7 @@ export class Leaderboard<T> {
     // Only post scores > minimum score
     if (score > this._minScore) {
       const thisLeader = {
-        leader: JSON5.parse<typeof leader>(JSON5.stringify(leader)),
+        leader: structuredClone(leader),
         score,
         focus: this._initialFocus,
       };
@@ -128,7 +126,7 @@ export class Leaderboard<T> {
       }
     });
     const leader = this._leaders[leaderIdx ?? 0].leader;
-    return JSON5.parse<typeof leader>(JSON5.stringify(leader));
+    return structuredClone(leader);
   } // fn: getRandomLeader
 
   /**
@@ -138,6 +136,6 @@ export class Leaderboard<T> {
    * @returns array of leaders
    */
   public getLeaders(): { leader: T; score: number }[] {
-    return JSON5.parse<typeof this._leaders>(JSON5.stringify(this._leaders));
+    return structuredClone(this._leaders);
   } // fn: getLeaders
 } // class: Leaderboard

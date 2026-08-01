@@ -26,14 +26,15 @@ Be sure you have these tools installed:
 - [Git][]
 - [Node.js][] v22+ (if using Linux or Mac, we recommend installing via [nvm][])
 - [Yarn][] v1.x
+- [python][] v3.13+
 
 If you're using [Nix][], all dependencies other than Git will be automatically provided by the `flake.nix` file in this repo once you've cloned it.
 
-If you're using Windows, you also need to install the VC++ bits needed to build `tree-sitter`.
+If you're using Windows, install the VC++ bits needed to build `tree-sitter`.
 More details may be found [here](https://github.com/nodejs/node-gyp#on-windows).
 You can use Cocolatey for this:
 
-```
+```cmd
 choco install python visualstudio2022-workload-vctools -y
 ```
 
@@ -48,6 +49,23 @@ Here are some WSL-specific guides:
 
 Once you've installed all prerequisites, [clone][] [this repo][] in VS Code.
 The rest of this document assumes you are running commands from the root directory of your repo from the terminal in VS Code, unless otherwise specified.
+
+Next, create a virtual Python environment within your local clone of the NaNofuzz repo and install Python packages. On Linux or MacOS:
+
+```sh
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Or on Windows:
+
+```
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
 Next [install dependencies][]:
 
 ```sh
@@ -70,6 +88,7 @@ Test NaNofuzz:
 
 ```sh
 yarn test
+pytest
 ```
 
 ### Run
@@ -77,7 +96,7 @@ yarn test
 To run the local version of the NaNofuzz extension:
 
 - Build NaNofuzz (`yarn build`)
-- Press `Fn`+`F5` to open a new VS Code window running VSC's Extension Development Host. (Note that the top of the new window says `[Extension Development Host]`)
+- Press `F5` to open a new VS Code window running VSC's Extension Development Host. (Note that the top of the new window says `[Extension Development Host]`)
 - The first time you do this, [clone]() a repo like `nanofuzz/nanofuzz-examples` so that you have some programs available for testing your changes to NaNofuzz.
   - ```sh
     git clone https://github.com/nanofuzz/nanofuzz-examples.git
@@ -95,7 +114,7 @@ To run the local version of the NaNofuzz extension:
 ## Contributing
 
 NaNofuzz is an open science project that aims to help software engineers write
-better tests that find more bugs in less time during active development. Community 
+better tests that find more bugs in less time during active development. Community
 contributions that align with these aims are important to our project,
 and we encourage folks to collaborate with us to make NaNofuzz better!
 
@@ -171,16 +190,19 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 
 - Make sure all PRs for the upcoming release are merged. Switch to `main` and check `git status` to make sure it's clean and up-to-date.
 - Create a new version branch (`git checkout -b "vX.Y.Z"`)
-- Increment the version number in `package.json` and `./packages/runtime/package.json` and ensure the versions match in both files.
+- Increment the version number in `package.json`, `./packages/runtime/typescript/package.json`, and `./packages/runtime/python/pyproject.toml`. Ensure the versions match in all three files.
 - Build and run NaNofuzz tests (`yarn build` and `yarn test`)
-- Build the npm runtime package (`cd packages/runtime`, `yarn build`, `cd ../..`)
+- Build the npm runtime package (`cd packages/runtime/typescript`, `yarn build`, `cd ../..`)
+- Build the pip runtime package (`cd ../../../packages/runtime/python`, `python -m build`)
 - Stage commit and push to the remote branch (`git add .`, `git commit -m "chore: update version to vX.Y.Z"`, and `git push`)
 - Open a new PR with title `chore: update version to vX.Y.Z` and merge after CI passes.
 - Create a new GitHub tag and [GitHub release][] in the format `vX.Y.Z`.
 - Push the new version to VSC Marketplace (`yarn run publish`)
-- If needed, push the new npm package to npm (`cd packages/runtime`, `npm publish --access public`, `cd ../..`)
+- If needed, publish the runtime packages.
+  - to npm: `cd packages/runtime/typescript`, `npm publish --access public`, `cd ../../..`)
+  - to pip: `cd packages/runtime/python`, `python -m twine upload dist/*`, `cd ../../..`)
 - Clone the [NaNofuzz playground](https://github.com/nanofuzz/nanofuzz-examples)
-  - If needed, upgrade the `@nanofuzz/runtime` package: `yarn update @nanofuzz/runtime@X.Y.Z`
+  - If needed, upgrade the runtime packages: `yarn update @nanofuzz/runtime@X.Y.Z` and `pip install "nanofuzz-runtime==X.Y.Z"`
   - Ensure the version of the NaNofuzz extension loaded is the new one
   - Stage, commit, and push the updated `package.json` and `yarn.lock`
   - Make sure all the examples still work. (Note: running the examples will generate a lot of `.json` files you probably don't want to commit)
@@ -210,3 +232,4 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 [yarn]: https://classic.yarnpkg.com/lang/en/docs/install/
 [semantic versioning]: https://semver.org
 [github release]: https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository
+[python]: https://www.python.org/

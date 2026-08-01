@@ -6,33 +6,27 @@ import {
   IdentifierName,
   TypeRef,
   ArgOptions,
+  ArgOptionOverride,
   ArgTag,
   ArgType,
+  TypeAnnotationOptions,
+  TypeAnnotationOptionDefaults,
+  ProgramLanguage,
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
+import * as ValueMapper from "../../mappers/ValueMapper";
 import * as ProgramFactory from "../ProgramFactory";
-
 import * as JSON5 from "json5";
-import Parser, { Query, QueryCapture } from "tree-sitter";
-import PythonGrammar from "tree-sitter-python";
-import * as fs from "fs";
-import * as path from "path";
-import { execFileSync } from "child_process";
-
-// Type definitions are broken in tree-sitter-python
-// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-const Python: Parser.Language = PythonGrammar as Parser.Language;
+import * as Parser from "../../adapters/ParserAdapter";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { PythonRunner } from "../../runners/PythonRunner";
+import { ArgDef } from "../ArgDef";
 
 export class PythonProgram extends AbstractProgram {
   public static readonly lang = "python";
   public static readonly extensions = Object.freeze([".py"]);
   protected _ast: Parser.Tree | undefined;
-
-  // Cache of `sys.path` entries (site-packages, stdlib, etc.) for the Python
-  // interpreter used to resolve external-package imports. `undefined` means
-  // "not yet queried"; `[]` means the interpreter query failed (e.g. no
-  // Python on PATH), in which case external imports stay unresolved.
-  private static _sysPath: string[] | undefined;
 
   constructor(
     getSource: () => string,
@@ -48,10 +42,8 @@ export class PythonProgram extends AbstractProgram {
     }
   }
 
-  protected _parse(_src: string): void {
-    const parser = new Parser();
-    parser.setLanguage(Python);
-    this._ast = parser.parse(_src);
+  protected _parse(src: string): void {
+    this._ast = Parser.parse("python", src) ?? undefined;
   }
 
   protected _findImports(): ProgramImports {
@@ -61,8 +53,8 @@ export class PythonProgram extends AbstractProgram {
     }
     const ast = this._ast;
 
-    const traverse = new Query(
-      Python,
+    const traverse = Parser.query(
+      "python",
       `
 [
   (import_statement) @import.stmt
@@ -221,40 +213,6 @@ export class PythonProgram extends AbstractProgram {
   }
 
   /**
-   * Returns the interpreter's `sys.path` (stdlib, site-packages, etc.),
-   * queried once per process and cached. Mirrors why the TypeScript resolver
-   * can lean on `require.resolve`: only the interpreter that will actually
-   * run the code knows where its packages are installed (venvs, `.pth`
-   * files, editable installs) — there's no heuristic-free way to guess it
-   * from the filesystem alone.
-   *
-   * @returns Directories on the interpreter's module search path, or `[]` if
-   *   the interpreter could not be queried (e.g. no Python on PATH)
-   */
-  private static _getSysPath(): string[] {
-    if (PythonProgram._sysPath === undefined) {
-      try {
-        const output = execFileSync(
-          "python3",
-          ["-c", "import sys, json; print(json.dumps(sys.path))"],
-          { encoding: "utf8" }
-        );
-        const entries: unknown = JSON.parse(output);
-        PythonProgram._sysPath = Array.isArray(entries)
-          ? entries.filter(
-              (e): e is string => typeof e === "string" && e !== ""
-            )
-          : [];
-      } catch {
-        // No interpreter on PATH, or it failed to run — external imports
-        // remain unresolved rather than breaking analysis.
-        PythonProgram._sysPath = [];
-      }
-    }
-    return PythonProgram._sysPath;
-  }
-
-  /**
    * Resolves a Python module reference to an on-disk `.py` file path.
    * Relative imports resolve against the current module's directory.
    * Absolute imports are tried, in order, against: the root program's
@@ -305,7 +263,7 @@ export class PythonProgram extends AbstractProgram {
     // Absolute import: project source first, then the interpreter's own
     // search path for external (stdlib/third-party) packages.
     const rootDir = path.dirname(this._root.filename);
-    const searchDirs = [rootDir, ...PythonProgram._getSysPath()];
+    const searchDirs = [rootDir, ...PythonRunner.envFor(this._filename).paths];
     for (const dir of searchDirs) {
       const found = probe(dir, moduleRef);
       if (found) {
@@ -322,7 +280,7 @@ export class PythonProgram extends AbstractProgram {
    * @param `node` The node to check
    * @returns `true` if the node is block scoped, `false` otherwise
    */
-  private static isBlockScoped(node: Parser.SyntaxNode): boolean {
+  protected static isBlockScoped(node: Parser.SyntaxNode): boolean {
     let thisNode = node;
     while (thisNode.parent) {
       if (thisNode.parent.type === "block") {
@@ -343,8 +301,8 @@ export class PythonProgram extends AbstractProgram {
     // List of nodes
     const types: Record<string, TypeRef> = {};
 
-    const typeQuery = new Query(
-      Python,
+    const typeQuery = Parser.query(
+      "python",
       `
 (type_alias_statement
   left: (type (identifier)) @type.name
@@ -370,6 +328,146 @@ export class PythonProgram extends AbstractProgram {
           );
         }
         types[name] = this._getTypeRefFromAstNode(valueNode.node);
+      }
+    }
+
+    // TypedDict has fixed, named fields, so it is represented by the
+    // existing object type rather than a dynamic mapping type. Resolve the
+    // standard spelling, qualified spellings, and an imported alias; do not
+    // treat ordinary `dict[...]` annotations as objects.
+    const isTypedDictBase = (node: Parser.Node): boolean => {
+      if (
+        [
+          "TypedDict",
+          "typing.TypedDict",
+          "typing_extensions.TypedDict",
+        ].includes(node.text)
+      ) {
+        return true;
+      }
+      return this._imports.identifiers[node.text]?.imported === "TypedDict";
+    };
+
+    // 1. Class-based TypedDict: class Foo(TypedDict): ...
+    for (const classNode of ast.rootNode.namedChildren.filter(
+      (node) => node.type === "class_definition"
+    )) {
+      const superclasses = classNode.childForFieldName("superclasses");
+      const inheritedFields =
+        superclasses?.namedChildren.flatMap((node) => {
+          const base = types[node.text];
+          return base?.type?.type === ArgTag.OBJECT ? base.type.children : [];
+        }) ?? [];
+      const isTypedDict =
+        superclasses?.namedChildren.some(isTypedDictBase) ||
+        inheritedFields.length > 0;
+      if (!isTypedDict) continue;
+
+      const nameNode = classNode.childForFieldName("name");
+      const bodyNode = classNode.childForFieldName("body");
+      if (!nameNode || !bodyNode) continue;
+      if (nameNode.text in types) {
+        throw new Error(
+          `Duplicate type alias '${nameNode.text}' found in module '${filename}'`
+        );
+      }
+
+      const children: TypeRef[] = [...inheritedFields];
+      for (const statement of bodyNode.namedChildren) {
+        const assignment = statement.namedChildren.find(
+          (node) => node.type === "assignment"
+        );
+        const fieldName = assignment?.childForFieldName("left");
+        const fieldType = assignment?.childForFieldName("type");
+        if (
+          !assignment ||
+          !fieldName ||
+          !fieldType ||
+          fieldName.type !== "identifier"
+        ) {
+          continue;
+        }
+        const field = this._getTypeRefFromAstNode(fieldType);
+        field.name = fieldName.text;
+        children.push(field);
+      }
+
+      types[nameNode.text] = {
+        module: this._filename,
+        dims: 0,
+        optional: false,
+        isExported: true,
+        type: { type: ArgTag.OBJECT, dims: 0, children },
+      };
+    }
+
+    // 2. Functional-style TypedDict: Foo = TypedDict('Foo', {'in': int, 'out': str})
+    for (const expressionNode of ast.rootNode.namedChildren.filter(
+      (node) => node.type === "expression_statement"
+    )) {
+      for (const assignmentNode of expressionNode.children.filter(
+        (node) => node.type === "assignment"
+      )) {
+        const left = assignmentNode.childForFieldName("left");
+        const right = assignmentNode.childForFieldName("right");
+        if (
+          !left ||
+          !right ||
+          left.type !== "identifier" ||
+          right.type !== "call"
+        ) {
+          continue;
+        }
+
+        const funcNode = right.childForFieldName("function");
+        if (!funcNode || !isTypedDictBase(funcNode)) {
+          continue;
+        }
+
+        const argumentsNode = right.childForFieldName("arguments");
+        if (!argumentsNode) continue;
+
+        // The second argument of TypedDict('Name', {fields}) should be a dictionary
+        const dictArg = argumentsNode.namedChildren.find(
+          (node) => node.type === "dictionary"
+        );
+        if (!dictArg) continue;
+
+        if (left.text in types) {
+          throw new Error(
+            `Duplicate type alias '${left.text}' found in module '${filename}'`
+          );
+        }
+
+        const children: TypeRef[] = [];
+        for (const pair of dictArg.namedChildren.filter(
+          (node) => node.type === "pair"
+        )) {
+          const keyNode = pair.childForFieldName("key");
+          const valueNode = pair.childForFieldName("value");
+          if (!keyNode || !valueNode) continue;
+
+          // Extract field name (handles both quoted strings and identifiers as keys)
+          let fieldName = keyNode.text;
+          if (keyNode.type === "string") {
+            const content = keyNode.namedChildren.find(
+              (c) => c.type === "string_content"
+            );
+            fieldName = content?.text ?? fieldName.replace(/^['"]|['"]$/g, "");
+          }
+
+          const field = this._getTypeRefFromAstNode(valueNode);
+          field.name = fieldName;
+          children.push(field);
+        }
+
+        types[left.text] = {
+          module: this._filename,
+          dims: 0,
+          optional: false,
+          isExported: true,
+          type: { type: ArgTag.OBJECT, dims: 0, children },
+        };
       }
     }
     return types;
@@ -435,7 +533,7 @@ export class PythonProgram extends AbstractProgram {
   protected _getTypeFromAstNode(
     node: Parser.SyntaxNode,
     options: ArgOptions
-  ): [ArgTag, number, string?, ArgType?] {
+  ): [ArgTag, number, string?, ArgType?, ArgOptionOverride?] {
     switch (node.type) {
       case "type":
         if (node.firstChild) {
@@ -446,7 +544,24 @@ export class PythonProgram extends AbstractProgram {
       case "identifier":
         switch (node.text) {
           case "int":
+            // Python int and float share NanoFuzz's NUMBER tag. Keep the
+            // integer constraint as an option so input generation can still
+            // distinguish the two without another ArgTag.
+            return [
+              ArgTag.NUMBER,
+              0,
+              undefined,
+              undefined,
+              { numInteger: true },
+            ];
           case "float":
+            return [
+              ArgTag.NUMBER,
+              0,
+              undefined,
+              undefined,
+              { numInteger: false },
+            ];
           case "complex":
             return [ArgTag.NUMBER, 0];
           case "str":
@@ -471,13 +586,14 @@ export class PythonProgram extends AbstractProgram {
           case "set":
           case "Set":
           case "frozenset":
-          case "FrozenSet": { // sets use JSON-array inputs
+          case "FrozenSet": {
+            // sets use JSON-array inputs
             const arg = args[0];
             if (!arg) throw new Error(`Missing element type in '${node.text}'`);
 
-            const [type, dims, typeName, literalValue] =
+            const [type, dims, typeName, literalValue, typeOptions] =
               this._getTypeFromAstNode(arg, options);
-            return [type, dims + 1, typeName, literalValue];
+            return [type, dims + 1, typeName, literalValue, typeOptions];
           }
           case "dict":
           case "Dict":
@@ -542,6 +658,35 @@ export class PythonProgram extends AbstractProgram {
     const base = node.childForFieldName("value");
     const args = node.childrenForFieldName("subscript");
     if (!base || !args.length) throw new Error(`Malformed subscript type: ${node.text}`);
+    return { base: base.text.split(".").at(-1) ?? base.text, args };
+  }
+
+  /**
+   * Extracts the base name and arguments from built-in and qualified generic
+   * annotations. Tree-sitter uses different node shapes for those spellings,
+   * so keeping the normalization here ensures container cases behave
+   * identically.
+   */
+  protected _getGenericParts(node: Parser.SyntaxNode): {
+    base: string;
+    args: Parser.SyntaxNode[];
+  } {
+    if (node.type === "generic_type") {
+      const base = node.namedChildren.find(
+        (child) => child.type === "identifier"
+      );
+      const parameters = node.namedChildren.find(
+        (child) => child.type === "type_parameter"
+      );
+      if (!base || !parameters)
+        throw new Error(`Malformed generic type: ${node.text}`);
+      return { base: base.text, args: parameters.namedChildren };
+    }
+
+    const base = node.childForFieldName("value");
+    const args = node.childrenForFieldName("subscript");
+    if (!base || !args.length)
+      throw new Error(`Malformed subscript type: ${node.text}`);
     return { base: base.text.split(".").at(-1) ?? base.text, args };
   }
 
@@ -626,9 +771,7 @@ export class PythonProgram extends AbstractProgram {
               return child;
             });
           case "Optional":
-            return args.map((c) =>
-              this._getTypeRefFromAstNode(c)
-            );
+            return args.map((c) => this._getTypeRefFromAstNode(c));
           // Literal / references / unknown generics have no children here.
           default:
             return [];
@@ -694,10 +837,8 @@ export class PythonProgram extends AbstractProgram {
     // python has no ? to mark parameters as optional. Its optional type is in fact a union between the type and None, so we don't need to handle optional here. optional stays false
 
     // Get the node's type and dimensions
-    const [type, dims, typeRefNode, literalValue] = this._getTypeFromAstNode(
-      typeNode,
-      this._options
-    );
+    const [type, dims, typeRefNode, literalValue, typeOptions] =
+      this._getTypeFromAstNode(typeNode, this._options);
 
     // Create the TypeRef data structure
     switch (type) {
@@ -708,6 +849,7 @@ export class PythonProgram extends AbstractProgram {
           dims: dims,
           type: type,
           children: [],
+          ...(typeOptions ? { options: typeOptions } : {}),
           resolved: true,
         };
         break;
@@ -744,7 +886,7 @@ export class PythonProgram extends AbstractProgram {
   }
 
   protected _getLambdaFromNode(
-    captures: QueryCapture[]
+    captures: Parser.QueryCapture[]
   ): FunctionRef | undefined {
     const nameNode = captures.find((c) => c.name === "function.name");
     const bodyNode = captures.find((c) => c.name === "function.body");
@@ -757,6 +899,7 @@ export class PythonProgram extends AbstractProgram {
       module: this._filename,
       name: nameNode.node.text,
       src: defNode.node.text,
+      lang: PythonProgram.lang,
       startOffset: defNode.node.startIndex,
       endOffset: defNode.node.endIndex,
       isExported: true,
@@ -776,7 +919,7 @@ export class PythonProgram extends AbstractProgram {
 
   // standard functions
   protected _getFunctionFromNode(
-    captures: QueryCapture[]
+    captures: Parser.QueryCapture[]
   ): FunctionRef | undefined {
     let returnType = undefined;
     let isVoid = false;
@@ -804,6 +947,7 @@ export class PythonProgram extends AbstractProgram {
       module: this._filename,
       name: nameNode.node.text,
       src: defNode.node.text,
+      lang: PythonProgram.lang,
       startOffset: defNode.node.startIndex,
       endOffset: defNode.node.endIndex,
       isExported: true,
@@ -830,8 +974,8 @@ export class PythonProgram extends AbstractProgram {
     const unsupported: AbstractProgram["_functions"]["unsupported"] = {};
 
     // Traverse the AST to find function definitions
-    const functionQuery = new Query(
-      Python,
+    const functionQuery = Parser.query(
+      "python",
       `
 (function_definition
   name: (identifier) @function.name
@@ -865,8 +1009,8 @@ export class PythonProgram extends AbstractProgram {
         };
       }
     }
-    const lambdaQuery = new Query(
-      Python,
+    const lambdaQuery = Parser.query(
+      "python",
       `
 (assignment
   left: (identifier) @function.name
@@ -913,7 +1057,7 @@ export class PythonProgram extends AbstractProgram {
     return undefined;
   }
 
-  public _resolveTypeRef(typeRef: TypeRef): TypeRef {
+  public resolveTypeRef(typeRef: TypeRef): TypeRef {
     // Handle any resolved or partially-resolved type references
     if (typeRef.type) {
       if (typeRef.type.resolved) {
@@ -921,7 +1065,7 @@ export class PythonProgram extends AbstractProgram {
         return typeRef; // Return resolved type
       } else {
         // Type is only partially resolved
-        typeRef.type.children.forEach((child) => this._resolveTypeRef(child));
+        typeRef.type.children.forEach((child) => this.resolveTypeRef(child));
         typeRef.type.resolved = true;
         return typeRef; // Return resolved type
       }
@@ -938,7 +1082,7 @@ export class PythonProgram extends AbstractProgram {
     // Type is not yet resolved. Look up and resolve the type reference
     if (typeRef.typeRefName in this._types) {
       // Resolve and use the local type reference
-      const resolvedType = this._resolveTypeRef(
+      const resolvedType = this.resolveTypeRef(
         this._types[typeRef.typeRefName]
       );
       typeRef.type = structuredClone(resolvedType.type);
@@ -949,6 +1093,14 @@ export class PythonProgram extends AbstractProgram {
       typeRef.optional = typeRef.optional || resolvedType.optional;
 
       return typeRef; // this._types[typeRef.typeRefName];
+    } else if (typeRef.typeRefName === "Any") {
+      typeRef.type = {
+        type: this.options.anyType,
+        dims: this.options.anyDims,
+        children: [],
+        resolved: true,
+      };
+      return typeRef;
     } else {
       // Follow the imported type reference
       // Split the local name into parts (e.g., "foo.bar" => ["foo", "bar"])
@@ -1064,7 +1216,7 @@ export class PythonProgram extends AbstractProgram {
 
         if (importName in importProgram.typesExported) {
           // Resolve named export
-          const resolvedType = importProgram._resolveTypeRef(
+          const resolvedType = importProgram.resolveTypeRef(
             importProgram.typesExported[importName]
           );
           typeRef.type = structuredClone(resolvedType.type);
@@ -1089,11 +1241,115 @@ export class PythonProgram extends AbstractProgram {
     }
   }
 
-  public get lang(): ProgramFactory.ProgramLanguage {
+  public get lang(): ProgramLanguage {
     return PythonProgram.lang;
   }
 
   public get extensions(): readonly string[] {
     return PythonProgram.extensions;
   }
-}
+
+  /**
+   * Returns a string that works as the type annotation for the argument.
+   *
+   * @param `arg` ArgDef to describe
+   * @param `options` Description options
+   * @returns a string that works as the type annotation for the argument
+   */
+  public static getTypeAnnotation(
+    arg: ArgDef<ArgType>,
+    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    // Get the base type annotation
+    const baseType = PythonProgram.getBaseType(arg, options);
+    const dims = arg.getDim();
+
+    // Add the dimensions to the annotation
+    let type = `${"List[".repeat(dims)}${baseType}${"]".repeat(dims)}`;
+
+    // Add optionality (if specified and not already part of the union type)
+    if (
+      arg.isOptional() &&
+      !(
+        arg.getType() === ArgTag.UNION &&
+        arg.getDim() === 0 &&
+        arg
+          .getChildren()
+          .some(
+            (child) =>
+              child.getType() === ArgTag.LITERAL &&
+              child.isConstant() &&
+              child.getConstantValue() === undefined
+          )
+      )
+    ) {
+      type = `Union[${type}, None]`;
+    }
+    return type;
+  } // fn: getTypeAnnotation()
+
+  /**
+   * Returns the base type of this ArgDef, i.e., its type without any
+   * dimensions or optionality.
+   */
+  protected static getBaseType(
+    arg: ArgDef<ArgType>,
+    options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
+  ): string {
+    const typeRef = arg.getTypeRef();
+    if (typeRef && options.useTypeRefs) {
+      return typeRef;
+    }
+
+    switch (arg.getType()) {
+      case ArgTag.OBJECT: {
+        // Literal object, no type. Recursively walk the children to build the type.
+        const childTypeAnnotations = arg.getChildren().map((child) => {
+          let type = PythonProgram.getTypeAnnotation(child, options);
+          if (child.isOptional() && !options.useOptionality) {
+            type = `NotRequired[${type}]`;
+          }
+          return `'${child.getName()}': ${type}`;
+        });
+        return `TypedDict('${arg.getName()}',{${childTypeAnnotations.join(", ")} }`;
+      }
+
+      case ArgTag.DICTIONARY: {
+        const [key, value] = this.children;
+        return `Record<${key?.getTypeAnnotation(options) ?? "string"}, ${
+          value?.getTypeAnnotation(options) ?? "unknown"
+        }>`;
+      }
+
+      case ArgTag.UNION: {
+        const childTypeAnnotations = arg
+          .getChildren()
+          .map((child) => PythonProgram.getTypeAnnotation(child, options));
+        return `Union[${childTypeAnnotations.join(", ")}]`;
+      }
+
+      case ArgTag.LITERAL: {
+        return `Literal[${ValueMapper.toLang("python", arg.getConstantValue())}]`;
+      }
+
+      case ArgTag.TUPLE: {
+        const childTypeAnnotations = arg
+          .getChildren()
+          .map((child) => PythonProgram.getTypeAnnotation(child, options));
+        return `tuple[${childTypeAnnotations.join(", ")}]`;
+      }
+
+      case ArgTag.BOOLEAN:
+        return "bool";
+
+      case ArgTag.NUMBER:
+        return arg.getOptions().numInteger ? "int" : "float";
+
+      case ArgTag.STRING:
+        return "str";
+
+      case ArgTag.UNRESOLVED:
+        throw new Error(`Internal error: unresolved types cannot be annotated`);
+    }
+  } // fn: getBaseType()
+} // class: PythonProgram

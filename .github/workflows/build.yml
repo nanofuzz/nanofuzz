@@ -13,40 +13,68 @@ jobs:
     steps:
       # Visual Studio Code Extension
       - name: Checkout
-        uses: actions/checkout@v2
-      - name: Set up Python
+        uses: actions/checkout@v7
+      - name: Install Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
-      - name: Setup Pytest
+          python-version: 3.13
+      - name: Create Python virtual env
+        run: python -m venv .venv
+      - name: Install Python packages (Windows)
+        if: runner.os == 'Windows'
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest
-      - uses: actions/setup-node@v4
+          .venv\Scripts\activate
+          pip install -r requirements.txt
+      - name: Install Python packages (Linux, MacOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          pip install -r requirements.txt
+      - name: Install Node
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: yarn
-      - name: Setup MSVC (Windows)
-        if: runner.os == 'Windows'
-        uses: crazy-max/ghaction-chocolatey@v4
-        with:
-          args: install python visualstudio2022-workload-vctools -y
-      - name: Install packages
+      - name: Install yarn packages
         run: yarn
       - name: Run all builds
         run: yarn build
       - name: Run Typescript tests
         run: yarn test
-      - name: Run Python tests
-        run: pytest
+      - name: Run Python tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .venv\Scripts\activate
+          pytest
+      - name: Run Python tests (Linux, MacOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          pytest
+      - name: Build vsix package
+        run: yarn package
 
       # npm runtime package
-      - name: Install packages
-        working-directory: packages/runtime
+      - name: Install Yarn packages
+        working-directory: packages/runtime/typescript
         run: yarn
       - name: Check for matching version numbers
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn run checkver
       - name: Build npm package
-        working-directory: packages/runtime
+        working-directory: packages/runtime/typescript
         run: yarn build
+
+      # pip runtime package
+      - name: Build Python package (Linux, MacOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          cd packages/runtime/python
+          python -m build
+      - name: Build Python package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .venv\Scripts\activate
+          cd packages\runtime\python
+          python -m build

@@ -1,6 +1,5 @@
 import { ArgDef } from "./ArgDef";
 import { ArgTag, ArgType, ArgValueType, ArgValueTypeWrapped } from "./Types";
-import * as JSON5 from "json5";
 
 /**
  * Valides values against their corresponding ArgDef specs
@@ -171,12 +170,12 @@ export class ArgDefValidator {
         }
         case ArgTag.UNRESOLVED: {
           throw new Error(
-            `Encountered unresolved ArgDef: ${JSON5.stringify(spec)}`
+            `Encountered unresolved ArgDef: ${JSON.stringify(spec)}`
           );
         }
       } // switch: argdef type
       throw new Error(
-        `Cannot validate unsupported ArgDef type: ${JSON5.stringify(spec)}`
+        `Cannot validate unsupported ArgDef type: ${JSON.stringify(spec)}`
       );
     }
   } // fn: validate (static)
