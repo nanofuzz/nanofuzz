@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import * as JSON5 from "../Jsonn";
+import * as JSONN from "../Jsonn";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import * as fuzzer from "../fuzzer/Fuzzer";
 import * as fs from "fs";
@@ -99,7 +99,7 @@ export class FuzzPanel {
     options: fuzzer.FuzzOptions
   ): FuzzPanel {
     // Differentiate panels by the module and function under test
-    const fnRef = JSON5.stringify({
+    const fnRef = JSONN.stringify({
       module: moduleFile,
       fnName: fnName,
     });
@@ -197,7 +197,7 @@ export class FuzzPanel {
         // It's possible the source code changed between restarting;
         // just log the exception and continue. Restoring these panels
         // is best effort anyway.
-        const msg = isError(e) ? e.message : JSON5.stringify(e);
+        const msg = isError(e) ? e.message : JSONN.stringify(e);
         console.error(`Unable to revive FuzzPanel: ${msg}`);
       }
     }
@@ -314,7 +314,7 @@ export class FuzzPanel {
    * @returns A key string that represents the fuzz environment
    */
   public getFnRefKey(): string {
-    return JSON5.stringify({
+    return JSONN.stringify({
       module: this._fuzzEnv.function.getModule(),
       fnName: this._fuzzEnv.function.getName(),
     });
@@ -461,7 +461,7 @@ export class FuzzPanel {
    * @param pin true=save test; false=unsave test
    */
   private _doTestPinnedCmd(json: string, pin: boolean) {
-    const msg: FuzzPanelPinMessage = JSON5.parse(json); // !!! validation
+    const msg: FuzzPanelPinMessage = JSONN.parse(json); // !!! validation
 
     // Log the telemetry event
     vscode.commands.executeCommand(
@@ -533,7 +533,7 @@ export class FuzzPanel {
 
     // Read the file; if it doesn't exist, load default values
     try {
-      inputTests = JSON5.parse<fuzzer.FuzzTests>(
+      inputTests = JSONN.parse<fuzzer.FuzzTests>(
         fs.readFileSync(jsonFile).toString()
       );
       testSet = inputTests;
@@ -765,9 +765,9 @@ export class FuzzPanel {
 
     // Persist the test set
     try {
-      fs.writeFileSync(jsonFile, JSON5.stringify(fullSet)); // Update the file
+      fs.writeFileSync(jsonFile, JSONN.stringify(fullSet)); // Update the file
     } catch (e: unknown) {
-      const msg = isError(e) ? e.message : JSON5.stringify(e);
+      const msg = isError(e) ? e.message : JSONN.stringify(e);
       vscode.window.showErrorMessage(
         `Unable to update json file: ${jsonFile} (${msg})`
       );
@@ -788,7 +788,7 @@ export class FuzzPanel {
       try {
         fs.writeFileSync(testAdapter.filename, jestTests);
       } catch (e: unknown) {
-        const msg = isError(e) ? e.message : JSON5.stringify(e);
+        const msg = isError(e) ? e.message : JSONN.stringify(e);
 
         vscode.window.showErrorMessage(
           `Unable to update ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
@@ -799,7 +799,7 @@ export class FuzzPanel {
       try {
         fs.rmSync(testAdapter.filename);
       } catch (e: unknown) {
-        const msg = isError(e) ? e.message : JSON5.stringify(e);
+        const msg = isError(e) ? e.message : JSONN.stringify(e);
         vscode.window.showErrorMessage(
           `Unable to remove ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
         );
@@ -853,7 +853,7 @@ export class FuzzPanel {
    * Message handler for the `columns.sort' command.
    */
   private _saveColumnSortOrders(json: string) {
-    this._sortColumns = JSON5.parse(json); // !!! validation
+    this._sortColumns = JSONN.parse(json); // !!! validation
   } // fn: _saveColumnSortOrders
 
   /**
@@ -1237,11 +1237,11 @@ ${inArgConsts}
     }
     const fn = this._fuzzEnv.function; // Function under test
 
-    const oldValidatorNames = JSON5.stringify(
+    const oldValidatorNames = JSONN.stringify(
       this._fuzzEnv.validators.map((e) => e.name)
     );
     const newValidators = fuzzer.getValidators(program, fn);
-    const newValidatorNames = JSON5.stringify(newValidators.map((e) => e.name));
+    const newValidatorNames = JSONN.stringify(newValidators.map((e) => e.name));
 
     // Only send the message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
@@ -1281,7 +1281,7 @@ ${inArgConsts}
     this._coverageStats = undefined;
 
     // Get the panel input & use it to update options
-    const panelInput: FuzzPanelFuzzRunMessage = JSON5.parse(json);
+    const panelInput: FuzzPanelFuzzRunMessage = JSONN.parse(json);
     this._getConfigFromUi(panelInput); // needed for accuate stale check
 
     // We need to build a new tester if the current tester is
@@ -1426,9 +1426,9 @@ ${inArgConsts}
               if (
                 testToAdd &&
                 result.results.length &&
-                JSON5.stringify(
+                JSONN.stringify(
                   result.results[result.results.length - 1].input
-                ) === JSON5.stringify(testToAdd.input)
+                ) === JSONN.stringify(testToAdd.input)
               ) {
                 // Give focus to the newInput
                 this._focusInput = [
@@ -1449,7 +1449,7 @@ ${inArgConsts}
                 new telemetry.LoggerEntry(
                   "FuzzPanel.fuzz.done",
                   "Fuzzing completed successfully. Target: %s. Results: %s",
-                  [this.getFnRefKey(), JSON5.stringify(this._results)]
+                  [this.getFnRefKey(), JSONN.stringify(this._results)]
                 )
               );
 
@@ -1528,7 +1528,7 @@ ${inArgConsts}
     this._fuzzEnv = this._tester.env;
 
     // Get the panel input
-    const panelInput: FuzzPanelFuzzRunMessage = JSON5.parse(json);
+    const panelInput: FuzzPanelFuzzRunMessage = JSONN.parse(json);
     this._getConfigFromUi(panelInput);
 
     // Update the UI
@@ -2787,7 +2787,7 @@ ${inArgConsts}
         html += /*html*/ `
             <!-- Fuzzer Result to receive UI focus -->
             <div id="fuzzFocusInput" class="hidden">
-              ${htmlEscape(JSON5.stringify(this._focusInput))}
+              ${htmlEscape(JSONN.stringify(this._focusInput))}
             </div>
         `;
       }
@@ -2813,7 +2813,7 @@ ${inArgConsts}
                 this._results === undefined ||
                 this._state !== FuzzPanelState.done
                   ? "{}"
-                  : htmlEscape(JSON5.stringify(this._results))
+                  : htmlEscape(JSONN.stringify(this._results))
               }
             </div>
 
@@ -2822,7 +2822,7 @@ ${inArgConsts}
               ${
                 this._sortColumns === undefined
                   ? "{}"
-                  : htmlEscape(JSON5.stringify(this._sortColumns))
+                  : htmlEscape(JSONN.stringify(this._sortColumns))
               }
             </div>
             
@@ -2831,24 +2831,24 @@ ${inArgConsts}
 
             <!-- Fuzzer Sort Columns: for the client script to process -->
             <div id="fuzzHideColumns" class="hidden">
-              ${htmlEscape(JSON5.stringify(hiddenColumns))}
+              ${htmlEscape(JSONN.stringify(hiddenColumns))}
             </div>
 
             <!-- Validator Functions: for the client script to process -->
             <div id="validators" class="hidden">
               ${htmlEscape(
-                JSON5.stringify(this._fuzzEnv.validators.map((e) => e.name))
+                JSONN.stringify(this._fuzzEnv.validators.map((e) => e.name))
               )}
             </div>
 
             <!-- Lamguage: for the client script to process -->
             <div id="fuzzLang" class="hidden">
-              ${htmlEscape(JSON5.stringify(lang))}
+              ${htmlEscape(JSONN.stringify(lang))}
             </div>
 
             <!-- Fuzzer State Payload: for the client script to persist -->
             <div id="fuzzPanelState" class="hidden">
-              ${htmlEscape(JSON5.stringify(this.getState()))}
+              ${htmlEscape(JSONN.stringify(this.getState()))}
             </div>
           </div>
           <div id="snackbarRoot" class="hidden" />
@@ -3601,7 +3601,7 @@ function _applyArgOverrides(
       thisOverride.array.dimLength.forEach((e: fuzzer.Interval<number>) => {
         if (!(typeof e === "object" && "min" in e && "max" in e)) {
           throw new Error(
-            `Invalid interval for array dimensions: ${JSON5.stringify(e)}`
+            `Invalid interval for array dimensions: ${JSONN.stringify(e)}`
           );
         }
       });
