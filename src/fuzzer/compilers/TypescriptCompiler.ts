@@ -24,6 +24,7 @@ import {
   VmGlobals,
 } from "../Types";
 import { findInAncestor } from "../Util";
+import { CompilerStaleness } from "./Types";
 
 // Global list of compilations by entrypoint module
 const _compilationsByModule: {
@@ -140,6 +141,9 @@ export class TypescriptCompiler {
         reject();
       }
     });
+  }
+  public async compileAsync(fqModulePath: string): Promise<void> {
+    return TypescriptCompiler.compileAsync(fqModulePath);
   } // fn: compileAsync
 
   /**
@@ -299,14 +303,7 @@ export class TypescriptCompiler {
    *
    * @returns a reason code if re-compilation is needed and `false` otherwise.
    */
-  public isStale(
-    inSrcFile?: string
-  ):
-    | false
-    | "notcompiled"
-    | "sourcechanged"
-    | "compilerchanged"
-    | "configchanged" {
+  public isStale(inSrcFile?: string): CompilerStaleness {
     // Stale: no compilations for this module have yet taken place
     if (
       !fs.existsSync(this._getJsFilename(this._moduleFile)) ||
