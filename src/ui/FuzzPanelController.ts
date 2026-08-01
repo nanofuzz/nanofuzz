@@ -2725,7 +2725,7 @@ ${inArgConsts}
 
             html += /*html*/ `
                   <div class="fuzzGridPanel${showThisGrid ? `` : ` hidden`}" id="view-${e.id}">
-                    <div class="fuzzPanelDescription">${htmlEscape(e.description)}</div>`;
+                    <div class="fuzzPanelDescription">${e.description}</div>`;
             if (e.hasGrid) {
               html += /*html*/ `
                     <div id="fuzzResultsGrid-${e.id}">
