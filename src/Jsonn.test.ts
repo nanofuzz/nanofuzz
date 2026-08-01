@@ -15,11 +15,15 @@ describe("JSONN: ", () => {
       "hello",
       true,
       false,
+      BigInt(100),
+      100n,
       {
         trueValue: true,
         noValue: undefined,
         nullValue: null,
         nanValue: NaN,
+        bigintValue1: BigInt(100),
+        bigintValue2: 100n,
         arrayValue: [
           null,
           NaN,
@@ -32,6 +36,8 @@ describe("JSONN: ", () => {
           "hello",
           true,
           false,
+          BigInt(100),
+          100n,
         ],
       },
       [
@@ -46,7 +52,16 @@ describe("JSONN: ", () => {
         "hello",
         true,
         false,
-        { trueValue: true, noValue: undefined, nanValue: NaN, nullValue: null },
+        BigInt(100),
+        100n,
+        {
+          trueValue: true,
+          noValue: undefined,
+          nanValue: NaN,
+          nullValue: null,
+          bigintValue1: BigInt(100),
+          bigintValue2: 100n,
+        },
       ],
     ].forEach((value) => {
       const roundtripValue = JSONN.parse<typeof value>(JSONN.stringify(value));

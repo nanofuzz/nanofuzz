@@ -5,12 +5,12 @@ import { isKeyedObject } from "./Util";
  * JSONN: JavaScript Object Notation for NaNofuzz
  *
  * Mostly a drop-in replacement for JSON5. Adds support for serializing
- * and unserializing `undefined`, including in arrays and object members.
+ * and unserializing `undefined` and `bigint`, including in arrays and
+ * object members.
  *
  * While JSONN is valid JSON5 and might be parsed ok by JSON5, `undefined`
- * values will be parsed inaccurately by the standard JSON5 library.
- *
- * JSONN output includes the predicate above.
+ * and `bigint` values will be parsed inaccurately by the standard JSON5
+ * library.
  */
 
 /**
@@ -42,20 +42,14 @@ export function stringify(
     | undefined,
   space?: string | number | null | undefined
 ): string {
-  const stats: JsonnStats = { replacements: false };
   const text = JSON5.stringify(
     value,
     replacer
       ? function (this: unknown, key: string, value: unknown): unknown {
-          return jsonnReplacer.call(
-            this,
-            key,
-            replacer.call(this, key, value),
-            stats
-          );
+          return jsonnReplacer.call(this, key, replacer.call(this, key, value));
         }
       : function (this: unknown, key: string, value: unknown): unknown {
-          return jsonnReplacer.call(this, key, value, stats);
+          return jsonnReplacer.call(this, key, value);
         },
     space
   );
@@ -120,7 +114,7 @@ export function parse<T>(
  * @returns stringified placeholder value
  */
 export function getPlaceholder(_key: "undefined"): string {
-  return `{${PlaceHolderKey}:'${UndefinedKey}'}`;
+  return `{${PlaceHolderValueKey}:'${UndefinedKey}'}`;
   //  return Undefined;
 }
 
@@ -132,19 +126,21 @@ export function getPlaceholder(_key: "undefined"): string {
  * @param `value` value at object key
  * @returns the replacement value
  */
-function jsonnReplacer(
-  this: unknown,
-  key: string,
-  value: unknown,
-  stats: JsonnStats
-): unknown {
-  if (value === undefined) {
-    stats.replacements = true;
-    return {
-      [PlaceHolderKey]: UndefinedKey,
-    };
+function jsonnReplacer(this: unknown, key: string, value: unknown): unknown {
+  // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
+  switch (typeof value) {
+    case "undefined":
+      return {
+        [PlaceHolderValueKey]: UndefinedKey,
+      };
+    case "bigint":
+      return {
+        [PlaceHolderTypeKey]: BigIntKey,
+        [PlaceHolderValueKey]: value.toString(),
+      };
+    default:
+      return value;
   }
-  return value;
 }
 
 /**
@@ -164,18 +160,36 @@ function jsonnReviver(
   value: unknown,
   targets: ReviveTarget[]
 ): unknown {
-  if (
-    isKeyedObject(value) &&
-    PlaceHolderKey in value &&
-    value[PlaceHolderKey] === UndefinedKey
-  ) {
-    if (key === "") {
-      return undefined;
-    } else {
-      if (Array.isArray(this)) {
-        targets.push({ arr: this, key, value: undefined });
-      } else if (isKeyedObject(this)) {
-        targets.push({ obj: this, key, value: undefined });
+  if (isKeyedObject(value)) {
+    const valueType = value[PlaceHolderTypeKey];
+    const valueValue = value[PlaceHolderValueKey];
+    switch (valueType) {
+      case undefined: {
+        if (valueValue === UndefinedKey) {
+          if (key === "") {
+            return undefined;
+          } else {
+            if (Array.isArray(this)) {
+              targets.push({ arr: this, key, value: undefined });
+            } else if (isKeyedObject(this)) {
+              targets.push({ obj: this, key, value: undefined });
+            }
+          }
+        }
+        break;
+      }
+      case BigIntKey: {
+        const newValue = BigInt(String(valueValue));
+        if (key === "") {
+          return newValue;
+        } else {
+          if (Array.isArray(this)) {
+            targets.push({ arr: this, key, value: newValue });
+          } else if (isKeyedObject(this)) {
+            targets.push({ obj: this, key, value: newValue });
+          }
+        }
+        break;
       }
     }
   }
@@ -187,7 +201,7 @@ type ReviveTarget = {
   value: unknown;
 } & ({ obj: Record<string, unknown> } | { arr: unknown[] });
 
-type JsonnStats = { replacements: boolean };
-
-const PlaceHolderKey = "____JSONN____61581952310____VALUE____";
+const PlaceHolderValueKey = "____JSONN____61581952310____VALUE____";
+const PlaceHolderTypeKey = "____JSONN____61581952310____TYPE____";
 const UndefinedKey = "__undefined__";
+const BigIntKey = "__bigint__";
