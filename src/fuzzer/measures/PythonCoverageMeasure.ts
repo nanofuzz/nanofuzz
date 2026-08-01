@@ -9,7 +9,7 @@ import {
 import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
 import { CoverageInfo, PythonRunner } from "../runners/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
-import * as JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 import { normalizePathForKey } from "../Util";
 import {
   AbstractCoverageMeasure,
@@ -236,8 +236,8 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
             const fileSummary = pyCoverageMap
               .fileCoverageFor(filePath)
               .toSummary();
-            const fileMap = JSON5.parse<FileCoverage>(
-              JSON5.stringify(pyCoverageMap.fileCoverageFor(filePath))
+            const fileMap = JSONN.parse<FileCoverage>(
+              JSONN.stringify(pyCoverageMap.fileCoverageFor(filePath))
             );
             // Omit functions and branches with no hits
             for (const k of Object.keys(fileMap.f)) {

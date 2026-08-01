@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/switch-exhaustiveness-check */
-import * as JSON5 from "json5";
+import * as JSONN from "../../../Jsonn";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import { removeParents } from "../Util";
 import { parse, ParseResult } from "@babel/parser";
@@ -372,7 +372,7 @@ export class TypescriptProgram extends AbstractProgram {
 
     if (!typeRef.typeRefName) {
       throw new Error(
-        `Internal error: typeRef is undefined in Typeref (${JSON5.stringify(
+        `Internal error: typeRef is undefined in Typeref (${JSONN.stringify(
           typeRef
         )})`
       );
@@ -577,7 +577,7 @@ export class TypescriptProgram extends AbstractProgram {
         // Throw an error if type annotations are missing
         if (!node.typeAnnotation) {
           throw new Error(
-            `Missing type annotation (already transpiled to JS?): ${JSON5.stringify(
+            `Missing type annotation (already transpiled to JS?): ${JSONN.stringify(
               node,
               removeParents
             )}`
@@ -588,7 +588,7 @@ export class TypescriptProgram extends AbstractProgram {
           node.typeAnnotation.type === "TypeAnnotation"
         ) {
           throw new Error(
-            `This type of type annotation is not supported: ${JSON5.stringify(
+            `This type of type annotation is not supported: ${JSONN.stringify(
               node,
               removeParents
             )}`
@@ -618,7 +618,7 @@ export class TypescriptProgram extends AbstractProgram {
           thisType.name = node.key.name;
         } else {
           throw new Error(
-            `Unsupported property key type: ${JSON5.stringify(
+            `Unsupported property key type: ${JSONN.stringify(
               node,
               removeParents
             )}`
@@ -758,7 +758,7 @@ export class TypescriptProgram extends AbstractProgram {
       default:
         throw new Error(
           "Unsupported type annotation: " +
-            JSON5.stringify(node, removeParents, 2)
+            JSONN.stringify(node, removeParents, 2)
         );
     }
   } // fn: _getTypeFromAstNode()
@@ -781,7 +781,7 @@ export class TypescriptProgram extends AbstractProgram {
     }
     throw new Error(
       "Unsupported literal value type in type annotation: " +
-        JSON5.stringify(node, removeParents, 2)
+        JSONN.stringify(node, removeParents, 2)
     );
   } // fn: _getLiteralValueFromNode()
 
@@ -807,7 +807,7 @@ export class TypescriptProgram extends AbstractProgram {
         return this._getChildrenFromNode(node.typeAnnotation);
       case "TSTypeReference":
         throw new Error(
-          `Internal Error: Unresolved type reference found: ${JSON5.stringify(
+          `Internal Error: Unresolved type reference found: ${JSONN.stringify(
             node,
             removeParents
           )}`
@@ -819,7 +819,7 @@ export class TypescriptProgram extends AbstractProgram {
           else
             throw new Error(
               "Unsupported object property type annotation: " +
-                JSON5.stringify(member, removeParents, 2)
+                JSONN.stringify(member, removeParents, 2)
             );
         });
       }
@@ -861,7 +861,7 @@ export class TypescriptProgram extends AbstractProgram {
               else
                 throw new Error(
                   "Unsupported object property type annotation: " +
-                    JSON5.stringify(member, removeParents, 2)
+                    JSONN.stringify(member, removeParents, 2)
                 );
             });
           }
@@ -869,7 +869,7 @@ export class TypescriptProgram extends AbstractProgram {
           default:
             throw new Error(
               "Unsupported object type annotation: " +
-                JSON5.stringify(innerNode, removeParents, 2)
+                JSONN.stringify(innerNode, removeParents, 2)
             );
         }
       }
@@ -888,7 +888,7 @@ export class TypescriptProgram extends AbstractProgram {
       default:
         throw new Error(
           "Unsupported type annotation: " +
-            JSON5.stringify(node, removeParents, 2)
+            JSONN.stringify(node, removeParents, 2)
         );
     }
   } // fn: _getChildrenFromNode()
@@ -937,7 +937,7 @@ export class TypescriptProgram extends AbstractProgram {
           );
           unsupported[name] = {
             reason: msg,
-            node: JSON5.stringify(path.node),
+            node: JSONN.stringify(path.node),
           };
         }
       }, // enter

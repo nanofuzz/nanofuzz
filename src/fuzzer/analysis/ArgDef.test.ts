@@ -1,7 +1,7 @@
 import { ArgTag, ArgType, ArgOptions, Interval } from "./Types";
 import { ArgDef } from "./ArgDef";
 import seedrandom from "seedrandom";
-import * as JSON5 from "../../Jsonn";
+import * as JSONN from "../../Jsonn";
 import { ArgDefValidator } from "./ArgDefValidator";
 import { ArgDefGenerator } from "./ArgDefGenerator";
 import { ArgDefMutator } from "./ArgDefMutator";
@@ -450,7 +450,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
         let input = gen.next();
         const isValid = val.validate(input);
         if (!isValid) {
-          const itxt = JSON5.stringify(input[0]);
+          const itxt = JSONN.stringify(input[0]);
           stats.gens.invalid++;
           stats.specsWithErrors[stxt] = stats.specsWithErrors[stxt] ?? {};
           stats.specsWithErrors[stxt][itxt] =
@@ -464,13 +464,13 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
 
           let k = 100;
           while (k--) {
-            const inputStringBefore = JSON5.stringify(input);
+            const inputStringBefore = JSONN.stringify(input);
             const muts = ArgDefMutator.getMutators(spec, input, prng);
             if (muts.length) {
               const index = Math.floor(prng() * (muts.length - 1));
               const mut = muts[index];
               mut.fn(); // mutate the input
-              const inputStringAfter = JSON5.stringify(input);
+              const inputStringAfter = JSONN.stringify(input);
               if (inputStringBefore === inputStringAfter) {
                 stats.muts.dupe++;
                 dupeMutators[mut.name] = (failingMutators[mut.name] ?? 0) + 1;
@@ -489,7 +489,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
 
                 // Revert to the previous input so that we don't confuse
                 // the issue about which mutator broke the input chain
-                input = JSON5.parse<typeof input>(inputStringBefore);
+                input = JSONN.parse<typeof input>(inputStringBefore);
               } else {
                 stats.muts.valid++;
               }
@@ -525,17 +525,17 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     console.debug(
       `${
         Object.keys(failingMutators).length
-      } failing mutators: ${JSON5.stringify(failingMutators, null, 3)}`
+      } failing mutators: ${JSONN.stringify(failingMutators, null, 3)}`
     );
     console.debug(
-      `${Object.keys(dupeMutators).length} dupe mutators: ${JSON5.stringify(
+      `${Object.keys(dupeMutators).length} dupe mutators: ${JSONN.stringify(
         dupeMutators,
         null,
         3
       )}`
     );
 
-    console.debug(`Stats: ${JSON5.stringify(stats, null, 3)}`);
+    console.debug(`Stats: ${JSONN.stringify(stats, null, 3)}`);
 
     expect(stats.gens.valid).not.toBe(0);
     expect(stats.gens.invalid).toBe(0);
@@ -552,7 +552,7 @@ function abbrSpec(spec: ArgDef<ArgType>, indents = 0): string[] {
   const line: string[] = [];
   line.push(space);
   line.push(`${spec.getName()}:${TypescriptProgram.getTypeAnnotation(spec)}`);
-  line.push(`dims: ${JSON5.stringify(spec.getOptions().dimLength)}`);
+  line.push(`dims: ${JSONN.stringify(spec.getOptions().dimLength)}`);
   if (spec.isNoInput()) line.push(`NOINPUT`);
   if (spec.isOptional()) line.push(`OPTIONAL`);
   if (spec.getType() === ArgTag.NUMBER && spec.getOptions().numInteger)
@@ -562,7 +562,7 @@ function abbrSpec(spec: ArgDef<ArgType>, indents = 0): string[] {
     spec.getType() === ArgTag.BOOLEAN ||
     spec.getType() === ArgTag.LITERAL
   )
-    line.push(`range: ${JSON5.stringify(spec.getIntervals())}`);
+    line.push(`range: ${JSONN.stringify(spec.getIntervals())}`);
 
   const children = spec.getChildren();
   const clines: string[] = [];
