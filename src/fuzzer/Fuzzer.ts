@@ -3,7 +3,6 @@ import * as JSONN from "../Jsonn";
 import { ArgDef } from "./analysis/ArgDef";
 import { ArgValueType, FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
-import * as compiler from "./compilers/TypescriptCompiler";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as ProgramFactory from "./analysis/ProgramFactory";
 import * as ValueMapper from "./mappers/ValueMapper";
@@ -29,8 +28,8 @@ import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
-import { TypescriptProgram } from "./analysis/typescript/TypescriptProgram";
 import { RunnerResult } from "./runners/AbstractRunner";
+import { CompilerStaleness } from "./compilers/Types";
 
 export class Tester {
   protected _module: string; // module filename
@@ -46,7 +45,9 @@ export class Tester {
   protected _function: FunctionDef; // function under test
   protected _compositeInputGenerator: CompositeInputGenerator; // composite input generator
   protected _validators: FunctionRef[] = []; // property validator functions
-  protected _lastCompiler?: compiler.TypescriptCompiler; // last compiler object used
+  protected _lastCompiler?: ReturnType<
+    (typeof CompilerFactory)["fromSourcefile"]
+  >; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
 
@@ -117,11 +118,12 @@ export class Tester {
       this._results.stats.generators
     );
 
-    // Start a background compilation
-    if (mode.precompile && CompilerFactory.needsCompilation(module)) {
-      compiler.TypescriptCompiler.compileAsync(module);
+    // Start a background compilation if precompile mode is active
+    // and this is a compiled language.
+    if (mode.precompile) {
+      CompilerFactory.fromSourcefile(module)?.compileAsync(module);
     }
-  }
+  } // constructor
 
   /**
    * Returns `true` if the tester is out-of-date or crashed
@@ -131,10 +133,7 @@ export class Tester {
    */
   public isStale(
     options: FuzzOptions
-  ):
-    | ReturnType<compiler.TypescriptCompiler["isStale"]>
-    | "optionschanged"
-    | "crashed" {
+  ): CompilerStaleness | "optionschanged" | "crashed" {
     // Stale: compilation is stale
     if (this._lastCompiler) {
       const compilerIsStale = this._lastCompiler.isStale();
@@ -465,10 +464,7 @@ export class Tester {
     // it to JavaScript (and possibly instrument it) prior to execution.
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
-    const isNativeTs = TypescriptProgram.understands({ filename: fqSrcFile });
-    if (isNativeTs) {
-      this._lastCompiler = new compiler.TypescriptCompiler(fqSrcFile);
-    }
+    this._lastCompiler = CompilerFactory.fromSourcefile(fqSrcFile);
     const mod = this._lastCompiler
       ? this._lastCompiler.compileSync(this._measures, update) // native ts
       : fqSrcFile; // something other than native ts
