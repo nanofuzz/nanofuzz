@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nanofuzz-runtime"
-version = "0.3.10"
+version = "0.3.6"
 description = "Runtime support and types for NaNofuzz"
 readme = "README.md"
 authors = [
