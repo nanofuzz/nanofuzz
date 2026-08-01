@@ -1,4 +1,4 @@
-pytest==7.2.2
+pytest==9.0.3
 pytest-timeout==2.4.0
 json5==0.15.0
 coverage==7.15.2
