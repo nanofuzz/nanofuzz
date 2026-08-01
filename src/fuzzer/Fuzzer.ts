@@ -529,9 +529,9 @@ export class Tester {
         update({
           msg: `Testing ${
             cancelFn && cancelFn() ? "paused" : "finished"
-          }.\r\n  Tests passed: ${
+          }.\r\n  Passed: ${
             runStats.counters.passedTests
-          }\r\n  Tests failed: ${runStats.counters.failedTests}`,
+          }\r\n  Failed: ${runStats.counters.failedTests}`,
           milestone: false,
           pct: 100,
         });
@@ -727,13 +727,13 @@ export class Tester {
 
       // Front-end status update
       update({
-        msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Generating new test"} input# ${
+        msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
           runStats.counters.passedTests + runStats.counters.failedTests + 1
         }: ${this._function.getName()}(${result.input
           .map((i) => ValueMapper.toLang(lang, i.value))
-          .join(",")})\r\n  Tests passed: ${
+          .join(",")})\r\n  Passed: ${
           runStats.counters.passedTests
-        }\r\n  Tests failed: ${runStats.counters.failedTests}`,
+        }\r\n  Failed: ${runStats.counters.failedTests}`,
         pct: typeof stopCondition === "number" ? stopCondition : 100,
       });
 

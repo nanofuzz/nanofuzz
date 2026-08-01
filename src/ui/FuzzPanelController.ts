@@ -378,6 +378,14 @@ export class FuzzPanel {
           case "fuzz.run":
             this._hideCoverageHeatmap();
             this._doGetValidators();
+            if (this._results) {
+              this._testClear(message.json);
+            }
+            this._testRun(message.json, { gen: true });
+            break;
+          case "fuzz.continue":
+            this._hideCoverageHeatmap();
+            this._doGetValidators();
             this._testRun(message.json, { gen: true });
             break;
           case "fuzz.retest":
@@ -1973,6 +1981,7 @@ ${inArgConsts}
       // Determine button states
       const activeButtons: {
         run?: true;
+        continue?: true;
         pause?: true;
         retest?: true;
         clear?: true;
@@ -1989,6 +1998,7 @@ ${inArgConsts}
             activeButtons.run = true;
             activeButtons.options = true;
             if (this._results) {
+              activeButtons.continue = true;
               activeButtons.retest = true;
               activeButtons.clear = true;
             }
@@ -1996,6 +2006,7 @@ ${inArgConsts}
           }
           case "paused": {
             activeButtons.run = true;
+            activeButtons.continue = true;
             activeButtons.retest = true;
             activeButtons.clear = true;
             activeButtons.add = true;
@@ -2015,6 +2026,7 @@ ${inArgConsts}
           case "crashed": {
             activeButtons.run = true;
             if (this._results) {
+              activeButtons.continue = true;
               activeButtons.retest = true;
               activeButtons.clear = true;
             }
@@ -2042,30 +2054,36 @@ ${inArgConsts}
       html += /*html*/ `
             <!-- Button Bar -->
             <div>
-              <vscode-button ${disabledFlag} ${!activeButtons.run ? `class="hidden"` : ""} id="fuzz.run" class="tooltipped tooltipped-ne" appearance="primary icon" aria-label="${this._results ? "Generate more tests": "Generate tests"}">
-                ${this._results ? `<span class="codicon codicon-play"></span><span class="codicon codicon-add"></span>` : `<span class="codicon codicon-play"></span>`}
+              <vscode-button ${disabledFlag} ${!activeButtons.run ? `class="hidden"` : ""} id="fuzz.run" class="tooltipped tooltipped-ne" appearance="primary icon" aria-label="${this._results ? "Test again": "Start testing"}">
+                ${this._results ? `<span class="codicon codicon-debug-rerun"></span>` : `<span class="codicon codicon-play"></span>`}
               </vscode-button>
-              <span class="${!activeButtons.pause ? `hidden ` : ""}tooltipped tooltipped-ne" aria-label="Pause testing">
+              <span class="${!activeButtons.pause ? `hidden ` : ""}tooltipped tooltipped-ne" appearance="primary icon" aria-label="Pause testing">
                 <vscode-button id="fuzz.pause" appearance="primary icon">
                   <span class="codicon codicon-debug-pause"></span>
                 </vscode-button>
               </span>
-              <vscode-button ${disabledFlag} ${!activeButtons.retest ? `class="hidden"` : ""} id="fuzz.retest" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Retest these results">
-                <span class="codicon codicon-debug-rerun"></span>
+              <vscode-button ${disabledFlag} ${!activeButtons.retest ? `class="hidden"` : ""} id="fuzz.retest" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Retest these examples">
+                <span class="codicon codicon-sync"></span>
+              </vscode-button>
+              <vscode-button ${disabledFlag} ${!activeButtons.continue ? `class="hidden"` : ""} id="fuzz.continue" class="tooltipped tooltipped-ne" appearance="secondary icon" aria-label="Generate more examples"}">
+                <span class="codicon codicon-debug-continue"></span>
               </vscode-button>
               <span ${!activeButtons.add ? `class="hidden"` : ""}>
-                <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.open" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Add one test input">
+                <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.open" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Add one example">
                   <span class="codicon codicon-add"></span>
                 </vscode-button>
-                <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Add a test input (close)">
+                <vscode-button ${disabledFlag} id="fuzz.addTestInputOptions.close" class="hidden tooltipped tooltipped-n" appearance="secondary icon depressed" aria-label="Add one example (close)">
                   <span class="codicon codicon-add"></span>
                 </vscode-button>
               </span>
+
+              ${activeButtons.coverage ? "&nbsp;" : ""}
+
               <span ${!activeButtons.coverage ? `class="hidden"` : ``}>
                 <span class="tooltipped tooltipped-n" aria-label="${activeButtons.coverage === "disabled" ? "Coverage measure is disabled" : "Show coverage heatmap"}">
                   <vscode-button ${disabledFlag || activeButtons.coverage === "disabled" ? " disabled" : ""} id="fuzz.coverage.show" appearance="secondary icon">
                     <span class="codicon codicon-coverage"></span>
-                  </vscode-button>  
+                  </vscode-button>
                 </span>
                 <span class="tooltipped tooltipped-n" aria-label="${activeButtons.coverage === "disabled" ? "Coverage measure is disabled" : "Hide coverage heatmap"}">
                   <vscode-button ${disabledFlag || activeButtons.coverage === "disabled" ? " disabled" : ""} id="fuzz.coverage.hide" appearance="secondary icon depressed" class="hidden">
@@ -2077,7 +2095,7 @@ ${inArgConsts}
               ${activeButtons.run || activeButtons.pause || activeButtons.retest || activeButtons.add || activeButtons.coverage ? `&nbsp;` : ""}
 
               <span ${!activeButtons.clear ? `class="hidden"` : ""}>
-                <vscode-button ${disabledFlag} id="fuzz.clear" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Discard these results">
+                <vscode-button ${disabledFlag} id="fuzz.clear" class="tooltipped tooltipped-n" appearance="secondary icon" aria-label="Start over">
                   <span class="codicon codicon-discard"></span>
                 </vscode-button>
                 &nbsp;
@@ -3779,6 +3797,7 @@ export type FuzzPanelMessageFromWebView =
   | {
       command:
         | "fuzz.run"
+        | "fuzz.continue"
         | "fuzz.retest"
         | "fuzz.addTestInput"
         | "fuzz.clear"

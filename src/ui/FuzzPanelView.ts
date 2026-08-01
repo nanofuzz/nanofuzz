@@ -133,6 +133,11 @@ async function main() {
     handleFuzzRun();
   });
 
+  // Add event listener for the fuzz.continue button
+  getElementByIdOrThrow("fuzz.continue").addEventListener("click", () => {
+    handleFuzzContinue();
+  });
+
   // Add event listener for the fuzz.retest button
   getElementByIdOrThrow("fuzz.retest").addEventListener("click", () => {
     handleFuzzRetest();
@@ -2065,6 +2070,18 @@ function buildExpectedTestCase(
 function handleFuzzRun() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.run",
+    json: JSON5.stringify(getConfigFromUi()),
+  };
+  vscode.postMessage(message);
+} // fn: handleFuzzRun
+
+/**
+ * Handles the fuzz.continue button onClick() event: retrieves the fuzzer options
+ * from the UI and sends them to the extension to start the fuzzer.
+ */
+function handleFuzzContinue() {
+  const message: FuzzPanelMessageFromWebView = {
+    command: "fuzz.continue",
     json: JSON5.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
