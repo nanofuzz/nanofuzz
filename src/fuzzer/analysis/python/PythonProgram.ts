@@ -881,6 +881,23 @@ export class PythonProgram extends AbstractProgram {
     if (!nameNode || !defNode) {
       return undefined;
     }
+    const docstringNode = defNode.node
+      .childForFieldName("body")
+      ?.namedChild(0)
+      ?.namedChild(0);
+    const stringNodes =
+      docstringNode?.type === "concatenated_string"
+        ? docstringNode.namedChildren
+        : docstringNode
+          ? [docstringNode]
+          : [];
+    const cmt =
+      stringNodes.length > 0 &&
+      stringNodes.every(
+        (node) => node.type === "string" && !/^[^'"]*[bf]/i.test(node.text)
+      )
+        ? docstringNode?.text
+        : undefined;
     try {
       if (typeNode) {
         isVoid = typeNode.node.namedChild(0)?.type === "none";
@@ -912,7 +929,7 @@ export class PythonProgram extends AbstractProgram {
         )
         .map((arg) => this._getTypeRefFromAstNode(arg)),
       returnType,
-      // not sure how to get docstring yet
+      cmt,
     };
   }
 
