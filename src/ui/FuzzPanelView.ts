@@ -1,4 +1,4 @@
-import * as JSON5 from "../Jsonn";
+import * as JSONN from "../Jsonn";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./Util";
 import {
@@ -395,18 +395,18 @@ async function main() {
   // ----------------------- Data Loads ----------------------- //
 
   // Load the fuzzer results data from the HTML
-  resultsData = JSON5.parse(
+  resultsData = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzResultsData").innerHTML)
   );
 
   // Load & display the validator functions from the HTML
-  validators = JSON5.parse(
+  validators = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("validators").innerHTML)
   );
   refreshValidators(validators);
 
   // Load column sort orders from the HTML
-  columnSortOrders = JSON5.parse(
+  columnSortOrders = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
   );
   if (Object.keys(columnSortOrders).length === 0) {
@@ -471,11 +471,11 @@ async function main() {
   // an 'official' way to directly persist state within the extension itself,
   // at least as of vscode 1.69.2.  Hence, the roundtrip.
   vscode.setState(
-    JSON5.parse(htmlUnescape(getElementByIdOrThrow("fuzzPanelState").innerHTML))
+    JSONN.parse(htmlUnescape(getElementByIdOrThrow("fuzzPanelState").innerHTML))
   );
 
   // Update the list of hidden columns
-  const addlHiddenColumns = JSON5.parse(
+  const addlHiddenColumns = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzHideColumns").innerHTML)
   );
   if (Array.isArray(addlHiddenColumns)) {
@@ -483,7 +483,7 @@ async function main() {
   }
 
   // Get the fuzzer language
-  lang = JSON5.parse<ProgramLanguage>(
+  lang = JSONN.parse<ProgramLanguage>(
     htmlUnescape(getElementByIdOrThrow("fuzzLang").innerHTML)
   );
 
@@ -533,7 +533,7 @@ async function main() {
               break;
             default:
               throw new Error(
-                `Unexpected FuzzValueOrigin generator at input# ${idx}: ${JSON5.stringify(
+                `Unexpected FuzzValueOrigin generator at input# ${idx}: ${JSONN.stringify(
                   inputSrc
                 )}`
               );
@@ -541,7 +541,7 @@ async function main() {
           break;
         default:
           throw new Error(
-            `Unexpected FuzzValueOrigin at input# ${idx}: ${JSON5.stringify(
+            `Unexpected FuzzValueOrigin at input# ${idx}: ${JSONN.stringify(
               inputSrc
             )}`
           );
@@ -827,7 +827,7 @@ async function main() {
     // If we need to toast a result, do that now
     const toastResultElement = document.getElementById("fuzzFocusInput");
     if (toastResultElement) {
-      const toastResult: unknown = JSON5.parse(
+      const toastResult: unknown = JSONN.parse(
         htmlUnescape(toastResultElement.innerHTML)
       );
       if (
@@ -843,7 +843,7 @@ async function main() {
         );
       } else {
         throw new Error(
-          `Command to toast result ${JSON5.stringify(toastResult)} is invalid.`
+          `Command to toast result ${JSONN.stringify(toastResult)} is invalid.`
         );
       }
     }
@@ -895,14 +895,14 @@ function handleAddTestInput() {
   // Only call the fuzzer if the input is not already in the grid
   const tick = resultsData.results.findIndex(
     (r) =>
-      JSON5.stringify(r.input.map((i) => i.value)) ===
-      JSON5.stringify(overrides.input?.map((i) => i.value))
+      JSONN.stringify(r.input.map((i) => i.value)) ===
+      JSONN.stringify(overrides.input?.map((i) => i.value))
   );
   if (tick === -1) {
     // Call the extension to test this one input
     const message: FuzzPanelMessageFromWebView = {
       command: "fuzz.addTestInput",
-      json: JSON5.stringify(overrides),
+      json: JSONN.stringify(overrides),
     };
     vscode.postMessage(message);
   } else {
@@ -1137,7 +1137,7 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   window.setTimeout(() => {
     const message: FuzzPanelMessageFromWebView = {
       command: pinning ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(msg),
+      json: JSONN.stringify(msg),
     };
     vscode.postMessage(message);
 
@@ -1253,7 +1253,7 @@ function handleCorrectToggle(
   window.setTimeout(() => {
     const message: FuzzPanelMessageFromWebView = {
       command: isPinned ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(msg),
+      json: JSONN.stringify(msg),
     };
     vscode.postMessage(message);
   });
@@ -1301,7 +1301,7 @@ function toggleExpandColumn(type: FuzzResultCategory) {
       : FuzzSortOrder.desc;
   const message: FuzzPanelMessageFromWebView = {
     command: "columns.sorted",
-    json: JSON5.stringify(columnSortOrders),
+    json: JSONN.stringify(columnSortOrders),
   };
   vscode.postMessage(message);
 } // fn: toggleExpandColumn
@@ -1480,7 +1480,7 @@ function handleColumnSort(
 
     const message: FuzzPanelMessageFromWebView = {
       command: "columns.sorted",
-      json: JSON5.stringify(columnSortOrders),
+      json: JSONN.stringify(columnSortOrders),
     };
     vscode.postMessage(message);
   }
@@ -1880,7 +1880,7 @@ function handleExpectedOutput({
           window.setTimeout(() => {
             const message: FuzzPanelMessageFromWebView = {
               command: "test.pin",
-              json: JSON5.stringify(msg),
+              json: JSONN.stringify(msg),
             };
             vscode.postMessage(message);
           });
@@ -2070,7 +2070,7 @@ function buildExpectedTestCase(
 function handleFuzzRun() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.run",
-    json: JSON5.stringify(getConfigFromUi()),
+    json: JSONN.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
 } // fn: handleFuzzRun
@@ -2082,7 +2082,7 @@ function handleFuzzRun() {
 function handleFuzzContinue() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.continue",
-    json: JSON5.stringify(getConfigFromUi()),
+    json: JSONN.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
 } // fn: handleFuzzRun
@@ -2094,7 +2094,7 @@ function handleFuzzContinue() {
 function handleFuzzRetest() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.retest",
-    json: JSON5.stringify(getConfigFromUi()),
+    json: JSONN.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
 } // fn: handleFuzzRetest
@@ -2106,7 +2106,7 @@ function handleFuzzRetest() {
 function handleFuzzClear() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.clear",
-    json: JSON5.stringify(getConfigFromUi()),
+    json: JSONN.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
 } // fn: handleFuzzClear

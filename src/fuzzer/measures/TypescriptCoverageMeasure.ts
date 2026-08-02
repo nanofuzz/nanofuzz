@@ -1,4 +1,4 @@
-import * as JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createSourceMapStore, MapStore } from "istanbul-lib-source-maps";
 import { RawSourceMap } from "source-map";
@@ -217,8 +217,8 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
             const fileSummary = tsCoverageMap
               .fileCoverageFor(filePath)
               .toSummary();
-            const fileMap = JSON5.parse<FileCoverage>(
-              JSON5.stringify(tsCoverageMap.fileCoverageFor(filePath))
+            const fileMap = JSONN.parse<FileCoverage>(
+              JSONN.stringify(tsCoverageMap.fileCoverageFor(filePath))
             );
             // Omit functions and branches with no hits
             for (const k of Object.keys(fileMap.f)) {

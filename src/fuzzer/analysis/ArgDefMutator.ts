@@ -2,7 +2,7 @@ import { ArgDef } from "./ArgDef";
 import { ArgDefGenerator } from "./ArgDefGenerator";
 import { ArgDefValidator } from "./ArgDefValidator";
 import { ArgTag, ArgType, ArgValueType, ArgValueTypeWrapped } from "./Types";
-import * as JSON5 from "../../Jsonn";
+import * as JSONN from "../../Jsonn";
 
 /**
  * Utilities for mutating values described by an ArgDef spec
@@ -32,7 +32,7 @@ export class ArgDefMutator {
       throw new Error(
         `Different number of inputs (${value.length}) relative to ArgDefs (${
           ArgDef.length
-        }) for input: ${JSON5.stringify(value)}`
+        }) for input: ${JSONN.stringify(value)}`
       );
     }
 
@@ -67,7 +67,7 @@ export class ArgDefMutator {
               value: [...a].reverse(),
               path: [...path],
             },
-          ].filter((e) => JSON5.stringify(e.value) !== JSON5.stringify(a))
+          ].filter((e) => JSONN.stringify(e.value) !== JSONN.stringify(a))
         );
       } // if: array length > 1
 
@@ -89,7 +89,7 @@ export class ArgDefMutator {
               },
             ].filter(
               (e) =>
-                JSON5.stringify(e.value) !== JSON5.stringify(a) &&
+                JSONN.stringify(e.value) !== JSONN.stringify(a) &&
                 options.dimLength[level - 1].max >= e.value.length &&
                 options.dimLength[level - 1].min <= e.value.length
             ) // filter
@@ -297,7 +297,7 @@ export class ArgDefMutator {
                         },
                       ].filter(
                         (e) =>
-                          JSON5.stringify(e.value) !== JSON5.stringify(oldValue)
+                          JSONN.stringify(e.value) !== JSONN.stringify(oldValue)
                       )
                     );
                   } else {
@@ -364,7 +364,7 @@ export class ArgDefMutator {
                   },
                 ].filter(
                   (e) =>
-                    JSON5.stringify(e.value) !== JSON5.stringify(value) &&
+                    JSONN.stringify(e.value) !== JSONN.stringify(value) &&
                     !(e.value === undefined && this.isNull(value))
                 )
               );
@@ -390,7 +390,7 @@ export class ArgDefMutator {
                         },
                       ].filter(
                         (e) =>
-                          JSON5.stringify(e.value) !== JSON5.stringify(oldValue)
+                          JSONN.stringify(e.value) !== JSONN.stringify(oldValue)
                       )
                     );
                   } else {
@@ -417,7 +417,7 @@ export class ArgDefMutator {
 
           case ArgTag.UNRESOLVED: {
             throw new Error(
-              `Encountered unresolved ArgDef: ${JSON5.stringify(spec)}`
+              `Encountered unresolved ArgDef: ${JSONN.stringify(spec)}`
             );
           }
         } // switch: ArgDef type
@@ -472,9 +472,9 @@ export class ArgDefMutator {
           element = element[String(key)];
         } else {
           throw new Error(
-            `Cannot follow path through non-array / non-object. Input: ${JSON5.stringify(
+            `Cannot follow path through non-array / non-object. Input: ${JSONN.stringify(
               value
-            )}, Element: ${JSON5.stringify(element)}, path: ${JSON5.stringify(
+            )}, Element: ${JSONN.stringify(element)}, path: ${JSONN.stringify(
               path
             )} at step: ${step}`
           );
@@ -487,9 +487,9 @@ export class ArgDefMutator {
           element[String(key)] = newValue;
         } else {
           throw new Error(
-            `Cannot mutate value through non-array / non-object. Input: ${JSON5.stringify(
+            `Cannot mutate value through non-array / non-object. Input: ${JSONN.stringify(
               value
-            )}, Element: ${JSON5.stringify(element)}, Path: ${JSON5.stringify(
+            )}, Element: ${JSONN.stringify(element)}, Path: ${JSONN.stringify(
               path
             )} at step: ${step}`
           );

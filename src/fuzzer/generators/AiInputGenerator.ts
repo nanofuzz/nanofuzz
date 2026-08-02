@@ -6,7 +6,7 @@ import {
   ArgValueTypeWrapped,
   ProgramLanguage,
 } from "../analysis/Types";
-import * as JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 import * as ValueMapper from "../mappers/ValueMapper";
 import { LlmAdapter } from "../adapters/LlmAdapter";
 import { ArgDef, FunctionDef, InputAndSource } from "../Fuzzer";
@@ -195,7 +195,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
           });
           if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
             console.debug(
-              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSON5.stringify(invalidInputs, null, 2)}`
+              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSONN.stringify(invalidInputs, null, 2)}`
             );
           }
 

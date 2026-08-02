@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { ArgValueType, ProgramLanguage } from "../analysis/Types";
-import * as JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 import { FunctionDef } from "../analysis/FunctionDef";
 import * as nodellm from "@node-llm/core";
 import { isError } from "../Util";
@@ -21,7 +21,7 @@ export class LlmAdapter {
     LlmAdapter._handleDebug();
 
     const cfg = LlmAdapter._getConfig();
-    this._cfgString = JSON5.stringify(cfg);
+    this._cfgString = JSONN.stringify(cfg);
 
     if (!LlmAdapter.isConfigured()) {
       throw new Error("AI Models are disabled");
@@ -55,7 +55,7 @@ export class LlmAdapter {
    * @returns `true` if the LLM config has changed since instantiation
    */
   public isStale(): boolean {
-    return JSON5.stringify(LlmAdapter._getConfig()) !== this._cfgString;
+    return JSONN.stringify(LlmAdapter._getConfig()) !== this._cfgString;
   } // fn: isStale
 
   /**
@@ -105,7 +105,7 @@ export class LlmAdapter {
       };
     }
     const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
-      JSON5.parse(response.response);
+      JSONN.parse(response.response);
 
     // Sanity check llm output
     if (
