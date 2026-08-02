@@ -2817,6 +2817,22 @@ ${inArgConsts}
               }
             </div>
 
+            <!-- Current program inputs: for the client script to process -->
+            <div id="fuzzInputCols" class="hidden">
+              ${
+                this._results === undefined ||
+                this._state !== FuzzPanelState.done
+                  ? "{}"
+                  : htmlEscape(
+                      JSONN.stringify(
+                        this._fuzzEnv.function
+                          .getArgDefs()
+                          .map((a) => a.getName())
+                      )
+                    )
+              }
+            </div>
+
             <!-- Fuzzer Sort Columns: for the client script to process -->
             <div id="fuzzSortColumns" class="hidden">
               ${
@@ -2829,7 +2845,7 @@ ${inArgConsts}
             <!-- Fuzzer Coverage Heatmap Setting: for the client script to process -->
             <div id="fuzzShowCoverageHeatmap" class="hidden">${this._coverageStats && this._wasShowingCoverage}</div>
 
-            <!-- Fuzzer Sort Columns: for the client script to process -->
+            <!-- Fuzzer Hide Columns: for the client script to process -->
             <div id="fuzzHideColumns" class="hidden">
               ${htmlEscape(JSONN.stringify(hiddenColumns))}
             </div>

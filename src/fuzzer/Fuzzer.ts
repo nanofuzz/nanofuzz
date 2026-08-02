@@ -382,7 +382,7 @@ export class Tester {
    * @returns test results
    */
   protected async *_run(
-    injectTests: FuzzPinnedTest[] = [],
+    injectTestsIn: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: (payload: FuzzBusyStatusMessage) => void,
     cancelFn?: () => boolean
@@ -391,6 +391,7 @@ export class Tester {
     FuzzTestResults,
     FuzzTestResults | undefined
   > {
+    const injectTests = structuredClone(injectTestsIn);
     const state = this.state;
     if (!(state === "init" || state === "paused")) {
       throw new Error(
@@ -439,6 +440,8 @@ export class Tester {
     // any "interesting" inputs might be further used by other generators.
     this._compositeInputGenerator.inject(
       injectTests.map((t): Omit<InputAndSource, "tick"> => {
+        // Don't inject more inputs than the PUT accepts
+        t.input = t.input.slice(0, argDefs.length);
         return {
           value: t.input.map((i) => {
             return {
@@ -702,12 +705,13 @@ export class Tester {
         }
       }
 
-      // If the function accepts inputs, check if the input is a dupe
+      // If the function accepts inputs and we are not still injecting,
+      // check if the input is a duplicate
       if (this._function.getArgDefs().length) {
         // Skip tests if we previously processed the input
         // Note the our hash value is language specific
         const inputHash = getLangIoKey(lang, result.input);
-        if (this._allInputs.has(inputHash)) {
+        if (this._allInputs.has(inputHash) && !stillInjecting) {
           runStats.counters.dupesSequential++; // increment the sequential dupe counter
           runStats.counters.dupesGenerated++; // incremement the total run dupe counter
           this._compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
