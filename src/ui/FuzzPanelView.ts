@@ -487,6 +487,11 @@ async function main() {
     htmlUnescape(getElementByIdOrThrow("fuzzLang").innerHTML)
   );
 
+  // Get the PUT's current input argument names
+  const putInputCols = JSONN.parse<string[]>(
+    htmlUnescape(getElementByIdOrThrow("fuzzInputCols").innerHTML)
+  );
+
   // ----------------------- Fill Grids ----------------------- //
 
   // Await parser init
@@ -497,6 +502,23 @@ async function main() {
     gridTypes.forEach((type) => {
       data[type] = [];
     });
+
+    // Calculate maximum number of arguments present in the data
+    let dataInputColCount = 0;
+    for (const e of resultsData.results) {
+      if (e.input.length > dataInputColCount) {
+        dataInputColCount = e.input.length;
+      }
+    }
+
+    // An empty input set containing the maximum number
+    // of arguments present in the data.
+    const emptyInputs: Record<string, string> = {};
+    for (let i = 0; i < dataInputColCount; i++) {
+      emptyInputs[
+        `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`
+      ] = "(no input)";
+    }
 
     // Loop over each result
     let idx = 0;
@@ -577,14 +599,15 @@ async function main() {
       });
 
       // Name each input argument and make it clear which inputs were not provided
-      // (i.e., the argument was optional).  Otherwise, stringify the value for
-      // display.
-      const inputs: Record<string, string> = {};
-      e.input.forEach((i) => {
-        inputs[`input: ${i.name}`] =
-          i.value === undefined
+      // (i.e., it was optional). Otherwise, translate & display the value.
+      const inputs: Record<string, string> = { ...emptyInputs };
+      e.input.forEach((input, i) => {
+        inputs[
+          `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`
+        ] =
+          input.value === undefined
             ? "(no input)"
-            : ValueMapper.toLang(lang, i.value);
+            : ValueMapper.toLang(lang, input.value);
       });
 
       // There are 0-1 outputs: if an output is present, just name it `output`

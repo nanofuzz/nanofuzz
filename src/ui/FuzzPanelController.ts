@@ -473,24 +473,19 @@ export class FuzzPanel {
       )
     );
 
-    // Update the back-end results data
-    if (this._results) {
-      if (
-        msg.id < this._results.results.length &&
-        fuzzer.getIoKey(msg.test.input) ===
-          fuzzer.getIoKey(this._results.results[msg.id].input)
-      ) {
-        this._results.results[msg.id].pinned = msg.test.pinned;
-        this._results.results[msg.id].expectedOutput = msg.test.expectedOutput;
-      }
-    } else {
-      throw new Error(
-        "front-end input value to pin/unpin does not match that of back-end id"
-      );
-    }
+    if (this._results && msg.id >= 0 && msg.id < this._results.results.length) {
+      // Update the back-end results data
+      this._results.results[msg.id].pinned = msg.test.pinned;
+      this._results.results[msg.id].expectedOutput = msg.test.expectedOutput;
 
-    // Update set of saved tests
-    this._updateFuzzTestsForThisFn(msg.test);
+      // Update set of saved tests
+      this._updateFuzzTestsForThisFn({
+        ...msg.test,
+        input: this._results.results[msg.id].input, // avoid argument changes jank
+      });
+    } else {
+      throw new Error("Invalid pin/unpin message");
+    }
   } // fn: _doTestPinnedCmd()
 
   /**
@@ -2817,6 +2812,22 @@ ${inArgConsts}
               }
             </div>
 
+            <!-- Current PUT arguments: for the client script to process -->
+            <div id="fuzzInputCols" class="hidden">
+              ${
+                this._results === undefined ||
+                this._state !== FuzzPanelState.done
+                  ? "{}"
+                  : htmlEscape(
+                      JSONN.stringify(
+                        this._fuzzEnv.function
+                          .getArgDefs()
+                          .map((a) => a.getName())
+                      )
+                    )
+              }
+            </div>
+
             <!-- Fuzzer Sort Columns: for the client script to process -->
             <div id="fuzzSortColumns" class="hidden">
               ${
@@ -2829,7 +2840,7 @@ ${inArgConsts}
             <!-- Fuzzer Coverage Heatmap Setting: for the client script to process -->
             <div id="fuzzShowCoverageHeatmap" class="hidden">${this._coverageStats && this._wasShowingCoverage}</div>
 
-            <!-- Fuzzer Sort Columns: for the client script to process -->
+            <!-- Fuzzer Hide Columns: for the client script to process -->
             <div id="fuzzHideColumns" class="hidden">
               ${htmlEscape(JSONN.stringify(hiddenColumns))}
             </div>
@@ -3532,7 +3543,7 @@ function _applyArgOverrides(
   // Make the user aware if it appears that the function arguments changed
   if (argOverrides.length && argOverrides.length !== argsFlat.length) {
     vscode.window.showInformationMessage(
-      `Check the testing config: '${fn.getName()}()' may have changed`
+      `Check the testing config: arguments for '${fn.getName()}()' changed`
     );
   }
 

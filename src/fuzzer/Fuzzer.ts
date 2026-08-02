@@ -634,7 +634,7 @@ export class Tester {
       result.timers.gen = performance.now() - startGenTime; // total time: input generation
       result.input = genInput.value.map((e, i) => {
         return {
-          name: argDefs[i].getName(),
+          name: argDefs[i]?.getName() ?? "?",
           offset: i,
           value: e.value,
           origin: genInput.source,
@@ -651,9 +651,11 @@ export class Tester {
       if (genInput.injected) {
         // Ensure the injected inputs are in the expected order
         const expectedInput = JSONN.stringify(
-          injectTests[runStats.counters.inputsInjected].input
+          injectTests[runStats.counters.inputsInjected].input.map(
+            (i) => i.value
+          )
         );
-        const returnedInput = JSONN.stringify(result.input);
+        const returnedInput = JSONN.stringify(result.input.map((i) => i.value));
         if (expectedInput !== returnedInput) {
           throw new Error(
             `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
