@@ -66,11 +66,18 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     rngSeed: string | undefined,
     measures: AbstractMeasure[],
     leaderboard: Leaderboard<InputAndSource>,
-    genStats: FuzzTestStats["generators"]
+    genStats: FuzzTestStats["generators"],
+    allInputs: Map<string, unknown>
   ) {
     super([], rngSeed);
 
-    this._subgens = InputGeneratorFactory(options, fn, rngSeed, leaderboard);
+    this._subgens = InputGeneratorFactory(
+      options,
+      fn,
+      rngSeed,
+      leaderboard,
+      allInputs
+    );
     this._measures = measures;
     this._leaderboard = leaderboard;
     this._genStats = genStats;

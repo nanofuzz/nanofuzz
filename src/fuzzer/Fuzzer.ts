@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as JSONN from "../Jsonn";
 import { ArgDef } from "./analysis/ArgDef";
-import { ArgValueType, FunctionRef } from "./analysis/Types";
+import { ArgValueType, FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as ProgramFactory from "./analysis/ProgramFactory";
@@ -36,7 +36,7 @@ export class Tester {
   protected _fnName: string; // function name
   protected _leaderboard = new Leaderboard<InputAndSource>(); // top test results, according to measures
   protected _measures; // set of measures for executions
-  protected _allInputs: Record<string, true> = {}; // dupe check for input generation
+  protected _allInputs: Map<string, unknown> = new Map(); // language-specific dupe check for input generation
   protected _state: "init" | "ready" | "running" | "paused" | "crashed" =
     "init"; // tester state
 
@@ -115,7 +115,8 @@ export class Tester {
       options.seed, // prng seed
       this._measures, // active measures
       this._leaderboard, // leaderboard
-      this._results.stats.generators
+      this._results.stats.generators, // generator stats
+      this._allInputs // running list of dupe-checked inputs
     );
 
     // Start a background compilation if precompile mode is active
@@ -701,23 +702,22 @@ export class Tester {
         }
       }
 
-      // Skip tests if we previously processed the input
-      const inputHash = getIoKey(result.input);
-      if (inputHash in this._allInputs) {
-        runStats.counters.dupesSequential++; // increment the dupe counter
-        runStats.counters.dupesGenerated++; // incremement the total run dupe counter
-        this._compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
-        if (genStats) {
-          genStats.counters.dupesGenerated++; // increment the generator's dupe counter
-        }
-
-        continue; // skip this test
-      } else {
-        runStats.counters.dupesSequential = 0; // reset the duplicate count
-        // if the function accepts inputs, add test input
-        // to the list so we don't test it again,
-        if (this._function.getArgDefs().length) {
-          this._allInputs[inputHash] = true;
+      // If the function accepts inputs, check if the input is a dupe
+      if (this._function.getArgDefs().length) {
+        // Skip tests if we previously processed the input
+        // Note the our hash value is language specific
+        const inputHash = getLangIoKey(lang, result.input);
+        if (this._allInputs.has(inputHash)) {
+          runStats.counters.dupesSequential++; // increment the sequential dupe counter
+          runStats.counters.dupesGenerated++; // incremement the total run dupe counter
+          this._compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
+          if (genStats) {
+            genStats.counters.dupesGenerated++; // increment the generator's dupe counter
+          }
+          continue; // skip this test
+        } else {
+          runStats.counters.dupesSequential = 0; // reset the sequential duplicate count
+          this._allInputs.set(inputHash, true);
         }
       }
 
@@ -1080,6 +1080,23 @@ export function getIoKey(io: FuzzIoElement[]): string {
     })
   );
 } // fn: getIoKey
+
+/**
+ * Gets the langiage-specific input key as a string from an array of `FuzzIoElement`s
+ *
+ * @param `lang` programming language
+ * @param `io` array of `FuzzIoElements`
+ * @returns string representation array of inputs in `lang` format
+ */
+export function getLangIoKey(
+  lang: ProgramLanguage,
+  io: FuzzIoElement[]
+): string {
+  return ValueMapper.toLang(
+    lang,
+    io.map((i) => i.value)
+  );
+} // fn: getLangIoKey
 
 /**
  * Fuzzer Environment required to fuzz a function.
