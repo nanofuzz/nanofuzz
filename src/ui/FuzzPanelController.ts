@@ -2254,10 +2254,10 @@ ${inArgConsts}
             name: "Failed",
             description: `${
               this._fuzzEnv.options.useProperty // if using property validator
-                ? `The property or human validator categorized these outputs as failed.`
+                ? `A validator with precedence categorized these examples as failed.`
                 : this._fuzzEnv.options.useImplicit // if using heuristic validator
-                  ? `The heuristic or human validator categorized these outputs as failed.`
-                  : `The human validator categorized these outputs as failed.`
+                  ? `The heuristic or human validator categorized these examples as failed.`
+                  : `The human validator categorized these examples as failed.`
             }`,
             // description: `A validator categorized these outputs as failed. The heuristic validator by default fails outputs that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
             hasGrid: true,
@@ -2265,7 +2265,7 @@ ${inArgConsts}
           {
             id: "ok",
             name: "Passed",
-            description: `A validator categorized these outputs as passed, or no validator categorized them as failed.`,
+            description: `A validator with precedence categorized these examples as passed, or no validator categorized them as failed.`,
             // description: `Passed. No validator categorized these outputs as failed.`,
             // description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
             hasGrid: true,
