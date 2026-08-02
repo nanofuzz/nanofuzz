@@ -366,10 +366,18 @@ export class AiInputGenerator extends AbstractInputGenerator {
           if (!key || !value) {
             throw new Error("Dictionary arguments require key and value types");
           }
-          return zod.record(
-            this._argDefToSchema(key, `${path}.key`, directives),
-            this._argDefToSchema(value, `${path}.value`, directives)
-          );
+          const zodKey = this._argDefToSchema(key, `${path}.key`, directives);
+          if (
+            zodKey instanceof zod.ZodString ||
+            zodKey instanceof zod.ZodNumber
+          ) {
+            return zod.record(
+              zodKey,
+              this._argDefToSchema(value, `${path}.value`, directives)
+            );
+          } else {
+            throw new Error("Dictionary key must be of type string or number");
+          }
         }
         case ArgTag.TUPLE: {
           const tupleItems = argChildren.map((child, i) => {

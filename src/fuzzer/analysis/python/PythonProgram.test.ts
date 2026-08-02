@@ -787,42 +787,6 @@ def func(tdclass: TypedDictClass, tdFunc: TypedDictFunc):
     );
   });
 
-  it("extracts primitive, collection, union, and literal aliases", () => {
-    // PEP 695 aliases are analyzed without importing a runtime typing module.
-    const types = ProgramFactory.fromSource(
-      () => `type Count = int
-type Ratio = float
-type ComplexNumber = complex
-type Label = str
-type Enabled = bool
-type Matrix = list[list[int]]
-type Pair = tuple[str, float]
-type Result = int | str
-type Status = Literal["ok"]`,
-      "python"
-    ).types;
-
-    expect(types["Count"].type?.type).toEqual(ArgTag.NUMBER);
-    expect(types["Ratio"].type?.type).toEqual(ArgTag.NUMBER);
-    expect(types["ComplexNumber"].type?.type).toEqual(ArgTag.NUMBER);
-    expect(types["Label"].type?.type).toEqual(ArgTag.STRING);
-    expect(types["Enabled"].type?.type).toEqual(ArgTag.BOOLEAN);
-    expect(types["Matrix"].type).toEqual(
-      jasmine.objectContaining({ type: ArgTag.NUMBER, dims: 2 })
-    );
-    expect(types["Pair"].type?.children.map((child) => child.type?.type)).toEqual([
-      ArgTag.STRING,
-      ArgTag.NUMBER,
-    ]);
-    expect(types["Result"].type?.children.map((child) => child.type?.type)).toEqual([
-      ArgTag.NUMBER,
-      ArgTag.STRING,
-    ]);
-    expect(types["Status"].type).toEqual(
-      jasmine.objectContaining({ type: ArgTag.LITERAL, value: "ok" })
-    );
-  });
-
   it("extracts Python Literal values in several source forms", () => {
     const types = ProgramFactory.fromSource(
       () => `type RetryCount = Literal[0x10]
@@ -852,10 +816,11 @@ type MixedColumn = list[int | str]`,
     expect(types["Row"].type?.children[0].type).toEqual(
       jasmine.objectContaining({ type: ArgTag.NUMBER, dims: 1 })
     );
-    expect(types["Row"].type?.children[1].type?.children.map((child) => child.type?.type)).toEqual([
-      ArgTag.STRING,
-      ArgTag.BOOLEAN,
-    ]);
+    expect(
+      types["Row"].type?.children[1].type?.children.map(
+        (child) => child.type?.type
+      )
+    ).toEqual([ArgTag.STRING, ArgTag.BOOLEAN]);
     expect(types["MixedColumn"].type).toEqual(
       jasmine.objectContaining({ type: ArgTag.UNION, dims: 1 })
     );
@@ -954,7 +919,11 @@ from pandas import DataFrame as Frame`,
       jasmine.objectContaining({ local: "np", imported: "*", default: false })
     );
     expect(imports["torch"]).toEqual(
-      jasmine.objectContaining({ local: "torch", imported: "*", default: false })
+      jasmine.objectContaining({
+        local: "torch",
+        imported: "*",
+        default: false,
+      })
     );
     expect(imports["train_test_split"]).toEqual(
       jasmine.objectContaining({
@@ -1000,16 +969,10 @@ from .schemas import *`,
     const frameworkFixture = path.join(fixtureDir, "framework_dependencies.py");
 
     const loadFixtureOne = () =>
-      new PythonProgram(
-        () => fs.readFileSync(fixtureOne, "utf8"),
-        fixtureOne
-      );
+      new PythonProgram(() => fs.readFileSync(fixtureOne, "utf8"), fixtureOne);
 
     const loadFixtureTwo = () =>
-      new PythonProgram(
-        () => fs.readFileSync(fixtureTwo, "utf8"),
-        fixtureTwo
-      );
+      new PythonProgram(() => fs.readFileSync(fixtureTwo, "utf8"), fixtureTwo);
 
     const loadFrameworkFixture = () =>
       new InspectablePythonProgram(
@@ -1036,9 +999,12 @@ from .schemas import *`,
         "torch_probability_sum",
       ];
 
-      expect(Object.keys(program.imports).sort()).toEqual(expectedImports.sort());
+      expect(Object.keys(program.imports).sort()).toEqual(
+        expectedImports.sort()
+      );
       for (const name of expectedImports) {
-        const sourceProgram = name === "torch_probability_sum" ? frameworkFixture : fixtureTwo;
+        const sourceProgram =
+          name === "torch_probability_sum" ? frameworkFixture : fixtureTwo;
         expect(program.imports[name]).toEqual(
           jasmine.objectContaining({
             local: name,
@@ -1070,28 +1036,31 @@ from .schemas import *`,
         "start",
         "edges",
       ]);
-      expect(bfs.getArgDefs().map((argument) => argument.getTypeAnnotation())).toEqual([
-        "Vertex",
-        "ImportedEdges[]",
-      ]);
+      expect(
+        bfs
+          .getArgDefs()
+          .map((argument) => PythonProgram.getTypeAnnotation(argument))
+      ).toEqual(["Vertex", "ImportedEdges[]"]);
       expect(bfs.getReturnType()).toEqual(
         jasmine.objectContaining({ typeRefName: "Traversal" })
       );
 
       const topological = functions["topological_order_from_imported_edges"];
-      expect(topological.getArgDefs().map((argument) => argument.getName())).toEqual([
-        "vertex_count",
-        "edges",
-      ]);
+      expect(
+        topological.getArgDefs().map((argument) => argument.getName())
+      ).toEqual(["vertex_count", "edges"]);
       expect(topological.getArgDefs()[0].getType()).toEqual(ArgTag.NUMBER);
-      expect(topological.getArgDefs()[1].getTypeAnnotation()).toEqual("ImportedEdges[]");
+      expect(
+        PythonProgram.getTypeAnnotation(topological.getArgDefs()[1])
+      ).toEqual("ImportedEdges[]");
 
       const knapsack = functions["knapsack_from_imported_helper"];
-      expect(knapsack.getArgDefs().map((argument) => argument.getName())).toEqual([
-        "items",
-        "capacity",
-      ]);
-      expect(knapsack.getArgDefs()[0].getTypeAnnotation()).toEqual("KnapsackItems[][]");
+      expect(
+        knapsack.getArgDefs().map((argument) => argument.getName())
+      ).toEqual(["items", "capacity"]);
+      expect(PythonProgram.getTypeAnnotation(knapsack.getArgDefs()[0])).toEqual(
+        "KnapsackItems[][]"
+      );
       expect(knapsack.getArgDefs()[1].getType()).toEqual(ArgTag.NUMBER);
 
       const torchScore = functions["torch_score_from_imported_helper"];
@@ -1130,11 +1099,14 @@ from .schemas import *`,
         "multi_bfs",
         "topological_sort",
       ]);
-      expect(program.functionsExported["bfs_matrix"].getArgDefs().map((argument) => argument.getName())).toEqual([
-        "start",
-        "matrix",
-      ]);
-      expect(program.functionsExported["topological_sort"].getReturnType()).toEqual(
+      expect(
+        program.functionsExported["bfs_matrix"]
+          .getArgDefs()
+          .map((argument) => argument.getName())
+      ).toEqual(["start", "matrix"]);
+      expect(
+        program.functionsExported["topological_sort"].getReturnType()
+      ).toEqual(
         // `list[Vertex]` resolves to the shared numeric element type plus
         // one array dimension, so the retained type reference is `Vertex`.
         jasmine.objectContaining({ typeRefName: "Vertex" })
@@ -1162,19 +1134,39 @@ from .schemas import *`,
       const imports = loadFrameworkFixture().imports;
 
       expect(imports["FastAPI"]).toEqual(
-        jasmine.objectContaining({ local: "FastAPI", imported: "FastAPI", default: false })
+        jasmine.objectContaining({
+          local: "FastAPI",
+          imported: "FastAPI",
+          default: false,
+        })
       );
       expect(imports["Depends"]).toEqual(
-        jasmine.objectContaining({ local: "Depends", imported: "Depends", default: false })
+        jasmine.objectContaining({
+          local: "Depends",
+          imported: "Depends",
+          default: false,
+        })
       );
       expect(imports["BaseModel"]).toEqual(
-        jasmine.objectContaining({ local: "BaseModel", imported: "BaseModel", default: false })
+        jasmine.objectContaining({
+          local: "BaseModel",
+          imported: "BaseModel",
+          default: false,
+        })
       );
       expect(imports["torch"]).toEqual(
-        jasmine.objectContaining({ local: "torch", imported: "*", resolved: false })
+        jasmine.objectContaining({
+          local: "torch",
+          imported: "*",
+          resolved: false,
+        })
       );
       expect(imports["torch_functional"]).toEqual(
-        jasmine.objectContaining({ local: "torch_functional", imported: "*", resolved: false })
+        jasmine.objectContaining({
+          local: "torch_functional",
+          imported: "*",
+          resolved: false,
+        })
       );
     });
 

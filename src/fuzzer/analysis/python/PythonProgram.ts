@@ -600,7 +600,9 @@ export class PythonProgram extends AbstractProgram {
           case "Mapping":
           case "MutableMapping":
             if (args.length !== 2) {
-              throw new Error(`Dictionary type requires key and value types: ${node.text}`);
+              throw new Error(
+                `Dictionary type requires key and value types: ${node.text}`
+              );
             }
             return [ArgTag.DICTIONARY, 0];
           case "tuple":
@@ -633,33 +635,6 @@ export class PythonProgram extends AbstractProgram {
         );
     }
   } // fn: _getTypeFromAstNode()
-
-  /**
-   * Extracts the base name and arguments from built-in (`dict[str, int]`) and
-   * qualified `typing` (`typing.Dict[str, int]`) generics. Tree-sitter uses
-   * different node shapes for those spellings, so keeping the normalization
-   * here ensures the container cases below behave identically.
-   */
-  private _getGenericParts(node: Parser.SyntaxNode): {
-    base: string;
-    args: Parser.SyntaxNode[];
-  } {
-    if (node.type === "generic_type") {
-      const base = node.namedChildren.find(
-        (child) => child.type === "identifier"
-      );
-      const parameters = node.namedChildren.find(
-        (child) => child.type === "type_parameter"
-      );
-      if (!base || !parameters) throw new Error(`Malformed generic type: ${node.text}`);
-      return { base: base.text, args: parameters.namedChildren };
-    }
-
-    const base = node.childForFieldName("value");
-    const args = node.childrenForFieldName("subscript");
-    if (!base || !args.length) throw new Error(`Malformed subscript type: ${node.text}`);
-    return { base: base.text.split(".").at(-1) ?? base.text, args };
-  }
 
   /**
    * Extracts the base name and arguments from built-in and qualified generic
@@ -765,7 +740,12 @@ export class PythonProgram extends AbstractProgram {
               // A dictionary has no fixed property names. Preserve its two
               // type parameters explicitly so generators and validators can
               // apply the key and value constraints to every entry.
-              if (base === "dict" || base === "Dict" || base === "Mapping" || base === "MutableMapping") {
+              if (
+                base === "dict" ||
+                base === "Dict" ||
+                base === "Mapping" ||
+                base === "MutableMapping"
+              ) {
                 child.name = index === 0 ? "key" : "value";
               }
               return child;
@@ -1315,9 +1295,9 @@ export class PythonProgram extends AbstractProgram {
       }
 
       case ArgTag.DICTIONARY: {
-        const [key, value] = this.children;
-        return `Record<${key?.getTypeAnnotation(options) ?? "string"}, ${
-          value?.getTypeAnnotation(options) ?? "unknown"
+        const [key, value] = arg.getChildren();
+        return `Record<${PythonProgram.getTypeAnnotation(key, options) ?? "string"}, ${
+          PythonProgram.getTypeAnnotation(value, options) ?? "unknown"
         }>`;
       }
 
