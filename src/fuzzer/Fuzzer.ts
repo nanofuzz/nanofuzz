@@ -382,7 +382,7 @@ export class Tester {
    * @returns test results
    */
   protected async *_run(
-    injectTestsIn: FuzzPinnedTest[] = [],
+    injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: (payload: FuzzBusyStatusMessage) => void,
     cancelFn?: () => boolean
@@ -391,7 +391,6 @@ export class Tester {
     FuzzTestResults,
     FuzzTestResults | undefined
   > {
-    const injectTests = structuredClone(injectTestsIn);
     const state = this.state;
     if (!(state === "init" || state === "paused")) {
       throw new Error(
@@ -440,8 +439,6 @@ export class Tester {
     // any "interesting" inputs might be further used by other generators.
     this._compositeInputGenerator.inject(
       injectTests.map((t): Omit<InputAndSource, "tick"> => {
-        // Don't inject more inputs than the PUT accepts
-        t.input = t.input.slice(0, argDefs.length);
         return {
           value: t.input.map((i) => {
             return {
@@ -637,7 +634,7 @@ export class Tester {
       result.timers.gen = performance.now() - startGenTime; // total time: input generation
       result.input = genInput.value.map((e, i) => {
         return {
-          name: argDefs[i].getName(),
+          name: argDefs[i]?.getName() ?? "?",
           offset: i,
           value: e.value,
           origin: genInput.source,
@@ -654,9 +651,11 @@ export class Tester {
       if (genInput.injected) {
         // Ensure the injected inputs are in the expected order
         const expectedInput = JSONN.stringify(
-          injectTests[runStats.counters.inputsInjected].input
+          injectTests[runStats.counters.inputsInjected].input.map(
+            (i) => i.value
+          )
         );
-        const returnedInput = JSONN.stringify(result.input);
+        const returnedInput = JSONN.stringify(result.input.map((i) => i.value));
         if (expectedInput !== returnedInput) {
           throw new Error(
             `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
@@ -705,13 +704,12 @@ export class Tester {
         }
       }
 
-      // If the function accepts inputs and we are not still injecting,
-      // check if the input is a duplicate
+      // If the function accepts inputs check if the input is a duplicate
       if (this._function.getArgDefs().length) {
         // Skip tests if we previously processed the input
         // Note the our hash value is language specific
         const inputHash = getLangIoKey(lang, result.input);
-        if (this._allInputs.has(inputHash) && !stillInjecting) {
+        if (this._allInputs.has(inputHash)) {
           runStats.counters.dupesSequential++; // increment the sequential dupe counter
           runStats.counters.dupesGenerated++; // incremement the total run dupe counter
           this._compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback

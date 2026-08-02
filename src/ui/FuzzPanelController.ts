@@ -473,24 +473,19 @@ export class FuzzPanel {
       )
     );
 
-    // Update the back-end results data
-    if (this._results) {
-      if (
-        msg.id < this._results.results.length &&
-        fuzzer.getIoKey(msg.test.input) ===
-          fuzzer.getIoKey(this._results.results[msg.id].input)
-      ) {
-        this._results.results[msg.id].pinned = msg.test.pinned;
-        this._results.results[msg.id].expectedOutput = msg.test.expectedOutput;
-      }
-    } else {
-      throw new Error(
-        "front-end input value to pin/unpin does not match that of back-end id"
-      );
-    }
+    if (this._results && msg.id >= 0 && msg.id < this._results.results.length) {
+      // Update the back-end results data
+      this._results.results[msg.id].pinned = msg.test.pinned;
+      this._results.results[msg.id].expectedOutput = msg.test.expectedOutput;
 
-    // Update set of saved tests
-    this._updateFuzzTestsForThisFn(msg.test);
+      // Update set of saved tests
+      this._updateFuzzTestsForThisFn({
+        ...msg.test,
+        input: this._results.results[msg.id].input, // avoid argument changes jank
+      });
+    } else {
+      throw new Error("Invalid pin/unpin message");
+    }
   } // fn: _doTestPinnedCmd()
 
   /**

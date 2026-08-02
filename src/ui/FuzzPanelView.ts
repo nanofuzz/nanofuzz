@@ -503,19 +503,26 @@ async function main() {
       data[type] = [];
     });
 
-    // An empty input set
-    const emptyInputs: Record<string, string> = {};
-    putInputCols.forEach((name) => {
-      emptyInputs[`input: ${name}`] = "(no input)";
-    });
-
-    // Loop over each result
-    let idx = 0;
+    // Calculate maximum number of inputs
     let dataInputColCount = 0;
     for (const e of resultsData.results) {
       if (e.input.length > dataInputColCount) {
         dataInputColCount = e.input.length;
       }
+    }
+
+    // An empty input set containing the maximum number
+    // of inputs present in the data.
+    const emptyInputs: Record<string, string> = {};
+    for (let i = 0; i < dataInputColCount; i++) {
+      emptyInputs[
+        `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`
+      ] = "(no input)";
+    }
+
+    // Loop over each result
+    let idx = 0;
+    for (const e of resultsData.results) {
       // Indicate which tests are pinned
       const pinned = { [pinnedLabel]: !!e.pinned };
       const id = { [idLabel]: idx++ };
@@ -592,17 +599,17 @@ async function main() {
       });
 
       // Name each input argument and make it clear which inputs were not provided
-      // (i.e., the argument was optional).  Otherwise, stringify the value for
-      // display.
+      // (i.e., it was optional). Otherwise, translate & display the value.
       const inputs: Record<string, string> = { ...emptyInputs };
       e.input.forEach((input, i) => {
-        if (i < putInputCols.length) {
-          inputs[`input: ${putInputCols[i] ?? "?"}`] =
-            input.value === undefined
-              ? "(no input)"
-              : ValueMapper.toLang(lang, input.value);
-        }
+        inputs[
+          `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`
+        ] =
+          input.value === undefined
+            ? "(no input)"
+            : ValueMapper.toLang(lang, input.value);
       });
+      console.debug(`Input--> ${JSONN.stringify(inputs)}`); // !!!!!!!!!!!
 
       // There are 0-1 outputs: if an output is present, just name it `output`
       // and make it clear which outputs are undefined.  Otherwise, stringify
