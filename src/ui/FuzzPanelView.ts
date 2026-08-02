@@ -487,7 +487,7 @@ async function main() {
     htmlUnescape(getElementByIdOrThrow("fuzzLang").innerHTML)
   );
 
-  // Get the actual input columns
+  // Get the PUT's current input argument names
   const putInputCols = JSONN.parse<string[]>(
     htmlUnescape(getElementByIdOrThrow("fuzzInputCols").innerHTML)
   );
@@ -503,7 +503,7 @@ async function main() {
       data[type] = [];
     });
 
-    // Calculate maximum number of inputs
+    // Calculate maximum number of arguments present in the data
     let dataInputColCount = 0;
     for (const e of resultsData.results) {
       if (e.input.length > dataInputColCount) {
@@ -512,7 +512,7 @@ async function main() {
     }
 
     // An empty input set containing the maximum number
-    // of inputs present in the data.
+    // of arguments present in the data.
     const emptyInputs: Record<string, string> = {};
     for (let i = 0; i < dataInputColCount; i++) {
       emptyInputs[
@@ -609,7 +609,6 @@ async function main() {
             ? "(no input)"
             : ValueMapper.toLang(lang, input.value);
       });
-      console.debug(`Input--> ${JSONN.stringify(inputs)}`); // !!!!!!!!!!!
 
       // There are 0-1 outputs: if an output is present, just name it `output`
       // and make it clear which outputs are undefined.  Otherwise, stringify

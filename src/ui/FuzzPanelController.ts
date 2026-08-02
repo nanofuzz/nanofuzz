@@ -2812,7 +2812,7 @@ ${inArgConsts}
               }
             </div>
 
-            <!-- Current program inputs: for the client script to process -->
+            <!-- Current PUT arguments: for the client script to process -->
             <div id="fuzzInputCols" class="hidden">
               ${
                 this._results === undefined ||

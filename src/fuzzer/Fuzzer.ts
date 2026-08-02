@@ -704,7 +704,7 @@ export class Tester {
         }
       }
 
-      // If the function accepts inputs check if the input is a duplicate
+      // If the function accepts inputs, check if the input is a dupe
       if (this._function.getArgDefs().length) {
         // Skip tests if we previously processed the input
         // Note the our hash value is language specific
