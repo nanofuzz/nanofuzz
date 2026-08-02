@@ -3543,7 +3543,7 @@ function _applyArgOverrides(
   // Make the user aware if it appears that the function arguments changed
   if (argOverrides.length && argOverrides.length !== argsFlat.length) {
     vscode.window.showInformationMessage(
-      `Check the testing config: '${fn.getName()}()' may have changed`
+      `Check the testing config: arguments for '${fn.getName()}()' changed`
     );
   }
 
