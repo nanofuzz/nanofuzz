@@ -113,6 +113,18 @@ export class ArgDefValidator {
           return false; // not an object or is an array
         }
 
+        case ArgTag.DICTIONARY: {
+          if (typeof value !== "object" || value === null || Array.isArray(value)) {
+            return false;
+          }
+          const [keySpec, valueSpec] = spec.getChildren();
+          if (!keySpec || !valueSpec) return false;
+          return Object.entries(value).every(([key, entry]) =>
+            ArgDefValidator.validate(key, keySpec) &&
+            ArgDefValidator.validate(entry, valueSpec)
+          );
+        }
+
         case ArgTag.TUPLE: {
           if (typeof value === "object" && Array.isArray(value)) {
             const children = spec.getChildren();

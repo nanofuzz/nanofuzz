@@ -321,6 +321,26 @@ export class ArgDefMutator {
             }
             break;
           }
+          case ArgTag.DICTIONARY: {
+            const value = subInput.subElement;
+            if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+              const [, valueSpec] = spec.getChildren();
+              // Mapping keys are dynamic, unlike object-property names.  Walk
+              // each existing value with the shared value specification; key
+              // renames are intentionally left to dictionary regeneration.
+              if (valueSpec) {
+                for (const [key, entry] of Object.entries(value)) {
+                  subInputs.push({
+                    subPath: [...subInput.subPath, key],
+                    subElement: entry,
+                    subSpec: valueSpec,
+                    inArray: false,
+                  });
+                }
+              }
+            }
+            break;
+          }
           case ArgTag.LITERAL: {
             // Nothing to do here: literals cannot be mutated
             break;

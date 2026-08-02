@@ -151,6 +151,35 @@ function generateRandomInputFn<T extends ArgType>(
       };
       break;
 
+    case ArgTag.DICTIONARY:
+      randFn = (
+        prng: seedrandom.prng,
+        min: ArgValueType,
+        max: ArgValueType
+      ): ArgValueType => {
+        if (typeof min !== "object" || typeof max !== "object")
+          throw new Error("Min and max must be objects");
+        const [keySpec, valueSpec] = arg.getChildren();
+        if (!keySpec || !valueSpec) {
+          throw new Error("Dictionary arguments require key and value types");
+        }
+        // Inputs cross the JSON boundary, where object keys are strings.  Use
+        // the configured default collection length for the number of entries.
+        const count = getRandomNumber(
+          prng,
+          arg.getOptions().dftDimLength.min,
+          arg.getOptions().dftDimLength.max,
+          ArgDef.getDefaultOptions()
+        );
+        const out: { [key: string]: ArgValueType } = {};
+        for (let i = 0; i < count; i++) {
+          out[String(generateRandomInputFn(keySpec, prng)())] =
+            generateRandomInputFn(valueSpec, prng)();
+        }
+        return out;
+      };
+      break;
+
     case ArgTag.TUPLE:
       randFn = (
         prng: seedrandom.prng,
@@ -181,7 +210,11 @@ function generateRandomInputFn<T extends ArgType>(
   // Callback fn to generate value
   const randFnWrapper: PublicRandFn = () => {
     if (arg.isNoInput()) return undefined;
-    if (type === ArgTag.OBJECT || type === ArgTag.TUPLE) {
+    if (
+      type === ArgTag.OBJECT ||
+      type === ArgTag.DICTIONARY ||
+      type === ArgTag.TUPLE
+    ) {
       return randFn(prng, {}, {}, options);
     }
     if (type === ArgTag.UNION) {
