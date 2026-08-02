@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ArgValueType, ProgramLanguage } from "../analysis/Types";
+import { ArgValueType } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
 import { FunctionDef } from "../analysis/FunctionDef";
 import * as nodellm from "@node-llm/core";
@@ -76,7 +76,9 @@ export class LlmAdapter {
    */
   public async genInputs(
     fn: FunctionDef,
-    schema?: [zod.ZodObject, string[]]
+    schema: zod.ZodObject,
+    directives: string[],
+    allInputs: Map<string, unknown>
   ): Promise<{
     programInputs: { [k: string]: ArgValueType }[];
     stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
@@ -85,15 +87,8 @@ export class LlmAdapter {
     let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
     try {
       response = await this._query(
-        [
-          prompt.genInputs(
-            this._getPromptVars(
-              fn,
-              schema === undefined || schema[1].length === 0 ? [] : schema[1]
-            )
-          ),
-        ],
-        schema ? schema[0] : undefined
+        [prompt.genInputs(fn, directives, allInputs)],
+        schema
       );
     } catch (e: unknown) {
       return {
@@ -128,33 +123,6 @@ export class LlmAdapter {
     // Deeper validation is the client's role
     return { ...inputs, stats: { ...response.stats } };
   } // fn: genInputs
-
-  /**
-   * Returns a commmunication structure of data for building prompts
-   * for a program.
-   *
-   * @param `fn` the function under test
-   * @returns a set of prompt variables
-   */
-  protected _getPromptVars(
-    fn: FunctionDef,
-    directives: string[]
-  ): {
-    lang: ProgramLanguage;
-    fnName: string;
-    fnSource: string;
-    fnSpec: string;
-    directives: string[];
-  } {
-    const fnRef = fn.getRef();
-    return {
-      lang: fnRef.lang,
-      fnName: fnRef.name,
-      fnSource: fnRef.src,
-      fnSpec: fn.getCmt() ?? "",
-      directives,
-    };
-  } // fn: _getPromptVars
 
   /**
    * Prompts the LLM and returns a response
@@ -303,20 +271,37 @@ const prompt = {
   system: (): string => {
     return `You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.`;
   },
-  genInputs: (vars: ReturnType<LlmAdapter["_getPromptVars"]>): string => {
-    return `To evaluate whether the following ${vars.lang} program "${vars.fnName}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+  genInputs: (
+    fn: FunctionDef,
+    directives: string[],
+    allInputs: Map<string, unknown>
+  ): string => {
+    const fnRef = fn.getRef();
+    const spec = fn.getCmt() ?? "";
+    let inputs = vscode.workspace
+      .getConfiguration("nanofuzz.ai")
+      .get<boolean>("backfeedPriorInputs", true)
+      ? Array.from(allInputs.keys())
+      : [];
+    // draw a line at 10k inputs
+    if (inputs.length > 10000) {
+      inputs = inputs.slice(-10000);
+    }
+    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
 
-The specification for the "${vars.fnName}" program:
+The specification for the "${fnRef.name}" program:
 \`\`\`
-${vars.fnSpec ? vars.fnSpec : `(no specification was found. try to infer the spec from the program below)`}
-\`\`\`
-
-The "${vars.fnName}" program:
-\`\`\`${vars.lang}
-${vars.fnSource}
+${spec ? spec : `(no specification was found. try to infer the spec from the program below)`}
 \`\`\`
 
-${vars.directives.length ? `Important details about the program's inputs:\n${vars.directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+The "${fnRef.name}" program:
+\`\`\`${fnRef.lang}
+${fnRef.src}
+\`\`\`
+
+${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+
+${inputs.length ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}` : ""}
 `;
   },
 };

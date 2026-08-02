@@ -23,10 +23,16 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _llm?: LlmAdapter; // Back-end AI model
   protected _callsPending = 0; // Number of calls to AI model pending
   protected _stats = _initStats(); // Stats about inputs generated
+  protected _allInputs; // Running list of all generated inputs
 
-  public constructor(fn: FunctionDef, rngSeed: string | undefined) {
+  public constructor(
+    fn: FunctionDef,
+    rngSeed: string | undefined,
+    allInputs: Map<string, unknown>
+  ) {
     super(fn.getArgDefs(), rngSeed);
     this._fn = fn;
+    this._allInputs = allInputs;
   } // fn: constructor
 
   /**
@@ -99,7 +105,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   /**
    * Gets more inputs from the back-end AI model
    */
-  private _getMoreInputs(): void {
+  protected _getMoreInputs(): void {
     // Let any prior calls finish before making a new one
     if (this._callsPending) {
       return;
@@ -117,108 +123,110 @@ export class AiInputGenerator extends AbstractInputGenerator {
         const [schema, directives] = this._getInputsSchema(this._fn.getLang());
 
         // Fetch inputs from the llm
-        this._llm.genInputs(this._fn, [schema, directives]).then((inputs) => {
-          // Update tokens received stats
-          if (inputs.stats) {
-            this._stats.tokens.received += inputs.stats.tokensReceived;
-            if (!this._stats.tokens.receivedCost) {
-              this._stats.tokens.receivedCost = {
-                ...inputs.stats.tokensReceivedCost,
-              };
-            } else if (
-              this._stats.tokens.receivedCost.unit ===
-              inputs.stats.tokensReceivedCost.unit
-            ) {
-              this._stats.tokens.receivedCost.amt +=
-                inputs.stats.tokensReceivedCost.amt;
+        this._llm
+          .genInputs(this._fn, schema, directives, this._allInputs)
+          .then((inputs) => {
+            // Update tokens received stats
+            if (inputs.stats) {
+              this._stats.tokens.received += inputs.stats.tokensReceived;
+              if (!this._stats.tokens.receivedCost) {
+                this._stats.tokens.receivedCost = {
+                  ...inputs.stats.tokensReceivedCost,
+                };
+              } else if (
+                this._stats.tokens.receivedCost.unit ===
+                inputs.stats.tokensReceivedCost.unit
+              ) {
+                this._stats.tokens.receivedCost.amt +=
+                  inputs.stats.tokensReceivedCost.amt;
+              }
+
+              // Update tokens sent stats
+              this._stats.tokens.sent += inputs.stats.tokensSent;
+              if (!this._stats.tokens.sentCost) {
+                this._stats.tokens.sentCost = {
+                  ...inputs.stats.tokensSentCost,
+                };
+              } else if (
+                this._stats.tokens.sentCost.unit ===
+                inputs.stats.tokensSentCost.unit
+              ) {
+                this._stats.tokens.sentCost.amt +=
+                  inputs.stats.tokensSentCost.amt;
+              }
             }
 
-            // Update tokens sent stats
-            this._stats.tokens.sent += inputs.stats.tokensSent;
-            if (!this._stats.tokens.sentCost) {
-              this._stats.tokens.sentCost = {
-                ...inputs.stats.tokensSentCost,
-              };
-            } else if (
-              this._stats.tokens.sentCost.unit ===
-              inputs.stats.tokensSentCost.unit
-            ) {
-              this._stats.tokens.sentCost.amt +=
-                inputs.stats.tokensSentCost.amt;
+            // Handle error cases
+            switch (inputs.error?.type) {
+              case undefined:
+                this._stats.calls.valid++;
+                this._stats.calls.history.push({ success: true });
+                break;
+              case "discard":
+                this._stats.calls.invalid++;
+                this._stats.calls.history.push({ discard: true });
+                break;
+              case "failure":
+                this._stats.calls.failed++;
+                this._stats.calls.history.push({
+                  failure: true,
+                  message: inputs.error.message,
+                });
+                break;
             }
-          }
 
-          // Handle error cases
-          switch (inputs.error?.type) {
-            case undefined:
-              this._stats.calls.valid++;
-              this._stats.calls.history.push({ success: true });
-              break;
-            case "discard":
-              this._stats.calls.invalid++;
-              this._stats.calls.history.push({ discard: true });
-              break;
-            case "failure":
-              this._stats.calls.failed++;
-              this._stats.calls.history.push({
-                failure: true,
-                message: inputs.error.message,
+            // Process the inputs
+            inputs.programInputs.forEach((input) => {
+              this._stats.inputs.gen++;
+
+              // Decode the input
+              Object.keys(input).forEach((k) => {
+                input[k] = _decode(input[k]);
               });
-              break;
-          }
 
-          // Process the inputs
-          inputs.programInputs.forEach((input) => {
-            this._stats.inputs.gen++;
-
-            // Decode the input
-            Object.keys(input).forEach((k) => {
-              input[k] = _decode(input[k]);
+              // Validate the input
+              if (
+                validator.validate(
+                  this._specs.map((arg) => {
+                    return {
+                      tag: "ArgValueTypeWrapped",
+                      value: input[arg.getName()],
+                    };
+                  })
+                )
+              ) {
+                validInputs.push(input);
+              } else {
+                invalidInputs.push(input);
+                this._stats.inputs.invalid++;
+              }
             });
-
-            // Validate the input
-            if (
-              validator.validate(
-                this._specs.map((arg) => {
-                  return {
-                    tag: "ArgValueTypeWrapped",
-                    value: input[arg.getName()],
-                  };
-                })
-              )
-            ) {
-              validInputs.push(input);
-            } else {
-              invalidInputs.push(input);
-              this._stats.inputs.invalid++;
+            if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
+              console.debug(
+                `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSONN.stringify(invalidInputs, null, 2)}`
+              );
             }
-          });
-          if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
-            console.debug(
-              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSONN.stringify(invalidInputs, null, 2)}`
-            );
-          }
 
-          // Push valid inputs to the input queue
-          this._inputQueue.push(
-            ...validInputs.map((input): InputAndSource => {
-              return {
-                tick: 0,
-                value: this._specs.map((arg): ArgValueTypeWrapped => {
-                  return {
-                    tag: "ArgValueTypeWrapped",
-                    value: input[arg.getName()],
-                  };
-                }),
-                source: {
-                  type: "generator",
-                  generator: "AiInputGenerator",
-                  model: modelId ?? "unknown model",
-                },
-              };
-            })
-          );
-        });
+            // Push valid inputs to the input queue
+            this._inputQueue.push(
+              ...validInputs.map((input): InputAndSource => {
+                return {
+                  tick: 0,
+                  value: this._specs.map((arg): ArgValueTypeWrapped => {
+                    return {
+                      tag: "ArgValueTypeWrapped",
+                      value: input[arg.getName()],
+                    };
+                  }),
+                  source: {
+                    type: "generator",
+                    generator: "AiInputGenerator",
+                    model: modelId ?? "unknown model",
+                  },
+                };
+              })
+            );
+          });
       } finally {
         this._callsPending--;
       }
@@ -448,7 +456,7 @@ function _initStats(): InputGeneratorStatsAi {
  * @param data
  * @returns
  */
-function _decode(data: ArgValueType): ArgValueType {
+export function _decode(data: ArgValueType): ArgValueType {
   switch (typeof data) {
     case "object":
       if (Array.isArray(data)) {
@@ -490,8 +498,8 @@ function _decode(data: ArgValueType): ArgValueType {
 } // fn: _decode
 
 // Constants for encoding/decoding
-const NANOFUZZ_UNDEFINED = "___NANOFUZZ____6158195231___UNDEFINED___";
-const NANOFUZZ_MISSING_PROPERTY =
+export const NANOFUZZ_UNDEFINED = "___NANOFUZZ____6158195231___UNDEFINED___";
+export const NANOFUZZ_MISSING_PROPERTY =
   "___NANOFUZZ____6158195231___MISSING___PROPERTY___";
-const NANOFUZZ_TRUE = "___NANOFUZZ____6158195231___TRUE___";
-const NANOFUZZ_FALSE = "___NANOFUZZ____6158195231___FALSE___";
+export const NANOFUZZ_TRUE = "___NANOFUZZ____6158195231___TRUE___";
+export const NANOFUZZ_FALSE = "___NANOFUZZ____6158195231___FALSE___";
