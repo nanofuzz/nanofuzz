@@ -1,6 +1,6 @@
 # NaNofuzz
 
-NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for TypeScript that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
+NaNofuzz is a fast and easy-to-use Automatic Test sUite Generator (ATUG) for TypeScript and Python that combines human insight, heuristics, and property checking to help you quickly reach working code nirvana. NaNofuzz is intended to be used during testing and development and is available in the [the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=penrose.nanofuzz).
 
 ![NaNofuzz Screenshot](https://github.com/user-attachments/assets/7655c0c7-96ee-4251-b383-77023c68f3da)
 
@@ -26,13 +26,22 @@ To use NaNofuzz in your own projects:
     }
     ```
 
-> **Note:** To run NaNofuzz tests in CI, click the pin button. NaNofuzz exports pinned tests to Jest format for execution in CI.
+> **Note:** To run NaNofuzz tests in CI, click the pin button. NaNofuzz exports pinned tests to Jest or `pytest` format, depending on the target language.
+
+## What's new in v0.4.0
+
+- **Python targets:** Analyze and fuzz supported Python functions, then export the saved tests for `pytest`.
+- **Composite input generation:** Random, mutation, and AI generators are coordinated automatically using the active measures and leaderboard, so you do not need to choose one generator for an entire run.
+- **Stop-and-go testing:** Pause a long run and resume it later without losing the accumulated results, pinned inputs, or generator feedback.
+- **Project-aware TypeScript compilation:** NaNofuzz uses the target project's TypeScript compiler and `tsconfig.json` when available, then falls back to the compiler bundled with the extension.
+
+The v0.4 workflow is described in the [TestLoop: A Process Model Describing Human-in-the-Loop Software Test Suite Generation](https://www.cs.cmu.edu/~jssunshi/assets/pdf/testloop.pdf) paper.
 
 ## Scope and Limitations
 
 NaNofuzz is an **experimental** testing platform developed by the Accelerated Testing Research Program at Carnegie Mellon University's School of Computer Science. While NaNofuzz is **not** intended for production use, contributions are welcome to address the limitations below. 
 
-NaNofuzz supports exported standard and arrow functions with any mixture of the following parameter types:
+For TypeScript targets, NaNofuzz supports exported standard and arrow functions with any mixture of the following parameter types:
  - Numbers (integers and floats)
  - Strings
  - Booleans
@@ -41,7 +50,8 @@ NaNofuzz supports exported standard and arrow functions with any mixture of the 
  - Optional and mandatory parameters and members
 
 NaNofuzz automatically generates a test suite in these formats for use in CI:
- - Jest
+ - Jest for TypeScript targets
+ - pytest for Python targets
 
 The following are not yet supported:
  - Inputs of deconstructed, enum, generic, intersection, utility (e.g., Record), and function types
