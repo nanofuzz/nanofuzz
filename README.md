@@ -29,7 +29,7 @@ To use NaNofuzz in your own projects:
     }
     ```
 
-> **Note:** To export NaNofuzz tests to CI, click the pin button. NaNofuzz exports pinned tests to Jest/Jasmine (TypeScript) or `pytest` format (Python), depending on the target language.
+To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuzz exports pinned tests to Jest/Jasmine or pytest format, depending on the target language.
 
 ## What's new in v0.4
 
