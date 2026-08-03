@@ -1,5 +1,4 @@
 import seedrandom from "seedrandom";
-import { ArgType } from "../analysis/Types";
 import { ArgDef } from "../analysis/ArgDef";
 import { InputAndSource } from "./../Types";
 import { InputGeneratorStats } from "./Types";
@@ -17,7 +16,7 @@ export abstract class AbstractInputGenerator {
    * @param `specs` ArgDef specs that describe the inputs to generate
    * @param `rngSeed` seed for pseudo random nunber generator
    */
-  protected constructor(specs: ArgDef<ArgType>[], rngSeed: string | undefined) {
+  protected constructor(specs: ArgDef[], rngSeed: string | undefined) {
     this._specs = specs;
     this._prng = seedrandom(rngSeed);
   } // fn: constructor

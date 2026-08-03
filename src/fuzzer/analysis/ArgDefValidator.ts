@@ -1,18 +1,18 @@
 import { ArgDef } from "./ArgDef";
-import { ArgTag, ArgType, ArgValueType, ArgValueTypeWrapped } from "./Types";
+import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
 
 /**
  * Valides values against their corresponding ArgDef specs
  */
 export class ArgDefValidator {
-  protected _specs: ArgDef<ArgType>[];
+  protected _specs: ArgDef[];
 
   /**
    * Create an ArgDefValidator object
    *
    * @param `specs` ArgDef spec against which to check values
    */
-  constructor(specs: ArgDef<ArgType>[]) {
+  constructor(specs: ArgDef[]) {
     this._specs = specs;
   } // fn: constructor
 
@@ -43,7 +43,7 @@ export class ArgDefValidator {
    */
   public static validate(
     value: ArgValueType,
-    spec: ArgDef<ArgType>,
+    spec: ArgDef,
     inArray = false
   ): boolean {
     const options = spec.getOptions();
@@ -179,7 +179,7 @@ export class ArgDefValidator {
  */
 const traverse = (
   a: Array<ArgValueType>,
-  spec: ArgDef<ArgType>,
+  spec: ArgDef,
   currDepth = 0
 ): boolean => {
   // Check the depth and number of elements in the array

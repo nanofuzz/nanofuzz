@@ -1098,7 +1098,7 @@ export class TypescriptProgram extends AbstractProgram {
    * @returns a string that works as the type annotation for the argument
    */
   public static getTypeAnnotation(
-    arg: ArgDef<ArgType>,
+    arg: ArgDef,
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
     // Get the base type annotation
@@ -1142,7 +1142,7 @@ export class TypescriptProgram extends AbstractProgram {
    * dimensions or optionality.
    */
   protected static getBaseType(
-    arg: ArgDef<ArgType>,
+    arg: ArgDef,
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
     const typeRef = arg.getTypeRef();

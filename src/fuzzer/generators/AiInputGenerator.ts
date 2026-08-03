@@ -1,7 +1,6 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import {
   ArgTag,
-  ArgType,
   ArgValueType,
   ArgValueTypeWrapped,
   ProgramLanguage,
@@ -278,7 +277,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @returns a Zod schema for the ArgDef
    */
   protected _argDefToSchema(
-    inArg: ArgDef<ArgType>,
+    inArg: ArgDef,
     path: string,
     directives: string[]
   ): zod.ZodType {
@@ -287,7 +286,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
     const argOptions = inArg.getOptions();
 
     // Helper function that creates a Zod schema from an ArgDef
-    const argToZod = (arg: ArgDef<ArgType>): zod.ZodType => {
+    const argToZod = (arg: ArgDef): zod.ZodType => {
       switch (arg.getType()) {
         case ArgTag.NUMBER: {
           const desc = `value must be >= ${Number(argIntervals[0].min)} && <= ${Number(argIntervals[0].max)}`;

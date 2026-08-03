@@ -89,6 +89,22 @@ export type ArgType =
   | {
       [key: string]: ArgType;
     };
+
+/**
+ * Maps each ArgTag to the corresponding TypeScript value type.
+ * Use this instead of pairing a separate `T extends ArgType` parameter
+ * alongside an `ArgTag` — derive `T` from the tag instead.
+ */
+export type TagToType = {
+  [ArgTag.NUMBER]: number;
+  [ArgTag.STRING]: string;
+  [ArgTag.BOOLEAN]: boolean;
+  [ArgTag.OBJECT]: { [key: string]: ArgType };
+  [ArgTag.LITERAL]: ArgType;
+  [ArgTag.UNION]: ArgType;
+  [ArgTag.TUPLE]: [ArgType];
+  [ArgTag.UNRESOLVED]: ArgType;
+};
 export type ArgValueType =
   | number
   | string

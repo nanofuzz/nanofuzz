@@ -961,13 +961,13 @@ export class FuzzPanel {
     // vvvvvvv Language-specific logic vvvvvvv
     const skelGenerators = {
       typescript: {
-        inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
+        inputMapper: (argDef: fuzzer.ArgDef, i: number) => {
           return `  const ${argDef.getName()}: ${fuzzer.TypescriptProgram.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
           }.in[${i}];`;
         },
         outputMapper: (
-          inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
+          inArgs: fuzzer.ArgDef[],
           resultArgName: string,
           returnType?: string
         ): string => {
@@ -1004,13 +1004,13 @@ ${inArgConsts}
         getTypeAnnotation: fuzzer.TypescriptProgram.getTypeAnnotation,
       },
       python: {
-        inputMapper: (argDef: fuzzer.ArgDef<fuzzer.ArgType>, i: number) => {
+        inputMapper: (argDef: fuzzer.ArgDef, i: number) => {
           return `  ${argDef.getName()}: ${PythonProgram.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
           }['in'][${i}]`;
         },
         outputMapper: (
-          inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
+          inArgs: fuzzer.ArgDef[],
           resultArgName: string,
           returnType?: string
         ): string => {
@@ -1150,7 +1150,7 @@ ${inArgConsts}
    */
   private _getIdentifierNameAvoidingConflicts(
     // The input arguments
-    inArgs: fuzzer.ArgDef<fuzzer.ArgType>[],
+    inArgs: fuzzer.ArgDef[],
     // The candidate names to choose from
     candidateNames: string[],
     // The maximum suffix to use when generating a new name
@@ -1193,7 +1193,7 @@ ${inArgConsts}
    * @param inArgs The input arguments
    * @returns An object containing the above information
    */
-  private _getValidatorArgs(inArgs: fuzzer.ArgDef<fuzzer.ArgType>[]): {
+  private _getValidatorArgs(inArgs: fuzzer.ArgDef[]): {
     str: string;
     resultArgName: string;
   } {
@@ -2897,7 +2897,7 @@ ${inArgConsts}
    * @returns html string of the argument definition form
    */
   private _argDefToHtmlForm(
-    arg: fuzzer.ArgDef<fuzzer.ArgType>,
+    arg: fuzzer.ArgDef,
     counter: { id: number }, // pass counter by reference
     beginSep: string,
     endSep: string,
@@ -3168,7 +3168,7 @@ ${inArgConsts}
    * @returns html string representing an argument's array form
    */
   private _argDefArrayToHtmlForm(
-    arg: fuzzer.ArgDef<fuzzer.ArgType>,
+    arg: fuzzer.ArgDef,
     idBase: string,
     disabledFlag: string
   ): string {
@@ -3550,7 +3550,7 @@ function _applyArgOverrides(
   // Apply argument option changes
   for (const i in argOverrides) {
     const thisOverride = argOverrides[i];
-    const thisArg: fuzzer.ArgDef<fuzzer.ArgType> = argsFlat[i];
+    const thisArg: fuzzer.ArgDef = argsFlat[i];
     if (Number(i) + 1 > argsFlat.length) {
       break; // exit the for loop
     }

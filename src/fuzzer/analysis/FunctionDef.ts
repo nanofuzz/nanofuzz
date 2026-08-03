@@ -1,6 +1,5 @@
 import { ArgDef } from "./ArgDef";
 import {
-  ArgType,
   FunctionRef,
   ArgOptionOverrides,
   ArgOptions,
@@ -22,7 +21,7 @@ import { ProgramLanguage } from "./Types";
  *   order specified in ArgOptions.strCharset.
  */
 export class FunctionDef {
-  private _argDefs: ArgDef<ArgType>[] = [];
+  private _argDefs: ArgDef[] = [];
   private _options: ArgOptions;
   private _ref: FunctionRef;
   private _cmt: string | undefined; // docstring comment for function
@@ -106,7 +105,7 @@ export class FunctionDef {
    *
    * @returns array of function arguments
    */
-  public getArgDefs(): ArgDef<ArgType>[] {
+  public getArgDefs(): ArgDef[] {
     return [...this._argDefs];
   } // fn: getArgDefs()
 
@@ -174,7 +173,7 @@ export class FunctionDef {
    * function does not have a return type annotation or the return
    * type could not be resolved.
    */
-  public getReturnArg(): ArgDef<ArgType> | undefined {
+  public getReturnArg(): ArgDef | undefined {
     // If a return type is defined and resolved, convert it to an ArgDef
     return this._ref.returnType && this._ref.returnType.type
       ? ArgDef.fromTypeRef(this._ref.returnType, this._options)
@@ -262,8 +261,8 @@ export class FunctionDef {
    *
    * @returns a flat array of all function arguments.
    */
-  public getArgDefsFlat(): ArgDef<ArgType>[] {
-    const ret: ArgDef<ArgType>[] = [];
+  public getArgDefsFlat(): ArgDef[] {
+    const ret: ArgDef[] = [];
     for (const arg of this._argDefs) {
       ret.push(arg);
       ret.push(...arg.getChildrenFlat());
