@@ -20,7 +20,7 @@ import * as JSON5 from "json5";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { PythonRunner } from "../../runners/PythonRunner";
+import { PythonRunner } from "../../runners/python/PythonRunner";
 import { ArgDef } from "../ArgDef";
 
 export class PythonProgram extends AbstractProgram {

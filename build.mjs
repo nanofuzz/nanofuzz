@@ -18,7 +18,7 @@ copyfiles(["./src/ui/*.svg", "./build/ui"], true /* flat */, () =>
 
 // Copy Python assets
 copyfiles(
-  ["./src/fuzzer/runners/PythonRunnerHost.py", "./build/extension"],
+  ["./src/fuzzer/runners/python/PythonRunnerHost.py", "./build/extension"],
   true,
   () => console.log("copied .py runner")
 );

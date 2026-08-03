@@ -1,11 +1,16 @@
-import { AbstractRunner, Arc, RunnerInput, RunnerResult } from "./AbstractRunner";
+import {
+  AbstractRunner,
+  Arc,
+  RunnerInput,
+  RunnerResult,
+} from "../AbstractRunner";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
 import * as ChildProcess from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { findInAncestor, isError } from "../Util";
+import { findInAncestor, isError } from "../../Util";
 
 /**
  * Python runner
@@ -95,7 +100,7 @@ export class PythonRunner extends AbstractRunner {
         ),
         env: {},
       };
-      
+
       if (result.result.seq >= 0 && result.result.seq !== thisSeq) {
         throw new Error(
           `Internal error: RunnerResult seq# does not match RunnerInput`
@@ -316,9 +321,7 @@ export class PythonRunner extends AbstractRunner {
 
       // Get the static coverage structure, which the host sends once. The
       // dynamic `lines`/`arcs` are filled in by each `run`.
-      const length = (
-        await host.readStdout(4, 30000)
-      ).readUInt32BE(0);
+      const length = (await host.readStdout(4, 30000)).readUInt32BE(0);
       const data = JSON5.parse<CoverageInfo>(
         (await host.readStdout(length, 30000)).toString()
       );
@@ -355,7 +358,6 @@ export class PythonRunner extends AbstractRunner {
   public get coverageInfo(): CoverageInfo | undefined {
     return this._coverageInfo ? { ...this._coverageInfo } : undefined;
   }
-
 } // class: PythonRunner
 
 /**
@@ -542,7 +544,6 @@ function findPythonLibDir(dir: string, item: string): string | null {
   return null;
 }
 
-
 /**
  * Coverage reported by the Python host for the program under test.
  *
@@ -591,7 +592,7 @@ export type BranchExit = {
   line: number; // where to display this exit
 };
 
-export { Arc } from "./AbstractRunner";
+export { Arc } from "../AbstractRunner";
 
 export type PythonEnv = {
   env: { [k: string]: string | undefined };

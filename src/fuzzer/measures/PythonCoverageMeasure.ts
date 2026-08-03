@@ -7,7 +7,7 @@ import {
   Range,
 } from "istanbul-lib-coverage";
 import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
-import { CoverageInfo, PythonRunner } from "../runners/PythonRunner";
+import { CoverageInfo, PythonRunner } from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import * as JSONN from "../../Jsonn";
 import { normalizePathForKey } from "../Util";
@@ -266,7 +266,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
               fileMap,
             };
           });
-    
+
         return {
           counters: {
             functionsTotal: coverageSummary.functions.total,
@@ -290,7 +290,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   public delta(a: CoverageMeasurement): number {
     return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
   } // fn: delta
-
 
   public hasCoverage(tick: number): boolean {
     return !!this._history[tick];
