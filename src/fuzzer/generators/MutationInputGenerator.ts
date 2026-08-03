@@ -4,12 +4,13 @@ import { ArgType } from "../analysis/Types";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
+import { ArgDefValidator } from "../analysis/ArgDefValidator";
 
 /**
  * Generates new inputs by mutating prior "interesting" inputs
  */
 export class MutationInputGenerator extends AbstractInputGenerator {
-  private _leaderboard; // List of "interesting" inputs
+  private _leaderboard: Leaderboard<InputAndSource>; // List of "interesting" inputs
   private _maxMutations = 2; // Max mutations to apply to interesting inputs
 
   /**
@@ -92,4 +93,16 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       },
     };
   } // fn: next
+
+  /**
+   * Clear any now-invalid items out of the leaderboard at the
+   * start of each run.
+   */
+  public onRunStart(_active: boolean): void {
+    // Input generation options may have changed, so filter the leaderboard
+    const validator = new ArgDefValidator(this._specs);
+    this._leaderboard.filter((leader: { leader: InputAndSource }) => {
+      return validator.validate(leader.leader.value);
+    });
+  } // fn: onRunStart
 } // class: MutationInputGenerator

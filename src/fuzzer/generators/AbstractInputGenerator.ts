@@ -43,7 +43,12 @@ export abstract class AbstractInputGenerator {
 
   /**
    * Returns true If the generator has inputs available for use
-   * and false otherwise.
+   * and false otherwise. If it returns true, the next `next()` call
+   * should not fail.
+   *
+   * Note: since generators can have asynchronous behavior, `next()` could
+   * still succeed even when `nextable()` is false. E.g., AiInputGenerator
+   * could receive a response between `nextable()` and `next()`.
    */
   public nextable(): boolean {
     return true;

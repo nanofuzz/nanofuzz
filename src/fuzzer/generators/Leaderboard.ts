@@ -138,4 +138,15 @@ export class Leaderboard<T> {
   public getLeaders(): { leader: T; score: number }[] {
     return structuredClone(this._leaders);
   } // fn: getLeaders
+
+  /**
+   * Filter all the leaders in the leaderboard using `fn`.
+   *
+   * @param fn the predicated used for filtering
+   */
+  filter(fn: (leader: { leader: T }) => boolean) {
+    if (this._leaders.length) {
+      this._leaders = this._leaders.filter(fn);
+    }
+  } // fn: validate
 } // class: Leaderboard
