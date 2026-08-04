@@ -19,7 +19,6 @@ export abstract class AbstractHost {
     cwd: string | undefined,
     cmd: string,
     args: string[],
-    onMessage?: HostMessageHandler | undefined,
     onExit?: HostExitHandler | undefined
   ) {
     this._stdout = Buffer.alloc(0);

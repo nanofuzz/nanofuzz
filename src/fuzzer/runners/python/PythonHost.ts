@@ -3,7 +3,6 @@ import {
   HostExitHandler,
   HostMessageHandler,
 } from "../AbstractHost";
-import { PythonEnv } from "./Types";
 import * as ChildProcess from "node:child_process";
 
 /**
@@ -19,7 +18,7 @@ export class PythonHost extends AbstractHost {
     onMessage?: HostMessageHandler | undefined,
     onExit?: HostExitHandler | undefined
   ) {
-    super(pythonEnv.env, cwd, pythonEnv.interpreter, args, onMessage, onExit);
+    super(pythonEnv.env, cwd, pythonEnv.interpreter, args, onExit);
     this._pythonEnv = pythonEnv;
   }
 
@@ -31,3 +30,15 @@ export class PythonHost extends AbstractHost {
     });
   }
 } // class: PythonHost
+
+export type PythonEnv = {
+  env: { [k: string]: string | undefined };
+  libs: string | undefined | null;
+  interpreter: string;
+  paths: readonly string[];
+  venv?: {
+    activateCmd: string;
+    path: string;
+    interpreter: string;
+  };
+};

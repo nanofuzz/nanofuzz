@@ -11,8 +11,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { findInAncestor, isError } from "../../Util";
 import { PutTimeoutName } from "../AbstractHost";
-import { PythonHost } from "./PythonHost";
-import { PythonEnv } from "./Types";
+import { PythonHost, PythonEnv } from "./PythonHost";
 import * as ChildProcess from "node:child_process";
 
 /**
