@@ -317,7 +317,7 @@ def put_result(result: RunnerResult) -> None:
     logging.debug(f"[{pid}]  - Result returned")
 
 
-def send_msg(data: RunnerResult):
+def send_msg(data: Any):
     msg = json5.dumps(data).encode('utf-8')
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes: {msg}")
     sys.stdout.buffer.write(struct.pack(
@@ -380,16 +380,11 @@ if __name__ == "__main__":
     logging.debug(f"[{pid}] Pre-warmed coverage tracer")
 
     # Ready for inputs
-    msg = "READY".encode('utf-8')
-    sys.stdout.buffer.write(msg)
-    sys.stdout.buffer.flush()
-    logging.debug(f"[{pid}] Sent READY message (length {len(msg)})")
+    send_msg("READY")
+    logging.debug(f"[{pid}] Sent READY message")
 
     # Send the static coverage info once
-    msg = json5.dumps(coverageInfo).encode('utf-8')
-    sys.stdout.buffer.write(struct.pack('>I', len(msg)))  # payload size
-    sys.stdout.buffer.write(msg)  # payload
-    sys.stdout.buffer.flush()
+    send_msg(coverageInfo)
     logging.debug(
         f"[{pid}] Sent coverageInfo ({len(coverageInfo['executable'])} executable "
         f"lines, {len(coverageInfo['functions'])} functions, "
