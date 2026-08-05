@@ -152,12 +152,17 @@ export class ArgDef<T extends ArgType> {
         ? [{ min: ref.type.value, max: ref.type.value }]
         : undefined;
 
+    // A source language may provide additional constraints for an otherwise
+    // shared ArgTag. For example, Python `int` and `float` are both NUMBERs,
+    // but only an int requires numInteger input generation.
+    const typeOptions: ArgOptions = { ...options, ...ref.type.options };
+
     // Use the type reference to build the ArgDef
     return new ArgDef<ArgType>(
       ref.name ?? "unknown", // name
       offset, // offset
       ref.type.type, // type
-      options, // options
+      typeOptions, // options
       ref.dims + ref.type.dims, // type reference dims + concrete type dims
       ref.optional, // optional
       intervals, // intervals

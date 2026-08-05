@@ -7,7 +7,7 @@ import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
-import { Listener } from "../Extension";
+import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
 import {
   applyCoverageHeatmapToEditor,
@@ -491,6 +491,16 @@ export class FuzzPanel {
    * @returns filename of pinned tests
    */
   private _getFuzzTestsFilename(): string {
+    return this._fuzzEnv.function.getModule() + ".nano.json5";
+  } // fn: _getPinnedTestFilename()
+
+  /**
+   * Returns the filename where pinned tests were persisted
+   * for NaNofuzz v0.1-0.3
+   *
+   * @returns filename of pinned tests
+   */
+  private _getFuzzTestsFilenameOld(): string {
     let module = this._fuzzEnv.function.getModule();
     module = module.split(".").slice(0, -1).join(".") || module;
     return module + ".nano.test.json";
@@ -502,8 +512,16 @@ export class FuzzPanel {
    * @returns all pinned tests for all functions in the current module
    */
   private _getFuzzTestsForModule(): fuzzer.FuzzTests {
+    const jsonFileOld = this._getFuzzTestsFilenameOld();
     const jsonFile = this._getFuzzTestsFilename();
     let inputTests, testSet: fuzzer.FuzzTests;
+
+    // Migrate to the v0.4 naming convention, which avoids
+    // collisions between Typescript and Python modules.
+    if (fs.existsSync(jsonFileOld) && !fs.existsSync(jsonFile)) {
+      fs.renameSync(jsonFileOld, jsonFile);
+      console.info(`Moved test set in file ${jsonFileOld} to ${jsonFile}`);
+    }
 
     // Read the file; if it doesn't exist, load default values
     try {
@@ -2556,11 +2574,10 @@ ${inArgConsts}
                         `<tr class="editorFont"><td><span>${htmlEscape(
                           i.input.tick.toString()
                         )}</span></td>${i.input.value
-                          .map(
-                            (i) =>
-                              i.value === undefined
-                                ? `<td class="noInput">(no input)</td>`
-                                : `<td>${htmlEscape(ValueMapper.toLang(lang, i.value))}</td>` // !!!!!!!!!!!!
+                          .map((i) =>
+                            i.value === undefined
+                              ? `<td class="noInput">(no input)</td>`
+                              : `<td>${htmlEscape(ValueMapper.toLang(lang, i.value))}</td>`
                           )
                           .join("\r\n")}
                         <td>${htmlEscape(

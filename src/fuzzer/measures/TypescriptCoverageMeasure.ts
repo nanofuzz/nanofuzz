@@ -28,7 +28,7 @@ import {
 /**
  * Measures code coverage of test executions
  */
-export class CoverageMeasure extends AbstractCoverageMeasure {
+export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   protected _coverageData: CoverageMapData = emptyCoverageMapData([]); // coverage data maintained by instrumented code
   protected _globalCoverageMap = createCoverageMap({}); // global code coverage map
   protected _history: CoverageMeasurementNode[] = []; // measurement history

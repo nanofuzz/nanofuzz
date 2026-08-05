@@ -124,7 +124,7 @@ let coverageHeatmapIsStale = false;
  */
 async function main() {
   // Initialize the parser
-  const parserPromise = Parser.initWeb();
+  const parserPromise = Parser.init();
 
   // --------------------- Event Handlers --------------------- //
 

@@ -1,6 +1,11 @@
 import * as TypescriptValueMapper from "./TypescriptValueMapper";
+import * as Parser from "../../adapters/ParserAdapter";
 
 describe("fuzzer/mappers/typescript/TypescriptValueMapper: ", () => {
+  beforeAll(async () => {
+    await Parser.init();
+  });
+
   it("round-trip values", () => {
     [
       null,

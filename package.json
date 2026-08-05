@@ -6,7 +6,7 @@
   "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript that runs inside VS Code",
   "repository": "https://github.com/nanofuzz/nanofuzz.git",
   "author": "The NaNofuzz Team @ Carnegie Mellon University",
-  "icon": "/src/ui/logo.png",
+  "icon": "/logo.png",
   "galleryBanner": {
     "color": "#050d3a",
     "theme": "dark"
@@ -260,7 +260,7 @@
     ]
   },
   "scripts": {
-    "build": "node build.mjs",
+    "build": "npx tsc -noEmit && node build.mjs",
     "test": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
     "lint": "eslint src",
     "lint:errors": "eslint --quiet src",
@@ -283,29 +283,20 @@
     ]
   },
   "dependencies": {
-    "@babel/core": "^7.27.1",
-    "@node-llm/core": "^1.16.2",
-    "@types/vscode-webview": "^1.57.5",
     "@vscode/codicons": "^0.0.45",
     "@vscode/webview-ui-toolkit": "^1.2.2",
-    "istanbul-lib-coverage": "^3.2.2",
-    "istanbul-lib-hook": "^3.0.0",
-    "istanbul-lib-instrument": "6.0.3",
-    "istanbul-lib-source-maps": "^5.0.6",
-    "json5": "^2.2.3",
-    "seedrandom": "^3.0.5",
-    "tree-sitter": "^0.25.0",
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-typescript": "^0.23.2",
     "typescript": "5.9.2",
-    "web-tree-sitter": "^0.26.11",
-    "zod": "^4.3.6"
+    "web-tree-sitter": "^0.26.11"
   },
   "devDependencies": {
+    "@babel/core": "^7.27.1",
     "@babel/plugin-transform-modules-commonjs": "^7.27.1",
     "@babel/preset-typescript": "^7.27.1",
     "@babel/register": "^7.27.1",
     "@eslint/js": "^10.0.1",
+    "@node-llm/core": "^1.16.2",
     "@types/babel__core": "^7.20.5",
     "@types/istanbul-lib-hook": "^2.0.4",
     "@types/istanbul-lib-instrument": "^1.7.7",
@@ -314,6 +305,7 @@
     "@types/node": "22",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.75.0",
+    "@types/vscode-webview": "^1.57.5",
     "@vscode/vsce": "^3.6.0",
     "copyfiles": "^2.4.1",
     "cross-env": "^10.0.0",
@@ -322,10 +314,17 @@
     "escape-goat": "^4.0.0",
     "eslint": "^9.26.0",
     "eslint-config-prettier": "^10.1.8",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-hook": "^3.0.0",
+    "istanbul-lib-instrument": "6.0.3",
+    "istanbul-lib-source-maps": "^5.0.6",
     "jasmine": "5.9.0",
+    "json5": "^2.2.3",
     "nanofuzz-study": "nanofuzz/nanofuzz-study#main",
     "rimraf": "^5.0.5",
+    "seedrandom": "^3.0.5",
     "tslib": "^2.1.0",
-    "typescript-eslint": "^8.59.1"
+    "typescript-eslint": "^8.59.1",
+    "zod": "^4.3.6"
   }
 }

@@ -2837,7 +2837,7 @@ node-addon-api@^4.3.0:
   resolved "https://registry.yarnpkg.com/node-addon-api/-/node-addon-api-4.3.0.tgz#52a1a0b475193e0928e98e0426a0d1254782b77f"
   integrity sha512-73sE9+3UaLYYFmDsFZnqCInzPyh3MqIwZO9cw58yIqAZhONrrabrYyYe3TuIqtIiOuTXVhsGau8hcrhhwSsDIQ==
 
-node-addon-api@^8.2.2, node-addon-api@^8.3.0, node-addon-api@^8.5.0:
+node-addon-api@^8.2.2, node-addon-api@^8.5.0:
   version "8.9.0"
   resolved "https://registry.yarnpkg.com/node-addon-api/-/node-addon-api-8.9.0.tgz#d2467090e6195c428ccd510dfd604f01c027f0a0"
   integrity sha512-ekZMeaaIzSQTSpr7X2X3iJM7lTzgnx8ahAG9pJfT/7+14mlEM8ZYQ9cgCDvSSRbReFK0oHli3WrZdCiRsgAT9Q==
@@ -3664,14 +3664,6 @@ tree-sitter-typescript@^0.23.2:
     node-addon-api "^8.2.2"
     node-gyp-build "^4.8.2"
     tree-sitter-javascript "^0.23.1"
-
-tree-sitter@^0.25.0:
-  version "0.25.0"
-  resolved "https://registry.yarnpkg.com/tree-sitter/-/tree-sitter-0.25.0.tgz#d9d94ba00b501df49826c10c0f74037b890788eb"
-  integrity sha512-PGZZzFW63eElZJDe/b/R/LbsjDDYJa5UEjLZJB59RQsMX+fo0j54fqBPn1MGKav/QNa0JR0zBiVaikYDWCj5KQ==
-  dependencies:
-    node-addon-api "^8.3.0"
-    node-gyp-build "^4.8.4"
 
 ts-api-utils@^2.5.0:
   version "2.5.0"

@@ -65,18 +65,4 @@ describe("JSONN: ", () => {
       }
     });
   });
-
-  /* !!!!!!!!!!
-  it("Issue #301", () => {
-    const input = { a: undefined };
-    const serializedInput = JSONN.stringify(input);
-    const roundtripValue = JSONN.parse<object>(serializedInput);
-    expect(serializedInput).toEqual("{a: undefined}");
-    expect("a" in roundtripValue).toBeTrue();
-    expect(isKeyedObject(roundtripValue)).toBeTrue();
-    if (isKeyedObject(roundtripValue)) {
-      expect(roundtripValue["a"]).toBeUndefined();
-    }
-  });
-  */
 });

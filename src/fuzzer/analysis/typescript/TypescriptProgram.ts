@@ -80,7 +80,11 @@ export class TypescriptProgram extends AbstractProgram {
     super(getSource, filename, options, parent);
   } // end constructor
 
-  // !!!!!!
+  /**
+   * Parse a Typescript module
+   *
+   * @param `src` Typescript source code to parse
+   */
   protected _parse(src: string): void {
     // Parse the program source to generate the AST
     this._ast =
@@ -93,7 +97,9 @@ export class TypescriptProgram extends AbstractProgram {
       });
   }
 
-  // !!!!!!
+  /**
+   * Executed after the program load
+   */
   protected _afterLoad(): void {
     this._ast = undefined;
   }

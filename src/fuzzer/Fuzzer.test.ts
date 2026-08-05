@@ -3,6 +3,7 @@ import { TypescriptCompiler } from "./compilers/TypescriptCompiler";
 import { FuzzOptions } from "./Types";
 import * as ValueMapper from "./mappers/ValueMapper";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
+import * as Parser from "./adapters/ParserAdapter";
 
 // Extend default test timeout to 60s
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
@@ -74,6 +75,10 @@ const floatOptions: FuzzOptions = {
  * for each example. TODO: Add tests that check the fuzzer output.
  */
 describe("fuzzer:", () => {
+  beforeAll(async () => {
+    await Parser.init();
+  });
+
   it("Fuzz example 01 - minValue", async () => {
     expect(
       (

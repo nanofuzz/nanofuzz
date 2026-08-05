@@ -45,6 +45,9 @@ class RunnerErrorResult(TypedDict):
 type RunnerResult = Union[RunnerValueResult, RunnerErrorResult]
 
 
+pid = os.getpid()
+
+
 def loadPythonFn(filename: str, modulename: str, fn: str) -> Union[RunnerErrorResult, None]:
     spec = importlib.util.spec_from_file_location(modulename, filename)
     if spec is None:
@@ -74,22 +77,22 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Union[RunnerErrorRe
 
 
 def get_inputs() -> RunnerInput:
-    logging.debug("Waiting for input")
+    logging.debug(f"[{pid}] Waiting for input")
     while True:
         # Read the 4-byte length header
         header = sys.stdin.buffer.read(4)
         if not header:
             break
         length = struct.unpack('>I', header)[0]
-        logging.debug(f" - Incoming input of length {length}")
+        logging.debug(f"[{pid}]  - Incoming input of length {length}")
 
         # Read exactly that many bytes
         payload = sys.stdin.buffer.read(length).decode('utf-8')
-        logging.debug(f" - With value {payload}")
+        logging.debug(f"[{pid}]  - With value {payload}")
 
         # De-serialize arguments for calling the function
         input: RunnerInput = json5.loads(payload)
-        logging.debug(f" - Parsed ok")
+        logging.debug(f"[{pid}]  - Parsed ok")
 
         return input
 
@@ -247,13 +250,14 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
             with open(outfile, encoding="utf-8") as f:
                 report = json.load(f)
     except coverage.exceptions.CoverageException as e:
-        logging.debug(f"coverage.py could not analyze {filename}: {e}")
+        logging.debug(f"[{pid}] coverage.py could not analyze {filename}: {e}")
         return empty
 
     # Only `filename` was reported, so there is at most one entry
     files = report.get("files", {})
     if not files:
-        logging.debug(f"coverage.py reported no coverage data for {filename}")
+        logging.debug(
+            f"[{pid}] coverage.py reported no coverage data for {filename}")
         return empty
     entry = next(iter(files.values()))
 
@@ -266,7 +270,7 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
 
 
 def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> RunnerResult:
-    logging.debug(f"Running function '{fnname}' for {input}")
+    logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
 
     # cov.erase() is too expensive. Seems like only erasing the data works too
     cov.get_data().erase()
@@ -308,14 +312,14 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
 
 
 def put_result(result: RunnerResult) -> None:
-    logging.debug(f"Returning result")
+    logging.debug(f"[{pid}] Returning result")
     send_msg(result)
-    logging.debug(f" - Result returned")
+    logging.debug(f"[{pid}]  - Result returned")
 
 
 def send_msg(data: RunnerResult):
     msg = json5.dumps(data).encode('utf-8')
-    logging.debug(f" - Writing {len(msg)} bytes: {msg}")
+    logging.debug(f"[{pid}]  - Writing {len(msg)} bytes: {msg}")
     sys.stdout.buffer.write(struct.pack(
         '>I', len(msg)))  # payload size
     sys.stdout.buffer.write(msg)  # payload
@@ -323,8 +327,9 @@ def send_msg(data: RunnerResult):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(filename='debug.log',
-                        level=logging.DEBUG)  # !!!!!!!!!!
+    doLog = os.environ.get("NANOFUZZ_DEBUG", "true") == "true"
+    logging.basicConfig(filename='nanofuzz_python_debug.log' if doLog else None,
+                        level=logging.DEBUG if doLog else None)
 
     if len(sys.argv) != 4:
         print(
@@ -348,12 +353,12 @@ if __name__ == "__main__":
 
     # Try to load the function: either results in a RunnerErrorResult
     # or a callable function
-    logging.debug(f"Loading function '{fnname}' in {filename}")
+    logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
     [loadError, fn] = loadPythonFn(filename, modulename, fnname)
     if (loadError):
-        logging.debug(" - Unable to load")
+        logging.debug(f"[{pid}]  - Unable to load")
     else:
-        logging.debug(" - Loaded function")
+        logging.debug(f"[{pid}]  - Loaded function")
 
     # Change cwd from the extension to that of the Python script
     os.chdir(os.path.dirname(filename))
@@ -372,13 +377,23 @@ if __name__ == "__main__":
     cov.start()
     cov.stop()
     cov.get_data().erase()
-    logging.debug("Pre-warmed coverage tracer")
+    logging.debug(f"[{pid}] Pre-warmed coverage tracer")
 
     # Ready for inputs
     msg = "READY".encode('utf-8')
     sys.stdout.buffer.write(msg)
     sys.stdout.buffer.flush()
-    logging.debug(f"Sent READY message (length {len(msg)})")
+    logging.debug(f"[{pid}] Sent READY message (length {len(msg)})")
+
+    # Send the static coverage info once
+    msg = json5.dumps(coverageInfo).encode('utf-8')
+    sys.stdout.buffer.write(struct.pack('>I', len(msg)))  # payload size
+    sys.stdout.buffer.write(msg)  # payload
+    sys.stdout.buffer.flush()
+    logging.debug(
+        f"[{pid}] Sent coverageInfo ({len(coverageInfo['executable'])} executable "
+        f"lines, {len(coverageInfo['functions'])} functions, "
+        f"{len(coverageInfo['branches'])} branches)")
 
     # Send the static coverage info once
     msg = json5.dumps(coverageInfo).encode('utf-8')
@@ -392,7 +407,7 @@ if __name__ == "__main__":
 
     # Start the run loop
     while True:
-        logging.debug("Top of main loop")
+        logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
             put_result(run_put(get_inputs(), filename, cov))  # Call the put
         else:

@@ -6,6 +6,7 @@ import {
   IdentifierName,
   TypeRef,
   ArgOptions,
+  ArgOptionOverride,
   ArgTag,
   ArgType,
   TypeAnnotationOptions,
@@ -16,16 +17,11 @@ import { getErrorMessageOrJson } from "../../Util";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as ProgramFactory from "../ProgramFactory";
 import * as JSON5 from "json5";
-import Parser, { Query, QueryCapture } from "tree-sitter";
-import PythonGrammar from "tree-sitter-python";
-import * as fs from "fs";
-import * as path from "path";
+import * as Parser from "../../adapters/ParserAdapter";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { PythonRunner } from "../../runners/PythonRunner";
 import { ArgDef } from "../ArgDef";
-
-// Type definitions are broken in tree-sitter-python
-// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-const Python: Parser.Language = PythonGrammar as Parser.Language;
 
 export class PythonProgram extends AbstractProgram {
   public static readonly lang = "python";
@@ -46,10 +42,8 @@ export class PythonProgram extends AbstractProgram {
     }
   }
 
-  protected _parse(_src: string): void {
-    const parser = new Parser();
-    parser.setLanguage(Python);
-    this._ast = parser.parse(_src);
+  protected _parse(src: string): void {
+    this._ast = Parser.parse("python", src) ?? undefined;
   }
 
   protected _findImports(): ProgramImports {
@@ -59,8 +53,8 @@ export class PythonProgram extends AbstractProgram {
     }
     const ast = this._ast;
 
-    const traverse = new Query(
-      Python,
+    const traverse = Parser.query(
+      "python",
       `
 [
   (import_statement) @import.stmt
@@ -286,7 +280,7 @@ export class PythonProgram extends AbstractProgram {
    * @param `node` The node to check
    * @returns `true` if the node is block scoped, `false` otherwise
    */
-  private static isBlockScoped(node: Parser.SyntaxNode): boolean {
+  protected static isBlockScoped(node: Parser.SyntaxNode): boolean {
     let thisNode = node;
     while (thisNode.parent) {
       if (thisNode.parent.type === "block") {
@@ -307,8 +301,8 @@ export class PythonProgram extends AbstractProgram {
     // List of nodes
     const types: Record<string, TypeRef> = {};
 
-    const typeQuery = new Query(
-      Python,
+    const typeQuery = Parser.query(
+      "python",
       `
 (type_alias_statement
   left: (type (identifier)) @type.name
@@ -341,7 +335,7 @@ export class PythonProgram extends AbstractProgram {
     // existing object type rather than a dynamic mapping type. Resolve the
     // standard spelling, qualified spellings, and an imported alias; do not
     // treat ordinary `dict[...]` annotations as objects.
-    const isTypedDictBase = (node: Parser.SyntaxNode): boolean => {
+    const isTypedDictBase = (node: Parser.Node): boolean => {
       if (
         [
           "TypedDict",
@@ -539,7 +533,7 @@ export class PythonProgram extends AbstractProgram {
   protected _getTypeFromAstNode(
     node: Parser.SyntaxNode,
     options: ArgOptions
-  ): [ArgTag, number, string?, ArgType?] {
+  ): [ArgTag, number, string?, ArgType?, ArgOptionOverride?] {
     switch (node.type) {
       case "type":
         if (node.firstChild) {
@@ -550,7 +544,24 @@ export class PythonProgram extends AbstractProgram {
       case "identifier":
         switch (node.text) {
           case "int":
+            // Python int and float share NanoFuzz's NUMBER tag. Keep the
+            // integer constraint as an option so input generation can still
+            // distinguish the two without another ArgTag.
+            return [
+              ArgTag.NUMBER,
+              0,
+              undefined,
+              undefined,
+              { numInteger: true },
+            ];
           case "float":
+            return [
+              ArgTag.NUMBER,
+              0,
+              undefined,
+              undefined,
+              { numInteger: false },
+            ];
           case "complex":
             return [ArgTag.NUMBER, 0];
           case "str":
@@ -580,9 +591,9 @@ export class PythonProgram extends AbstractProgram {
             const arg = args[0];
             if (!arg) throw new Error(`Missing element type in '${node.text}'`);
 
-            const [type, dims, typeName, literalValue] =
+            const [type, dims, typeName, literalValue, typeOptions] =
               this._getTypeFromAstNode(arg, options);
-            return [type, dims + 1, typeName, literalValue];
+            return [type, dims + 1, typeName, literalValue, typeOptions];
           }
 
           case "tuple":
@@ -622,7 +633,7 @@ export class PythonProgram extends AbstractProgram {
    * so keeping the normalization here ensures container cases behave
    * identically.
    */
-  private _getGenericParts(node: Parser.SyntaxNode): {
+  protected _getGenericParts(node: Parser.SyntaxNode): {
     base: string;
     args: Parser.SyntaxNode[];
   } {
@@ -778,10 +789,8 @@ export class PythonProgram extends AbstractProgram {
     // python has no ? to mark parameters as optional. Its optional type is in fact a union between the type and None, so we don't need to handle optional here. optional stays false
 
     // Get the node's type and dimensions
-    const [type, dims, typeRefNode, literalValue] = this._getTypeFromAstNode(
-      typeNode,
-      this._options
-    );
+    const [type, dims, typeRefNode, literalValue, typeOptions] =
+      this._getTypeFromAstNode(typeNode, this._options);
 
     // Create the TypeRef data structure
     switch (type) {
@@ -792,6 +801,7 @@ export class PythonProgram extends AbstractProgram {
           dims: dims,
           type: type,
           children: [],
+          ...(typeOptions ? { options: typeOptions } : {}),
           resolved: true,
         };
         break;
@@ -827,7 +837,7 @@ export class PythonProgram extends AbstractProgram {
   }
 
   protected _getLambdaFromNode(
-    captures: QueryCapture[]
+    captures: Parser.QueryCapture[]
   ): FunctionRef | undefined {
     const nameNode = captures.find((c) => c.name === "function.name");
     const bodyNode = captures.find((c) => c.name === "function.body");
@@ -860,7 +870,7 @@ export class PythonProgram extends AbstractProgram {
 
   // standard functions
   protected _getFunctionFromNode(
-    captures: QueryCapture[]
+    captures: Parser.QueryCapture[]
   ): FunctionRef | undefined {
     let returnType = undefined;
     let isVoid = false;
@@ -915,8 +925,8 @@ export class PythonProgram extends AbstractProgram {
     const unsupported: AbstractProgram["_functions"]["unsupported"] = {};
 
     // Traverse the AST to find function definitions
-    const functionQuery = new Query(
-      Python,
+    const functionQuery = Parser.query(
+      "python",
       `
 (function_definition
   name: (identifier) @function.name
@@ -950,8 +960,8 @@ export class PythonProgram extends AbstractProgram {
         };
       }
     }
-    const lambdaQuery = new Query(
-      Python,
+    const lambdaQuery = Parser.query(
+      "python",
       `
 (assignment
   left: (identifier) @function.name
