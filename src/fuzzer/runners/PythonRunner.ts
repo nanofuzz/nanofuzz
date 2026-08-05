@@ -1,4 +1,9 @@
-import { AbstractRunner, Arc, RunnerInput, RunnerResult } from "./AbstractRunner";
+import {
+  AbstractRunner,
+  Arc,
+  RunnerInput,
+  RunnerResult,
+} from "./AbstractRunner";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
@@ -95,7 +100,7 @@ export class PythonRunner extends AbstractRunner {
         ),
         env: {},
       };
-      
+
       if (result.result.seq >= 0 && result.result.seq !== thisSeq) {
         throw new Error(
           `Internal error: RunnerResult seq# does not match RunnerInput`
@@ -288,14 +293,27 @@ export class PythonRunner extends AbstractRunner {
       throw new Error("Internal error: cannot '_getHost' prior to 'runStart'");
     }
 
+    // Find the runner host under three different conditions:
+    //  1. Executing within VSCode as /build/extension/extension.js
+    //  2. Executing within Node as /build/cli/cli.cjs
+    //  3. Executing within Jasmine as /src/fuzzer/runners/PythonRunner.ts
+    const currModuleDir = path.dirname(path.resolve(module.filename));
+    const projectRoot = findInAncestor(currModuleDir, "package.json");
+    if (projectRoot === undefined) {
+      throw new Error(`Unable to find project root from: ${currModuleDir}`);
+    }
+    const runnerHost = path.resolve(
+      path.join(
+        path.dirname(projectRoot),
+        "build",
+        "extension",
+        "PythonRunnerHost.py"
+      )
+    );
+
     const filenameBase = path.basename(this._filename);
     const args = [
-      path.resolve(
-        path.join(
-          path.dirname(path.resolve(module.filename)),
-          "PythonRunnerHost.py"
-        )
-      ),
+      runnerHost,
       this._filename,
       filenameBase.substring(
         0,
@@ -316,9 +334,7 @@ export class PythonRunner extends AbstractRunner {
 
       // Get the static coverage structure, which the host sends once. The
       // dynamic `lines`/`arcs` are filled in by each `run`.
-      const length = (
-        await host.readStdout(4, 30000)
-      ).readUInt32BE(0);
+      const length = (await host.readStdout(4, 30000)).readUInt32BE(0);
       const data = JSON5.parse<CoverageInfo>(
         (await host.readStdout(length, 30000)).toString()
       );
@@ -355,7 +371,6 @@ export class PythonRunner extends AbstractRunner {
   public get coverageInfo(): CoverageInfo | undefined {
     return this._coverageInfo ? { ...this._coverageInfo } : undefined;
   }
-
 } // class: PythonRunner
 
 /**
@@ -541,7 +556,6 @@ function findPythonLibDir(dir: string, item: string): string | null {
 
   return null;
 }
-
 
 /**
  * Coverage reported by the Python host for the program under test.

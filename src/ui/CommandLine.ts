@@ -1,11 +1,26 @@
 import * as Commander from "commander";
 import * as fs from "node:fs";
-import { Parser } from "web-tree-sitter";
-import { ArgDef, Tester } from "../fuzzer/Fuzzer";
+import { SingleBar, Presets } from "cli-progress";
+import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
+import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
+import path from "node:path";
 
+/**
+ * Command line interface for NaNofuzz.
+ *
+ * Usage: yarn nanofuzz --help
+ *
+ * Uses mostly pytest-compatible exitcodes:
+ *   - Exit code 0: All tests passed successfully
+ *   - Exit code 1: Tests ran but some of the tests failed
+ *   - Exit code 2: <not used>
+ *   - Exit code 3: Internal error happened while running tests
+ *   - Exit code 4: Command line usage error
+ *   - Exit code 5: <not used>
+ */
 Commander.program
-  .name("NaNofuzz")
+  .name("nanofuzz")
   .version(`NaNofuzz ${process.env.NANOFUZZ_VERSION}`)
   .argument(`<filename>`, `The Python or Typescript module to test`)
   .argument(`<function>`, `The entrypoint function to test`)
@@ -62,27 +77,69 @@ Commander.program
   .option(`--model-key <modelKey>`, `AI model API key`) // !!!!!!!!!!
 
   .option(
-    `--clearCompileCache`,
+    `--clear-compile-cache`,
     `Forces NaNofuzz to clear the compile cache prior to testing`
   );
 
-Commander.program.parse();
+Commander.program
+  .exitOverride((_err: Commander.CommanderError) => {
+    process.exit(4); // command line usage error
+  })
+  .parse();
 
-const filename = require.resolve(Commander.program.args[0]);
-const fnname = Commander.program.args[1];
-
-if (!fs.existsSync(filename)) {
-  console.error(`File not found: ${filename}`);
-  process.exit(4); // command line usage error
+// Resolve the filename
+const filenameIn: string = Commander.program.args[0];
+let filename: string;
+try {
+  filename = require.resolve(filenameIn);
+} catch (_e: unknown) {
+  if (fs.existsSync(path.resolve(filenameIn))) {
+    filename = path.resolve(filenameIn);
+  } else {
+    console.error(`Error: file not found: ${filenameIn}`);
+    process.exit(4); // command line usage error
+  }
 }
 
+const fnname = Commander.program.args[1];
 const options = Commander.program.opts();
 
 if (options["clearCompileCache"]) {
   CompilerFactory.clean();
 }
 
-Parser.init().then(async () => {
+let lastWasMilestone = true;
+const bar = new SingleBar(
+  {
+    format: "  testing [{bar}] {percentage}%",
+  },
+  Presets.shades_classic
+);
+const updateFn = (payload: FuzzBusyStatusMessage) => {
+  switch (payload.channel) {
+    case "summary":
+    case "milestone": {
+      if (!lastWasMilestone) {
+        bar.stop();
+        process.stdout.write("\x1b[A\x1b[K");
+      }
+      console.log(payload.msg);
+      break;
+    }
+    case "update": {
+      if (lastWasMilestone) {
+        bar.start(100, 0);
+      }
+      if (payload.pct) {
+        bar.update(Math.max(0, Math.min(payload.pct, 100)));
+      }
+    }
+  }
+  lastWasMilestone = payload.channel !== "update";
+};
+
+console.info(`NaNofuzz v${process.env.NANOFUZZ_VERSION}`);
+ParserAdapter.init().then(async () => {
   const results = await new Tester(filename, fnname, {
     argDefaults: ArgDef.getDefaultOptions(),
     maxTests: options["maxTests"],
@@ -113,13 +170,13 @@ Parser.init().then(async () => {
         enabled: true, // always enabled
       },
     },
-  }).testSync();
+  }).testSync(undefined, undefined, updateFn);
 
-  const testsRan = !!results.results.length;
-  const testsFailed = results.results.some((r) => r.category !== "ok");
+  const someTestsRan = !!results.results.length;
+  const someTestsFailed = results.results.some((r) => r.category !== "ok");
 
-  if (testsRan) {
-    if (testsFailed) {
+  if (someTestsRan) {
+    if (someTestsFailed) {
       process.exit(1); // tests ran and some failed
     } else {
       process.exit(0); // tests ran and none failed

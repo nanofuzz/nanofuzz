@@ -387,8 +387,12 @@ export class TypescriptCompiler {
     // Provide feedback that we are compiling
     updateFn({
       msg: `Compiling: ${module.filename}`,
-      milestone: true,
-      pct: 0.01,
+      channel: "milestone",
+    });
+    updateFn({
+      msg: `Compiling: ${module.filename}`,
+      channel: "update",
+      pct: 0.1,
     });
 
     // Construct tsc args
