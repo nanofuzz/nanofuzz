@@ -22,6 +22,7 @@ import {
   CodeCoverageMeasureStats,
   CoverageMeasurement,
   CoverageMeasurementNode,
+  ownCoverageEntries,
 } from "./AbstractCoverageMeasure";
 
 /**
@@ -112,8 +113,13 @@ export class CoverageMeasure extends AbstractCoverageMeasure {
       throw new Error("No current coverage data found");
     }
 
-    // Shallow clone the raw current coverage data
-    const currentCoverageData = { ...this._coverageData };
+    // Snapshot the raw current coverage data. A shallow clone would share
+    // the `s`, `f`, and `b` counters with the instrumented code, which
+    // mutates them during the next test and zeroes them in
+    // `onBeforeNextTestExecution`. Anything retaining those objects --
+    // this measurement, and the global map on its first merge -- would
+    // otherwise be rewritten or emptied after the fact.
+    const currentCoverageData = this._snapshot();
 
     // Merge the current coverage into root predecessor
     const pred =
@@ -132,7 +138,10 @@ export class CoverageMeasure extends AbstractCoverageMeasure {
       nextPred = nextPred.pred;
     }
 
-    // Merge the current coverage into the global coverage map
+    // Merge the current coverage into the global coverage map. Seed the map
+    // first so that it never adopts this measurement's data: see
+    // `ownCoverageEntries`.
+    ownCoverageEntries(this._globalCoverageMap, currentCoverageData);
     const globalBefore = this._toNumber(this._globalCoverageMap);
     this._globalCoverageMap.merge(currentCoverageData);
 
@@ -261,6 +270,37 @@ export class CoverageMeasure extends AbstractCoverageMeasure {
         };
       };
   } // fn: onRunEnd
+
+  /**
+   * Returns a private copy of the current coverage data.
+   *
+   * Only the `s`, `f`, and `b` counters are copied: those are the objects
+   * the instrumented code increments and `onBeforeNextTestExecution` zeroes,
+   * so anything that outlives the current test needs its own. The location
+   * maps are shared, because nothing mutates them in place -- istanbul's
+   * `FileCoverage.merge` replaces them on its target rather than editing
+   * them -- and copying them for every test costs far more than the
+   * counters themselves.
+   *
+   * @returns a copy of the current coverage data that no other object holds
+   */
+  protected _snapshot(): CoverageMapData {
+    const snapshot: CoverageMapData = {};
+    for (const path of Object.keys(this._coverageData)) {
+      const fileCoverage = this._coverageData[path];
+      const b: FileCoverage["b"] = {};
+      for (const bKey of Object.keys(fileCoverage.b)) {
+        b[bKey] = [...fileCoverage.b[bKey]];
+      }
+      snapshot[path] = {
+        ...fileCoverage,
+        s: { ...fileCoverage.s },
+        f: { ...fileCoverage.f },
+        b,
+      };
+    }
+    return snapshot;
+  } // fn: _snapshot
 
   /**
    * Returns a numeric value that is the sum of branches, statements, and

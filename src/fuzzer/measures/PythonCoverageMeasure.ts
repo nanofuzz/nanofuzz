@@ -17,6 +17,7 @@ import {
   CodeCoverageMeasureStats,
   CoverageMeasurement,
   CoverageMeasurementNode,
+  ownCoverageEntries,
 } from "./AbstractCoverageMeasure";
 
 /**
@@ -124,7 +125,10 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       nextPred = nextPred.pred;
     }
 
-    // Merge the current coverage into the global coverage map
+    // Merge the current coverage into the global coverage map. Seed the map
+    // first so that it never adopts this measurement's data: see
+    // `ownCoverageEntries`.
+    ownCoverageEntries(this._globalCoverageMap, currentCoverageData);
     const globalBefore = covered(this._globalCoverageMap);
     this._globalCoverageMap.merge(currentCoverageData);
 
@@ -290,7 +294,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   public delta(a: CoverageMeasurement): number {
     return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
   } // fn: delta
-
 
   public hasCoverage(tick: number): boolean {
     return !!this._history[tick];

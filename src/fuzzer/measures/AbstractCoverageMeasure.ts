@@ -1,4 +1,8 @@
-import { CoverageMap, FileCoverage } from "istanbul-lib-coverage";
+import {
+  CoverageMap,
+  CoverageMapData,
+  FileCoverage,
+} from "istanbul-lib-coverage";
 import { InputAndSource } from "../Types";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 
@@ -36,6 +40,37 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
    */
   public abstract getCoverage(tick: number): CoverageMeasurement;
 }
+
+
+/**
+ * Ensures `map` owns a coverage entry for every file in `data`.
+ *
+ * `CoverageMap.merge` adopts the caller's data object by reference the first
+ * time it sees a path, and only stops aliasing it on the *next* merge for that
+ * path. A measurement whose data was adopted this way shares its counters with
+ * `map`: merging a descendant's coverage into that measurement's `accum` then
+ * silently adds coverage to `map` as well, and the `globalDelta` computed
+ * against `map` under-reports -- a child of the first measured input reports
+ * no progress no matter what it covered. Seeding an empty entry first keeps
+ * every merge on the non-adopting path.
+ *
+ * Empty entries contribute nothing to any summary, so seeding does not change
+ * what `map` reports.
+ *
+ * @param `map` the map about to be merged into
+ * @param `data` the coverage data that will be merged
+ */
+export function ownCoverageEntries(
+  map: CoverageMap,
+  data: CoverageMapData
+): void {
+  const owned = new Set(map.files());
+  for (const path of Object.keys(data)) {
+    if (!owned.has(path)) {
+      map.addFileCoverage(path);
+    }
+  }
+} // fn: ownCoverageEntries
 
 /**
  * Extends BaseMeasurement with code coverage details
