@@ -7,6 +7,7 @@ import {
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
+import * as Config from "../../Config";
 import * as ChildProcess from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -169,20 +170,15 @@ export class PythonRunner extends AbstractRunner {
       env: { ...process.env },
       libs: findPythonLibDir(path.dirname(module.filename), "json5"),
       paths: [],
-      interpreter: vscode.workspace
-        .getConfiguration("python")
-        .get("defaultInterpreterPath", "python3"),
+      interpreter: Config.get("python.defaultInterpreterPath", "python3"),
     };
 
     // Load .env file if configured
-    if (
-      vscode.workspace
-        .getConfiguration("python.terminal")
-        .get("useEnvFile", false)
-    ) {
-      const envFile = vscode.workspace
-        .getConfiguration("python")
-        .get("envFile", undefined);
+    if (Config.get<boolean>("python.terminal.useEnvFile", false)) {
+      const envFile = Config.get<string | undefined>(
+        "python.envFile",
+        undefined
+      );
       if (envFile && fs.existsSync(envFile)) {
         DotEnv.config({ processEnv: pythonEnv.env, path: envFile });
       }
@@ -197,22 +193,21 @@ export class PythonRunner extends AbstractRunner {
     }
 
     // Use a virtual environment if specified & found
-    const searchGlobs: string[] = vscode.workspace
-      .getConfiguration("python-envs")
-      .get<string[]>("workspaceSearchPaths", []);
+    const searchGlobs = Config.get<string[]>(
+      "python-envs.workspaceSearchPaths",
+      []
+    );
     const workspace = vscode.workspace.getWorkspaceFolder(
       vscode.Uri.file(filename)
     )?.uri.fsPath;
     if (
       searchGlobs.length &&
       workspace &&
-      vscode.workspace
-        .getConfiguration("python.terminal")
-        .get<boolean>("activateEnvironment", false) &&
-      vscode.workspace
-        .getConfiguration("python-envs.terminal")
-        .get<string>("autoActivationType", "command") ===
-        "command" /* TODO shellStartup */
+      Config.get<boolean>("python.terminal.activateEnvironment", false) &&
+      Config.get<string>(
+        "python-envs.terminal.autoActivationType",
+        "command"
+      ) === "command" /* TODO shellStartup */
     ) {
       const matches = fs.globSync(searchGlobs, { cwd: workspace });
       if (matches.length) {

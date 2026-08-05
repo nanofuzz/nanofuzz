@@ -1,4 +1,4 @@
-import * as vscode from "vscode";
+import * as Config from "../../../Config";
 import { FuzzTests } from "../../Fuzzer";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as fs from "node:fs";
@@ -203,4 +203,4 @@ export class PytestAdapter extends AbstractTestAdapter {
 /**
  * The tool's current name (used for studies)
  */
-const nanofuzzName = vscode.workspace.getConfiguration("nanofuzz").get("name");
+const nanofuzzName = Config.get("nanofuzz.name", "NaNofuzz");
