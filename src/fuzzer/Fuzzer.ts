@@ -425,7 +425,8 @@ export class Tester {
       },
     };
 
-    if (!updateFn) console.log("\r\n\r\n");
+    if (!updateFn && process.env.BUILD_TARGET !== "node-cli")
+      console.log("\r\n\r\n");
     update({
       msg: `Target: ${this._function.getName()} of ${this._function.getModule()}`,
       milestone: true,

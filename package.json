@@ -276,7 +276,8 @@
     "vscode:prepublish": "yarn build",
     "publish": "npx @vscode/vsce publish --yarn",
     "package": "npx @vscode/vsce package --yarn",
-    "pretest": "yarn build && yarn run lint"
+    "pretest": "yarn build && yarn run lint",
+    "nanofuzz": "node ./build/cli/cli.cjs"
   },
   "babel": {
     "presets": [
@@ -316,6 +317,7 @@
     "@types/vscode": "^1.75.0",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/vsce": "^3.6.0",
+    "commander": "^15.0.0",
     "copyfiles": "^2.4.1",
     "cross-env": "^10.0.0",
     "dotenv": "^17.4.2",

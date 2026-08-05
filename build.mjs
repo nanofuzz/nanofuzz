@@ -4,6 +4,10 @@ import * as esbuild from "esbuild";
 import copyfiles from "copyfiles";
 import * as rimraf from "rimraf";
 import path from "node:path";
+import pkg from "./package.json" with { type: "json" };
+
+// NaNofuzz version
+const version = JSON.stringify(pkg.version);
 
 // Clear the build folder
 rimraf.sync("./build");
@@ -70,22 +74,60 @@ await esbuild.build({
     "tree-sitter-javascript",
     "web-tree-sitter",
   ],
-  define: { "process.env.TARGET_WEB": "false" },
+  define: {
+    "process.env.BUILD_TARGET": JSON.stringify("vscode-exthost"),
+    "process.env.NANOFUZZ_VERSION": version,
+  },
 });
 
 // VSCode Web Extension Front-end UI
 await esbuild.build({
   entryPoints: ["./src/ui/FuzzPanelView.ts"],
+  outfile: "./build/ui/FuzzPanelView.js",
   bundle: true,
   sourcemap: "inline",
   tsconfig: "./tsconfig.json",
   platform: "browser",
-  outfile: "./build/ui/FuzzPanelView.js",
   minify: true,
   format: "esm", // for web-tree-sitter (was iife)
   sourcemap: "both",
   external: ["module", "fs/promises", "path"],
-  define: { "process.env.TARGET_WEB": "true" },
+  define: {
+    "process.env.BUILD_TARGET": JSON.stringify("vscode-webview"),
+    "process.env.NANOFUZZ_VERSION": version,
+  },
+});
+
+// CLI
+await esbuild.build({
+  entryPoints: ["./src/ui/Cli.ts"],
+  outfile: "./build/cli/cli.cjs",
+  bundle: true,
+  platform: "node",
+  metafile: true,
+  minify: false,
+  format: "cjs",
+  sourcemap: "both",
+  tsconfig: "./tsconfig.json",
+  external: [
+    "path",
+    "fs",
+    "crypto",
+    "typescript",
+    "tree-sitter-python",
+    "tree-sitter-typescript",
+    "tree-sitter-javascript",
+    "web-tree-sitter",
+  ],
+  plugins: [
+    swapModulePlugin({
+      vscode: "./spec/helpers/vscode.stub.js",
+    }),
+  ],
+  define: {
+    "process.env.BUILD_TARGET": JSON.stringify("node-cli"),
+    "process.env.NANOFUZZ_VERSION": version,
+  },
 });
 
 // CompilerWorker
@@ -100,7 +142,10 @@ await esbuild.build({
   sourcemap: "both",
   tsconfig: "./tsconfig.json",
   external: ["path", "fs", "typescript"],
-  define: { "process.env.TARGET_WEB": "false" },
+  define: {
+    "process.env.BUILD_TARGET": JSON.stringify("vscode-exthost-worker"),
+    "process.env.NANOFUZZ_VERSION": version,
+  },
 });
 
 /**
@@ -144,4 +189,28 @@ export function findInDescendants(dir, item) {
   }
 
   return undefined;
+}
+
+/**
+ * A plugin to swap in/swap out specific modules during esbuild compilation.
+ *
+ * @param {Record<string, string>} aliasMap - An object mapping module names to replacement file paths.
+ */
+function swapModulePlugin(aliasMap) {
+  return {
+    name: "swapModulePlugin",
+    setup(build) {
+      for (const [moduleName, replacementPath] of Object.entries(aliasMap)) {
+        // Intercept imports that match the exact module name
+        const filter = new RegExp(`^${moduleName}$`);
+
+        build.onResolve({ filter }, (args) => {
+          return {
+            // Resolve the replacement path relative to the current working directory (or absolute)
+            path: path.resolve(replacementPath),
+          };
+        });
+      }
+    },
+  };
 }
