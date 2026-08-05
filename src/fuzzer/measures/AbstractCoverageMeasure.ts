@@ -37,6 +37,7 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
   public abstract getCoverage(tick: number): CoverageMeasurement;
 }
 
+
 /**
  * Extends BaseMeasurement with code coverage details
  */

@@ -291,7 +291,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
   } // fn: delta
 
-
   public hasCoverage(tick: number): boolean {
     return !!this._history[tick];
   }
