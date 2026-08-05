@@ -17,7 +17,6 @@ import {
   CodeCoverageMeasureStats,
   CoverageMeasurement,
   CoverageMeasurementNode,
-  ownCoverageEntries,
 } from "./AbstractCoverageMeasure";
 
 /**
@@ -125,10 +124,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       nextPred = nextPred.pred;
     }
 
-    // Merge the current coverage into the global coverage map. Seed the map
-    // first so that it never adopts this measurement's data: see
-    // `ownCoverageEntries`.
-    ownCoverageEntries(this._globalCoverageMap, currentCoverageData);
+    // Merge the current coverage into the global coverage map
     const globalBefore = covered(this._globalCoverageMap);
     this._globalCoverageMap.merge(currentCoverageData);
 

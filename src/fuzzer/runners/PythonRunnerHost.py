@@ -395,16 +395,6 @@ if __name__ == "__main__":
         f"lines, {len(coverageInfo['functions'])} functions, "
         f"{len(coverageInfo['branches'])} branches)")
 
-    # Send the static coverage info once
-    msg = json5.dumps(coverageInfo).encode('utf-8')
-    sys.stdout.buffer.write(struct.pack('>I', len(msg)))  # payload size
-    sys.stdout.buffer.write(msg)  # payload
-    sys.stdout.buffer.flush()
-    logging.debug(
-        f"Sent coverageInfo ({len(coverageInfo['executable'])} executable "
-        f"lines, {len(coverageInfo['functions'])} functions, "
-        f"{len(coverageInfo['branches'])} branches)")
-
     # Start the run loop
     while True:
         logging.debug(f"[{pid}] Top of main loop")
