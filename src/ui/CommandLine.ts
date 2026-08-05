@@ -2,6 +2,7 @@ import * as Commander from "commander";
 import * as fs from "node:fs";
 import { Parser } from "web-tree-sitter";
 import { ArgDef, Tester } from "../fuzzer/Fuzzer";
+import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 
 Commander.program
   .name("NaNofuzz")
@@ -56,23 +57,30 @@ Commander.program
   .option(`--no-ai-input-generator`, `Disable AI input generator`)
   .option(`--no-mutation-input-generator`, `Disable mutation input generator`)
 
-  .option(`--model-provider <modelProvider>`, `AI model provider`)
-  .option(`--model-name <modelName>`, `AI model name`)
-  .option(`--model-key <modelKey>`, `AI model API key`);
+  .option(`--model-provider <modelProvider>`, `AI model provider`) // !!!!!!!!!!
+  .option(`--model-name <modelName>`, `AI model name`) // !!!!!!!!!!
+  .option(`--model-key <modelKey>`, `AI model API key`) // !!!!!!!!!!
+
+  .option(
+    `--clearCompileCache`,
+    `Forces NaNofuzz to clear the compile cache prior to testing`
+  );
 
 Commander.program.parse();
 
-const filename = Commander.program.args[0];
+const filename = require.resolve(Commander.program.args[0]);
 const fnname = Commander.program.args[1];
 
-if (!fs.existsSync(Commander.program.args[0])) {
+if (!fs.existsSync(filename)) {
   console.error(`File not found: ${filename}`);
   process.exit(4); // command line usage error
 }
 
-// !!!!!!!!!! check for existence of function
-
 const options = Commander.program.opts();
+
+if (options["clearCompileCache"]) {
+  CompilerFactory.clean();
+}
 
 Parser.init().then(async () => {
   const results = await new Tester(filename, fnname, {

@@ -100,7 +100,7 @@ await esbuild.build({
 
 // CLI
 await esbuild.build({
-  entryPoints: ["./src/ui/Cli.ts"],
+  entryPoints: ["./src/ui/CommandLine.ts"],
   outfile: "./build/cli/cli.cjs",
   bundle: true,
   platform: "node",
