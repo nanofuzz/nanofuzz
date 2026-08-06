@@ -260,11 +260,16 @@ export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
 /**
  * Message about how busy the fuzzer is
  */
-export type FuzzBusyStatusMessage = {
-  msg: string;
-  milestone?: boolean;
-  pct?: number;
-};
+export type FuzzBusyStatusMessage =
+  | {
+      msg: string;
+      channel: "milestone" | "summary";
+    }
+  | {
+      msg: string;
+      channel: "update";
+      pct: number;
+    };
 
 /**
  * Exception class for TypeScript compiler errors

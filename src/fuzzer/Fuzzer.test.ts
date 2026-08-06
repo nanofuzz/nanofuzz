@@ -1,6 +1,6 @@
 import { ArgDef, Tester } from "./Fuzzer";
-import { TypescriptCompiler } from "./compilers/TypescriptCompiler";
 import { FuzzOptions } from "./Types";
+import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as ValueMapper from "./mappers/ValueMapper";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
 import * as Parser from "./adapters/ParserAdapter";
@@ -10,7 +10,7 @@ jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
 
 // Clean up prior testing temporary files, like compiler output,
 // so that we actually run the compiler during testing
-new TypescriptCompiler(require.resolve("nanofuzz-study/examples/3.ts")).clean();
+CompilerFactory.clean();
 
 /**
  * Fuzzer option for enabling all Measures

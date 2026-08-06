@@ -438,8 +438,8 @@ async function main() {
           "fuzzBusyMessageNonMilestone"
         );
         nonMilestone.innerHTML = htmlEscape(data.message.msg);
-        if (data.message.pct) {
-          const pct = Math.min(data.message.pct, 100);
+        if (data.message.channel === "update") {
+          const pct = Math.max(0.1, Math.min(data.message.pct, 100));
           const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
           progressBar.style.width = pct + "%";
           if (pct > 0) {
