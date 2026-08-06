@@ -115,6 +115,7 @@ const bar = new SingleBar(
   {
     format: " - Testing [{bar}] {percentage}%",
     clearOnComplete: true,
+    linewrap: true,
   },
   Presets.shades_classic
 );
