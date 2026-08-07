@@ -69,7 +69,7 @@ export class Tester {
       );
     } catch (e: unknown) {
       throw new Error(
-        `The TypeScript program could not be parsed. Please fix the errors and retest.${
+        `The program could not be parsed. Please fix the errors and retest.${
           isError(e) ? ` (${e.message})` : ``
         }`,
         { cause: e }
@@ -583,19 +583,6 @@ export class Tester {
           }`,
           channel: "summary",
         });
-        update({
-          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
-          channel: "milestone",
-        });
-        update({
-          msg: `Testing ${
-            cancelFn && cancelFn() ? "paused" : "finished"
-          }.\r\n  Passed: ${
-            runStats.counters.passedTests
-          }\r\n  Failed: ${runStats.counters.failedTests}`,
-          channel: "update",
-          pct: 100,
-        });
 
         // Persist to outfile, if requested
         if (this._options.outputFile) {
@@ -604,10 +591,16 @@ export class Tester {
             JSONN.stringify(this._results)
           );
           update({
-            msg: `Wrote results to: ${this._options.outputFile}`,
-            channel: "milestone",
+            msg: ` - Test results: ${this._options.outputFile}`,
+            channel: "summary",
           });
         }
+
+        update({
+          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
+          channel: "milestone",
+        });
+
         this._state = "paused";
         return this._results;
       }

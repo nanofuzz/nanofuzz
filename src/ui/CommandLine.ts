@@ -28,41 +28,41 @@ Commander.program
   .argument(`<function>`, `The entrypoint function to test`)
 
   .option(
-    `--output-file`,
+    `--output-file <filename>`,
     `Path and filename to output file for test results (in JSONN format)`
   )
 
   .option(
-    `--max-runtime <suiteTimeout>`,
+    `--max-runtime <integer>`,
     `Maximum time in ms NaNofuzz may run (0=no limit)`,
-    parseIntArg,
+    parseNonNegIntArg,
     3000
   )
   .option(
-    `--max-tests <maxTests>`,
+    `--max-tests <integer>`,
     `Maximum number of tests NaNofuzz may run`,
-    parseIntArg,
+    parseNonNegIntArg,
     1000
   )
   .option(
-    `--max-dupe-inputs <maxDupeInputs>`,
+    `--max-dupe-inputs <integer>`,
     `Maximum number of sequential duplicate inputs`,
-    parseIntArg,
+    parseNonNegIntArg,
     1000
   )
   .option(
-    `--max-failures <maxFailures>`,
+    `--max-failures <integer>`,
     `Maximum number of test failures (0=no limit)`,
-    parseIntArg,
+    parseNonNegIntArg,
     0
   )
   .option(
-    `--fn-timeout <fnTimeout>`,
+    `--fn-timeout <integer>`,
     `Maximum time in ms allowed for a tested function to run`,
-    parseIntArg,
+    parseNonNegIntArg,
     200
   )
-  .option(`--seed <seed>`, `Seed for pseudo-random number generator`)
+  .option(`--seed <string>`, `Seed for pseudo-random number generator`, "")
 
   .option(`--no-heuristic-oracle`, `Disable heuristic oracle`)
   .option(`--no-property-oracle`, `Disable property oracle`)
@@ -74,20 +74,23 @@ Commander.program
   .option(`--no-ai-input-generator`, `Disable AI input generator`)
   .option(`--no-mutation-input-generator`, `Disable mutation input generator`)
 
-  .option(`--model-provider <modelProvider>`, `AI model provider`)
-  .option(`--model-name <modelName>`, `AI model name`)
-  .option(`--model-key <modelKey>`, `AI model API key`)
+  .option(`--model-provider <string>`, `AI model provider`)
+  .option(`--model-name <string>`, `AI model name`)
+  .option(`--model-key <string>`, `AI model API key`)
 
   .option(
     `--clear-compile-cache`,
-    `Forces NaNofuzz to clear the compile cache prior to testing`
+    `Force clearing the compile cache prior to testing`
   );
 
+// Process & validate CLI input
 Commander.program
   .exitOverride((_err: Commander.CommanderError) => {
     process.exit(4); // command line usage error
   })
   .parse();
+
+console.info(`NaNofuzz v${process.env.NANOFUZZ_VERSION}`);
 
 // Resolve the filename
 const filenameIn: string = Commander.program.args[0];
@@ -106,10 +109,12 @@ try {
 const fnname = Commander.program.args[1];
 const options = Commander.program.opts();
 
-if (options["clearCompileCache"]) {
-  CompilerFactory.clean();
-}
+// Resolve the output file
+const outfile = options["outputFile"]
+  ? path.resolve(options["outputFile"])
+  : undefined;
 
+// Setup update message handler & the progress bar
 let lastWasMilestone = true;
 const bar = new SingleBar(
   {
@@ -141,7 +146,7 @@ const updateFn = (payload: FuzzBusyStatusMessage) => {
   lastWasMilestone = payload.channel !== "update";
 };
 
-// Set option overrides
+// Set LLM option overrides
 for (const key in options) {
   const value = options[key];
   switch (key) {
@@ -157,7 +162,12 @@ for (const key in options) {
   }
 }
 
-console.info(`NaNofuzz v${process.env.NANOFUZZ_VERSION}`);
+// Clear compiler cache
+if (options["clearCompileCache"]) {
+  CompilerFactory.clean();
+}
+
+// Run NaNofuzz
 run();
 
 async function run(): Promise<void> {
@@ -167,13 +177,14 @@ async function run(): Promise<void> {
       argDefaults: ArgDef.getDefaultOptions(),
       maxTests: options["maxTests"],
       fnTimeout: options["fnTimeout"],
-      suiteTimeout: options["suiteTimeout"],
+      suiteTimeout: options["maxRuntime"],
       seed: options["seed"],
       maxDupeInputs: options["maxDupeInputs"],
       maxFailures: options["maxFailures"],
-      useImplicit: options["useImplicit"],
-      useHuman: options["useHuman"],
-      useProperty: options["useProperty"],
+      useImplicit: options["heuristicOracle"],
+      useHuman: options["exampleOracle"],
+      useProperty: options["propertyOracle"],
+      outputFile: outfile,
       measures: {
         CoverageMeasure: {
           enabled: options["coverageMeasure"],
@@ -221,10 +232,13 @@ async function run(): Promise<void> {
   }
 } // fn: run
 
-function parseIntArg(value: string, _previous: number): number {
+function parseNonNegIntArg(value: string, _previous: number): number {
   const parsedValue = parseInt(value);
   if (isNaN(parsedValue)) {
     throw new Commander.InvalidArgumentError("Not a number");
   }
+  if (parsedValue < 0) {
+    throw new Commander.InvalidArgumentError("Negative number not allowed");
+  }
   return parsedValue;
-} // fn: parseIntArg
+} // fn: parseNonNegIntArg
