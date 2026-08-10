@@ -1,4 +1,4 @@
-import { CoverageMap, FileCoverage } from "istanbul-lib-coverage";
+import { CoverageMap, CoverageMapData, createCoverageMap, createFileCoverage, FileCoverage, FileCoverageData } from "istanbul-lib-coverage";
 import { InputAndSource } from "../Types";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 
@@ -35,6 +35,35 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
    * @returns the coverage measure for `tick`
    */
   public abstract getCoverage(tick: number): CoverageMeasurement;
+
+  protected static file_snapshot(data: FileCoverageData) : FileCoverageData {
+    // A `FileCoverage` instance is assignable to `FileCoverageData`, and
+    // `CoverageMap.data` holds instances, so this is routinely called with
+    // one. It keeps `path` and the location maps behind prototype getters --
+    // its only own property is `data` -- so spreading the instance directly
+    // would produce `{ data, s, f, b }` and `addFileCoverage` would reject it.
+    // `createFileCoverage` returns the plain object either shape wraps.
+    const fileData = createFileCoverage(data).data;
+
+    const b: FileCoverageData["b"] = {};
+    for (const bKey of Object.keys(fileData.b)) {
+      b[bKey] = [...fileData.b[bKey]];
+    }
+    return { ...fileData, s: { ...fileData.s }, f: { ...fileData.f }, b };
+  }
+
+  protected static better_merge(accum: CoverageMap, new_cov: CoverageMap | CoverageMapData) : CoverageMap {
+    const other = createCoverageMap(new_cov);
+    const existed = new Set(accum.files());
+    Object.values(other.data).forEach(fc => {
+      if (existed.has(fc.path)) {
+        accum.addFileCoverage(fc);
+      } else {
+        accum.addFileCoverage(AbstractCoverageMeasure.file_snapshot(fc));
+      }
+    });
+    return accum;
+  }
 }
 
 

@@ -131,7 +131,7 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     while (nextPred) {
       if (!nextPred.pred) {
         accumBefore = this._toNumber(nextPred.meas.coverageMeasure.accum);
-        nextPred.meas.coverageMeasure.accum.merge(currentCoverageData);
+        AbstractCoverageMeasure.better_merge(nextPred.meas.coverageMeasure.accum, currentCoverageData);
         accumAfter = this._toNumber(nextPred.meas.coverageMeasure.accum);
       }
       nextPred = nextPred.pred;
@@ -139,7 +139,7 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
 
     // Merge the current coverage into the global coverage map
     const globalBefore = this._toNumber(this._globalCoverageMap);
-    this._globalCoverageMap.merge(currentCoverageData);
+    AbstractCoverageMeasure.better_merge(this._globalCoverageMap, currentCoverageData);
 
     // Build the measurement object
     const meas = {
@@ -148,7 +148,8 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
         globalDelta: this._toNumber(this._globalCoverageMap) - globalBefore,
-        accum: createCoverageMap(currentCoverageData),
+        // Python version does not have _snapshot, so this is to keep consistency with Python
+        accum: AbstractCoverageMeasure.better_merge(createCoverageMap({}), currentCoverageData),
         accumDelta: accumAfter - accumBefore,
       },
     };

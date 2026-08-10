@@ -815,32 +815,20 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
     ).toThrowError("Coverage measure not connected to runner");
   });
 
-  // The telescoping property over a mutation lineage rather than three
+  // telescoping property over a mutation lineage rather than three
   // independent inputs.
-  //
-  // COMMENTED OUT: this fails on the B1 + B2 aliasing described in
-  // COVERAGE_ALIASING.md section 4.1, which PythonCoverageMeasure shares with
-  // TypescriptCoverageMeasure -- the first measurement's data is adopted by
-  // the global coverage map and is also the backing store of that
-  // measurement's `accum`, so merging a child into the root's `accum` adds the
-  // child's coverage to the global map before `globalBefore` is read. Every
-  // descendant of the first measured input is therefore credited 0.
-  //
-  // Observed: [4, 0, 0], summing to 4 -- the assertions below expect
-  // [4, 4, 2] summing to 10, exactly as the root-only version above.
-  //
-  // it("measure credits each input in a lineage with the coverage it added", () => {
-  //   const measure = new TestPythonCoverageMeasure(threePathStatic);
-  //   const inputs = [inputAt(0), mutantAt(1, 0), mutantAt(2, 0)];
-  //
-  //   const deltas = [threePathNegative, threePathZero, threePathPositive].map(
-  //     (run, i) =>
-  //       runTest(measure, run, inputs[i]).coverageMeasure.globalDelta
-  //   );
-  //
-  //   expect(deltas).toEqual([4, 4, 2]);
-  //   expect(deltas.reduce((sum, delta) => sum + delta, 0)).toEqual(10);
-  // });
+  it("measure credits each input in a lineage with the coverage it added", () => {
+    const measure = new TestPythonCoverageMeasure(threePathStatic);
+    const inputs = [inputAt(0), mutantAt(1, 0), mutantAt(2, 0)];
+
+    const deltas = [threePathNegative, threePathZero, threePathPositive].map(
+      (run, i) =>
+        runTest(measure, run, inputs[i]).coverageMeasure.globalDelta
+    );
+
+    expect(deltas).toEqual([4, 4, 2]);
+    expect(deltas.reduce((sum, delta) => sum + delta, 0)).toEqual(10);
+  });
 
   // ------------------------------------------------------------------
   // onRunEnd: runs once the last test is done, and hands the run's
@@ -1117,9 +1105,12 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       const file = stats.files[0];
 
       // The reported path is normalized, so the UI can match it against
-      // open editors
-      expect(file.path).toEqual("/tmp/abs_value.py");
-      expect(file.path).toEqual(normalizePathForKey(rawPath));
+      // open editors: the `pkg/..` spelling keys to the same file as the
+      // plain one. Compared after normalizing rather than against a literal,
+      // because the separator -- and, on Windows, the case -- of the key is
+      // the host platform's.
+      expect(file.path).toEqual(normalizePathForKey(pyFileName));
+      expect(file.path).not.toContain("..");
 
       // The file's own map is not: one `CodeCoverageFileStats` can carry two
       // spellings of the same file, and only the outer one is normalized
@@ -1152,7 +1143,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       expect(stats.files.length).toEqual(1);
       const file = stats.files[0];
 
-      expect(file.path).toEqual(pyFileName);
+      expect(file.path).toEqual(normalizePathForKey(pyFileName));
 
       // One statement per executable line, each spanning its whole line
       expect(file.fileMap.statementMap).toEqual({
@@ -1206,7 +1197,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       expect(stats.files.length).toEqual(1);
       const file = stats.files[0];
 
-      expect(file.path).toEqual(pyFileName);
+      expect(file.path).toEqual(normalizePathForKey(pyFileName));
       expect(file.counters).toEqual({
         functionsTotal: 3,
         functionsCovered: 2,

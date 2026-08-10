@@ -639,7 +639,7 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       }
     });
   });
-  
+
   // `current` should hold exactly the coverage the measured input
   it("measure records exactly the coverage of the input it measured", () => {
     const { measure, absValue } = load();
@@ -1263,9 +1263,12 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
 
       const stats = await statsOf(measure);
 
-      // The files reported are the TypeScript sources the run came from...
+      // The files reported are the TypeScript sources the run came from.
+      // Both sides are normalized before comparing, because a reported path
+      // is a key rather than a spelling: `normalizePathForKey` lowercases on
+      // Windows, so the raw `tsFile` under `os.tmpdir()` is not it verbatim.
       expect(stats.files.map((file) => file.path).sort()).toEqual(
-        [twoPath.tsFile, linear.tsFile].sort()
+        [twoPath.tsFile, linear.tsFile].map(normalizePathForKey).sort()
       );
 
       for (const file of stats.files) {
@@ -1276,8 +1279,10 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
         expect(fs.existsSync(file.path)).toBeTrue();
         expect(path.extname(file.path)).toEqual(".ts"); // not the compiled JS
 
-        // The file's own map agrees about where it came from
-        expect(file.fileMap.path).toEqual(file.path);
+        // The file's own map agrees about where it came from, though only
+        // the outer path is normalized: one `CodeCoverageFileStats` can
+        // carry two spellings of the same file
+        expect(normalizePathForKey(file.fileMap.path)).toEqual(file.path);
       }
     });
 
@@ -1309,7 +1314,7 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       const file = stats.files[0];
 
       // The file reported is the TypeScript source, not the compiled JS
-      expect(file.path).toEqual(program.tsFile);
+      expect(file.path).toEqual(normalizePathForKey(program.tsFile));
 
       // `return -n;` is line 6 of the emitted JavaScript...
       expect(program.js.split("\n")[5].trim()).toEqual("return -n;");
@@ -1382,7 +1387,7 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       expect(stats.files.length).toEqual(1);
       const file = stats.files[0];
 
-      expect(file.path).toEqual(program.tsFile);
+      expect(file.path).toEqual(normalizePathForKey(program.tsFile));
       expect(file.counters).toEqual({
         functionsTotal: 3,
         functionsCovered: 2,
