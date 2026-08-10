@@ -298,6 +298,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     if (this.hasCoverage(tick)) {
       return this._history[tick].meas; // rep leak !!!!!!!
     }
-    throw new Error(`No coverahe data for "${tick}"`);
+    throw new Error(`No coverage data for "${tick}"`);
   }
 }
