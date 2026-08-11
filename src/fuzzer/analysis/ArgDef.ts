@@ -139,7 +139,6 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     offset?: number
   ): ArgDef {
     offset = offset ?? 0;
-    let i = 0; // Child counter
 
     // Ensure we have a resolved type
     if (!ref.type)
@@ -149,11 +148,16 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         )}`
       );
 
+    let intervals: Interval<ArgType>[] | undefined = undefined;
     // An interval is mandatory for the Literal type
-    const intervals: Interval<ArgType>[] | undefined =
-      ref.type.type === ArgTag.LITERAL && ref.type.value !== undefined
-        ? [{ min: ref.type.value, max: ref.type.value }]
-        : undefined;
+    if (ref.type.type === ArgTag.LITERAL) {
+      intervals =
+        ref.type.value !== undefined
+          ? [{ min: ref.type.value, max: ref.type.value }]
+          : undefined;
+    } else if (ref.type.options?.numIntervals) {
+      intervals = ref.type.options?.numIntervals;
+    }
 
     // A source language may provide additional constraints for an otherwise
     // shared ArgTag. For example, Python `int` and `float` are both NUMBERs,
@@ -169,7 +173,9 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       ref.dims + ref.type.dims, // type reference dims + concrete type dims
       ref.optional, // optional
       intervals, // intervals
-      ref.type.children.map((child) => ArgDef.fromTypeRef(child, options, i++)), // children
+      ref.type.children.map((child, i) =>
+        ArgDef.fromTypeRef(child, options, i)
+      ), // children
       ref.typeRefName // type reference
     );
   } // fn: fromTypeRef()
@@ -181,7 +187,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    * @param options Default argument options
    * @returns Default input intervals based on the type and options
    */
-  private static getDefaultIntervals(
+  public static getDefaultIntervals(
     type: ArgTag,
     options: ArgOptions
   ): Interval<ArgType>[] {
