@@ -1,7 +1,13 @@
-import { AbstractRunner, Arc, RunnerInput, RunnerResult } from "./AbstractRunner";
+import {
+  AbstractRunner,
+  Arc,
+  RunnerInput,
+  RunnerResult,
+} from "./AbstractRunner";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
+import * as Config from "../../Config";
 import * as ChildProcess from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -95,7 +101,7 @@ export class PythonRunner extends AbstractRunner {
         ),
         env: {},
       };
-      
+
       if (result.result.seq >= 0 && result.result.seq !== thisSeq) {
         throw new Error(
           `Internal error: RunnerResult seq# does not match RunnerInput`
@@ -164,20 +170,15 @@ export class PythonRunner extends AbstractRunner {
       env: { ...process.env },
       libs: findPythonLibDir(path.dirname(module.filename), "json5"),
       paths: [],
-      interpreter: vscode.workspace
-        .getConfiguration("python")
-        .get("defaultInterpreterPath", "python3"),
+      interpreter: Config.get("python.defaultInterpreterPath", "python3"),
     };
 
     // Load .env file if configured
-    if (
-      vscode.workspace
-        .getConfiguration("python.terminal")
-        .get("useEnvFile", false)
-    ) {
-      const envFile = vscode.workspace
-        .getConfiguration("python")
-        .get("envFile", undefined);
+    if (Config.get<boolean>("python.terminal.useEnvFile", false)) {
+      const envFile = Config.get<string | undefined>(
+        "python.envFile",
+        undefined
+      );
       if (envFile && fs.existsSync(envFile)) {
         DotEnv.config({ processEnv: pythonEnv.env, path: envFile });
       }
@@ -192,22 +193,21 @@ export class PythonRunner extends AbstractRunner {
     }
 
     // Use a virtual environment if specified & found
-    const searchGlobs: string[] = vscode.workspace
-      .getConfiguration("python-envs")
-      .get<string[]>("workspaceSearchPaths", []);
+    const searchGlobs = Config.get<string[]>(
+      "python-envs.workspaceSearchPaths",
+      []
+    );
     const workspace = vscode.workspace.getWorkspaceFolder(
       vscode.Uri.file(filename)
     )?.uri.fsPath;
     if (
       searchGlobs.length &&
       workspace &&
-      vscode.workspace
-        .getConfiguration("python.terminal")
-        .get<boolean>("activateEnvironment", false) &&
-      vscode.workspace
-        .getConfiguration("python-envs.terminal")
-        .get<string>("autoActivationType", "command") ===
-        "command" /* TODO shellStartup */
+      Config.get<boolean>("python.terminal.activateEnvironment", false) &&
+      Config.get<string>(
+        "python-envs.terminal.autoActivationType",
+        "command"
+      ) === "command" /* TODO shellStartup */
     ) {
       const matches = fs.globSync(searchGlobs, { cwd: workspace });
       if (matches.length) {
@@ -288,14 +288,27 @@ export class PythonRunner extends AbstractRunner {
       throw new Error("Internal error: cannot '_getHost' prior to 'runStart'");
     }
 
+    // Find the runner host under three different conditions:
+    //  1. Executing within VSCode as /build/extension/extension.js
+    //  2. Executing within Node as /build/cli/cli.cjs
+    //  3. Executing within Jasmine as /src/fuzzer/runners/PythonRunner.ts
+    const currModuleDir = path.dirname(path.resolve(module.filename));
+    const projectRoot = findInAncestor(currModuleDir, "package.json");
+    if (projectRoot === undefined) {
+      throw new Error(`Unable to find project root from: ${currModuleDir}`);
+    }
+    const runnerHost = path.resolve(
+      path.join(
+        path.dirname(projectRoot),
+        "build",
+        "extension",
+        "PythonRunnerHost.py"
+      )
+    );
+
     const filenameBase = path.basename(this._filename);
     const args = [
-      path.resolve(
-        path.join(
-          path.dirname(path.resolve(module.filename)),
-          "PythonRunnerHost.py"
-        )
-      ),
+      runnerHost,
       this._filename,
       filenameBase.substring(
         0,
@@ -316,9 +329,7 @@ export class PythonRunner extends AbstractRunner {
 
       // Get the static coverage structure, which the host sends once. The
       // dynamic `lines`/`arcs` are filled in by each `run`.
-      const length = (
-        await host.readStdout(4, 30000)
-      ).readUInt32BE(0);
+      const length = (await host.readStdout(4, 30000)).readUInt32BE(0);
       const data = JSON5.parse<CoverageInfo>(
         (await host.readStdout(length, 30000)).toString()
       );
@@ -355,7 +366,6 @@ export class PythonRunner extends AbstractRunner {
   public get coverageInfo(): CoverageInfo | undefined {
     return this._coverageInfo ? { ...this._coverageInfo } : undefined;
   }
-
 } // class: PythonRunner
 
 /**
@@ -541,7 +551,6 @@ function findPythonLibDir(dir: string, item: string): string | null {
 
   return null;
 }
-
 
 /**
  * Coverage reported by the Python host for the program under test.

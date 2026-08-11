@@ -1,4 +1,5 @@
-import * as vscode from "vscode";
+import vscode from "vscode";
+import * as Config from "../../Config";
 import { ArgValueType } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
 import { FunctionDef } from "../analysis/FunctionDef";
@@ -242,9 +243,7 @@ export class LlmAdapter {
    * @returns extension configuration element or default
    */
   protected static _getConfigValue<T>(section: string, dft: T): T {
-    return vscode.workspace
-      .getConfiguration("nanofuzz.ai")
-      .get<T>(section, dft);
+    return Config.get<T>(`nanofuzz.ai.${section}`, dft);
   } // fn: _getConfigValue
 
   /**
@@ -278,9 +277,7 @@ const prompt = {
   ): string => {
     const fnRef = fn.getRef();
     const spec = fn.getCmt() ?? "";
-    let inputs = vscode.workspace
-      .getConfiguration("nanofuzz.ai")
-      .get<boolean>("backfeedPriorInputs", true)
+    let inputs = Config.get<boolean>("nanofuzz.ai.backfeedPriorInputs", true)
       ? Array.from(allInputs.keys())
       : [];
     // draw a line at 10k inputs

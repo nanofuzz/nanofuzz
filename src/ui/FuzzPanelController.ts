@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as JSONN from "../Jsonn";
+import * as Config from "../Config";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import * as fuzzer from "../fuzzer/Fuzzer";
 import * as fs from "fs";
@@ -616,9 +617,10 @@ export class FuzzPanel {
                 thisOpt.maxDupeInputs === undefined ||
                 isNaN(thisOpt.maxDupeInputs)
               ) {
-                thisOpt.maxDupeInputs = vscode.workspace
-                  .getConfiguration("nanofuzz.fuzzer")
-                  .get("maxDupeInputs", 1000);
+                thisOpt.maxDupeInputs = Config.get(
+                  "nanofuzz.fuzzer.maxDupeInputs",
+                  1000
+                );
               }
             }
             console.info(
@@ -1694,10 +1696,8 @@ ${inArgConsts}
       command: "config.updated",
       config: {
         ai: {
-          provider: vscode.workspace
-            .getConfiguration("nanofuzz.ai")
-            .get("provider", "disabled"),
-          model: vscode.workspace.getConfiguration("nanofuzz.ai").get("model"),
+          provider: Config.get("nanofuzz.ai.provider", "disabled"),
+          model: Config.get("nanofuzz.ai.model", ""),
         },
       },
     };
@@ -2033,9 +2033,7 @@ ${inArgConsts}
       // Always hide the options button if it's disabled via configuration
       if (
         activeButtons.options &&
-        vscode.workspace
-          .getConfiguration("nanofuzz.ui")
-          .get("hideMoreOptionsButton") === true
+        Config.get<boolean>("nanofuzz.ui.hideMoreOptionsButton", false)
       ) {
         delete activeButtons.options;
       }
@@ -2541,9 +2539,7 @@ ${inArgConsts}
                   : textReason[""]
               }
               ${
-                vscode.workspace
-                  .getConfiguration("nanofuzz.ui")
-                  .get("hideMoreOptionsButton")
+                Config.get<boolean>("nanofuzz.ui.hideMoreOptionsButton", false)
                   ? ``
                   : ` You can adjust why ${toolName} stops using the gear button above.`
               }
@@ -2788,9 +2784,10 @@ ${inArgConsts}
       }
 
       // Columns to hide on the front-end
-      const hiddenColumns = vscode.workspace
-        .getConfiguration("nanofuzz.ui")
-        .get<boolean>("showSourceColumn", false)
+      const hiddenColumns = Config.get<boolean>(
+        "nanofuzz.ui.showSourceColumn",
+        false
+      )
         ? ["id"] // Always hide the id column
         : ["id", "src"];
 
@@ -3483,17 +3480,19 @@ export function provideCodeLenses(
     );
 
     // Skip analyzing files that we are configured to ignore
-    const fuzzIgnore: string = vscode.workspace
-      .getConfiguration("nanofuzz.ui.codeLens")
-      .get("ignoreFilePattern", "");
+    const fuzzIgnore: string = Config.get(
+      "nanofuzz.ui.codeLens.ignoreFilePattern",
+      ""
+    );
     if (fuzzIgnore !== "" && document.fileName.match(fuzzIgnore)) {
       return [];
     }
 
     // Skip decorating validators if configured to skip them
-    const fuzzValidators = vscode.workspace
-      .getConfiguration("nanofuzz.ui.codeLens")
-      .get("includeValidators");
+    const fuzzValidators = Config.get<boolean>(
+      "nanofuzz.ui.codeLens.includeValidators",
+      true
+    );
     const allFunctions = Object.values(program.functionsExported);
     const functions = (fuzzValidators === undefined ? true : fuzzValidators)
       ? allFunctions
@@ -3631,21 +3630,11 @@ function _applyArgOverrides(
 export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
   return {
     argDefaults: fuzzer.ArgDef.getDefaultOptions(),
-    maxTests: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("maxTests", 1000),
-    fnTimeout: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("fnTimeout", 100),
-    suiteTimeout: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("suiteTimeout", 3000),
-    maxDupeInputs: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("maxDupeInputs", 1000),
-    maxFailures: vscode.workspace
-      .getConfiguration("nanofuzz.fuzzer")
-      .get("maxFailures", 0),
+    maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
+    fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 100),
+    suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
+    maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 1000),
+    maxFailures: Config.get("nanofuzz.fuzzer.maxFailures", 0),
     useHuman: true,
     useImplicit: true,
     useProperty: false,
@@ -3780,9 +3769,7 @@ export const commands = {
 /**
  * The tool's current name (used for studies)
  */
-export const toolName = vscode.workspace
-  .getConfiguration("nanofuzz")
-  .get("name");
+export const toolName = Config.get("nanofuzz.name", "NaNofuzz");
 
 /**
  * Languages supported by this module

@@ -12,7 +12,7 @@ class InspectablePythonProgram extends PythonProgram {
   }
 }
 
-describe("fuzzer/analysis/python/PythonProgram:", () => {
+describe("fuzzer/analysis/python/PythonProgram: ", () => {
   beforeAll(async () => {
     await Parser.init();
   });
@@ -815,5 +815,167 @@ def func(tdclass: TypedDictClass, tdFunc: TypedDictFunc):
     expect(program.types["TypedDictFunc"]).toEqual(
       program.types["TypedDictClass"]
     );
+  });
+});
+
+describe("hypothesis @given: ", () => {
+  beforeAll(async () => {
+    await Parser.init();
+  });
+
+  it("primitives and strings with options", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    trigger=st.text(min_size=1, max_size=8, alphabet="abc"),
+    dep=st.text(min_size=1, max_size=8, alphabet="ABC"),
+    trigger_val=st.integers(min_value=0, max_value=100)
+)
+def test_example(trigger, dep, trigger_val):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_example"];
+
+    const args = fn.getArgDefs();
+    expect(args.length).toEqual(3);
+
+    expect(args[0].getName()).toEqual("trigger");
+    expect(args[0].getType()).toEqual(ArgTag.STRING);
+    expect(args[0].getOptions().strLength).toEqual({ min: 1, max: 8 });
+    expect(args[0].getOptions().strCharset).toEqual("abc");
+
+    expect(args[1].getName()).toEqual("dep");
+    expect(args[1].getType()).toEqual(ArgTag.STRING);
+    expect(args[1].getOptions().strLength).toEqual({ min: 1, max: 8 });
+    expect(args[1].getOptions().strCharset).toEqual("ABC");
+
+    expect(args[2].getName()).toEqual("trigger_val");
+    expect(args[2].getType()).toEqual(ArgTag.NUMBER);
+    expect(args[2].getOptions().numInteger).toBeTrue();
+    expect(args[2].getIntervals()).toEqual([{ min: 0, max: 100 }]);
+  });
+
+  it("positional arguments", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    year=st.integers(2000, 2030),
+    month=st.integers(1, 12)
+)
+def test_dates(year, month):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_dates"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getIntervals()).toEqual([{ min: 2000, max: 2030 }]);
+    expect(args[1].getIntervals()).toEqual([{ min: 1, max: 12 }]);
+  });
+
+  it("nested lists and fixed_dictionaries", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    complex_data=st.lists(
+        st.lists(
+            st.fixed_dictionaries({
+                'id': st.integers(min_value=1, max_value=10),
+                'tags': st.lists(st.text())
+            })
+        )
+    )
+)
+def test_nested(complex_data):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_nested"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getName()).toEqual("complex_data");
+    // Outer list + inner list = 2 dimensions
+    expect(arg.getDim()).toEqual(2);
+    expect(arg.getType()).toEqual(ArgTag.OBJECT);
+
+    const fields = arg.getChildren();
+    expect(fields.map((f) => f.getName())).toEqual(["id", "tags"]);
+
+    const idField = fields.find((f) => f.getName() === "id");
+    expect(idField?.getType()).toEqual(ArgTag.NUMBER);
+    expect(idField?.getIntervals()).toEqual([{ min: 1, max: 10 }]);
+
+    const tagsField = fields.find((f) => f.getName() === "tags");
+    expect(tagsField?.getType()).toEqual(ArgTag.STRING);
+    expect(tagsField?.getDim()).toEqual(1); // st.lists(st.text()) nested inside dict
+  });
+
+  it("sampled_from", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    status=st.sampled_from(["active", "pending", "closed"])
+)
+def test_sampled(status):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_sampled"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.UNION);
+    expect(arg.getChildren().map((c) => c.getConstantValue())).toEqual([
+      "active",
+      "pending",
+      "closed",
+    ]);
+    expect(
+      arg.getChildren().every((c) => c.getType() === ArgTag.LITERAL)
+    ).toBeTrue();
+  });
+
+  it("fixed_dictionaries with optional keys", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    payload=st.fixed_dictionaries(
+        mapping={'req_id': st.integers()},
+        optional={'opt_tag': st.text()}
+    )
+)
+def test_optional_dict(payload):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_optional_dict"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.OBJECT);
+    const fields = arg.getChildren();
+
+    const reqField = fields.find((f) => f.getName() === "req_id");
+    const optField = fields.find((f) => f.getName() === "opt_tag");
+
+    expect(reqField?.isOptional()).toBeFalse();
+    expect(optField?.isOptional()).toBeTrue();
+  });
+
+  it("@givens take precedence over native type annotations", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    val=st.integers(min_value=50, max_value=60)
+)
+def test_precedence(val: float):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_precedence"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.NUMBER);
+    expect(arg.getOptions().numInteger).toBeTrue();
+    expect(arg.getIntervals()).toEqual([{ min: 50, max: 60 }]);
   });
 });

@@ -1,4 +1,5 @@
 module.exports = {
+  isShim: true,
   workspace: {
     getConfiguration: function () {
       return {

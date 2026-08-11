@@ -1,3 +1,5 @@
+import * as Config from "../../Config";
+
 /**
  * Type for individual leaders and auxiliary data.
  */
@@ -5,14 +7,15 @@ export type Leader<T> = { leader: T; score: number; focus: number };
 
 /**
  * Running list of "interesting" inputs.
- */ export class Leaderboard<T> {
+ */ 
+export class Leaderboard<T> {
   private _leaders: Leader<T>[] = []; // List of leaders
   private _outdated_leaders: Leader<T>[] = []; // List of outdated leaders that don't conform to the current specs
-  private _minScore = 0.9999; // initial minimum score !!!!!!! externalize
+  private _minScore = 0.9999; // initial minimum score
   private _minScoreIdx = -1; // index of leader with the minimum score
   private _slots = 200; // maximum number of slots in leaderboard
-  private _initialFocus = 200; // Amount of focus for new leaders !!!!!!! externalize
-  private _focusDecay = 1; // Amount of focus to decrement on each random leader selection !!!!!!! externalize
+  private _initialFocus = 200; // Amount of focus for new leaders
+  private _focusDecay = 1; // Amount of focus to decrement on each random leader selection
 
   /**
    * Create a new list of interesting inputs
@@ -26,7 +29,27 @@ export type Leader<T> = { leader: T; score: number; focus: number };
     if (slots !== undefined) {
       this._slots = slots;
     }
+    this.loadConfig();
   } // fn: constructor
+
+  /**
+   * (Re)loads the leaderboard's configurable parameters from the
+   * `nanofuzz.generators.*` configuration.
+   */
+  public loadConfig(): void {
+    this._minScore = Config.get<number>(
+      "nanofuzz.generators.leaderboardMinScore",
+      0.9999
+    );
+    this._initialFocus = Config.get<number>(
+      "nanofuzz.generators.leaderboardInitialFocus",
+      200
+    );
+    this._focusDecay = Config.get<number>(
+      "nanofuzz.generators.leaderboardFocusDecay",
+      1
+    );
+  } // fn: loadConfig
 
   /**
    * Returns the leaderboard's name (currently just the constructor name)
