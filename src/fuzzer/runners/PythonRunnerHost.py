@@ -279,9 +279,18 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
     value = None
     try:
         with redirect_stdout(io.StringIO()) as f:
-            value = fn(*input["args"])
+            # If fn is a Hypothesis-wrapped test, bypass Hypothesis
+            # and call the original underlying function
+            if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
+                # Unwrap Hypothesis test function
+                value = fn.hypothesis.inner_test(*input["args"])
+            else:
+                # Not Hypothesis; call directly
+                value = fn(*input["args"])
     except Exception as e:
-        error = e
+        # Hypothesis `assume` failures are not errors
+        if e.__class__.__name__ != "UnsatisfiedAssumption":
+            error = e
     finally:
         cov.stop()
 
