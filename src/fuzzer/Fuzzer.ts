@@ -30,6 +30,7 @@ import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
+import { getToolVersion } from "../ToolVersion";
 
 export class Tester {
   protected _module: string; // module filename
@@ -69,7 +70,7 @@ export class Tester {
       );
     } catch (e: unknown) {
       throw new Error(
-        `The TypeScript program could not be parsed. Please fix the errors and retest.${
+        `The program could not be parsed. Please fix the errors and retest.${
           isError(e) ? ` (${e.message})` : ``
         }`,
         { cause: e }
@@ -177,6 +178,7 @@ export class Tester {
    */
   protected _getInitializedResults(): FuzzTestResults {
     return {
+      toolVersion: getToolVersion(),
       env: {
         options: structuredClone(this._options),
         function: this._function,
@@ -294,11 +296,13 @@ export class Tester {
    */
   public async testSync(
     injectTests: FuzzPinnedTest[] = [],
-    mode: FuzzMode = { gen: true }
+    mode: FuzzMode = { gen: true },
+    updateFn?: (payload: FuzzBusyStatusMessage) => void,
+    cancelFn?: () => boolean
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
     try {
-      const run = this._run(injectTests, mode);
+      const run = this._run(injectTests, mode, updateFn, cancelFn);
       while (!result) {
         result = (await run.next()).value;
       }
@@ -401,12 +405,8 @@ export class Tester {
 
     const update = (payload: FuzzBusyStatusMessage): void => {
       if (updateFn) {
-        updateFn({
-          msg: payload.msg,
-          milestone: payload.milestone,
-          pct: payload.pct,
-        });
-      } else if (payload.milestone) {
+        updateFn({ ...payload });
+      } else if (payload.channel !== "update") {
         console.log(payload.msg);
       }
     };
@@ -425,10 +425,11 @@ export class Tester {
       },
     };
 
-    if (!updateFn) console.log("\r\n\r\n");
+    if (!updateFn && process.env.BUILD_TARGET !== "node-cli")
+      console.log("\r\n\r\n");
     update({
       msg: `Target: ${this._function.getName()} of ${this._function.getModule()}`,
-      milestone: true,
+      channel: "milestone",
     });
 
     const argDefs = this._function.getArgDefs();
@@ -491,7 +492,7 @@ export class Tester {
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
 
-    update({ msg: `Target ready to test.`, milestone: true, pct: 0.01 });
+    update({ msg: `Target ready to test.`, channel: "milestone" });
     this._state = "ready";
 
     // Main test loop
@@ -518,20 +519,6 @@ export class Tester {
           runStats.counters.dupesGenerated;
         this._results.stats.counters.inputsInjected +=
           runStats.counters.inputsInjected;
-        update({
-          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
-          milestone: true,
-          pct: 100,
-        });
-        update({
-          msg: `Testing ${
-            cancelFn && cancelFn() ? "paused" : "finished"
-          }.\r\n  Passed: ${
-            runStats.counters.passedTests
-          }\r\n  Failed: ${runStats.counters.failedTests}`,
-          milestone: false,
-          pct: 100,
-        });
 
         // Update interesting inputs
         this._results.interesting.inputs =
@@ -547,46 +534,57 @@ export class Tester {
         await runner.onRunEnd();
         await propRunners.forEach(async (p) => p.onRunEnd());
 
-        console.log(
-          ` - Executed ${
+        update({
+          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
+          channel: "update",
+          pct: 100,
+        });
+        update({
+          msg: ` - Executed ${
             runStats.counters.passedTests + runStats.counters.failedTests
           } tests in ${(performance.now() - runStats.timers.startTime).toFixed(
             0
-          )} ms this run. Stopped for reason: ${this._results.stopReason}.`
-        );
-        console.log(
-          ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`
-        );
-        console.log(
-          ` - Total tests with exceptions: ${
+          )} ms this run. Stopped for reason: ${this._results.stopReason}.`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests with exceptions: ${
             this._results.results.filter((e) => e.exception).length
-          }, timeouts: ${this._results.results.filter((e) => e.timeout).length}`
-        );
-        console.log(
-          ` - Total tests where human validator passed: ${
+          }, timeouts: ${this._results.results.filter((e) => e.timeout).length}`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests where human validator passed: ${
             this._results.results.filter((e) => e.passedHuman === "pass").length
           }, failed: ${
             this._results.results.filter((e) => e.passedHuman === "fail").length
-          }`
-        );
-        console.log(
-          ` - Total tests where property validator passed: ${
+          }`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests where property validator passed: ${
             this._results.results.filter((e) => e.passedValidator === "pass")
               .length
           }, failed: ${
             this._results.results.filter((e) => e.passedValidator === "fail")
               .length
-          }`
-        );
-        console.log(
-          ` - Total tests where heuristic validator passed: ${
+          }`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests where heuristic validator passed: ${
             this._results.results.filter((e) => e.passedImplicit === "pass")
               .length
           }, failed: ${
             this._results.results.filter((e) => e.passedImplicit === "fail")
               .length
-          }`
-        );
+          }`,
+          channel: "summary",
+        });
 
         // Persist to outfile, if requested
         if (this._options.outputFile) {
@@ -595,10 +593,16 @@ export class Tester {
             JSONN.stringify(this._results)
           );
           update({
-            msg: `Wrote results to: ${this._options.outputFile}`,
-            milestone: true,
+            msg: ` - Test results: ${this._options.outputFile}`,
+            channel: "summary",
           });
         }
+
+        update({
+          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
+          channel: "milestone",
+        });
+
         this._state = "paused";
         return this._results;
       }
@@ -732,6 +736,7 @@ export class Tester {
           .join(",")})\r\n  Passed: ${
           runStats.counters.passedTests
         }\r\n  Failed: ${runStats.counters.failedTests}`,
+        channel: "update",
         pct: typeof stopCondition === "number" ? stopCondition : 100,
       });
 
@@ -1113,6 +1118,7 @@ export type FuzzEnv = {
  * Fuzzer Test Result
  */
 export type FuzzTestResults = {
+  toolVersion: string; // NaNofuzz name and version that generated the results
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped
   stats: FuzzTestStats; // fuzzer statistics

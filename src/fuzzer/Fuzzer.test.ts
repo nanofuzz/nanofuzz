@@ -1,16 +1,21 @@
 import { ArgDef, Tester } from "./Fuzzer";
-import { TypescriptCompiler } from "./compilers/TypescriptCompiler";
 import { FuzzOptions } from "./Types";
+import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as ValueMapper from "./mappers/ValueMapper";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
 import * as Parser from "./adapters/ParserAdapter";
+import { getToolVersion } from "../ToolVersion";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as JSONN from "../Jsonn";
 
 // Extend default test timeout to 60s
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
 
 // Clean up prior testing temporary files, like compiler output,
 // so that we actually run the compiler during testing
-new TypescriptCompiler(require.resolve("nanofuzz-study/examples/3.ts")).clean();
+CompilerFactory.clean();
 
 /**
  * Fuzzer option for enabling all Measures
@@ -77,6 +82,27 @@ const floatOptions: FuzzOptions = {
 describe("fuzzer:", () => {
   beforeAll(async () => {
     await Parser.init();
+  });
+
+  it("includes the tool version in initialized and persisted results", async () => {
+    const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-version-"));
+    const outputFile = path.join(tmpdir, "results.json5");
+
+    try {
+      const results = await new Tester(
+        "nanofuzz-study/examples/1.ts",
+        "minValue",
+        { ...intOptions, maxTests: 1, outputFile }
+      ).testSync();
+      const persisted = JSONN.parse(fs.readFileSync(outputFile, "utf8"));
+
+      expect(results.toolVersion).toBe(getToolVersion());
+      expect(persisted).toEqual(
+        jasmine.objectContaining({ toolVersion: getToolVersion() })
+      );
+    } finally {
+      fs.rmSync(tmpdir, { recursive: true });
+    }
   });
 
   it("Fuzz example 01 - minValue", async () => {

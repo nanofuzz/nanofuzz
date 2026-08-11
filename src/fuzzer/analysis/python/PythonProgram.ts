@@ -16,12 +16,13 @@ import {
 import { getErrorMessageOrJson } from "../../Util";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as ProgramFactory from "../ProgramFactory";
-import * as JSON5 from "json5";
+import * as JSONN from "../../../Jsonn";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PythonRunner } from "../../runners/python/PythonRunner";
 import { ArgDef } from "../ArgDef";
+import { isArgType } from "../Util";
 
 export class PythonProgram extends AbstractProgram {
   public static readonly lang = "python";
@@ -528,7 +529,7 @@ export class PythonProgram extends AbstractProgram {
    *
    * @param node The AST type node
    * @param options ArgOptions
-   * @returns [type tag, dimensions, type reference name, literal value]
+   * @returns [type tag, dimensions, type reference name, literal value, overrides]
    */
   protected _getTypeFromAstNode(
     node: Parser.SyntaxNode,
@@ -622,7 +623,7 @@ export class PythonProgram extends AbstractProgram {
         return [ArgTag.UNRESOLVED, 0, node.text];
       default:
         throw new Error(
-          "Unsupported type annotation: " + JSON5.stringify(node.toString())
+          "Unsupported type annotation: " + JSONN.stringify(node.toString())
         );
     }
   } // fn: _getTypeFromAstNode()
@@ -732,7 +733,7 @@ export class PythonProgram extends AbstractProgram {
 
       default:
         throw new Error(
-          "Unsupported type annotation: " + JSON5.stringify(node.toString())
+          "Unsupported type annotation: " + JSONN.stringify(node.toString())
         );
     }
   } // fn: _getChildrenFromNode()
@@ -881,6 +882,82 @@ export class PythonProgram extends AbstractProgram {
     if (!nameNode || !defNode) {
       return undefined;
     }
+
+    // Extract for Hypothesis @given(...) first
+    const hypothesisArgMap: Record<string, TypeRef> = {};
+    const currentNode: Parser.Node | null = defNode.node.parent;
+    if (currentNode?.type === "decorated_definition") {
+      for (const child of currentNode.namedChildren) {
+        if (child.type === "decorator") {
+          // Check if decorator calls 'given'
+          const callNode = child.namedChildren.find((n) => n.type === "call");
+          const funcNode = callNode?.childForFieldName("function");
+          const decoName = funcNode?.text.split(".").pop();
+          if (decoName === "given") {
+            const argsNode = callNode?.childForFieldName("arguments");
+            if (argsNode) {
+              for (const argChild of argsNode.namedChildren) {
+                if (argChild.type === "keyword_argument") {
+                  const paramName = argChild.childForFieldName("name")?.text;
+                  const strategyValue = argChild.childForFieldName("value");
+                  if (
+                    paramName &&
+                    strategyValue &&
+                    strategyValue.type === "call"
+                  ) {
+                    const hypothesisTypeRef =
+                      this._getTypeRefFromStrategy(strategyValue);
+                    if (hypothesisTypeRef !== undefined) {
+                      hypothesisArgMap[paramName] = hypothesisTypeRef;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } // if: has hypothesis @givens
+
+    // Extract native argument type refs
+    const parameterNodes =
+      argsNode?.node.namedChildren.filter(
+        (arg) =>
+          arg.type === "identifier" ||
+          arg.type === "typed_parameter" ||
+          arg.type === "typed_default_parameter"
+      ) ?? [];
+
+    // Hypothesis strategies have precedence over native type annotations
+    const finalArgs: TypeRef[] = [];
+    for (const paramNode of parameterNodes) {
+      // Get parameter name
+      let paramName: string | undefined;
+      if (paramNode.type === "identifier") {
+        paramName = paramNode.text;
+      } else {
+        const pattern = paramNode.namedChildren.find(
+          (c) =>
+            c.type === "list_splat_pattern" ||
+            c.type === "dictionary_splat_pattern"
+        );
+        paramName =
+          paramNode.namedChildren.find((c) => c.type === "identifier")?.text ??
+          pattern?.firstNamedChild?.text;
+      }
+
+      // If a hypothesis strategy exists for this parameter, use it.
+      // Otherwise, parse the native type annotation
+      if (paramName && paramName in hypothesisArgMap) {
+        const hypType = hypothesisArgMap[paramName];
+        hypType.name = paramName;
+        finalArgs.push(hypType);
+      } else {
+        finalArgs.push(this._getTypeRefFromAstNode(paramNode));
+      }
+    } // for: parameter AST node
+
+    // Docstring extraction logic...
     const docstringNode = defNode.node
       .childForFieldName("body")
       ?.namedChild(0)
@@ -920,18 +997,459 @@ export class PythonProgram extends AbstractProgram {
       endOffset: defNode.node.endIndex,
       isExported: true,
       isVoid,
-      args: argsNode?.node.namedChildren
-        .filter(
-          (arg) =>
-            arg.type === "identifier" ||
-            arg.type === "typed_parameter" ||
-            arg.type === "typed_default_parameter"
-        )
-        .map((arg) => this._getTypeRefFromAstNode(arg)),
+      args: finalArgs,
       returnType,
       cmt,
     };
-  }
+  } // fn: getFunctionFromNode
+
+  /**
+   * Parses a Hypothesis strategy (e.g., st.text(...), st.integer(...)) info a
+   * NaNofuzz TypeRef while also handling constraints and unsupported features
+   *
+   * Hypothesis strategy reference:
+   * https://hypothesis.readthedocs.io/en/latest/reference/strategies.html
+   *
+   * We don't support all strategies. Just the ones that we can map to a
+   * NaNofuzz ArgDef. For example, we don't support `builds` or `composite`.
+   *
+   * @param `node` AST Node
+   * @returns TypeRef of AST node
+   */
+  protected _getTypeRefFromStrategy(node: Parser.Node): TypeRef | undefined {
+    const thisType: TypeRef = {
+      module: this._filename,
+      dims: 0,
+      optional: false,
+      isExported: false,
+    };
+
+    // Helper to extract keyword argument values from a call expression
+    const getKwdArg = (
+      callNode: Parser.Node,
+      name: string,
+      pos: number
+    ): Parser.Node | undefined => {
+      const argsNode = callNode.childForFieldName("arguments");
+      if (!argsNode) return undefined;
+      let currentPos = 0;
+      for (const child of argsNode.namedChildren) {
+        if (child.type === "keyword_argument") {
+          // Find by name
+          const kwdName = child.childForFieldName("name")?.text;
+          if (kwdName === name) {
+            return child.childForFieldName("value") ?? undefined;
+          }
+        } else {
+          // Find by position
+          if (currentPos === pos) {
+            return child;
+          }
+          currentPos++;
+        }
+      }
+      return undefined;
+    };
+
+    // Helper to parse primitive values (int, float, bool, string) from AST nodes
+    const parseLiteral = (valNode: Parser.Node | undefined): unknown => {
+      if (!valNode) return undefined;
+      if (valNode.type === "integer" || valNode.type === "float") {
+        return Number(valNode.text.replace(/_/g, ""));
+      }
+      if (valNode.type === "true") return true;
+      if (valNode.type === "false") return false;
+      if (valNode.type === "string") {
+        const content = valNode.namedChildren.find(
+          (c) => c.type === "string_content"
+        );
+        return content?.text ?? valNode.text.replace(/^['"]|['"]$/g, "");
+      }
+      return undefined;
+    };
+
+    // Determine strategy function name (e.g., text, integers, lists, sampled_from)
+    const functionNode = node.childForFieldName("function");
+    const funcName = functionNode?.text.split(".").pop() ?? "";
+
+    switch (funcName) {
+      case "text": {
+        const alphabet = parseLiteral(getKwdArg(node, "alphabet", 0));
+        const minSize = parseLiteral(getKwdArg(node, "min_size", 1));
+        const maxSize = parseLiteral(getKwdArg(node, "max_size", 2));
+
+        const options: ArgOptionOverride = {};
+        if (minSize !== undefined || maxSize !== undefined) {
+          const dftInterval = ArgDef.getDefaultIntervals(
+            ArgTag.STRING,
+            this._options
+          );
+          options.strLength = {
+            min: Number(minSize ?? dftInterval[0].min),
+            max: Number(maxSize ?? dftInterval[0].max),
+          };
+        }
+        if (alphabet !== undefined) options.strCharset = String(alphabet);
+
+        thisType.type = {
+          type: ArgTag.STRING,
+          dims: 0,
+          children: [],
+          options,
+          resolved: true,
+        };
+        break;
+      }
+
+      case "integers": {
+        const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
+        const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));
+
+        const options: ArgOptionOverride = { numInteger: true };
+        if (minVal !== undefined || maxVal !== undefined) {
+          const dftInterval = ArgDef.getDefaultIntervals(
+            ArgTag.NUMBER,
+            this._options
+          );
+          options.numIntervals = [
+            {
+              min: Number(minVal ?? dftInterval[0].min),
+              max: Number(maxVal ?? dftInterval[0].max),
+            },
+          ];
+        }
+
+        thisType.type = {
+          type: ArgTag.NUMBER,
+          dims: 0,
+          children: [],
+          options,
+          resolved: true,
+        };
+        break;
+      }
+
+      case "floats": {
+        [
+          "allow_nan",
+          "allow_infinity",
+          "allow_subnormal",
+          "width",
+          "exclude_min",
+          "exclude_max",
+        ].forEach((kwd) => {
+          if (getKwdArg(node, kwd, -1)) {
+            console.warn(`The '${kwd}' property is not yet supported.`);
+          }
+        });
+
+        const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
+        const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));
+
+        const options: ArgOptionOverride = { numInteger: false };
+        if (minVal !== undefined || maxVal !== undefined) {
+          const dftInterval = ArgDef.getDefaultIntervals(
+            ArgTag.NUMBER,
+            this._options
+          );
+          options.numIntervals = [
+            {
+              min: Number(minVal ?? dftInterval[0].min),
+              max: Number(maxVal ?? dftInterval[0].max),
+            },
+          ];
+        }
+
+        thisType.type = {
+          type: ArgTag.NUMBER,
+          dims: 0,
+          children: [],
+          options,
+          resolved: true,
+        };
+        break;
+      }
+
+      case "booleans": {
+        thisType.type = {
+          type: ArgTag.BOOLEAN,
+          dims: 0,
+          children: [],
+          resolved: true,
+        };
+        break;
+      }
+
+      case "none": {
+        thisType.type = {
+          type: ArgTag.LITERAL,
+          dims: 0,
+          children: [],
+          resolved: true,
+          value: undefined,
+        };
+        break;
+      }
+
+      case "just": {
+        const argsNode = node.childForFieldName("arguments");
+        const lit = parseLiteral(argsNode?.namedChildren[0]);
+        if (isArgType(lit)) {
+          thisType.type = {
+            type: ArgTag.LITERAL,
+            dims: 0,
+            children: [],
+            resolved: true,
+            value: lit,
+          };
+        } else {
+          console.warn(
+            `Unsupported literal in 'sampled_from': ${JSONN.stringify(lit)}.`
+          );
+        }
+        break;
+      }
+
+      case "sets":
+      case "lists": {
+        ["unique", "unique_by"].forEach((kwd) => {
+          if (getKwdArg(node, kwd, -1)) {
+            console.warn(`The '${kwd}' property is not yet supported.`);
+          }
+        });
+
+        const elementsArg = getKwdArg(node, "elements", 0);
+        let innerTypeRef: TypeRef | undefined;
+        if (elementsArg && elementsArg.type === "call") {
+          innerTypeRef = this._getTypeRefFromStrategy(elementsArg);
+          if (innerTypeRef === undefined) {
+            return undefined;
+          }
+        } else {
+          // Fallback if elements is a type class like int, str, etc.
+          innerTypeRef = {
+            module: this._filename,
+            dims: 0,
+            optional: false,
+            isExported: false,
+            type: {
+              type: ArgTag.UNRESOLVED,
+              dims: 0,
+              children: [],
+              resolved: false,
+            },
+            typeRefName: elementsArg?.text ?? "Any",
+          };
+        }
+
+        const minSize = parseLiteral(getKwdArg(node, "min_size", 1));
+        const maxSize = parseLiteral(getKwdArg(node, "max_size", 2));
+        const dftInterval = ArgDef.getDefaultOptions().dftDimLength;
+
+        // Nested array types increase dims of child spec
+        const innerResolvedType = innerTypeRef.type ?? {
+          type: ArgTag.UNRESOLVED,
+          dims: 0,
+          children: [],
+          resolved: false,
+          options: {},
+        };
+        if (innerResolvedType.options === undefined) {
+          innerResolvedType.options = {};
+        }
+        if (innerResolvedType.options.dimLength === undefined) {
+          innerResolvedType.options.dimLength = [];
+        }
+        innerResolvedType.options.dimLength.push({
+          min: Number(minSize ?? dftInterval.min),
+          max: Number(maxSize ?? dftInterval.max),
+        });
+
+        thisType.type = {
+          type: innerResolvedType.type,
+          dims: innerResolvedType.dims + 1,
+          children: innerResolvedType.children,
+          options: innerResolvedType.options,
+          resolved: true,
+        };
+        break;
+      }
+
+      case "tuples": {
+        const argsNode = node.childForFieldName("arguments");
+        const children: TypeRef[] = [];
+
+        if (argsNode) {
+          for (const argNode of argsNode.namedChildren) {
+            // Check if the argument is another hypothesis strategy call
+            const childTypeRef = this._getTypeRefFromStrategy(argNode);
+            if (childTypeRef && argNode.type === "call") {
+              children.push(childTypeRef);
+            } else {
+              return undefined;
+            }
+          }
+        }
+
+        thisType.type = {
+          type: ArgTag.TUPLE,
+          dims: 0,
+          children,
+          resolved: true,
+        };
+        break;
+      }
+
+      case "sampled_from": {
+        const argsNode = node.childForFieldName("arguments");
+        const listArg = argsNode?.namedChildren[0];
+        const literalValues: ArgType[] = [];
+
+        if (listArg && (listArg.type === "list" || listArg.type === "tuple")) {
+          for (const item of listArg.namedChildren) {
+            const lit = parseLiteral(item);
+            if (isArgType(lit)) {
+              literalValues.push(lit);
+            } else {
+              console.warn(
+                `Unsupported literal in 'sampled_from': ${JSONN.stringify(lit)}.`
+              );
+            }
+          }
+        }
+
+        // Represent sampled_from as a UNION of LITERALs
+        thisType.type = {
+          type: ArgTag.UNION,
+          dims: 0,
+          children: literalValues.map((val) => ({
+            module: this._filename,
+            dims: 0,
+            optional: false,
+            isExported: false,
+            type: {
+              type: ArgTag.LITERAL,
+              dims: 0,
+              children: [],
+              value: val,
+              resolved: true,
+            },
+          })),
+          resolved: true,
+        };
+        break;
+      }
+
+      case "fixed_dictionaries": {
+        const argsNode = node.childForFieldName("arguments");
+        if (!argsNode) break;
+
+        const children: TypeRef[] = [];
+
+        // Helper to parse a dictionary AST node into TypeRef children
+        const parseDictArg = (dictArg: Parser.Node, isOptional: boolean) => {
+          for (const pair of dictArg.namedChildren.filter(
+            (n) => n.type === "pair"
+          )) {
+            const keyNode = pair.childForFieldName("key");
+            const valueNode = pair.childForFieldName("value");
+            if (!keyNode || !valueNode) continue;
+
+            // Extract field name (handles quoted strings or identifiers as keys)
+            let fieldName = keyNode.text;
+            if (keyNode.type === "string") {
+              const content = keyNode.namedChildren.find(
+                (c) => c.type === "string_content"
+              );
+              fieldName =
+                content?.text ?? fieldName.replace(/^['"]|['"]$/g, "");
+            }
+
+            let fieldTypeRef: TypeRef | undefined =
+              this._getTypeRefFromStrategy(valueNode);
+            if (!(fieldTypeRef && valueNode.type === "call")) {
+              fieldTypeRef = {
+                module: this._filename,
+                dims: 0,
+                optional: false,
+                isExported: false,
+                type: {
+                  type: ArgTag.UNRESOLVED,
+                  dims: 0,
+                  children: [],
+                  resolved: false,
+                },
+                typeRefName: valueNode.text,
+              };
+            }
+
+            fieldTypeRef.name = fieldName;
+            fieldTypeRef.optional = isOptional;
+            children.push(fieldTypeRef);
+          }
+        }; // fn: parseDictArg
+
+        // Required mappings
+        const positionalDict = argsNode.namedChildren.find(
+          (n) => n.type === "dictionary"
+        );
+        const keywordMapping = getKwdArg(node, "mapping", 0);
+        const mainDict =
+          keywordMapping && keywordMapping.type === "dictionary"
+            ? keywordMapping
+            : positionalDict;
+        if (mainDict) {
+          parseDictArg(mainDict, false);
+        }
+
+        // Optional mappings
+        const optionalDict = getKwdArg(node, "optional", -1);
+        if (optionalDict && optionalDict.type === "dictionary") {
+          parseDictArg(optionalDict, true);
+        }
+
+        thisType.type = {
+          type: ArgTag.OBJECT,
+          dims: 0,
+          children,
+          resolved: true,
+        };
+        break;
+      }
+
+      case "one_of": {
+        const argsNode = node.childForFieldName("arguments");
+        const children: TypeRef[] = [];
+
+        if (argsNode) {
+          for (const argNode of argsNode.namedChildren) {
+            const child = this._getTypeRefFromStrategy(argNode);
+            if (child && argNode.type === "call") {
+              children.push(child);
+            } else {
+              return undefined;
+            }
+          }
+        }
+
+        thisType.type = {
+          type: ArgTag.UNION,
+          dims: 0,
+          children,
+          resolved: true,
+        };
+        break;
+      }
+
+      default:
+        console.warn(
+          `Unsupported or unrecognized Hypothesis strategy: '${funcName}'.`
+        );
+        return undefined;
+    }
+
+    return thisType;
+  } // fn: getTpeRefFromHypothesisStrategy
 
   protected _findFunctions(): typeof this._functions {
     if (this._ast === undefined) {
@@ -973,7 +1491,7 @@ export class PythonProgram extends AbstractProgram {
 
         unsupported[name] = {
           reason: msg,
-          node: JSON5.stringify(defNode?.node.toString()),
+          node: JSONN.stringify(defNode?.node.toString()),
         };
       }
     }
@@ -1008,7 +1526,7 @@ export class PythonProgram extends AbstractProgram {
 
         unsupported[name] = {
           reason: msg,
-          node: JSON5.stringify(defNode?.node.toString()),
+          node: JSONN.stringify(defNode?.node.toString()),
         };
       }
     }
@@ -1041,7 +1559,7 @@ export class PythonProgram extends AbstractProgram {
 
     if (!typeRef.typeRefName) {
       throw new Error(
-        `Internal error: typeRef is undefined in Typeref (${JSON5.stringify(
+        `Internal error: typeRef is undefined in Typeref (${JSONN.stringify(
           typeRef
         )})`
       );

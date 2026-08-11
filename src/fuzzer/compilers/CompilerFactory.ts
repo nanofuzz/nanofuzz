@@ -13,3 +13,10 @@ export function fromSourcefile(
 export function needsCompilation(fqSrcFile: string): boolean {
   return TypescriptProgram.understands({ filename: fqSrcFile });
 }
+
+/**
+ * Cleans up compiler outputs, cached file, and temp files
+ */
+export function clean(): void {
+  TypescriptCompiler.clean();
+}

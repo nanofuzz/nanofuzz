@@ -387,8 +387,12 @@ export class TypescriptCompiler {
     // Provide feedback that we are compiling
     updateFn({
       msg: `Compiling: ${module.filename}`,
-      milestone: true,
-      pct: 0.01,
+      channel: "milestone",
+    });
+    updateFn({
+      msg: `Compiling: ${module.filename}`,
+      channel: "update",
+      pct: 0.1,
     });
 
     // Construct tsc args
@@ -808,9 +812,16 @@ export class TypescriptCompiler {
    * Clears compilation temp files
    */
   public clean(): void {
-    if (fs.existsSync(this.options.tmpDir)) {
-      console.info(`Removing temp files: ${this.options.tmpDir}`);
-      fs.rmSync(this.options.tmpDir, { recursive: true });
+    TypescriptCompiler.clean(this.options.tmpDir);
+  } // fn: clean
+
+  /**
+   * Clears compilation temp files
+   */
+  public static clean(tmpDir: string = defaultOptions.tmpDir): void {
+    if (fs.existsSync(tmpDir)) {
+      console.info(`Removing compiler temp files: ${tmpDir}`);
+      fs.rmSync(tmpDir, { recursive: true });
     }
   } // fn: clean
 } // class: TypeScriptCompiler

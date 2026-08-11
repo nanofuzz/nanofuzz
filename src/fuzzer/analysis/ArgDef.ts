@@ -1,4 +1,4 @@
-import vscode from "vscode";
+import * as Config from "../../Config";
 import {
   ArgOptionOverride,
   ArgOptions,
@@ -111,7 +111,9 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       intervals === undefined ||
       intervals.length === 0 ||
       type === ArgTag.OBJECT
-        ? (ArgDef.getDefaultIntervals(this.type, this.options) as Interval<TagToType[Tag]>[])
+        ? (ArgDef.getDefaultIntervals(this.type, this.options) as Interval<
+            TagToType[Tag]
+          >[])
         : intervals;
 
     // Ensure each non-array dimension is valid
@@ -137,7 +139,6 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     offset?: number
   ): ArgDef {
     offset = offset ?? 0;
-    let i = 0; // Child counter
 
     // Ensure we have a resolved type
     if (!ref.type)
@@ -147,11 +148,16 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         )}`
       );
 
+    let intervals: Interval<ArgType>[] | undefined = undefined;
     // An interval is mandatory for the Literal type
-    const intervals: Interval<ArgType>[] | undefined =
-      ref.type.type === ArgTag.LITERAL && ref.type.value !== undefined
-        ? [{ min: ref.type.value, max: ref.type.value }]
-        : undefined;
+    if (ref.type.type === ArgTag.LITERAL) {
+      intervals =
+        ref.type.value !== undefined
+          ? [{ min: ref.type.value, max: ref.type.value }]
+          : undefined;
+    } else if (ref.type.options?.numIntervals) {
+      intervals = ref.type.options?.numIntervals;
+    }
 
     // A source language may provide additional constraints for an otherwise
     // shared ArgTag. For example, Python `int` and `float` are both NUMBERs,
@@ -167,7 +173,9 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       ref.dims + ref.type.dims, // type reference dims + concrete type dims
       ref.optional, // optional
       intervals, // intervals
-      ref.type.children.map((child) => ArgDef.fromTypeRef(child, options, i++)), // children
+      ref.type.children.map((child, i) =>
+        ArgDef.fromTypeRef(child, options, i)
+      ), // children
       ref.typeRefName // type reference
     );
   } // fn: fromTypeRef()
@@ -179,7 +187,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    * @param options Default argument options
    * @returns Default input intervals based on the type and options
    */
-  private static getDefaultIntervals(
+  public static getDefaultIntervals(
     type: ArgTag,
     options: ArgOptions
   ): Interval<ArgType>[] {
@@ -483,39 +491,29 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
   public static getDefaultOptions(): ArgOptions {
     return {
       // String defaults
-      strCharset: vscode.workspace
-        .getConfiguration("nanofuzz.argdef")
-        .get("strCharset", DFT_STR_CHARSET),
+      strCharset: Config.get("nanofuzz.argdef.strCharset", DFT_STR_CHARSET),
       strLength: {
-        min: vscode.workspace
-          .getConfiguration("nanofuzz.argdef.strLength")
-          .get("min", DFT_STR_LENGTH.min),
-        max: vscode.workspace
-          .getConfiguration("nanofuzz.argdef.strLength")
-          .get("max", DFT_STR_LENGTH.max),
+        min: Config.get("nanofuzz.argdef.strLength.min", DFT_STR_LENGTH.min),
+        max: Config.get("nanofuzz.argdef.strLength.max", DFT_STR_LENGTH.max),
       },
 
       // Numeric defaults
-      numInteger: vscode.workspace
-        .getConfiguration("nanofuzz.argdef")
-        .get("numInteger", true),
+      numInteger: Config.get<boolean>("nanofuzz.argdef.numInteger", true),
 
       // `Any` defaults
-      anyType: vscode.workspace
-        .getConfiguration("nanofuzz.argdef")
-        .get("anyType", ArgTag.NUMBER),
-      anyDims: vscode.workspace
-        .getConfiguration("nanofuzz.argdef")
-        .get("anyDims", 0),
+      anyType: Config.get("nanofuzz.argdef.anyType", ArgTag.NUMBER),
+      anyDims: Config.get("nanofuzz.argdef.anyDims", 0),
 
       // Dimensions
       dftDimLength: {
-        min: vscode.workspace
-          .getConfiguration("nanofuzz.argdef.dftDimLength")
-          .get("min", DFT_DIMENSION_LENGTH.min),
-        max: vscode.workspace
-          .getConfiguration("nanofuzz.argdef.dftDimLength")
-          .get("max", DFT_DIMENSION_LENGTH.max),
+        min: Config.get(
+          "nanofuzz.argdef.dftDimLength.min",
+          DFT_DIMENSION_LENGTH.min
+        ),
+        max: Config.get(
+          "nanofuzz.argdef.dftDimLength.max",
+          DFT_DIMENSION_LENGTH.max
+        ),
       },
       dimLength: [],
     };
