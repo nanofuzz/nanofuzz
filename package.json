@@ -257,6 +257,47 @@
             "default": "",
             "description": "Regex of files for NaNofuzz to ignore"
           },
+          "nanofuzz.generators.compositeLookbackWindow": {
+            "title": "Composite generator lookback window size for history",
+            "type": "integer",
+            "default": 500,
+            "minimum": 1,
+            "description": "Composite generator lookback window size for history"
+          },
+          "nanofuzz.generators.compositeChunkSize": {
+            "title": "Re-evaluate the composite generator's subgens after _chunkSize inputs generated",
+            "type": "integer",
+            "default": 20,
+            "minimum": 1,
+            "description": "Re-evaluate the composite generator's subgens after _chunkSize inputs generated"
+          },
+          "nanofuzz.generators.compositeExplorationChance": {
+            "title": "Composite generator additional chance of subgen exploration",
+            "type": "number",
+            "default": 0.1,
+            "minimum": 0,
+            "description": "Composite generator additional chance of subgen exploration"
+          },
+          "nanofuzz.generators.leaderboardMinScore": {
+            "title": "Leaderboard initial minimum score",
+            "type": "number",
+            "default": 0.9999,
+            "description": "Leaderboard initial minimum score"
+          },
+          "nanofuzz.generators.leaderboardInitialFocus": {
+            "title": "Leaderboard initial focus",
+            "type": "integer",
+            "default": 200,
+            "minimum": 1,
+            "description": "Amount of focus for new leaders"
+          },
+          "nanofuzz.generators.leaderboardFocusDecay": {
+            "title": "Leaderboard focus decay",
+            "type": "integer",
+            "default": 1,
+            "minimum": 0,
+            "description": "Amount of focus to decrement on each random leader selection"
+          },
           "telemetry.active": {
             "title": "Activate telemetry? (requires restart)",
             "type": "boolean",
