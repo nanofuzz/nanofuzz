@@ -1,5 +1,6 @@
 import { ArgDef } from "./ArgDef";
 import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
+import * as JSONN from "../../Jsonn";
 
 /**
  * Valides values against their corresponding ArgDef specs
@@ -56,6 +57,24 @@ export class ArgDefValidator {
       }
     } else {
       switch (spec.getType()) {
+        case ArgTag.BIGINT: {
+          const interval = spec.getIntervals()[0];
+          if (
+            typeof interval.min !== "bigint" ||
+            typeof interval.max !== "bigint"
+          ) {
+            throw new Error(
+              `Invalid interval bounds for bigint type: ${JSONN.stringify(
+                interval
+              )}`
+            );
+          }
+          return (
+            typeof value === "bigint" &&
+            value <= interval.max &&
+            value >= interval.min
+          );
+        }
         case ArgTag.NUMBER: {
           return (
             typeof value === "number" &&

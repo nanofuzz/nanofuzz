@@ -73,6 +73,7 @@ export type TypeRef = {
  * Indicates the primitive type of an argument
  */
 export enum ArgTag {
+  BIGINT = "bigint",
   NUMBER = "number",
   STRING = "string",
   BOOLEAN = "boolean",
@@ -83,6 +84,7 @@ export enum ArgTag {
   UNRESOLVED = "unresolved", // unresolved type reference
 }
 export type ArgType =
+  | bigint
   | number
   | string
   | boolean
@@ -96,6 +98,7 @@ export type ArgType =
  * alongside an `ArgTag` — derive `T` from the tag instead.
  */
 export type TagToType = {
+  [ArgTag.BIGINT]: bigint;
   [ArgTag.NUMBER]: number;
   [ArgTag.STRING]: string;
   [ArgTag.BOOLEAN]: boolean;
@@ -106,6 +109,7 @@ export type TagToType = {
   [ArgTag.UNRESOLVED]: ArgType;
 };
 export type ArgValueType =
+  | bigint
   | number
   | string
   | boolean
@@ -157,6 +161,7 @@ export type ArgOptionOverrides = {
  * Argument option overrides
  */
 export type ArgOptionOverride = {
+  bigintIntervals?: Interval<bigint>[];
   numInteger?: boolean;
   numIntervals?: Interval<number>[];
   dimLength?: Interval<number>[];

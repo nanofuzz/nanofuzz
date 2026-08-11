@@ -192,6 +192,13 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     options: ArgOptions
   ): Interval<ArgType>[] {
     switch (type) {
+      case ArgTag.BIGINT:
+        return [
+          {
+            min: BigInt(0),
+            max: BigInt(100),
+          },
+        ];
       case ArgTag.NUMBER:
         return [
           {
@@ -415,6 +422,13 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         }
       }
       delete options.children;
+    }
+
+    if (this.type === ArgTag.BIGINT) {
+      if ("bigIntIntervals" in options && options.bigIntIntervals !== undefined)
+        this.setIntervals(
+          options.bigIntIntervals as Interval<TagToType[Tag]>[]
+        );
     }
 
     // Handle numMin and numMax overrides
