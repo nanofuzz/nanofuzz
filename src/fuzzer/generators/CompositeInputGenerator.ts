@@ -1,3 +1,4 @@
+import * as Config from "../../Config";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
@@ -36,15 +37,15 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     progress: (number | undefined)[][]; // progress by measure and input tick (of L)
     cost: (number | undefined)[]; // cost by input tick (of L)
     currentIndex: number; // current index (of L) into last dimension of progress and cost
-  }[]; // history for each input generator
+  }[] = []; // history for each input generator
   private _scoredInputs: ScoredInput[] = []; // List of scored inputs
   private _injectedInputs: Omit<InputAndSource, "tick">[] = []; // Inputs to force generate first
   private _selectedSubgenIndex = -1; // Selected subordinate input generator (e.g., by efficiency)
   private _leaderboard; // Interesting inputs
   private _lastInput?: InputAndSource; // Last input generated
-  private readonly _L = 500; // Lookback window size for history !!!!!!! externalize
-  private readonly _chunkSize = 20; // Re-evaluate subgen after _chunkSize inputs generated !!!!!!! externalize
-  private readonly _P = 0.1; // Additional chance of subgen exploration !!!!!!! externalize
+  private _L = 500; // Lookback window size for history
+  private _chunkSize = 20; // Re-evaluate subgen after _chunkSize inputs generated
+  private _P = 0.1; // Additional chance of subgen exploration
   private _permitSubgens = true; // Allow generators to produce inputs
   private _genStats: FuzzTestStats["generators"]; // Generator statistics
   public static readonly INJECTED = "injected";
@@ -82,15 +83,40 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._leaderboard = leaderboard;
     this._genStats = genStats;
 
-    // Initialize measure history
-    this._history = this._subgens.map(() => ({
-      progress: measures.map(() => Array(this._L).fill(undefined)),
-      cost: Array(this._L).fill(undefined),
-      currentIndex: 0,
-    }));
+    this._loadConfig();
 
     this.options = options;
   } // fn: constructor
+
+  /**
+   * Loads any configurable parameters using `Config`.
+   *
+   * If the lookback window size changes, the measure history is reset with
+   * the new window size.
+   */
+  private _loadConfig(): void {
+    const L = Config.get<number>(
+      "nanofuzz.generators.compositeLookbackWindow",
+      500
+    );
+    this._chunkSize = Config.get<number>(
+      "nanofuzz.generators.compositeChunkSize",
+      20
+    );
+    this._P = Config.get<number>(
+      "nanofuzz.generators.compositeExplorationChance",
+      0.1
+    );
+
+    if (L !== this._L || !this._history.length) {
+      this._L = L;
+      this._history = this._subgens.map(() => ({
+        progress: this._measures.map(() => Array(this._L).fill(undefined)),
+        cost: Array(this._L).fill(undefined),
+        currentIndex: 0,
+      }));
+    }
+  } // fn: _loadConfig
 
   /**
    * Returns true if further inputs may be produced, false otherwise.
@@ -368,6 +394,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * Startup when the test run begins
    */
   public onRunStart(gen: boolean): void {
+    this._loadConfig();
+    this._leaderboard.loadConfig();
     for (const subgen in this._subgens) {
       this._subgens[subgen].onRunStart(gen && this._activeSubgens[subgen]);
     }
