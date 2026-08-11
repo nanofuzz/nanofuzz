@@ -816,14 +816,8 @@ def func(tdclass: TypedDictClass, tdFunc: TypedDictFunc):
       program.types["TypedDictClass"]
     );
   });
-});
 
-describe("hypothesis @given: ", () => {
-  beforeAll(async () => {
-    await Parser.init();
-  });
-
-  it("primitives and strings with options", () => {
+  it("hypothesis @given primitives with options", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -856,7 +850,7 @@ def test_example(trigger, dep, trigger_val):
     expect(args[2].getIntervals()).toEqual([{ min: 0, max: 100 }]);
   });
 
-  it("positional arguments", () => {
+  it("hypothesis @given positional arguments", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -874,7 +868,7 @@ def test_dates(year, month):
     expect(args[1].getIntervals()).toEqual([{ min: 1, max: 12 }]);
   });
 
-  it("nested lists and fixed_dictionaries", () => {
+  it("hypothesis @given nested lists and fixed_dictionaries", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -911,7 +905,7 @@ def test_nested(complex_data):
     expect(tagsField?.getDim()).toEqual(1); // st.lists(st.text()) nested inside dict
   });
 
-  it("sampled_from", () => {
+  it("hypothesis @given sampled_from", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -935,7 +929,7 @@ def test_sampled(status):
     ).toBeTrue();
   });
 
-  it("fixed_dictionaries with optional keys", () => {
+  it("hypothesis @given fixed_dictionaries with optional keys", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -961,7 +955,7 @@ def test_optional_dict(payload):
     expect(optField?.isOptional()).toBeTrue();
   });
 
-  it("@givens take precedence over native type annotations", () => {
+  it("hypothesis @given takes precedence over native type annotations", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -977,5 +971,82 @@ def test_precedence(val: float):
     expect(arg.getType()).toEqual(ArgTag.NUMBER);
     expect(arg.getOptions().numInteger).toBeTrue();
     expect(arg.getIntervals()).toEqual([{ min: 50, max: 60 }]);
+  });
+
+  it("isVoid===true for functions lacking return statements", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+def no_return():
+    x = 1
+    y = 2
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["no_return"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===true for functions with empty return statements", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+def bare_return():
+    return
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["bare_return"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===true for functions with only `return None`", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+def return_none():
+    return None
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["return_none"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===true for functions where all branches return no value", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+def multi_none_returns(cond: bool):
+    if cond:
+        return None
+    else:
+        return
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["multi_none_returns"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===false for functions with return <value>", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+def returns_value():
+    return 42
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["returns_value"].isVoid()).toBeFalse();
+  });
+
+  it("isVoid===true for lambdas returning None", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `x=5
+lam_none = lambda: None
+lam_val = lambda: x+1
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["lam_none"].isVoid()).toBeTrue();
+    expect(fns["lam_val"].isVoid()).toBeFalse();
   });
 });

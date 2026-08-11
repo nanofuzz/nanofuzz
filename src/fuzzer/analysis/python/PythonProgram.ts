@@ -841,12 +841,21 @@ export class PythonProgram extends AbstractProgram {
     captures: Parser.QueryCapture[]
   ): FunctionRef | undefined {
     const nameNode = captures.find((c) => c.name === "function.name");
-    const bodyNode = captures.find((c) => c.name === "function.body");
     const defNode = captures.find((c) => c.name === "function.def");
-    const argsNode = captures.find((c) => c.name === "function.params");
-    if (!nameNode || !bodyNode || !defNode) {
+    if (!nameNode || !defNode) {
       return undefined;
     }
+    const argsNode = defNode.node.namedChildren.find(
+      (c) => c.type === "lambda_parameters" || c.type === "parameters"
+    );
+    const bodyNode = defNode.node.lastNamedChild;
+    if (!bodyNode) {
+      return undefined;
+    }
+
+    // A lambda is only `void` if its single expression body is 'none' (e.g. lambda: None)
+    const isVoid = bodyNode.type === "none";
+
     return {
       module: this._filename,
       name: nameNode.node.text,
@@ -855,15 +864,17 @@ export class PythonProgram extends AbstractProgram {
       startOffset: defNode.node.startIndex,
       endOffset: defNode.node.endIndex,
       isExported: true,
-      isVoid: false,
-      args: argsNode?.node.namedChildren
-        .filter(
-          (arg) =>
-            arg.type === "identifier" ||
-            arg.type === "typed_parameter" ||
-            arg.type === "typed_default_parameter"
-        )
-        .map((arg) => this._getTypeRefFromAstNode(arg)),
+      isVoid,
+      args: argsNode
+        ? argsNode.namedChildren
+            .filter(
+              (arg) =>
+                arg.type === "identifier" ||
+                arg.type === "typed_parameter" ||
+                arg.type === "typed_default_parameter"
+            )
+            .map((arg) => this._getTypeRefFromAstNode(arg))
+        : [], // e.g., `lambda: None`
       returnType: undefined,
       cmt: undefined,
     };
@@ -975,12 +986,18 @@ export class PythonProgram extends AbstractProgram {
       )
         ? docstringNode?.text
         : undefined;
+
+    // Determine if this a `void` function
+    const bodyNode = defNode.node.childForFieldName("body");
+    const bodyIsVoid = !!bodyNode && PythonProgram._isFunctionVoid(bodyNode);
     try {
       if (typeNode) {
         isVoid = typeNode.node.namedChild(0)?.type === "none";
         if (!isVoid) {
           returnType = this._getTypeRefFromAstNode(typeNode.node);
         }
+      } else {
+        isVoid = bodyIsVoid;
       }
     } catch {
       if (!isVoid) {
@@ -988,6 +1005,7 @@ export class PythonProgram extends AbstractProgram {
         // what can i say
       }
     }
+
     return {
       module: this._filename,
       name: nameNode.node.text,
@@ -1500,9 +1518,7 @@ export class PythonProgram extends AbstractProgram {
       `
 (assignment
   left: (identifier) @function.name
-  right: (lambda
-    parameters: (lambda_parameters)? @function.params
-    body: (_)) @function.def)
+  right: (lambda) @function.def)
 `
     );
     const lambdaMatches = lambdaQuery.matches(this._ast.rootNode);
@@ -1541,6 +1557,52 @@ export class PythonProgram extends AbstractProgram {
    */
   protected _findDefaultTypeExport(): TypeRef | undefined {
     return undefined;
+  }
+
+  /**
+   * Determines whether a function body lacks return statements or
+   * if all return statements return None or no data.
+   *
+   * @param `node` AST node of function
+   * @returns `true` if implicitly `void`; false, otherwise
+   */
+  protected static _isFunctionVoid(node: Parser.SyntaxNode): boolean {
+    const returnStatements: Parser.SyntaxNode[] = [];
+
+    const collectReturns = (node: Parser.SyntaxNode) => {
+      // Ignore nested functions and lambdas
+      if (node.type === "function_definition" || node.type === "lambda") {
+        return;
+      }
+      if (node.type === "return_statement") {
+        returnStatements.push(node);
+      }
+      for (const child of node.children) {
+        collectReturns(child);
+      }
+    };
+
+    collectReturns(node);
+
+    // No return statements -> void
+    if (returnStatements.length === 0) {
+      return true;
+    }
+
+    // Check if ALL return statements return nothing or `None`
+    for (const ret of returnStatements) {
+      const namedChildren = ret.namedChildren;
+      if (namedChildren.length > 0) {
+        const expr = namedChildren[0];
+        // If any return statement returns something other than 'none', it is not void
+        if (expr.type !== "none") {
+          return false;
+        }
+      }
+    }
+
+    // No return statements with a value found
+    return true;
   }
 
   public resolveTypeRef(typeRef: TypeRef): TypeRef {
