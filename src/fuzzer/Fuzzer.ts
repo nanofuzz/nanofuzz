@@ -30,6 +30,7 @@ import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
+import { getToolVersion } from "../ToolVersion";
 
 export class Tester {
   protected _module: string; // module filename
@@ -177,6 +178,7 @@ export class Tester {
    */
   protected _getInitializedResults(): FuzzTestResults {
     return {
+      toolVersion: getToolVersion(),
       env: {
         options: structuredClone(this._options),
         function: this._function,
@@ -1116,6 +1118,7 @@ export type FuzzEnv = {
  * Fuzzer Test Result
  */
 export type FuzzTestResults = {
+  toolVersion: string; // NaNofuzz name and version that generated the results
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped
   stats: FuzzTestStats; // fuzzer statistics
