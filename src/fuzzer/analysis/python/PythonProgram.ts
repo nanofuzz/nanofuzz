@@ -989,7 +989,8 @@ export class PythonProgram extends AbstractProgram {
 
     // Determine if this a `void` function
     const bodyNode = defNode.node.childForFieldName("body");
-    const bodyIsVoid = !!bodyNode && PythonProgram._isFunctionVoid(bodyNode);
+    const bodyIsVoid =
+      !!bodyNode && PythonProgram._isFunctionBodyVoid(bodyNode);
     try {
       if (typeNode) {
         isVoid = typeNode.node.namedChild(0)?.type === "none";
@@ -1566,7 +1567,7 @@ export class PythonProgram extends AbstractProgram {
    * @param `node` AST node of function
    * @returns `true` if implicitly `void`; false, otherwise
    */
-  protected static _isFunctionVoid(node: Parser.SyntaxNode): boolean {
+  protected static _isFunctionBodyVoid(node: Parser.SyntaxNode): boolean {
     const returnStatements: Parser.SyntaxNode[] = [];
 
     const collectReturns = (node: Parser.SyntaxNode) => {
