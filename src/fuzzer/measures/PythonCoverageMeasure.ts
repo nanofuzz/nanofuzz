@@ -118,7 +118,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     while (nextPred) {
       if (!nextPred.pred) {
         accumBefore = covered(nextPred.meas.coverageMeasure.accum);
-        nextPred.meas.coverageMeasure.accum.merge(currentCoverageData);
+        AbstractCoverageMeasure.better_merge(nextPred.meas.coverageMeasure.accum, currentCoverageData);
         accumAfter = covered(nextPred.meas.coverageMeasure.accum);
       }
       nextPred = nextPred.pred;
@@ -126,7 +126,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
 
     // Merge the current coverage into the global coverage map
     const globalBefore = covered(this._globalCoverageMap);
-    this._globalCoverageMap.merge(currentCoverageData);
+    AbstractCoverageMeasure.better_merge(this._globalCoverageMap, currentCoverageData);
 
     // Build the measurement object
     const meas = {
@@ -135,7 +135,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
         globalDelta: covered(this._globalCoverageMap) - globalBefore,
-        accum: createCoverageMap(currentCoverageData),
+        accum: AbstractCoverageMeasure.better_merge(createCoverageMap({}), currentCoverageData),
         accumDelta: accumAfter - accumBefore,
       },
     };
@@ -291,7 +291,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
   } // fn: delta
 
-
   public hasCoverage(tick: number): boolean {
     return !!this._history[tick];
   }
@@ -299,6 +298,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     if (this.hasCoverage(tick)) {
       return this._history[tick].meas; // rep leak !!!!!!!
     }
-    throw new Error(`No coverahe data for "${tick}"`);
+    throw new Error(`No coverage data for "${tick}"`);
   }
 }

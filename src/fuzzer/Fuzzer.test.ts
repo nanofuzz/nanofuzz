@@ -249,48 +249,120 @@ describe("fuzzer:", () => {
     expect(fuzzResult.results.some((e) => e.timeout)).toBe(true);
   });
 
-  it("Fuzz example 15 - coverageOneFile", async () => {
-    const fuzzResult = await new Tester(
-      "./test_fixtures/Fuzzer.testfixtures.ts",
-      "testCoverageOneFile",
-      {
-        ...intOptions,
-        useProperty: true,
-        maxTests: 12000,
-        argDefaults: {
-          ...intOptions.argDefaults,
-          strLength: {
-            min: 4,
-            max: 4,
-          },
-        },
-      }
-    ).testSync();
+  /**
+   * Seeds for the coverage-guided search benchmark below, and the number of
+   * them that must solve it.
+   *
+   * Whether any one seed reaches the needle within its generation budget is
+   * luck. Measured over 20 seeds at this budget, the search finds it for 11 of
+   * them; the other 9 stall one character short. Any change that merely
+   * reroutes the search -- as the coverage measures' aliasing fix did, by
+   * correctly crediting a descendant of the first measured input at tick 2873
+   * -- therefore flips individual seeds in both directions without making the
+   * fuzzer any better or worse.
+   *
+   * Each seed is deterministic on its own, so running a panel and requiring a
+   * threshold keeps this spec reproducible while removing its dependence on
+   * one lucky seed. Two of the four below currently solve it, so the search
+   * has to get materially worse -- not merely different -- to fail the
+   * threshold.
+   */
+  const coverageSearchSeeds = ["qwertyuiop", "coverage", "needle", "mutation"];
+  const coverageSearchMinSolved = 1;
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0); // Expect some results
-    expect(
-      fuzzResult.results.every((e) => e.passedImplicit === "pass")
-    ).toBeTruthy(); // Expect all implicit validation to pass
+  /**
+   * Ensure the coverage-guided search solves `testCoverageOneFile`, whose only
+   * rewarding input is the 4-character needle "bugs". Global coverage
+   * saturates within the first hundred tests, so what carries the search from
+   * there is `accumDelta`: each of `b`, `u`, `g`, and `s` in its own position
+   * opens a branch that is new *to a mutation lineage*, which promotes the
+   * input onto the leaderboard and makes it the seed for the next character.
+   *
+   * Random generation cannot stand in for that hill-climb. Over the default
+   * 95-character alphabet, matching three of the four positions by chance has
+   * probability ~5e-6 per input, so `near` below is only reachable through the
+   * measure's feedback -- it held for all 20 seeds sampled, and for every seed
+   * at budgets as low as 3k, which makes it the sharper regression signal of
+   * the two assertions.
+   */
+  it(
+    "Fuzz example 15 - coverageOneFile",
+    async () => {
+      const needle = "bugs";
+      const near = needle.length - 1; // within one character of the needle
+      const runs: {
+        seed: string;
+        best: number; // most needle positions any one input matched
+        solved: boolean;
+        validatorFailed: boolean;
+      }[] = [];
 
-    // Expect that we generate input "bugs" within 12k input generations
-    expect(
-      fuzzResult.results.some((e) => e.input[0].value === "bugs")
-    ).toBeTruthy();
+      for (const seed of coverageSearchSeeds) {
+        const fuzzResult = await new Tester(
+          "./test_fixtures/Fuzzer.testfixtures.ts",
+          "testCoverageOneFile",
+          {
+            ...intOptions,
+            useProperty: true,
+            seed,
+            maxTests: 12000,
+            argDefaults: {
+              ...intOptions.argDefaults,
+              strLength: {
+                min: 4,
+                max: 4,
+              },
+            },
+          }
+        ).testSync();
 
-    // Expect that some of the validator tests will pass
-    expect(
-      fuzzResult.results.some((e) =>
-        e.passedValidators.some((v) => v === "pass")
-      )
-    ).toBeTruthy();
+        // These hold for every seed
+        expect(fuzzResult.results.length).toBeGreaterThan(0); // Expect some results
+        expect(
+          fuzzResult.results.every((e) => e.passedImplicit === "pass")
+        ).toBeTruthy(); // Expect all implicit validation to pass
+        expect(
+          fuzzResult.results.some((e) =>
+            e.passedValidators.some((v) => v === "pass")
+          )
+        ).toBeTruthy(); // Expect that some of the validator tests will pass
 
-    // But expect that "bugs" should fail (as would "bug!" and "moth")
-    expect(
-      fuzzResult.results.some((e) =>
-        e.passedValidators.some((v) => v === "fail")
-      )
-    ).toBeTruthy();
-  });
+        runs.push({
+          seed,
+          best: fuzzResult.results.reduce((max, e) => {
+            const value = String(e.input[0].value);
+            let matched = 0;
+            for (let i = 0; i < needle.length; i++) {
+              if (value[i] === needle[i]) matched++;
+            }
+            return Math.max(max, matched);
+          }, 0),
+          solved: fuzzResult.results.some((e) => e.input[0].value === needle),
+          validatorFailed: fuzzResult.results.some((e) =>
+            e.passedValidators.some((v) => v === "fail")
+          ),
+        });
+      } // for: each seed
+
+      // Expect every seed to hill-climb to within one character of the needle
+      expect(
+        runs.filter((r) => r.best < near).map((r) => `${r.seed}:${r.best}`)
+      ).toEqual([]);
+
+      // Expect the search to close the last character for at least one seed
+      expect(runs.filter((r) => r.solved).length)
+        .withContext(
+          `seeds solving "${needle}" of [${coverageSearchSeeds.join(", ")}]`
+        )
+        .toBeGreaterThanOrEqual(coverageSearchMinSolved);
+
+      // But expect that "bugs" should fail (as would "bug!" and "moth")
+      expect(
+        runs.filter((r) => r.solved && !r.validatorFailed).map((r) => r.seed)
+      ).toEqual([]);
+    },
+    600000 /* 4 fuzzing runs; the suite default is far too short */
+  );
 
   it("Fuzz example 16 - coverageMultiFile", async () => {
     const fuzzResult = await new Tester(
