@@ -37,6 +37,9 @@ jobs:
           cache: yarn
       - name: Install yarn packages
         run: yarn
+      - name: List (Windows)
+        if: runner.os == 'Windows'
+        run: dir .venv\Scripts
       - name: Run all builds
         run: yarn build
       - name: Run Typescript tests
