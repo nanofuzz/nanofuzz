@@ -980,14 +980,19 @@ export class TypescriptProgram extends AbstractProgram {
       let returnType = undefined;
       let isVoid = false;
       const typeNode = path.node.init.returnType;
+      const bodyIsVoid = TypescriptProgram._isFunctionBodyVoid(
+        path.get("init.body")
+      );
       try {
         if (typeNode && typeNode.type !== "Noop") {
           isVoid = typeNode.typeAnnotation.type === "TSVoidKeyword";
           returnType = this._getTypeRefFromAstNode(typeNode, path.node.init);
+        } else {
+          isVoid = bodyIsVoid;
         }
       } catch {
         if (!isVoid) {
-          // !!! console.debug('Unsupported return type for function "' + name + '".');
+          isVoid = bodyIsVoid;
         }
       }
       const init = path.node.init;
@@ -1007,7 +1012,7 @@ export class TypescriptProgram extends AbstractProgram {
           .map((arg) => this._getTypeRefFromAstNode(arg, init)),
         returnType,
         isVoid,
-        cmt: this.getFunctionComment(path),
+        cmt: this._getFunctionComment(path),
       };
     } else if (
       // Standard Function Definition: function xyz(): void => { ... }
@@ -1019,6 +1024,9 @@ export class TypescriptProgram extends AbstractProgram {
       let returnType = undefined;
       let isVoid = false;
       const typeNode = path.node.returnType;
+      const bodyIsVoid = TypescriptProgram._isFunctionBodyVoid(
+        path.get("body")
+      );
       if (!path.node.range) {
         throw new Error("Source code ranges missing in AST");
       }
@@ -1026,10 +1034,12 @@ export class TypescriptProgram extends AbstractProgram {
         if (typeNode && typeNode.type !== "Noop") {
           isVoid = typeNode.typeAnnotation.type === "TSVoidKeyword";
           returnType = this._getTypeRefFromAstNode(typeNode, path.node);
+        } else {
+          isVoid = bodyIsVoid;
         }
       } catch {
         if (!isVoid) {
-          // !!! console.debug('Unsupported return type for function "' + name + '".');
+          isVoid = bodyIsVoid;
         }
       }
       return {
@@ -1045,7 +1055,7 @@ export class TypescriptProgram extends AbstractProgram {
           .map((arg) => this._getTypeRefFromAstNode(arg, path.node)),
         returnType,
         isVoid,
-        cmt: this.getFunctionComment(path),
+        cmt: this._getFunctionComment(path),
       };
     }
   } // fn: _getFunctionFromNode()
@@ -1058,7 +1068,7 @@ export class TypescriptProgram extends AbstractProgram {
    * @param `path` function declaration node
    * @returns the leading comment, if found; `undefined` otherwise
    */
-  protected getFunctionComment(
+  protected _getFunctionComment(
     path: NodePath<VariableDeclarator | FunctionDeclaration>
   ): string | undefined {
     let thisPath: NodePath<Node> = path;
@@ -1081,6 +1091,68 @@ export class TypescriptProgram extends AbstractProgram {
     }
     return undefined;
   } // fn: getFunctionComment
+
+  /**
+   * Determines whether a function body lacks return statements or
+   * if all return statements return None or no data.
+   *
+   * @param `node` AST node of function
+   * @returns `true` if implicitly `void`; false, otherwise
+   */
+  protected static _isFunctionBodyVoid(path: NodePath<Node>): boolean {
+    const node = path.node;
+    if (node.type !== "BlockStatement") {
+      // Arrow functions with expression bodies (e.g., const f = () => 42)
+      return node.type === "Identifier" && node.name === "undefined";
+    }
+
+    let hasNonVoidReturn = false;
+    let hasReturnStatement = false;
+
+    path.traverse({
+      // Don't descent into other functions
+      FunctionDeclaration(path) {
+        path.skip();
+      },
+      FunctionExpression(path) {
+        path.skip();
+      },
+      ArrowFunctionExpression(path) {
+        path.skip();
+      },
+      ObjectMethod(path) {
+        path.skip();
+      },
+      ClassMethod(path) {
+        path.skip();
+      },
+      ReturnStatement(path) {
+        hasReturnStatement = true;
+        const arg = path.node.argument;
+
+        // If an expression is returned, check if it's `undefined` or a
+        // `void` expression, which evaluates to `undefined`
+        if (arg !== null && arg !== undefined) {
+          const isUndefined =
+            arg.type === "Identifier" && arg.name === "undefined";
+          const isVoid =
+            arg.type === "UnaryExpression" && arg.operator === "void";
+          if (!isUndefined && !isVoid) {
+            hasNonVoidReturn = true;
+            path.stop(); // Stop: we found a non-void return
+          }
+        }
+      },
+    });
+
+    // No return statements -> void
+    if (!hasReturnStatement) {
+      return true;
+    }
+
+    // Some non-void value is returned
+    return !hasNonVoidReturn;
+  } // fn: _isFunctionVoid
 
   public get lang(): ProgramLanguage {
     return TypescriptProgram.lang;
