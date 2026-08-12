@@ -34,20 +34,20 @@ copyfiles(
 );
 
 // Copy Python imports
-let interpreter = "python3";
+let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
+  interpreter = "python";
   console.warn(
     `WARNING: Did not find Python virtual environment in ./.venv (see ./CONTRIBUTING.md)`
   );
 } else {
-  interpreter = path.resolve(
-    path.join(
-      ".",
-      ".venv",
-      process.platform === "win32" ? "Scripts" : "bin",
-      interpreter
-    )
+  const venvBin = path.resolve(
+    path.join(".", ".venv", process.platform === "win32" ? "Scripts" : "bin")
   );
+  interpreter = path.resolve(path.join(venvBin, "python3"));
+  if (!fs.existsSync(interpreter)) {
+    interpreter = path.resolve(path.join(venvBin, "python"));
+  }
 }
 [{ name: "json5" }, { name: "coverage" }].forEach((pkg) => {
   const libdir = resolvePythonModule(pkg.name, interpreter);
