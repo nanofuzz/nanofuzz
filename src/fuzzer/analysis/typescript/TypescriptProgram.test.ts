@@ -131,4 +131,102 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
     });
     expect(exportedTypes).not.toContain("b");
   });
+
+  it("isVoid===true for functions lacking return", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+export function noReturnDecl() {
+  const x = 1;
+}
+
+export const noReturnArrow = () => {
+  const y = 2;
+};
+`,
+      "typescript"
+    ).functionsExported;
+
+    expect(fns["noReturnDecl"].isVoid()).toBeTrue();
+    expect(fns["noReturnArrow"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===true for functions with only bare returns", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+export function bareReturnDecl() {
+  return;
+}
+
+export const bareReturnArrow = () => {
+  return;
+};
+`,
+      "typescript"
+    ).functionsExported;
+
+    expect(fns["bareReturnDecl"].isVoid()).toBeTrue();
+    expect(fns["bareReturnArrow"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===true for functions only returning undefined", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+export function returnUndefinedDecl() {
+  return undefined;
+}
+
+export const returnUndefinedArrow = () => {
+  return undefined;
+};
+`,
+      "typescript"
+    ).functionsExported;
+
+    expect(fns["returnUndefinedArrow"].isVoid()).toBeTrue();
+    expect(fns["returnUndefinedDecl"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===true for functions where all branches return void or undefined", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+export function multiBranchVoid(cond: boolean) {
+  if (cond) {
+    return;
+  } else {
+    return undefined;
+  }
+}
+`,
+      "typescript"
+    ).functionsExported;
+
+    expect(fns["multiBranchVoid"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===false for functions returning non-void values", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+export function returnsValue() {
+  return 42;
+}
+
+export function multiBranchNonVoid(n: number) {
+  if (n===1) {
+    return;
+  } else if(n===2) {
+    return undefined;
+  } else {
+    return 42;
+  }
+}
+
+export const returnsValueArrow = () => "hello";
+`,
+      "typescript"
+    ).functionsExported;
+
+    expect(fns["returnsValue"].isVoid()).toBeFalse();
+    expect(fns["multiBranchNonVoid"].isVoid()).toBeFalse();
+    expect(fns["returnsValueArrow"].isVoid()).toBeFalse();
+  });
 });
