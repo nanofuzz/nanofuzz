@@ -3517,7 +3517,7 @@ export function provideCodeLenses(
   } catch (e: unknown) {
     const msg = isError(e) ? e.message : JSON.stringify(e);
     console.error(
-      `Error parsing typescript file: ${document.fileName} error: ${msg}`
+      `Error parsing source file: ${document.fileName} error: ${msg}`
     );
   }
 
