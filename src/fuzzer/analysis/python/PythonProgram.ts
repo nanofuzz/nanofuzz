@@ -896,6 +896,7 @@ export class PythonProgram extends AbstractProgram {
 
     // Extract for Hypothesis @given(...) first
     const hypothesisArgMap: Record<string, TypeRef> = {};
+    const hypothesisPositionalArgs: (TypeRef | undefined)[] = [];
     const currentNode: Parser.Node | null = defNode.node.parent;
     if (currentNode?.type === "decorated_definition") {
       for (const child of currentNode.namedChildren) {
@@ -922,6 +923,12 @@ export class PythonProgram extends AbstractProgram {
                       hypothesisArgMap[paramName] = hypothesisTypeRef;
                     }
                   }
+                } else {
+                  hypothesisPositionalArgs.push(
+                    argChild.type === "call"
+                      ? this._getTypeRefFromStrategy(argChild)
+                      : undefined
+                  );
                 }
               }
             }
@@ -941,7 +948,7 @@ export class PythonProgram extends AbstractProgram {
 
     // Hypothesis strategies have precedence over native type annotations
     const finalArgs: TypeRef[] = [];
-    for (const paramNode of parameterNodes) {
+    for (const [paramIndex, paramNode] of parameterNodes.entries()) {
       // Get parameter name
       let paramName: string | undefined;
       if (paramNode.type === "identifier") {
@@ -959,8 +966,10 @@ export class PythonProgram extends AbstractProgram {
 
       // If a hypothesis strategy exists for this parameter, use it.
       // Otherwise, parse the native type annotation
-      if (paramName && paramName in hypothesisArgMap) {
-        const hypType = hypothesisArgMap[paramName];
+      const hypType = paramName
+        ? (hypothesisArgMap[paramName] ?? hypothesisPositionalArgs[paramIndex])
+        : hypothesisPositionalArgs[paramIndex];
+      if (hypType !== undefined) {
         hypType.name = paramName;
         finalArgs.push(hypType);
       } else {
@@ -1075,6 +1084,12 @@ export class PythonProgram extends AbstractProgram {
       if (!valNode) return undefined;
       if (valNode.type === "integer" || valNode.type === "float") {
         return Number(valNode.text.replace(/_/g, ""));
+      }
+      if (valNode.type === "unary_operator") {
+        const operand = parseLiteral(valNode.lastNamedChild ?? undefined);
+        if (typeof operand === "number") {
+          return valNode.text.startsWith("-") ? -operand : operand;
+        }
       }
       if (valNode.type === "true") return true;
       if (valNode.type === "false") return false;

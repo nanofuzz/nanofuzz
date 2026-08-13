@@ -854,8 +854,8 @@ def test_example(trigger, dep, trigger_val):
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
-    year=st.integers(2000, 2030),
-    month=st.integers(1, 12)
+    st.integers(2000, 2030),
+    st.integers(1, 12)
 )
 def test_dates(year, month):
     pass
@@ -866,6 +866,24 @@ def test_dates(year, month):
     const args = fn.getArgDefs();
     expect(args[0].getIntervals()).toEqual([{ min: 2000, max: 2030 }]);
     expect(args[1].getIntervals()).toEqual([{ min: 1, max: 12 }]);
+  });
+
+  it("hypothesis @given negative numeric values", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    integer=st.integers(min_value=-10, max_value=200),
+    decimal=st.floats(min_value=-1.5, max_value=2.5)
+)
+def test_bounds(integer, decimal):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_bounds"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getIntervals()).toEqual([{ min: -10, max: 200 }]);
+    expect(args[1].getIntervals()).toEqual([{ min: -1.5, max: 2.5 }]);
   });
 
   it("hypothesis @given nested lists and fixed_dictionaries", () => {
