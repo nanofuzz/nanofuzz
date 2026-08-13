@@ -1149,18 +1149,15 @@ export class PythonProgram extends AbstractProgram {
       }
 
       case "floats": {
-        [
-          "allow_nan",
-          "allow_infinity",
-          "allow_subnormal",
-          "width",
-          "exclude_min",
-          "exclude_max",
-        ].forEach((kwd) => {
-          if (getKwdArg(node, kwd, -1)) {
-            console.warn(`The '${kwd}' property is not yet supported.`);
+        // Note: we ignore "allow_nan" and "allow_infinity" because\
+        //       we don't presently generate those values
+        ["allow_subnormal", "width", "exclude_min", "exclude_max"].forEach(
+          (kwd) => {
+            if (getKwdArg(node, kwd, -1)) {
+              console.warn(`The '${kwd}' property is not yet supported.`);
+            }
           }
-        });
+        );
 
         const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
         const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));
