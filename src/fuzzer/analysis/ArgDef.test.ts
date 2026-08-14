@@ -486,7 +486,9 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
 
     expect(() =>
       ArgDefGenerator.gen(spec, seedrandom("uniqueLiteral"))
-    ).toThrowError("Unable to generate a unique array element");
+    ).toThrowError(
+      "Unable to generate enough unique array element. Are constraints possible to meet?"
+    );
   });
 
   it("dimsUnique: mutators preserve outer-dimension uniqueness", () => {

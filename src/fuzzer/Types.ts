@@ -222,6 +222,7 @@ export type FuzzArgOverride = {
   };
   array?: {
     dimLength: { min: number; max: number }[];
+    dimsUnique: boolean;
   };
   isNoInput?: boolean;
 };

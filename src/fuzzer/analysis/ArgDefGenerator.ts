@@ -400,11 +400,13 @@ const nArray = (
           continue elementLoop;
         }
 
-        if (++attempts > 100) {
+        if (++attempts > 50) {
           if (newArray.length >= dim.min) {
             break elementLoop; // return if it satisfies the min length constraint
           }
-          throw new Error("Unable to generate a unique array element");
+          throw new Error(
+            "Unable to generate enough unique array element. Are constraints possible to meet?"
+          );
         }
       }
     }
