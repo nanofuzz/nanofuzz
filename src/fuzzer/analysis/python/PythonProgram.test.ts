@@ -247,6 +247,11 @@ type MixedColumn = list[int | str]`,
     expect(types["Settings"].type?.children[0].type?.type).toEqual(
       ArgTag.UNION
     );
+    expect(
+      types["Settings"].type?.children[0].type?.children.map(
+        (child) => child.type?.type
+      )
+    ).toEqual([ArgTag.NUMBER, ArgTag.LITERAL]);
     expect(types["Settings"].type?.children[1].type?.type).toEqual(
       ArgTag.TUPLE
     );

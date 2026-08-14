@@ -688,16 +688,12 @@ export class PythonProgram extends AbstractProgram {
         return [];
 
       // PEP 604 `A | B` parses to `binary_operator`; `union_type` is handled
-      // defensively. Each operand is a child; drop `None` arms, whose
-      // nullability is carried by `TypeRef.optional` instead.
+      // defensively. Keep every arm to match `Union[A, B]`, including None.
       case "binary_operator":
       case "union_type":
-        return node.namedChildren
-          .filter(
-            (arm) =>
-              (arm.type === "type" ? arm.firstNamedChild : arm)?.type !== "none"
-          )
-          .map((arm) => this._getTypeRefFromAstNode(arm));
+        return node.namedChildren.map((arm) =>
+          this._getTypeRefFromAstNode(arm)
+        );
 
       case "generic_type":
       case "subscript": {
