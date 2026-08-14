@@ -1,5 +1,6 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "./ArgDef";
+import * as JSONN from "../../Jsonn";
 import {
   ArgTag,
   ArgValueType,
@@ -358,25 +359,54 @@ const getRandomString: PrivateRandFn = (
  * @param `genFn` generator for array element inputs
  * @param `dimLength` array of lengths for each n-dimension
  * @param `options` argument option set
+ * @param `currDepth` current depth of recursion (default: 0)
  * @returns n-dimensional array of random values
  */
 const nArray = (
   prng: seedrandom.prng,
   genFn: PublicRandFn,
   dimLength: Interval<number>[],
-  options: ArgOptions
+  options: ArgOptions,
+  currDepth = 0
 ): ArgValueType => {
   if (dimLength.length) {
     const [dim, ...rest] = dimLength; // split the array: head, tail
     const newArray: ArgValueType[] = []; // output array
+    const seen =
+      currDepth === 0 && options.dimsUnique ? new Set<string>() : undefined;
     const thisDim = getRandomNumber(
       prng,
       dim.min,
       dim.max,
       ArgDef.getDefaultOptions()
     );
-    for (let i = 0; i < thisDim; i++) {
-      newArray[i] = nArray(prng, genFn, rest, options);
+    // Only outer elements must be unique; nested dimensions may repeat. When
+    // a finite value domain is exhausted, keep the generated prefix if it
+    // already satisfies the minimum dimension length, or fail if it cannot.
+    elementLoop: for (let i = 0; i < thisDim; i++) {
+      let attempts = 0;
+      while (true) {
+        const value = nArray(prng, genFn, rest, options, currDepth + 1);
+        if (!seen) {
+          newArray[i] = value;
+          continue elementLoop;
+        }
+
+        const serializedValue = JSONN.stringify(value);
+        if (!seen.has(serializedValue)) {
+          seen.add(serializedValue);
+          newArray[i] = value;
+          continue elementLoop;
+        }
+
+        attempts++;
+        if (attempts > 100) {
+          if (newArray.length >= dim.min) {
+            break elementLoop;
+          }
+          throw new Error("Unable to generate a unique array element");
+        }
+      }
     }
     return newArray;
   } else {

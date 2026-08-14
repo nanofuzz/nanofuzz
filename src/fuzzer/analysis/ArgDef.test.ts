@@ -417,6 +417,78 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(val.validate(input)).toBeTrue();
   });
 
+  it("dimsUnique: generates unique outer-dimension values", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "uniqueNumbers",
+      0,
+      ArgTag.NUMBER,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 5, max: 5 }],
+      },
+      1
+    );
+    const generated = ArgDefGenerator.gen(spec, seedrandom("dimsUnique"));
+
+    expect(ArgDefValidator.validate(generated, spec)).toBeTrue();
+    if (!Array.isArray(generated)) {
+      throw new Error("Expected an array");
+    }
+    expect(new Set(generated).size).toEqual(5);
+  });
+
+  it("dimsUnique: can give up at the minimum dimension length", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "uniqueLiteral",
+      0,
+      ArgTag.LITERAL,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 1, max: 2 }],
+      },
+      1,
+      false,
+      [],
+      undefined,
+      1
+    );
+    const generated = ArgDefGenerator.gen(spec, seedrandom("uniqueLiteral"));
+
+    if (!Array.isArray(generated)) {
+      throw new Error("Expected an array");
+    }
+    expect(generated.length).toEqual(1);
+    expect(generated[0] === 1).toBeTrue();
+    expect(ArgDefValidator.validate(generated, spec)).toBeTrue();
+  });
+
+  it("dimsUnique: fails when constraints seem impossible", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "uniqueLiteral",
+      0,
+      ArgTag.LITERAL,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      1,
+      false,
+      [],
+      undefined,
+      1
+    );
+
+    expect(() =>
+      ArgDefGenerator.gen(spec, seedrandom("uniqueLiteral"))
+    ).toThrowError("Unable to generate a unique array element");
+  });
+
   /**
    * This test generates random ArgDef specs, generates
    * and mutates inputs from those specs, and validates
