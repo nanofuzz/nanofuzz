@@ -756,6 +756,8 @@ export class PythonProgram extends AbstractProgram {
         }
         break; // type-position identifier: classify below (typeNode = node)
       }
+      case "default_parameter":
+        throw new Error(`Missing type annotation: ${node.toString()}`);
       case "type": {
         break;
       }
