@@ -1062,6 +1062,44 @@ export class PythonProgram extends AbstractProgram {
       isExported: false,
     };
 
+    // Best-effort attempt to resolve a reference to a module-level constant. This is.
+    //
+    // Resolve a module-level constant assigned before the strategy reference.
+    // Decorators execute while defining the following function, so assignments
+    // after that point are intentionally ignored.
+    //
+    // This very simple logic does not at all address:
+    // - imports, aliases
+    // - assignments in conditional blocks
+    // - mutations such as <array>.append(...)
+    // - destructuring, global, or scope shadowing
+    // - values computed from other identifiers
+    const resolveReference = (
+      valueNode: Parser.Node | undefined
+    ): Parser.Node | undefined => {
+      if (valueNode?.type !== "identifier" || this._ast === undefined) {
+        return valueNode;
+      }
+
+      let resolved: Parser.Node | undefined;
+      for (const statement of this._ast.rootNode.namedChildren) {
+        if (statement.startIndex >= valueNode.startIndex) break;
+        const assignment = statement.namedChildren.find(
+          (child) => child.type === "assignment"
+        );
+        const left = assignment?.childForFieldName("left");
+        const right = assignment?.childForFieldName("right");
+        if (
+          left?.type === "identifier" &&
+          left.text === valueNode.text &&
+          right
+        ) {
+          resolved = right;
+        }
+      }
+      return resolved ?? valueNode;
+    };
+
     // Helper to extract keyword argument values from a call expression
     const getKwdArg = (
       callNode: Parser.Node,
@@ -1076,12 +1114,14 @@ export class PythonProgram extends AbstractProgram {
           // Find by name
           const kwdName = child.childForFieldName("name")?.text;
           if (kwdName === name) {
-            return child.childForFieldName("value") ?? undefined;
+            return resolveReference(
+              child.childForFieldName("value") ?? undefined
+            );
           }
         } else {
           // Find by position
           if (currentPos === pos) {
-            return child;
+            return resolveReference(child);
           }
           currentPos++;
         }
@@ -1343,7 +1383,7 @@ export class PythonProgram extends AbstractProgram {
 
       case "sampled_from": {
         const argsNode = node.childForFieldName("arguments");
-        const listArg = argsNode?.namedChildren[0];
+        const listArg = resolveReference(argsNode?.namedChildren[0]);
         const sampledTypes: TypeRef[] = [];
 
         const getSampledType = (
