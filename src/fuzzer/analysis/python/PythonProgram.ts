@@ -819,10 +819,20 @@ export class PythonProgram extends AbstractProgram {
       }
       case ArgTag.UNION:
       case ArgTag.TUPLE: {
+        const children = this._getChildrenFromNode(typeNode);
+        // Collapse unions of a single value 
+        if (type === ArgTag.UNION && children.length === 1) {
+          const child = children[0];
+          thisType.dims = child.dims;
+          thisType.optional = child.optional;
+          thisType.type = child.type;
+          thisType.typeRefName = child.typeRefName;
+          break;
+        }
         thisType.type = {
           dims: dims,
           type: type,
-          children: this._getChildrenFromNode(typeNode),
+          children,
         };
         break;
       }
@@ -1518,6 +1528,10 @@ export class PythonProgram extends AbstractProgram {
               return undefined;
             }
           }
+        }
+
+        if (children.length === 1) {
+          return children[0];
         }
 
         thisType.type = {

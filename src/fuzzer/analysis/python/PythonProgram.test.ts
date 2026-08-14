@@ -201,6 +201,15 @@ type MixedColumn = list[int | str]`,
     ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
   });
 
+  it("collapses singleton annotation unions", () => {
+    const types = ProgramFactory.fromSource(
+      () => "type MaybeCount = Optional[int]",
+      "python"
+    ).types;
+
+    expect(types["MaybeCount"].type?.type).toEqual(ArgTag.NUMBER);
+  });
+
   it("extracts TypedDict annotations as fixed objects", () => {
     const types = ProgramFactory.fromSource(
       () => `class Player(TypedDict):
