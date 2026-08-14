@@ -688,16 +688,12 @@ export class PythonProgram extends AbstractProgram {
         return [];
 
       // PEP 604 `A | B` parses to `binary_operator`; `union_type` is handled
-      // defensively. Each operand is a child; drop `None` arms, whose
-      // nullability is carried by `TypeRef.optional` instead.
+      // defensively. Keep every arm to match `Union[A, B]`, including None.
       case "binary_operator":
       case "union_type":
-        return node.namedChildren
-          .filter(
-            (arm) =>
-              (arm.type === "type" ? arm.firstNamedChild : arm)?.type !== "none"
-          )
-          .map((arm) => this._getTypeRefFromAstNode(arm));
+        return node.namedChildren.map((arm) =>
+          this._getTypeRefFromAstNode(arm)
+        );
 
       case "generic_type":
       case "subscript": {
@@ -760,6 +756,8 @@ export class PythonProgram extends AbstractProgram {
         }
         break; // type-position identifier: classify below (typeNode = node)
       }
+      case "default_parameter":
+        throw new Error(`Missing type annotation: ${node.toString()}`);
       case "type": {
         break;
       }
@@ -819,10 +817,20 @@ export class PythonProgram extends AbstractProgram {
       }
       case ArgTag.UNION:
       case ArgTag.TUPLE: {
+        const children = this._getChildrenFromNode(typeNode);
+        // Collapse unions of a single value
+        if (type === ArgTag.UNION && children.length === 1) {
+          const child = children[0];
+          thisType.dims = child.dims;
+          thisType.optional = child.optional;
+          thisType.type = child.type;
+          thisType.typeRefName = child.typeRefName;
+          break;
+        }
         thisType.type = {
           dims: dims,
           type: type,
-          children: this._getChildrenFromNode(typeNode),
+          children,
         };
         break;
       }
@@ -870,6 +878,7 @@ export class PythonProgram extends AbstractProgram {
             .filter(
               (arg) =>
                 arg.type === "identifier" ||
+                arg.type === "default_parameter" ||
                 arg.type === "typed_parameter" ||
                 arg.type === "typed_default_parameter"
             )
@@ -896,6 +905,7 @@ export class PythonProgram extends AbstractProgram {
 
     // Extract for Hypothesis @given(...) first
     const hypothesisArgMap: Record<string, TypeRef> = {};
+    const hypothesisPositionalArgs: (TypeRef | undefined)[] = [];
     const currentNode: Parser.Node | null = defNode.node.parent;
     if (currentNode?.type === "decorated_definition") {
       for (const child of currentNode.namedChildren) {
@@ -922,6 +932,12 @@ export class PythonProgram extends AbstractProgram {
                       hypothesisArgMap[paramName] = hypothesisTypeRef;
                     }
                   }
+                } else {
+                  hypothesisPositionalArgs.push(
+                    argChild.type === "call"
+                      ? this._getTypeRefFromStrategy(argChild)
+                      : undefined
+                  );
                 }
               }
             }
@@ -935,13 +951,14 @@ export class PythonProgram extends AbstractProgram {
       argsNode?.node.namedChildren.filter(
         (arg) =>
           arg.type === "identifier" ||
+          arg.type === "default_parameter" ||
           arg.type === "typed_parameter" ||
           arg.type === "typed_default_parameter"
       ) ?? [];
 
     // Hypothesis strategies have precedence over native type annotations
     const finalArgs: TypeRef[] = [];
-    for (const paramNode of parameterNodes) {
+    for (const [paramIndex, paramNode] of parameterNodes.entries()) {
       // Get parameter name
       let paramName: string | undefined;
       if (paramNode.type === "identifier") {
@@ -959,8 +976,10 @@ export class PythonProgram extends AbstractProgram {
 
       // If a hypothesis strategy exists for this parameter, use it.
       // Otherwise, parse the native type annotation
-      if (paramName && paramName in hypothesisArgMap) {
-        const hypType = hypothesisArgMap[paramName];
+      const hypType = paramName
+        ? (hypothesisArgMap[paramName] ?? hypothesisPositionalArgs[paramIndex])
+        : hypothesisPositionalArgs[paramIndex];
+      if (hypType !== undefined) {
         hypType.name = paramName;
         finalArgs.push(hypType);
       } else {
@@ -1076,6 +1095,12 @@ export class PythonProgram extends AbstractProgram {
       if (valNode.type === "integer" || valNode.type === "float") {
         return Number(valNode.text.replace(/_/g, ""));
       }
+      if (valNode.type === "unary_operator") {
+        const operand = parseLiteral(valNode.lastNamedChild ?? undefined);
+        if (typeof operand === "number") {
+          return valNode.text.startsWith("-") ? -operand : operand;
+        }
+      }
       if (valNode.type === "true") return true;
       if (valNode.type === "false") return false;
       if (valNode.type === "string") {
@@ -1149,18 +1174,15 @@ export class PythonProgram extends AbstractProgram {
       }
 
       case "floats": {
-        [
-          "allow_nan",
-          "allow_infinity",
-          "allow_subnormal",
-          "width",
-          "exclude_min",
-          "exclude_max",
-        ].forEach((kwd) => {
-          if (getKwdArg(node, kwd, -1)) {
-            console.warn(`The '${kwd}' property is not yet supported.`);
+        // Note: we ignore "allow_nan" and "allow_infinity" because\
+        //       we don't presently generate those values
+        ["allow_subnormal", "width", "exclude_min", "exclude_max"].forEach(
+          (kwd) => {
+            if (getKwdArg(node, kwd, -1)) {
+              console.warn(`The '${kwd}' property is not yet supported.`);
+            }
           }
-        });
+        );
 
         const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
         const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));
@@ -1223,7 +1245,7 @@ export class PythonProgram extends AbstractProgram {
           };
         } else {
           console.warn(
-            `Unsupported literal in 'sampled_from': ${JSONN.stringify(lit)}.`
+            `Unsupported literal in '${funcName}': ${lit === undefined ? "undefined" : JSONN.stringify(lit)}.`
           );
         }
         break;
@@ -1322,38 +1344,97 @@ export class PythonProgram extends AbstractProgram {
       case "sampled_from": {
         const argsNode = node.childForFieldName("arguments");
         const listArg = argsNode?.namedChildren[0];
-        const literalValues: ArgType[] = [];
+        const sampledTypes: TypeRef[] = [];
+
+        const getSampledType = (
+          valueNode: Parser.Node
+        ): TypeRef | undefined => {
+          const literalValue = parseLiteral(valueNode);
+          if (isArgType(literalValue)) {
+            return {
+              module: this._filename,
+              dims: 0,
+              optional: false,
+              isExported: false,
+              type: {
+                type: ArgTag.LITERAL,
+                dims: 0,
+                children: [],
+                value: literalValue,
+                resolved: true,
+              },
+            };
+          }
+          if (valueNode.type === "tuple") {
+            const children = valueNode.namedChildren.map(getSampledType);
+            if (
+              children.every((child): child is TypeRef => child !== undefined)
+            ) {
+              return {
+                module: this._filename,
+                dims: 0,
+                optional: false,
+                isExported: false,
+                type: {
+                  type: ArgTag.TUPLE,
+                  dims: 0,
+                  children,
+                  resolved: true,
+                },
+              };
+            }
+          }
+          if (valueNode.type === "dictionary") {
+            const children: TypeRef[] = [];
+            for (const pair of valueNode.namedChildren) {
+              if (pair.type !== "pair") return undefined;
+              const key = parseLiteral(
+                pair.childForFieldName("key") ?? undefined
+              );
+              const value = pair.childForFieldName("value");
+              const child = value ? getSampledType(value) : undefined;
+              if (typeof key !== "string" || child === undefined) {
+                return undefined;
+              }
+              child.name = key;
+              children.push(child);
+            }
+            return {
+              module: this._filename,
+              dims: 0,
+              optional: false,
+              isExported: false,
+              type: {
+                type: ArgTag.OBJECT,
+                dims: 0,
+                children,
+                resolved: true,
+              },
+            };
+          }
+          return undefined;
+        };
 
         if (listArg && (listArg.type === "list" || listArg.type === "tuple")) {
           for (const item of listArg.namedChildren) {
-            const lit = parseLiteral(item);
-            if (isArgType(lit)) {
-              literalValues.push(lit);
+            const sampledType = getSampledType(item);
+            if (sampledType !== undefined) {
+              sampledTypes.push(sampledType);
             } else {
-              console.warn(
-                `Unsupported literal in 'sampled_from': ${JSONN.stringify(lit)}.`
-              );
+              console.warn(`Unsupported value in '${funcName}': ${item.text}.`);
             }
           }
         }
 
-        // Represent sampled_from as a UNION of LITERALs
+        if (sampledTypes.length === 1) {
+          return sampledTypes[0];
+        }
+
+        // Represent multiple sampled values as a union.
         thisType.type = {
           type: ArgTag.UNION,
           dims: 0,
-          children: literalValues.map((val) => ({
-            module: this._filename,
-            dims: 0,
-            optional: false,
-            isExported: false,
-            type: {
-              type: ArgTag.LITERAL,
-              dims: 0,
-              children: [],
-              value: val,
-              resolved: true,
-            },
-          })),
+          children: sampledTypes,
           resolved: true,
         };
         break;
@@ -1449,6 +1530,10 @@ export class PythonProgram extends AbstractProgram {
               return undefined;
             }
           }
+        }
+
+        if (children.length === 1) {
+          return children[0];
         }
 
         thisType.type = {

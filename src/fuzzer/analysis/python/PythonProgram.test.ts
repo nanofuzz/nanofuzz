@@ -201,6 +201,15 @@ type MixedColumn = list[int | str]`,
     ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
   });
 
+  it("collapses singleton annotation unions", () => {
+    const types = ProgramFactory.fromSource(
+      () => "type MaybeCount = Optional[int]",
+      "python"
+    ).types;
+
+    expect(types["MaybeCount"].type?.type).toEqual(ArgTag.NUMBER);
+  });
+
   it("extracts TypedDict annotations as fixed objects", () => {
     const types = ProgramFactory.fromSource(
       () => `class Player(TypedDict):
@@ -238,6 +247,11 @@ type MixedColumn = list[int | str]`,
     expect(types["Settings"].type?.children[0].type?.type).toEqual(
       ArgTag.UNION
     );
+    expect(
+      types["Settings"].type?.children[0].type?.children.map(
+        (child) => child.type?.type
+      )
+    ).toEqual([ArgTag.NUMBER, ArgTag.LITERAL]);
     expect(types["Settings"].type?.children[1].type?.type).toEqual(
       ArgTag.TUPLE
     );
@@ -644,6 +658,20 @@ from .schemas import *`,
     expect(fn.isVoid()).toBeTrue();
   });
 
+  it("rejects unannotated default parameters", () => {
+    spyOn(console, "debug");
+    const program = new InspectablePythonProgram(
+      () => `def x(y=22000):
+    print("hi")`,
+      "default_parameter.py"
+    );
+
+    expect(program.functionsExported["x"]).toBeUndefined();
+    expect(program.unsupportedFunctions["x"]).toEqual(
+      jasmine.objectContaining({ reason: jasmine.stringMatching("Missing type annotation") })
+    );
+  });
+
   it("keeps PEP 604 union members as function argument children", () => {
     const fn = ProgramFactory.fromSource(
       () => `def parse(value: int | str) -> int | str:
@@ -854,8 +882,8 @@ def test_example(trigger, dep, trigger_val):
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
-    year=st.integers(2000, 2030),
-    month=st.integers(1, 12)
+    st.integers(2000, 2030),
+    st.integers(1, 12)
 )
 def test_dates(year, month):
     pass
@@ -866,6 +894,24 @@ def test_dates(year, month):
     const args = fn.getArgDefs();
     expect(args[0].getIntervals()).toEqual([{ min: 2000, max: 2030 }]);
     expect(args[1].getIntervals()).toEqual([{ min: 1, max: 12 }]);
+  });
+
+  it("hypothesis @given negative numeric values", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    integer=st.integers(min_value=-10, max_value=200),
+    decimal=st.floats(min_value=-1.5, max_value=2.5)
+)
+def test_bounds(integer, decimal):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_bounds"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getIntervals()).toEqual([{ min: -10, max: 200 }]);
+    expect(args[1].getIntervals()).toEqual([{ min: -1.5, max: 2.5 }]);
   });
 
   it("hypothesis @given nested lists and fixed_dictionaries", () => {
@@ -927,6 +973,46 @@ def test_sampled(status):
     expect(
       arg.getChildren().every((c) => c.getType() === ArgTag.LITERAL)
     ).toBeTrue();
+  });
+
+  it("hypothesis @given sampled_from tuples", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(st.sampled_from([("input", "disabled")]))
+def test_sampled_tuple(elem_attr):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_sampled_tuple"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.TUPLE);
+    expect(arg.getChildren().map((child) => child.getConstantValue())).toEqual([
+      "input",
+      "disabled",
+    ]);
+  });
+
+  it("hypothesis @given sampled_from dictionaries", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(st.sampled_from([{"mode": "disabled", "retry": 0}]))
+def test_sampled_dictionary(config):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_sampled_dictionary"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.OBJECT);
+    expect(arg.getChildren().map((child) => child.getName())).toEqual([
+      "mode",
+      "retry",
+    ]);
+    expect(arg.getChildren().map((child) => child.getConstantValue())).toEqual([
+      "disabled",
+      0,
+    ]);
   });
 
   it("hypothesis @given fixed_dictionaries with optional keys", () => {
