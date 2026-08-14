@@ -1370,6 +1370,34 @@ export class PythonProgram extends AbstractProgram {
               };
             }
           }
+          if (valueNode.type === "dictionary") {
+            const children: TypeRef[] = [];
+            for (const pair of valueNode.namedChildren) {
+              if (pair.type !== "pair") return undefined;
+              const key = parseLiteral(
+                pair.childForFieldName("key") ?? undefined
+              );
+              const value = pair.childForFieldName("value");
+              const child = value ? getSampledType(value) : undefined;
+              if (typeof key !== "string" || child === undefined) {
+                return undefined;
+              }
+              child.name = key;
+              children.push(child);
+            }
+            return {
+              module: this._filename,
+              dims: 0,
+              optional: false,
+              isExported: false,
+              type: {
+                type: ArgTag.OBJECT,
+                dims: 0,
+                children,
+                resolved: true,
+              },
+            };
+          }
           return undefined;
         };
 
@@ -1386,7 +1414,11 @@ export class PythonProgram extends AbstractProgram {
           }
         }
 
-        // Represent sampled_from as a UNION of LITERALs
+        if (sampledTypes.length === 1) {
+          return sampledTypes[0];
+        }
+
+        // Represent multiple sampled values as a union.
         thisType.type = {
           type: ArgTag.UNION,
           dims: 0,

@@ -958,15 +958,33 @@ def test_sampled_tuple(elem_attr):
     ).functionsExported["test_sampled_tuple"];
 
     const arg = fn.getArgDefs()[0];
-    expect(arg.getType()).toEqual(ArgTag.UNION);
-    expect(arg.getChildren().length).toEqual(1);
-    expect(arg.getChildren()[0].getType()).toEqual(ArgTag.TUPLE);
-    expect(
-      arg
-        .getChildren()[0]
-        .getChildren()
-        .map((child) => child.getConstantValue())
-    ).toEqual(["input", "disabled"]);
+    expect(arg.getType()).toEqual(ArgTag.TUPLE);
+    expect(arg.getChildren().map((child) => child.getConstantValue())).toEqual([
+      "input",
+      "disabled",
+    ]);
+  });
+
+  it("hypothesis @given sampled_from dictionaries", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(st.sampled_from([{"mode": "disabled", "retry": 0}]))
+def test_sampled_dictionary(config):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_sampled_dictionary"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.OBJECT);
+    expect(arg.getChildren().map((child) => child.getName())).toEqual([
+      "mode",
+      "retry",
+    ]);
+    expect(arg.getChildren().map((child) => child.getConstantValue())).toEqual([
+      "disabled",
+      0,
+    ]);
   });
 
   it("hypothesis @given fixed_dictionaries with optional keys", () => {
