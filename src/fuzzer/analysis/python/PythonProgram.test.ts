@@ -668,7 +668,9 @@ from .schemas import *`,
 
     expect(program.functionsExported["x"]).toBeUndefined();
     expect(program.unsupportedFunctions["x"]).toEqual(
-      jasmine.objectContaining({ reason: jasmine.stringMatching("Missing type annotation") })
+      jasmine.objectContaining({
+        reason: jasmine.stringMatching("Missing type annotation"),
+      })
     );
   });
 
@@ -973,6 +975,31 @@ def test_sampled(status):
     expect(
       arg.getChildren().every((c) => c.getType() === ArgTag.LITERAL)
     ).toBeTrue();
+  });
+
+  it("hypothesis @given sampled_from module-level constants", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+_KEYWORDS = ["if", "else", "while", "return", "def", "class"]
+
+@settings(max_examples=500, deadline=None)
+@given(kw=st.sampled_from(_KEYWORDS))
+def test_terminal_priority_keyword_wins(kw):
+    print("test")
+        `,
+      "python"
+    ).functionsExported["test_terminal_priority_keyword_wins"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.UNION);
+    expect(arg.getChildren().map((child) => child.getConstantValue())).toEqual([
+      "if",
+      "else",
+      "while",
+      "return",
+      "def",
+      "class",
+    ]);
   });
 
   it("hypothesis @given sampled_from tuples", () => {
