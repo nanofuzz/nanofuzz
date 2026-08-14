@@ -658,6 +658,20 @@ from .schemas import *`,
     expect(fn.isVoid()).toBeTrue();
   });
 
+  it("rejects unannotated default parameters", () => {
+    spyOn(console, "debug");
+    const program = new InspectablePythonProgram(
+      () => `def x(y=22000):
+    print("hi")`,
+      "default_parameter.py"
+    );
+
+    expect(program.functionsExported["x"]).toBeUndefined();
+    expect(program.unsupportedFunctions["x"]).toEqual(
+      jasmine.objectContaining({ reason: jasmine.stringMatching("Missing type annotation") })
+    );
+  });
+
   it("keeps PEP 604 union members as function argument children", () => {
     const fn = ProgramFactory.fromSource(
       () => `def parse(value: int | str) -> int | str:

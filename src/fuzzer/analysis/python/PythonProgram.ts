@@ -876,6 +876,7 @@ export class PythonProgram extends AbstractProgram {
             .filter(
               (arg) =>
                 arg.type === "identifier" ||
+                arg.type === "default_parameter" ||
                 arg.type === "typed_parameter" ||
                 arg.type === "typed_default_parameter"
             )
@@ -948,6 +949,7 @@ export class PythonProgram extends AbstractProgram {
       argsNode?.node.namedChildren.filter(
         (arg) =>
           arg.type === "identifier" ||
+          arg.type === "default_parameter" ||
           arg.type === "typed_parameter" ||
           arg.type === "typed_default_parameter"
       ) ?? [];
