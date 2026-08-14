@@ -947,6 +947,28 @@ def test_sampled(status):
     ).toBeTrue();
   });
 
+  it("hypothesis @given sampled_from tuples", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(st.sampled_from([("input", "disabled")]))
+def test_sampled_tuple(elem_attr):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_sampled_tuple"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.UNION);
+    expect(arg.getChildren().length).toEqual(1);
+    expect(arg.getChildren()[0].getType()).toEqual(ArgTag.TUPLE);
+    expect(
+      arg
+        .getChildren()[0]
+        .getChildren()
+        .map((child) => child.getConstantValue())
+    ).toEqual(["input", "disabled"]);
+  });
+
   it("hypothesis @given fixed_dictionaries with optional keys", () => {
     const fn = ProgramFactory.fromSource(
       () => `

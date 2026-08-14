@@ -1235,7 +1235,7 @@ export class PythonProgram extends AbstractProgram {
           };
         } else {
           console.warn(
-            `Unsupported literal in 'sampled_from': ${JSONN.stringify(lit)}.`
+            `Unsupported literal in '${funcName}': ${lit === undefined ? "undefined" : JSONN.stringify(lit)}.`
           );
         }
         break;
@@ -1334,16 +1334,53 @@ export class PythonProgram extends AbstractProgram {
       case "sampled_from": {
         const argsNode = node.childForFieldName("arguments");
         const listArg = argsNode?.namedChildren[0];
-        const literalValues: ArgType[] = [];
+        const sampledTypes: TypeRef[] = [];
+
+        const getSampledType = (valueNode: Parser.Node): TypeRef | undefined => {
+          const literalValue = parseLiteral(valueNode);
+          if (isArgType(literalValue)) {
+            return {
+              module: this._filename,
+              dims: 0,
+              optional: false,
+              isExported: false,
+              type: {
+                type: ArgTag.LITERAL,
+                dims: 0,
+                children: [],
+                value: literalValue,
+                resolved: true,
+              },
+            };
+          }
+          if (valueNode.type === "tuple") {
+            const children = valueNode.namedChildren.map(getSampledType);
+            if (children.every((child): child is TypeRef => child !== undefined)) {
+              return {
+                module: this._filename,
+                dims: 0,
+                optional: false,
+                isExported: false,
+                type: {
+                  type: ArgTag.TUPLE,
+                  dims: 0,
+                  children,
+                  resolved: true,
+                },
+              };
+            }
+          }
+          return undefined;
+        };
 
         if (listArg && (listArg.type === "list" || listArg.type === "tuple")) {
           for (const item of listArg.namedChildren) {
-            const lit = parseLiteral(item);
-            if (isArgType(lit)) {
-              literalValues.push(lit);
+            const sampledType = getSampledType(item);
+            if (sampledType !== undefined) {
+              sampledTypes.push(sampledType);
             } else {
               console.warn(
-                `Unsupported literal in 'sampled_from': ${JSONN.stringify(lit)}.`
+                `Unsupported value in '${funcName}': ${item.text}.`
               );
             }
           }
@@ -1353,19 +1390,7 @@ export class PythonProgram extends AbstractProgram {
         thisType.type = {
           type: ArgTag.UNION,
           dims: 0,
-          children: literalValues.map((val) => ({
-            module: this._filename,
-            dims: 0,
-            optional: false,
-            isExported: false,
-            type: {
-              type: ArgTag.LITERAL,
-              dims: 0,
-              children: [],
-              value: val,
-              resolved: true,
-            },
-          })),
+          children: sampledTypes,
           resolved: true,
         };
         break;
