@@ -10,6 +10,7 @@ const argDefaults: ArgOptions = {
   anyDims: 0,
   dftDimLength: { min: 0, max: 1 },
   dimLength: [],
+  dimsUnique: false,
 };
 
 const baseOptions: Omit<

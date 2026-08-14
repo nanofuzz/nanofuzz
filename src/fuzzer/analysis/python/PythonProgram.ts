@@ -1293,11 +1293,9 @@ export class PythonProgram extends AbstractProgram {
 
       case "sets":
       case "lists": {
-        ["unique", "unique_by"].forEach((kwd) => {
-          if (getKwdArg(node, kwd, -1)) {
-            console.warn(`The '${kwd}' property is not yet supported.`);
-          }
-        });
+        if (getKwdArg(node, "unique_by", -1)) {
+          console.warn("The 'unique_by' property is not yet supported.");
+        }
 
         const elementsArg = getKwdArg(node, "elements", 0);
         let innerTypeRef: TypeRef | undefined;
@@ -1340,6 +1338,10 @@ export class PythonProgram extends AbstractProgram {
         }
         if (innerResolvedType.options.dimLength === undefined) {
           innerResolvedType.options.dimLength = [];
+        }
+        const dimsUnique = parseLiteral(getKwdArg(node, "unique", -1));
+        if (funcName === "lists" && typeof dimsUnique === "boolean") {
+          innerResolvedType.options.dimsUnique = dimsUnique;
         }
         innerResolvedType.options.dimLength.push({
           min: Number(minSize ?? dftInterval.min),
