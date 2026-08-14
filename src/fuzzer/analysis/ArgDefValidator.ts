@@ -1,5 +1,6 @@
 import { ArgDef } from "./ArgDef";
 import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
+import * as JSONN from "../../Jsonn";
 
 /**
  * Valides values against their corresponding ArgDef specs
@@ -190,6 +191,13 @@ const traverse = (
     a.length > levelSizes[currDepth].max
   ) {
     return false;
+  }
+
+  if (currDepth === 0 && spec.getOptions().dimsUnique) {
+    const values = new Set(a.map((value) => JSONN.stringify(value)));
+    if (values.size !== a.length) {
+      return false;
+    }
   }
 
   // Traverse the array and validate its contents
