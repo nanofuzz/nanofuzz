@@ -580,6 +580,42 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     }
   });
 
+  it("mutates optional tuple members to undefined", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "tuple",
+      0,
+      ArgTag.TUPLE,
+      argOptions,
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "required", ArgTag.NUMBER, 0),
+        makeTypeRef(
+          dummyModule,
+          "optional",
+          ArgTag.LITERAL,
+          0,
+          true,
+          [],
+          undefined,
+          1
+        ),
+      ]
+    );
+    const input = [{ tag: "ArgValueTypeWrapped" as const, value: [1, 1] }];
+    const mutator = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("optionalTuple")
+    ).find((candidate) => candidate.name === "optional-delete");
+
+    expect(mutator).toBeDefined();
+    mutator?.fn();
+    expect(input[0].value[1]).toBeUndefined();
+    expect(new ArgDefValidator([spec]).validate(input)).toBeTrue();
+  });
+
   /**
    * This test generates random ArgDef specs, generates
    * and mutates inputs from those specs, and validates

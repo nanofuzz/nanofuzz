@@ -37,11 +37,13 @@ export class ArgDefMutator {
     }
 
     // Running list of mutator functions
-    const mutations: {
+    type MutationProposal = {
       name: string;
       value: ArgValueType;
       path: (string | number)[];
-    }[] = [];
+      deleteProperty?: boolean;
+    };
+    const mutations: MutationProposal[] = [];
     type UniqueDimensionContext = {
       siblings: ArgValueType[];
       index: number;
@@ -60,24 +62,33 @@ export class ArgDefMutator {
     function replaceInOuterElement(
       outerElement: ArgValueType,
       path: (string | number)[],
-      replacement: ArgValueType
+      replacement: ArgValueType,
+      deleteProperty = false
     ): ArgValueType {
       if (!path.length) return replacement;
       const clone = structuredClone(outerElement);
-      ArgDefMutator._mutateValueInPlace(
-        [{ tag: "ArgValueTypeWrapped", value: clone }],
-        [0, "value", ...path],
-        replacement
-      );
+      const wrappedClone = [
+        { tag: "ArgValueTypeWrapped" as const, value: clone },
+      ];
+      if (deleteProperty) {
+        ArgDefMutator._deleteObjectPropertyInPlace(wrappedClone, [
+          0,
+          "value",
+          ...path,
+        ]);
+      } else {
+        ArgDefMutator._mutateValueInPlace(
+          wrappedClone,
+          [0, "value", ...path],
+          replacement
+        );
+      }
       return clone;
     }
 
     // Reject proposals that duplicate an element in this or any enclosing
     // dimsUnique array tracked while descending through mutateArray.
-    function preservesUniqueDimensions(mutation: {
-      value: ArgValueType;
-      path: (string | number)[];
-    }): boolean {
+    function preservesUniqueDimensions(mutation: MutationProposal): boolean {
       const context = mutationContexts.get(JSONN.stringify(mutation.path));
       if (!context) return true;
 
@@ -95,7 +106,8 @@ export class ArgDefMutator {
         const outerElement = replaceInOuterElement(
           uniqueContext.siblings[uniqueContext.index],
           uniqueContext.pathFromOuter,
-          mutation.value
+          mutation.value,
+          mutation.deleteProperty
         );
         const serializedOuterElement = JSONN.stringify(outerElement);
         return !uniqueContext.siblings.some(
@@ -106,13 +118,7 @@ export class ArgDefMutator {
       });
     }
 
-    function addMutations(
-      proposedMutations: {
-        name: string;
-        value: ArgValueType;
-        path: (string | number)[];
-      }[]
-    ): void {
+    function addMutations(proposedMutations: MutationProposal[]): void {
       mutations.push(...proposedMutations.filter(preservesUniqueDimensions));
     }
 
@@ -392,6 +398,17 @@ export class ArgDefMutator {
               const children = spec.getChildren().filter((c) => !c.isNoInput());
               for (const c of children) {
                 const name = c.getName();
+                const childPath = [...subInput.subPath, name];
+                const childUniqueContexts = subInput.uniqueContexts.map(
+                  (context) => ({
+                    ...context,
+                    pathFromOuter: [...context.pathFromOuter, name],
+                  })
+                );
+                mutationContexts.set(JSONN.stringify(childPath), {
+                  uniqueContexts: childUniqueContexts,
+                  requiresUniqueElements: false,
+                });
 
                 // Mutator to generate optional member if missing
                 if (c.isOptional()) {
@@ -402,7 +419,7 @@ export class ArgDefMutator {
                         {
                           name: `optional-genMember`,
                           value: ArgDefGenerator.gen(c, prng),
-                          path: [...subInput.subPath, name],
+                          path: childPath,
                         },
                       ].filter(
                         (e) =>
@@ -414,8 +431,9 @@ export class ArgDefMutator {
                     addMutations([
                       {
                         name: "optional-delete",
-                        value: undefined, // !!!!!!! should delete if parent is object
-                        path: [...subInput.subPath, name],
+                        value: undefined,
+                        path: childPath,
+                        deleteProperty: true,
                       },
                     ]);
                   }
@@ -423,14 +441,11 @@ export class ArgDefMutator {
 
                 // Mutators for object member value
                 subInputs.push({
-                  subPath: [...subInput.subPath, name],
+                  subPath: childPath,
                   subElement: value[name],
                   subSpec: c,
                   inArray: false,
-                  uniqueContexts: subInput.uniqueContexts.map((context) => ({
-                    ...context,
-                    pathFromOuter: [...context.pathFromOuter, name],
-                  })),
+                  uniqueContexts: childUniqueContexts,
                 });
               }
             }
@@ -490,9 +505,21 @@ export class ArgDefMutator {
 
           case ArgTag.TUPLE: {
             const value = subInput.subElement;
-            if (typeof value === "object" && !Array.isArray(value)) {
+            if (Array.isArray(value)) {
               const children = spec.getChildren().filter((c) => !c.isNoInput());
               for (const [i, c] of children.entries()) {
+                const childPath = [...subInput.subPath, i];
+                const childUniqueContexts = subInput.uniqueContexts.map(
+                  (context) => ({
+                    ...context,
+                    pathFromOuter: [...context.pathFromOuter, i],
+                  })
+                );
+                mutationContexts.set(JSONN.stringify(childPath), {
+                  uniqueContexts: childUniqueContexts,
+                  requiresUniqueElements: false,
+                });
+
                 // Mutator to generate optional member if missing
                 if (c.isOptional()) {
                   const oldValue = value[i];
@@ -502,7 +529,7 @@ export class ArgDefMutator {
                         {
                           name: `optional-genMember`,
                           value: ArgDefGenerator.gen(c, prng),
-                          path: [...subInput.subPath, i],
+                          path: childPath,
                         },
                       ].filter(
                         (e) =>
@@ -514,7 +541,7 @@ export class ArgDefMutator {
                     addMutations([
                       {
                         name: "optional-delete",
-                        value: undefined, // !!!!!!! should delete if parent is object
+                        value: undefined,
                         path: [...subInput.subPath, i],
                       },
                     ]);
@@ -523,16 +550,11 @@ export class ArgDefMutator {
 
                 // Mutators for tuple member value
                 subInputs.push({
-                  subPath: [...subInput.subPath, i],
+                  subPath: childPath,
                   subElement: value[i],
                   subSpec: c,
                   inArray: false,
-                  // Preserve the route from each unique outer element to this
-                  // tuple member for descendant mutation comparisons.
-                  uniqueContexts: subInput.uniqueContexts.map((context) => ({
-                    ...context,
-                    pathFromOuter: [...context.pathFromOuter, i],
-                  })),
+                  uniqueContexts: childUniqueContexts,
                 });
               }
             }
@@ -562,6 +584,9 @@ export class ArgDefMutator {
             );
           } else {
             wasMutated = true;
+            if (e.deleteProperty) {
+              return this._deleteObjectPropertyInPlace(value, e.path);
+            }
             return this._mutateValueInPlace(value, e.path, e.value);
           }
         },
@@ -622,6 +647,46 @@ export class ArgDefMutator {
     }
     return value;
   } // fn: mutateValueInPlace
+
+  /**
+   * Removes an object member in place by following a path to its parent.
+   *
+   * @param `value` input value containing the object member to delete
+   * @param `path` path to the object member
+   * @returns the mutated input value
+   */
+  protected static _deleteObjectPropertyInPlace(
+    value: ArgValueTypeWrapped[],
+    path: (number | string)[]
+  ): ArgValueType {
+    let element: ArgValueType = value;
+
+    for (const step in path) {
+      const key = path[step];
+      if (Number(step) < path.length - 1) {
+        if (Array.isArray(element)) {
+          element = element[Number(key)];
+        } else if (element !== null && typeof element === "object") {
+          element = element[String(key)];
+        } else {
+          throw new Error(
+            `Cannot follow path through non-array / non-object: ${JSONN.stringify(path)}`
+          );
+        }
+      } else if (
+        element !== null &&
+        typeof element === "object" &&
+        !Array.isArray(element)
+      ) {
+        delete element[String(key)];
+      } else {
+        throw new Error(
+          `Cannot delete a non-object member: ${JSONN.stringify(path)}`
+        );
+      }
+    }
+    return value;
+  } // fn: deleteObjectPropertyInPlace
 
   /**
    * Checks for `null` without raising type warnings.

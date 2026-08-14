@@ -96,4 +96,46 @@ describe("fuzzer/analysis/typescript/ArgDefValidator:", () => {
     ).toBe(true);
     expect(ArgDefValidator.validate([[1], [1]], uniqueMatrixDef)).toBe(false);
   });
+
+  it("rejects duplicate object array elements when dimsUnique is enabled", () => {
+    const uniqueObjects = makeArgDef(
+      dummyModule,
+      "objects",
+      0,
+      ArgTag.OBJECT,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      1,
+      false,
+      [makeTypeRef(dummyModule, "a", ArgTag.LITERAL, 0, true, [], undefined, 1)]
+    );
+
+    expect(ArgDefValidator.validate([{ a: 1 }, { a: 1 }], uniqueObjects)).toBe(
+      false
+    );
+  });
+
+  it("rejects present but undefined optional object members", () => {
+    const uniqueObjects = makeArgDef(
+      dummyModule,
+      "objects",
+      0,
+      ArgTag.OBJECT,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      1,
+      false,
+      [makeTypeRef(dummyModule, "a", ArgTag.LITERAL, 0, true, [], undefined, 1)]
+    );
+
+    expect(
+      ArgDefValidator.validate([{ a: undefined }, {}], uniqueObjects)
+    ).toBe(false);
+  });
 });

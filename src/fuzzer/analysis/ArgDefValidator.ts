@@ -89,13 +89,14 @@ export class ArgDefValidator {
             for (const c of children) {
               const name = c.getName();
               const childValue = value[name];
+              const hasChildValue = Object.hasOwn(value, name);
               const isNoInput = c.isNoInput();
               const isOptional = c.isOptional();
               let valid = false; // assume invalid & look for cases of validity
-              if (isNoInput && childValue === undefined) {
+              if (isNoInput && !hasChildValue) {
                 valid = true;
               }
-              if (!valid && isOptional && childValue === undefined) {
+              if (!valid && isOptional && !hasChildValue) {
                 valid = true;
               }
               if (

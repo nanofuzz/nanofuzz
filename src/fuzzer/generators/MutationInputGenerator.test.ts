@@ -1,7 +1,10 @@
 import * as ProgramFactory from "../analysis/ProgramFactory";
+import { RandomInputGenerator } from "./RandomInputGenerator";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
+import { ArgDefValidator } from "../analysis/ArgDefValidator";
+import * as JSONN from "../../Jsonn";
 
 /**
  * Provide a seed to ensure tests are deterministic.
@@ -9,6 +12,52 @@ import { InputAndSource } from "../Types";
 const seed: string = "qwertyuiop";
 
 describe("fuzzer/generator/MutationInputGenerator:", () => {
+  it("dimsUnique object arrays for random and mutation generators", () => {
+    const program = ProgramFactory.fromSource(
+      () => `export function x(obj: { a?: 1 }[]): number { return 1; }`,
+      "typescript"
+    );
+    const specs = program.functionsExported["x"].getArgDefs();
+    specs[0].setOptions({
+      dimLength: [{ min: 2, max: 2 }],
+      dimsUnique: true,
+    });
+    const validator = new ArgDefValidator(specs);
+    const initialInput = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: [{ a: 1 }, {}],
+      },
+    ];
+    const leaderboard = new Leaderboard<InputAndSource>();
+    leaderboard.postScore(
+      {
+        tick: 1,
+        value: initialInput,
+        source: { type: "user" },
+      },
+      1
+    );
+
+    const generators = [
+      new RandomInputGenerator(specs, seed),
+      new MutationInputGenerator(specs, seed, leaderboard),
+    ];
+    for (const generator of generators) {
+      for (let index = 0; index < 100; index++) {
+        const input = generator.next().value;
+        expect(validator.validate(input)).toBeTrue();
+        const array = input[0].value;
+        expect(Array.isArray(array)).toBeTrue();
+        if (Array.isArray(array)) {
+          expect(
+            new Set(array.map((element) => JSONN.stringify(element))).size
+          ).toEqual(array.length);
+        }
+      }
+    }
+  });
+
   /**
    * Regression tests for https://github.com/nanofuzz/nanofuzz/issues/351.
    */
