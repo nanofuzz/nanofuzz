@@ -42,6 +42,79 @@ export class ArgDefMutator {
       value: ArgValueType;
       path: (string | number)[];
     }[] = [];
+    type UniqueDimensionContext = {
+      siblings: ArgValueType[];
+      index: number;
+      pathFromOuter: (string | number)[];
+    };
+    const mutationContexts = new Map<
+      string,
+      {
+        uniqueContexts: UniqueDimensionContext[];
+        requiresUniqueElements: boolean;
+      }
+    >();
+
+    // Clones one unique-array element and applies a descendant replacement
+    // relative to it, leaving the original input untouched for comparison.
+    function replaceInOuterElement(
+      outerElement: ArgValueType,
+      path: (string | number)[],
+      replacement: ArgValueType
+    ): ArgValueType {
+      if (!path.length) return replacement;
+      const clone = structuredClone(outerElement);
+      ArgDefMutator._mutateValueInPlace(
+        [{ tag: "ArgValueTypeWrapped", value: clone }],
+        [0, "value", ...path],
+        replacement
+      );
+      return clone;
+    }
+
+    // Reject proposals that duplicate an element in this or any enclosing
+    // dimsUnique array tracked while descending through mutateArray.
+    function preservesUniqueDimensions(mutation: {
+      value: ArgValueType;
+      path: (string | number)[];
+    }): boolean {
+      const context = mutationContexts.get(JSONN.stringify(mutation.path));
+      if (!context) return true;
+
+      if (context.requiresUniqueElements) {
+        if (!Array.isArray(mutation.value)) return false;
+        const serializedValues = mutation.value.map((element) =>
+          JSONN.stringify(element)
+        );
+        if (new Set(serializedValues).size !== serializedValues.length) {
+          return false;
+        }
+      }
+
+      return context.uniqueContexts.every((uniqueContext) => {
+        const outerElement = replaceInOuterElement(
+          uniqueContext.siblings[uniqueContext.index],
+          uniqueContext.pathFromOuter,
+          mutation.value
+        );
+        const serializedOuterElement = JSONN.stringify(outerElement);
+        return !uniqueContext.siblings.some(
+          (sibling, index) =>
+            index !== uniqueContext.index &&
+            JSONN.stringify(sibling) === serializedOuterElement
+        );
+      });
+    }
+
+    function addMutations(
+      proposedMutations: {
+        name: string;
+        value: ArgValueType;
+        path: (string | number)[];
+      }[]
+    ): void {
+      mutations.push(...proposedMutations.filter(preservesUniqueDimensions));
+    }
 
     // Utility function that determines mutators appropriate
     // for a given array of values and ArgDef spec.
@@ -49,14 +122,19 @@ export class ArgDefMutator {
       a: Array<ArgValueType>,
       path: (string | number)[],
       spec: ArgDef,
-      level = 1
+      level = 1,
+      uniqueContexts: UniqueDimensionContext[] = []
     ): void => {
       const options = spec.getOptions();
+      mutationContexts.set(JSONN.stringify(path), {
+        uniqueContexts,
+        requiresUniqueElements: level === 1 && options.dimsUnique,
+      });
 
       // Re-arrange elements if multiple elements are present
       if (a.length > 1) {
-        mutations.push(
-          ...[
+        addMutations(
+          [
             {
               name: "array-jumble",
               value: [...a].sort(() => 0.5 - prng()),
@@ -77,8 +155,8 @@ export class ArgDefMutator {
         // when that terminal dimension is not full
         if (level === spec.getDim()) {
           // terminal dimension: add a value
-          mutations.push(
-            ...[
+          addMutations(
+            [
               {
                 name: "array-appendNewElement",
                 value: [
@@ -100,11 +178,23 @@ export class ArgDefMutator {
 
       // Process each element in this level of the array
       for (const i in a) {
-        mutations.push(
-          ...[
+        const index = Number(i);
+        const childUniqueContexts = uniqueContexts.map((context) => ({
+          ...context,
+          pathFromOuter: [...context.pathFromOuter, index],
+        }));
+        if (level === 1 && options.dimsUnique) {
+          childUniqueContexts.push({
+            siblings: a,
+            index,
+            pathFromOuter: [],
+          });
+        }
+        addMutations(
+          [
             {
               name: `array-deleteElement${i}`,
-              value: [...a.filter((v, j) => Number(i) !== j)],
+              value: [...a.filter((_v, j) => index !== j)],
               path: [...path],
             },
           ].filter(
@@ -115,13 +205,20 @@ export class ArgDefMutator {
         );
 
         if (Array.isArray(a[i]) && level < spec.getDim()) {
-          mutateArray(a[i], [...path, Number(i)], spec, level + 1);
+          mutateArray(
+            a[i],
+            [...path, index],
+            spec,
+            level + 1,
+            childUniqueContexts
+          );
         } else {
           subInputs.push({
             subPath: [...path, Number(i)],
             subElement: a[i],
             subSpec: spec,
             inArray: true,
+            uniqueContexts: childUniqueContexts,
           });
         }
       }
@@ -133,12 +230,14 @@ export class ArgDefMutator {
       subElement: ArgValueType;
       subSpec: ArgDef;
       inArray: boolean;
+      uniqueContexts: UniqueDimensionContext[];
     }[] = value.map((e, i) => {
       return {
         subPath: [Number(i), "value"],
         subElement: e.value,
         subSpec: specs[i],
         inArray: false,
+        uniqueContexts: [],
       };
     }); // fn: subInputs
 
@@ -147,19 +246,29 @@ export class ArgDefMutator {
       const subInput = subInputs[i];
       const spec = subInput.subSpec;
       const options = spec.getOptions();
+      mutationContexts.set(JSONN.stringify(subInput.subPath), {
+        uniqueContexts: subInput.uniqueContexts,
+        requiresUniqueElements: false,
+      });
 
       // Handle array dimensions
       if (spec.getDim() && !subInput.inArray) {
         if (Array.isArray(subInput.subElement)) {
-          mutateArray(subInput.subElement, [...subInput.subPath], spec);
+          mutateArray(
+            subInput.subElement,
+            [...subInput.subPath],
+            spec,
+            1,
+            subInput.uniqueContexts
+          );
         }
       } else if (!spec.isNoInput()) {
         // Determine mutations according to ArgDef types
         switch (spec.getType()) {
           case ArgTag.NUMBER: {
             const value = Number(subInput.subElement);
-            mutations.push(
-              ...[
+            addMutations(
+              [
                 {
                   name: "number-plusOne",
                   value: value + 1,
@@ -211,8 +320,8 @@ export class ArgDefMutator {
             const charSet = options.strCharset;
             const rChar = charSet[Math.floor(prng() * (charSet.length - 1))];
 
-            mutations.push(
-              ...[
+            addMutations(
+              [
                 {
                   name: "string-deleteOneChar",
                   value: `${value.slice(0, rPos)}${value.slice(rPos + 1)}`,
@@ -256,8 +365,8 @@ export class ArgDefMutator {
           }
           case ArgTag.BOOLEAN: {
             const value = subInput.subElement;
-            mutations.push(
-              ...[
+            addMutations(
+              [
                 {
                   name: "boolean-setTrue",
                   value: true,
@@ -288,8 +397,8 @@ export class ArgDefMutator {
                 if (c.isOptional()) {
                   const oldValue = value[name];
                   if (value[name] === undefined) {
-                    mutations.push(
-                      ...[
+                    addMutations(
+                      [
                         {
                           name: `optional-genMember`,
                           value: ArgDefGenerator.gen(c, prng),
@@ -302,11 +411,13 @@ export class ArgDefMutator {
                     );
                   } else {
                     // Mutator to delete optional input
-                    mutations.push({
-                      name: "optional-delete",
-                      value: undefined, // !!!!!!! should delete if parent is object
-                      path: [...subInput.subPath, name],
-                    });
+                    addMutations([
+                      {
+                        name: "optional-delete",
+                        value: undefined, // !!!!!!! should delete if parent is object
+                        path: [...subInput.subPath, name],
+                      },
+                    ]);
                   }
                 }
 
@@ -316,6 +427,10 @@ export class ArgDefMutator {
                   subElement: value[name],
                   subSpec: c,
                   inArray: false,
+                  uniqueContexts: subInput.uniqueContexts.map((context) => ({
+                    ...context,
+                    pathFromOuter: [...context.pathFromOuter, name],
+                  })),
                 });
               }
             }
@@ -342,6 +457,7 @@ export class ArgDefMutator {
                 subSpec:
                   validChildren[Math.floor(prng() * validChildren.length)],
                 inArray: false,
+                uniqueContexts: subInput.uniqueContexts,
               });
             }
 
@@ -355,8 +471,8 @@ export class ArgDefMutator {
                 inputOkChildren[Math.floor(prng() * inputOkChildren.length)],
                 prng
               );
-              mutations.push(
-                ...[
+              addMutations(
+                [
                   {
                     name: `union-regenFromSpec`,
                     value: newValue,
@@ -381,8 +497,8 @@ export class ArgDefMutator {
                 if (c.isOptional()) {
                   const oldValue = value[i];
                   if (value[i] === undefined) {
-                    mutations.push(
-                      ...[
+                    addMutations(
+                      [
                         {
                           name: `optional-genMember`,
                           value: ArgDefGenerator.gen(c, prng),
@@ -395,11 +511,13 @@ export class ArgDefMutator {
                     );
                   } else {
                     // Mutator to delete optional input
-                    mutations.push({
-                      name: "optional-delete",
-                      value: undefined, // !!!!!!! should delete if parent is object
-                      path: [...subInput.subPath, i],
-                    });
+                    addMutations([
+                      {
+                        name: "optional-delete",
+                        value: undefined, // !!!!!!! should delete if parent is object
+                        path: [...subInput.subPath, i],
+                      },
+                    ]);
                   }
                 }
 
@@ -409,6 +527,12 @@ export class ArgDefMutator {
                   subElement: value[i],
                   subSpec: c,
                   inArray: false,
+                  // Preserve the route from each unique outer element to this
+                  // tuple member for descendant mutation comparisons.
+                  uniqueContexts: subInput.uniqueContexts.map((context) => ({
+                    ...context,
+                    pathFromOuter: [...context.pathFromOuter, i],
+                  })),
                 });
               }
             }

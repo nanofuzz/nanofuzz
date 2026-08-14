@@ -386,6 +386,7 @@ const nArray = (
     elementLoop: for (let i = 0; i < thisDim; i++) {
       let attempts = 0;
       while (true) {
+        // TODO: generate unique by construction when dims>0 && dimUnique
         const value = nArray(prng, genFn, rest, options, currDepth + 1);
         if (!seen) {
           newArray[i] = value;
@@ -399,10 +400,9 @@ const nArray = (
           continue elementLoop;
         }
 
-        attempts++;
-        if (attempts > 100) {
+        if (++attempts > 100) {
           if (newArray.length >= dim.min) {
-            break elementLoop;
+            break elementLoop; // return if it satisfies the min length constraint
           }
           throw new Error("Unable to generate a unique array element");
         }

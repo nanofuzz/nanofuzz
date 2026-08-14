@@ -489,6 +489,95 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     ).toThrowError("Unable to generate a unique array element");
   });
 
+  it("dimsUnique: mutators preserve outer-dimension uniqueness", () => {
+    const spec = new ArgDef(
+      "uniqueNumbers",
+      0,
+      ArgTag.NUMBER,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      1,
+      false,
+      [{ min: 1, max: 2 }]
+    );
+    const input = [{ tag: "ArgValueTypeWrapped" as const, value: [1, 2] }];
+    const validator = new ArgDefValidator([spec]);
+    const mutations = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("dimsUniqueMutations")
+    );
+
+    expect(mutations.length).toBeGreaterThan(0);
+    for (let index = 0; index < mutations.length; index++) {
+      // Mutator functions may run only once per set, so rebuild the same
+      // proposal set for a fresh candidate before testing each mutation.
+      const candidate = JSONN.parse<typeof input>(JSONN.stringify(input));
+      const candidateMutations = ArgDefMutator.getMutators(
+        [spec],
+        candidate,
+        seedrandom("dimsUniqueMutations")
+      );
+      candidateMutations[index].fn();
+      expect(validator.validate(candidate)).toBeTrue();
+    }
+  });
+
+  it("dimsUnique: mutators preserve uniqueness for nested arrays", () => {
+    const spec = new ArgDef(
+      "settings",
+      0,
+      ArgTag.OBJECT,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      0,
+      false,
+      undefined,
+      [
+        new ArgDef(
+          "values",
+          0,
+          ArgTag.NUMBER,
+          {
+            ...argOptions,
+            dimsUnique: true,
+            dimLength: [{ min: 2, max: 2 }],
+          },
+          1
+        ),
+      ]
+    );
+    const input = [
+      { tag: "ArgValueTypeWrapped" as const, value: { values: [1, 2] } },
+    ];
+    const validator = new ArgDefValidator([spec]);
+    const mutations = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("nestedDimsUniqueMutations")
+    );
+
+    expect(mutations.length).toBeGreaterThan(0);
+    for (let index = 0; index < mutations.length; index++) {
+      // Mutator functions may run only once per set, so rebuild the same
+      // proposal set for a fresh candidate before testing each mutation.
+      const candidate = JSONN.parse<typeof input>(JSONN.stringify(input));
+      const candidateMutations = ArgDefMutator.getMutators(
+        [spec],
+        candidate,
+        seedrandom("nestedDimsUniqueMutations")
+      );
+      candidateMutations[index].fn();
+      expect(validator.validate(candidate)).toBeTrue();
+    }
+  });
+
   /**
    * This test generates random ArgDef specs, generates
    * and mutates inputs from those specs, and validates
@@ -510,9 +599,13 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     const failingSpecs: string[] = [];
     const failingMutators: { [k: string]: number } = {};
     const dupeMutators: { [k: string]: number } = {};
+    let uniqueDimensionSpecs = 0;
     let i = 50;
     while (i--) {
       const spec = [getRandomArgDef(prng, Math.floor(prng() * 2))];
+      if (spec[0].getDim() > 0 && spec[0].getOptions().dimsUnique) {
+        uniqueDimensionSpecs++;
+      }
       const stxt = abbrSpec(spec[0]).join("\r\n");
       const gen = new ArgDefGenerator(spec, prng);
       const val = new ArgDefValidator(spec);
@@ -611,6 +704,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
 
     expect(stats.gens.valid).not.toBe(0);
     expect(stats.gens.invalid).toBe(0);
+    expect(uniqueDimensionSpecs).not.toBe(0);
 
     expect(stats.muts.valid).not.toBe(0);
     expect(stats.muts.dupe).toBe(0);
@@ -625,6 +719,7 @@ function abbrSpec(spec: ArgDef, indents = 0): string[] {
   line.push(space);
   line.push(`${spec.getName()}:${TypescriptProgram.getTypeAnnotation(spec)}`);
   line.push(`dims: ${JSONN.stringify(spec.getOptions().dimLength)}`);
+  if (spec.getOptions().dimsUnique) line.push(`DIMS_UNIQUE`);
   if (spec.isNoInput()) line.push(`NOINPUT`);
   if (spec.isOptional()) line.push(`OPTIONAL`);
   if (spec.getType() === ArgTag.NUMBER && spec.getOptions().numInteger)
@@ -732,6 +827,7 @@ function getRandomArgDef(
   const name = "abcdefghijklmnopqrstuvwxyz".split("")[Math.floor(prng() * 25)];
   let options: ArgOptions = {
     ...argOptions,
+    dimsUnique: dims.dims > 0 && prng() > 0.5,
     isNoInput:
       (parentType === ArgTag.OBJECT || parentType === ArgTag.UNION) &&
       prng() > 0.5,
