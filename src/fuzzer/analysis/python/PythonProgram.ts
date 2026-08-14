@@ -816,7 +816,7 @@ export class PythonProgram extends AbstractProgram {
       case ArgTag.UNION:
       case ArgTag.TUPLE: {
         const children = this._getChildrenFromNode(typeNode);
-        // Collapse unions of a single value 
+        // Collapse unions of a single value
         if (type === ArgTag.UNION && children.length === 1) {
           const child = children[0];
           thisType.dims = child.dims;
@@ -1344,7 +1344,9 @@ export class PythonProgram extends AbstractProgram {
         const listArg = argsNode?.namedChildren[0];
         const sampledTypes: TypeRef[] = [];
 
-        const getSampledType = (valueNode: Parser.Node): TypeRef | undefined => {
+        const getSampledType = (
+          valueNode: Parser.Node
+        ): TypeRef | undefined => {
           const literalValue = parseLiteral(valueNode);
           if (isArgType(literalValue)) {
             return {
@@ -1363,7 +1365,9 @@ export class PythonProgram extends AbstractProgram {
           }
           if (valueNode.type === "tuple") {
             const children = valueNode.namedChildren.map(getSampledType);
-            if (children.every((child): child is TypeRef => child !== undefined)) {
+            if (
+              children.every((child): child is TypeRef => child !== undefined)
+            ) {
               return {
                 module: this._filename,
                 dims: 0,
@@ -1415,9 +1419,7 @@ export class PythonProgram extends AbstractProgram {
             if (sampledType !== undefined) {
               sampledTypes.push(sampledType);
             } else {
-              console.warn(
-                `Unsupported value in '${funcName}': ${item.text}.`
-              );
+              console.warn(`Unsupported value in '${funcName}': ${item.text}.`);
             }
           }
         }
