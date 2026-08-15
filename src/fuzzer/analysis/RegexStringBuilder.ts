@@ -5,7 +5,8 @@ type RegexNode =
   | { type: "chars"; chars: string[] }
   | { type: "sequence"; nodes: RegexNode[] }
   | { type: "choice"; nodes: RegexNode[] }
-  | { type: "repeat"; node: RegexNode; min: number; max: number };
+  | { type: "repeat"; node: RegexNode; min: number; max: number }
+  | { type: "assertion"; kind: "wordBoundary" | "nonWordBoundary" };
 
 /**
  * Builds a structural string generator for the supported regular-expression
@@ -79,13 +80,27 @@ export const create = (
       return parseClass();
     }
     if (char === "(") {
-      if (source[index] === "?") fail("special group");
+      // Capturing and non-capturing groups have identical generation
+      // semantics. Other `(?...)` forms remain unsupported because they
+      // affect matching without consuming text.
+      if (source[index] === "?") {
+        if (source[index + 1] !== ":") fail("special group");
+        index += 2;
+      }
       const node = parseChoice();
       if (source[index++] !== ")") fail("unclosed group");
       return node;
     }
-    if (char === "\\")
-      return { type: "chars", chars: charsForEscape(source[index++]) };
+    if (char === "\\") {
+      const escaped = source[index++];
+      if (escaped === "b") {
+        return { type: "assertion", kind: "wordBoundary" };
+      }
+      if (escaped === "B") {
+        return { type: "assertion", kind: "nonWordBoundary" };
+      }
+      return { type: "chars", chars: charsForEscape(escaped) };
+    }
     if (char === ".")
       return { type: "chars", chars: options.strCharset.split("") };
     if ("^$|)*+?{}]".includes(char)) fail(`token '${char}'`);
@@ -152,6 +167,7 @@ export const create = (
         return node.nodes.map(generate).join("");
       case "choice":
         return generate(node.nodes[Math.floor(prng() * node.nodes.length)]);
+      case "assertion": return "";
       case "repeat": {
         const count = node.min + Math.floor(prng() * (node.max - node.min + 1));
         return Array.from({ length: count }, () => generate(node.node)).join(

@@ -14,16 +14,24 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
       "\\A[a-zA-Z_][a-zA-Z0-9_]{0,4}\\Z",
       // Animal label
       "\\A(cat|dog)-\\d{2}\\Z",
+      // Whole word
+      "\\A\\b[a-z]+\\b\\Z",
+      // Whole non-word character
+      "\\A\\B \\B\\Z",
       // Hexadecimal CSS color
       "\\A#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})\\Z",
       // IPv4-like address
       "\\A\\d+\\.\\d+\\.\\d+\\.\\d+\\Z",
-      // GitHub profile URL
-      "\\Ahttps?://(www\\.)?github\\.com/[A-Za-z0-9]+\\Z",
-      // Twitter status URL
-      "\\Ahttps?://twitter\\.com/[A-Za-z0-9_]+/status/[0-9]+\\Z",
+      // Precise IPv4 address
+      "\\A((?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))*\\Z",
+      // GitHubris profile URL
+      "\\Ahttps?://(www\\.)?githubris\\.com/[A-Za-z0-9]+\\Z",
+      // Jitter status URL
+      "\\Ahttps?://jitter\\.com/[A-Za-z0-9_]+/status/[0-9]+\\Z",
       // Simplified email address
       "\\A[a-zA-Z0-9._-]+@[a-zA-Z0-9-]+\\.[a-zA-Z]{2,}\\Z",
+      // RFC-1123 email address
+      "\\A[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\\Z",
       // RGB CSS color
       "\\Argb\\(\\s*(\\d|[1-9]\\d|1\\d\\d|2[0-5])\\s*,\\s*(\\d|[1-9]\\d|1\\d\\d|2[0-5])\\s*,\\s*(\\d|[1-9]\\d|1\\d\\d|2[0-5])\\s*\\)\\Z",
     ];
@@ -33,12 +41,23 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
      * until their regex features are supported by NaNofuzz's structural
      * builder:
      *
-     * // CSS color and precise IPv4: unsupported non-capturing groups (?:...).
-     * // IPv6: unsupported non-capturing groups and word-boundary assertions.
-     * // RFC-1123 email: unsupported non-capturing groups (?:...).
-     * // RFC-5322 email: unsupported negated character classes [^...].
-     * // General URL: unsupported character-class forms.
-     * // Emojis and non-emojis: unsupported Unicode property escapes \p and \P.
+    * // CSS color: /^(?:#|0x)(?:[a-f0-9]{3}|[a-f0-9]{6})$|^(?:rgb|hsl)a?\([^)]*\)$/
+    * // Unsupported: negated character classes [^...].
+    *
+    * // IPv6: /^((([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4})|...|(([0-9A-Fa-f]{1,4}:){1,7}:))$/
+    * // Unsupported: the full fast-check IPv6 expression requires additional
+    * // structural features beyond the currently supported subset.
+    *
+    * // RFC-5322 email: /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+    * // Unsupported: negated character classes [^...].
+    *
+    * // General URL: /^(((http|https|ftp):\/\/)?([[a-zA-Z0-9]-\.])+(\.)([[a-zA-Z0-9]]){2,4}([[a-zA-Z0-9]\/+%&_\.~?-]*))*$/
+    * // Unsupported: the original uses character-class forms outside the
+    * // currently supported parser subset.
+    *
+    * // Emojis: /^\p{Emoji}+$/u
+    * // Non-emojis: /^\P{Emoji}+$/u
+    * // Unsupported: Unicode property escapes.
      */
 
     for (const regex of regexes) {
