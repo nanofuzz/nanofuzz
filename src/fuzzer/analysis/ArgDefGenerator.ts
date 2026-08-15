@@ -46,14 +46,18 @@ export class ArgDefGenerator {
    * @param `spec` ArgDef spec that describes the shape of the values
    * @param `prng` pseudo random number generator
    * @param `genDims` generate array dimensions? (default: `true`)
+   * @param `allowOptional` permit optional arguments to generate undefined? (default: `true`)
+   *        E.g., ArgDefMutator sets this to `false` to force generation of a new value
+   *        for an optional object member that was previously missing.
    * @returns value that conforms to the ArgDef specs
    */
   public static gen(
     spec: ArgDef,
     prng: seedrandom.prng,
-    genDims = true
+    genDims = true,
+    allowOptional = true
   ): ArgValueType {
-    return generateRandomInputFn(spec, prng, genDims)();
+    return generateRandomInputFn(spec, prng, genDims, allowOptional)();
   }
 } // class: ArgDefGenerator
 
@@ -74,6 +78,8 @@ type PublicRandFn = () => ArgValueType;
  *
  * @param `arg` the argument definition for which to generate an input
  * @param `prng` pseudo-random number generator
+ * @param `genDims` whether to generate dimensions for array arguments
+ * @param `allowOptional` whether optional arguments may generate undefined
  * @returns a function that generates pseudo-random input values
  *
  * Throws an exception if the argument type is not supported.
@@ -83,8 +89,9 @@ type PublicRandFn = () => ArgValueType;
 function generateRandomInputFn(
   arg: ArgDef,
   prng: seedrandom.prng,
-  genDims = true /* true=generate array dimensions if present;
+  genDims = true, /* true=generate array dimensions if present;
                     false=generate only the value */
+  allowOptional = true
 ): PublicRandFn {
   let randFn: PrivateRandFn;
 
@@ -214,7 +221,7 @@ function generateRandomInputFn(
 
   // Inject undefined values into arg only if it is optional
   // and we are not generating values inside an array
-  return isOptional && genDims
+  return isOptional && genDims && allowOptional
     ? () => {
         if (prng() >= 0.5) return undefined;
         else return randArgValueWrapper();

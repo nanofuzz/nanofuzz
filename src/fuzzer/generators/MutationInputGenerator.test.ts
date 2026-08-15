@@ -1,9 +1,13 @@
 import * as ProgramFactory from "../analysis/ProgramFactory";
+import seedrandom from "seedrandom";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
+import { ArgDefMutator } from "../analysis/ArgDefMutator";
+import { ArgDef } from "../analysis/ArgDef";
+import { ArgTag } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
 
 /**
@@ -56,6 +60,67 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
         }
       }
     }
+  });
+
+  it("maintains spec order when re-adding optional object members", () => {
+    // `a` must be inserted before `b` when it is re-added, regardless of
+    // insertion history, so that we can do simple comparisons by serialization.
+    const optionalA = new ArgDef(
+      "a",
+      0,
+      ArgTag.NUMBER,
+      ArgDef.getDefaultOptions(),
+      0,
+      true,
+      [{ min: 1, max: 1 }]
+    );
+    const optionalB = new ArgDef(
+      "b",
+      1,
+      ArgTag.NUMBER,
+      ArgDef.getDefaultOptions(),
+      0,
+      true,
+      [{ min: 1, max: 1 }]
+    );
+    const specs = [
+      new ArgDef(
+        "obj",
+        0,
+        ArgTag.OBJECT,
+        {
+          ...ArgDef.getDefaultOptions(),
+          dimLength: [{ min: 2, max: 2 }],
+          dimsUnique: false,
+        },
+        1,
+        false,
+        undefined,
+        [optionalA, optionalB]
+      ),
+    ];
+    // Re-adding `a` to the second object would otherwise append it after `b`.
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: [{ a: 1, b: 1 }, { b: 1 }],
+      },
+    ];
+    const mutators = ArgDefMutator.getMutators(specs, input, seedrandom(seed));
+    const mutation = mutators.find(
+      (candidate) => candidate.name === "optional-genMember"
+    );
+
+    expect(mutation).toBeDefined();
+    mutation?.fn();
+    const array = input[0].value;
+    expect(Array.isArray(array)).toBeTrue();
+    if (!Array.isArray(array)) return;
+    // The mutator must restore the declaration order, not append `a` after `b`.
+    expect(Object.keys(array[1])).toEqual(["a", "b"]);
+    // With canonical key order, the duplicate object is visible to dimsUnique.
+    specs[0].setOptions({ dimsUnique: true });
+    expect(new ArgDefValidator(specs).validate(input)).toBeFalse();
   });
 
   /**

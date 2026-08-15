@@ -42,6 +42,7 @@ export class ArgDefMutator {
       value: ArgValueType;
       path: (string | number)[];
       deleteProperty?: boolean;
+      objectKeyOrder?: string[];
     };
     const mutations: MutationProposal[] = [];
     type UniqueDimensionContext = {
@@ -63,7 +64,8 @@ export class ArgDefMutator {
       outerElement: ArgValueType,
       path: (string | number)[],
       replacement: ArgValueType,
-      deleteProperty = false
+      deleteProperty = false,
+      objectKeyOrder?: string[]
     ): ArgValueType {
       if (!path.length) return replacement;
       const clone = structuredClone(outerElement);
@@ -82,6 +84,13 @@ export class ArgDefMutator {
           [0, "value", ...path],
           replacement
         );
+        if (objectKeyOrder) {
+          ArgDefMutator._orderObjectPropertiesInPlace(
+            wrappedClone,
+            [0, "value", ...path],
+            objectKeyOrder
+          );
+        }
       }
       return clone;
     }
@@ -107,7 +116,8 @@ export class ArgDefMutator {
           uniqueContext.siblings[uniqueContext.index],
           uniqueContext.pathFromOuter,
           mutation.value,
-          mutation.deleteProperty
+          mutation.deleteProperty,
+          mutation.objectKeyOrder
         );
         const serializedOuterElement = JSONN.stringify(outerElement);
         return !uniqueContext.siblings.some(
@@ -399,6 +409,7 @@ export class ArgDefMutator {
               for (const c of children) {
                 const name = c.getName();
                 const childPath = [...subInput.subPath, name];
+                const childKeyOrder = children.map((child) => child.getName());
                 const childUniqueContexts = subInput.uniqueContexts.map(
                   (context) => ({
                     ...context,
@@ -418,8 +429,9 @@ export class ArgDefMutator {
                       [
                         {
                           name: `optional-genMember`,
-                          value: ArgDefGenerator.gen(c, prng),
+                          value: ArgDefGenerator.gen(c, prng, true, false),
                           path: childPath,
+                          objectKeyOrder: childKeyOrder,
                         },
                       ].filter(
                         (e) =>
@@ -528,7 +540,7 @@ export class ArgDefMutator {
                       [
                         {
                           name: `optional-genMember`,
-                          value: ArgDefGenerator.gen(c, prng),
+                          value: ArgDefGenerator.gen(c, prng, true, false),
                           path: childPath,
                         },
                       ].filter(
@@ -587,7 +599,15 @@ export class ArgDefMutator {
             if (e.deleteProperty) {
               return this._deleteObjectPropertyInPlace(value, e.path);
             }
-            return this._mutateValueInPlace(value, e.path, e.value);
+            const result = this._mutateValueInPlace(value, e.path, e.value);
+            if (e.objectKeyOrder) {
+              this._orderObjectPropertiesInPlace(
+                value,
+                e.path,
+                e.objectKeyOrder
+              );
+            }
+            return result;
           }
         },
       };
@@ -687,6 +707,39 @@ export class ArgDefMutator {
     }
     return value;
   } // fn: deleteObjectPropertyInPlace
+
+  /** Reorders an object's existing keys to match the defining ArgDef order. */
+  protected static _orderObjectPropertiesInPlace(
+    value: ArgValueTypeWrapped[],
+    path: (number | string)[],
+    keyOrder: string[]
+  ): void {
+    let parent: ArgValueType = value;
+    for (const step in path.slice(0, -1)) {
+      const key = path[Number(step)];
+      if (Array.isArray(parent)) {
+        parent = parent[Number(key)];
+      } else if (parent !== null && typeof parent === "object") {
+        parent = parent[String(key)];
+      } else {
+        throw new Error(`Cannot order object properties: ${JSONN.stringify(path)}`);
+      }
+    }
+    if (parent === null || typeof parent !== "object" || Array.isArray(parent)) {
+      throw new Error(`Cannot order non-object properties: ${JSONN.stringify(path)}`);
+    }
+
+    const values = new Map(
+      Object.entries(parent).map(([key, propertyValue]) => [key, propertyValue])
+    );
+    for (const key of Object.keys(parent)) delete parent[key];
+    for (const key of keyOrder) {
+      if (values.has(key)) parent[key] = values.get(key);
+    }
+    for (const [key, propertyValue] of values) {
+      if (!(key in parent)) parent[key] = propertyValue;
+    }
+  } // fn: orderObjectPropertiesInPlace
 
   /**
    * Checks for `null` without raising type warnings.
