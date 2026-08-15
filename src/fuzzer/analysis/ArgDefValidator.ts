@@ -66,11 +66,18 @@ export class ArgDefValidator {
           );
         }
         case ArgTag.STRING: {
+          const regex =
+            options.strRegex === undefined
+              ? undefined
+              : new RegExp(
+                  options.strRegex.replace(/^\\A/, "^").replace(/\\Z$/, "$")
+                );
           return (
             typeof value === "string" &&
             value.length <= options.strLength.max &&
             value.length >= options.strLength.min &&
-            value.split("").every((e) => options.strCharset.includes(e))
+            value.split("").every((e) => options.strCharset.includes(e)) &&
+            (regex === undefined || regex.test(value))
           );
         }
         case ArgTag.BOOLEAN: {
