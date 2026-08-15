@@ -128,6 +128,7 @@ export type ArgOptions = {
   // For type string
   strCharset: string; // string representing the characters allowed in the input
   strLength: Interval<number>; // length of characters allowed in the input
+  strRegex: string | undefined; // regular expression the input must match
 
   // For type number
   numInteger: boolean; // true if the numeric argument input is an integer
@@ -164,6 +165,7 @@ export type ArgOptionOverride = {
   dimsUnique?: boolean;
   strLength?: Interval<number>;
   strCharset?: string;
+  strRegex?: string;
   children?: ArgOptionOverrides;
   isNoInput?: boolean;
 };

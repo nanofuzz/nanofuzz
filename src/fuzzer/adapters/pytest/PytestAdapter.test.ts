@@ -5,6 +5,7 @@ import { ArgOptions, ArgTag } from "../../analysis/Types";
 const argDefaults: ArgOptions = {
   strCharset: "abc",
   strLength: { min: 0, max: 3 },
+  strRegex: undefined,
   numInteger: true,
   anyType: ArgTag.NUMBER,
   anyDims: 0,

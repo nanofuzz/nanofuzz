@@ -496,6 +496,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         min: Config.get("nanofuzz.argdef.strLength.min", DFT_STR_LENGTH.min),
         max: Config.get("nanofuzz.argdef.strLength.max", DFT_STR_LENGTH.max),
       },
+      strRegex: undefined,
 
       // Numeric defaults
       numInteger: Config.get<boolean>("nanofuzz.argdef.numInteger", true),
