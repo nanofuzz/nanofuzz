@@ -1,5 +1,6 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "./ArgDef";
+import * as RegexStringBuilder from "./RegexStringBuilder";
 import * as JSONN from "../../Jsonn";
 import {
   ArgTag,
@@ -89,8 +90,8 @@ type PublicRandFn = () => ArgValueType;
 function generateRandomInputFn(
   arg: ArgDef,
   prng: seedrandom.prng,
-  genDims = true, /* true=generate array dimensions if present;
-                    false=generate only the value */
+  genDims = true /* true=generate array dimensions if present;
+                    false=generate only the value */,
   allowOptional = true
 ): PublicRandFn {
   let randFn: PrivateRandFn;
@@ -184,6 +185,10 @@ function generateRandomInputFn(
   const options = arg.getOptions();
   const dimLength = arg.getOptions().dimLength;
   const isOptional = arg.isOptional();
+  const regexGenerator =
+    type === ArgTag.STRING && options.strRegex !== undefined
+      ? RegexStringBuilder.create(options.strRegex, prng, options)
+      : undefined;
 
   // Callback fn to generate value
   const randFnWrapper: PublicRandFn = () => {
@@ -199,6 +204,7 @@ function generateRandomInputFn(
       }
     }
     if (type === ArgTag.LITERAL && !intervals.length) return undefined;
+    if (regexGenerator) return regexGenerator();
 
     // TODO: weight interval selection based on the size of the interval !!!
     const interval =

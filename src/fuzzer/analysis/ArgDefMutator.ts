@@ -1,6 +1,7 @@
 import { ArgDef } from "./ArgDef";
 import { ArgDefGenerator } from "./ArgDefGenerator";
 import { ArgDefValidator } from "./ArgDefValidator";
+import * as RegexStringBuilder from "./RegexStringBuilder";
 import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
 import * as JSONN from "../../Jsonn";
 
@@ -332,6 +333,31 @@ export class ArgDefMutator {
           }
           case ArgTag.STRING: {
             const value = String(subInput.subElement);
+            if (options.strRegex !== undefined) {
+              const regenerated = RegexStringBuilder.create(
+                options.strRegex,
+                prng,
+                options
+              )();
+              addMutations(
+                [
+                  {
+                    name: "regex-regenerate",
+                    value: regenerated,
+                    path: [...subInput.subPath],
+                  },
+                ].filter(
+                  (proposal) =>
+                    proposal.value !== value &&
+                    proposal.value.length <= options.strLength.max &&
+                    proposal.value.length >= options.strLength.min &&
+                    proposal.value
+                      .split("")
+                      .every((char) => options.strCharset.includes(char))
+                )
+              );
+              break;
+            }
             const rPos = Math.floor(prng() * Math.max(0, value.length - 1));
             const charSet = options.strCharset;
             const rChar = charSet[Math.floor(prng() * (charSet.length - 1))];

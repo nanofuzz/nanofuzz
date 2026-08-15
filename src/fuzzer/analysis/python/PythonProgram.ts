@@ -1185,6 +1185,35 @@ export class PythonProgram extends AbstractProgram {
         break;
       }
 
+      case "from_regex": {
+        const parsedRegex = parseLiteral(getKwdArg(node, "regex", 0));
+        const alphabet = parseLiteral(getKwdArg(node, "alphabet", 2));
+        const fullmatch = parseLiteral(getKwdArg(node, "fullmatch", 1));
+        if (typeof parsedRegex !== "string") {
+          console.warn(
+            `Unsupported or unrecognized 'from_regex' regex value. Is it compiled?'.`
+          );
+          return undefined;
+        }
+        let regex = parsedRegex;
+        if (fullmatch === true) {
+          if (!regex.startsWith("\\A")) regex = `\\A${regex}`;
+          if (!regex.endsWith("\\Z")) regex = `${regex}\\Z`;
+        }
+
+        thisType.type = {
+          type: ArgTag.STRING,
+          dims: 0,
+          children: [],
+          options: {
+            strRegex: regex,
+            ...(alphabet === undefined ? {} : { strCharset: String(alphabet) }),
+          },
+          resolved: true,
+        };
+        break;
+      }
+
       case "integers": {
         const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
         const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));

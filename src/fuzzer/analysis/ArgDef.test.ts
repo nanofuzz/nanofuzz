@@ -616,6 +616,30 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(new ArgDefValidator([spec]).validate(input)).toBeTrue();
   });
 
+  it("mutates regex strings", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "identifier",
+      0,
+      ArgTag.STRING,
+      { ...argOptions, strRegex: "\\A[a-z]{2}\\Z" },
+      0
+    );
+    const input = [{ tag: "ArgValueTypeWrapped" as const, value: "zz" }];
+    const mutations = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("regex-regenerate")
+    );
+
+    expect(mutations.map((mutation) => mutation.name)).toEqual([
+      "regex-regenerate",
+    ]);
+    mutations[0].fn();
+    expect(input[0].value).not.toEqual("zz");
+    expect(new ArgDefValidator([spec]).validate(input)).toBeTrue();
+  });
+
   /**
    * This test generates random ArgDef specs, generates
    * and mutates inputs from those specs, and validates
@@ -638,12 +662,16 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     const failingMutators: { [k: string]: number } = {};
     const dupeMutators: { [k: string]: number } = {};
     let uniqueDimensionSpecs = 0;
+    let regexStringSpecs = 0;
     let i = 100;
     while (i--) {
       const spec = [getRandomArgDef(prng, Math.floor(prng() * 2))];
       if (spec[0].getDim() > 0 && spec[0].getOptions().dimsUnique) {
         uniqueDimensionSpecs++;
       }
+      regexStringSpecs += [spec[0], ...spec[0].getChildrenFlat()].filter(
+        (argument) => argument.getOptions().strRegex !== undefined
+      ).length;
       const stxt = abbrSpec(spec[0]).join("\r\n");
       const gen = new ArgDefGenerator(spec, prng);
       const val = new ArgDefValidator(spec);
@@ -743,6 +771,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(stats.gens.valid).not.toBe(0);
     expect(stats.gens.invalid).toBe(0);
     expect(uniqueDimensionSpecs).not.toBe(0);
+    expect(regexStringSpecs).not.toBe(0);
 
     expect(stats.muts.valid).not.toBe(0);
     expect(stats.muts.dupe).toBe(0);
@@ -758,6 +787,7 @@ function abbrSpec(spec: ArgDef, indents = 0): string[] {
   line.push(`${spec.getName()}:${TypescriptProgram.getTypeAnnotation(spec)}`);
   line.push(`dims: ${JSONN.stringify(spec.getOptions().dimLength)}`);
   if (spec.getOptions().dimsUnique) line.push(`DIMS_UNIQUE`);
+  if (spec.getOptions().strRegex) line.push(`STR_REGEX`);
   if (spec.isNoInput()) line.push(`NOINPUT`);
   if (spec.isOptional()) line.push(`OPTIONAL`);
   if (spec.getType() === ArgTag.NUMBER && spec.getOptions().numInteger)
@@ -892,6 +922,12 @@ function getRandomArgDef(
       options = {
         ...options,
         strLength: { min: Math.floor(prng() * 2), max: 2 },
+        strRegex:
+          prng() < 0.5
+            ? undefined
+            : ["\\A[a-z]{1,2}\\Z", "\\A\\d{2}\\Z", "\\A(a|b)\\Z"][
+                Math.floor(prng() * 3)
+              ],
       };
       break;
     }

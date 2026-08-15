@@ -61,6 +61,21 @@ describe("fuzzer/analysis/typescript/ArgDefValidator:", () => {
     }
   });
 
+  it("Validates strings against strRegex", () => {
+    const regexString = makeArgDef(
+      dummyModule,
+      "identifier",
+      0,
+      ArgTag.STRING,
+      { ...argOptions, strRegex: "\\A[a-z]{2}\\Z" },
+      0
+    );
+
+    expect(ArgDefValidator.validate("ab", regexString)).toBe(true);
+    expect(ArgDefValidator.validate("a", regexString)).toBe(false);
+    expect(ArgDefValidator.validate("a1", regexString)).toBe(false);
+  });
+
   it("Validates outer dimension uniqueness when dimsUnique===true", () => {
     const uniqueArrayDef = makeArgDef(
       dummyModule,

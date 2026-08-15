@@ -880,6 +880,33 @@ def test_example(trigger, dep, trigger_val):
     expect(args[2].getIntervals()).toEqual([{ min: 0, max: 100 }]);
   });
 
+  it("maps Hypothesis from_regex to the string regex option", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+PATTERN = r"[a-zA-Z_][a-zA-Z0-9_]{0,4}"
+FULLMATCH = False
+
+@given(
+    inline=st.from_regex(r"[a-z]+", fullmatch=True),
+    referenced=st.from_regex(PATTERN, alphabet="super"),
+  partial=st.from_regex(r"[0-9]+", fullmatch=FULLMATCH),
+  anchored=st.from_regex(r"\\A[a-z_]\\Z", fullmatch=True)
+)
+def test_regex(inline, referenced, partial, anchored):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_regex"];
+
+    expect(fn.getArgDefs().map((arg) => arg.getOptions().strRegex)).toEqual([
+      "\\A[a-z]+\\Z",
+      "[a-zA-Z_][a-zA-Z0-9_]{0,4}",
+      "[0-9]+",
+      "\\A[a-z_]\\Z",
+    ]);
+    expect(fn.getArgDefs()[1].getOptions().strCharset).toEqual("super");
+  });
+
   it("hypothesis @given positional arguments", () => {
     const fn = ProgramFactory.fromSource(
       () => `

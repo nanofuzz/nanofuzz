@@ -3039,6 +3039,10 @@ ${inArgConsts}
         html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
           arg.getOptions().strCharset
         )}">Character set</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strRegex" name="${idBase}-strRegex" value="${htmlEscape(
+          arg.getOptions().strRegex ?? ""
+        )}">Regex</vscode-text-field>`;
         break;
       }
 
@@ -3606,6 +3610,7 @@ function _applyArgOverrides(
               thisOverride.string.strCharset === ""
                 ? argDefaults.strCharset
                 : thisOverride.string.strCharset,
+            strRegex: thisOverride.string.strRegex,
           });
         }
         break;
