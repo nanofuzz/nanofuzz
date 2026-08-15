@@ -8,6 +8,8 @@ type RegexNode =
   | { type: "repeat"; node: RegexNode; min: number; max: number }
   | { type: "assertion"; kind: "wordBoundary" | "nonWordBoundary" };
 
+type LengthBounds = { min: number; max: number };
+
 /**
  * Builds a structural string generator for the supported regular-expression
  * subset. Unsupported constructs throw before any client input is made.
@@ -158,6 +160,49 @@ export const create = (
   const root = parseChoice();
   if (source[index] === "$") index++;
   if (index !== source.length) fail("trailing input");
+  const boundsFor = (node: RegexNode): LengthBounds => {
+    switch (node.type) {
+      case "chars":
+        return { min: 1, max: 1 };
+      case "assertion":
+        return { min: 0, max: 0 };
+      case "sequence":
+        return node.nodes.reduce(
+          (bounds, child) => {
+            const childBounds = boundsFor(child);
+            return {
+              min: bounds.min + childBounds.min,
+              max: bounds.max + childBounds.max,
+            };
+          },
+          { min: 0, max: 0 }
+        );
+      case "choice": {
+        const childBounds = node.nodes.map(boundsFor);
+        return {
+          min: Math.min(...childBounds.map((bounds) => bounds.min)),
+          max: Math.max(...childBounds.map((bounds) => bounds.max)),
+        };
+      }
+      case "repeat": {
+        const childBounds = boundsFor(node.node);
+        return {
+          min: node.min * childBounds.min,
+          max: node.max * childBounds.max,
+        };
+      }
+    }
+  };
+  const regexBounds = boundsFor(root);
+  const effectiveBounds = {
+    min: Math.max(regexBounds.min, options.strLength.min),
+    max: Math.min(regexBounds.max, options.strLength.max),
+  };
+  if (effectiveBounds.min > effectiveBounds.max) {
+    fail(
+      `length range ${options.strLength.min}-${options.strLength.max} conflicts with regex length ${regexBounds.min}-${regexBounds.max}`
+    );
+  }
   const matcher = new RegExp(source);
   const generate = (node: RegexNode): string => {
     switch (node.type) {
@@ -165,11 +210,16 @@ export const create = (
         return node.chars[Math.floor(prng() * node.chars.length)];
       case "sequence":
         return node.nodes.map(generate).join("");
-      case "choice":
+      case "choice": {
         return generate(node.nodes[Math.floor(prng() * node.nodes.length)]);
+      }
       case "assertion": return "";
       case "repeat": {
-        const count = node.min + Math.floor(prng() * (node.max - node.min + 1));
+        const range = node.max - node.min + 1;
+        // Favor shorter expansions so several unbounded repetitions can still
+        // fit within the effective string-length range.
+        const count =
+          node.min + Math.floor(prng() * prng() * range);
         return Array.from({ length: count }, () => generate(node.node)).join(
           ""
         );
@@ -177,11 +227,18 @@ export const create = (
     }
   };
   return () => {
-    const value = generate(root);
-    if (!matcher.test(value))
-      throw new Error(
-        `Regex generator produced a non-matching string for '${regex}'`
-      );
-    return value;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const value = generate(root);
+      if (
+        value.length >= effectiveBounds.min &&
+        value.length <= effectiveBounds.max &&
+        matcher.test(value)
+      ) {
+        return value;
+      }
+    }
+    throw new Error(
+      `Regex generator could not satisfy the effective length range ${effectiveBounds.min}-${effectiveBounds.max} for '${regex}'`
+    );
   };
 };

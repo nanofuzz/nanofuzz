@@ -9,6 +9,10 @@ const options = ArgDef.getDefaultOptions();
 // (We aspire to be as broadly compatible as fast-check.)
 describe("fuzzer/analysis/RegexStringBuilder:", () => {
   it("generates strings matching supported real-world patterns", () => {
+    const realWorldOptions = {
+      ...options,
+      strLength: { min: 0, max: 256 },
+    };
     const regexes = [
       // Identifier
       "\\A[a-zA-Z_][a-zA-Z0-9_]{0,4}\\Z",
@@ -63,7 +67,11 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
     for (const regex of regexes) {
       const matcher = new RegExp(regex.replace("\\A", "^").replace("\\Z", "$"));
       for (let index = 0; index < 50; index++) {
-        const builder = create(regex, seedrandom(`${regex}:${index}`), options);
+        const builder = create(
+          regex,
+          seedrandom(`${regex}:${index}`),
+          realWorldOptions
+        );
         expect(matcher.test(builder())).toBeTrue();
       }
     }
@@ -73,5 +81,28 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
     expect(() =>
       create("\\A(?=a)a\\Z", seedrandom("unsupported"), options)
     ).toThrowError(/Unsupported string regex/);
+  });
+
+  it("intersects strLength with regex length bounds", () => {
+    const boundedOptions = {
+      ...options,
+      strLength: { min: 3, max: 5 },
+    };
+    const builder = create("\\A[a-z]+\\Z", seedrandom("lengths"), boundedOptions);
+    for (let index = 0; index < 50; index++) {
+      const value = builder();
+      expect(value.length).toBeGreaterThanOrEqual(3);
+      expect(value.length).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it("fails fast for incompatible regex and strLength bounds", () => {
+    expect(() =>
+      create(
+        "\\A[a-z]{6}\\Z",
+        seedrandom("impossible-lengths"),
+        { ...options, strLength: { min: 0, max: 5 } }
+      )
+    ).toThrowError(/conflicts with regex length/);
   });
 });
