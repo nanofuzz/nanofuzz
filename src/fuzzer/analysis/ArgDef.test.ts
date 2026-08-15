@@ -616,6 +616,30 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(new ArgDefValidator([spec]).validate(input)).toBeTrue();
   });
 
+  it("mutates regex strings", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "identifier",
+      0,
+      ArgTag.STRING,
+      { ...argOptions, strRegex: "\\A[a-z]{2}\\Z" },
+      0
+    );
+    const input = [{ tag: "ArgValueTypeWrapped" as const, value: "zz" }];
+    const mutations = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("regex-regenerate")
+    );
+
+    expect(mutations.map((mutation) => mutation.name)).toEqual([
+      "regex-regenerate",
+    ]);
+    mutations[0].fn();
+    expect(input[0].value).not.toEqual("zz");
+    expect(new ArgDefValidator([spec]).validate(input)).toBeTrue();
+  });
+
   /**
    * This test generates random ArgDef specs, generates
    * and mutates inputs from those specs, and validates
