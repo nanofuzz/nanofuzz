@@ -953,6 +953,31 @@ def test_nested(complex_data):
     expect(tagsField?.getDim()).toEqual(1); // st.lists(st.text()) nested inside dict
   });
 
+  it("maps Hypothesis list uniqueness to ArgDef option", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+USE_UNIQUE_VALUES = True
+
+@given(
+    unique_values=st.lists(st.one_of(st.integers(), st.text()), unique=True),
+    duplicate_values=st.lists(st.integers(), unique=False),
+    unconstrained_values=st.lists(st.integers()),
+    referenced_unique_values=st.lists(st.integers(), unique=USE_UNIQUE_VALUES)
+)
+def test_lists(unique_values, duplicate_values, unconstrained_values, referenced_unique_values):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_lists"];
+
+    expect(fn.getArgDefs().map((arg) => arg.getOptions().dimsUnique)).toEqual([
+      true,
+      false,
+      false,
+      true,
+    ]);
+  });
+
   it("hypothesis @given sampled_from", () => {
     const fn = ProgramFactory.fromSource(
       () => `

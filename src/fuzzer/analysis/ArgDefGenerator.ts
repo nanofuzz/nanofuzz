@@ -1,5 +1,6 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "./ArgDef";
+import * as JSONN from "../../Jsonn";
 import {
   ArgTag,
   ArgValueType,
@@ -45,14 +46,18 @@ export class ArgDefGenerator {
    * @param `spec` ArgDef spec that describes the shape of the values
    * @param `prng` pseudo random number generator
    * @param `genDims` generate array dimensions? (default: `true`)
+   * @param `allowOptional` permit optional arguments to generate undefined? (default: `true`)
+   *        E.g., ArgDefMutator sets this to `false` to force generation of a new value
+   *        for an optional object member that was previously missing.
    * @returns value that conforms to the ArgDef specs
    */
   public static gen(
     spec: ArgDef,
     prng: seedrandom.prng,
-    genDims = true
+    genDims = true,
+    allowOptional = true
   ): ArgValueType {
-    return generateRandomInputFn(spec, prng, genDims)();
+    return generateRandomInputFn(spec, prng, genDims, allowOptional)();
   }
 } // class: ArgDefGenerator
 
@@ -73,6 +78,8 @@ type PublicRandFn = () => ArgValueType;
  *
  * @param `arg` the argument definition for which to generate an input
  * @param `prng` pseudo-random number generator
+ * @param `genDims` whether to generate dimensions for array arguments
+ * @param `allowOptional` whether optional arguments may generate undefined
  * @returns a function that generates pseudo-random input values
  *
  * Throws an exception if the argument type is not supported.
@@ -82,8 +89,9 @@ type PublicRandFn = () => ArgValueType;
 function generateRandomInputFn(
   arg: ArgDef,
   prng: seedrandom.prng,
-  genDims = true /* true=generate array dimensions if present;
+  genDims = true, /* true=generate array dimensions if present;
                     false=generate only the value */
+  allowOptional = true
 ): PublicRandFn {
   let randFn: PrivateRandFn;
 
@@ -213,7 +221,7 @@ function generateRandomInputFn(
 
   // Inject undefined values into arg only if it is optional
   // and we are not generating values inside an array
-  return isOptional && genDims
+  return isOptional && genDims && allowOptional
     ? () => {
         if (prng() >= 0.5) return undefined;
         else return randArgValueWrapper();
@@ -358,25 +366,56 @@ const getRandomString: PrivateRandFn = (
  * @param `genFn` generator for array element inputs
  * @param `dimLength` array of lengths for each n-dimension
  * @param `options` argument option set
+ * @param `currDepth` current depth of recursion (default: 0)
  * @returns n-dimensional array of random values
  */
 const nArray = (
   prng: seedrandom.prng,
   genFn: PublicRandFn,
   dimLength: Interval<number>[],
-  options: ArgOptions
+  options: ArgOptions,
+  currDepth = 0
 ): ArgValueType => {
   if (dimLength.length) {
     const [dim, ...rest] = dimLength; // split the array: head, tail
     const newArray: ArgValueType[] = []; // output array
+    const seen =
+      currDepth === 0 && options.dimsUnique ? new Set<string>() : undefined;
     const thisDim = getRandomNumber(
       prng,
       dim.min,
       dim.max,
       ArgDef.getDefaultOptions()
     );
-    for (let i = 0; i < thisDim; i++) {
-      newArray[i] = nArray(prng, genFn, rest, options);
+    // Only outer elements must be unique; nested dimensions may repeat. When
+    // a finite value domain is exhausted, keep the generated prefix if it
+    // already satisfies the minimum dimension length, or fail if it cannot.
+    elementLoop: for (let i = 0; i < thisDim; i++) {
+      let attempts = 0;
+      while (true) {
+        // TODO: generate unique by construction when dims>0 && dimUnique
+        const value = nArray(prng, genFn, rest, options, currDepth + 1);
+        if (!seen) {
+          newArray[i] = value;
+          continue elementLoop;
+        }
+
+        const serializedValue = JSONN.stringify(value);
+        if (!seen.has(serializedValue)) {
+          seen.add(serializedValue);
+          newArray[i] = value;
+          continue elementLoop;
+        }
+
+        if (++attempts > 50) {
+          if (newArray.length >= dim.min) {
+            break elementLoop; // return if it satisfies the min length constraint
+          }
+          throw new Error(
+            "Unable to generate enough unique array element. Are constraints possible to meet?"
+          );
+        }
+      }
     }
     return newArray;
   } else {

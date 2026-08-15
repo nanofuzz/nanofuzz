@@ -1,7 +1,14 @@
 import * as ProgramFactory from "../analysis/ProgramFactory";
+import seedrandom from "seedrandom";
+import { RandomInputGenerator } from "./RandomInputGenerator";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
+import { ArgDefValidator } from "../analysis/ArgDefValidator";
+import { ArgDefMutator } from "../analysis/ArgDefMutator";
+import { ArgDef } from "../analysis/ArgDef";
+import { ArgTag } from "../analysis/Types";
+import * as JSONN from "../../Jsonn";
 
 /**
  * Provide a seed to ensure tests are deterministic.
@@ -9,6 +16,113 @@ import { InputAndSource } from "../Types";
 const seed: string = "qwertyuiop";
 
 describe("fuzzer/generator/MutationInputGenerator:", () => {
+  it("dimsUnique object arrays for random and mutation generators", () => {
+    const program = ProgramFactory.fromSource(
+      () => `export function x(obj: { a?: 1 }[]): number { return 1; }`,
+      "typescript"
+    );
+    const specs = program.functionsExported["x"].getArgDefs();
+    specs[0].setOptions({
+      dimLength: [{ min: 2, max: 2 }],
+      dimsUnique: true,
+    });
+    const validator = new ArgDefValidator(specs);
+    const initialInput = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: [{ a: 1 }, {}],
+      },
+    ];
+    const leaderboard = new Leaderboard<InputAndSource>();
+    leaderboard.postScore(
+      {
+        tick: 1,
+        value: initialInput,
+        source: { type: "user" },
+      },
+      1
+    );
+
+    const generators = [
+      new RandomInputGenerator(specs, seed),
+      new MutationInputGenerator(specs, seed, leaderboard),
+    ];
+    for (const generator of generators) {
+      for (let index = 0; index < 100; index++) {
+        const input = generator.next().value;
+        expect(validator.validate(input)).toBeTrue();
+        const array = input[0].value;
+        expect(Array.isArray(array)).toBeTrue();
+        if (Array.isArray(array)) {
+          expect(
+            new Set(array.map((element) => JSONN.stringify(element))).size
+          ).toEqual(array.length);
+        }
+      }
+    }
+  });
+
+  it("maintains spec order when re-adding optional object members", () => {
+    // `a` must be inserted before `b` when it is re-added, regardless of
+    // insertion history, so that we can do simple comparisons by serialization.
+    const optionalA = new ArgDef(
+      "a",
+      0,
+      ArgTag.NUMBER,
+      ArgDef.getDefaultOptions(),
+      0,
+      true,
+      [{ min: 1, max: 1 }]
+    );
+    const optionalB = new ArgDef(
+      "b",
+      1,
+      ArgTag.NUMBER,
+      ArgDef.getDefaultOptions(),
+      0,
+      true,
+      [{ min: 1, max: 1 }]
+    );
+    const specs = [
+      new ArgDef(
+        "obj",
+        0,
+        ArgTag.OBJECT,
+        {
+          ...ArgDef.getDefaultOptions(),
+          dimLength: [{ min: 2, max: 2 }],
+          dimsUnique: false,
+        },
+        1,
+        false,
+        undefined,
+        [optionalA, optionalB]
+      ),
+    ];
+    // Re-adding `a` to the second object would otherwise append it after `b`.
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: [{ a: 1, b: 1 }, { b: 1 }],
+      },
+    ];
+    const mutators = ArgDefMutator.getMutators(specs, input, seedrandom(seed));
+    const mutation = mutators.find(
+      (candidate) => candidate.name === "optional-genMember"
+    );
+
+    expect(mutation).toBeDefined();
+    mutation?.fn();
+    const array = input[0].value;
+    expect(Array.isArray(array)).toBeTrue();
+    if (!Array.isArray(array)) return;
+    // The mutator must restore the declaration order, not append `a` after `b`.
+    expect(Object.keys(array[1])).toEqual(["a", "b"]);
+    // With canonical key order, the duplicate object is visible to dimsUnique.
+    specs[0].setOptions({ dimsUnique: true });
+    expect(new ArgDefValidator(specs).validate(input)).toBeFalse();
+  });
+
   /**
    * Regression tests for https://github.com/nanofuzz/nanofuzz/issues/351.
    */

@@ -2351,13 +2351,15 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
 
     // Process array dimension overrides
     const dimLength = [];
+    let dimsUnique = false;
     let dim = 0;
     let arrayBase = `${idBase}-array-${dim}`;
     while (document.getElementById(`${arrayBase}-min`) !== null) {
       const min = document.getElementById(`${arrayBase}-min`);
       const max = document.getElementById(`${arrayBase}-max`);
+      const unique = document.getElementById(`${arrayBase}-unique`);
       if (min !== null && max !== null) {
-        disableArr.push(min, max);
+        disableArr.push(min, max, ...(unique ? [unique] : []));
         const minVal = min.getAttribute("current-value");
         const maxVal = max.getAttribute("current-value");
         if (minVal !== null && maxVal !== null) {
@@ -2367,11 +2369,18 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           });
         }
       }
+      if (dim === 0 && unique !== null) {
+        dimsUnique =
+          "checked" in unique && typeof unique.checked === "boolean"
+            ? unique.checked
+            : false;
+      }
       arrayBase = `${idBase}-array-${++dim}`;
     }
     if (dimLength.length > 0) {
       thisOverride.array = {
         dimLength: dimLength,
+        dimsUnique: dimsUnique,
       };
     }
   }

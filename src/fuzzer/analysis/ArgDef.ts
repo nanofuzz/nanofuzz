@@ -516,6 +516,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         ),
       },
       dimLength: [],
+      dimsUnique: false,
     };
   } // fn: getDefaultOptions()
 

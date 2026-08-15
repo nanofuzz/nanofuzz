@@ -60,4 +60,82 @@ describe("fuzzer/analysis/typescript/ArgDefValidator:", () => {
       expect(ArgDefValidator.validate(arr, arrayDef)).toBe(true);
     }
   });
+
+  it("Validates outer dimension uniqueness when dimsUnique===true", () => {
+    const uniqueArrayDef = makeArgDef(
+      dummyModule,
+      "test",
+      0,
+      ArgTag.NUMBER,
+      { ...argOptions, dimsUnique: true },
+      1
+    );
+
+    expect(ArgDefValidator.validate([1, 2], uniqueArrayDef)).toBe(true);
+    expect(ArgDefValidator.validate([1, 1], uniqueArrayDef)).toBe(false);
+  });
+
+  it("Does not validate inner dimension uniqueness when dimsUnique===true", () => {
+    const uniqueMatrixDef = makeArgDef(
+      dummyModule,
+      "test",
+      0,
+      ArgTag.NUMBER,
+      { ...argOptions, dimsUnique: true },
+      2
+    );
+
+    expect(
+      ArgDefValidator.validate(
+        [
+          [1, 1],
+          [2, 2],
+        ],
+        uniqueMatrixDef
+      )
+    ).toBe(true);
+    expect(ArgDefValidator.validate([[1], [1]], uniqueMatrixDef)).toBe(false);
+  });
+
+  it("rejects duplicate object array elements when dimsUnique is enabled", () => {
+    const uniqueObjects = makeArgDef(
+      dummyModule,
+      "objects",
+      0,
+      ArgTag.OBJECT,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      1,
+      false,
+      [makeTypeRef(dummyModule, "a", ArgTag.LITERAL, 0, true, [], undefined, 1)]
+    );
+
+    expect(ArgDefValidator.validate([{ a: 1 }, { a: 1 }], uniqueObjects)).toBe(
+      false
+    );
+  });
+
+  it("rejects present but undefined optional object members", () => {
+    const uniqueObjects = makeArgDef(
+      dummyModule,
+      "objects",
+      0,
+      ArgTag.OBJECT,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      1,
+      false,
+      [makeTypeRef(dummyModule, "a", ArgTag.LITERAL, 0, true, [], undefined, 1)]
+    );
+
+    expect(
+      ArgDefValidator.validate([{ a: undefined }, {}], uniqueObjects)
+    ).toBe(false);
+  });
 });

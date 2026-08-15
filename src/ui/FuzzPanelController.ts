@@ -3198,6 +3198,16 @@ ${inArgConsts}
             maxValue.toString()
           )}">Max length
           </vscode-text-field>
+          ${
+            dim === 0
+              ? /*html*/ `
+                <span class="tooltipped tooltipped-n" aria-label="Fill array with unique values?">
+                  <vscode-checkbox ${disabledFlag} id="${arrayBase}-unique" ${argOptions.dimsUnique === true ? "checked" : ""}>
+                    Unique?
+                  </vscode-checkbox>
+                </span>`
+              : ""
+          }
         </div>`;
     }
 
@@ -3617,6 +3627,7 @@ function _applyArgOverrides(
       });
       thisArg.setOptions({
         dimLength: thisOverride.array.dimLength,
+        dimsUnique: !!thisOverride.array.dimsUnique,
       });
     }
   } // for: each argument

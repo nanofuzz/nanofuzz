@@ -141,6 +141,7 @@ export type ArgOptions = {
   // for number[][]: dimLength[0] = length of 1st dimension
   // and dimLength[1] = length of 2nd dimension.
   dftDimLength: Interval<number>; // Length of any dimension not specified in dimLength.
+  dimsUnique: boolean; // true = generated dimension values must be unique.
 
   // For members of a union, suppress input generation
   isNoInput?: boolean; // true=do not generate inputs (unions only)
@@ -160,6 +161,7 @@ export type ArgOptionOverride = {
   numInteger?: boolean;
   numIntervals?: Interval<number>[];
   dimLength?: Interval<number>[];
+  dimsUnique?: boolean;
   strLength?: Interval<number>;
   strCharset?: string;
   children?: ArgOptionOverrides;
