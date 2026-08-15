@@ -2294,6 +2294,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const minStrLen = document.getElementById(idBase + "-minStrLen");
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
+    const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
 
     // Process numeric overrides
@@ -2321,10 +2322,16 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
 
     // Process string overrides
     if (minStrLen && maxStrLen && strCharset) {
-      disableArr.push(minStrLen, maxStrLen);
+      disableArr.push(
+        minStrLen,
+        maxStrLen,
+        strCharset,
+        ...(strRegex ? [strRegex] : [])
+      );
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
       const strCharsetVal = strCharset.getAttribute("current-value");
+      const strRegexVal = strRegex?.getAttribute("current-value");
       if (
         minStrLenVal !== null &&
         maxStrLenVal !== null &&
@@ -2337,6 +2344,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           ),
           maxStrLen: Math.max(Number(minStrLenVal), Number(maxStrLenVal), 0),
           strCharset: strCharsetVal,
+          strRegex: strRegexVal === "" ? undefined : (strRegexVal ?? undefined),
         };
       }
     } // TODO: Validation !!!
