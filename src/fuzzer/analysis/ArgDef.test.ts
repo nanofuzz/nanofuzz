@@ -638,7 +638,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     const failingMutators: { [k: string]: number } = {};
     const dupeMutators: { [k: string]: number } = {};
     let uniqueDimensionSpecs = 0;
-    let i = 50;
+    let i = 100;
     while (i--) {
       const spec = [getRandomArgDef(prng, Math.floor(prng() * 2))];
       if (spec[0].getDim() > 0 && spec[0].getOptions().dimsUnique) {
@@ -670,7 +670,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
             const inputStringBefore = JSONN.stringify(input);
             const muts = ArgDefMutator.getMutators(spec, input, prng);
             if (muts.length) {
-              const index = Math.floor(prng() * (muts.length - 1));
+              const index = Math.floor(prng() * muts.length);
               const mut = muts[index];
               mut.fn(); // mutate the input
               const inputStringAfter = JSONN.stringify(input);
