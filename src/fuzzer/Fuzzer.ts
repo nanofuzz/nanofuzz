@@ -748,7 +748,11 @@ export class Tester {
           .map((i) => ValueMapper.toLang(lang, i.value))
           .join(",")})\r\n  Passed: ${
           runStats.counters.passedTests
-        }\r\n  Failed: ${runStats.counters.failedTests}`,
+        }\r\n  Failed: ${runStats.counters.failedTests}${
+          runStats.counters.skippedTests
+            ? `\r\n Skipped: ${runStats.counters.skippedTests}`
+            : ""
+        }`,
         channel: "update",
         pct: typeof stopCondition === "number" ? stopCondition : 100,
       });
