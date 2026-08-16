@@ -1240,6 +1240,37 @@ export class PythonProgram extends AbstractProgram {
         break;
       }
 
+      case "uuids": {
+        const version = parseLiteral(getKwdArg(node, "version", -1));
+        const allowNil = parseLiteral(getKwdArg(node, "allow_nil", -1)) === true;
+
+        // Base pattern depending on version
+        let uuidPattern: string;
+        if (typeof version === "number" && version >= 1 && version <= 5) {
+          uuidPattern = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-${version}[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}`;
+        } else {
+          uuidPattern = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}`;
+        }
+
+        // Incorporate the Nil UUID if allow_nil=True
+        const finalRegex = allowNil
+          ? `\\A(?:${uuidPattern}|00000000-0000-0000-0000-000000000000)\\Z`
+          : `\\A${uuidPattern}\\Z`;
+
+        thisType.type = {
+          type: ArgTag.STRING,
+          dims: 0,
+          children: [],
+          options: {
+            strLength: { min: 36, max: 36 },
+            strCharset: "0123456789abcdefABCDEF-",
+            strRegex: finalRegex,
+          },
+          resolved: true,
+        };
+        break;
+      }
+
       case "integers": {
         const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
         const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));

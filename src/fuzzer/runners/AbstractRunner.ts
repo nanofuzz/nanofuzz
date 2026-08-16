@@ -80,6 +80,7 @@ export type RunnerResult = {
 export type RunnerInput = {
   args: unknown[];
   seq: number;
+  typeHints?: string[];
 };
 
 /**

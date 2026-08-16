@@ -4,6 +4,7 @@ import {
   RunnerInput,
   RunnerResult,
 } from "./AbstractRunner";
+import { FuzzEnv } from "../Fuzzer";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
@@ -21,6 +22,7 @@ export class PythonRunner extends AbstractRunner {
   protected _timeout: number;
   protected _runDepth = 0;
   protected _fn: string;
+  protected _env: FuzzEnv | undefined;
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo?: CoverageInfo = undefined;
@@ -37,12 +39,19 @@ export class PythonRunner extends AbstractRunner {
    *
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
+   * @param `env` optional fuzzer environment
    */
-  constructor(filename: string, fn: string, timeout: number = 0) {
+  constructor(
+    filename: string,
+    fn: string,
+    env?: FuzzEnv,
+    timeout: number = 0
+  ) {
     super(fn);
     this._filename = filename;
     this._timeout = timeout;
     this._fn = fn;
+    this._env = env;
   } // fn: constructor
 
   /**
@@ -80,9 +89,18 @@ export class PythonRunner extends AbstractRunner {
 
     try {
       const host = await this._getHost();
+      const typeHints =
+        this._env?.function.getArgDefs().map((arg) => {
+          if (arg.getTypeRef() === "UUID") {
+            return "uuid";
+          }
+          return "default";
+        }) ?? [];
+
       const input: RunnerInput = {
         args: inputs,
         seq: thisSeq,
+        typeHints,
       };
 
       const payload = JSON5.stringify(input);

@@ -7,6 +7,8 @@ import struct
 import logging
 import tempfile
 import traceback
+import re
+import uuid
 from contextlib import redirect_stdout
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired
 
@@ -287,6 +289,29 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     }
 
 
+def transform_uuid_arg(val: Any) -> Any:
+    if isinstance(val, str):
+        try:
+            return uuid.UUID(val)
+        except ValueError:
+            return val
+    if isinstance(val, list):
+        return [transform_uuid_arg(item) for item in val]
+    if isinstance(val, dict):
+        return {k: transform_uuid_arg(v) for k, v in val.items()}
+    return val
+
+
+def serialize_uuids(val: Any) -> Any:
+    if isinstance(val, uuid.UUID):
+        return str(val)
+    if isinstance(val, list):
+        return [serialize_uuids(item) for item in val]
+    if isinstance(val, dict):
+        return {k: serialize_uuids(v) for k, v in val.items()}
+    return val
+
+
 def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> RunnerResult:
     logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
 
@@ -296,16 +321,23 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
     error = None
     skip = None
     value = None
+
+    args = list(input["args"])
+    type_hints = input.get("typeHints", [])
+    for i in range(min(len(args), len(type_hints))):
+        if type_hints[i] == "uuid":
+            args[i] = transform_uuid_arg(args[i])
+
     try:
         with redirect_stdout(io.StringIO()) as f:
             # If fn is a Hypothesis-wrapped test, bypass Hypothesis
             # and call the original underlying function
             if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
                 # Unwrap Hypothesis test function
-                value = fn.hypothesis.inner_test(*input["args"])
+                value = fn.hypothesis.inner_test(*args)
             else:
                 # Not Hypothesis; call directly
-                value = fn(*input["args"])
+                value = fn(*args)
     except Exception as e:
         if e.__class__.__name__ == "UnsatisfiedAssumption":
             skip = e
@@ -342,7 +374,7 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
 
     return RunnerValueResult(
         tag="value",
-        value=value,
+        value=serialize_uuids(value),
         seq=input["seq"],
         coverageData=coverageData,
         coverageArcs=coverageArcs

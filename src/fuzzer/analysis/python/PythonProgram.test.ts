@@ -907,6 +907,57 @@ def test_regex(inline, referenced, partial, anchored):
     expect(fn.getArgDefs()[1].getOptions().strCharset).toEqual("super");
   });
 
+  it("maps Hypothesisuuids strategy to string regex and length options", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    id1=st.uuids(),
+    id2=st.uuids(version=4),
+    id3=st.uuids(allow_nil=True),
+    id4=st.uuids(version=5, allow_nil=True)
+)
+def test_uuid(id1, id2, id3, id4):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_uuid"];
+
+    const args = fn.getArgDefs();
+    expect(args.length).toEqual(4);
+
+    expect(args[0].getName()).toEqual("id1");
+    expect(args[0].getType()).toEqual(ArgTag.STRING);
+    expect(args[0].getOptions().strLength).toEqual({ min: 36, max: 36 });
+    expect(args[0].getOptions().strCharset).toEqual("0123456789abcdefABCDEF-");
+    expect(args[0].getOptions().strRegex).toEqual(
+      "\\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\Z"
+    );
+
+    expect(args[1].getName()).toEqual("id2");
+    expect(args[1].getType()).toEqual(ArgTag.STRING);
+    expect(args[1].getOptions().strLength).toEqual({ min: 36, max: 36 });
+    expect(args[1].getOptions().strCharset).toEqual("0123456789abcdefABCDEF-");
+    expect(args[1].getOptions().strRegex).toEqual(
+      "\\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\Z"
+    );
+
+    expect(args[2].getName()).toEqual("id3");
+    expect(args[2].getType()).toEqual(ArgTag.STRING);
+    expect(args[2].getOptions().strLength).toEqual({ min: 36, max: 36 });
+    expect(args[2].getOptions().strCharset).toEqual("0123456789abcdefABCDEF-");
+    expect(args[2].getOptions().strRegex).toEqual(
+      "\\A(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000)\\Z"
+    );
+
+    expect(args[3].getName()).toEqual("id4");
+    expect(args[3].getType()).toEqual(ArgTag.STRING);
+    expect(args[3].getOptions().strLength).toEqual({ min: 36, max: 36 });
+    expect(args[3].getOptions().strCharset).toEqual("0123456789abcdefABCDEF-");
+    expect(args[3].getOptions().strRegex).toEqual(
+      "\\A(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-5[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000)\\Z"
+    );
+  });
+
   it("hypothesis @given positional arguments", () => {
     const fn = ProgramFactory.fromSource(
       () => `
