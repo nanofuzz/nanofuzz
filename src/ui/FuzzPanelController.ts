@@ -3040,7 +3040,7 @@ ${inArgConsts}
           arg.getOptions().strCharset
         )}">Character set</vscode-text-field>`;
         html += " ";
-        html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strRegex" placeholder="(none)"name="${idBase}-strRegex" value="${htmlEscape(
+        html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strRegex" placeholder="(none)" name="${idBase}-strRegex" value="${htmlEscape(
           arg.getOptions().strRegex ?? ""
         )}">Regex</vscode-text-field>`;
         break;
