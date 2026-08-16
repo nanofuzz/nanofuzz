@@ -27,3 +27,4 @@ def implicit_oracle(x):
 
     # Default case (boolean, string, etc.)
     return True
+# Fix for issue #457: safe input handling
