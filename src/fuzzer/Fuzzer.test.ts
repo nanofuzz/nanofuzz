@@ -737,4 +737,25 @@ describe("fuzzer:", () => {
       ValueMapper.toLang("typescript", failures[0].output[0].value)
     ).toEqual(`{a: undefined}`);
   });
+
+  it("Python assume statement (skipped tests)", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "with_assume",
+      {
+        ...intOptions,
+        maxTests: 200, // Make sure we generate enough tests to hit n = 5
+      }
+    ).testSync();
+
+    const skips = fuzzResult.results.filter(
+      (r) => r.category === "skip"
+    );
+
+    expect(skips.length).toBeGreaterThan(0);
+    skips.forEach((r) => {
+      expect(r.skipped).toBeTrue();
+      expect(r.skipReason).toContain("n cannot be 5");
+    });
+  });
 });

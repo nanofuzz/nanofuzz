@@ -272,8 +272,9 @@ async function run(): Promise<void> {
       },
     }).testSync(undefined, undefined, updateFn);
 
-    const someTestsRan = !!results.results.length;
-    const someTestsFailed = results.results.some((r) => r.category !== "ok");
+    const someTestsRan =
+      results.stats.counters.passedTests + results.stats.counters.failedTests;
+    const someTestsFailed = results.stats.counters.failedTests;
 
     if (someTestsRan) {
       if (someTestsFailed) {

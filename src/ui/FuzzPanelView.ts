@@ -39,6 +39,7 @@ const gridTypes = [
   "timeout",
   "badValue",
   "ok",
+  "skip",
 ] as const;
 
 // Column name labels
@@ -88,6 +89,7 @@ const defaultColumnSortOrders: FuzzSortColumns = {
   badValue: getDefaultColumnSortOrder(),
   ok: getDefaultColumnSortOrder(),
   disagree: getDefaultColumnSortOrder(),
+  skip: {}, // no pinned column
 };
 
 // Column sort orders (filled by main or handleColumnSort())
@@ -104,6 +106,7 @@ const data: Record<FuzzResultCategory, any[]> = {
   exception: [],
   disagree: [],
   failure: [],
+  skip: [],
 };
 // Validator functions (filled by main during load event)
 let validators: string[];
@@ -412,6 +415,12 @@ async function main() {
   if (Object.keys(columnSortOrders).length === 0) {
     columnSortOrders = defaultColumnSortOrders;
   }
+  // Ensure all grid types are present in columnSortOrders to prevent runtime exceptions on new categories
+  gridTypes.forEach((type) => {
+    if (columnSortOrders[type] === undefined) {
+      columnSortOrders[type] = { ...defaultColumnSortOrders[type] };
+    }
+  });
 
   // Load the coverage heatmap state from the HTML
   if (getElementByIdOrThrow("fuzzShowCoverageHeatmap").innerText === "true") {
@@ -629,14 +638,17 @@ async function main() {
       if (e.timeout) {
         outputs[`output`] = "(timeout)";
       }
+      if (e.skipped) {
+        outputs[`output`] = "(skipped) " + e.skipReason;
+      }
 
       // Toss each result into the appropriate grid
-      if (e.category === "failure") {
+      if (e.category === "failure" || e.category === "skip") {
         data[e.category].push({
           ...id,
           ...src,
           ...inputs,
-          ...outputs, // Exception message contained in outputs
+          ...outputs, // message contained in outputs
         });
       } else {
         data[e.category].push({
@@ -644,10 +656,8 @@ async function main() {
           ...src,
           ...inputs,
           ...outputs,
-          //...elapsedTimes,
           ...passedImplicit,
           ...passedValidator,
-          // ...allValidators,
           ...validatorFns,
           ...passedHuman,
           ...pinned,
@@ -812,7 +822,11 @@ async function main() {
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             const label =
-              type === "failure" && k === "output" ? "exception" : k;
+              type === "failure" && k === "output"
+                ? "exception"
+                : type === "skip" && k === "output"
+                  ? "reason"
+                  : k;
             cell.id = type + "-" + k;
             cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
             cell.innerHTML = `<strong>${htmlEscape(label)}</strong>`;

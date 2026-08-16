@@ -36,3 +36,13 @@ def issue301(r: int) -> Issue301Out:
     if r == 6:
         return {'a': None}
     return {'a': r}
+
+
+class UnsatisfiedAssumption(Exception):
+    pass
+
+
+def with_assume(n: int) -> int:
+    if n == 5:
+        raise UnsatisfiedAssumption("n cannot be 5")
+    return n

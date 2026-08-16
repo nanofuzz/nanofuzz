@@ -31,6 +31,8 @@ export type FuzzTestResult = {
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: FuzzResultCategory; // the ResultCategory of the test result
   interestingReasons: string[]; // reasons (measures) this input may be "interesting"
+  skipped?: boolean; // true if the test was skipped
+  skipReason?: string; // skip reason message
 };
 
 /**
@@ -122,6 +124,7 @@ export const FuzzResultCategoryValues = [
   "badValue", // Judgment: failed (not timeout or exception)
   "timeout", // Judgment: failed (timeout)
   "exception", // Judgment: failed (exception)
+  "skip", // Judgment: skipped due to filter / assume
   "disagree", // Judgment: unknown
   "failure", // Validator failure (e.g., threw an exception)
 ] as const;

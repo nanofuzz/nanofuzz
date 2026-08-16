@@ -199,6 +199,9 @@ export class Tester {
           inputsGenerated: 0, // updated later
           dupesGenerated: 0, // updated later
           inputsInjected: 0, // updated later
+          passedTests: 0, // updated later
+          skippedTests: 0, // updated later
+          failedTests: 0, // updated later
         },
         generators: {
           RandomInputGenerator: {
@@ -418,6 +421,7 @@ export class Tester {
         dupesSequential: 0, // current number of duplicate inputs generated in a row
         failedTests: 0, // number of failed tests encountered so far
         passedTests: 0, // number of passed tests encountered so far
+        skippedTests: 0, // number of skipped tests so far
       },
       timers: {
         startTime: performance.now(), // time the tester started in this run
@@ -519,6 +523,12 @@ export class Tester {
           runStats.counters.dupesGenerated;
         this._results.stats.counters.inputsInjected +=
           runStats.counters.inputsInjected;
+        this._results.stats.counters.passedTests +=
+          runStats.counters.passedTests;
+        this._results.stats.counters.skippedTests +=
+          runStats.counters.skippedTests;
+        this._results.stats.counters.failedTests +=
+          runStats.counters.failedTests;
 
         // Update interesting inputs
         this._results.interesting.inputs =
@@ -542,7 +552,9 @@ export class Tester {
         update({
           msg: ` - Executed ${
             runStats.counters.passedTests + runStats.counters.failedTests
-          } tests in ${(performance.now() - runStats.timers.startTime).toFixed(
+          } and skipped ${runStats.counters.skippedTests} tests in ${(
+            performance.now() - runStats.timers.startTime
+          ).toFixed(
             0
           )} ms this run. Stopped for reason: ${this._results.stopReason}.`,
           channel: "summary",
@@ -620,6 +632,7 @@ export class Tester {
         exception: false,
         validatorException: false,
         timeout: false,
+        skipped: false,
         passedImplicit: "unknown",
         passedHuman: "unknown",
         passedValidator: "unknown",
@@ -791,6 +804,10 @@ export class Tester {
         case "timeout":
           result.timeout = true;
           break;
+        case "skip":
+          result.skipped = true;
+          result.skipReason = exeOutput.result.message;
+          break;
       }
 
       this._results.stats.timers.put += result.timers.run;
@@ -800,7 +817,7 @@ export class Tester {
 
       const startValTime = performance.now(); // start timer
       // IMPLICIT ORACLE --------------------------------------------
-      if (this._options.useImplicit) {
+      if (this._options.useImplicit && !result.skipped) {
         result.passedImplicit = ImplicitOracle.judge(
           result.timeout,
           result.exception,
@@ -811,7 +828,7 @@ export class Tester {
 
       // EXAMPLE ORACLE ---------------------------------------------
       // If a human annotated an expected output, then check it
-      if (this._options.useHuman && result.expectedOutput) {
+      if (this._options.useHuman && result.expectedOutput && !result.skipped) {
         result.passedHuman = ExampleOracle.judge(
           result.timeout,
           result.exception,
@@ -822,7 +839,7 @@ export class Tester {
 
       // PROPERTY ORACLE --------------------------------------------
       // If a property validator is selected, call it to evaluate the result
-      if (this._options.useProperty) {
+      if (this._options.useProperty && !result.skipped) {
         (
           await propertyOracle.judge(
             Object.freeze({
@@ -867,6 +884,8 @@ export class Tester {
       // Increment the test counters
       if (result.category === "ok") {
         runStats.counters.passedTests++;
+      } else if (result.category === "skip") {
+        runStats.counters.skippedTests++;
       } else {
         runStats.counters.failedTests++;
       }
@@ -1040,6 +1059,9 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   if (result.validatorException) {
     return "failure"; // Validator failed
   }
+  if (result.skipped) {
+    return "skip";
+  }
 
   // Returns the type of bad value: execption, timeout, or badvalue
   const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
@@ -1157,6 +1179,9 @@ export type FuzzTestStats = {
     inputsGenerated: number; // number of inputs generated, including dupes
     dupesGenerated: number; // number of duplicate inputs generated
     inputsInjected: number; // number of inputs pinned
+    passedTests: number; // number of passed tests
+    skippedTests: number; // number of skipped tests
+    failedTests: number; // number of failed tests
   };
   generators: {
     RandomInputGenerator: FuzzGeneratorStatsBase;
