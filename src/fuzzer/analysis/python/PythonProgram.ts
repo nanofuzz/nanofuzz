@@ -924,7 +924,8 @@ export class PythonProgram extends AbstractProgram {
                   if (
                     paramName &&
                     strategyValue &&
-                    strategyValue.type === "call"
+                    (strategyValue.type === "call" ||
+                      strategyValue.type === "identifier")
                   ) {
                     const hypothesisTypeRef =
                       this._getTypeRefFromStrategy(strategyValue);
@@ -934,7 +935,7 @@ export class PythonProgram extends AbstractProgram {
                   }
                 } else {
                   hypothesisPositionalArgs.push(
-                    argChild.type === "call"
+                    argChild.type === "call" || argChild.type === "identifier"
                       ? this._getTypeRefFromStrategy(argChild)
                       : undefined
                   );
@@ -1081,24 +1082,49 @@ export class PythonProgram extends AbstractProgram {
         return valueNode;
       }
 
-      let resolved: Parser.Node | undefined;
-      for (const statement of this._ast.rootNode.namedChildren) {
-        if (statement.startIndex >= valueNode.startIndex) break;
-        const assignment = statement.namedChildren.find(
-          (child) => child.type === "assignment"
-        );
-        const left = assignment?.childForFieldName("left");
-        const right = assignment?.childForFieldName("right");
-        if (
-          left?.type === "identifier" &&
-          left.text === valueNode.text &&
-          right
-        ) {
-          resolved = right;
+      let current: Parser.Node = valueNode;
+      let foundNew = true;
+      const visited = new Set<string>();
+
+      // Recursively follow type/strategy identifiers
+      while (current.type === "identifier" && foundNew) {
+        foundNew = false;
+        if (visited.has(current.text)) {
+          break; // avoid cycles
+        }
+        visited.add(current.text);
+
+        // Find the most recent prior assignment
+        for (const statement of this._ast.rootNode.namedChildren) {
+          if (statement.startIndex >= current.startIndex) break;
+          const assignment =
+            statement.type === "assignment"
+              ? statement
+              : statement.namedChildren.find(
+                  (child) => child.type === "assignment"
+                );
+          const left = assignment?.childForFieldName("left");
+          const right = assignment?.childForFieldName("right");
+          if (
+            left?.type === "identifier" &&
+            left.text === current.text &&
+            right
+          ) {
+            // Found a matching assignment; update node & resolve recursively
+            current = right;
+            foundNew = true;
+            break;
+          }
         }
       }
-      return resolved ?? valueNode;
+      return current;
     };
+
+    const actualNode = resolveReference(node);
+    if (!actualNode || actualNode.type !== "call") {
+      return undefined;
+    }
+    node = actualNode;
 
     // Helper to extract keyword argument values from a call expression
     const getKwdArg = (
@@ -1328,12 +1354,13 @@ export class PythonProgram extends AbstractProgram {
 
         const elementsArg = getKwdArg(node, "elements", 0);
         let innerTypeRef: TypeRef | undefined;
-        if (elementsArg && elementsArg.type === "call") {
+        if (
+          elementsArg &&
+          (elementsArg.type === "call" || elementsArg.type === "identifier")
+        ) {
           innerTypeRef = this._getTypeRefFromStrategy(elementsArg);
-          if (innerTypeRef === undefined) {
-            return undefined;
-          }
-        } else {
+        }
+        if (innerTypeRef === undefined) {
           // Fallback if elements is a type class like int, str, etc.
           innerTypeRef = {
             module: this._filename,
@@ -1395,7 +1422,10 @@ export class PythonProgram extends AbstractProgram {
           for (const argNode of argsNode.namedChildren) {
             // Check if the argument is another hypothesis strategy call
             const childTypeRef = this._getTypeRefFromStrategy(argNode);
-            if (childTypeRef && argNode.type === "call") {
+            if (
+              childTypeRef &&
+              (argNode.type === "call" || argNode.type === "identifier")
+            ) {
               children.push(childTypeRef);
             } else {
               return undefined;
@@ -1538,7 +1568,12 @@ export class PythonProgram extends AbstractProgram {
 
             let fieldTypeRef: TypeRef | undefined =
               this._getTypeRefFromStrategy(valueNode);
-            if (!(fieldTypeRef && valueNode.type === "call")) {
+            if (
+              !(
+                fieldTypeRef &&
+                (valueNode.type === "call" || valueNode.type === "identifier")
+              )
+            ) {
               fieldTypeRef = {
                 module: this._filename,
                 dims: 0,
@@ -1595,7 +1630,10 @@ export class PythonProgram extends AbstractProgram {
         if (argsNode) {
           for (const argNode of argsNode.namedChildren) {
             const child = this._getTypeRefFromStrategy(argNode);
-            if (child && argNode.type === "call") {
+            if (
+              child &&
+              (argNode.type === "call" || argNode.type === "identifier")
+            ) {
               children.push(child);
             } else {
               return undefined;

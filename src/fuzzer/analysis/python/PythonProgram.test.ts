@@ -1138,6 +1138,60 @@ def test_precedence(val: float):
     expect(arg.getIntervals()).toEqual([{ min: 50, max: 60 }]);
   });
 
+  it("hypothesis @given follows references to strategy defs", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+values_st = st.one_of(
+    st.integers(min_value=-1000, max_value=1000),
+    st.text(alphabet="abcdef", min_size=1, max_size=10),
+)
+
+keys_st = st.text(alphabet="abcdefghij", min_size=1, max_size=5)
+
+@settings(max_examples=200, deadline=None)
+@given(
+    key=keys_st,
+    old_value=values_st,
+    new_value=values_st,
+)
+def test_add_overwrites_boundary_expired_item(key, old_value, new_value):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_add_overwrites_boundary_expired_item"];
+
+    const args = fn.getArgDefs();
+    expect(args.length).toEqual(3);
+
+    // key=keys_st
+    expect(args[0].getName()).toEqual("key");
+    expect(args[0].getType()).toEqual(ArgTag.STRING);
+    expect(args[0].getOptions().strCharset).toEqual("abcdefghij");
+    expect(args[0].getOptions().strLength).toEqual({ min: 1, max: 5 });
+
+    // old_value=values_st
+    expect(args[1].getName()).toEqual("old_value");
+    expect(args[1].getType()).toEqual(ArgTag.UNION);
+    const oldChildren = args[1].getChildren();
+    expect(oldChildren.length).toEqual(2);
+    expect(oldChildren[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(oldChildren[0].getIntervals()).toEqual([{ min: -1000, max: 1000 }]);
+    expect(oldChildren[1].getType()).toEqual(ArgTag.STRING);
+    expect(oldChildren[1].getOptions().strCharset).toEqual("abcdef");
+    expect(oldChildren[1].getOptions().strLength).toEqual({ min: 1, max: 10 });
+
+    // new_value=values_st
+    expect(args[2].getName()).toEqual("new_value");
+    expect(args[2].getType()).toEqual(ArgTag.UNION);
+    const newChildren = args[2].getChildren();
+    expect(newChildren.length).toEqual(2);
+    expect(newChildren[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(newChildren[0].getIntervals()).toEqual([{ min: -1000, max: 1000 }]);
+    expect(newChildren[1].getType()).toEqual(ArgTag.STRING);
+    expect(newChildren[1].getOptions().strCharset).toEqual("abcdef");
+    expect(newChildren[1].getOptions().strLength).toEqual({ min: 1, max: 10 });
+  });
+
   it("isVoid===true for functions lacking return statements", () => {
     const fns = ProgramFactory.fromSource(
       () => `
