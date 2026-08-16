@@ -8,7 +8,7 @@ import logging
 import tempfile
 import traceback
 from contextlib import redirect_stdout
-from typing import Any, Literal, List, Union, TypedDict, NotRequired
+from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired
 
 try:
     import json5
@@ -19,7 +19,7 @@ except ModuleNotFoundError as e:
 
 
 class RunnerInput(TypedDict):
-    args: List[any]
+    args: List[Any]
     seq: int
 
 
@@ -42,38 +42,55 @@ class RunnerErrorResult(TypedDict):
     coverageArcs: NotRequired[List[List[int]]]  # arcs taken by this call
 
 
-type RunnerResult = Union[RunnerValueResult, RunnerErrorResult]
+class RunnerSkipResult(TypedDict):
+    tag: Literal["skip"]
+    message: str
+    seq: int
+    coverageData: NotRequired[List[int]]        # lines executed by this call
+    coverageArcs: NotRequired[List[List[int]]]  # arcs taken by this call
+
+
+type RunnerResult = Union[RunnerValueResult,
+                          RunnerErrorResult, RunnerSkipResult]
 
 
 pid = os.getpid()
 
 
-def loadPythonFn(filename: str, modulename: str, fn: str) -> Union[RunnerErrorResult, None]:
+def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
     spec = importlib.util.spec_from_file_location(modulename, filename)
     if spec is None:
-        return [RunnerErrorResult(
+        return (RunnerErrorResult(
             tag="error",
             name="PythonRunnerHostError",
             message=f"Could not import python module: {filename}",
             source="host",
             seq=-1
-        ), None]
+        ), None)
     module = importlib.util.module_from_spec(spec)
 
     try:
         sys.modules[modulename] = module
         with redirect_stdout(io.StringIO()) as f:
+            if spec.loader is None:
+                return (RunnerErrorResult(
+                    tag="error",
+                    name="PythonRunnerHostError",
+                    message=f"Could not load python module: {filename}",
+                    source="host",
+                    seq=-1
+                ), None)
             spec.loader.exec_module(module)
-        return [None, getattr(module, fnname)]
+        return (None, getattr(module, fn))
     except Exception as e:
-        return [RunnerErrorResult(
+        return (RunnerErrorResult(
             tag="error",
             name="PythonPutLoadError",
             message=str(e),
             source="put",
             stack=traceback.format_exc(),
             seq=-1
-        ), None]
+        ), None)
 
 
 def get_inputs() -> RunnerInput:
@@ -95,6 +112,7 @@ def get_inputs() -> RunnerInput:
         logging.debug(f"[{pid}]  - Parsed ok")
 
         return input
+    raise Exception("Unreachable path")
 
 
 def measured_key(data, filename: str) -> Union[str, None]:
@@ -249,7 +267,7 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
             cov.json_report(morfs=[filename], outfile=outfile)
             with open(outfile, encoding="utf-8") as f:
                 report = json.load(f)
-    except coverage.exceptions.CoverageException as e:
+    except coverage.CoverageException as e:
         logging.debug(f"[{pid}] coverage.py could not analyze {filename}: {e}")
         return empty
 
@@ -276,6 +294,7 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
     cov.get_data().erase()
     cov.start()
     error = None
+    skip = None
     value = None
     try:
         with redirect_stdout(io.StringIO()) as f:
@@ -288,8 +307,9 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
                 # Not Hypothesis; call directly
                 value = fn(*input["args"])
     except Exception as e:
-        # Hypothesis `assume` failures are not errors
-        if e.__class__.__name__ != "UnsatisfiedAssumption":
+        if e.__class__.__name__ == "UnsatisfiedAssumption":
+            skip = e
+        else:
             error = e
     finally:
         cov.stop()
@@ -297,6 +317,15 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
     # Read coverage after stopping: a failing input still covers lines
     coverageData = coverage_lines(cov, filename)
     coverageArcs = coverage_arcs(cov, filename)
+
+    if skip is not None:
+        return RunnerSkipResult(
+            tag="skip",
+            message=str(skip),
+            seq=input["seq"],
+            coverageData=coverageData,
+            coverageArcs=coverageArcs
+        )
 
     if error is not None:
         return RunnerErrorResult(
@@ -364,7 +393,7 @@ if __name__ == "__main__":
     # or a callable function
     logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
     [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-    if (loadError):
+    if (loadError is not None):
         logging.debug(f"[{pid}]  - Unable to load")
     else:
         logging.debug(f"[{pid}]  - Loaded function")

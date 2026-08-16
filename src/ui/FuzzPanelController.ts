@@ -1784,6 +1784,7 @@ ${inArgConsts}
         badValue: 0,
         ok: 0,
         disagree: 0,
+        skip: 0,
       }; // Summary of fuzzing results
       const env = this._fuzzEnv; // Fuzzer environment
       const fn = env.function; // Function under test
@@ -2266,6 +2267,12 @@ ${inArgConsts}
             description: `A validator with precedence categorized these examples as passed, or no validator categorized them as failed.`,
             // description: `Passed. No validator categorized these outputs as failed.`,
             // description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
+            hasGrid: true,
+          },
+          {
+            id: "skip",
+            name: "Skipped",
+            description: `These inputs were generated but skipped due to a user defined filter or assume statement.`,
             hasGrid: true,
           },
         ];
