@@ -10,7 +10,8 @@ import { Judgment as _Judgment } from "./oracles/Types";
  */
 export type FuzzTestResult = {
   pinned: boolean; // true if the test was pinned (not randomly generated)
-  input: FuzzIoElement[]; // function input
+  inputGenerated: InputAndSource; // Raw generated input
+  input: FuzzIoElement[]; // function input (may be transformed from inputGenerated)
   output: FuzzIoElement[]; // function output
   exception: boolean; // true if an exception was thrown
   exceptionMessage?: string; // exception message if an exception was thrown
@@ -293,6 +294,16 @@ export class TypescriptCompilerError extends Error {
   constructor(message: string, details: TypescriptCompilerErrorDetails) {
     super(message);
     this.details = details;
+  }
+}
+
+/**
+ * Throw to skip a test input due to an unsatisfied assumption.
+ */
+export class UnsatisfiedAssumption extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsatisfiedAssumption";
   }
 }
 

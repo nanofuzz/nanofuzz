@@ -757,4 +757,123 @@ describe("fuzzer:", () => {
       expect(r.skipReason).toContain("n cannot be 5");
     });
   });
+
+  it("Typescript transformer skip and modify", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformed",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+
+    // Check skipped inputs
+    const skips = fuzzResult.results.filter((r) => r.category === "skip");
+    expect(skips.length).toBeGreaterThan(0);
+    skips.forEach((r) => {
+      expect(r.skipped).toBeTrue();
+      expect(r.skipReason).toContain("skip negative inputs");
+    });
+
+    // Check transformed non-skipped inputs
+    const passed = fuzzResult.results.filter((r) => r.category === "ok");
+    expect(passed.length).toBeGreaterThan(0);
+    passed.forEach((r) => {
+      // Since transformer doubled n, the output should be (n * 2) + 1
+      const transformedInput = Number(r.input[0].value);
+      const actualOutput: unknown = r.output[0].value;
+      expect(actualOutput).toBe(transformedInput + 1);
+    });
+  });
+
+  it("TypeScript transformer exception", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformedException",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toContain(
+        "Transformer error message"
+      );
+      expect(r.category).toBe("failure");
+    });
+  });
+
+  it("TypeScript transformer timeout", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformedTimeout",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toBe("timeout");
+      expect(r.category).toBe("failure");
+    });
+  });
+
+  it("Python transformer input transformation, skips, and null return", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_transformed",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+
+    const skips = fuzzResult.results.filter((r) => r.category === "skip");
+    expect(skips.length).toBeGreaterThan(0);
+    skips.forEach((r) => {
+      expect(r.skipped).toBeTrue();
+    });
+
+    const passed = fuzzResult.results.filter((r) => r.category === "ok");
+    expect(passed.length).toBeGreaterThan(0);
+    passed.forEach((r) => {
+      const transformedInput = Number(r.input[0].value);
+      const actualOutput: unknown = r.output[0].value;
+      expect(actualOutput).toBe(transformedInput + 1);
+    });
+  });
+
+  it("Python transformer exception", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_transformed_exception",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toContain("Python transformer error");
+      expect(r.category).toBe("failure");
+    });
+  });
+
+  it("Python transformer timeout", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_transformed_timeout",
+      {
+        ...intOptions,
+        maxTests: 2,
+        fnTimeout: 100,
+        useTransformer: true,
+      }
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toBe("timeout");
+      expect(r.category).toBe("failure");
+    });
+  });
 });

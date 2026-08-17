@@ -46,3 +46,32 @@ def with_assume(n: int) -> int:
     if n == 5:
         raise UnsatisfiedAssumption("n cannot be 5")
     return n
+
+
+def py_transformed(n: int) -> int:
+    return n + 1
+
+
+def py_transformedTransformer(n: int) -> Union[List[int], None]:
+    if n == 5:
+        raise UnsatisfiedAssumption("Transformer skipped n=5")
+    if n < 0:
+        return None
+    return [n * 10]
+
+
+def py_transformed_exception(n: int) -> int:
+    return n
+
+
+def py_transformed_exceptionTransformer(n: int) -> Union[List[int], None]:
+    raise Exception("Python transformer error")
+
+
+def py_transformed_timeout(n: int) -> int:
+    return n
+
+
+def py_transformed_timeoutTransformer(n: int) -> Union[List[int], None]:
+    while True:
+        pass

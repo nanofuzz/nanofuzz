@@ -641,6 +641,7 @@ export class FuzzPanel {
               const thisFn = testSet.functions[fn];
               thisFn.options.measures = getDefaultFuzzOptions().measures;
               thisFn.options.generators = getDefaultFuzzOptions().generators;
+              thisFn.options.useTransformer = true;
 
               const oldTestSet = thisFn.tests;
               thisFn.tests = {};
@@ -935,7 +936,6 @@ export class FuzzPanel {
     const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
     const validatorPrefix = fn.getName() + "Validator";
-    let fnCounter = 0;
     let program: AbstractProgram;
 
     try {
@@ -948,18 +948,10 @@ export class FuzzPanel {
     }
 
     // Determine the next available validator name
-    Object.keys(program.functions)
-      .filter((e) => e.startsWith(validatorPrefix))
-      .forEach((e) => {
-        if (e.endsWith(validatorPrefix)) {
-          fnCounter++;
-        } else {
-          const suffix = e.substring(validatorPrefix.length);
-          if (suffix.match(/^[0-9]+$/)) {
-            fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
-          }
-        }
-      });
+    const fnCounter = getNextAvailableFnNumber(
+      Object.keys(program.functions),
+      validatorPrefix
+    );
 
     const inArgs = fn.getArgDefs();
     const validatorArgs = this._getValidatorArgs(inArgs);
@@ -1153,7 +1145,6 @@ ${inArgConsts}
     const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
     const transformerPrefix = fn.getName() + "Transformer";
-    let fnCounter = 0;
     let program: AbstractProgram;
 
     try {
@@ -1166,20 +1157,11 @@ ${inArgConsts}
       return;
     }
 
-    // TODO: could refactor into utility function since also used in _doAddValidatorCmd()
     // Determine the next available transformer name
-    Object.keys(program.functions.exported)
-      .filter((e) => e.startsWith(transformerPrefix))
-      .forEach((e) => {
-        if (e.endsWith(transformerPrefix)) {
-          fnCounter++;
-        } else {
-          const suffix = e.substring(transformerPrefix.length);
-          if (suffix.match(/^[0-9]+$/)) {
-            fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
-          }
-        }
-      });
+    const fnCounter = getNextAvailableFnNumber(
+      Object.keys(program.functions.exported),
+      transformerPrefix
+    );
 
     const inArgs = fn.getArgDefs();
 
@@ -1193,16 +1175,22 @@ ${inArgConsts}
       .map((argDef) => argDef.getName())
       .join(", ");
 
-    // prettier-ignore
-    const skeleton = `
-type ${inputsTypeName} = Parameters<typeof ${fn.getName()}>;
-
-export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName} | null {
+    // vvvvvvv Language-specific logic vvvvvvv
+    if (program.lang === "*") {
+      throw new Error("Internal error: program is of invalid language: *");
+    }
+    const skeleton =
+      program.lang === "typescript"
+        ? `
+export function ${transformerName}(...Parameters<typeof ${fn.getName()}): ${inputsTypeName} | null {
   const [${argDestructuring}] = args;
-  // Return null to reject this input
+  // 'throw new UnsatisfiedAssumption(message)' to skip this input
   // Return the transformed inputs otherwise
   return [${argDestructuring}];
-}`;
+}`
+        : `
+    `;
+    // ^^^^^^^ Language-specific logic ^^^^^^^
 
     // Save the editor
     for (const editor of vscode.window.visibleTextEditors) {
@@ -2004,7 +1992,7 @@ export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName
                 <!-- <vscode-panel-tab aria-label="Validating options tab">Validating</vscode-panel-tab> -->
                 <vscode-panel-tab aria-label="Stopping options tab">Stopping</vscode-panel-tab>
                 <vscode-panel-tab aria-label="Input generation options tab">Generating Inputs</vscode-panel-tab>
-                <vscode-panel-tab aria-label="Input transformer tab">Input Transformer</vscode-panel-tab>
+                <vscode-panel-tab aria-label="Input transformer tab">Transforming Inputs</vscode-panel-tab>
 
                 <vscode-panel-view>
                   <p>
@@ -2086,7 +2074,7 @@ export function ${transformerName}(...args: ${inputsTypeName}): ${inputsTypeName
 
                 <vscode-panel-view>
                   <p>
-                    An input transformer allows you to reject a generated input, or manipulate it (e.g., to calculate check-sums) before it is sent to the function under test.
+                    An input transformer allows you to skip or manipulate a generated input (e.g., to calculate check-sums) before it is dispatched for execution.
                   </p>
                   
                   <div class="fuzzInputControlGroup" style="margin-bottom: 1em;">
@@ -3879,6 +3867,34 @@ function getSequentialFailures(
     message,
   };
 } // fn: getSequentialFailures
+
+/**
+ * Determines the next available integer counter suffix for a generated function name
+ * given a list of existing function names and a prefix.
+ *
+ * @param existingFnNames Array of function names in the source module
+ * @param prefix Name prefix (e.g., "myFnValidator" or "myFnTransformer")
+ * @returns The next available counter value
+ */
+function getNextAvailableFnNumber(
+  existingFnNames: string[],
+  prefix: string
+): number {
+  let fnCounter = 0;
+  existingFnNames
+    .filter((e) => e.startsWith(prefix))
+    .forEach((e) => {
+      if (e.endsWith(prefix)) {
+        fnCounter++;
+      } else {
+        const suffix = e.substring(prefix.length);
+        if (suffix.match(/^[0-9]+$/)) {
+          fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
+        }
+      }
+    });
+  return fnCounter;
+} // fn: getNextAvailableFnNumber
 
 /**
  * Initializes the module

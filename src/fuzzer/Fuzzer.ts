@@ -88,6 +88,9 @@ export class Tester {
     // Get the list of property validators
     this._validators = getValidators(this._program, fnList[this._fnName]);
 
+    // Get the list of input transformers
+    this._transformers = getTransformers(this._program, fnList[this._fnName]);
+
     // Options
     if (!isOptionValid(options)) {
       throw new Error(
@@ -644,6 +647,11 @@ export class Tester {
       // Initialized test result - overwritten below
       const result: FuzzTestResult = {
         pinned: false,
+        inputGenerated: {
+          tick: 0,
+          value: [],
+          source: { type: "unknown" },
+        },
         input: [],
         output: [],
         exception: false,
@@ -665,14 +673,26 @@ export class Tester {
 
       // Generate and store the inputs
       const startGenTime = performance.now(); // start time: input generation
-      const genInput = this._compositeInputGenerator.next();
+      result.inputGenerated = this._compositeInputGenerator.next();
       result.timers.gen = performance.now() - startGenTime; // total time: input generation
+
+      // Map the generated inputs to the result object
+      // (the transformer might modify these)
+      result.input = result.inputGenerated.value.map((e, i) => {
+        return {
+          name: argDefs[i]?.getName() ?? "?",
+          offset: i,
+          value: e.value,
+          origin: result.inputGenerated.source,
+        };
+      });
 
       // Apply input transformers to generated inputs (before dedup)
       const startTransformTime = performance.now(); // start time: input transformation
-      if (!genInput.injected && transformRunner) {
+      if (!result.inputGenerated.injected && transformRunner) {
         const transformerResult = await transformRunner.run(
-          structuredClone(genInput.value.map((e) => e.value))
+          structuredClone(result.inputGenerated.value.map((e) => e.value)),
+          Math.max(this._options.fnTimeout, 1)
         );
 
         // If transformer returns null, then input was rejected so skip this input
@@ -687,38 +707,30 @@ export class Tester {
             result.validatorExceptionMessage = `timeout`;
             break;
           case "error":
+            // TODO: These need their own place in the results
             result.validatorException = true;
             result.validatorExceptionFunction = transformRunner.name;
             result.validatorExceptionMessage = transformerResult.result.message;
             break;
-          case "value":
-            if (Array.isArray(transformerResult.result.value)) {
-              transformerResult.result.value.map((value, i) => {
-                return {
-                  name: argDefs[i].getName(),
-                  offset: i,
-                  value: value,
-                  src: genInput.source,
-                };
+          case "value": {
+            const values = transformerResult.result.value;
+            if (Array.isArray(values)) {
+              result.inputGenerated.value.forEach((e, i) => {
+                if (i < values.length) {
+                  result.input[i].value = values[i];
+                }
               });
             } else {
+              // TODO: These need their own place in the results (see above)
               result.validatorException = true;
               result.validatorExceptionFunction = transformRunner.name;
               result.validatorExceptionMessage = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
               break;
             }
+          }
         }
       }
       result.timers.transform = performance.now() - startTransformTime; // total time: input transformation
-
-      result.input = genInput.value.map((e, i) => {
-        return {
-          name: argDefs[i]?.getName() ?? "?",
-          offset: i,
-          value: e.value,
-          origin: genInput.source,
-        };
-      });
 
       // Pointer to generator stats for this input, if not injected
       let genStats:
@@ -727,7 +739,7 @@ export class Tester {
 
       // Handle injected and generated tests differently, e.g.,
       // we need to retain any saved details for injected tests.
-      if (genInput.injected) {
+      if (result.inputGenerated.injected) {
         // Ensure the injected inputs are in the expected order
         const expectedInput = JSONN.stringify(
           injectTests[runStats.counters.inputsInjected].input.map(
@@ -751,9 +763,12 @@ export class Tester {
         runStats.counters.inputsInjected++; // increment the number of pinned tests injected
       } else {
         // Update generator stats
-        if (genInput.source.type === "generator") {
+        if (result.inputGenerated.source.type === "generator") {
           // Add generation times to the generator stats
-          genStats = this._results.stats.generators[genInput.source.generator];
+          genStats =
+            this._results.stats.generators[
+              result.inputGenerated.source.generator
+            ];
           genStats.timers.gen += result.timers.gen;
           this._results.stats.timers.gen += result.timers.gen;
 
@@ -816,128 +831,130 @@ export class Tester {
       });
 
       // Call the PUT via its runner
-      const startRunTime = performance.now(); // start timer
-      let exeOutput: RunnerResult;
-      try {
-        exeOutput = await runner.run(
-          structuredClone(result.input.map((e) => e.value)),
-          Math.max(this._options.fnTimeout, 1)
-        );
-      } catch (e: unknown) {
-        if (isError(e)) {
-          exeOutput = {
-            result: {
-              tag: "error",
-              name: e.name,
-              message: e.message,
-              stack: e.stack ?? "<no stack>",
-              seq: -1,
-            },
-            env: {},
-          };
-        } else {
-          exeOutput = {
-            result: {
-              tag: "error",
-              name: "unknown internal runner error",
-              message: "unknown",
-              stack: "<no stack>",
-              seq: -1,
-            },
-            env: {},
-          };
-        }
-      }
-      result.timers.run = performance.now() - startRunTime; // stop timer
-      switch (exeOutput.result.tag) {
-        case "value":
-          result.output.push({
-            name: "0",
-            offset: 0,
-            value: exeOutput.result.value as ArgValueType,
-            origin: { type: "put" },
-          });
-          break;
-        case "error":
-          result.exception = true;
-          result.exceptionMessage = exeOutput.result.message;
-          result.stack = exeOutput.result.stack;
-          break;
-        case "timeout":
-          result.timeout = true;
-          break;
-        case "skip":
-          result.skipped = true;
-          result.skipReason = exeOutput.result.message;
-          break;
-      }
-
-      this._results.stats.timers.put += result.timers.run;
-      if (genStats) {
-        genStats.timers.run += result.timers.run;
-      }
-
-      const startValTime = performance.now(); // start timer
-      // IMPLICIT ORACLE --------------------------------------------
-      if (this._options.useImplicit && !result.skipped) {
-        result.passedImplicit = ImplicitOracle.judge(
-          result.timeout,
-          result.exception,
-          this._function.isVoid(),
-          result.output
-        );
-      }
-
-      // EXAMPLE ORACLE ---------------------------------------------
-      // If a human annotated an expected output, then check it
-      if (this._options.useHuman && result.expectedOutput && !result.skipped) {
-        result.passedHuman = ExampleOracle.judge(
-          result.timeout,
-          result.exception,
-          result.expectedOutput,
-          result.output
-        );
-      }
-
-      // PROPERTY ORACLE --------------------------------------------
-      // If a property validator is selected, call it to evaluate the result
-      if (this._options.useProperty && !result.skipped) {
-        (
-          await propertyOracle.judge(
-            Object.freeze({
-              in: result.input.map((i) => i.value), // inputs
-              out:
-                result.output.length === 0
-                  ? "timeout or exception"
-                  : result.output[0].value,
-              exception: result.exception,
-              timeout: result.timeout,
-            }),
+      if (!result.skipped && !result.validatorException) {
+        const startRunTime = performance.now(); // start timer
+        let exeOutput: RunnerResult;
+        try {
+          exeOutput = await runner.run(
+            structuredClone(result.input.map((e) => e.value)),
             Math.max(this._options.fnTimeout, 1)
-          )
-        ).forEach((j, i) => {
-          if (isError(j)) {
-            result.passedValidators.push("unknown");
-            result.validatorException = true;
-            result.validatorExceptionMessage = j.message;
-            result.validatorExceptionFunction = this._validators[i].name;
-            result.validatorExceptionStack = j.stack;
+          );
+        } catch (e: unknown) {
+          if (isError(e)) {
+            exeOutput = {
+              result: {
+                tag: "error",
+                name: e.name,
+                message: e.message,
+                stack: e.stack ?? "<no stack>",
+                seq: -1,
+              },
+              env: {},
+            };
           } else {
-            result.passedValidators.push(j);
+            exeOutput = {
+              result: {
+                tag: "error",
+                name: "unknown internal runner error",
+                message: "unknown",
+                stack: "<no stack>",
+                seq: -1,
+              },
+              env: {},
+            };
           }
-        });
+        }
+        result.timers.run = performance.now() - startRunTime; // stop timer
+        switch (exeOutput.result.tag) {
+          case "value":
+            result.output.push({
+              name: "0",
+              offset: 0,
+              value: exeOutput.result.value as ArgValueType,
+              origin: { type: "put" },
+            });
+            break;
+          case "error":
+            result.exception = true;
+            result.exceptionMessage = exeOutput.result.message;
+            result.stack = exeOutput.result.stack;
+            break;
+          case "timeout":
+            result.timeout = true;
+            break;
+          case "skip":
+            result.skipped = true;
+            result.skipReason = exeOutput.result.message;
+            break;
+        }
 
-        // Summarize propert judgments.
-        result.passedValidator = PropertyOracle.summarize(
-          result.passedValidators
-        );
-      } // if validator
+        this._results.stats.timers.put += result.timers.run;
+        if (genStats) {
+          genStats.timers.run += result.timers.run;
+        }
 
-      // Validator stats
-      const valTime = performance.now() - startValTime; // stop timer
-      this._results.stats.timers.val += valTime;
-      if (genStats) {
-        genStats.timers.val += valTime;
+        const startValTime = performance.now(); // start timer
+        // IMPLICIT ORACLE --------------------------------------------
+        if (this._options.useImplicit) {
+          result.passedImplicit = ImplicitOracle.judge(
+            result.timeout,
+            result.exception,
+            this._function.isVoid(),
+            result.output
+          );
+        }
+
+        // EXAMPLE ORACLE ---------------------------------------------
+        // If a human annotated an expected output, then check it
+        if (this._options.useHuman && result.expectedOutput) {
+          result.passedHuman = ExampleOracle.judge(
+            result.timeout,
+            result.exception,
+            result.expectedOutput,
+            result.output
+          );
+        }
+
+        // PROPERTY ORACLE --------------------------------------------
+        // If a property validator is selected, call it to evaluate the result
+        if (this._options.useProperty) {
+          (
+            await propertyOracle.judge(
+              Object.freeze({
+                in: result.input.map((i) => i.value), // inputs
+                out:
+                  result.output.length === 0
+                    ? "timeout or exception"
+                    : result.output[0].value,
+                exception: result.exception,
+                timeout: result.timeout,
+              }),
+              Math.max(this._options.fnTimeout, 1)
+            )
+          ).forEach((j, i) => {
+            if (isError(j)) {
+              result.passedValidators.push("unknown");
+              result.validatorException = true;
+              result.validatorExceptionMessage = j.message;
+              result.validatorExceptionFunction = this._validators[i].name;
+              result.validatorExceptionStack = j.stack;
+            } else {
+              result.passedValidators.push(j);
+            }
+          });
+
+          // Summarize propert judgments.
+          result.passedValidator = PropertyOracle.summarize(
+            result.passedValidators
+          );
+        } // if validator
+
+        // Validator stats
+        const valTime = performance.now() - startValTime; // stop timer
+        this._results.stats.timers.val += valTime;
+        if (genStats) {
+          genStats.timers.val += valTime;
+        }
       }
 
       // (Re-)categorize the result
@@ -959,7 +976,10 @@ export class Tester {
       {
         const startMeasureTime = performance.now(); // start timer
         const measurements = this._measures.map((e) =>
-          e.measure(structuredClone(genInput), structuredClone(result))
+          e.measure(
+            structuredClone(result.inputGenerated),
+            structuredClone(result)
+          )
         );
 
         // Provide measures feedback to the composite input generator
