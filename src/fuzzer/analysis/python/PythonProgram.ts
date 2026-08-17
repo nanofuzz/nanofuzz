@@ -1348,9 +1348,11 @@ export class PythonProgram extends AbstractProgram {
 
       case "sets":
       case "lists": {
-        if (getKwdArg(node, "unique_by", -1)) {
-          console.warn("The 'unique_by' property is not yet supported.");
-        }
+        ["unique_by"].forEach((kwd) => {
+          if (getKwdArg(node, kwd, -1)) {
+            console.warn(`The '${kwd}' property is not yet supported.`);
+          }
+        });
 
         const elementsArg = getKwdArg(node, "elements", 0);
         let innerTypeRef: TypeRef | undefined;
@@ -2003,6 +2005,30 @@ export class PythonProgram extends AbstractProgram {
     arg: ArgDef,
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
+    const typeRef = arg.getTypeRef();
+    if (typeRef && options.useTypeRefs) {
+      const outerDims = arg.getTypeRefDims() ?? 0;
+      let type = `${"List[".repeat(outerDims)}${typeRef}${"]".repeat(outerDims)}`;
+      if (
+        arg.isOptional() &&
+        !(
+          arg.getType() === ArgTag.UNION &&
+          arg.getDim() === 0 &&
+          arg
+            .getChildren()
+            .some(
+              (child) =>
+                child.getType() === ArgTag.LITERAL &&
+                child.isConstant() &&
+                child.getConstantValue() === undefined
+            )
+        )
+      ) {
+        type = `Union[${type}, None]`;
+      }
+      return type;
+    }
+
     // Get the base type annotation
     const baseType = PythonProgram.getBaseType(arg, options);
     const dims = arg.getDim();

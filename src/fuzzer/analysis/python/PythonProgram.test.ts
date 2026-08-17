@@ -95,6 +95,23 @@ def greeting(name: a) -> a:
     expect(PythonProgram.getTypeAnnotation(args[0])).toEqual("a");
   });
 
+  it("getTypeAnnotation for type-aliased list types", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `from typing import List
+type MyInt = int
+type MyList = List[int]
+def test_aliases(x: MyInt, y: List[MyInt], z: MyList):
+  pass`,
+      "python"
+    ).functionsExported;
+
+    const args = fns["test_aliases"].getArgDefs();
+    expect(args.length).toEqual(3);
+    expect(PythonProgram.getTypeAnnotation(args[0])).toEqual("MyInt");
+    expect(PythonProgram.getTypeAnnotation(args[1])).toEqual("List[MyInt]");
+    expect(PythonProgram.getTypeAnnotation(args[2])).toEqual("MyList");
+  });
+
   it("extracts Python function docstrings", () => {
     const functions = ProgramFactory.fromSource(
       () => `def plain():
@@ -474,7 +491,7 @@ from .schemas import *`,
         bfs
           .getArgDefs()
           .map((argument) => PythonProgram.getTypeAnnotation(argument))
-      ).toEqual(["Vertex", "List[ImportedEdges]"]);
+      ).toEqual(["Vertex", "ImportedEdges"]);
       expect(bfs.getReturnType()).toEqual(
         jasmine.objectContaining({ typeRefName: "Traversal" })
       );
@@ -486,14 +503,14 @@ from .schemas import *`,
       expect(topological.getArgDefs()[0].getType()).toEqual(ArgTag.NUMBER);
       expect(
         PythonProgram.getTypeAnnotation(topological.getArgDefs()[1])
-      ).toEqual("List[ImportedEdges]");
+      ).toEqual("ImportedEdges");
 
       const knapsack = functions["knapsack_from_imported_helper"];
       expect(
         knapsack.getArgDefs().map((argument) => argument.getName())
       ).toEqual(["items", "capacity"]);
       expect(PythonProgram.getTypeAnnotation(knapsack.getArgDefs()[0])).toEqual(
-        "List[List[KnapsackItems]]"
+        "KnapsackItems"
       );
       expect(knapsack.getArgDefs()[1].getType()).toEqual(ArgTag.NUMBER);
 
