@@ -1175,21 +1175,41 @@ ${inArgConsts}
       .map((argDef) => argDef.getName())
       .join(", ");
 
-    // vvvvvvv Language-specific logic vvvvvvv
     if (program.lang === "*") {
       throw new Error("Internal error: program is of invalid language: *");
     }
-    const skeleton =
-      program.lang === "typescript"
-        ? `
+    // vvvvvvv Language-specific logic vvvvvvv
+    let skeleton: string;
+    switch (program.lang) {
+      case "typescript": {
+        const tsDestructuring =
+          inArgs.length === 0 ? "" : `  const [${argDestructuring}] = args;\n`;
+        skeleton = `
 export function ${transformerName}(...args: Parameters<typeof ${fn.getName()}>): Parameters<typeof ${inputsTypeName}> {
-  const [${argDestructuring}] = args;
-  // 'throw new UnsatisfiedAssumption(message)' to skip this input
+${tsDestructuring}  // 'throw new UnsatisfiedAssumption(message)' to skip this input
   // Otherwise, return the transformed inputs
   return [${argDestructuring}];
-}`
-        : `
-    `;
+}`;
+        break;
+      }
+
+      case "python": {
+        const pyUnpacking =
+          inArgs.length === 0
+            ? ""
+            : inArgs.length === 1
+            ? `  (${argDestructuring},) = args\n`
+            : `  ${argDestructuring} = args\n`;
+        skeleton = `
+
+def ${transformerName}(*args):
+${pyUnpacking}  # 'raise UnsatisfiedAssumption(message)' to skip this input
+  # Otherwise, return the transformed inputs
+  return [${argDestructuring}]
+`;
+        break;
+      }
+    }
     // ^^^^^^^ Language-specific logic ^^^^^^^
 
     // Save the editor
