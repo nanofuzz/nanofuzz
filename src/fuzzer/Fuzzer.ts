@@ -1122,7 +1122,7 @@ export function getTransformers(
   program: AbstractProgram,
   fnUnderTest: FunctionDef
 ): FunctionRef[] {
-  return Object.values(program.functions.exported)
+  return Object.values(program.functionsExported)
     .filter(
       (fn) =>
         fn.isTransformer() && fn.getName().startsWith(fnUnderTest.getName())

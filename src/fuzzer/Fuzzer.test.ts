@@ -58,6 +58,7 @@ const intOptions: FuzzOptions = {
   maxDupeInputs: 1000,
   maxFailures: 0,
   useImplicit: true,
+  useTransformer: true,
   useHuman: true,
   useProperty: false,
   measures: allMeasures,
@@ -748,9 +749,7 @@ describe("fuzzer:", () => {
       }
     ).testSync();
 
-    const skips = fuzzResult.results.filter(
-      (r) => r.category === "skip"
-    );
+    const skips = fuzzResult.results.filter((r) => r.category === "skip");
 
     expect(skips.length).toBeGreaterThan(0);
     skips.forEach((r) => {
