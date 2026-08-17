@@ -414,6 +414,15 @@ async function main() {
   );
   refreshValidators(validators);
 
+  // Load & display the transformer state from the HTML
+  const transformersElem = document.getElementById("transformers");
+  if (transformersElem) {
+    const transformersList: string[] = JSONN.parse(
+      htmlUnescape(transformersElem.innerHTML)
+    );
+    refreshTransformers(transformersList);
+  }
+
   // Load column sort orders from the HTML
   columnSortOrders = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
@@ -439,6 +448,9 @@ async function main() {
     switch (data.command) {
       case "validator.list":
         refreshValidators(data.validators);
+        break;
+      case "transformer.list":
+        refreshTransformers(data.transformers);
         break;
       case "config.updated": {
         getElementByIdOrThrow("llm-model").innerText =
@@ -2437,6 +2449,22 @@ function refreshValidators(validatorList: string[]) {
   );
   validatorFnCount.innerText = String(validatorList.length);
 } // fn: refreshValidators
+
+/**
+ * Refreshes the displayed state for input transformers based on a list of
+ * transformer names provided from the back-end.
+ *
+ * @param transformerList list of available input transformer names
+ */
+function refreshTransformers(transformerList: string[]) {
+  const btn = document.getElementById("transformer.add");
+  if (btn) {
+    btn.innerText =
+      transformerList.length > 0
+        ? "Show Input Transformer"
+        : "Create Input Transformer";
+  }
+} // fn: refreshTransformers
 
 /**
  * Send message to back-end to add code skeleton to source code (because the

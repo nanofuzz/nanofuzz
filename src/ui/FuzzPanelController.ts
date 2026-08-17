@@ -1144,7 +1144,6 @@ ${inArgConsts}
   private async _doAddTransformerCmd() {
     const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
-    const transformerPrefix = fn.getName() + "Transformer";
     let program: AbstractProgram;
 
     try {
@@ -1156,6 +1155,25 @@ ${inArgConsts}
       );
       return;
     }
+
+    // If a transformer already exists, navigate to it rather than creating a new one
+    const existingTransformers = fuzzer.getTransformers(program, fn);
+    if (existingTransformers.length > 0) {
+      this._fuzzEnv.transformers = existingTransformers;
+      const fnDef =
+        program.functionsExported[existingTransformers[0].name] ??
+        program.functions[existingTransformers[0].name];
+      if (fnDef) {
+        this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
+        return;
+      }
+    } else if (this._fuzzEnv.transformers.length > 0) {
+      const transformer = this._fuzzEnv.transformers[0];
+      this._navigateToSource(transformer.module, transformer.startOffset);
+      return;
+    }
+
+    const transformerPrefix = fn.getName() + "Transformer";
 
     // Determine the next available transformer name
     const fnCounter = getNextAvailableFnNumber(
@@ -1198,8 +1216,8 @@ ${tsDestructuring}  // 'throw new UnsatisfiedAssumption(message)' to skip this i
           inArgs.length === 0
             ? ""
             : inArgs.length === 1
-            ? `  (${argDestructuring},) = args\n`
-            : `  ${argDestructuring} = args\n`;
+              ? `  (${argDestructuring},) = args\n`
+              : `  ${argDestructuring} = args\n`;
         skeleton = `
 
 def ${transformerName}(*args):
@@ -1369,6 +1387,13 @@ ${pyUnpacking}  # 'raise UnsatisfiedAssumption(message)' to skip this input
     if (oldTransformerNames !== newTransformerNames) {
       // Update the Fuzzer Environment
       this._fuzzEnv.transformers = newTransformers;
+
+      // Notify webview about the change
+      const message: FuzzPanelMessageToWebView = {
+        command: "transformer.list",
+        transformers: newTransformers.map((e) => e.name),
+      };
+      this._panel.webview.postMessage(message);
     }
   } // fn: _doGetValidatorsAndTransformers()
 
@@ -2106,14 +2131,10 @@ ${pyUnpacking}  # 'raise UnsatisfiedAssumption(message)' to skip this input
                   </div>
 
                   <div class="fuzzInputControlGroup">
-                    <vscode-button ${disabledFlag || this._fuzzEnv.transformers.length > 0 ? "disabled" : ""} id="transformer.add" appearance="secondary">
-                      Add Transformer Code Skeleton
+                    <vscode-button ${disabledFlag ? "disabled" : ""} id="transformer.add" appearance="secondary">
+                      ${this._fuzzEnv.transformers.length > 0 ? "Show Input Transformer" : "Create Input Transformer"}
                     </vscode-button>
                   </div>
-                  
-                  <p>
-                    <strong>Found Transformers:</strong> ${this._fuzzEnv.transformers.length > 0 ? htmlEscape(this._fuzzEnv.transformers.map(t => t.name).join(', ')) : "None"}
-                  </p>
                 </vscode-panel-view>
                 </vscode-panels>
 
@@ -2999,6 +3020,13 @@ ${pyUnpacking}  # 'raise UnsatisfiedAssumption(message)' to skip this input
             <div id="validators" class="hidden">
               ${htmlEscape(
                 JSONN.stringify(this._fuzzEnv.validators.map((e) => e.name))
+              )}
+            </div>
+
+            <!-- Transformer Functions: for the client script to process -->
+            <div id="transformers" class="hidden">
+              ${htmlEscape(
+                JSONN.stringify(this._fuzzEnv.transformers.map((e) => e.name))
               )}
             </div>
 
@@ -4082,6 +4110,10 @@ export type FuzzPanelMessageToWebView =
   | {
       command: "validator.list";
       validators: string[];
+    }
+  | {
+      command: "transformer.list";
+      transformers: string[];
     }
   | { command: "busy.message"; message: fuzzer.FuzzBusyStatusMessage }
   | { command: "busy.ending" }
