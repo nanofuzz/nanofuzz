@@ -412,6 +412,7 @@ describe("fuzzer:", () => {
     expect(
       resultValue !== undefined &&
         typeof resultValue === "object" &&
+        resultValue !== null &&
         !("b" in resultValue)
     ).toBeTruthy();
   });
@@ -705,6 +706,7 @@ describe("fuzzer:", () => {
     );
     expect(
       typeof failures[0].output[0].value === "object" &&
+        failures[0].output[0].value !== null &&
         "a" in failures[0].output[0].value &&
         failures[0].output[0].value["a"] === null
     ).toBeTrue();
@@ -731,6 +733,7 @@ describe("fuzzer:", () => {
     ).toEqual("6");
     expect(
       typeof failures[0].output[0].value === "object" &&
+        failures[0].output[0].value !== null &&
         "a" in failures[0].output[0].value &&
         failures[0].output[0].value["a"] === undefined
     ).toBeTrue();

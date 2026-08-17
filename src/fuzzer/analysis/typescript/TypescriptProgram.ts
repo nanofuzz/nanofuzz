@@ -6,7 +6,6 @@ import { parse, ParseResult } from "@babel/parser";
 import _traverse, { NodePath } from "@babel/traverse";
 import {
   File,
-  TSEntityName,
   TSTypeAliasDeclaration,
   TSTypeAnnotation,
   TSLiteralType,
@@ -41,7 +40,9 @@ import { ArgDef } from "../ArgDef";
 // Default import nonsense for node
 // https://github.com/babel/babel/discussions/13093
 const traverse: typeof _traverse =
-  typeof _traverse === "function" ? _traverse : (_traverse as any).default;
+  typeof _traverse === "function"
+    ? _traverse
+    : (_traverse as { default: typeof _traverse }).default;
 
 /**
  * The TypescriptProgram class represents a TypeScript program definition in a
@@ -642,6 +643,18 @@ export class TypescriptProgram extends AbstractProgram {
       node.optional !== undefined &&
       node.optional === true;
 
+    // Check if node's type annotation evaluates to a utility type
+    if (typeNode) {
+      const evaluatedUtility = this._evaluateUtilityType(typeNode, parent);
+      if (evaluatedUtility) {
+        if (thisType.name) {
+          evaluatedUtility.name = thisType.name;
+        }
+        evaluatedUtility.optional = thisType.optional;
+        return evaluatedUtility;
+      }
+    }
+
     // Handle type references, which we will resolve later
     //
     // Note: this does not catch arrays of type references;
@@ -749,6 +762,12 @@ export class TypescriptProgram extends AbstractProgram {
       case "TSUndefinedKeyword": {
         return [ArgTag.LITERAL, 0, undefined, undefined];
       }
+      case "TSNullKeyword": {
+        return [ArgTag.LITERAL, 0, undefined, null];
+      }
+      case "TSVoidKeyword": {
+        return [ArgTag.LITERAL, 0, undefined, undefined];
+      }
       case "TSParenthesizedType": {
         return this._getTypeFromAstNode(node.typeAnnotation, options);
       }
@@ -800,6 +819,9 @@ export class TypescriptProgram extends AbstractProgram {
       case "TSBooleanKeyword":
       case "TSLiteralType":
       case "TSNumberKeyword":
+      case "TSUndefinedKeyword":
+      case "TSNullKeyword":
+      case "TSVoidKeyword":
         return [];
       case "TSArrayType":
         return this._getChildrenFromNode(node.elementType);
@@ -881,7 +903,14 @@ export class TypescriptProgram extends AbstractProgram {
             tupleMember.type === "TSNamedTupleMember"
               ? tupleMember.elementType
               : tupleMember;
-          return this._getTypeRefFromAstNode(type, node);
+          const childRef = this._getTypeRefFromAstNode(type, node);
+          if (
+            tupleMember.type === "TSNamedTupleMember" &&
+            tupleMember.label.type === "Identifier"
+          ) {
+            childRef.name = tupleMember.label.name;
+          }
+          return childRef;
         });
       }
 
@@ -986,7 +1015,9 @@ export class TypescriptProgram extends AbstractProgram {
       try {
         if (typeNode && typeNode.type !== "Noop") {
           isVoid = typeNode.typeAnnotation.type === "TSVoidKeyword";
-          returnType = this._getTypeRefFromAstNode(typeNode, path.node.init);
+          if (!isVoid) {
+            returnType = this._getTypeRefFromAstNode(typeNode, path.node.init);
+          }
         } else {
           isVoid = bodyIsVoid;
         }
@@ -1007,8 +1038,8 @@ export class TypescriptProgram extends AbstractProgram {
         startOffset: path.node.range[0],
         endOffset: path.node.range[1],
         isExported: parent.parent.type === "ExportNamedDeclaration",
-        args: path.node.init.params.map((arg) =>
-          this._getParamTypeRef(arg, init)
+        args: path.node.init.params.flatMap((arg) =>
+          this._getParamTypeRefs(arg, init)
         ),
         returnType,
         isVoid,
@@ -1033,7 +1064,9 @@ export class TypescriptProgram extends AbstractProgram {
       try {
         if (typeNode && typeNode.type !== "Noop") {
           isVoid = typeNode.typeAnnotation.type === "TSVoidKeyword";
-          returnType = this._getTypeRefFromAstNode(typeNode, path.node);
+          if (!isVoid) {
+            returnType = this._getTypeRefFromAstNode(typeNode, path.node);
+          }
         } else {
           isVoid = bodyIsVoid;
         }
@@ -1050,8 +1083,8 @@ export class TypescriptProgram extends AbstractProgram {
         startOffset: path.node.range[0],
         endOffset: path.node.range[1],
         isExported: parent ? parent.type === "ExportNamedDeclaration" : false,
-        args: path.node.params.map((arg) =>
-          this._getParamTypeRef(arg, path.node)
+        args: path.node.params.flatMap((arg) =>
+          this._getParamTypeRefs(arg, path.node)
         ),
         returnType,
         isVoid,
@@ -1061,26 +1094,349 @@ export class TypescriptProgram extends AbstractProgram {
   } // fn: _getFunctionFromNode()
 
   /**
-   * Helper function to extract a TypeRef from a parameter AST node.
-   * Throws an error for unsupported parameter node types (e.g. RestElement, ObjectPattern).
+   * Evaluates TypeScript utility types like Parameters<typeof fn>, ReturnType<typeof fn>,
+   * Awaited<T>, Partial<T>, Required<T>, Readonly<T>, NonNullable<T>.
+   *
+   * @param node AST node representing a type or type annotation
+   * @param parent Parent AST node
+   * @returns Evaluated TypeRef, or undefined if the node is not a utility type
+   */
+  protected _evaluateUtilityType(
+    node: Node,
+    parent: Node
+  ): TypeRef | undefined {
+    let innerNode = node;
+    if (
+      innerNode.type === "TSTypeAnnotation" ||
+      innerNode.type === "TypeAnnotation"
+    ) {
+      innerNode = innerNode.typeAnnotation;
+    }
+
+    if (innerNode.type === "TSTypeReference" && "typeName" in innerNode) {
+      const typeName = getIdentifierName(innerNode.typeName);
+      const typeParams =
+        "typeParameters" in innerNode && innerNode.typeParameters
+          ? innerNode.typeParameters.params
+          : [];
+
+      switch (typeName) {
+        case "Parameters": {
+          if (typeParams.length > 0) {
+            const firstParam = typeParams[0];
+            let targetFnName: string | undefined = undefined;
+            if (firstParam.type === "TSTypeQuery") {
+              targetFnName = getIdentifierName(firstParam.exprName);
+            }
+            if (targetFnName) {
+              const fnRef = this._getFunctionRefByName(targetFnName);
+              if (fnRef) {
+                return {
+                  module: this._filename,
+                  dims: 0,
+                  optional: false,
+                  isExported: false,
+                  type: {
+                    dims: 0,
+                    type: ArgTag.TUPLE,
+                    children: (fnRef.args ?? []).map((a) => structuredClone(a)),
+                    resolved: true,
+                  },
+                };
+              }
+              throw new Error(
+                `Cannot resolve function '${targetFnName}' for Parameters<typeof ${targetFnName}>`
+              );
+            }
+          }
+          break;
+        }
+
+        case "ReturnType": {
+          if (typeParams.length > 0) {
+            const firstParam = typeParams[0];
+            let targetFnName: string | undefined = undefined;
+            if (firstParam.type === "TSTypeQuery") {
+              targetFnName = getIdentifierName(firstParam.exprName);
+            }
+            if (targetFnName) {
+              const fnRef = this._getFunctionRefByName(targetFnName);
+              if (fnRef) {
+                if (fnRef.returnType) {
+                  return structuredClone(fnRef.returnType);
+                }
+                if (fnRef.isVoid) {
+                  return {
+                    module: this._filename,
+                    dims: 0,
+                    optional: false,
+                    isExported: false,
+                    type: {
+                      dims: 0,
+                      type: ArgTag.LITERAL,
+                      children: [],
+                      value: undefined,
+                      resolved: true,
+                    },
+                  };
+                }
+              }
+              throw new Error(
+                `Cannot resolve function '${targetFnName}' for ReturnType<typeof ${targetFnName}>`
+              );
+            }
+          }
+          break;
+        }
+
+        case "Awaited": {
+          if (typeParams.length > 0) {
+            const innerEvaluated = this._getTypeRefFromAstNode(
+              typeParams[0],
+              parent
+            );
+            if (
+              innerEvaluated.typeRefName === "Promise" &&
+              innerEvaluated.type?.children &&
+              innerEvaluated.type.children.length > 0
+            ) {
+              return structuredClone(innerEvaluated.type.children[0]);
+            }
+            return innerEvaluated;
+          }
+          break;
+        }
+
+        case "Partial":
+        case "Readonly":
+        case "Required": {
+          if (typeParams.length > 0) {
+            const innerEvaluated = structuredClone(
+              this._getTypeRefFromAstNode(typeParams[0], parent)
+            );
+            if (innerEvaluated.type && innerEvaluated.type.children) {
+              innerEvaluated.type.children.forEach((c) => {
+                if (typeName === "Partial") c.optional = true;
+                if (typeName === "Required") c.optional = false;
+              });
+            }
+            return innerEvaluated;
+          }
+          break;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Look up a function's FunctionRef by name in the local module AST, already parsed functions,
+   * or imported modules.
+   *
+   * @param fnName Name of function
+   * @returns FunctionRef if found, undefined otherwise
+   */
+  protected _getFunctionRefByName(fnName: string): FunctionRef | undefined {
+    if (this._functions && fnName in this._functions.supported) {
+      return this._functions.supported[fnName];
+    }
+
+    if (this._ast) {
+      let found: FunctionRef | undefined = undefined;
+      traverse(this._ast, {
+        enter: (path) => {
+          if (found) return;
+          if (
+            "id" in path.node &&
+            path.node.id &&
+            "name" in path.node.id &&
+            path.node.id.name === fnName
+          ) {
+            try {
+              found = this._getFunctionFromNode(
+                fnName,
+                path,
+                path.parentPath ?? undefined
+              );
+            } catch {
+              // ignore
+            }
+          }
+        },
+      });
+      if (found) return found;
+    }
+
+    if (this._imports && fnName in this._imports.identifiers) {
+      const importRef = this._imports.identifiers[fnName];
+      try {
+        const importProgram = ProgramFactory.fromFile(
+          importRef.programPath,
+          this.lang,
+          this._options,
+          this
+        );
+        if (importRef.imported in importProgram.functionsExported) {
+          return importProgram.functionsExported[importRef.imported].getRef();
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Helper function to extract parameter TypeRefs from a parameter AST node.
+   * Handles Identifiers, default values, RestElements (...args), and expands
+   * tuple/utility types. Throws an error for unsupported parameter node types.
    *
    * @param param Parameter AST node
    * @param parent Parent AST node
-   * @returns TypeRef for the parameter
+   * @returns Array of TypeRefs for the parameter(s)
    */
-  protected _getParamTypeRef(param: Node, parent: Node): TypeRef {
+  protected _getParamTypeRefs(param: Node, parent: Node): TypeRef[] {
     switch (param.type) {
       case "Identifier":
-        return this._getTypeRefFromAstNode(param, parent);
+        return [this._getTypeRefFromAstNode(param, parent)];
       case "AssignmentPattern":
         if (param.left.type === "Identifier") {
-          return this._getTypeRefFromAstNode(param.left, parent);
+          return [this._getTypeRefFromAstNode(param.left, parent)];
         }
         throw new Error(
           `Unsupported destructured default parameter: ${param.left.type}`
         );
-      case "RestElement":
-        throw new Error("Rest parameters (...args) are not supported");
+      case "RestElement": {
+        const paramName =
+          param.argument.type === "Identifier" ? param.argument.name : "args";
+        if (
+          param.typeAnnotation &&
+          param.typeAnnotation.type === "TSTypeAnnotation"
+        ) {
+          const typeAnnot = param.typeAnnotation;
+          let typeRef =
+            this._evaluateUtilityType(typeAnnot, parent) ??
+            this._getTypeRefFromAstNode(typeAnnot.typeAnnotation, parent);
+
+          // If typeRef is unresolved, resolve it through type definitions/imports
+          if (!typeRef.type && typeRef.typeRefName) {
+            try {
+              typeRef = structuredClone(this.resolveTypeRef(typeRef));
+            } catch {
+              // ignore resolution failure if type is external or unavailable
+            }
+          }
+
+          // Case 1: Rest parameter is a tuple type (e.g. ...args: [string, number], ...args: MyTuple, ...args: Parameters<typeof fn>)
+          if (typeRef.type?.type === ArgTag.TUPLE && typeRef.type.children) {
+            return typeRef.type.children.map((child, i) => {
+              const paramChild = structuredClone(child);
+              paramChild.name = child.name ?? `${paramName}_${i}`;
+              return paramChild;
+            });
+          }
+
+          // Case 3: Rest parameter is a union type containing tuple types (e.g. ...args: [string] | [number, boolean] or ...args: MyTupleUnion)
+          if (typeRef.type?.type === ArgTag.UNION && typeRef.type.children) {
+            // Resolve any unresolved children in the union
+            const resolvedChildren = typeRef.type.children.map((child) => {
+              if (!child.type && child.typeRefName) {
+                try {
+                  return structuredClone(this.resolveTypeRef(child));
+                } catch {
+                  return child;
+                }
+              }
+              return child;
+            });
+
+            // Filter children that are tuple types
+            const tupleArms = resolvedChildren.filter(
+              (c) => c.type?.type === ArgTag.TUPLE && c.type.children
+            );
+
+            if (tupleArms.length > 0) {
+              const totalArms = resolvedChildren.length;
+              const maxLen = Math.max(
+                ...tupleArms.map((t) => t.type!.children!.length)
+              );
+              const positionalTypeRefs: TypeRef[] = [];
+
+              for (let k = 0; k < maxLen; k++) {
+                // Collect children at position k across all tuple arms
+                const armsWithPos = tupleArms.filter(
+                  (t) => t.type!.children!.length > k
+                );
+                const posChildren = armsWithPos.map(
+                  (t) => t.type!.children![k]
+                );
+
+                // If not all union arms have position k, the parameter is optional
+                const isOptional = armsWithPos.length < totalArms;
+
+                // Determine name for position k
+                const firstName = posChildren.find((c) => c.name)?.name;
+                const posName = firstName ?? `${paramName}_${k}`;
+
+                if (posChildren.length === 1) {
+                  const paramChild = structuredClone(posChildren[0]);
+                  paramChild.name = posName;
+                  if (isOptional) paramChild.optional = true;
+                  positionalTypeRefs.push(paramChild);
+                } else if (posChildren.length > 1) {
+                  // Merge posChildren into a UNION TypeRef
+                  const paramChild: TypeRef = {
+                    module: this._filename,
+                    name: posName,
+                    dims: 0,
+                    optional: isOptional,
+                    isExported: false,
+                    type: {
+                      dims: 0,
+                      type: ArgTag.UNION,
+                      children: posChildren.map((c) => structuredClone(c)),
+                      resolved: true,
+                    },
+                  };
+                  positionalTypeRefs.push(paramChild);
+                }
+              }
+
+              return positionalTypeRefs;
+            }
+          }
+
+          // Default: Rest parameter is an array type (like ...items: number[])
+          const [typeTag, dims, typeRefName, literalValue] =
+            this._getTypeFromAstNode(typeAnnot.typeAnnotation, this._options);
+
+          const paramTypeRef: TypeRef = {
+            module: this._filename,
+            name: paramName,
+            dims: 0,
+            optional: false,
+            isExported: false,
+          };
+
+          if (typeTag === ArgTag.UNRESOLVED) {
+            paramTypeRef.dims = dims > 0 ? dims : 1;
+            paramTypeRef.typeRefName = typeRefName;
+          } else {
+            paramTypeRef.type = {
+              dims: dims > 0 ? dims : 1,
+              type: typeTag,
+              children: [],
+              value: literalValue,
+              resolved: true,
+            };
+          }
+
+          return [paramTypeRef];
+        }
+        throw new Error("Missing type annotation on rest parameter");
+      }
       case "ObjectPattern":
       case "ArrayPattern":
         throw new Error("Destructured parameters are not supported");
@@ -1299,15 +1655,28 @@ export class TypescriptProgram extends AbstractProgram {
  * @param node The node to get the identifier name for
  * @returns Qualified name as a string
  */
-function getIdentifierName(node: TSEntityName): string {
-  switch (node.type) {
-    case "Identifier": {
+function getIdentifierName(node: unknown): string {
+  if (node && typeof node === "object" && "type" in node) {
+    if (
+      node.type === "Identifier" &&
+      "name" in node &&
+      typeof node.name === "string"
+    ) {
       return node.name;
     }
-    case "TSQualifiedName": {
+    if (
+      node.type === "TSQualifiedName" &&
+      "left" in node &&
+      "right" in node &&
+      node.right &&
+      typeof node.right === "object" &&
+      "name" in node.right &&
+      typeof node.right.name === "string"
+    ) {
       return getIdentifierName(node.left) + "." + node.right.name;
     }
   }
+  return "";
 } // fn: getIdentifierName()
 
 /**

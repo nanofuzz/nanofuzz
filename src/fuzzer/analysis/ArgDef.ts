@@ -117,7 +117,11 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         : intervals;
 
     // Ensure each non-array dimension is valid
-    if (this.intervals.filter((e) => e.min > e.max).length) {
+    if (
+      this.intervals.filter(
+        (e) => e.min !== null && e.max !== null && e.min > e.max
+      ).length
+    ) {
       throw new Error(
         `Invalid interval: ${JSON.stringify(this.intervals, undefined, 2)}`
       );
@@ -322,7 +326,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    * Throws an exception if any interval's min>max.
    */
   public setIntervals(intervals: Interval<TagToType[Tag]>[]): void {
-    if (intervals.some((e) => e.min > e.max))
+    if (intervals.some((e) => e.min !== null && e.max !== null && e.min > e.max))
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
       );
@@ -341,12 +345,12 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       this.type,
       options
     ) as Interval<TagToType[Tag]>[];
-    if (intervals.some((e) => e.min > e.max))
+    if (intervals.some((e) => e.min !== null && e.max !== null && e.min > e.max))
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
       );
     this.intervals = intervals;
-  } // fn: setIntervals()
+  } // fn: setDefaultIntervals()
 
   /**
    * Indicates whether the argument has a constant input interval.

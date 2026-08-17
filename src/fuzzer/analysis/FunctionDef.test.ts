@@ -1129,6 +1129,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
                         dims: 0,
                         isExported: false,
                         module: "dummy.ts",
+                        name: "name",
                         optional: false,
                         type: {
                           type: ArgTag.STRING,
@@ -1139,6 +1140,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
                       },
                       {
                         module: "dummy.ts",
+                        name: "latLng",
                         typeRefName: "LatLng",
                         dims: 0,
                         isExported: false,
