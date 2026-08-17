@@ -10,7 +10,7 @@
       "type": "extensionHost",
       "request": "launch",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
-      "outFiles": ["${workspaceFolder}/build/extension/**/*.js"],
+      "outFiles": ["${workspaceFolder}/build/**/*.js"],
       "preLaunchTask": "${defaultBuildTask}"
     }
   ]

@@ -1,0 +1,634 @@
+/** Body Styles **/
+body {
+  padding-right: 0;
+  padding-left: 0;
+}
+/*
+.breadcrumb {
+  padding-top: 2px;
+  padding-left: 10px;
+  color: var(--vscode-breadcrumb-foreground);
+  line-height: 20px;
+}
+.breadcrumb a {
+  color: var(--vscode-breadcrumb-foreground);
+}
+.breadcrumb a:hover {
+  color: var(--vscode-breadcrumb-focusForeground);
+}
+.shadowBefore {
+  box-shadow: var(--vscode-scrollbar-shadow) 0 6px 6px -6px inset;
+}
+*/
+#pane-nanofuzz {
+  padding-right: 10px;
+  padding-left: 10px;
+}
+
+/** Panel Styles **/
+.fuzzPanelHeading {
+  font-size: 1.25em;
+  margin-top: 0.1em;
+  margin-bottom: 0.1em;
+  font-weight: bolder;
+}
+
+/* Scroll to top button */
+#scroll-to-top {
+  visibility: hidden;
+  position: fixed;
+  width: 1.5em;
+  height: 1.5em;
+  right: 10px;
+  top: 2px;
+  font-size: 1.25em;
+  color: var(--vscode-tab-inactiveForeground);
+  background-color: var(--vscode-button-secondaryBackground);
+  border-color: var(--vscode-button-border);
+  border-radius: 50%;
+  box-shadow: 1px 1px 1px rgba(0, 0, 0, 0.25);
+  outline: none;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-decoration-line: none;
+  z-index: 4; /* on top of sticky rows & tabstrip */
+  animation: fadeout 0.75s;
+}
+#scroll-to-top:hover {
+  color: var(--vscode-tab-activeForeground);
+}
+.fuzzGridPanel {
+  margin-bottom: 5px;
+}
+
+/** Grid Styles **/
+.fuzzGrid {
+  width: 100%;
+  padding-left: 0;
+  border-spacing: 0;
+}
+.fuzzGrid td {
+  word-break: break-word;
+  padding: 3px 6px;
+}
+.fuzzGrid tbody tr:first-child td {
+  padding-top: 4px;
+}
+.fuzzGrid tbody tr:last-child td {
+  border-bottom: 1px solid;
+  padding-bottom: 4px;
+}
+.editorFont {
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size);
+  font-weight: var(--vscode-editor-font-weight);
+}
+.preWrap {
+  white-space: pre-wrap;
+}
+.fuzzGrid td.tableCol-src span,
+.fuzzGrid td.noInput span {
+  color: rgb(from var(--vscode-foreground) r g b / 0.5);
+}
+.fuzzGrid th.tableCol-src,
+.fuzzGrid td.tableCol-src {
+  text-align: center;
+}
+.fuzzGrid th {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid;
+  vertical-align: bottom;
+}
+.fuzzGrid thead.sticky {
+  position: sticky;
+  background-color: var(--vscode-editor-background);
+  opacity: 1;
+  top: 2.2em;
+  z-index: 2;
+}
+.fuzzResultsTabStripWrapper {
+  position: sticky;
+  top: -4px;
+  z-index: 3;
+}
+.fuzzResultsTabStripWrapper .fuzzTabStrip {
+  background-color: var(--vscode-editor-background);
+  opacity: 1;
+}
+.fuzzGrid td:first-child,
+.fuzzGrid th:first-child {
+  padding-left: 0;
+}
+.fuzzGrid th.colorColumn {
+  padding: 2px 8px;
+  text-align: center;
+}
+.fuzzGrid tr.classGetExpectedOutputRow td:first-child {
+  padding-left: 6px;
+}
+.fuzzGrid td span.overridden {
+  opacity: 35%;
+}
+td.fuzzGridCellPinned,
+td.fuzzGridCellPin {
+  text-align: center;
+  width: 1%;
+}
+th.fuzzGridCellPinned,
+th.fuzzGridCellPin {
+  text-align: center;
+}
+td.fuzzGridCellPin span {
+  opacity: 35%;
+}
+td.fuzzGridCellPinned span,
+td.fuzzGridCellPin:hover span {
+  opacity: 100%;
+}
+/* Expand or collapse twistie column (›) */
+th.expandCollapseColumn {
+  padding-left: 0px;
+  padding-right: 0px;
+  padding-bottom: 0px;
+}
+.fuzzGrid tbody tr {
+  transition:
+    box-shadow 3s 3s ease,
+    background-color 3s 3s ease;
+}
+.fuzzGrid tbody tr.focus {
+  transition: none;
+  background-color: var(--vscode-editor-hoverHighlightBackground);
+  box-shadow: 0px 0px 1px 1px
+    rgb(from var(--vscode-editor-hoverHighlightBackground) r g b / 1);
+}
+#fuzz\.options\.interesting\.inputs thead tr th:first-child {
+  text-align: center;
+}
+#fuzz\.options\.interesting\.inputs tbody tr td:first-child {
+  text-align: center;
+}
+#fuzz\.options\.interesting\.inputs tbody tr td:first-child span {
+  color: rgb(from var(--vscode-foreground) r g b / 0.35);
+}
+#fuzzAddTestInputOptions-pane .fuzzGrid {
+  width: auto;
+}
+
+/* Validator icons */
+td.classUnknown,
+td.classCheckOff,
+td.classErrorOff,
+td.classCheckOn,
+td.classErrorOn {
+  text-align: center;
+  width: 1%;
+  padding-right: 1px;
+  padding-left: 1px;
+}
+td.classUnknown.colGroupStart,
+td.classCheckOff.colGroupStart,
+td.classCheckOn.colGroupStart,
+td.classErrorOff.colGroupStart,
+td.classErrorOn.colGroupStart {
+  padding-left: 4px;
+}
+td.classUnknown.colGroupEnd,
+td.classCheckOff.colGroupEnd,
+td.classCheckOn.colGroupEnd,
+td.classErrorOff.colGroupEnd,
+td.classErrorOn.colGroupEnd {
+  padding-right: 4px;
+}
+td.classUnknown span,
+td.classCheckOff span,
+td.classErrorOff span {
+  opacity: 35%;
+}
+td.classCheckOff:hover span,
+td.classErrorOff:hover span {
+  opacity: 100%;
+}
+td.classCheckOff:active span,
+td.classErrorOff:active span {
+  opacity: 80%;
+}
+td.classCheckOn span,
+td.classErrorOn span {
+  opacity: 100%;
+}
+td.classCheckOn:active span,
+td.classErrorOn:active span {
+  opacity: 80%;
+}
+
+.classAddRefreshValidator:active {
+  opacity: 50%;
+}
+
+/* ArgDef styles */
+.argDef-name,
+.argDef-close {
+  float: left;
+  font-size: 1.2em;
+}
+.argDef,
+.argDef-type,
+.argDef-array,
+.argDef-preClose {
+  clear: both;
+}
+.isNoInput {
+  float: right;
+  padding-right: 0.85em;
+}
+.isNoInput vscode-checkbox {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.faded {
+  background-color: var(--vscode-list-inactiveSelectionBackground);
+  opacity: 50%;
+}
+
+/* Fix for vscode ui toolkit secondary icon buttons */
+[appearance="secondary icon"] {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+[appearance="secondary icon depressed"] {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  box-shadow:
+    inset 1px 1px var(--vscode-button-background),
+    inset -1px -1px var(--vscode-button-background);
+}
+
+/* Expected output panel */
+td.classErrorCell {
+  text-decoration: var(--vscode-editorError-foreground) underline wavy;
+}
+vscode-text-field.classErrorCell {
+  opacity: 100%;
+  outline-style: solid;
+  outline-width: 0.05cm;
+  outline-color: var(--vscode-editorError-foreground);
+}
+tr.classGetExpectedOutputRow td,
+tr.classErrorExpectedOutputRow td {
+  margin-left: 3em;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+tr.classErrorExpectedOutputRow td div {
+  display: table-cell;
+  vertical-align: middle;
+}
+tr.classErrorExpectedOutputRow td div.slightFade {
+  opacity: 80%;
+}
+.expectedOutputErrorMessage {
+  color: var(--vscode-editorError-foreground);
+  margin-left: 0.5em;
+  font-weight: bold;
+}
+.hidden {
+  display: none !important;
+}
+
+/** Validator styles **/
+#validatorFunctions-view > span {
+  display: table-cell;
+  vertical-align: middle;
+}
+
+/** Tooltips: adapted from: https://github.com/primer/css/tree/main */
+.tooltipped {
+  position: relative;
+}
+.tooltipped::after {
+  position: absolute;
+  z-index: 1000001;
+  display: none;
+  padding: 0.5em 0.75em;
+  font-weight: var(--vscode-font-weight);
+  font-size: var(--vscode-font-size);
+  -webkit-font-smoothing: subpixel-antialiased;
+  text-align: center;
+  text-decoration: none;
+  text-shadow: none;
+  text-transform: none;
+  letter-spacing: normal;
+  word-wrap: break-word;
+  white-space: pre-line;
+  pointer-events: none;
+  content: attr(aria-label);
+  background: var(--vscode-editor-background);
+  border-width: 1px;
+  border-style: solid;
+  border-color: var(--vscode-focus-border);
+  border-radius: 6px;
+  opacity: 0;
+  width: max-content;
+  max-width: 250px;
+  border-collapse: separate;
+}
+.tooltipped::before {
+  position: absolute;
+  z-index: 1000000;
+  display: none;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  content: "";
+  border: 6px solid transparent;
+  opacity: 0;
+}
+.tooltipped:hover::before,
+.tooltipped:hover::after,
+.tooltipped:active::before,
+.tooltipped:active::after,
+.tooltipped:focus::before,
+.tooltipped:focus::after {
+  display: inline-block;
+  text-decoration: none;
+  color: var(--button-primary-foreground);
+  opacity: 1;
+}
+.tooltipped-multiline:hover::after,
+.tooltipped-multiline:active::after,
+.tooltipped-multiline:focus::after {
+  display: table-cell;
+}
+.tooltipped-s::after,
+.tooltipped-se::after,
+.tooltipped-sw::after {
+  top: 100%;
+  right: 50%;
+  margin-top: 6px;
+}
+.tooltipped-s::before,
+.tooltipped-se::before,
+.tooltipped-sw::before {
+  top: auto;
+  right: 50%;
+  bottom: -7px;
+  margin-right: -6px;
+  border-bottom-color: var(--vscode-focus-border);
+}
+.tooltipped-se::after {
+  right: auto;
+  left: 50%;
+  margin-left: -16px;
+}
+.tooltipped-sw::after {
+  margin-right: -16px;
+}
+.tooltipped-n::after,
+.tooltipped-ne::after,
+.tooltipped-nw::after {
+  right: 50%;
+  bottom: 100%;
+  margin-bottom: 6px;
+}
+.tooltipped-n::before,
+.tooltipped-ne::before,
+.tooltipped-nw::before {
+  top: -7px;
+  right: 50%;
+  bottom: auto;
+  margin-right: -6px;
+  border-top-color: var(--vscode-focus-border);
+}
+.tooltipped-ne::after {
+  right: auto;
+  left: 50%;
+  margin-left: -16px;
+}
+.tooltipped-nw::after {
+  margin-right: -16px;
+}
+.tooltipped-s::after,
+.tooltipped-n::after {
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.tooltipped-w::after {
+  right: 100%;
+  bottom: 50%;
+  margin-right: 6px;
+  transform: translateY(50%);
+  right: 100%;
+}
+.tooltipped-w::before {
+  top: 50%;
+  bottom: 50%;
+  left: -7px;
+  margin-top: -6px;
+  border-left-color: var(--vscode-focus-border);
+}
+.tooltipped-e::after {
+  bottom: 50%;
+  left: 100%;
+  margin-left: 6px;
+  transform: translateY(50%);
+  right: 100%;
+}
+.tooltipped-e::before {
+  top: 50%;
+  right: -7px;
+  bottom: 50%;
+  margin-top: -6px;
+  border-right-color: var(--vscode-focus-border);
+}
+
+/* Clickable items (e.g., sorting) */
+.clickable {
+  cursor: pointer;
+}
+.columnSortDesc::after {
+  content: "▼";
+  font-size: 0.6em;
+  display: inline-block;
+  padding-left: 0.25ch;
+  position: absolute;
+}
+.columnSortAsc::after {
+  content: "▲";
+  font-size: 0.6em;
+  display: inline-block;
+  padding-left: 0.25ch;
+  position: absolute;
+}
+.columnSortDescSmall::after {
+  content: "▼";
+  font-size: 0.5em;
+  display: inline-block;
+  padding-left: 0.2ch;
+  padding-bottom: 0em;
+  position: absolute;
+}
+.columnSortAscSmall::after {
+  content: "▲";
+  font-size: 0.5em;
+  display: inline-block;
+  padding-left: 0.2ch;
+  position: absolute;
+}
+
+/* Stop conditions */
+.fuzzStopReason {
+  opacity: 50%;
+}
+
+/* Spacing overrides */
+
+/* Narrow tab strip column gaps */
+vscode-panels::part(tablist) {
+  column-gap: calc(var(--design-unit) * 4px);
+  padding-left: 0;
+  padding-right: 0;
+}
+/* Narrow the margins for <h2> elements */
+h2 {
+  margin-bottom: 0.5em;
+  margin-top: 0.1em;
+}
+#fuzzOptions > h2 {
+  margin-bottom: 0.1em;
+}
+/* Required to clear the float of the panel buttons */
+#fuzzOptions > vscode-panels {
+  clear: right;
+}
+/* Float panel buttons to the upper-right */
+.panelButton {
+  float: right;
+  padding-top: 0;
+  padding-right: 0.5em;
+}
+/* Make the panel buttons larger */
+.panelButton > .codicon[class*="codicon-"] {
+  font-size: 1.5em;
+}
+vscode-panel-view {
+  flex-direction: column;
+}
+vscode-panel-view > p:nth-of-type(1) {
+  margin-top: 0.25em;
+}
+.fuzzPanelDescription {
+  margin-bottom: 0.25em;
+  margin-top: 0.75em;
+}
+div.fuzzInputControlGroup {
+  flex-direction: row;
+}
+.fuzzResultHeading {
+  margin-bottom: 0.25em;
+}
+.fuzzResultHeading + p {
+  margin-top: 0.7em;
+}
+.fuzzWarnings > p,
+.fuzzInfo > p {
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
+  color: rgb(from var(--vscode-foreground) r g b / 0.8);
+}
+
+.dropdown-container {
+  box-sizing: border-box;
+  display: flex;
+  flex-flow: column nowrap;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.dropdown-container label {
+  display: block;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  font-size: var(--vscode-font-size);
+  line-height: normal;
+  margin-bottom: 2px;
+}
+
+/* VS Code icons in paragraphs should be the size of normal text */
+p span.codicon {
+  font-size: var(--vscode-font-size) !important;
+}
+
+/** Snackbar: adapted from https://www.w3schools.com/howto/howto_js_snackbar.asp **/
+.snackbar {
+  visibility: hidden;
+  min-width: 18em;
+  margin-left: -9.25em;
+  background-color: var(--vscode-notifications-background);
+  color: var(--vscode-notifications-foreground);
+  text-align: center;
+  border-radius: 2px;
+  border-style: solid;
+  border-width: 2px;
+  border-color: rgb(
+    from var(--vscode-editor-hoverHighlightBackground) r g b / 1
+  );
+  padding: 0.25em;
+  position: absolute;
+  left: 50%;
+  font-size: var(--vscode-font-size);
+  box-shadow:
+    0 4px 8px 0 rgba(0, 0, 0, 0.2),
+    0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+.snackbarShow {
+  visibility: visible;
+  z-index: 10;
+  animation:
+    fadein 0.5s,
+    fadeout 0.5s 3.6s;
+}
+.revealed {
+  visibility: visible !important;
+  animation: fadein 0.75s;
+}
+@keyframes fadein {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fadeout {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+/* Busy Feedback */
+#fuzzBusyStatusBar {
+  background-color: var(--button-primary-background);
+  color: var(--button-primary-foreground);
+  content: "";
+  display: table;
+  clear: both;
+  text-align: center;
+  padding: 0.02em 0em;
+  margin-top: 1.5em;
+  margin-bottom: 1.25em;
+}
+#fuzzBusyMessageNonMilestone {
+  margin-top: 0.75em;
+  margin-bottom: 0.5em;
+}
+#fuzzBusyMessage {
+  font-size: 0.9em;
+}

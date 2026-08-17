@@ -1,616 +1,1075 @@
 import * as fs from "fs";
-import * as JSON5 from "json5";
-import vm from "vm";
-import { ArgDef } from "./analysis/typescript/ArgDef";
-import { ArgValueType, FunctionRef } from "./analysis/typescript/Types";
+import * as JSONN from "../Jsonn";
+import { ArgDef } from "./analysis/ArgDef";
+import { ArgValueType, FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
-import * as compiler from "./Compiler";
-import { ProgramDef } from "./analysis/typescript/ProgramDef";
-import { FunctionDef } from "./analysis/typescript/FunctionDef";
+import * as CompilerFactory from "./compilers/CompilerFactory";
+import * as ProgramFactory from "./analysis/ProgramFactory";
+import * as ValueMapper from "./mappers/ValueMapper";
+import { FunctionDef } from "./analysis/FunctionDef";
 import {
   FuzzIoElement,
   FuzzPinnedTest,
   FuzzTestResult,
-  Result,
   FuzzResultCategory,
   FuzzStopReason,
+  FuzzBusyStatusMessage,
+  BaseMeasureConfig,
 } from "./Types";
-import { FuzzOptions } from "./Types";
+import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
-import { InputGeneratorFactory } from "./generators/InputGeneratorFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { InputAndSource, ScoredInput } from "./generators/Types";
-import { isError, getErrorMessageOrJson } from "../Util";
-import { CodeCoverageMeasureStats } from "./measures/CoverageMeasure";
+import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
+import { isError } from "../fuzzer/Util";
+import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
+import { CompositeOracle } from "./oracles/CompositeOracle";
+import { ImplicitOracle } from "./oracles/ImplicitOracle";
+import { ExampleOracle } from "./oracles/ExampleOracle";
+import { PropertyOracle } from "./oracles/PropertyOracle";
+import { AbstractProgram } from "./analysis/AbstractProgram";
+import { RunnerResult } from "./runners/AbstractRunner";
+import { CompilerStaleness } from "./compilers/Types";
+import { getToolVersion } from "../ToolVersion";
 
-/**
- * Builds and returns the environment required by fuzz().
- *
- * @param options fuzzer option set
- * @param module file name of Typescript module containing the function to fuzz
- * @param fnName optional name of the function to fuzz
- * @param offset optional offset within the source file of the function to fuzz
- * @returns a fuzz environment
- */
-export const setup = (
-  options: FuzzOptions,
-  module: string,
-  fnName: string
-): FuzzEnv => {
-  module = require.resolve(module);
-  const program = ProgramDef.fromModule(module, options.argDefaults);
-  const fnList = program.getExportedFunctions();
+export class Tester {
+  protected _module: string; // module filename
+  protected _fnName: string; // function name
+  protected _leaderboard = new Leaderboard<InputAndSource>(); // top test results, according to measures
+  protected _measures; // set of measures for executions
+  protected _allInputs: Map<string, unknown> = new Map(); // language-specific dupe check for input generation
+  protected _state: "init" | "ready" | "running" | "paused" | "crashed" =
+    "init"; // tester state
 
-  // Ensure we have a valid set of Fuzz options
-  if (!isOptionValid(options))
-    throw new Error(
-      `Invalid options provided: ${JSON5.stringify(options, null, 2)}`
-    );
+  protected _options: FuzzOptions; // testing options
+  protected _program: AbstractProgram; // program under test
+  protected _function: FunctionDef; // function under test
+  protected _compositeInputGenerator: CompositeInputGenerator; // composite input generator
+  protected _validators: FunctionRef[] = []; // property validator functions
+  protected _transformers: FunctionRef[] = []; // input transformer functions
+  protected _lastCompiler?: ReturnType<
+    (typeof CompilerFactory)["fromSourcefile"]
+  >; // last compiler object used
 
-  // Ensure we found a function to fuzz
-  if (!(fnName in fnList))
-    throw new Error(`Could not find function ${fnName} in: ${module})}`);
+  protected _results: FuzzTestResults; // test results
 
-  return {
-    options: { ...options },
-    function: fnList[fnName],
-    //validator: ... FuzzPanel loads this and adds it to FuzzEnv later
-    validators: getValidators(program, fnList[fnName]),
-    transformers: getTransformers(program, fnList[fnName])
-  };
-}; // fn: setup()
+  constructor(
+    module: string,
+    fnName: string,
+    options: FuzzOptions,
+    mode: { precompile?: true } = {}
+  ) {
+    this._module = require.resolve(module);
+    this._fnName = fnName;
 
-/**
- * Fuzzes the function specified in the fuzz environment and returns the test results.
- *
- * @param env fuzz environment (created by calling setup())
- * @returns Promise containing the fuzz test results
- *
- * Throws an exception if the fuzz options are invalid
- */
-export const fuzz = (
-  env: FuzzEnv,
-  pinnedTests: FuzzPinnedTest[] = []
-): FuzzTestResults => {
-  const fqSrcFile = fs.realpathSync(env.function.getModule()); // Help the module loader
-  const results: FuzzTestResults = {
-    env,
-    stopReason: FuzzStopReason.CRASH, // updated later
-    stats: {
-      timers: {
-        total: 0, // updated later
-        run: 0, // updated later
-        val: 0, // updated later
-        gen: 0, // updated later
-        measure: 0, // updated later
-        compile: 0, // updated later
-      },
-      counters: {
-        inputsGenerated: 0, // updated later
-        dupesGenerated: 0, // updated later
-        inputsInjected: 0, // updated later
-      },
-      generators: {}, // updated later
-      measures: {}, // updated later
-    },
-    interesting: {
-      inputs: [],
-    },
-    results: [], // filled later
-  };
-  let injectedCount = 0; // Number of inputs previously saved (e.g., pinned inputs)
-  let currentDupeCount = 0; // Number of duplicated tests since the last non-duplicated test
-  let totalDupeCount = 0; // Total number of duplicates generated in the fuzzing session
-  let inputsGenerated = 0; // Number of inputs generated so far
-  let failureCount = 0; // Number of failed tests encountered so far
-
-  // Ensure we have a valid set of Fuzz options
-  if (!isOptionValid(env.options)) {
-    throw new Error(
-      `Invalid options provided: ${JSON5.stringify(env.options, null, 2)}`
-    );
-  }
-
-  console.log(
-    `\r\n\r\nTesting target: ${env.function.getName()} of ${env.function.getModule()}`
-  );
-
-  // Get the active measures, which will take various measurements
-  // during execution that guide the composite generator
-  const measures = MeasureFactory(env);
-
-  // Setup the Composite Generator
-  const argDefs = env.function.getArgDefs();
-  const leaderboard = new Leaderboard<InputAndSource>();
-  const compositeInputGenerator = new CompositeInputGenerator(
-    argDefs, // spec of inputs to generate
-    env.options.seed ?? "", // prng seed
-    InputGeneratorFactory(env, leaderboard), // set of subordinate input generators
-    measures, // measures
-    leaderboard
-  );
-
-  // Inject pinned tests into the composite generator so that they generate
-  // first: we want the composite generator to know about these inputs so that
-  // any "interesting" inputs might be further mutated by other generators.
-  compositeInputGenerator.inject(
-    pinnedTests.map((t) =>
-      t.input.map((i) => {
-        return { value: i.value };
-      })
-    )
-  );
-
-  // The module that includes the function to fuzz will
-  // be a TypeScript source file, so we first must compile
-  // it to JavaScript prior to execution.  This activates the
-  // TypeScript compiler that hooks into the require() function.
-  const startCompTime = performance.now(); // start time: compile & instrument
-  compiler.activate(measures);
-
-  // The fuzz target is likely under development, so
-  // invalidate the cache to get the latest copy.
-  delete require.cache[require.resolve(fqSrcFile)];
-
-  /* eslint eslint-comments/no-use: off */
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require(fqSrcFile);
-
-  // Deactivate the TypeScript compiler
-  compiler.deactivate();
-  results.stats.timers.compile = performance.now() - startCompTime;
-
-  // Build a test runner for executing tests
-  const runner = RunnerFactory(env, mod, env.function.getName());
-
-  // Main test loop
-  // We break out of this loop when any of the following are true:
-  //  (1) We have reached the maximum number of tests
-  //  (2) We have reached the maximum number of duplicate tests
-  //      since the last non-duplicated test
-  //  (3) We have reached the time limit for the test suite to run
-  //  (4) We have reached the maximum number of failed tests
-  // Note: Pinned tests are not counted against the maxTests limit
-  const startTime = new Date().getTime();
-  const allInputs: Record<string, boolean> = {};
-
-  console.log(`Testing in progress.`);
-
-  // eslint-disable-next-line no-constant-condition, @typescript-eslint/no-unnecessary-condition
-  while (true) {
-    // Stop fuzzing when we encounter a stop condition
-    const stopCondition = _checkStopCondition(
-      env,
-      inputsGenerated,
-      currentDupeCount,
-      totalDupeCount,
-      failureCount,
-      startTime,
-      compositeInputGenerator.isAvailable()
-    );
-    if (stopCondition !== undefined) {
-      results.stopReason = stopCondition;
-      results.stats.timers.total = new Date().getTime() - startTime; // TODO: non-monotonic time breakage possible !!!!!
-      results.stats.counters.inputsGenerated = inputsGenerated;
-      results.stats.counters.dupesGenerated = totalDupeCount;
-      results.stats.counters.inputsInjected = injectedCount;
-      break;
+    // Get the program & function definitions
+    try {
+      this._program = ProgramFactory.fromFile(
+        this._module,
+        undefined,
+        options.argDefaults
+      );
+    } catch (e: unknown) {
+      throw new Error(
+        `The program could not be parsed. Please fix the errors and retest.${
+          isError(e) ? ` (${e.message})` : ``
+        }`,
+        { cause: e }
+      );
     }
+    const fnList = this._program.functionsExported;
+    if (!(this._fnName in fnList)) {
+      throw new Error(
+        `Could not find exported function ${this._fnName} in: ${this._module}`
+      );
+    }
+    this._function = fnList[this._fnName];
 
-    // Initial set of results - overwritten below
-    const result: FuzzTestResult = {
-      pinned: false,
-      input: [],
-      output: [],
-      exception: false,
-      validatorException: false,
-      timeout: false,
-      passedImplicit: true,
-      timers: {
-        run: 0,
-        gen: 0,
-      },
-      category: "ok",
-      source: "injected",
-      interestingReasons: [],
+    // Get the list of property validators
+    this._validators = getValidators(this._program, fnList[this._fnName]);
+
+    // Options
+    if (!isOptionValid(options)) {
+      throw new Error(
+        `Invalid options provided: ${JSONN.stringify(options, null, 2)}`
+      );
+    }
+    this._options = structuredClone(options);
+
+    // Get the active measures, which will take various measurements
+    // during execution that guide the composite generator
+    //
+    // Note: changes to measures only take effect at the start of testing,
+    //       not when testing is paused.
+    const optMeasures: Record<string, BaseMeasureConfig> =
+      this._options.measures;
+    this._measures = MeasureFactory(this._program.lang).filter((m) =>
+      m.name in optMeasures ? optMeasures[m.name].enabled : false
+    );
+
+    // Initialize results
+    this._results = this._getInitializedResults();
+
+    // Generators
+    this._compositeInputGenerator = new CompositeInputGenerator(
+      this._options.generators, // generator options
+      this._function, // input generation target
+      options.seed, // prng seed
+      this._measures, // active measures
+      this._leaderboard, // leaderboard
+      this._results.stats.generators, // generator stats
+      this._allInputs // running list of dupe-checked inputs
+    );
+
+    // Start a background compilation if precompile mode is active
+    // and this is a compiled language.
+    if (mode.precompile) {
+      CompilerFactory.fromSourcefile(module)?.compileAsync(module);
+    }
+  } // constructor
+
+  /**
+   * Returns `true` if the tester is out-of-date or crashed
+   *
+   * @param options FuzzOptions
+   * @returns a reason code if the tester is out-of-date or crashed and `false` otherwise.
+   */
+  public isStale(
+    options: FuzzOptions
+  ): CompilerStaleness | "optionschanged" | "crashed" {
+    // Stale: compilation is stale
+    if (this._lastCompiler) {
+      const compilerIsStale = this._lastCompiler.isStale();
+      if (compilerIsStale) {
+        return compilerIsStale;
+      }
+    }
+    // Helper function to select only the options that would trigger
+    // a full retest
+    const retestRelevantOptions = (opt: FuzzOptions): Partial<FuzzOptions> => {
+      return {
+        measures: opt.measures, // affects future test generation
+        useProperty: opt.useProperty, // affects test results
+        useImplicit: opt.useImplicit, // affects test results
+        useHuman: opt.useHuman, // affects test results
+      };
     };
 
-    // Generate and store the inputs
-    const startGenTime = performance.now(); // start time: input generation
-    const genInput = compositeInputGenerator.next();
-    result.timers.gen = performance.now() - startGenTime; // total time: input generation
-    result.input = genInput.value.map((e, i) => {
-      return {
-        name: argDefs[i].getName(),
-        offset: i,
-        value: e.value,
-      };
-    });
-    result.source = genInput.source.subgen;
+    // Stale: options are stale
+    if (
+      JSONN.stringify(retestRelevantOptions(options)) !==
+      JSONN.stringify(retestRelevantOptions(this._options))
+    ) {
+      return "optionschanged";
+    }
 
-    // Stats
-    if (!(genInput.source.subgen in results.stats.generators)) {
-      results.stats.generators[genInput.source.subgen] = {
+    // Stale: tester crashed
+    if (this._state === "crashed") {
+      return "crashed";
+    }
+
+    // Not stale
+    return false;
+  } // fn: isStale
+
+  /**
+   * Creates a new, empty set of fuzzer results
+   *
+   * @returns initialized Fuzzer Results
+   */
+  protected _getInitializedResults(): FuzzTestResults {
+    return {
+      toolVersion: getToolVersion(),
+      env: {
+        options: structuredClone(this._options),
+        function: this._function,
+        validators: structuredClone(this._validators),
+        transformers: getTransformers(this._program, this._function),
+      },
+      stopReason: FuzzStopReason.CRASH, // updated later
+      stats: {
         timers: {
-          gen: 0, // updated below
-          run: 0, // updated later
+          total: 0, // updated later
+          put: 0, // updated later
           val: 0, // updated later
+          gen: 0, // updated later
           measure: 0, // updated later
+          compile: 0, // updated later
+          transform: 0, // updated later
         },
         counters: {
-          dupesGenerated: 0, // updated later
+          testingRuns: 0, // updated later
           inputsGenerated: 0, // updated later
+          dupesGenerated: 0, // updated later
+          inputsInjected: 0, // updated later
+          passedTests: 0, // updated later
+          skippedTests: 0, // updated later
+          failedTests: 0, // updated later
         },
-      };
-    }
-    const genStats = results.stats.generators[genInput.source.subgen];
-    genStats.timers.gen += result.timers.gen;
-    results.stats.timers.gen += result.timers.gen;
+        generators: {
+          RandomInputGenerator: {
+            timers: {
+              gen: 0, // updated below
+              run: 0, // updated later
+              val: 0, // updated later
+              measure: 0, // updated later
+            },
+            counters: {
+              dupesGenerated: 0, // updated later
+              inputsGenerated: 0, // updated later
+            },
+          },
+          MutationInputGenerator: {
+            timers: {
+              gen: 0, // updated below
+              run: 0, // updated later
+              val: 0, // updated later
+              measure: 0, // updated later
+            },
+            counters: {
+              dupesGenerated: 0, // updated later
+              inputsGenerated: 0, // updated later
+            },
+          },
+          AiInputGenerator: {
+            timers: {
+              gen: 0, // updated below
+              run: 0, // updated later
+              val: 0, // updated later
+              measure: 0, // updated later
+            },
+            counters: {
+              dupesGenerated: 0, // updated later
+              inputsGenerated: 0, // updated later
+            },
+          },
+        },
+        measures: {}, // updated later
+      },
+      interesting: {
+        inputs: [],
+      },
+      results: [], // filled later
+    };
+  } // fn: _getInitializedResults
 
-    // Handle injected vs. generated tests differently, e.g.,
-    // 1. injected tests do not count against the maxTests limit
-    // 2. injected tests may or may not have an expected result
-    // 3. pinned tests stay pinned
-    // 4. input transformers only apply to generated tests
-    if (genInput.source.subgen === CompositeInputGenerator.INJECTED) {
-      // Ensure the injected inputs are in the expected order
-      const expectedInput = JSON5.stringify(pinnedTests[injectedCount].input);
-      const returnedInput = JSON5.stringify(result.input);
-      if (expectedInput !== returnedInput) {
-        throw new Error(
-          `Injected inputs in unexpected order at injected input# ${injectedCount}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
-            JSON5.stringify(pinnedTests, null, 3) // !!!!!!!!
-        );
-      }
-
-      // Map the pinned test information to the new result
-      result.pinned = !!pinnedTests[injectedCount].pinned;
-      if (pinnedTests[injectedCount].expectedOutput) {
-        result.expectedOutput = pinnedTests[injectedCount].expectedOutput;
-      }
-      injectedCount++; // increment the number of pinned tests injected
-    } else {
-      // Apply input transformers to generated inputs (before dedup)
-      let skipThisInput = false;
-      if (env.options.useInputTransformer && env.transformers.length > 0 ) {
-        try {
-          let transformedInputValues = result.input.map((i) => i.value);
-
-          for (const transformerRef of env.transformers) {
-            const transformerFn = mod[transformerRef.name];
-            if (transformerFn) {
-              const transformResult = transformerFn(...transformedInputValues);
-
-              // If transformer returns null, then input was rejected so skip this input
-              if (transformResult === null) {
-                compositeInputGenerator.onInputFeedback([], result.timers.gen);
-                skipThisInput = true;
-                break; // Exit transformer loop
-              }
-
-              // Update with transformed values
-              transformedInputValues = transformResult;
-            }
-          }
-
-          // If any transformer rejected this input, skip to next input
-          if (skipThisInput) continue;
-
-          // Update result.input with transformed values
-          result.input = transformedInputValues.map((value, i) => {
-            return {
-              name: argDefs[i].getName(),
-              offset: i,
-              value: value,
-            };
-          });
-        } catch (e: unknown) {
-          // If transformer throws, treat as rejected input
-          compositeInputGenerator.onInputFeedback([], result.timers.gen);
-          continue;
-        }
-      }
-
-      // Increment the number of inputs generated
-      inputsGenerated++;
-      genStats.counters.inputsGenerated++;
-    }
-
-    // Prepare measures for next test execution
-    {
-      const startMeasTime = performance.now(); // start time: input generation
-      measures.forEach((m) => {
-        m.onBeforeNextTestExecution();
-      });
-      const measureTime = performance.now() - startMeasTime;
-      results.stats.timers.measure += measureTime;
-      genStats.timers.measure += measureTime;
-    }
-
-    // Skip tests if we previously processed the input
-    const inputHash = JSON5.stringify(result.input);
-    if (inputHash in allInputs) {
-      currentDupeCount++; // increment the dupe counter
-      totalDupeCount++; // incremement the total run dupe counter
-      compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
-      genStats.counters.dupesGenerated++; // increment the generator's dupe counter
-      continue; // skip this test
-    } else {
-      currentDupeCount = 0; // reset the duplicate count
-      // if the function accepts inputs, add test input
-      // to the list so we don't test it again,
-      if (env.function.getArgDefs().length) {
-        allInputs[inputHash] = true;
-      }
-    }
-
-    // Call the function via the wrapper
-    const startRunTime = performance.now(); // start timer
-    try {
-      const [exeOutput] = runner.run(
-        JSON5.parse(JSON5.stringify(result.input.map((e) => e.value))),
-        env.options.fnTimeout
-      ); // <-- Runner (protect the input)
-      result.output.push({
-        name: "0",
-        offset: 0,
-        value: exeOutput as ArgValueType,
-      });
-      result.timers.run = performance.now() - startRunTime; // stop timer
-    } catch (e: unknown) {
-      result.timers.run = performance.now() - startRunTime; // stop timer
-      const msg = getErrorMessageOrJson(e);
-      const stack = isError(e) ? e.stack : "<no stack>";
-      if (isTimeoutError(e)) {
-        result.timeout = true;
-      } else {
-        result.exception = true;
-        result.exceptionMessage = msg;
-        result.stack = stack;
-      }
-    }
-    results.stats.timers.run += result.timers.run;
-    genStats.timers.run += result.timers.run;
-
-    const startValTime = performance.now(); // start timer
-    // IMPLICIT ORACLE --------------------------------------------
-    // How can it fail ... let us count the ways...
-    if (env.options.useImplicit) {
-      if (result.exception || result.timeout) {
-        // Exceptions and timeouts fail the implicit oracle
-        result.passedImplicit = false;
-      } else if (env.function.isVoid()) {
-        // Functions with a void return type should only return undefined
-        result.passedImplicit = !result.output.some(
-          (e) => e.value !== undefined
-        );
-      } else {
-        // Non-void functions should not contain disallowed values
-        result.passedImplicit = !result.output.some((e) => !implicitOracle(e));
-      }
-    }
-
-    // HUMAN ORACLE -----------------------------------------------
-    // If a human annotated an expected output, then check it
-    if (env.options.useHuman && result.expectedOutput) {
-      result.passedHuman = actualEqualsExpectedOutput(
-        result,
-        result.expectedOutput
+  /**
+   * Sets the tester options
+   * (can we eliminate this? !!!!!!)
+   */
+  public set options(options: FuzzOptions) {
+    // Ensure we have a valid set of Fuzz options
+    if (!isOptionValid(options)) {
+      throw new Error(
+        `Invalid options provided: ${JSONN.stringify(options, null, 2)}`
       );
     }
 
-    // CUSTOM VALIDATOR ------------------------------------------
-    // If a custom validator is selected, call it to evaluate the result
-    if (env.validators.length && env.options.useProperty) {
-      // const fnName = env.validator;
-      result.passedValidators = [];
+    // If we already have an option set and it differs
+    // from the new one, use the new options.
+    if (JSONN.stringify(this._options) !== JSONN.stringify(options)) {
+      this._options = structuredClone(options);
+      this._results.env.options = structuredClone(options);
+      this._compositeInputGenerator.options = this._options.generators;
+    }
+  } // property: set options
 
-      for (const valFn in env.validators) {
-        const valFnName = env.validators[valFn].name;
-        // Build the validator function wrapper
-        const validatorFnWrapper = functionTimeout(
-          (result: FuzzTestResult): FuzzTestResult => {
-            const inParams: ArgValueType[] = []; // array of input parameters
-            result.input.forEach((e) => {
-              const param = e.value;
-              inParams.push(param);
-            });
-            // Simplified data structure for validator function input
-            const validatorIn: Result = {
-              in: inParams,
+  /**
+   * Returns the current `FuzzEnv`
+   * (Retained for prior compatibility.... should probably go away !!!!!!!)
+   */
+  public get env(): FuzzEnv {
+    return {
+      options: structuredClone(this._options),
+      function: this._function,
+      validators: structuredClone(this._validators),
+      transformers: structuredClone(this._transformers),
+    };
+  } // property: get env
+
+  /**
+   * Returns the current state
+   */
+  public get state(): typeof this._state {
+    return this._state;
+  } // property: get state
+
+  /**
+   * Runs the tester and returns its results.
+   *
+   * @param `injectTests` tests to inject
+   * @param `mode` testing mode
+   * @returns `FuzzTestResults`
+   */
+  public async testSync(
+    injectTests: FuzzPinnedTest[] = [],
+    mode: FuzzMode = { gen: true },
+    updateFn?: (payload: FuzzBusyStatusMessage) => void,
+    cancelFn?: () => boolean
+  ): Promise<FuzzTestResults> {
+    let result: FuzzTestResults | undefined;
+    try {
+      const run = this._run(injectTests, mode, updateFn, cancelFn);
+      while (!result) {
+        result = (await run.next()).value;
+      }
+      return result;
+    } catch (e: unknown) {
+      if (this._state === "running") {
+        this._state = "crashed";
+      }
+      throw e;
+    }
+  } // fn: testSync
+
+  /**
+   * Runs the tester in async mode and returns its results
+   * via `callbackFn`.
+   *
+   * @param `injectTests` tests to inject
+   * @param `mode` testing mode
+   * @param `callbackFn` called when testing completes
+   * @param `statusFn` called to report status updates
+   * @param `cancelFn` called to check cancel status
+   */
+  public async testAsync(
+    injectTests: FuzzPinnedTest[] = [],
+    mode: FuzzMode = { gen: true },
+    callbackFn: (result: FuzzTestResults | Error) => void,
+    statusFn?: (payload: FuzzBusyStatusMessage) => void,
+    cancelFn?: () => boolean
+  ): Promise<void> {
+    this._runBatchAsync(
+      callbackFn,
+      this._run(injectTests, mode, statusFn, cancelFn)
+    );
+  } // fn: testAsync
+
+  /**
+   * Runs the tester in batch async mode
+   *
+   * @param `callbackFn` called when testing completes
+   * @param `run` generator function
+   */
+  protected async _runBatchAsync(
+    callbackFn: (result: FuzzTestResults | Error) => void,
+    run: ReturnType<typeof this._run>
+  ): Promise<void> {
+    let result: FuzzTestResults | undefined;
+    const timer = performance.now();
+
+    while (!result && performance.now() - timer < 100) {
+      try {
+        result = (await run.next()).value;
+        if (result) {
+          callbackFn(result);
+          return;
+        }
+      } catch (e) {
+        if (this._state === "running") {
+          this._state = "crashed";
+        }
+        callbackFn(
+          isError(e)
+            ? e
+            : { name: "unknown error", message: JSONN.stringify(e) }
+        );
+        return;
+      }
+    }
+    if (!result)
+      setTimeout(() => {
+        this._runBatchAsync(callbackFn, run);
+      });
+  } // fn: _runBatchAsync
+
+  /**
+   * Generates and returns new test results
+   *
+   * @param `injectTests` tests to inject
+   * @param `mode` tester mode
+   * @param `updateFn` called to report status updates
+   * @param `cancelFn` called to check cancel status
+   * @returns test results
+   */
+  protected async *_run(
+    injectTests: FuzzPinnedTest[] = [],
+    mode: FuzzMode = { gen: true },
+    updateFn?: (payload: FuzzBusyStatusMessage) => void,
+    cancelFn?: () => boolean
+  ): AsyncGenerator<
+    FuzzTestResults | undefined,
+    FuzzTestResults,
+    FuzzTestResults | undefined
+  > {
+    const state = this.state;
+    if (!(state === "init" || state === "paused")) {
+      throw new Error(
+        `Testing cannot be started or resumed from state ${state}`
+      );
+    }
+    this._results.stats.counters.testingRuns++;
+
+    const update = (payload: FuzzBusyStatusMessage): void => {
+      if (updateFn) {
+        updateFn({ ...payload });
+      } else if (payload.channel !== "update") {
+        console.log(payload.msg);
+      }
+    };
+    const runStats = {
+      counters: {
+        inputsInjected: 0, // number of inputs injected for testing
+        inputsGenerated: 0, // number of inputs generated so far
+        dupesGenerated: 0, // number of duplicate inputs generated so far
+        dupesSequential: 0, // current number of duplicate inputs generated in a row
+        failedTests: 0, // number of failed tests encountered so far
+        passedTests: 0, // number of passed tests encountered so far
+        skippedTests: 0, // number of skipped tests so far
+      },
+      timers: {
+        startTime: performance.now(), // time the tester started in this run
+        startGenTime: 0, // time the tester started generating inputs in this run
+        transform: 0, // time the tester spent transforming inputs in this run
+      },
+    };
+
+    if (!updateFn && process.env.BUILD_TARGET !== "node-cli")
+      console.log("\r\n\r\n");
+    update({
+      msg: `Target: ${this._function.getName()} of ${this._function.getModule()}`,
+      channel: "milestone",
+    });
+
+    const argDefs = this._function.getArgDefs();
+    const lang = this._function.getLang();
+
+    // Inject pinned tests into the composite generator so that they generate
+    // first: we want the composite generator to know about these inputs so that
+    // any "interesting" inputs might be further used by other generators.
+    this._compositeInputGenerator.inject(
+      injectTests.map((t): Omit<InputAndSource, "tick"> => {
+        return {
+          value: t.input.map((i) => {
+            return {
+              tag: "ArgValueTypeWrapped",
+              value: i.value,
+            };
+          }),
+          source: t.input.length ? t.input[0].origin : { type: "unknown" },
+        };
+      })
+    );
+
+    // Only generate new inputs if running in input generation mode
+    if (mode.gen) {
+      this._compositeInputGenerator.permitGenerators();
+    } else {
+      this._compositeInputGenerator.suppressGenerators();
+    }
+
+    // Indicate the start of the run
+    this._compositeInputGenerator.onRunStart(!!mode.gen);
+
+    // The target will be a TypeScript function, so we must compile
+    // it to JavaScript (and possibly instrument it) prior to execution.
+    const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
+    const startCompTime = performance.now(); // start time: compile & instrument
+    this._lastCompiler = CompilerFactory.fromSourcefile(fqSrcFile);
+    const mod = this._lastCompiler
+      ? this._lastCompiler.compileSync(this._measures, update) // native ts
+      : fqSrcFile; // something other than native ts
+    this._results.stats.timers.compile = performance.now() - startCompTime;
+
+    // Build a test runner for executing tests
+    const runner = RunnerFactory(this.env, mod, this._function.getName());
+    await runner.onRunStart();
+
+    // Build a test runner for executing transformers, if any are present and enabled
+    let transformRunner: ReturnType<typeof RunnerFactory> | undefined;
+    if (this.env.options.useTransformer && this.env.transformers.length) {
+      transformRunner = RunnerFactory(
+        this.env,
+        mod,
+        this.env.transformers[0].name
+      );
+      await transformRunner.onRunStart();
+    }
+
+    // Connect the measures to the runner. Measures that source their data
+    // from the runner (e.g., Python coverage) need it before the first test.
+    this._measures.forEach((m) => {
+      m.onRunStart(runner);
+    });
+
+    // Build runners for the property validators
+    const propRunners = this._validators.map((vFnRef) =>
+      RunnerFactory(this.env, mod, vFnRef.name)
+    );
+    propRunners.forEach(async (p) => await p.onRunStart());
+    const propertyOracle = new PropertyOracle(propRunners);
+
+    // Are we currently injecting inputs?
+    let stillInjecting = !!injectTests.length;
+
+    update({ msg: `Target ready to test.`, channel: "milestone" });
+    this._state = "ready";
+
+    // Main test loop
+    while (true) {
+      this._state = "running";
+      // End the testing run when we encounter a stop condition
+      const stopCondition = _checkStopCondition(
+        this._options,
+        this._compositeInputGenerator.nextable(),
+        stillInjecting,
+        injectTests.length,
+        !!cancelFn && cancelFn(),
+        runStats,
+        !!mode.gen
+      );
+      if (typeof stopCondition !== "number") {
+        // Calculate final stats
+        this._results.stopReason = stopCondition;
+        this._results.stats.timers.total +=
+          performance.now() - runStats.timers.startTime;
+        this._results.stats.counters.inputsGenerated +=
+          runStats.counters.inputsGenerated;
+        this._results.stats.counters.dupesGenerated +=
+          runStats.counters.dupesGenerated;
+        this._results.stats.counters.inputsInjected +=
+          runStats.counters.inputsInjected;
+        this._results.stats.counters.passedTests +=
+          runStats.counters.passedTests;
+        this._results.stats.counters.skippedTests +=
+          runStats.counters.skippedTests;
+        this._results.stats.counters.failedTests +=
+          runStats.counters.failedTests;
+        this._results.stats.timers.transform += runStats.timers.transform;
+
+        // Update interesting inputs
+        this._results.interesting.inputs =
+          this._compositeInputGenerator.getInterestingInputs();
+
+        // End-of-run processing for measures and input generators
+        this._measures.forEach((e) => {
+          e.onRunEnd(this._results);
+        });
+        this._compositeInputGenerator.onRunEnd(); // also handles shutdown for subgens
+
+        // Shut down runners
+        await runner.onRunEnd();
+        await propRunners.forEach(async (p) => p.onRunEnd());
+
+        update({
+          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
+          channel: "update",
+          pct: 100,
+        });
+        update({
+          msg: ` - Executed ${
+            runStats.counters.passedTests + runStats.counters.failedTests
+          } and skipped ${runStats.counters.skippedTests} tests in ${(
+            performance.now() - runStats.timers.startTime
+          ).toFixed(
+            0
+          )} ms this run. Stopped for reason: ${this._results.stopReason}.`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests with exceptions: ${
+            this._results.results.filter((e) => e.exception).length
+          }, timeouts: ${this._results.results.filter((e) => e.timeout).length}`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests where human validator passed: ${
+            this._results.results.filter((e) => e.passedHuman === "pass").length
+          }, failed: ${
+            this._results.results.filter((e) => e.passedHuman === "fail").length
+          }`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests where property validator passed: ${
+            this._results.results.filter((e) => e.passedValidator === "pass")
+              .length
+          }, failed: ${
+            this._results.results.filter((e) => e.passedValidator === "fail")
+              .length
+          }`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests where heuristic validator passed: ${
+            this._results.results.filter((e) => e.passedImplicit === "pass")
+              .length
+          }, failed: ${
+            this._results.results.filter((e) => e.passedImplicit === "fail")
+              .length
+          }`,
+          channel: "summary",
+        });
+
+        // Persist to outfile, if requested
+        if (this._options.outputFile) {
+          fs.writeFileSync(
+            this._options.outputFile,
+            JSONN.stringify(this._results)
+          );
+          update({
+            msg: ` - Test results: ${this._options.outputFile}`,
+            channel: "summary",
+          });
+        }
+
+        update({
+          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
+          channel: "milestone",
+        });
+
+        this._state = "paused";
+        return this._results;
+      }
+
+      // If starting a new run, record the start time
+      if (runStats.timers.startTime === 0) {
+        runStats.timers.startTime = performance.now();
+      }
+
+      // Initialized test result - overwritten below
+      const result: FuzzTestResult = {
+        pinned: false,
+        input: [],
+        output: [],
+        exception: false,
+        validatorException: false,
+        timeout: false,
+        skipped: false,
+        passedImplicit: "unknown",
+        passedHuman: "unknown",
+        passedValidator: "unknown",
+        passedValidators: [],
+        timers: {
+          run: 0,
+          gen: 0,
+          transform: 0,
+        },
+        category: "ok",
+        interestingReasons: [],
+      };
+
+      // Generate and store the inputs
+      const startGenTime = performance.now(); // start time: input generation
+      const genInput = this._compositeInputGenerator.next();
+      result.timers.gen = performance.now() - startGenTime; // total time: input generation
+
+      // Apply input transformers to generated inputs (before dedup)
+      const startTransformTime = performance.now(); // start time: input transformation
+      if (!genInput.injected && transformRunner) {
+        const transformerResult = await transformRunner.run(
+          structuredClone(genInput.value.map((e) => e.value))
+        );
+
+        // If transformer returns null, then input was rejected so skip this input
+        switch (transformerResult.result.tag) {
+          case "skip":
+            result.skipped = true;
+            result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
+            break;
+          case "timeout":
+            result.validatorException = true;
+            result.validatorExceptionFunction = transformRunner.name;
+            result.validatorExceptionMessage = `timeout`;
+            break;
+          case "error":
+            result.validatorException = true;
+            result.validatorExceptionFunction = transformRunner.name;
+            result.validatorExceptionMessage = transformerResult.result.message;
+            break;
+          case "value":
+            if (Array.isArray(transformerResult.result.value)) {
+              transformerResult.result.value.map((value, i) => {
+                return {
+                  name: argDefs[i].getName(),
+                  offset: i,
+                  value: value,
+                  src: genInput.source,
+                };
+              });
+            } else {
+              result.validatorException = true;
+              result.validatorExceptionFunction = transformRunner.name;
+              result.validatorExceptionMessage = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
+              break;
+            }
+        }
+      }
+      result.timers.transform = performance.now() - startTransformTime; // total time: input transformation
+
+      result.input = genInput.value.map((e, i) => {
+        return {
+          name: argDefs[i]?.getName() ?? "?",
+          offset: i,
+          value: e.value,
+          origin: genInput.source,
+        };
+      });
+
+      // Pointer to generator stats for this input, if not injected
+      let genStats:
+        | FuzzTestStats["generators"]["RandomInputGenerator"]
+        | undefined = undefined;
+
+      // Handle injected and generated tests differently, e.g.,
+      // we need to retain any saved details for injected tests.
+      if (genInput.injected) {
+        // Ensure the injected inputs are in the expected order
+        const expectedInput = JSONN.stringify(
+          injectTests[runStats.counters.inputsInjected].input.map(
+            (i) => i.value
+          )
+        );
+        const returnedInput = JSONN.stringify(result.input.map((i) => i.value));
+        if (expectedInput !== returnedInput) {
+          throw new Error(
+            `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
+              JSONN.stringify(injectTests, null, 3)
+          );
+        }
+
+        // Map the injected test information to the new result
+        const pinnedTest = injectTests[runStats.counters.inputsInjected];
+        result.pinned = !!pinnedTest.pinned;
+        if (pinnedTest.expectedOutput) {
+          result.expectedOutput = pinnedTest.expectedOutput;
+        }
+        runStats.counters.inputsInjected++; // increment the number of pinned tests injected
+      } else {
+        // Update generator stats
+        if (genInput.source.type === "generator") {
+          // Add generation times to the generator stats
+          genStats = this._results.stats.generators[genInput.source.generator];
+          genStats.timers.gen += result.timers.gen;
+          this._results.stats.timers.gen += result.timers.gen;
+
+          // Increment the number of inputs generated
+          runStats.counters.inputsGenerated++;
+          genStats.counters.inputsGenerated++;
+
+          // Log the generation start time
+          if (runStats.timers.startGenTime === 0) {
+            runStats.timers.startGenTime = startGenTime;
+          }
+        }
+        // Indicate that we are no longer injecting inputs
+        stillInjecting = false;
+      }
+
+      // Prepare measures for next test execution
+      {
+        const startMeasTime = performance.now(); // start time: input generation
+        this._measures.forEach((m) => {
+          m.onBeforeNextTestExecution();
+        });
+        const measureTime = performance.now() - startMeasTime;
+        this._results.stats.timers.measure += measureTime;
+        if (genStats) {
+          genStats.timers.measure += measureTime;
+        }
+      }
+
+      // If the function accepts inputs, check if the input is a dupe
+      if (this._function.getArgDefs().length) {
+        // Skip tests if we previously processed the input
+        // Note the our hash value is language specific
+        const inputHash = getLangIoKey(lang, result.input);
+        if (this._allInputs.has(inputHash)) {
+          runStats.counters.dupesSequential++; // increment the sequential dupe counter
+          runStats.counters.dupesGenerated++; // incremement the total run dupe counter
+          this._compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
+          if (genStats) {
+            genStats.counters.dupesGenerated++; // increment the generator's dupe counter
+          }
+          continue; // skip this test
+        } else {
+          runStats.counters.dupesSequential = 0; // reset the sequential duplicate count
+          this._allInputs.set(inputHash, true);
+        }
+      }
+
+      // Front-end status update
+      update({
+        msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
+          runStats.counters.passedTests + runStats.counters.failedTests + 1
+        }: ${this._function.getName()}(${result.input
+          .map((i) => ValueMapper.toLang(lang, i.value))
+          .join(",")})\r\n  Passed: ${
+          runStats.counters.passedTests
+        }\r\n  Failed: ${runStats.counters.failedTests}`,
+        channel: "update",
+        pct: typeof stopCondition === "number" ? stopCondition : 100,
+      });
+
+      // Call the PUT via its runner
+      const startRunTime = performance.now(); // start timer
+      let exeOutput: RunnerResult;
+      try {
+        exeOutput = await runner.run(
+          structuredClone(result.input.map((e) => e.value)),
+          Math.max(this._options.fnTimeout, 1)
+        );
+      } catch (e: unknown) {
+        if (isError(e)) {
+          exeOutput = {
+            result: {
+              tag: "error",
+              name: e.name,
+              message: e.message,
+              stack: e.stack ?? "<no stack>",
+              seq: -1,
+            },
+            env: {},
+          };
+        } else {
+          exeOutput = {
+            result: {
+              tag: "error",
+              name: "unknown internal runner error",
+              message: "unknown",
+              stack: "<no stack>",
+              seq: -1,
+            },
+            env: {},
+          };
+        }
+      }
+      result.timers.run = performance.now() - startRunTime; // stop timer
+      switch (exeOutput.result.tag) {
+        case "value":
+          result.output.push({
+            name: "0",
+            offset: 0,
+            value: exeOutput.result.value as ArgValueType,
+            origin: { type: "put" },
+          });
+          break;
+        case "error":
+          result.exception = true;
+          result.exceptionMessage = exeOutput.result.message;
+          result.stack = exeOutput.result.stack;
+          break;
+        case "timeout":
+          result.timeout = true;
+          break;
+        case "skip":
+          result.skipped = true;
+          result.skipReason = exeOutput.result.message;
+          break;
+      }
+
+      this._results.stats.timers.put += result.timers.run;
+      if (genStats) {
+        genStats.timers.run += result.timers.run;
+      }
+
+      const startValTime = performance.now(); // start timer
+      // IMPLICIT ORACLE --------------------------------------------
+      if (this._options.useImplicit && !result.skipped) {
+        result.passedImplicit = ImplicitOracle.judge(
+          result.timeout,
+          result.exception,
+          this._function.isVoid(),
+          result.output
+        );
+      }
+
+      // EXAMPLE ORACLE ---------------------------------------------
+      // If a human annotated an expected output, then check it
+      if (this._options.useHuman && result.expectedOutput && !result.skipped) {
+        result.passedHuman = ExampleOracle.judge(
+          result.timeout,
+          result.exception,
+          result.expectedOutput,
+          result.output
+        );
+      }
+
+      // PROPERTY ORACLE --------------------------------------------
+      // If a property validator is selected, call it to evaluate the result
+      if (this._options.useProperty && !result.skipped) {
+        (
+          await propertyOracle.judge(
+            Object.freeze({
+              in: result.input.map((i) => i.value), // inputs
               out:
                 result.output.length === 0
                   ? "timeout or exception"
                   : result.output[0].value,
               exception: result.exception,
               timeout: result.timeout,
-            };
-            try {
-              const validatorOut: boolean = mod[valFnName](validatorIn); // this is where it goes wrong -- the array just turns into []
-              return {
-                ...result,
-                passedValidator: validatorOut,
-                passedValidators: [],
-              };
-            } catch (e: unknown) {
-              const msg = getErrorMessageOrJson(e);
-              const stack = isError(e) ? e.stack : "<no stack>";
-              return {
-                ...result,
-                validatorException: true,
-                validatorExceptionMessage: msg,
-                validatorExceptionFunction: valFnName,
-                validatorExceptionStack: stack,
-              };
-            }
-          },
-          env.options.fnTimeout
+            }),
+            Math.max(this._options.fnTimeout, 1)
+          )
+        ).forEach((j, i) => {
+          if (isError(j)) {
+            result.passedValidators.push("unknown");
+            result.validatorException = true;
+            result.validatorExceptionMessage = j.message;
+            result.validatorExceptionFunction = this._validators[i].name;
+            result.validatorExceptionStack = j.stack;
+          } else {
+            result.passedValidators.push(j);
+          }
+        });
+
+        // Summarize propert judgments.
+        result.passedValidator = PropertyOracle.summarize(
+          result.passedValidators
+        );
+      } // if validator
+
+      // Validator stats
+      const valTime = performance.now() - startValTime; // stop timer
+      this._results.stats.timers.val += valTime;
+      if (genStats) {
+        genStats.timers.val += valTime;
+      }
+
+      // (Re-)categorize the result
+      result.category = categorizeResult(result);
+
+      // Increment the test counters
+      if (result.category === "ok") {
+        runStats.counters.passedTests++;
+      } else if (result.category === "skip") {
+        runStats.counters.skippedTests++;
+      } else {
+        runStats.counters.failedTests++;
+      }
+
+      // Store the result for this iteration
+      this._results.results.push(result);
+
+      // Take measurements for this test run
+      {
+        const startMeasureTime = performance.now(); // start timer
+        const measurements = this._measures.map((e) =>
+          e.measure(structuredClone(genInput), structuredClone(result))
         );
 
-        // Categorize the results (so it's not stale)
-        result.category = categorizeResult(result);
+        // Provide measures feedback to the composite input generator
+        result.interestingReasons =
+          this._compositeInputGenerator.onInputFeedback(
+            measurements,
+            result.timers.run + result.timers.gen
+          );
 
-        // Call the validator function wrapper
-        const validatorResult = validatorFnWrapper(
-          JSON5.parse(JSON5.stringify(result))
-        ); // <-- Wrapper (protect the input)
-
-        // Store the validator results
-        result.passedValidators.push(validatorResult.passedValidator);
-        result.validatorException = validatorResult.validatorException;
-        result.validatorExceptionFunction =
-          validatorResult.validatorExceptionFunction;
-        result.validatorExceptionMessage =
-          validatorResult.validatorExceptionMessage;
-        result.validatorExceptionStack =
-          validatorResult.validatorExceptionStack;
-      } // for: valFn in env.validators
-
-      result.passedValidator = true; // initialize
-      for (const i in result.passedValidators) {
-        result.passedValidator =
-          result.passedValidator && result.passedValidators[i];
+        // Measurement stats
+        const measureTime = performance.now() - startMeasureTime;
+        this._results.stats.timers.measure += measureTime;
+        if (genStats) {
+          genStats.timers.measure += measureTime;
+        }
       }
-    } // if validator
 
-    // Validator stats
-    const valTime = performance.now() - startValTime; // stop timer
-    results.stats.timers.val += valTime;
-    genStats.timers.val += valTime;
-
-    // (Re-)categorize the result
-    result.category = categorizeResult(result);
-
-    // Increment the failure counter if this test had a failing result
-    if (result.category !== "ok") {
-      failureCount++;
-    }
-
-    // Store the result for this iteration
-    results.results.push(result);
-
-    // Take measurements for this test run
-    {
-      const startMeasureTime = performance.now(); // start timer
-      const measurements = measures.map((e) =>
-        e.measure(
-          JSON5.parse(JSON5.stringify(genInput)),
-          JSON5.parse(JSON5.stringify(result))
-        )
-      );
-
-      // Provide measures feedback to the composite input generator
-      result.interestingReasons = compositeInputGenerator.onInputFeedback(
-        measurements,
-        result.timers.run + result.timers.gen
-      );
-
-      // Measurement stats
-      const measureTime = performance.now() - startMeasureTime;
-      results.stats.timers.measure += measureTime;
-      genStats.timers.measure += measureTime;
-    }
-  } // for: Main test loop
-
-  // Update interesting inputs
-  results.interesting.inputs = compositeInputGenerator.getInterestingInputs();
-
-  // End-of-run processing for measures and input generators
-  measures.forEach((e) => {
-    e.onShutdown(results);
-  });
-  compositeInputGenerator.onShutdown(); // also handles shutdown for subgens
-
-  console.log(
-    `Testing complete. Executed ${results.results.length} tests in ${results.stats.timers.total}ms. Stopped for reason: ${results.stopReason}.`
-  );
-  console.log(
-    ` - Injected ${injectedCount} and generated ${results.stats.counters.inputsGenerated} inputs (${results.stats.counters.dupesGenerated} were dupes).`
-  );
-  console.log(
-    ` - Tests with exceptions: ${
-      results.results.filter((e) => e.exception).length
-    }, timeouts: ${results.results.filter((e) => e.timeout).length}`
-  );
-  console.log(
-    ` - Human validator passed: ${
-      results.results.filter((e) => e.passedHuman === true).length
-    }, failed: ${results.results.filter((e) => e.passedHuman === false).length}`
-  );
-  console.log(
-    ` - Property validator passed: ${
-      results.results.filter((e) => e.passedValidator === true).length
-    }, failed: ${
-      results.results.filter((e) => e.passedValidator === false).length
-    }`
-  );
-  console.log(
-    ` - Heuristic validator passed: ${
-      results.results.filter((e) => e.passedImplicit).length
-    }, failed: ${results.results.filter((e) => !e.passedImplicit).length}`
-  );
-
-  // Persist to outfile, if requested
-  if (env.options.outputFile) {
-    fs.writeFileSync(env.options.outputFile, JSON5.stringify(results));
-    console.log(` - Wrote results to: ${env.options.outputFile}`);
-  }
-
-  // Return the result of the fuzzing activity
-  return results;
-}; // fn: fuzz()
+      yield undefined;
+    } // for: Main test loop
+  } // fn: _run
+} // class: Tester
 
 /**
- * Checks whether the fuzzer should stop fuzzing. If so, return the reason.
+ * Returns either a readon for the fuzzer to stop fuzzing or a percentage
+ * representing progress toward the nearest stop condition.
  *
- * @param env fuzz environment
- * @param inputsGenerated number of inputs generated so far
- * @param currentDupeCount number of duplicate tests since the last non-duplicated test
- * @param totalDupeCount number of duplicate tests since the last non-duplicated test
- * @param failureCount number of failed tests encountered so far
- * @param startTime time the fuzzer started
- * @returns the reason the fuzzer stopped, if any
+ * Reasons to stop:
+ *  - We have reached the maximum number of tests
+ *  - We have reached the maximum number of duplicate tests
+ *    since the last non-duplicated test
+ *  - We have reached the time limit for the test suite to run
+ *  - We have reached the maximum number of failed tests
+ * Note: Injected tests are not counted against many limits
+ *
+ * @param `options` fuzzer options
+ * @param `moreInputs` indicates whether more inputs can be produced
+ * @param `injecting` indicates whether still injecting inputs
+ * @param `injectCount` number of inputs injected
+ * @param `userCancel` indicates whether the user cancelled testing
+ * @param `stats` fuzzer stats
+ * @returns either the stop reason or percentage complete
  */
 const _checkStopCondition = (
-  env: FuzzEnv,
-  inputsGenerated: number,
-  currentDupeCount: number,
-  totalDupeCount: number,
-  failureCount: number,
-  startTime: number,
-  moreInputs: boolean
-): FuzzStopReason | undefined => {
-  // End testing if we exceed the suite timeout
-  if (new Date().getTime() - startTime >= env.options.suiteTimeout) {
-    return FuzzStopReason.MAXTIME;
+  options: FuzzOptions,
+  moreInputs: boolean,
+  injecting: boolean,
+  injectCount: number,
+  userCancel: boolean,
+  stats: CurrentRunStats,
+  gen: boolean
+): FuzzStopReason | number => {
+  const pcts: number[] = [0];
+  const now = performance.now();
+
+  // End testing if the user cancels but not yet if still injecting
+  // inputs because if we stop we lose those.
+  if (userCancel && !injecting) {
+    return FuzzStopReason.PAUSE;
+  }
+
+  // End testing if we exceed the suite timeout, which here we measure
+  // from the time of the first input generation.
+  if (options.suiteTimeout > 0 && stats.timers.startGenTime > 0) {
+    if (now - stats.timers.startGenTime >= options.suiteTimeout) {
+      return FuzzStopReason.MAXTIME;
+    }
+    pcts.push((now - stats.timers.startGenTime) / options.suiteTimeout);
   }
 
   // End testing if we exceed the maximum number of tests
-  if (inputsGenerated - totalDupeCount >= env.options.maxTests) {
+  if (
+    stats.counters.inputsInjected +
+      (gen
+        ? stats.counters.inputsGenerated - stats.counters.dupesGenerated
+        : 0) >=
+    injectCount + (gen ? options.maxTests : 0)
+  ) {
     return FuzzStopReason.MAXTESTS;
   }
+  pcts.push(
+    (stats.counters.inputsInjected +
+      (gen
+        ? stats.counters.inputsGenerated - stats.counters.dupesGenerated
+        : 0)) /
+      (injectCount + (gen ? options.maxTests : 0))
+  );
 
   // End testing if we exceed the maximum number of failures
-  if (
-    env.options.maxFailures !== 0 &&
-    failureCount >= env.options.maxFailures
-  ) {
-    return FuzzStopReason.MAXFAILURES;
+  /*
+  if (options.maxFailures > 0) {
+    if (stats.counters.failedTests >= options.maxFailures) {
+      return FuzzStopReason.MAXFAILURES;
+    }
+    pcts.push(stats.counters.failedTests / options.maxFailures);
   }
+  */
 
-  // End testing if we exceed the maximum number of duplicates generated
-  if (currentDupeCount >= env.options.maxDupeInputs) {
+  // End testing if we exceed the maximum number of sequential duplicates generated
+  if (stats.counters.dupesSequential >= options.maxDupeInputs) {
     return FuzzStopReason.MAXDUPES;
   }
+  // We don't do a pct because one non-dupe resets this counter
 
-  // End testing if the source of inputs is exhausted
+  // End testing if all sources of inputs are exhausted
   if (!moreInputs) {
     return FuzzStopReason.NOMOREINPUTS;
   }
 
-  // No stop condition found
-  return undefined;
+  // No stop condition found; return pct complete
+  return Math.max(0, Math.floor(Math.max(...pcts) * 100));
 }; // fn: _checkStopCondition()
 
 /**
@@ -633,89 +1092,21 @@ const isOptionValid = (options: FuzzOptions): boolean => {
 }; // fn: isOptionValid()
 
 /**
- * The implicit oracle returns true only if the value contains no nulls, undefineds, NaNs,
- * or Infinity values.
+ * Returns a list of validator FunctionRefs found within the ProgramDef
+ * associated with a FunctionDef
  *
- * @param x any value
- * @returns true if x has no nulls, undefineds, NaNs, or Infinity values; false otherwise
- */
-export const implicitOracle = (x: unknown): boolean => {
-  if (Array.isArray(x)) return !x.flat().some((e) => !implicitOracle(e));
-  if (typeof x === "number")
-    return !(isNaN(x) || x === Infinity || x === -Infinity);
-  else if (x === null || x === undefined) return false;
-  else if (typeof x === "object")
-    return !Object.values(x).some((e) => !implicitOracle(e));
-  else return true; //implicitOracleValue(x);
-}; // fn: implicitOracle()
-
-/**
- * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
- *
- * The original function-timeout is an ES module; incorporating it here
- * avoids adding Babel to the dev toolchain solely for the benefit of Jest,
- * for which ESM support without Babel remains buggy / experimental. Maybe
- * we can remove this in the future or just add Babel for Jest.
- *
- * This function accepts a function and a timeout as input.  It then returns
- * a wrapper function that will throw an exception if the function does not
- * complete within, roughly, the timeout.
- *
- * @param function_ function to be executed with the timeout
- * @param param1
- * @returns
- */
-export function functionTimeout(function_: any, timeout: number): any {
-  const script = new vm.Script("returnValue = function_()");
-
-  const wrappedFunction = (...arguments_: ArgValueType[]) => {
-    const context = {
-      returnValue: undefined,
-      function_: () => function_(...arguments_),
-    };
-
-    script.runInNewContext(context, { timeout: timeout });
-
-    return context.returnValue;
-  };
-
-  Object.defineProperty(wrappedFunction, "name", {
-    value: `functionTimeout(${function_.name || "<anonymous>"})`,
-    configurable: true,
-  });
-
-  return wrappedFunction;
-} // fn: functionTimeout()
-
-/**
- * Adapted from: https://github.com/sindresorhus/function-timeout/blob/main/index.js
- *
- * Returns true if the exception is a timeout.
- *
- * @param error exception
- * @returns true if the exeception is a timeout exception, false otherwise
- */
-export function isTimeoutError(error: unknown): boolean {
-  return (
-    isError(error) &&
-    "code" in error &&
-    error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT"
-  );
-} // fn: isTimeoutError()
-
-/**
- * Returns a list of validator FunctionRefs found within the program
- *
- * @param program the program to search
+ * @param program the ProgramDef to search
  * @returns an array of validator FunctionRefs
  */
 export function getValidators(
-  program: ProgramDef,
+  program: AbstractProgram,
   fnUnderTest: FunctionDef
 ): FunctionRef[] {
-  return Object.values(program.getExportedFunctions())
+  const fnUnderTestName = fnUnderTest.getName();
+  return Object.values(program.functionsExported)
     .filter(
-      (fn) => fn.isValidator() && fn.getName().startsWith(fnUnderTest.getName())
+      (fn) =>
+        fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName
     )
     .map((fn) => fn.getRef());
 } // fn: getValidators()
@@ -728,36 +1119,16 @@ export function getValidators(
  * @returns an array of transformer FunctionRefs
  */
 export function getTransformers(
-  program: ProgramDef,
-  fnUnderTest: FunctionDef,
+  program: AbstractProgram,
+  fnUnderTest: FunctionDef
 ): FunctionRef[] {
-  return Object.values(program.getExportedFunctions())
+  return Object.values(program.functions.exported)
     .filter(
       (fn) =>
-        fn.isInputTransformer() && fn.getName().startsWith(fnUnderTest.getName()),
+        fn.isTransformer() && fn.getName().startsWith(fnUnderTest.getName())
     )
     .map((fn) => fn.getRef());
 } // fn: getTransformers()
-
-/**
- * Compares the actual output to the expected output.
- *
- * @param fuzz testing result
- * @param expected output
- * @returns true if actualOut equals expectedOut
- */
-function actualEqualsExpectedOutput(
-  result: FuzzTestResult,
-  expectedOutput: FuzzIoElement[]
-): boolean {
-  if (result.timeout) {
-    return expectedOutput.length > 0 && expectedOutput[0].isTimeout === true;
-  } else if (result.exception) {
-    return expectedOutput.length > 0 && expectedOutput[0].isException === true;
-  } else {
-    return JSON5.stringify(result.output) === JSON5.stringify(expectedOutput);
-  }
-}
 
 /**
  * Categorizes the result of a fuzz test according to the available
@@ -769,12 +1140,9 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   if (result.validatorException) {
     return "failure"; // Validator failed
   }
-
-  const implicit = result.passedImplicit ? true : false;
-  const human =
-    "passedHuman" in result ? (result.passedHuman ? true : false) : undefined;
-  const property =
-    "passedValidator" in result ? result.passedValidator : undefined;
+  if (result.skipped) {
+    return "skip";
+  }
 
   // Returns the type of bad value: execption, timeout, or badvalue
   const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
@@ -786,137 +1154,59 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
       return "badValue"; // PUT returned bad value
     }
   };
-  const getBadValueTypeProperty = (
-    result: FuzzTestResult
-  ): FuzzResultCategory => {
-    return result.passedValidator ? "ok" : "badValue"; // PUT returned bad value
-  };
 
-  // Either the human oracle or the validator may take precedence
-  // over the implicit oracle if they exist. However, if both the
-  // validator and the human oracle are present, then they must
-  // agree. If the human and validator are present yet disagree,
-  // then the disagreement is another error.
-  if (human === true) {
-    if (property === false) {
-      return "disagree";
-    } else {
+  // Use the Composite Oracle to render a single judgment from among
+  // the various oracles. We describe this in the TerzoN paper:
+  //
+  // TerzoN: Human-in-the-Loop Software Testing with a Composite Oracle
+  // https://doi.org/10.1145/3580446
+  //
+  // Subsequently, map the judgment to a FuzzResultCategory
+  switch (
+    CompositeOracle.judge([
+      [result.passedValidator, result.passedHuman],
+      [result.passedImplicit],
+    ])
+  ) {
+    case "pass":
       return "ok";
-    }
-  } else if (human === false) {
-    if (property === true) {
-      return "disagree";
-    } else {
+    case "fail":
       return getBadValueType(result);
-    }
-  } else {
-    if (property === true) {
-      return "ok";
-    } else if (property === false) {
-      return getBadValueTypeProperty(result);
-    } else {
-      if (implicit) {
-        return "ok";
-      } else {
-        return getBadValueType(result);
-      }
-    }
+    case "unknown":
+      return "disagree";
   }
 } // fn: categorizeResult()
 
 /**
- * Merge the results of two fuzzer runs.
+ * Gets the input key as a string from an array of `FuzzIoElement`s
  *
- * See comments below for some of the current limitations.
- *
- * @param `a` earlier FuzzTestResults to merge
- * @param `b` later FuzzTestResults to merge
- * @returns a FuzzTestResults representing a merge of `a` and `b1
+ * @param `io` array of `FuzzIoElements`
+ * @returns string representation of input key
  */
-export function mergeTestResults(
-  a: FuzzTestResults,
-  b: FuzzTestResults
-): FuzzTestResults {
-  // Create c from a
-  const c: FuzzTestResults = JSON5.parse(JSON5.stringify(a));
-  c.env.function = b.env.function;
-  c.stopReason = b.stopReason;
-  // !!!!!!!! merge interesting inputs when we retain measure context across runs.
+export function getIoKey(io: FuzzIoElement[]): string {
+  return JSONN.stringify(
+    io.map((input) => {
+      return { value: input.value };
+    })
+  );
+} // fn: getIoKey
 
-  // Merge results
-  c.results.push(...b.results);
-
-  // Merge statistics
-  c.stats = {
-    timers: {
-      total: a.stats.timers.total + b.stats.timers.total,
-      compile: a.stats.timers.compile + b.stats.timers.compile,
-      run: a.stats.timers.run + b.stats.timers.run,
-      val: a.stats.timers.val + b.stats.timers.val,
-      gen: a.stats.timers.gen + b.stats.timers.gen,
-      measure: a.stats.timers.measure + b.stats.timers.measure,
-    },
-    counters: {
-      inputsGenerated:
-        a.stats.counters.inputsGenerated + b.stats.counters.inputsGenerated,
-      dupesGenerated:
-        a.stats.counters.dupesGenerated + b.stats.counters.dupesGenerated,
-      inputsInjected:
-        a.stats.counters.inputsInjected + b.stats.counters.inputsInjected,
-    },
-    generators: a.stats.generators, // no change here: generation disabled
-    measures: {},
-  };
-
-  // for measures, use one or the other (if only one is present) or merge (if both are present)
-  if (
-    a.stats.measures.CodeCoverageMeasure &&
-    b.stats.measures.CodeCoverageMeasure
-  ) {
-    // !!!!!!!! This won't be correct in all cases: should merge coverage maps & re-calc
-    c.stats.measures.CodeCoverageMeasure = {
-      counters: {
-        functionsTotal: Math.max(
-          a.stats.measures.CodeCoverageMeasure.counters.functionsTotal,
-          b.stats.measures.CodeCoverageMeasure.counters.functionsTotal
-        ),
-        functionsCovered: Math.max(
-          a.stats.measures.CodeCoverageMeasure.counters.functionsCovered,
-          b.stats.measures.CodeCoverageMeasure.counters.functionsCovered
-        ),
-        statementsTotal: Math.max(
-          a.stats.measures.CodeCoverageMeasure.counters.statementsTotal,
-          b.stats.measures.CodeCoverageMeasure.counters.statementsTotal
-        ),
-        statementsCovered: Math.max(
-          a.stats.measures.CodeCoverageMeasure.counters.statementsCovered,
-          b.stats.measures.CodeCoverageMeasure.counters.statementsCovered
-        ),
-        branchesTotal: Math.max(
-          a.stats.measures.CodeCoverageMeasure.counters.branchesTotal,
-          b.stats.measures.CodeCoverageMeasure.counters.branchesTotal
-        ),
-        branchesCovered: Math.max(
-          a.stats.measures.CodeCoverageMeasure.counters.branchesCovered,
-          b.stats.measures.CodeCoverageMeasure.counters.branchesCovered
-        ),
-      },
-      files: a.stats.measures.CodeCoverageMeasure.files,
-    };
-    // Add any files from b that are missing in a
-    c.stats.measures.CodeCoverageMeasure.files.push(
-      ...b.stats.measures.CodeCoverageMeasure.files.filter(
-        (fb) =>
-          !a.stats.measures.CodeCoverageMeasure?.files.find((fa) => fa === fb)
-      )
-    );
-  } else if (b.stats.measures.CodeCoverageMeasure) {
-    c.stats.measures.CodeCoverageMeasure = {
-      ...b.stats.measures.CodeCoverageMeasure,
-    };
-  }
-  return c;
-} // fn: mergeTestResults
+/**
+ * Gets the langiage-specific input key as a string from an array of `FuzzIoElement`s
+ *
+ * @param `lang` programming language
+ * @param `io` array of `FuzzIoElements`
+ * @returns string representation array of inputs in `lang` format
+ */
+export function getLangIoKey(
+  lang: ProgramLanguage,
+  io: FuzzIoElement[]
+): string {
+  return ValueMapper.toLang(
+    lang,
+    io.map((i) => i.value)
+  );
+} // fn: getLangIoKey
 
 /**
  * Fuzzer Environment required to fuzz a function.
@@ -932,6 +1222,7 @@ export type FuzzEnv = {
  * Fuzzer Test Result
  */
 export type FuzzTestResults = {
+  toolVersion: string; // NaNofuzz name and version that generated the results
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped
   stats: FuzzTestStats; // fuzzer statistics
@@ -944,41 +1235,74 @@ export type FuzzTestResults = {
 /**
  * Fuzzer Test Stats
  */
-export type FuzzTestStats = {
+export type FuzzGeneratorStatsBase = {
+  counters: {
+    inputsGenerated: number; // number of inputs generated, including dupes
+    dupesGenerated: number; // number of duplicate inputs generated
+  };
   timers: {
-    total: number; // elapsed time the fuzzer ran
-    compile: number; // elapsed time to compile & instrument PUT
     run: number; // elapsed time the PUT ran
     val: number; // elapsed time to categorize outputs
     gen: number; // elapsed time to generate inputs
     measure: number; // elapsed time to measure
   };
+};
+export type FuzzTestStats = {
+  timers: {
+    total: number; // elapsed time the fuzzer ran
+    compile: number; // elapsed time to compile & instrument PUT
+    put: number; // elapsed time the PUT ran
+    val: number; // elapsed time to categorize outputs
+    gen: number; // elapsed time to generate inputs
+    transform: number; // elapsed time to transform inputs
+    measure: number; // elapsed time to measure
+  };
   counters: {
+    testingRuns: number; // number of test runs
     inputsGenerated: number; // number of inputs generated, including dupes
     dupesGenerated: number; // number of duplicate inputs generated
     inputsInjected: number; // number of inputs pinned
+    passedTests: number; // number of passed tests
+    skippedTests: number; // number of skipped tests
+    failedTests: number; // number of failed tests
   };
   generators: {
-    [k: string]: {
-      timers: {
-        run: number; // elapsed time the PUT ran
-        val: number; // elapsed time to categorize outputs
-        gen: number; // elapsed time to generate inputs
-        measure: number; // elapsed time to measure
-      };
-      counters: {
-        inputsGenerated: number; // number of inputs generated, including dupes
-        dupesGenerated: number; // number of duplicate inputs generated
-      };
-    };
+    RandomInputGenerator: FuzzGeneratorStatsBase;
+    MutationInputGenerator: FuzzGeneratorStatsBase;
+    AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
   };
   measures: {
-    CodeCoverageMeasure?: CodeCoverageMeasureStats;
+    CodeCoverageMeasure?: () => Promise<CodeCoverageMeasureStats>;
   };
 };
 
-export * from "./analysis/typescript/ProgramDef";
-export * from "./analysis/typescript/FunctionDef";
-export * from "./analysis/typescript/ArgDef";
-export * from "./analysis/typescript/Types";
+/**
+ * Current run statistics
+ */
+type CurrentRunStats = {
+  counters: {
+    inputsInjected: number; // number of inputs injected for testing
+    inputsGenerated: number; // number of inputs generated so far
+    dupesGenerated: number; // number of duplicate inputs generated so far
+    dupesSequential: number; // current number of duplicate inputs generated in a row
+    failedTests: number; // number of failed tests so far
+    passedTests: number; // number of passed tests so far
+  };
+  timers: {
+    startTime: number; // time the tester started in this run
+    startGenTime: number; // time the tester started generating new inputs
+  };
+};
+
+/**
+ * Fuzzer mode
+ */
+export type FuzzMode = {
+  gen?: true;
+};
+
+export * from "./analysis/typescript/TypescriptProgram";
+export * from "./analysis/FunctionDef";
+export * from "./analysis/ArgDef";
+export * from "./analysis/Types";
 export * from "./Types";

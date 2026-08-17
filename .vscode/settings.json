@@ -6,12 +6,21 @@
   "[jsonc]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
   "[markdown]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
   "[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[python]": { "editor.defaultFormatter": "ms-python.autopep8" },
   "[yaml]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
   "search.exclude": {
-    "build": true // set this to false to include "out" folder in search results
+    "build": true // set this to false to include build folder in search results
   },
   // Turn off tsc task auto detection since we have the necessary tasks as npm scripts
-  "typescript.tsc.autoDetect": "off",
+  "js/ts.tsc.autoDetect": "off",
+  "js/ts.tsdk.path": "./node_modules/typescript/lib",
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true,
   "editor.formatOnSave": true,
-  "jasmineExplorer.nodeArgv": ["--no-experimental-strip-types"]
+  "jasmineExplorer.nodeArgv": ["--no-experimental-strip-types"],
+  "eslint.validate": ["javascript", "typescript"],
+  // The number of spaces a tab is equal to
+  "editor.tabSize": 2,
+  // insert spaces when pressing Tab
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": true
 }

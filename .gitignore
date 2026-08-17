@@ -38,10 +38,7 @@ bower_components
 .lock-wscript
 
 # Compiled binary addons (https://nodejs.org/api/addons.html)
-build/Release
-build/dist
-build/extension
-build/ui
+build/
 
 # Dependency directories
 node_modules/
@@ -117,6 +114,10 @@ dist
 
 # Telemetry data
 /telemetry
+
+# Python residue
+/.venv/
+__pycache__/
 
 # direnv files
 /.direnv/

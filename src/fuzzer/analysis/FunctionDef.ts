@@ -1,0 +1,276 @@
+import { ArgDef } from "./ArgDef";
+import { FunctionRef, ArgOptionOverrides, ArgOptions, TypeRef } from "./Types";
+import { ProgramLanguage } from "./Types";
+
+/**
+ * The FunctionDef class represents a function definition in a Typescript source
+ * file.  It provides methods for extracting information about the function,
+ * including its formal parameters, which are represented by the ArgDef clsss.
+ *
+ * Limitations of the current implementation
+ * - Requires a type-annotated TypeScript function signature
+ * - Anonymous functions are not supported
+ * - Analysis of class methods is not supported
+ * - Presently cannot set an entire array as a constant (only its elements)
+ * - String values are compared using default sort order, regarldess of the
+ *   order specified in ArgOptions.strCharset.
+ */
+export class FunctionDef {
+  private _argDefs: ArgDef[] = [];
+  private _options: ArgOptions;
+  private _ref: FunctionRef;
+  private _cmt: string | undefined; // docstring comment for function
+
+  /**
+   * Constructs a new FunctionDef instance using a FunctionRef object.
+   * and optional set of options.
+   *
+   * @param ref The function reference to be analyzed
+   * @param options Options for the function analysis (optional)
+   */
+  private constructor(ref: FunctionRef, options?: ArgOptions) {
+    this._options = options ?? ArgDef.getDefaultOptions();
+    this._ref = ref;
+    this._cmt = ref.cmt;
+
+    if (!ref.args) {
+      throw new Error(`FunctionRef.args is undefined: ${JSON.stringify(ref)}`);
+    }
+
+    // Extract the function arguments
+    let offset = 0;
+    this._argDefs = ref.args.map((arg) =>
+      ArgDef.fromTypeRef(arg, this._options, offset++)
+    );
+  }
+
+  /**
+   * Constructs a new FunctionDef instance using a FunctionRef object.
+   *
+   * @param ref FunctionRef object
+   * @param options Optional set of options
+   * @returns new FunctionDef instance
+   */
+  public static fromFunctionRef(
+    ref: FunctionRef,
+    options?: ArgOptions
+  ): FunctionDef {
+    return new FunctionDef(ref, options);
+  } // fn: fromFunctionRef()
+
+  /**
+   * Returns the function name
+   *
+   * @returns The function name
+   */
+  public getName(): string {
+    return this._ref.name;
+  } // fn: getName()
+
+  /**
+   * Returns the function's source code
+   *
+   * @returns Source code of the function
+   */
+  public getSrc(): string {
+    return this._ref.src;
+  } // fn: getSrc()
+
+  /**
+   * Returns the function's docstring commen, if present.
+   *
+   * @returns Docstring comment of the function or undefined
+   */
+  public getCmt(): string | undefined {
+    return this._cmt ?? this._ref.cmt;
+  } // fn: getSpec()
+
+  /**
+   * Sets the function's docstring comment.
+   *
+   * @param spec Docstring comment
+   * @returns void
+   */
+  public setCmt(cmt: string): void {
+    this._cmt = cmt;
+  } // fn: setSpec()
+
+  /**
+   * Returns the array of function arguments
+   *
+   * @returns array of function arguments
+   */
+  public getArgDefs(): ArgDef[] {
+    return [...this._argDefs];
+  } // fn: getArgDefs()
+
+  /**
+   * Returns the function's language
+   *
+   * @returns function language
+   */
+  public getLang(): ProgramLanguage {
+    return this._ref.lang;
+  } // fn: getLang()
+
+  /**
+   * Returns the starting offset of the function in the source file.
+   *
+   * @returns the start offset of the function in the source file
+   */
+  public getStartOffset(): number {
+    return this._ref.startOffset;
+  } // fn: getStartOffset()
+
+  /**
+   * Returns the ending offset of the function in the source file.
+   *
+   * @returns the end offset of the function in the source file
+   */
+  public getEndOffset(): number {
+    return this._ref.endOffset;
+  } // fn: getEndOffset()
+
+  /**
+   * Returns the module filename where the function is defined
+   *
+   * @returns the module filename where the function is defined
+   */
+  public getModule(): string {
+    return this._ref.module;
+  } // fn: getModule()
+
+  /**
+   * Returns the full in-source reference to the function.
+   *
+   * @returns the full in-source reference to the function
+   */
+  public getRef(): FunctionRef {
+    return { ...this._ref };
+  } // fn: getRef()
+
+  /**
+   * Returns the return type of the function, or undefined if the
+   * function does not have a return type annotation.
+   *
+   * @returns the return type of the function, or undefined if the
+   * function does not have a return type annotation.
+   */
+  public getReturnType(): TypeRef | undefined {
+    return this._ref.returnType;
+  } // fn: getReturnType()
+
+  /**
+   * Returns the return type of the function in the form of an ArgDef,
+   * or undefined if the function does not have a return type annotation.
+   *
+   * @returns the return ArgDef of the function, or undefined if the
+   * function does not have a return type annotation or the return
+   * type could not be resolved.
+   */
+  public getReturnArg(): ArgDef | undefined {
+    // If a return type is defined and resolved, convert it to an ArgDef
+    return this._ref.returnType && this._ref.returnType.type
+      ? ArgDef.fromTypeRef(this._ref.returnType, this._options)
+      : undefined;
+  } // fn: getReturnArg()
+
+  /**
+   * Returns true if the function is exported; false, otherwise.
+   *
+   * @returns true if the function is exported; false, otherwise.
+   */
+  public isExported(): boolean {
+    return this._ref.isExported;
+  } // fn: isExported()
+
+  /**
+   * Returns true if the function is void; false, otherwise.
+   *
+   * @returns true if the function is void; false, otherwise.
+   */
+  public isVoid(): boolean {
+    return this._ref.isVoid;
+  } // fn: isVoid()
+
+  /**
+   * Returns true if the function is a validator; false, otherwise.
+   *
+   * @returns true if the function is a validator; false, otherwise.
+   */
+  public isValidator(): boolean {
+    return (
+      this.isExported() &&
+      this._argDefs.length === 1 &&
+      this._argDefs[0].getTypeRef() === "FuzzTestResult" &&
+      this._ref.name.includes("Validator", 1)
+    );
+  } // fn: isValidator()
+
+  /**
+   * Returns true if the function is an input transformer; false, otherwise.
+   *
+   * @returns true if the function is an input transformer; false, otherwise.
+   */
+  public isTransformer(): boolean {
+    return this.isExported() && this._ref.name.endsWith("Transformer");
+  } // fn: isTransformer()
+
+  /*
+   * Returns the validator's target function name if isValidator()===true
+   *
+   * Throws an exception if the function is not a validator.
+   *
+   * @returns the name of the validator's target function.
+   */
+  public getValidatorTargetName(): string {
+    if (!this.isValidator())
+      throw new Error(
+        `Function ${this.getName()} is not a validator and, therefore, does not have a validation target`
+      );
+    return this._ref.name.substring(0, this._ref.name.lastIndexOf("Validator"));
+  } // fn: getValidatorTargetName()
+
+  /**
+   * Applies option overrides to the function definition --
+   * including to its arguments -- that influence how the function
+   * analysis is interpreted.
+   *
+   * @param overrides
+   */
+  public applyOverrides(overrides: ArgOptionOverrides): void {
+    for (const argName of Object.keys(overrides)) {
+      const arg = this._argDefs.find((arg) => arg.getName() === argName);
+      if (arg !== undefined) arg.setOptions(overrides[argName]);
+    }
+  } // fn: applyOverrides()
+
+  /**
+   * Applies options to the argument definitions for the function
+   * definition that influence how the function analysis is
+   * interpreted.
+   *
+   * @param options
+   */
+  public applyOptions(options: ArgOptions): void {
+    this._argDefs.forEach((argdef) => {
+      argdef.setStrCharSet(options.strCharset);
+      argdef.setDefaultIntervals(options);
+    });
+  } // fn: applyOverrides()
+
+  /**
+   * Returns a flat array of all function arguments, including
+   * the children of arguments.  The selection is depth-first.
+   *
+   * @returns a flat array of all function arguments.
+   */
+  public getArgDefsFlat(): ArgDef[] {
+    const ret: ArgDef[] = [];
+    for (const arg of this._argDefs) {
+      ret.push(arg);
+      ret.push(...arg.getChildrenFlat());
+    }
+    return ret;
+  } // fn: getArgDefsFlat()
+} // class: FunctionDef

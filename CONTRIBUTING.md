@@ -24,10 +24,19 @@ The `nanofuzz/nanofuzz` repository is already configured for this to work withou
 Be sure you have these tools installed:
 
 - [Git][]
-- [Node.js][] v16+ (if using Linux or Mac, we recommend installing via [nvm][])
+- [Node.js][] v22+ (if using Linux or Mac, we recommend installing via [nvm][])
 - [Yarn][] v1.x
+- [python][] v3.13+
 
 If you're using [Nix][], all dependencies other than Git will be automatically provided by the `flake.nix` file in this repo once you've cloned it.
+
+If you're using Windows, install the VC++ bits needed to build `tree-sitter`.
+More details may be found [here](https://github.com/nodejs/node-gyp#on-windows).
+You can use Cocolatey for this:
+
+```cmd
+choco install python visualstudio2022-workload-vctools -y
+```
 
 ### Developing in Windows WSL
 
@@ -40,6 +49,23 @@ Here are some WSL-specific guides:
 
 Once you've installed all prerequisites, [clone][] [this repo][] in VS Code.
 The rest of this document assumes you are running commands from the root directory of your repo from the terminal in VS Code, unless otherwise specified.
+
+Next, create a virtual Python environment within your local clone of the NaNofuzz repo and install Python packages. On Linux or MacOS:
+
+```sh
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Or on Windows:
+
+```
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
 Next [install dependencies][]:
 
 ```sh
@@ -62,6 +88,7 @@ Test NaNofuzz:
 
 ```sh
 yarn test
+pytest
 ```
 
 ### Run
@@ -69,7 +96,7 @@ yarn test
 To run the local version of the NaNofuzz extension:
 
 - Build NaNofuzz (`yarn build`)
-- Press `Fn`+`F5` to open a new VS Code window running VSC's Extension Development Host. (Note that the top of the new window says `[Extension Development Host]`)
+- Press `F5` to open a new VS Code window running VSC's Extension Development Host. (Note that the top of the new window says `[Extension Development Host]`)
 - The first time you do this, [clone]() a repo like `nanofuzz/nanofuzz-examples` so that you have some programs available for testing your changes to NaNofuzz.
   - ```sh
     git clone https://github.com/nanofuzz/nanofuzz-examples.git
@@ -86,13 +113,18 @@ To run the local version of the NaNofuzz extension:
 
 ## Contributing
 
+NaNofuzz is an open science project that aims to help software engineers write
+better tests that find more bugs in less time during active development. Community
+contributions that align with these aims are important to our project,
+and we encourage folks to collaborate with us to make NaNofuzz better!
+
 ### Creating your fork
 
 If you'd like to make a change and contribute it back to the project, but you
 don't have write permissions to this repository, you'll need to [create a
-fork][]. Click the **Fork** button in the top-right corner of this page.
+fork][]. Click the **Fork** button in the top-right corner of the `nanofuzz/nanofuzz` repo's home page.
 
-You should already have a clone of this repo by following the instructions at
+You should already have a clone of this repo if you followed the instructions at
 the start of this document, so now you simply need to add your fork as another
 [remote][]:
 
@@ -104,8 +136,8 @@ git remote add fork https://github.com/<your-github-account-name>/nanofuzz.git
 
 Check out our list of [good first issues][].
 
-- Before working on one of them, let us know that you are interested so we can
-  give you more guidance! (Currently the issue descriptions are fairly brief.)
+- Before working on a particular issue, let us know that you are interested in it by commenting
+  in the issue so we can provide guidance and background that might help you with the change.
 
 - Create a separate [branch][] in your forked repo to work on the issue:
 
@@ -132,7 +164,7 @@ git push
 
 ### Adding tests
 
-For some PRs, it can be helpful to add tests that help verify the correctness of new features, and which ensure features don't break in future versions. Tests can be added to new or existing `.test.ts` files.
+For most PRs, it can be helpful to add tests that help verify the correctness of new features and that help ensure existing features don't break in future changes. Tests can be added to new or existing `.test.ts` files. We currently use Jasmine for NaNofuzz' unit tests, partially because Jest prohibits hooking `require()`, which NaNofuzz currently uses to transpile TypeScript on-the-fly during module loads.
 
 ### Opening a pull request (PR)
 
@@ -143,14 +175,14 @@ When your work is ready for review:
   (`https://github.com/<your-github-account-name>/nanofuzz`).
 - Put `fix:` or `feat:` or `chore:` at the beginning of the PR title depending on if it's a
   fix or a feature. We follow [conventional commit guidelines][].
-- Document your changes and rationale in the PR's description (including link(s) to any issue(s) you address).
-- Some things will be checked automatically by our [CI][]:
-  - Make sure the system passes the regression tests (`yarn test`).
-- If you have permission, request review from the relevant person. Otherwise, no
-  worries: we'll take a look at your PR and assign it to a maintainer.
-- When your PR is approved, a maintainer will merge it.
+- If the change is a work in progress not yet ready for review, create the PR as a draft and prefix the title with `[WIP]`.
+- Document your changes and rationale for the change in the PR's description (including a link to any issues you PR addresses).
+- Make sure the system passes the regression tests locally (`yarn test`).
+- If you have permission, request review from the relevant maintainer. Otherwise, we'll take a look at your PR unless the PR is a draft and has the prefix `[WIP]`.
+- A maintainer might give tips or suggestions in the discussion that you might consider and address prior to the change being merged.
+- Once your PR is approved, a maintainer will merge it. Congratulations on a successful contribution!
 
-If you hit any snags in the process, run into bugs, or just have questions, please file an issue!
+If you hit any snags in the process, run into bugs, or just have questions, please open an issue.
 
 ## Release
 
@@ -158,16 +190,19 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 
 - Make sure all PRs for the upcoming release are merged. Switch to `main` and check `git status` to make sure it's clean and up-to-date.
 - Create a new version branch (`git checkout -b "vX.Y.Z"`)
-- Increment the version number in `package.json` and `./packages/runtime/package.json` and ensure the versions match in both files.
+- Increment the version number in `package.json`, `./packages/runtime/typescript/package.json`, and `./packages/runtime/python/pyproject.toml`. Ensure the versions match in all three files.
 - Build and run NaNofuzz tests (`yarn build` and `yarn test`)
-- Build the npm runtime package (`cd packages/runtime`, `yarn build`, `cd ../..`)
+- Build the npm runtime package (`cd packages/runtime/typescript`, `yarn build`, `cd ../..`)
+- Build the pip runtime package (`cd ../../../packages/runtime/python`, `python -m build`)
 - Stage commit and push to the remote branch (`git add .`, `git commit -m "chore: update version to vX.Y.Z"`, and `git push`)
 - Open a new PR with title `chore: update version to vX.Y.Z` and merge after CI passes.
 - Create a new GitHub tag and [GitHub release][] in the format `vX.Y.Z`.
 - Push the new version to VSC Marketplace (`yarn run publish`)
-- If needed, push the new npm package to npm (`cd packages/runtime`, `npm publish --access public`, `cd ../..`)
+- If needed, publish the runtime packages.
+  - to npm: `cd packages/runtime/typescript`, `npm publish --access public`, `cd ../../..`)
+  - to pip: `cd packages/runtime/python`, `python -m twine upload dist/*`, `cd ../../..`)
 - Clone the [NaNofuzz playground](https://github.com/nanofuzz/nanofuzz-examples)
-  - If needed, upgrade the `@nanofuzz/runtime` package: `yarn update @nanofuzz/runtime@X.Y.Z`
+  - If needed, upgrade the runtime packages: `yarn update @nanofuzz/runtime@X.Y.Z` and `pip install "nanofuzz-runtime==X.Y.Z"`
   - Ensure the version of the NaNofuzz extension loaded is the new one
   - Stage, commit, and push the updated `package.json` and `yarn.lock`
   - Make sure all the examples still work. (Note: running the examples will generate a lot of `.json` files you probably don't want to commit)
@@ -197,3 +232,4 @@ Our repo uses [semantic versioning][] and maintains the same version number for 
 [yarn]: https://classic.yarnpkg.com/lang/en/docs/install/
 [semantic versioning]: https://semver.org
 [github release]: https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository
+[python]: https://www.python.org/

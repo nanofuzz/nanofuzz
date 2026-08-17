@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nanofuzz-runtime"
+version = "0.3.6"
+description = "Runtime support and types for NaNofuzz"
+readme = "README.md"
+authors = [
+    { name = "The NaNofuzz Team", email = "mcd2@cmu.edu" }
+]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Typing :: Typed", 
+    "Framework :: Pytest",
+    "Topic :: Software Development :: Testing",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research"
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/nanofuzz/nanofuzz"
+Repository = "https://github.com/nanofuzz/nanofuzz"
+"Source Code" = "https://github.com/nanofuzz/nanofuzz/packages/runtime/python"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nanofuzz_runtime"]

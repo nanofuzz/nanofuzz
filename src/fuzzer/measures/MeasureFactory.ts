@@ -1,20 +1,17 @@
-import { FuzzEnv } from "../Fuzzer";
+import { ProgramLanguage } from "../analysis/Types";
+import { AbstractCoverageMeasure } from "./AbstractCoverageMeasure";
 import { AbstractMeasure } from "./AbstractMeasure";
-import { CoverageMeasure } from "./CoverageMeasure";
+import { TypescriptCoverageMeasure } from "./TypescriptCoverageMeasure";
 import { FailedTestMeasure } from "./FailedTestMeasure";
+import { PythonCoverageMeasure } from "./PythonCoverageMeasure";
 
-export function MeasureFactory(env: FuzzEnv): AbstractMeasure[] {
-  const measures: AbstractMeasure[] = [];
-
-  let covMeasure: CoverageMeasure | undefined;
-  if (env.options.measures["CoverageMeasure"].enabled) {
-    covMeasure = new CoverageMeasure();
-    measures.push(covMeasure);
+export function MeasureFactory(lang: ProgramLanguage): AbstractMeasure[] {
+  let covMeasure: AbstractCoverageMeasure;
+  if (lang === "python") {
+    covMeasure = new PythonCoverageMeasure();
+  } else {
+    covMeasure = new TypescriptCoverageMeasure();
   }
-
-  if (env.options.measures["FailedTestMeasure"].enabled) {
-    measures.push(new FailedTestMeasure(covMeasure));
-  }
-
-  return measures;
+  const testMeasure = new FailedTestMeasure(covMeasure);
+  return [covMeasure, testMeasure];
 }

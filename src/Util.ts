@@ -1,39 +1,14 @@
-import JSON5 from "json5";
-
 /**
- * Type guard function that returns true if the input object
- * has properties "message" and "stack" typed as string.
- * This function is primarily for checking whether `unknown`
- * exception types have the message and stack fields.
+ * Type guard function that returns true if `obj` has keys
  *
- * @param obj the object to check
- * @returns type guard if `obj` has `message` and `stack` properties of type `string`
+ * @param `obj` the object to check
+ * @returns true if `obj` has keys, false otherwise
  */
-export function isError(
-  obj: unknown
-): obj is { message: string; stack: string } {
+export function isKeyedObject(obj: unknown): obj is Record<string, unknown> {
   return (
-    obj !== undefined &&
     obj !== null &&
     typeof obj === "object" &&
     !Array.isArray(obj) &&
-    "message" in obj &&
-    "stack" in obj &&
-    typeof obj.message === "string" &&
-    typeof obj.stack === "string"
+    Object.keys(obj).length > 0
   );
-} // fn: isError
-
-/**
- * Extracts an error message from an unknown exception value.
- *
- * If the value is an Error-like object (has message and stack),
- * returns the message. Otherwise, stringifies the value using JSON5.
- *
- * @param e the exception value to extract a message from
- *
- * @returns the error message string
- */
-export function getErrorMessageOrJson(e: unknown): string {
-  return isError(e) ? e.message : JSON5.stringify(e);
-} // fn: getErrorMessageOrJson
+} // fn: isKeyedObject

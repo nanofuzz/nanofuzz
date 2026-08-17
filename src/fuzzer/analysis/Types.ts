@@ -1,0 +1,190 @@
+/**
+ * Languages that NaNofuzz can analyze
+ */
+export type ProgramLanguage = "typescript" | "python" | "*";
+
+/**
+ * Represents a single import declaration within a TypeScript program
+ */
+export type ProgramImport = {
+  local: IdentifierName; // local name of the import inside the current module
+  imported: IdentifierName; // name of the import in the module being imported
+  programPath: ProgramPath; // path to the module being imported
+  resolved: boolean; // true if the import has been resolved; false, otherwise
+  default: boolean; // true if the import is the default import; false, otherwise
+};
+
+/**
+ * Represents a set of imports for a program
+ */
+export type ProgramImports = {
+  programs: Record<ProgramPath, string>;
+  identifiers: Record<IdentifierName, ProgramImport>;
+};
+
+/**
+ * Represents a path to a program module file
+ */
+export type ProgramPath = string;
+
+/**
+ * Represents an identifier within a program
+ */
+export type IdentifierName = string;
+
+/**
+ * Represents a reference to a function in a source code file.
+ */
+export type FunctionRef = {
+  module: ProgramPath; // Module where the function resides
+  name: IdentifierName; // Name of the function
+  src: string; // Function source code
+  lang: ProgramLanguage; // language of the function
+  startOffset: number; // Starting offset of the function in the source file
+  endOffset: number; // Ending offset of the function in the source file
+  isExported: boolean; // True if the function is exported; false, otherwise
+  isVoid: boolean; // True if the function is void; false, otherwise
+  args?: TypeRef[]; // Array of argument types
+  returnType?: TypeRef; // Return type of the function
+  cmt?: string; // Docstring comment of the function
+};
+
+/**
+ * Represents a type in a source code file.
+ */
+export type TypeRef = {
+  module: ProgramPath; // Module where the type resides
+  name?: IdentifierName; // Name of the type
+  typeRefName?: IdentifierName; // Name of the type reference (if any)
+  optional: boolean; // True if the type is optional; false, otherwise
+  dims: number; // Number of dimensions for the type (0 for non-array types)
+  type?: {
+    type: ArgTag; // Concrete type of the type
+    dims: number; // Concrete type dims (the concrete type may have its own dimensions)
+    children: TypeRef[]; // Array of child types
+    value?: ArgType; // Value if a literal type
+    options?: ArgOptionOverride; // Type-specific input-generation options
+    resolved?: boolean; // True if the type's children have been resolved; false, otherwise
+  };
+  isExported: boolean; // True if the type is exported; false, otherwise
+};
+
+/**
+ * Indicates the primitive type of an argument
+ */
+export enum ArgTag {
+  NUMBER = "number",
+  STRING = "string",
+  BOOLEAN = "boolean",
+  OBJECT = "object",
+  LITERAL = "literal",
+  UNION = "union",
+  TUPLE = "tuple",
+  UNRESOLVED = "unresolved", // unresolved type reference
+}
+export type ArgType =
+  | number
+  | string
+  | boolean
+  | {
+      [key: string]: ArgType;
+    };
+
+/**
+ * Maps each ArgTag to the corresponding TypeScript value type.
+ * Use this instead of pairing a separate `T extends ArgType` parameter
+ * alongside an `ArgTag` — derive `T` from the tag instead.
+ */
+export type TagToType = {
+  [ArgTag.NUMBER]: number;
+  [ArgTag.STRING]: string;
+  [ArgTag.BOOLEAN]: boolean;
+  [ArgTag.OBJECT]: { [key: string]: ArgType };
+  [ArgTag.LITERAL]: ArgType;
+  [ArgTag.UNION]: ArgType;
+  [ArgTag.TUPLE]: [ArgType];
+  [ArgTag.UNRESOLVED]: ArgType;
+};
+export type ArgValueType =
+  | number
+  | string
+  | boolean
+  | {
+      [key: string]: ArgValueType;
+    }
+  | ArgValueType[]
+  | undefined;
+export type ArgValueTypeWrapped = {
+  tag: "ArgValueTypeWrapped"; // otherwise looks identical to FuzzIoElement
+  value: ArgValueType;
+}; // Use for arrays
+
+/**
+ * The set of options for an argument.  This option set is used to "fill in" information
+ * that is not provided by analyzing the function.  For instance, a function signature
+ * may indicate an argument is numeric, but not whether it is a float or an integer.
+ */
+export type ArgOptions = {
+  // For type string
+  strCharset: string; // string representing the characters allowed in the input
+  strLength: Interval<number>; // length of characters allowed in the input
+  strRegex: string | undefined; // regular expression the input must match
+
+  // For type number
+  numInteger: boolean; // true if the numeric argument input is an integer
+
+  // For type any
+  anyType: ArgTag; // the type to interpret for 'any' types
+  anyDims: number; // the dimensions to interpret for 'any' types
+
+  // For args with dimensions (when ArgDef.getDims() > 0)
+  dimLength: Interval<number>[]; // Fine-grained length of each dimension.  For example,
+  // for number[][]: dimLength[0] = length of 1st dimension
+  // and dimLength[1] = length of 2nd dimension.
+  dftDimLength: Interval<number>; // Length of any dimension not specified in dimLength.
+  dimsUnique: boolean; // true = generated dimension values must be unique.
+
+  // For members of a union, suppress input generation
+  isNoInput?: boolean; // true=do not generate inputs (unions only)
+};
+
+/**
+ * A set of option overrides for a set of arguments.
+ */
+export type ArgOptionOverrides = {
+  [k: string]: ArgOptionOverride;
+};
+
+/**
+ * Argument option overrides
+ */
+export type ArgOptionOverride = {
+  numInteger?: boolean;
+  numIntervals?: Interval<number>[];
+  dimLength?: Interval<number>[];
+  dimsUnique?: boolean;
+  strLength?: Interval<number>;
+  strCharset?: string;
+  strRegex?: string;
+  children?: ArgOptionOverrides;
+  isNoInput?: boolean;
+};
+
+/** Options for generating type annotations */
+export type TypeAnnotationOptions = {
+  useTypeRefs?: true;
+  useOptionality?: true;
+};
+export const TypeAnnotationOptionDefaults: TypeAnnotationOptions = {
+  useTypeRefs: true,
+  useOptionality: true,
+};
+
+/**
+ * Represents a single closed interval of values for an argument.
+ * TODO: Add support for open intervals
+ */
+export type Interval<T> = {
+  min: T;
+  max: T;
+};

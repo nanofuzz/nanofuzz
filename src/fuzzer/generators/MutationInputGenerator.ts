@@ -1,15 +1,15 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
-import { ArgDef } from "../analysis/typescript/ArgDef";
-import { ArgType } from "../analysis/typescript/Types";
+import { ArgDef } from "../analysis/ArgDef";
 import { Leaderboard } from "./Leaderboard";
-import { InputAndSource } from "./Types";
-import { ArgDefMutator } from "../analysis/typescript/ArgDefMutator";
+import { InputAndSource } from "../Types";
+import { ArgDefMutator } from "../analysis/ArgDefMutator";
+import { ArgDefValidator } from "../analysis/ArgDefValidator";
 
 /**
  * Generates new inputs by mutating prior "interesting" inputs
  */
 export class MutationInputGenerator extends AbstractInputGenerator {
-  private _leaderboard; // List of "interesting" inputs
+  private _leaderboard: Leaderboard<InputAndSource>; // List of "interesting" inputs
   private _maxMutations = 2; // Max mutations to apply to interesting inputs
 
   /**
@@ -20,8 +20,8 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    * @param `leaderboard` Running list of "interesting" inputs
    */
   public constructor(
-    specs: ArgDef<ArgType>[],
-    rngSeed: string,
+    specs: ArgDef[],
+    rngSeed: string | undefined,
     leaderboard: Leaderboard<InputAndSource>
   ) {
     super(specs, rngSeed);
@@ -34,7 +34,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    *
    * @returns true if generator is available, false otherwise
    */
-  public isAvailable(): boolean {
+  public nextable(): boolean {
     return !!this._leaderboard.length;
   } // fn: isAvailable
 
@@ -68,7 +68,11 @@ export class MutationInputGenerator extends AbstractInputGenerator {
         return {
           tick: 0,
           value: input,
-          source: { subgen: "MutationInputGenerator", tick: sourceTick },
+          source: {
+            type: "generator",
+            generator: "MutationInputGenerator",
+            tick: sourceTick,
+          },
         };
       }
 
@@ -81,7 +85,23 @@ export class MutationInputGenerator extends AbstractInputGenerator {
     return {
       tick: 0,
       value: input,
-      source: { subgen: "MutationInputGenerator", tick: sourceTick },
+      source: {
+        type: "generator",
+        generator: "MutationInputGenerator",
+        tick: sourceTick,
+      },
     };
   } // fn: next
+
+  /**
+   * Clear any now-invalid items out of the leaderboard at the
+   * start of each run.
+   */
+  public onRunStart(_active: boolean): void {
+    // Input generation options may have changed, so filter the leaderboard
+    const validator = new ArgDefValidator(this._specs);
+    this._leaderboard.filter((leader: { leader: InputAndSource }) => {
+      return validator.validate(leader.leader.value);
+    });
+  } // fn: onRunStart
 } // class: MutationInputGenerator

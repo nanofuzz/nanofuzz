@@ -1,6 +1,6 @@
 import * as util from "util";
 import * as vscode from "vscode";
-import * as JSON5 from "json5";
+import * as JSONN from "../Jsonn";
 
 /**
  * Lightweight storage for event data prior to de-staging.
@@ -47,7 +47,7 @@ export class Logger {
     const chunkUri = vscode.Uri.joinPath(
       workspaceFolders[0].uri,
       "telemetry",
-      chunkName + ".json"
+      chunkName + ".json5"
     );
 
     // Persist the log chunk if data is present
@@ -56,7 +56,7 @@ export class Logger {
       this.log = []; // Clear the persisted data
       vscode.workspace.fs.writeFile(
         chunkUri,
-        Buffer.from(JSON5.stringify(logCopy))
+        Buffer.from(JSONN.stringify(logCopy))
       );
     } else {
       console.debug("No telemetry log data to persist");
