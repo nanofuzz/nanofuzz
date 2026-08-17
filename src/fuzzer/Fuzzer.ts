@@ -216,6 +216,7 @@ export class Tester {
               run: 0, // updated later
               val: 0, // updated later
               measure: 0, // updated later
+              transform: 0, // updated later
             },
             counters: {
               dupesGenerated: 0, // updated later
@@ -228,6 +229,7 @@ export class Tester {
               run: 0, // updated later
               val: 0, // updated later
               measure: 0, // updated later
+              transform: 0, // updated later
             },
             counters: {
               dupesGenerated: 0, // updated later
@@ -240,6 +242,7 @@ export class Tester {
               run: 0, // updated later
               val: 0, // updated later
               measure: 0, // updated later
+              transform: 0, // updated later
             },
             counters: {
               dupesGenerated: 0, // updated later
@@ -420,7 +423,7 @@ export class Tester {
         console.log(payload.msg);
       }
     };
-    const runStats = {
+    const runStats: CurrentRunStats = {
       counters: {
         inputsInjected: 0, // number of inputs injected for testing
         inputsGenerated: 0, // number of inputs generated so far
@@ -433,7 +436,6 @@ export class Tester {
       timers: {
         startTime: performance.now(), // time the tester started in this run
         startGenTime: 0, // time the tester started generating inputs in this run
-        transform: 0, // time the tester spent transforming inputs in this run
       },
     };
 
@@ -548,7 +550,6 @@ export class Tester {
           runStats.counters.skippedTests;
         this._results.stats.counters.failedTests +=
           runStats.counters.failedTests;
-        this._results.stats.timers.transform += runStats.timers.transform;
 
         // Update interesting inputs
         this._results.interesting.inputs =
@@ -771,6 +772,10 @@ export class Tester {
             ];
           genStats.timers.gen += result.timers.gen;
           this._results.stats.timers.gen += result.timers.gen;
+
+          // Add transform times to the stats
+          genStats.timers.transform += result.timers.transform;
+          this._results.stats.timers.transform += result.timers.transform;
 
           // Increment the number of inputs generated
           runStats.counters.inputsGenerated++;
@@ -1265,6 +1270,7 @@ export type FuzzGeneratorStatsBase = {
     val: number; // elapsed time to categorize outputs
     gen: number; // elapsed time to generate inputs
     measure: number; // elapsed time to measure
+    transform: number; // elapsed time to transform inputs
   };
 };
 export type FuzzTestStats = {
@@ -1307,6 +1313,7 @@ type CurrentRunStats = {
     dupesSequential: number; // current number of duplicate inputs generated in a row
     failedTests: number; // number of failed tests so far
     passedTests: number; // number of passed tests so far
+    skippedTests: number; // number of skipped tests so far
   };
   timers: {
     startTime: number; // time the tester started in this run

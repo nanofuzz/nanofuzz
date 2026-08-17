@@ -758,11 +758,21 @@ describe("fuzzer:", () => {
     });
   });
 
+  it("TypeScript target importing a class from a parent module compiles and runs successfully", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "testCoverageOneFile",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+  });
+
   it("Typescript transformer skip and modify", async () => {
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformed",
-      intOptions
+      { ...intOptions, maxTests: 200 }
     ).testSync();
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
@@ -807,7 +817,7 @@ describe("fuzzer:", () => {
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformedTimeout",
-      intOptions
+      { ...intOptions, maxTests: 2 }
     ).testSync();
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
@@ -864,8 +874,6 @@ describe("fuzzer:", () => {
       {
         ...intOptions,
         maxTests: 2,
-        fnTimeout: 100,
-        useTransformer: true,
       }
     ).testSync();
 

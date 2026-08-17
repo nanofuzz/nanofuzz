@@ -2,6 +2,7 @@ import {
   importedLiteralDim2Type,
   testCoverageMultiFile2,
 } from "./Fuzzer.textfixturees2";
+import { UnsatisfiedAssumption } from "../Types";
 
 /**
  * Fuzz target that alters its input - used to verify
@@ -178,12 +179,5 @@ export function targetTransformedTimeoutTransformer(
 ): [number] | null {
   while (true) {
     /* noop */
-  }
-}
-
-export class UnsatisfiedAssumption extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "UnsatisfiedAssumption";
   }
 }
