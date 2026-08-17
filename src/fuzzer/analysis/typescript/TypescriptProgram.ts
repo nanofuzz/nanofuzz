@@ -1007,9 +1007,9 @@ export class TypescriptProgram extends AbstractProgram {
         startOffset: path.node.range[0],
         endOffset: path.node.range[1],
         isExported: parent.parent.type === "ExportNamedDeclaration",
-        args: path.node.init.params
-          .filter((arg) => arg.type === "Identifier")
-          .map((arg) => this._getTypeRefFromAstNode(arg, init)),
+        args: path.node.init.params.map((arg) =>
+          this._getParamTypeRef(arg, init)
+        ),
         returnType,
         isVoid,
         cmt: this._getFunctionComment(path),
@@ -1050,15 +1050,48 @@ export class TypescriptProgram extends AbstractProgram {
         startOffset: path.node.range[0],
         endOffset: path.node.range[1],
         isExported: parent ? parent.type === "ExportNamedDeclaration" : false,
-        args: path.node.params
-          .filter((arg) => arg.type === "Identifier")
-          .map((arg) => this._getTypeRefFromAstNode(arg, path.node)),
+        args: path.node.params.map((arg) =>
+          this._getParamTypeRef(arg, path.node)
+        ),
         returnType,
         isVoid,
         cmt: this._getFunctionComment(path),
       };
     }
   } // fn: _getFunctionFromNode()
+
+  /**
+   * Helper function to extract a TypeRef from a parameter AST node.
+   * Throws an error for unsupported parameter node types (e.g. RestElement, ObjectPattern).
+   *
+   * @param param Parameter AST node
+   * @param parent Parent AST node
+   * @returns TypeRef for the parameter
+   */
+  protected _getParamTypeRef(param: Node, parent: Node): TypeRef {
+    switch (param.type) {
+      case "Identifier":
+        return this._getTypeRefFromAstNode(param, parent);
+      case "AssignmentPattern":
+        if (param.left.type === "Identifier") {
+          return this._getTypeRefFromAstNode(param.left, parent);
+        }
+        throw new Error(
+          `Unsupported destructured default parameter: ${param.left.type}`
+        );
+      case "RestElement":
+        throw new Error("Rest parameters (...args) are not supported");
+      case "ObjectPattern":
+      case "ArrayPattern":
+        throw new Error("Destructured parameters are not supported");
+      case "TSParameterProperty":
+        // We don't support classes so supporting, e.g., `constructor(public x: number)`
+        // does not make sense.
+        throw new Error("Parameter properties are not supported");
+      default:
+        throw new Error(`Unsupported parameter type: ${param.type}`);
+    }
+  }
 
   /**
    * Returns the function's leading comment, if it exists. This is

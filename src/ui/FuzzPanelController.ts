@@ -1159,7 +1159,7 @@ ${inArgConsts}
 
     // Determine the next available transformer name
     const fnCounter = getNextAvailableFnNumber(
-      Object.keys(program.functions.exported),
+      Object.keys(program.functions),
       transformerPrefix
     );
 
@@ -1182,10 +1182,10 @@ ${inArgConsts}
     const skeleton =
       program.lang === "typescript"
         ? `
-export function ${transformerName}(...Parameters<typeof ${fn.getName()}): ${inputsTypeName} | null {
+export function ${transformerName}(...args: Parameters<typeof ${fn.getName()}>): Parameters<typeof ${inputsTypeName}> {
   const [${argDestructuring}] = args;
   // 'throw new UnsatisfiedAssumption(message)' to skip this input
-  // Return the transformed inputs otherwise
+  // Otherwise, return the transformed inputs
   return [${argDestructuring}];
 }`
         : `
@@ -1207,8 +1207,8 @@ export function ${transformerName}(...Parameters<typeof ${fn.getName()}): ${inpu
 
       // Change focus to the generated transformer
       try {
-        const fn =
-          ProgramFactory.fromFile(module).functionsExported[transformerName];
+        const pgm = ProgramFactory.fromFile(module);
+        const fn = pgm.functionsExported[transformerName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (e: unknown) {
         this._setErrorFromException(e);

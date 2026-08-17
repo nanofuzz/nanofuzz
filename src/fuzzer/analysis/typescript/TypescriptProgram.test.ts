@@ -229,4 +229,16 @@ export const returnsValueArrow = () => "hello";
     expect(fns["multiBranchNonVoid"].isVoid()).toBeFalse();
     expect(fns["returnsValueArrow"].isVoid()).toBeFalse();
   });
+
+  it("rest parameters (...args) are marked as unsupported", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `function levenshtein(a: string, b: string): number { return 0; }
+      export function levenshteinTransformer(...args: Parameters<typeof levenshtein>): Parameters<typeof levenshtein> | null {
+        return args;
+      }`,
+      "typescript"
+    );
+    expect(prog.functionsExported["levenshteinTransformer"]).toBeUndefined();
+    expect(prog.functions["levenshteinTransformer"]).toBeUndefined();
+  });
 });
