@@ -1562,6 +1562,30 @@ export class TypescriptProgram extends AbstractProgram {
     arg: ArgDef,
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
+    const typeRef = arg.getTypeRef();
+    if (typeRef && options.useTypeRefs) {
+      const outerDims = arg.getTypeRefDims() ?? 0;
+      let type = `${typeRef}${"[]".repeat(outerDims)}`;
+      if (
+        arg.isOptional() &&
+        !(
+          arg.getType() === ArgTag.UNION &&
+          arg.getDim() === 0 &&
+          arg
+            .getChildren()
+            .some(
+              (child) =>
+                child.getType() === ArgTag.LITERAL &&
+                child.isConstant() &&
+                child.getConstantValue() === undefined
+            )
+        )
+      ) {
+        type = `${type} | undefined`;
+      }
+      return type;
+    }
+
     // Get the base type annotation
     let baseType = TypescriptProgram.getBaseType(arg, options);
 

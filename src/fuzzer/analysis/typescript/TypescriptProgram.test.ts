@@ -356,4 +356,64 @@ export const returnsValueArrow = () => "hello";
       ["flag", "boolean | undefined", true],
     ]);
   });
+
+  it("null literals and keywords in parameter types (inline)", () => {
+    const prog = ProgramFactory.fromSource(
+      () =>
+        `export function nulls(x: null | number, o: {k: null | number}, u: (null | number)[], t: [null, null]): void {}`,
+      "typescript"
+    );
+    const fn = prog.functionsExported["nulls"];
+    expect(fn).toBeDefined();
+
+    expect(
+      fn
+        .getArgDefs()
+        .map((arg) => [arg.getName(), TypescriptProgram.getTypeAnnotation(arg)])
+    ).toEqual([
+      ["x", "null | number"],
+      ["o", "{ k: null | number }"],
+      ["u", "(null | number)[]"],
+      ["t", "[null, null]"],
+    ]);
+  });
+
+  it("null literals and keywords in parameter types (type references)", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `type NullableNumber = null | number;
+      type MyObj = { k: NullableNumber };
+      type MyArray = NullableNumber[];
+      type MyTuple = [null, null];
+      export function nullsAliased(x: NullableNumber, o: MyObj, u: MyArray, t: MyTuple): void {}`,
+      "typescript"
+    );
+    const fn = prog.functionsExported["nullsAliased"];
+    expect(fn).toBeDefined();
+
+    expect(
+      fn
+        .getArgDefs()
+        .map((arg) => [arg.getName(), TypescriptProgram.getTypeAnnotation(arg)])
+    ).toEqual([
+      ["x", "NullableNumber"],
+      ["o", "MyObj"],
+      ["u", "MyArray"],
+      ["t", "MyTuple"],
+    ]);
+
+    // Also verify base type expansion without using type refs
+    expect(
+      fn
+        .getArgDefs()
+        .map((arg) => [
+          arg.getName(),
+          TypescriptProgram.getTypeAnnotation(arg, {}),
+        ])
+    ).toEqual([
+      ["x", "null | number"],
+      ["o", "{ k: null | number }"],
+      ["u", "(null | number)[]"],
+      ["t", "[null, null]"],
+    ]);
+  });
 });
