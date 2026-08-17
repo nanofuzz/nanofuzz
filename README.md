@@ -34,7 +34,8 @@ To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuz
 ## What's new in v0.4
 
 - **Python targets**: Test Python functions and export the saved tests to `pytest` for use in CI.
-- **More types**: Tuples, Unions, and unique arrays.
+- **Input transformers**: Programatically modify or skip inputs before they are dispatched for test execution.
+- **More types**: Tuples, Unions, unique Arrays/Lists, regex Strings, `null`s, and select utility types, like `Required<T>` and `Partial<T>`.
 - **Composite input generation**: Random-, coverage-, human-, and opt-in ai-guided input generators are coordinated automatically, so you can start testing with a single button click.
 - **Code coverage visualizations**: See in your editor which lines of code were actually executed (and missed) by the generated test examples.
 - **Stop-and-go testing**: Pause and resume testing runs without losing the accumulated results, pinned inputs, or input generator state.

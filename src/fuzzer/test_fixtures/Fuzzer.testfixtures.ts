@@ -2,6 +2,7 @@ import {
   importedLiteralDim2Type,
   testCoverageMultiFile2,
 } from "./Fuzzer.textfixturees2";
+import { UnsatisfiedAssumption } from "../Types";
 
 /**
  * Fuzz target that alters its input - used to verify
@@ -148,4 +149,35 @@ export function issue301(r: number): { a: number | undefined } {
     return { a: undefined };
   }
   return { a: r };
+}
+
+/**
+ * Transformer target and transformer functions for testing transformer features
+ */
+export function targetTransformed(n: number): number {
+  return n + 1;
+}
+export function targetTransformedTransformer(n: number): [number] {
+  if (n < 50) throw new UnsatisfiedAssumption("skip negative inputs");
+  return [n * 2]; // Transform n to n * 2
+}
+
+export function targetTransformedException(n: number): number {
+  return n;
+}
+export function targetTransformedExceptionTransformer(
+  _n: number
+): [number] | null {
+  throw new Error("Transformer error message");
+}
+
+export function targetTransformedTimeout(n: number): number {
+  return n;
+}
+export function targetTransformedTimeoutTransformer(
+  _n: number
+): [number] | null {
+  while (true) {
+    /* noop */
+  }
 }

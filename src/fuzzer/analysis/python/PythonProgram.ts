@@ -536,12 +536,25 @@ export class PythonProgram extends AbstractProgram {
     options: ArgOptions
   ): [ArgTag, number, string?, ArgType?, ArgOptionOverride?] {
     switch (node.type) {
-      case "type":
-        if (node.firstChild) {
-          return this._getTypeFromAstNode(node.firstChild, options);
+      case "type": {
+        const child = node.firstNamedChild ?? node.firstChild;
+        if (child) {
+          return this._getTypeFromAstNode(child, options);
         } else {
           throw new Error(`Wrong node of type "type" in _getTypeFromAstNode`);
         }
+      }
+      case "tuple":
+      case "parenthesized_expression": {
+        if (node.text === "()" || node.text === "tuple()") {
+          return [ArgTag.TUPLE, 0];
+        }
+        const child = node.firstNamedChild;
+        if (child) {
+          return this._getTypeFromAstNode(child, options);
+        }
+        return [ArgTag.TUPLE, 0];
+      }
       case "identifier":
         switch (node.text) {
           case "int":
@@ -618,6 +631,15 @@ export class PythonProgram extends AbstractProgram {
       case "union_type":
       case "binary_operator":
         return [ArgTag.UNION, 0];
+      case "splat_type":
+      case "list_splat":
+      case "starred_expression": {
+        const child = node.firstNamedChild;
+        if (child) {
+          return this._getTypeFromAstNode(child, options);
+        }
+        throw new Error(`Empty splat type in '${node.text}'`);
+      }
       case "member_type":
       case "attribute":
         return [ArgTag.UNRESOLVED, 0, node.text];
@@ -679,6 +701,16 @@ export class PythonProgram extends AbstractProgram {
         return this._getChildrenFromNode(child);
       }
 
+      case "splat_type":
+      case "list_splat":
+      case "starred_expression": {
+        const child = node.firstNamedChild;
+        if (child) {
+          return this._getChildrenFromNode(child);
+        }
+        return [];
+      }
+
       // Leaves have no children.
       case "identifier":
       case "none":
@@ -717,10 +749,20 @@ export class PythonProgram extends AbstractProgram {
             return this._getChildrenFromNode(args[0]);
           // Composites: each argument (`type` node) is a child.
           case "Union":
-          case "tuple":
-          case "Tuple":
           case "Optional":
             return args.map((c) => this._getTypeRefFromAstNode(c));
+          case "tuple":
+          case "Tuple": {
+            if (
+              args.length === 1 &&
+              (args[0].text === "()" ||
+                args[0].type === "parenthesized_expression" ||
+                args[0].type === "tuple")
+            ) {
+              return [];
+            }
+            return args.map((c) => this._getTypeRefFromAstNode(c));
+          }
           // Literal / references / unknown generics have no children here.
           default:
             return [];
@@ -954,7 +996,8 @@ export class PythonProgram extends AbstractProgram {
           arg.type === "identifier" ||
           arg.type === "default_parameter" ||
           arg.type === "typed_parameter" ||
-          arg.type === "typed_default_parameter"
+          arg.type === "typed_default_parameter" ||
+          arg.type === "list_splat_pattern"
       ) ?? [];
 
     // Hypothesis strategies have precedence over native type annotations
@@ -972,20 +1015,100 @@ export class PythonProgram extends AbstractProgram {
         );
         paramName =
           paramNode.namedChildren.find((c) => c.type === "identifier")?.text ??
-          pattern?.firstNamedChild?.text;
+          pattern?.firstNamedChild?.text ??
+          (paramNode.type === "list_splat_pattern"
+            ? paramNode.firstNamedChild?.text
+            : undefined);
       }
+
+      const isSplat =
+        paramNode.type === "list_splat_pattern" ||
+        paramNode.namedChildren.some((c) => c.type === "list_splat_pattern");
 
       // If a hypothesis strategy exists for this parameter, use it.
       // Otherwise, parse the native type annotation
-      const hypType = paramName
+      let typeRef = paramName
         ? (hypothesisArgMap[paramName] ?? hypothesisPositionalArgs[paramIndex])
         : hypothesisPositionalArgs[paramIndex];
-      if (hypType !== undefined) {
-        hypType.name = paramName;
-        finalArgs.push(hypType);
+      if (typeRef !== undefined) {
+        typeRef.name = paramName;
       } else {
-        finalArgs.push(this._getTypeRefFromAstNode(paramNode));
+        typeRef = this._getTypeRefFromAstNode(paramNode);
       }
+
+      if (isSplat) {
+        // Resolve type reference if unresolved (e.g., *args: MyTuple)
+        if (!typeRef.type && typeRef.typeRefName) {
+          try {
+            typeRef = structuredClone(this.resolveTypeRef(typeRef));
+          } catch {
+            // ignore if resolution is unavailable or external
+          }
+        }
+
+        // Unroll tuple splat parameters (*args: tuple[...])
+        if (typeRef.type?.type === ArgTag.TUPLE && typeRef.type.children) {
+          const unrolled = typeRef.type.children.map((child, i) => {
+            const paramChild = structuredClone(child);
+            paramChild.name = child.name ?? `${paramName ?? "args"}_${i}`;
+            return paramChild;
+          });
+          finalArgs.push(...unrolled);
+          continue;
+        }
+
+        // Unroll union of tuples (*args: tuple[str] | tuple[int, bool])
+        if (typeRef.type?.type === ArgTag.UNION && typeRef.type.children) {
+          const tupleArms = typeRef.type.children.filter(
+            (c) => c.type?.type === ArgTag.TUPLE && c.type.children
+          );
+          if (tupleArms.length > 0) {
+            const totalArms = typeRef.type.children.length;
+            const maxLen = Math.max(
+              ...tupleArms.map((t) => t.type!.children!.length)
+            );
+            const positionalTypeRefs: TypeRef[] = [];
+
+            for (let k = 0; k < maxLen; k++) {
+              const armsWithPos = tupleArms.filter(
+                (t) => t.type!.children!.length > k
+              );
+              const posChildren = armsWithPos.map(
+                (t) => t.type!.children![k]
+              );
+              const isOptional = armsWithPos.length < totalArms;
+              const firstName = posChildren.find((c) => c.name)?.name;
+              const posName = firstName ?? `${paramName ?? "args"}_${k}`;
+
+              if (posChildren.length === 1) {
+                const paramChild = structuredClone(posChildren[0]);
+                paramChild.name = posName;
+                if (isOptional) paramChild.optional = true;
+                positionalTypeRefs.push(paramChild);
+              } else if (posChildren.length > 1) {
+                const paramChild: TypeRef = {
+                  module: this._filename,
+                  name: posName,
+                  dims: 0,
+                  optional: isOptional,
+                  isExported: false,
+                  type: {
+                    dims: 0,
+                    type: ArgTag.UNION,
+                    children: posChildren.map((c) => structuredClone(c)),
+                    resolved: true,
+                  },
+                };
+                positionalTypeRefs.push(paramChild);
+              }
+            }
+            finalArgs.push(...positionalTypeRefs);
+            continue;
+          }
+        }
+      }
+
+      finalArgs.push(typeRef);
     } // for: parameter AST node
 
     // Docstring extraction logic...
@@ -1348,9 +1471,11 @@ export class PythonProgram extends AbstractProgram {
 
       case "sets":
       case "lists": {
-        if (getKwdArg(node, "unique_by", -1)) {
-          console.warn("The 'unique_by' property is not yet supported.");
-        }
+        ["unique_by"].forEach((kwd) => {
+          if (getKwdArg(node, kwd, -1)) {
+            console.warn(`The '${kwd}' property is not yet supported.`);
+          }
+        });
 
         const elementsArg = getKwdArg(node, "elements", 0);
         let innerTypeRef: TypeRef | undefined;
@@ -2003,6 +2128,30 @@ export class PythonProgram extends AbstractProgram {
     arg: ArgDef,
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
+    const typeRef = arg.getTypeRef();
+    if (typeRef && options.useTypeRefs) {
+      const outerDims = arg.getTypeRefDims() ?? 0;
+      let type = `${"List[".repeat(outerDims)}${typeRef}${"]".repeat(outerDims)}`;
+      if (
+        arg.isOptional() &&
+        !(
+          arg.getType() === ArgTag.UNION &&
+          arg.getDim() === 0 &&
+          arg
+            .getChildren()
+            .some(
+              (child) =>
+                child.getType() === ArgTag.LITERAL &&
+                child.isConstant() &&
+                child.getConstantValue() === undefined
+            )
+        )
+      ) {
+        type = `Union[${type}, None]`;
+      }
+      return type;
+    }
+
     // Get the base type annotation
     const baseType = PythonProgram.getBaseType(arg, options);
     const dims = arg.getDim();

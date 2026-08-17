@@ -24,6 +24,7 @@ const baseOptions: Omit<
   seed: "seed",
   maxDupeInputs: 1,
   maxFailures: 1,
+  useTransformer: true,
   useImplicit: false,
   useHuman: false,
   useProperty: false,

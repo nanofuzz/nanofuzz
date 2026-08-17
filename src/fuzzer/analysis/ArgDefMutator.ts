@@ -430,7 +430,11 @@ export class ArgDefMutator {
           }
           case ArgTag.OBJECT: {
             const value = subInput.subElement;
-            if (typeof value === "object" && !Array.isArray(value)) {
+            if (
+              typeof value === "object" &&
+              !Array.isArray(value) &&
+              value !== null
+            ) {
               const children = spec.getChildren().filter((c) => !c.isNoInput());
               for (const c of children) {
                 const name = c.getName();
@@ -663,7 +667,7 @@ export class ArgDefMutator {
         // Walk the path
         if (Array.isArray(element)) {
           element = element[Number(key)];
-        } else if (typeof element === "object") {
+        } else if (typeof element === "object" && element !== null) {
           element = element[String(key)];
         } else {
           throw new Error(
@@ -678,7 +682,7 @@ export class ArgDefMutator {
         // Mutate the input
         if (Array.isArray(element)) {
           element[Number(key)] = newValue;
-        } else if (typeof element === "object") {
+        } else if (typeof element === "object" && element !== null) {
           element[String(key)] = newValue;
         } else {
           throw new Error(
@@ -748,11 +752,19 @@ export class ArgDefMutator {
       } else if (parent !== null && typeof parent === "object") {
         parent = parent[String(key)];
       } else {
-        throw new Error(`Cannot order object properties: ${JSONN.stringify(path)}`);
+        throw new Error(
+          `Cannot order object properties: ${JSONN.stringify(path)}`
+        );
       }
     }
-    if (parent === null || typeof parent !== "object" || Array.isArray(parent)) {
-      throw new Error(`Cannot order non-object properties: ${JSONN.stringify(path)}`);
+    if (
+      parent === null ||
+      typeof parent !== "object" ||
+      Array.isArray(parent)
+    ) {
+      throw new Error(
+        `Cannot order non-object properties: ${JSONN.stringify(path)}`
+      );
     }
 
     const values = new Map(

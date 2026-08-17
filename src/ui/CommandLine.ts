@@ -70,6 +70,10 @@ Commander.program
   )
   .option(`--seed <string>`, `Seed for pseudo-random number generator`, "")
 
+  // ------------------------------- Transformers ------------------------------ //
+
+  .option(`--no-transformer`, `Disable input transformers`)
+
   // --------------------------------- Oracles --------------------------------- //
 
   .option(`--no-heuristic-oracle`, `Disable heuristic oracle`)
@@ -247,6 +251,7 @@ async function run(): Promise<void> {
       seed: options["seed"],
       maxDupeInputs: options["maxDupeInputs"],
       maxFailures: options["maxFailures"],
+      useTransformer: options["transformer"],
       useImplicit: options["heuristicOracle"],
       useHuman: options["exampleOracle"],
       useProperty: options["propertyOracle"],

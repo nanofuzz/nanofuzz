@@ -264,6 +264,12 @@ async function main() {
     handleGetListOfValidators
   );
 
+  // Add event listener for the transformer button
+  getElementByIdOrThrow("transformer.add").addEventListener(
+    "click",
+    handleAddTransformer
+  );
+
   // Add event listeners for the pause button
   getElementByIdOrThrow("fuzz.pause").addEventListener("click", () => {
     const message: FuzzPanelMessageFromWebView = { command: "fuzz.pause" };
@@ -408,6 +414,15 @@ async function main() {
   );
   refreshValidators(validators);
 
+  // Load & display the transformer state from the HTML
+  const transformersElem = document.getElementById("transformers");
+  if (transformersElem) {
+    const transformersList: string[] = JSONN.parse(
+      htmlUnescape(transformersElem.innerHTML)
+    );
+    refreshTransformers(transformersList);
+  }
+
   // Load column sort orders from the HTML
   columnSortOrders = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
@@ -433,6 +448,9 @@ async function main() {
     switch (data.command) {
       case "validator.list":
         refreshValidators(data.validators);
+        break;
+      case "transformer.list":
+        refreshTransformers(data.transformers);
         break;
       case "config.updated": {
         getElementByIdOrThrow("llm-model").innerText =
@@ -639,7 +657,7 @@ async function main() {
         outputs[`output`] = "(timeout)";
       }
       if (e.skipped) {
-        outputs[`output`] = "(skipped) " + e.skipReason;
+        outputs[`output`] = e.skipReason ?? "(none provided)";
       }
 
       // Toss each result into the appropriate grid
@@ -2246,6 +2264,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
       useImplicit: getBooleanValue("useImplicit"),
       useHuman: true, // always active
       useProperty: getBooleanValue("useProperty"),
+      useTransformer: getBooleanValue("useTransformer"),
       measures: {
         CoverageMeasure: {
           enabled:
@@ -2432,6 +2451,22 @@ function refreshValidators(validatorList: string[]) {
 } // fn: refreshValidators
 
 /**
+ * Refreshes the displayed state for input transformers based on a list of
+ * transformer names provided from the back-end.
+ *
+ * @param transformerList list of available input transformer names
+ */
+function refreshTransformers(transformerList: string[]) {
+  const btn = document.getElementById("transformer.add");
+  if (btn) {
+    btn.innerText =
+      transformerList.length > 0
+        ? "Show Input Transformer"
+        : "Create Input Transformer";
+  }
+} // fn: refreshTransformers
+
+/**
  * Send message to back-end to add code skeleton to source code (because the
  * user clicked the customValidator button)
  */
@@ -2441,6 +2476,16 @@ function handleAddValidator() {
   };
   vscode.postMessage(message);
 } // fn: handleAddValidator()
+
+/**
+ * Send message to back-end to add input transformer code skeleton
+ */
+function handleAddTransformer() {
+  vscode.postMessage({
+    command: "transformer.add",
+    json: JSONN.stringify(""),
+  });
+} // fn: handleAddTransformer()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the

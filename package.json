@@ -251,6 +251,12 @@
             "default": true,
             "description": "Show two buttons for validator functions, one to test the associated function with property validators enabled, and one to test the validator itself."
           },
+          "nanofuzz.ui.codeLens.includeTransformers": {
+            "title": "Show 'NaNofuzz' button for input transformer functions?",
+            "default": true,
+            "type": "boolean",
+            "description": "Show 'NaNofuzz' button for input transformer functions?"
+          },
           "nanofuzz.ui.codeLens.ignoreFilePattern": {
             "title": "Regex of files for NaNofuzz to ignore",
             "type": "string",

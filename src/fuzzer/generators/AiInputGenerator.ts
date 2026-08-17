@@ -346,7 +346,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
               );
               return zod.enum([literalValue]);
             case "object":
-              throw new Error(`Array and Object literals not supported`);
+              if (literalValue === null) {
+                return zod.null();
+              } else {
+                throw new Error(`Array and Object literals not supported`);
+              }
             case "bigint": // fallsthrough
             case "symbol": // fallsthrough
             case "function":
@@ -460,6 +464,8 @@ export function _decode(data: ArgValueType): ArgValueType {
     case "object":
       if (Array.isArray(data)) {
         return data.map((e) => _decode(e));
+      } else if (data === null) {
+        return null;
       } else {
         Object.keys(data).forEach((k) => {
           if (data[k] === NANOFUZZ_MISSING_PROPERTY) {

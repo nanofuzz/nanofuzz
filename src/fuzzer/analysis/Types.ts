@@ -86,6 +86,7 @@ export type ArgType =
   | number
   | string
   | boolean
+  | null
   | {
       [key: string]: ArgType;
     };
@@ -113,6 +114,7 @@ export type ArgValueType =
       [key: string]: ArgValueType;
     }
   | ArgValueType[]
+  | null
   | undefined;
 export type ArgValueTypeWrapped = {
   tag: "ArgValueTypeWrapped"; // otherwise looks identical to FuzzIoElement
