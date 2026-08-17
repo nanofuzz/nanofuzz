@@ -1212,18 +1212,28 @@ ${tsDestructuring}  // 'throw new UnsatisfiedAssumption(message)' to skip this i
       }
 
       case "python": {
-        const pyUnpacking =
+        const pyParams = inArgs
+          .map(
+            (a) =>
+              `${a.getName()}: ${PythonProgram.getTypeAnnotation(a, { useTypeRefs: true })}`
+          )
+          .join(", ");
+        const pyTupleType =
           inArgs.length === 0
-            ? ""
+            ? "tuple[()]"
+            : `tuple[${inArgs.map((a) => PythonProgram.getTypeAnnotation(a, { useTypeRefs: true })).join(", ")}]`;
+        const pyReturnTuple =
+          inArgs.length === 0
+            ? "()"
             : inArgs.length === 1
-              ? `  (${argDestructuring},) = args\n`
-              : `  ${argDestructuring} = args\n`;
+              ? `(${argDestructuring},)`
+              : `(${argDestructuring})`;
         skeleton = `
 
-def ${transformerName}(*args):
-${pyUnpacking}  # 'raise UnsatisfiedAssumption(message)' to skip this input
+def ${transformerName}(${pyParams}) -> ${pyTupleType}:
+  # 'raise UnsatisfiedAssumption(message)' to skip this input
   # Otherwise, return the transformed inputs
-  return [${argDestructuring}]
+  return ${pyReturnTuple}
 `;
         break;
       }

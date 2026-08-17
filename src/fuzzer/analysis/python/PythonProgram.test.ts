@@ -1285,4 +1285,50 @@ lam_val = lambda: x+1
     expect(fns["lam_none"].isVoid()).toBeTrue();
     expect(fns["lam_val"].isVoid()).toBeFalse();
   });
+
+  it("unrolls *args: tuple[...] variadic parameters", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `from typing import Tuple
+def transformer_lowercase(*args: tuple[str, int]):
+    pass
+
+def transformer_capitalized(*args: Tuple[str, float]):
+    pass
+
+def transformer_empty(*args: tuple[()]):
+    pass`,
+      "python"
+    ).functionsExported;
+
+    const lowerArgs = fns["transformer_lowercase"].getArgDefs();
+    expect(lowerArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])).toEqual([
+      ["args_0", "str"],
+      ["args_1", "int"],
+    ]);
+
+    const capArgs = fns["transformer_capitalized"].getArgDefs();
+    expect(capArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])).toEqual([
+      ["args_0", "str"],
+      ["args_1", "float"],
+    ]);
+
+    const emptyArgs = fns["transformer_empty"].getArgDefs();
+    expect(emptyArgs.length).toEqual(0);
+  });
+
+  it("unrolls *args: MyTupleAliased variadic parameters", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `type MyTuple = tuple[str, int]
+
+def greeting_transformer(*args: MyTuple):
+    pass`,
+      "python"
+    ).functionsExported;
+
+    const args = fns["greeting_transformer"].getArgDefs();
+    expect(args.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])).toEqual([
+      ["args_0", "str"],
+      ["args_1", "int"],
+    ]);
+  });
 });

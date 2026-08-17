@@ -657,7 +657,7 @@ async function main() {
         outputs[`output`] = "(timeout)";
       }
       if (e.skipped) {
-        outputs[`output`] = "(skipped) " + e.skipReason;
+        outputs[`output`] = e.skipReason ?? "(none provided)";
       }
 
       // Toss each result into the appropriate grid
