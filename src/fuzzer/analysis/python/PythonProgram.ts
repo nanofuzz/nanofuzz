@@ -1623,6 +1623,13 @@ export class PythonProgram extends AbstractProgram {
         const getSampledType = (
           valueNode: Parser.Node
         ): TypeRef | undefined => {
+          if (valueNode.type === "call" || valueNode.type === "identifier") {
+            const strategyTypeRef = this._getTypeRefFromStrategy(valueNode);
+            if (strategyTypeRef) {
+              return strategyTypeRef;
+            }
+          }
+
           const literalValue = parseLiteral(valueNode);
           if (isArgType(literalValue)) {
             return {

@@ -1278,6 +1278,39 @@ def test_lru_eviction_order_after_reads(capacity: int, ops1: list, ops2: list, n
     expect(numPosArg?.getIntervals()).toEqual([{ min: 0, max: 10 }]);
   });
 
+  it("handles strategies like st.tuples inside st.sampled_from", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    capacity=st.integers(min_value=2, max_value=4),
+    ops=st.lists(
+        st.sampled_from([
+            st.tuples(
+                st.just('read'),
+                st.integers(min_value=0, max_value=10)
+            ),
+            st.tuples(
+                st.just('write'),
+                st.integers(min_value=0, max_value=10),
+                st.just(999)
+            )
+        ]),
+        min_size=5,
+        max_size=7,
+    )
+)
+def test_lru_eviction_order_after_reads(capacity: int, ops: list):
+    pass
+`,
+      "python"
+    ).functionsExported["test_lru_eviction_order_after_reads"];
+
+    const opsArg = fn.getArgDefs().find((a) => a.getName() === "ops");
+    expect(opsArg?.getType()).toBe(ArgTag.UNION);
+    expect(opsArg?.getDim()).toBe(1);
+    expect(opsArg?.getChildren().length).toBe(2);
+  });
+
   it("isVoid===true for functions lacking return statements", () => {
     const fns = ProgramFactory.fromSource(
       () => `
