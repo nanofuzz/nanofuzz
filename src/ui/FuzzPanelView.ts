@@ -2412,9 +2412,8 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
       }
       if (dim === 0 && unique !== null) {
         dimsUnique =
-          "checked" in unique && typeof unique.checked === "boolean"
-            ? unique.checked
-            : false;
+          unique.getAttribute("current-checked") === "true" ||
+          ("checked" in unique && unique.checked === true);
       }
       arrayBase = `${idBase}-array-${++dim}`;
     }

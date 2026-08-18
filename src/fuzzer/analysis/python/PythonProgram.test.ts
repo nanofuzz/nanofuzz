@@ -1209,6 +1209,36 @@ def test_add_overwrites_boundary_expired_item(key, old_value, new_value):
     expect(newChildren[1].getOptions().strLength).toEqual({ min: 1, max: 10 });
   });
 
+  it("@given dimsUnique for st.lists(..., unique=True) and st.sets(...)", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    initial=st.lists(st.integers(min_value=0, max_value=20), min_size=3, max_size=12, unique=True),
+    ops=st.lists(
+        st.tuples(
+            st.sampled_from(['add', 'discard']),
+            st.integers()
+        ), 
+        min_size=1, max_size=8
+    ),
+    unique_set=st.sets(st.integers(min_value=1, max_value=5))
+)
+def test_indexedset_index_invariant_after_discard(initial: list[int], ops: List[Tuple[Literal["add","discard"], int]], unique_set: set[int]):
+    pass
+`,
+      "python"
+    ).functionsExported["test_indexedset_index_invariant_after_discard"];
+
+    const argDefs = fn.getArgDefs();
+    const initialArg = argDefs.find((a) => a.getName() === "initial");
+    const opsArg = argDefs.find((a) => a.getName() === "ops");
+    const setArg = argDefs.find((a) => a.getName() === "unique_set");
+
+    expect(initialArg?.getOptions().dimsUnique).toBeTrue();
+    expect(opsArg?.getOptions().dimsUnique).toBeFalse();
+    expect(setArg?.getOptions().dimsUnique).toBeTrue();
+  });
+
   it("isVoid===true for functions lacking return statements", () => {
     const fns = ProgramFactory.fromSource(
       () => `
@@ -1301,13 +1331,17 @@ def transformer_empty(*args: tuple[()]):
     ).functionsExported;
 
     const lowerArgs = fns["transformer_lowercase"].getArgDefs();
-    expect(lowerArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])).toEqual([
+    expect(
+      lowerArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])
+    ).toEqual([
       ["args_0", "str"],
       ["args_1", "int"],
     ]);
 
     const capArgs = fns["transformer_capitalized"].getArgDefs();
-    expect(capArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])).toEqual([
+    expect(
+      capArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])
+    ).toEqual([
       ["args_0", "str"],
       ["args_1", "float"],
     ]);
@@ -1326,7 +1360,9 @@ def greeting_transformer(*args: MyTuple):
     ).functionsExported;
 
     const args = fns["greeting_transformer"].getArgDefs();
-    expect(args.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])).toEqual([
+    expect(
+      args.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])
+    ).toEqual([
       ["args_0", "str"],
       ["args_1", "int"],
     ]);

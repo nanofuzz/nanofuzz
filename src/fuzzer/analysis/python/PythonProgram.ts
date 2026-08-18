@@ -1030,8 +1030,25 @@ export class PythonProgram extends AbstractProgram {
       let typeRef = paramName
         ? (hypothesisArgMap[paramName] ?? hypothesisPositionalArgs[paramIndex])
         : hypothesisPositionalArgs[paramIndex];
+
       if (typeRef !== undefined) {
         typeRef.name = paramName;
+        // Merge underlying type info from AST if hypothesis strategy left type UNRESOLVED
+        if (!typeRef.type || typeRef.type.type === ArgTag.UNRESOLVED) {
+          try {
+            const astTypeRef = this._getTypeRefFromAstNode(paramNode);
+            if (astTypeRef?.type) {
+              if (!typeRef.type) {
+                typeRef.type = structuredClone(astTypeRef.type);
+              } else {
+                typeRef.type.type = astTypeRef.type.type;
+                typeRef.type.children = structuredClone(astTypeRef.type.children);
+              }
+            }
+          } catch {
+            // Ignore if parameter lacks native type annotation
+          }
+        }
       } else {
         typeRef = this._getTypeRefFromAstNode(paramNode);
       }
@@ -1521,8 +1538,10 @@ export class PythonProgram extends AbstractProgram {
           innerResolvedType.options.dimLength = [];
         }
         const dimsUnique = parseLiteral(getKwdArg(node, "unique", -1));
-        if (funcName === "lists" && typeof dimsUnique === "boolean") {
+        if (typeof dimsUnique === "boolean") {
           innerResolvedType.options.dimsUnique = dimsUnique;
+        } else if (funcName === "sets") {
+          innerResolvedType.options.dimsUnique = true;
         }
         innerResolvedType.options.dimLength.push({
           min: Number(minSize ?? dftInterval.min),
