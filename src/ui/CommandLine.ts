@@ -269,7 +269,7 @@ async function run(): Promise<void> {
       generators: {
         AiInputGenerator: { enabled: options["aiInputGenerator"] },
         MutationInputGenerator: {
-          enabled: options["murationInputGenerator"],
+          enabled: options["mutationInputGenerator"],
         },
         RandomInputGenerator: {
           enabled: true, // always enabled

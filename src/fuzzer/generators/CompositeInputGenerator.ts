@@ -4,7 +4,7 @@ import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
 import { ScoredInput } from "./Types";
 import { FuzzOptions, InputAndSource } from "./../Types";
-import { FunctionDef, FuzzTestStats } from "../Fuzzer";
+import { FunctionDef, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
 import { AiInputGenerator } from "./AiInputGenerator";
 
@@ -404,7 +404,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   /**
    * Cleanup all subgens and update stats when the test run ends
    */
-  public onRunEnd(): void {
+  public onRunEnd(results?: FuzzTestResults): void {
     super.onRunEnd();
     this._subgens.forEach((subgen) => {
       subgen.onRunEnd();
@@ -415,5 +415,16 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         this._genStats["AiInputGenerator"].gen = subgen.stats;
       }
     });
+    if (results) {
+      results.stats.generators.CompositeInputGenerator = {
+        config: {
+          lookbackWindow: this._L,
+          chunkSize: this._chunkSize,
+          explorationChance: this._P,
+          initialFocus: this._leaderboard.initialFocus,
+          focusDecay: this._leaderboard.focusDecay,
+        },
+      };
+    }
   } // fn: onRunEnd
 } // class: CompositeInputGenerator
