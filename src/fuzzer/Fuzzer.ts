@@ -559,7 +559,7 @@ export class Tester {
         this._measures.forEach((e) => {
           e.onRunEnd(this._results);
         });
-        this._compositeInputGenerator.onRunEnd(); // also handles shutdown for subgens
+        this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
 
         // Shut down runners
         await runner.onRunEnd();
@@ -1300,6 +1300,15 @@ export type FuzzTestStats = {
     RandomInputGenerator: FuzzGeneratorStatsBase;
     MutationInputGenerator: FuzzGeneratorStatsBase;
     AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
+    CompositeInputGenerator?: {
+      config?: {
+        lookbackWindow: number;
+        chunkSize: number;
+        explorationChance: number;
+        initialFocus: number;
+        focusDecay: number;
+      };
+    };
   };
   measures: {
     CodeCoverageMeasure?: () => Promise<CodeCoverageMeasureStats>;

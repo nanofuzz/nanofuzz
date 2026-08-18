@@ -5,7 +5,16 @@ import * as os from "node:os";
 import JSON5 from "json5";
 import { FuzzTestResults } from "../fuzzer/Fuzzer";
 
-describe("cli: ", () => {
+function runCli(args: string[]): ChildProcess.SpawnSyncReturns<string> {
+  const cliScript = path.resolve(__dirname, "../../build/cli/cli.cjs");
+  return ChildProcess.spawnSync(process.execPath, [cliScript, ...args], {
+    encoding: "utf8",
+    cwd: path.resolve(__dirname, "../.."),
+    shell: process.platform === "win32",
+  });
+}
+
+describe("cli:", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -28,30 +37,22 @@ describe("cli: ", () => {
     const maxDupeInputs = 500;
     const fnTimeout = 300;
 
-    const res = ChildProcess.spawnSync(
-      "yarn",
-      [
-        "nanofuzz",
-        targetFile,
-        targetFn,
-        "--output-file",
-        outputFile,
-        "--max-tests",
-        maxTests.toString(),
-        "--max-runtime",
-        maxRuntime.toString(),
-        "--max-dupe-inputs",
-        maxDupeInputs.toString(),
-        "--fn-timeout",
-        fnTimeout.toString(),
-        "--seed",
-        seed,
-      ],
-      {
-        encoding: "utf8",
-        cwd: path.resolve(__dirname, "../.."),
-      }
-    );
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      maxTests.toString(),
+      "--max-runtime",
+      maxRuntime.toString(),
+      "--max-dupe-inputs",
+      maxDupeInputs.toString(),
+      "--fn-timeout",
+      fnTimeout.toString(),
+      "--seed",
+      seed,
+    ]);
 
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
@@ -85,26 +86,18 @@ describe("cli: ", () => {
     const maxTests = 10;
     const maxRuntime = 4000;
 
-    const res = ChildProcess.spawnSync(
-      "yarn",
-      [
-        "nanofuzz",
-        targetFile,
-        targetFn,
-        "--output-file",
-        outputFile,
-        "--max-tests",
-        maxTests.toString(),
-        "--max-runtime",
-        maxRuntime.toString(),
-        "--seed",
-        seed,
-      ],
-      {
-        encoding: "utf8",
-        cwd: path.resolve(__dirname, "../.."),
-      }
-    );
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      maxTests.toString(),
+      "--max-runtime",
+      maxRuntime.toString(),
+      "--seed",
+      seed,
+    ]);
 
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
@@ -133,26 +126,18 @@ describe("cli: ", () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testCoverageOneFile";
 
-    const res = ChildProcess.spawnSync(
-      "yarn",
-      [
-        "nanofuzz",
-        targetFile,
-        targetFn,
-        "--output-file",
-        outputFile,
-        "--no-coverage-measure",
-        "--no-failed-test-measure",
-        "--no-ai-input-generator",
-        "--no-mutation-input-generator",
-        "--max-tests",
-        "10",
-      ],
-      {
-        encoding: "utf8",
-        cwd: path.resolve(__dirname, "../.."),
-      }
-    );
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-coverage-measure",
+      "--no-failed-test-measure",
+      "--no-ai-input-generator",
+      "--no-mutation-input-generator",
+      "--max-tests",
+      "10",
+    ]);
 
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
@@ -184,32 +169,24 @@ describe("cli: ", () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testCoverageOneFile";
 
-    const res = ChildProcess.spawnSync(
-      "yarn",
-      [
-        "nanofuzz",
-        targetFile,
-        targetFn,
-        "--output-file",
-        outputFile,
-        "--cig-input-lookback",
-        "300",
-        "--cig-input-chunk-size",
-        "10",
-        "--cig-randomness",
-        "0.2",
-        "--cig-input-focus",
-        "150",
-        "--cig-input-focus-decay",
-        "2",
-        "--max-tests",
-        "10",
-      ],
-      {
-        encoding: "utf8",
-        cwd: path.resolve(__dirname, "../.."),
-      }
-    );
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--cig-input-lookback",
+      "300",
+      "--cig-input-chunk-size",
+      "10",
+      "--cig-randomness",
+      "0.2",
+      "--cig-input-focus",
+      "150",
+      "--cig-input-focus-decay",
+      "2",
+      "--max-tests",
+      "10",
+    ]);
 
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
@@ -219,6 +196,16 @@ describe("cli: ", () => {
     );
 
     expect(outputData.results.length).toBeGreaterThan(0);
+
+    // Verify composite generator config recorded in output stats
+    const cigConfig =
+      outputData.stats.generators.CompositeInputGenerator?.config;
+    expect(cigConfig).toBeDefined();
+    expect(cigConfig?.lookbackWindow).toBe(300);
+    expect(cigConfig?.chunkSize).toBe(10);
+    expect(cigConfig?.explorationChance).toBe(0.2);
+    expect(cigConfig?.initialFocus).toBe(150);
+    expect(cigConfig?.focusDecay).toBe(2);
   });
 });
 
