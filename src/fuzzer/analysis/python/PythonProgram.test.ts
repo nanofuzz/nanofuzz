@@ -1209,6 +1209,108 @@ def test_add_overwrites_boundary_expired_item(key, old_value, new_value):
     expect(newChildren[1].getOptions().strLength).toEqual({ min: 1, max: 10 });
   });
 
+  it("@given dimsUnique for st.lists(..., unique=True) and st.sets(...)", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    initial=st.lists(st.integers(min_value=0, max_value=20), min_size=3, max_size=12, unique=True),
+    ops=st.lists(
+        st.tuples(
+            st.sampled_from(['add', 'discard']),
+            st.integers()
+        ), 
+        min_size=1, max_size=8
+    ),
+    unique_set=st.sets(st.integers(min_value=1, max_value=5))
+)
+def test_indexedset_index_invariant_after_discard(initial: list[int], ops: List[Tuple[Literal["add","discard"], int]], unique_set: set[int]):
+    pass
+`,
+      "python"
+    ).functionsExported["test_indexedset_index_invariant_after_discard"];
+
+    const argDefs = fn.getArgDefs();
+    const initialArg = argDefs.find((a) => a.getName() === "initial");
+    const opsArg = argDefs.find((a) => a.getName() === "ops");
+    const setArg = argDefs.find((a) => a.getName() === "unique_set");
+
+    expect(initialArg?.getOptions().dimsUnique).toBeTrue();
+    expect(opsArg?.getOptions().dimsUnique).toBeFalse();
+    expect(setArg?.getOptions().dimsUnique).toBeTrue();
+  });
+
+  it("handles min_size after max_size in st.lists regardless of order or inline comments", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    capacity=st.integers(min_value=2, max_value=4),
+    ops1=st.lists(
+        st.tuples(
+            st.sampled_from(['read','write']),
+            st.integers(min_value=0, max_value=10),
+            st.just(999)
+        ),
+        max_size=7, # len(ops) >= capacity
+        min_size=5,
+    ),
+    ops2=st.lists(
+        st.tuples(
+            st.sampled_from(['read','write']),
+            st.integers(min_value=0, max_value=10),
+            st.just(999)
+        ),
+        max_size=7,
+        min_size=5,
+    ),
+    num_pos=st.integers(0, 10)
+)
+def test_lru_eviction_order_after_reads(capacity: int, ops1: list, ops2: list, num_pos: int):
+    pass
+`,
+      "python"
+    ).functionsExported["test_lru_eviction_order_after_reads"];
+
+    const ops1Arg = fn.getArgDefs().find((a) => a.getName() === "ops1");
+    const ops2Arg = fn.getArgDefs().find((a) => a.getName() === "ops2");
+    const numPosArg = fn.getArgDefs().find((a) => a.getName() === "num_pos");
+    expect(ops1Arg?.getOptions().dimLength).toEqual([{ min: 5, max: 7 }]);
+    expect(ops2Arg?.getOptions().dimLength).toEqual([{ min: 5, max: 7 }]);
+    expect(numPosArg?.getIntervals()).toEqual([{ min: 0, max: 10 }]);
+  });
+
+  it("handles strategies like st.tuples inside st.sampled_from", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    capacity=st.integers(min_value=2, max_value=4),
+    ops=st.lists(
+        st.sampled_from([
+            st.tuples(
+                st.just('read'),
+                st.integers(min_value=0, max_value=10)
+            ),
+            st.tuples(
+                st.just('write'),
+                st.integers(min_value=0, max_value=10),
+                st.just(999)
+            )
+        ]),
+        min_size=5,
+        max_size=7,
+    )
+)
+def test_lru_eviction_order_after_reads(capacity: int, ops: list):
+    pass
+`,
+      "python"
+    ).functionsExported["test_lru_eviction_order_after_reads"];
+
+    const opsArg = fn.getArgDefs().find((a) => a.getName() === "ops");
+    expect(opsArg?.getType()).toBe(ArgTag.UNION);
+    expect(opsArg?.getDim()).toBe(1);
+    expect(opsArg?.getChildren().length).toBe(2);
+  });
+
   it("isVoid===true for functions lacking return statements", () => {
     const fns = ProgramFactory.fromSource(
       () => `
@@ -1301,13 +1403,17 @@ def transformer_empty(*args: tuple[()]):
     ).functionsExported;
 
     const lowerArgs = fns["transformer_lowercase"].getArgDefs();
-    expect(lowerArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])).toEqual([
+    expect(
+      lowerArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])
+    ).toEqual([
       ["args_0", "str"],
       ["args_1", "int"],
     ]);
 
     const capArgs = fns["transformer_capitalized"].getArgDefs();
-    expect(capArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])).toEqual([
+    expect(
+      capArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])
+    ).toEqual([
       ["args_0", "str"],
       ["args_1", "float"],
     ]);
@@ -1326,7 +1432,9 @@ def greeting_transformer(*args: MyTuple):
     ).functionsExported;
 
     const args = fns["greeting_transformer"].getArgDefs();
-    expect(args.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])).toEqual([
+    expect(
+      args.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])
+    ).toEqual([
       ["args_0", "str"],
       ["args_1", "int"],
     ]);

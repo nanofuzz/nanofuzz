@@ -3397,7 +3397,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             dim === 0
               ? /*html*/ `
                 <span class="tooltipped tooltipped-n" aria-label="Fill array with unique values?">
-                  <vscode-checkbox ${disabledFlag} id="${arrayBase}-unique" ${argOptions.dimsUnique === true ? "checked" : ""}>
+                  <vscode-checkbox ${disabledFlag} id="${arrayBase}-unique" ${
+                  argOptions.dimsUnique === true ? "checked" : ""
+                } current-checked="${
+                  argOptions.dimsUnique === true ? "true" : "false"
+                }">
                     Unique?
                   </vscode-checkbox>
                 </span>`

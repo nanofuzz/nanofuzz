@@ -1030,8 +1030,27 @@ export class PythonProgram extends AbstractProgram {
       let typeRef = paramName
         ? (hypothesisArgMap[paramName] ?? hypothesisPositionalArgs[paramIndex])
         : hypothesisPositionalArgs[paramIndex];
+
       if (typeRef !== undefined) {
         typeRef.name = paramName;
+        // Merge underlying type info from AST if hypothesis strategy left type UNRESOLVED
+        if (!typeRef.type || typeRef.type.type === ArgTag.UNRESOLVED) {
+          try {
+            const astTypeRef = this._getTypeRefFromAstNode(paramNode);
+            if (astTypeRef?.type) {
+              if (!typeRef.type) {
+                typeRef.type = structuredClone(astTypeRef.type);
+              } else {
+                typeRef.type.type = astTypeRef.type.type;
+                typeRef.type.children = structuredClone(
+                  astTypeRef.type.children
+                );
+              }
+            }
+          } catch {
+            // Ignore if parameter lacks native type annotation
+          }
+        }
       } else {
         typeRef = this._getTypeRefFromAstNode(paramNode);
       }
@@ -1073,9 +1092,7 @@ export class PythonProgram extends AbstractProgram {
               const armsWithPos = tupleArms.filter(
                 (t) => t.type!.children!.length > k
               );
-              const posChildren = armsWithPos.map(
-                (t) => t.type!.children![k]
-              );
+              const posChildren = armsWithPos.map((t) => t.type!.children![k]);
               const isOptional = armsWithPos.length < totalArms;
               const firstName = posChildren.find((c) => c.name)?.name;
               const posName = firstName ?? `${paramName ?? "args"}_${k}`;
@@ -1257,24 +1274,53 @@ export class PythonProgram extends AbstractProgram {
     ): Parser.Node | undefined => {
       const argsNode = callNode.childForFieldName("arguments");
       if (!argsNode) return undefined;
-      let currentPos = 0;
-      for (const child of argsNode.namedChildren) {
-        if (child.type === "keyword_argument") {
-          // Find by name
-          const kwdName = child.childForFieldName("name")?.text;
-          if (kwdName === name) {
-            return resolveReference(
-              child.childForFieldName("value") ?? undefined
-            );
-          }
-        } else {
-          // Find by position
-          if (currentPos === pos) {
-            return resolveReference(child);
-          }
-          currentPos++;
+
+      // 1. Look for a named keyword argument (e.g., min_size=5)
+      const kwdNode = argsNode.namedChildren.find(
+        (child) =>
+          child.type === "keyword_argument" &&
+          child.childForFieldName("name")?.text === name
+      );
+      if (kwdNode) {
+        return resolveReference(
+          kwdNode.childForFieldName("value") ?? undefined
+        );
+      }
+
+      // 2. Fallback: look for a positional argument at index `pos`
+      if (pos >= 0) {
+        const isPositionalArg = (node: Parser.Node): boolean =>
+          [
+            "identifier",
+            "integer",
+            "float",
+            "string",
+            "true",
+            "false",
+            "none",
+            "call",
+            "attribute",
+            "subscript",
+            "list",
+            "tuple",
+            "dictionary",
+            "set",
+            "binary_operator",
+            "unary_operator",
+            "boolean_operator",
+            "comparison_operator",
+            "parenthesized_expression",
+            "lambda",
+            "list_splat",
+            "dictionary_splat",
+          ].includes(node.type);
+
+        const positionalArgs = argsNode.namedChildren.filter(isPositionalArg);
+        if (pos < positionalArgs.length) {
+          return resolveReference(positionalArgs[pos]);
         }
       }
+
       return undefined;
     };
 
@@ -1521,8 +1567,10 @@ export class PythonProgram extends AbstractProgram {
           innerResolvedType.options.dimLength = [];
         }
         const dimsUnique = parseLiteral(getKwdArg(node, "unique", -1));
-        if (funcName === "lists" && typeof dimsUnique === "boolean") {
+        if (typeof dimsUnique === "boolean") {
           innerResolvedType.options.dimsUnique = dimsUnique;
+        } else if (funcName === "sets") {
+          innerResolvedType.options.dimsUnique = true;
         }
         innerResolvedType.options.dimLength.push({
           min: Number(minSize ?? dftInterval.min),
@@ -1575,6 +1623,13 @@ export class PythonProgram extends AbstractProgram {
         const getSampledType = (
           valueNode: Parser.Node
         ): TypeRef | undefined => {
+          if (valueNode.type === "call" || valueNode.type === "identifier") {
+            const strategyTypeRef = this._getTypeRefFromStrategy(valueNode);
+            if (strategyTypeRef) {
+              return strategyTypeRef;
+            }
+          }
+
           const literalValue = parseLiteral(valueNode);
           if (isArgType(literalValue)) {
             return {
