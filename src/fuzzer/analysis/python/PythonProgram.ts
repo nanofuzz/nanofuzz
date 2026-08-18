@@ -1042,7 +1042,9 @@ export class PythonProgram extends AbstractProgram {
                 typeRef.type = structuredClone(astTypeRef.type);
               } else {
                 typeRef.type.type = astTypeRef.type.type;
-                typeRef.type.children = structuredClone(astTypeRef.type.children);
+                typeRef.type.children = structuredClone(
+                  astTypeRef.type.children
+                );
               }
             }
           } catch {
@@ -1090,9 +1092,7 @@ export class PythonProgram extends AbstractProgram {
               const armsWithPos = tupleArms.filter(
                 (t) => t.type!.children!.length > k
               );
-              const posChildren = armsWithPos.map(
-                (t) => t.type!.children![k]
-              );
+              const posChildren = armsWithPos.map((t) => t.type!.children![k]);
               const isOptional = armsWithPos.length < totalArms;
               const firstName = posChildren.find((c) => c.name)?.name;
               const posName = firstName ?? `${paramName ?? "args"}_${k}`;
@@ -1274,24 +1274,53 @@ export class PythonProgram extends AbstractProgram {
     ): Parser.Node | undefined => {
       const argsNode = callNode.childForFieldName("arguments");
       if (!argsNode) return undefined;
-      let currentPos = 0;
-      for (const child of argsNode.namedChildren) {
-        if (child.type === "keyword_argument") {
-          // Find by name
-          const kwdName = child.childForFieldName("name")?.text;
-          if (kwdName === name) {
-            return resolveReference(
-              child.childForFieldName("value") ?? undefined
-            );
-          }
-        } else {
-          // Find by position
-          if (currentPos === pos) {
-            return resolveReference(child);
-          }
-          currentPos++;
+
+      // 1. Look for a named keyword argument (e.g., min_size=5)
+      const kwdNode = argsNode.namedChildren.find(
+        (child) =>
+          child.type === "keyword_argument" &&
+          child.childForFieldName("name")?.text === name
+      );
+      if (kwdNode) {
+        return resolveReference(
+          kwdNode.childForFieldName("value") ?? undefined
+        );
+      }
+
+      // 2. Fallback: look for a positional argument at index `pos`
+      if (pos >= 0) {
+        const isPositionalArg = (node: Parser.Node): boolean =>
+          [
+            "identifier",
+            "integer",
+            "float",
+            "string",
+            "true",
+            "false",
+            "none",
+            "call",
+            "attribute",
+            "subscript",
+            "list",
+            "tuple",
+            "dictionary",
+            "set",
+            "binary_operator",
+            "unary_operator",
+            "boolean_operator",
+            "comparison_operator",
+            "parenthesized_expression",
+            "lambda",
+            "list_splat",
+            "dictionary_splat",
+          ].includes(node.type);
+
+        const positionalArgs = argsNode.namedChildren.filter(isPositionalArg);
+        if (pos < positionalArgs.length) {
+          return resolveReference(positionalArgs[pos]);
         }
       }
+
       return undefined;
     };
 

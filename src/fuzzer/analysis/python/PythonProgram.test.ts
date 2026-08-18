@@ -1239,6 +1239,45 @@ def test_indexedset_index_invariant_after_discard(initial: list[int], ops: List[
     expect(setArg?.getOptions().dimsUnique).toBeTrue();
   });
 
+  it("handles min_size after max_size in st.lists regardless of order or inline comments", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    capacity=st.integers(min_value=2, max_value=4),
+    ops1=st.lists(
+        st.tuples(
+            st.sampled_from(['read','write']),
+            st.integers(min_value=0, max_value=10),
+            st.just(999)
+        ),
+        max_size=7, # len(ops) >= capacity
+        min_size=5,
+    ),
+    ops2=st.lists(
+        st.tuples(
+            st.sampled_from(['read','write']),
+            st.integers(min_value=0, max_value=10),
+            st.just(999)
+        ),
+        max_size=7,
+        min_size=5,
+    ),
+    num_pos=st.integers(0, 10)
+)
+def test_lru_eviction_order_after_reads(capacity: int, ops1: list, ops2: list, num_pos: int):
+    pass
+`,
+      "python"
+    ).functionsExported["test_lru_eviction_order_after_reads"];
+
+    const ops1Arg = fn.getArgDefs().find((a) => a.getName() === "ops1");
+    const ops2Arg = fn.getArgDefs().find((a) => a.getName() === "ops2");
+    const numPosArg = fn.getArgDefs().find((a) => a.getName() === "num_pos");
+    expect(ops1Arg?.getOptions().dimLength).toEqual([{ min: 5, max: 7 }]);
+    expect(ops2Arg?.getOptions().dimLength).toEqual([{ min: 5, max: 7 }]);
+    expect(numPosArg?.getIntervals()).toEqual([{ min: 0, max: 10 }]);
+  });
+
   it("isVoid===true for functions lacking return statements", () => {
     const fns = ProgramFactory.fromSource(
       () => `
