@@ -15,7 +15,6 @@ import { zodOutputFormat } from "./AnthropicUtils";
 export class LlmAdapter {
   protected _modelConfig: Parameters<typeof nodellm.createLLM>[0] = {}; // LLM configuration
   protected _backend: nodellm.NodeLLMCore; // LLM instance
-  protected _chat: nodellm.Chat; // LLM chat
   protected _cfgString: string; // LLM config; for detecting config changes
 
   public constructor() {
@@ -43,12 +42,21 @@ export class LlmAdapter {
       (this._modelConfig as any)[`${cfg.provider}ApiKey`] = cfg.apiKey;
     }
 
-    // Create the model chat session
+    // Create the model backend
     this._backend = nodellm.createLLM(this._modelConfig);
-    this._chat = this._backend.chat(cfg.modelName, {
+  } // constructor
+
+  /**
+   * Creates a fresh, stateless LLM chat session for a single query.
+   *
+   * @returns a new nodellm.Chat instance
+   */
+  protected _createChat(): nodellm.Chat {
+    const cfg = LlmAdapter._getConfig();
+    return this._backend.chat(cfg.modelName, {
       systemPrompt: prompt.system(),
     });
-  } // constructor
+  } // fn: createChat
 
   /**
    * Determine if the LLM config used to connect to the LLM is now out of date
@@ -65,8 +73,8 @@ export class LlmAdapter {
    * @returns a string indicating the configured provider and model id
    */
   public get id(): string | undefined {
-    return `v=${this._backend.provider?.id},n=${this._chat.modelId}`;
-  } /// getter: id
+    return `v=${this._backend.provider?.id},n=${LlmAdapter._getConfig().modelName}`;
+  } // getter: id
 
   /**
    * Prompt an LLM to generate inputs for a function
@@ -91,6 +99,29 @@ export class LlmAdapter {
         [prompt.genInputs(fn, directives, allInputs)],
         schema
       );
+      const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
+        JSONN.parse(response.response);
+
+      // Sanity check llm output
+      if (
+        !(
+          typeof inputs === "object" &&
+          "programInputs" in inputs &&
+          Array.isArray(inputs.programInputs) &&
+          inputs.programInputs.every(
+            (e) => typeof e === "object" && !Array.isArray(e)
+          )
+        )
+      ) {
+        return {
+          programInputs: [],
+          error: { type: "discard" },
+          stats: { ...response.stats },
+        };
+      }
+
+      // Deeper validation is the client's role
+      return { ...inputs, stats: { ...response.stats } };
     } catch (e: unknown) {
       return {
         programInputs: [],
@@ -100,29 +131,6 @@ export class LlmAdapter {
         },
       };
     }
-    const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
-      JSONN.parse(response.response);
-
-    // Sanity check llm output
-    if (
-      !(
-        typeof inputs === "object" &&
-        "programInputs" in inputs &&
-        Array.isArray(inputs.programInputs) &&
-        inputs.programInputs.every(
-          (e) => typeof e === "object" && !Array.isArray(e)
-        )
-      )
-    ) {
-      return {
-        programInputs: [],
-        error: { type: "discard" },
-        stats: { ...response.stats },
-      };
-    }
-
-    // Deeper validation is the client's role
-    return { ...inputs, stats: { ...response.stats } };
   } // fn: genInputs
 
   /**
@@ -164,8 +172,9 @@ export class LlmAdapter {
       )
     );
 
+    const baseChat = this._createChat();
     let chat = (
-      schema ? this._chat.withSchema(schema.toJSONSchema()) : this._chat
+      schema ? baseChat.withSchema(schema.toJSONSchema()) : baseChat
     ).withRequestOptions({
       responseFormat: { type: "json_object" },
     });
