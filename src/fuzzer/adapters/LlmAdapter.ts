@@ -99,6 +99,29 @@ export class LlmAdapter {
         [prompt.genInputs(fn, directives, allInputs)],
         schema
       );
+      const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
+        JSONN.parse(response.response);
+
+      // Sanity check llm output
+      if (
+        !(
+          typeof inputs === "object" &&
+          "programInputs" in inputs &&
+          Array.isArray(inputs.programInputs) &&
+          inputs.programInputs.every(
+            (e) => typeof e === "object" && !Array.isArray(e)
+          )
+        )
+      ) {
+        return {
+          programInputs: [],
+          error: { type: "discard" },
+          stats: { ...response.stats },
+        };
+      }
+
+      // Deeper validation is the client's role
+      return { ...inputs, stats: { ...response.stats } };
     } catch (e: unknown) {
       return {
         programInputs: [],
@@ -108,29 +131,6 @@ export class LlmAdapter {
         },
       };
     }
-    const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
-      JSONN.parse(response.response);
-
-    // Sanity check llm output
-    if (
-      !(
-        typeof inputs === "object" &&
-        "programInputs" in inputs &&
-        Array.isArray(inputs.programInputs) &&
-        inputs.programInputs.every(
-          (e) => typeof e === "object" && !Array.isArray(e)
-        )
-      )
-    ) {
-      return {
-        programInputs: [],
-        error: { type: "discard" },
-        stats: { ...response.stats },
-      };
-    }
-
-    // Deeper validation is the client's role
-    return { ...inputs, stats: { ...response.stats } };
   } // fn: genInputs
 
   /**
