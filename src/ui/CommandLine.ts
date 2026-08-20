@@ -14,10 +14,12 @@ import { isError } from "../fuzzer/Util";
  * Usage: yarn nanofuzz --help
  *
  * Uses mostly pytest-compatible exitcodes:
- *   - Exit code 0: All tests passed successfully
- *   - Exit code 1: Tests ran but some of the tests failed
+ *   - Exit code 0: Tests ran and all passed successfully
+ *   - Exit code 1: Tests ran and some of the tests failed
  *   - Exit code 2: <not used>
  *   - Exit code 3: Internal error happened while running tests
+ *                  Includes cases where no tests were run
+ *                  (e.g., all inputs generated were skipped)
  *   - Exit code 4: Command line usage error
  *   - Exit code 5: <not used>
  */

@@ -1062,7 +1062,9 @@ const _checkStopCondition = (
   if (
     stats.counters.inputsInjected +
       (gen
-        ? stats.counters.inputsGenerated - stats.counters.dupesGenerated
+        ? stats.counters.inputsGenerated -
+          stats.counters.dupesGenerated -
+          stats.counters.skippedTests
         : 0) >=
     injectCount + (gen ? options.maxTests : 0)
   ) {
