@@ -2735,8 +2735,10 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                 this._results.results.length === 1 ? "" : "s"
               }${
                 this._results.results.length
-                  ? ", which you can view in the other tabs."
-                  : "."
+                  ? (this._results.stats.counters.inputsSkipped
+                      ? `, including ${this._results.stats.counters.inputsSkipped} skipped input${this._results.stats.counters.inputsSkipped === 1 ? "" : "s"}`
+                      : ``) + `, which you can view in the other tabs.`
+                  : `.`
               }
             </p>
 
@@ -3398,10 +3400,10 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               ? /*html*/ `
                 <span class="tooltipped tooltipped-n" aria-label="Fill array with unique values?">
                   <vscode-checkbox ${disabledFlag} id="${arrayBase}-unique" ${
-                  argOptions.dimsUnique === true ? "checked" : ""
-                } current-checked="${
-                  argOptions.dimsUnique === true ? "true" : "false"
-                }">
+                    argOptions.dimsUnique === true ? "checked" : ""
+                  } current-checked="${
+                    argOptions.dimsUnique === true ? "true" : "false"
+                  }">
                     Unique?
                   </vscode-checkbox>
                 </span>`

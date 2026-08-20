@@ -206,7 +206,8 @@ export class Tester {
           dupesGenerated: 0, // updated later
           inputsInjected: 0, // updated later
           passedTests: 0, // updated later
-          skippedTests: 0, // updated later
+          erroredTests: 0, // updated later
+          inputsSkipped: 0, // updated later
           failedTests: 0, // updated later
         },
         generators: {
@@ -429,9 +430,10 @@ export class Tester {
         inputsGenerated: 0, // number of inputs generated so far
         dupesGenerated: 0, // number of duplicate inputs generated so far
         dupesSequential: 0, // current number of duplicate inputs generated in a row
+        erroredTests: 0, // number of tests with internal errors so far
         failedTests: 0, // number of failed tests encountered so far
         passedTests: 0, // number of passed tests encountered so far
-        skippedTests: 0, // number of skipped tests so far
+        inputsSkipped: 0, // number of skipped tests so far
       },
       timers: {
         startTime: performance.now(), // time the tester started in this run
@@ -544,10 +546,12 @@ export class Tester {
           runStats.counters.dupesGenerated;
         this._results.stats.counters.inputsInjected +=
           runStats.counters.inputsInjected;
+        this._results.stats.counters.erroredTests +=
+          runStats.counters.erroredTests;
         this._results.stats.counters.passedTests +=
           runStats.counters.passedTests;
-        this._results.stats.counters.skippedTests +=
-          runStats.counters.skippedTests;
+        this._results.stats.counters.inputsSkipped +=
+          runStats.counters.inputsSkipped;
         this._results.stats.counters.failedTests +=
           runStats.counters.failedTests;
 
@@ -572,8 +576,10 @@ export class Tester {
         });
         update({
           msg: ` - Executed ${
-            runStats.counters.passedTests + runStats.counters.failedTests
-          } and skipped ${runStats.counters.skippedTests} tests in ${(
+            runStats.counters.passedTests +
+            runStats.counters.failedTests +
+            runStats.counters.erroredTests
+          } and skipped ${runStats.counters.inputsSkipped} tests in ${(
             performance.now() - runStats.timers.startTime
           ).toFixed(
             0
@@ -587,7 +593,7 @@ export class Tester {
         update({
           msg: ` - Total tests with exceptions: ${
             this._results.results.filter((e) => e.exception).length
-          }, timeouts: ${this._results.results.filter((e) => e.timeout).length}`,
+          }, timeouts: ${this._results.results.filter((e) => e.timeout).length}, errors: ${this._results.stats.counters.erroredTests}`,
           channel: "summary",
         });
         update({
@@ -825,14 +831,21 @@ export class Tester {
       // Front-end status update
       update({
         msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
-          runStats.counters.passedTests + runStats.counters.failedTests + 1
+          runStats.counters.passedTests +
+          runStats.counters.failedTests +
+          runStats.counters.erroredTests +
+          1
         }: ${this._function.getName()}(${result.input
           .map((i) => ValueMapper.toLang(lang, i.value))
-          .join(",")})\r\n  Passed: ${
-          runStats.counters.passedTests
-        }\r\n  Failed: ${runStats.counters.failedTests}${
-          runStats.counters.skippedTests
-            ? `\r\n Skipped: ${runStats.counters.skippedTests}`
+          .join(
+            ","
+          )})\r\n  Passed: ${runStats.counters.passedTests}${`\r\n  Failed: ${runStats.counters.failedTests}`}${
+          runStats.counters.erroredTests
+            ? `\r\n Errored: ${runStats.counters.erroredTests}`
+            : ""
+        }${
+          runStats.counters.inputsSkipped
+            ? `\r\n Skipped: ${runStats.counters.inputsSkipped}`
             : ""
         }`,
         channel: "update",
@@ -970,12 +983,22 @@ export class Tester {
       result.category = categorizeResult(result);
 
       // Increment the test counters
-      if (result.category === "ok") {
-        runStats.counters.passedTests++;
-      } else if (result.category === "skip") {
-        runStats.counters.skippedTests++;
-      } else {
-        runStats.counters.failedTests++;
+      switch (result.category) {
+        case "ok":
+          runStats.counters.passedTests++;
+          break;
+        case "skip":
+          runStats.counters.inputsSkipped++;
+          break;
+        case "failure":
+        case "disagree":
+          runStats.counters.erroredTests++;
+          break;
+        case "badValue":
+        case "timeout":
+        case "exception":
+          runStats.counters.failedTests++;
+          break;
       }
 
       // Store the result for this iteration
@@ -1064,7 +1087,7 @@ const _checkStopCondition = (
       (gen
         ? stats.counters.inputsGenerated -
           stats.counters.dupesGenerated -
-          stats.counters.skippedTests
+          stats.counters.inputsSkipped
         : 0) >=
     injectCount + (gen ? options.maxTests : 0)
   ) {
@@ -1169,7 +1192,7 @@ export function getTransformers(
  */
 export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   if (result.validatorException) {
-    return "failure"; // Validator failed
+    return "failure"; // Validator or transformer failed
   }
   if (result.skipped) {
     return "skip";
@@ -1294,8 +1317,9 @@ export type FuzzTestStats = {
     inputsGenerated: number; // number of inputs generated, including dupes
     dupesGenerated: number; // number of duplicate inputs generated
     inputsInjected: number; // number of inputs pinned
+    erroredTests: number; // number of tests with internal errors
     passedTests: number; // number of passed tests
-    skippedTests: number; // number of skipped tests
+    inputsSkipped: number; // number of skipped tests
     failedTests: number; // number of failed tests
   };
   generators: {
@@ -1326,9 +1350,10 @@ type CurrentRunStats = {
     inputsGenerated: number; // number of inputs generated so far
     dupesGenerated: number; // number of duplicate inputs generated so far
     dupesSequential: number; // current number of duplicate inputs generated in a row
+    erroredTests: number; // number of tests with internal errors so far
     failedTests: number; // number of failed tests so far
     passedTests: number; // number of passed tests so far
-    skippedTests: number; // number of skipped tests so far
+    inputsSkipped: number; // number of skipped tests so far
   };
   timers: {
     startTime: number; // time the tester started in this run
