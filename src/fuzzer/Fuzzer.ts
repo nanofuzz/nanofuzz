@@ -1334,6 +1334,18 @@ export type FuzzTestStats = {
         initialFocus: number;
         focusDecay: number;
       };
+      checkpoints: {
+        tick: number; // tick of the checkpoint
+        gens: Record<
+          string,
+          {
+            active: boolean; // subgen is active
+            nextable: boolean; // subgen is active and nextable
+            productivity: number; // current productivity[g] for this input generator
+            cost: number; // current cost[g] for this input generator
+          }
+        >;
+      }[];
     };
   };
   measures: {
