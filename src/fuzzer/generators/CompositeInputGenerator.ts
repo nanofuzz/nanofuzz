@@ -48,6 +48,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   private _P = 0.1; // Additional chance of subgen exploration
   private _permitSubgens = true; // Allow generators to produce inputs
   private _genStats: FuzzTestStats["generators"]; // Generator statistics
+  private _checkpoints: NonNullable<
+    FuzzTestStats["generators"]["CompositeInputGenerator"]
+  >["checkpoints"] = []; // status of subgens at selection
   public static readonly INJECTED = "injected";
 
   /**
@@ -323,6 +326,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     const progress: number[] = []; // progress of subgen for L generations
     const productivity: number[] = []; // productivity = progress / cost
     let totalProductivity = 0; // total productivity of active subgens
+    const checkpointGens: Record<
+      string,
+      { active: boolean; nextable: boolean; productivity: number; cost: number }
+    > = {};
+
     this._subgens.forEach((e, g) => {
       cost[g] = 0;
       this._history[g].cost.forEach((e) => {
@@ -338,7 +346,19 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       if (e.nextable()) {
         totalProductivity += productivity[g];
       }
+
+      checkpointGens[e.name] = {
+        active: !!this._activeSubgens[g],
+        nextable: !!(this._activeSubgens[g] && e.nextable()),
+        productivity: productivity[g],
+        cost: cost[g],
+      };
     }); // foreach: subgen
+
+    this._checkpoints.push({
+      tick: this._tick,
+      gens: checkpointGens,
+    });
 
     // All active subgens have a minimum chance of being selected,
     // which is determined by _P
@@ -424,6 +444,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
           initialFocus: this._leaderboard.initialFocus,
           focusDecay: this._leaderboard.focusDecay,
         },
+        checkpoints: this._checkpoints,
       };
     }
   } // fn: onRunEnd
