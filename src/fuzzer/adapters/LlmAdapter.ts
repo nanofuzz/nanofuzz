@@ -8,6 +8,12 @@ import { isError } from "../Util";
 import * as telemetry from "../../telemetry/Telemetry";
 import * as zod from "zod";
 import { zodOutputFormat } from "./AnthropicUtils";
+import { LlmCacheManager } from "./LlmCacheManager";
+import {
+  LlmCacheMode,
+  LlmCacheStats,
+  LlmQueryResult,
+} from "../generators/Types";
 
 /**
  * An adapter for chatting with an LLM about the program under test
@@ -15,6 +21,7 @@ import { zodOutputFormat } from "./AnthropicUtils";
 export class LlmAdapter {
   protected _modelConfig: Parameters<typeof nodellm.createLLM>[0] = {}; // LLM configuration
   protected _backend: nodellm.NodeLLMCore; // LLM instance
+  protected _cacheManager: LlmCacheManager; // Cache manager
   protected _cfgString: string; // LLM config; for detecting config changes
 
   public constructor() {
@@ -44,6 +51,7 @@ export class LlmAdapter {
 
     // Create the model backend
     this._backend = nodellm.createLLM(this._modelConfig);
+    this._cacheManager = new LlmCacheManager(cfg.cacheMode, cfg.cacheFile);
   } // constructor
 
   /**
@@ -76,6 +84,18 @@ export class LlmAdapter {
     return `v=${this._backend.provider?.id},n=${LlmAdapter._getConfig().modelName}`;
   } // getter: id
 
+  public get cacheStats(): LlmCacheStats {
+    return this._cacheManager.stats;
+  }
+
+  public get cacheManager(): LlmCacheManager {
+    return this._cacheManager;
+  }
+
+  public static async flushCache(timeoutMs = 5000): Promise<void> {
+    await LlmCacheManager.flushAllActive(timeoutMs);
+  }
+
   /**
    * Prompt an LLM to generate inputs for a function
    *
@@ -100,7 +120,7 @@ export class LlmAdapter {
         schema
       );
       const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
-        JSONN.parse(response.response);
+        JSONN.parse(response.text);
 
       // Sanity check llm output
       if (
@@ -143,78 +163,79 @@ export class LlmAdapter {
   private async _query(
     prompt: string[],
     schema?: zod.ZodObject
-  ): Promise<{
-    response: string;
-    stats: {
-      tokensSent: number;
-      tokensSentCost: { amt: number; unit: string };
-      tokensReceived: number;
-      tokensReceivedCost: { amt: number; unit: string };
-    };
-  }> {
+  ): Promise<LlmQueryResult> {
     LlmAdapter._handleDebug();
 
-    const promptParts: nodellm.ContentPart[] = [];
-    prompt.forEach((e) => {
-      promptParts.push({
-        type: "text",
-        text: e,
-      });
-    });
-
     const provider = LlmAdapter._getConfig().provider;
-    vscode.commands.executeCommand(
-      telemetry.commands.logTelemetry.name,
-      new telemetry.LoggerEntry(
-        "LlmAdapter.query.send",
-        "Sending query to LLM (v=%s;m=%s). Query: %s.",
-        [provider, LlmAdapter._getConfig().modelName, prompt.join("\n")]
-      )
-    );
+    const modelName = LlmAdapter._getConfig().modelName;
+    const schemaJson = schema
+      ? JSON.stringify(schema.toJSONSchema())
+      : undefined;
 
-    const baseChat = this._createChat();
-    let chat = (
-      schema ? baseChat.withSchema(schema.toJSONSchema()) : baseChat
-    ).withRequestOptions({
-      responseFormat: { type: "json_object" },
-    });
-
-    // Provider specific settings
-    if (provider === "anthropic") {
-      if (schema) {
-        // Anthropic doesn't always respect responseFormat
-        chat = chat.withParams({
-          output_config: {
-            format: zodOutputFormat(schema),
-          },
+    return await this._cacheManager.query(
+      provider,
+      modelName,
+      prompt,
+      schemaJson,
+      async () => {
+        const promptParts: nodellm.ContentPart[] = [];
+        prompt.forEach((e) => {
+          promptParts.push({
+            type: "text",
+            text: e,
+          });
         });
+
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "LlmAdapter.query.send",
+            "Sending query to LLM (v=%s;m=%s). Query: %s.",
+            [provider, modelName, prompt.join("\n")]
+          )
+        );
+
+        const baseChat = this._createChat();
+        let chat = (
+          schema ? baseChat.withSchema(schema.toJSONSchema()) : baseChat
+        ).withRequestOptions({
+          responseFormat: { type: "json_object" },
+        });
+
+        // Provider specific settings
+        if (provider === "anthropic") {
+          if (schema) {
+            // Anthropic doesn't always respect responseFormat
+            chat = chat.withParams({
+              output_config: {
+                format: zodOutputFormat(schema),
+              },
+            });
+          }
+        }
+
+        const response = await chat.ask(promptParts);
+
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "LlmAdapter.query.response",
+            "Received response from LLM (v=%s;m=%s). Response: %s.",
+            [provider, modelName, response.toString()]
+          )
+        );
+
+        return {
+          text: response.toString(),
+          stats: {
+            tokensSent: response.inputTokens,
+            tokensSentCost: { amt: response.input_cost ?? 0, unit: "USD" }, // USD per docs
+            tokensReceived: response.outputTokens,
+            tokensReceivedCost: { amt: response.output_cost ?? 0, unit: "USD" }, // USD per docs
+          },
+        };
       }
-    }
-
-    const response = await chat.ask(promptParts);
-
-    vscode.commands.executeCommand(
-      telemetry.commands.logTelemetry.name,
-      new telemetry.LoggerEntry(
-        "LlmAdapter.query.response",
-        "Received response from LLM (v=%s;m=%s). Response: %s.",
-        [
-          LlmAdapter._getConfig().provider,
-          LlmAdapter._getConfig().modelName,
-          response.toString(),
-        ]
-      )
     );
-
-    return {
-      response: response.toString(),
-      stats: {
-        tokensSent: response.inputTokens,
-        tokensSentCost: { amt: response.input_cost ?? 0, unit: "USD" }, // USD per docs
-        tokensReceived: response.outputTokens,
-        tokensReceivedCost: { amt: response.output_cost ?? 0, unit: "USD" }, // USD per docs
-      },
-    };
   } // fn: _query
 
   /**
@@ -236,11 +257,21 @@ export class LlmAdapter {
     provider: string;
     modelName: string;
     apiKey: string;
+    cacheMode: LlmCacheMode;
+    cacheFile: string;
   } {
     return {
       provider: LlmAdapter._getConfigValue("provider", "disabled"),
       modelName: LlmAdapter._getConfigValue("model", ""),
       apiKey: LlmAdapter._getConfigValue("apiKey", ""),
+      cacheMode: LlmAdapter._getConfigValue<LlmCacheMode>(
+        "cacheMode",
+        "passthrough"
+      ),
+      cacheFile: LlmAdapter._getConfigValue<string>(
+        "cacheFile",
+        ".nanofuzz-llm-cache.json"
+      ),
     };
   } // fn: _getConfig
 
@@ -275,7 +306,7 @@ export class LlmAdapter {
 /**
  * Parameterized prompts for the LLM
  */
-const prompt = {
+export const prompt = {
   system: (): string => {
     return `You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.`;
   },

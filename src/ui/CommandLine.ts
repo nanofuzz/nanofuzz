@@ -7,6 +7,7 @@ import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import path from "node:path";
 import { isError } from "../fuzzer/Util";
+import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 
 /**
  * Command line interface for NaNofuzz.
@@ -95,6 +96,12 @@ Commander.program
   .option(`--model-provider <string>`, `AI model provider`)
   .option(`--model-name <string>`, `AI model name`)
   .option(`--model-key <string>`, `AI model API key`)
+  .option(
+    `--ai-cache-mode <mode>`,
+    `LLM cache mode (passthrough, record, replay-record, replay-error, replay-passthrough)`,
+    parseAiCacheMode
+  )
+  .option(`--ai-cache-file <path>`, `Path to LLM cache file`)
 
   // ------------------------ Composite Input Generator ------------------------ //
 
@@ -213,6 +220,12 @@ for (const key in options) {
     case "modelKey":
       Config.override("nanofuzz.ai.apiKey", value);
       break;
+    case "aiCacheMode":
+      Config.override("nanofuzz.ai.cacheMode", value);
+      break;
+    case "aiCacheFile":
+      Config.override("nanofuzz.ai.cacheFile", value);
+      break;
 
     // composite input generator config options
     case "cigInputLookback":
@@ -283,6 +296,8 @@ async function run(): Promise<void> {
       results.stats.counters.passedTests + results.stats.counters.failedTests;
     const someTestsFailed = results.stats.counters.failedTests;
 
+    await LlmAdapter.flushCache(5000);
+
     if (someTestsRan && !results.stats.counters.erroredTests) {
       if (someTestsFailed) {
         process.exit(ERROR_TEST_FAILURE); // tests ran and some failed
@@ -293,6 +308,7 @@ async function run(): Promise<void> {
       process.exit(ERROR_INTERNAL); // internal error
     }
   } catch (e: unknown) {
+    await LlmAdapter.flushCache(5000);
     if (isError(e)) {
       if (e.stack) {
         console.error(e.stack);
@@ -318,6 +334,22 @@ function parseFloatArgGeZero(value: string, _previous: number): number {
   }
   return parsedValue;
 } // fn: parseFloatArgGeZero
+
+function parseAiCacheMode(value: string, _previous: string): string {
+  const allowed = [
+    "passthrough",
+    "record",
+    "replay-record",
+    "replay-error",
+    "replay-passthrough",
+  ];
+  if (!allowed.includes(value)) {
+    throw new Commander.InvalidArgumentError(
+      `Invalid ai cache mode '${value}'. Allowed: ${allowed.join(", ")}`
+    );
+  }
+  return value;
+} // fn: parseAiCacheMode
 
 function parseFloatArgZeroToOne(value: string, _previous: number): number {
   const parsedValue = parseFloatArgGeZero(value, _previous);

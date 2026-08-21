@@ -4,6 +4,10 @@ import * as path from "node:path";
 import * as os from "node:os";
 import JSON5 from "json5";
 import { FuzzTestResults } from "../fuzzer/Fuzzer";
+import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
+import { AiInputGenerator } from "../fuzzer/generators/AiInputGenerator";
+import { createCacheKey } from "../fuzzer/adapters/LlmCacheManager";
+import { prompt } from "../fuzzer/adapters/LlmAdapter";
 
 function runCli(args: string[]): ChildProcess.SpawnSyncReturns<string> {
   const cliScript = path.resolve(__dirname, "../../build/cli/cli.cjs");
@@ -206,6 +210,137 @@ describe("cli:", () => {
     expect(cigConfig?.explorationChance).toBe(0.2);
     expect(cigConfig?.initialFocus).toBe(150);
     expect(cigConfig?.focusDecay).toBe(2);
+  });
+
+  it("--ai-cache-*: cache miss in replay-error mode", () => {
+    const outputFile = path.join(tmpDir, "ai_cache_miss_output.json5");
+    const cacheFile = path.join(tmpDir, "cli_llm_cache_miss.json");
+    const targetFile = path.resolve(
+      "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts"
+    );
+    const targetFn = "testCoverageOneFile";
+
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-provider",
+      "gemini",
+      "--model-name",
+      "gemini-flash",
+      "--model-key",
+      "test-key",
+      "--ai-cache-mode",
+      "replay-error",
+      "--ai-cache-file",
+      cacheFile,
+      "--max-tests",
+      "5",
+    ]);
+
+    if (res.status !== 0) {
+      console.error("CLI STDOUT:", res.stdout);
+      console.error("CLI STDERR:", res.stderr);
+    }
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    const aiGenStats = outputData.stats.generators.AiInputGenerator?.gen;
+    expect(aiGenStats).toBeDefined();
+    expect(aiGenStats?.cache?.mode).toBe("replay-error");
+    expect(aiGenStats?.cache?.calls).toBeGreaterThanOrEqual(1);
+    expect(aiGenStats?.cache?.misses).toBeGreaterThanOrEqual(1);
+    expect(aiGenStats?.cache?.failures).toBeGreaterThanOrEqual(1);
+    expect(aiGenStats?.calls.failed).toBeGreaterThanOrEqual(1);
+  });
+
+  it("--ai-cache-*: cache hit in replay-error mode", () => {
+    const outputFile = path.join(tmpDir, "ai_cache_hit_output.json5");
+    const cacheFile = path.join(tmpDir, "cli_llm_cache_hit.json");
+    const targetFile = path.resolve(
+      "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts"
+    );
+    const targetFn = "testCoverageOneFile";
+    const provider = "gemini";
+    const modelName = "gemini-flash";
+
+    // Pre-seed cache entry for testCoverageOneFile
+    const program = ProgramFactory.fromFile(targetFile);
+    const fn = program.functionsExported[targetFn];
+    const aiGen = new AiInputGenerator(fn, "seed", new Map());
+    const [schema, directives] = aiGen["_getInputsSchema"](fn.getLang());
+    const promptText = prompt.genInputs(fn, directives, new Map());
+    const schemaJson = JSON.stringify(schema.toJSONSchema());
+    const key = createCacheKey(provider, modelName, [promptText], schemaJson);
+
+    const seededEntry = {
+      key,
+      request: { provider, modelName, prompt: [promptText], schemaJson },
+      response: {
+        text: JSON.stringify({ programInputs: [{ s: "replay-cached-input" }] }),
+        stats: {
+          tokensSent: 100,
+          tokensSentCost: { amt: 0.001, unit: "USD" },
+          tokensReceived: 50,
+          tokensReceivedCost: { amt: 0.001, unit: "USD" },
+        },
+      },
+      delayMs: 10,
+      recordedAt: new Date().toISOString(),
+    };
+
+    fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+    fs.writeFileSync(
+      cacheFile,
+      JSON5.stringify([seededEntry], null, 2),
+      "utf8"
+    );
+
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-provider",
+      provider,
+      "--model-name",
+      modelName,
+      "--model-key",
+      "test-key",
+      "--ai-cache-mode",
+      "replay-error",
+      "--ai-cache-file",
+      cacheFile,
+      "--max-tests",
+      "5",
+    ]);
+
+    if (res.status !== 0) {
+      console.error("CLI STDOUT:", res.stdout);
+      console.error("CLI STDERR:", res.stderr);
+    }
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    const aiGenStats = outputData.stats.generators.AiInputGenerator?.gen;
+
+    expect(aiGenStats).toBeDefined();
+    expect(aiGenStats?.cache?.mode).toBe("replay-error");
+    expect(aiGenStats?.cache?.calls).toBe(1);
+    expect(aiGenStats?.cache?.hits).toBe(1);
+    expect(aiGenStats?.cache?.misses).toBe(0);
+    expect(aiGenStats?.calls.sent).toBe(1);
   });
 });
 
