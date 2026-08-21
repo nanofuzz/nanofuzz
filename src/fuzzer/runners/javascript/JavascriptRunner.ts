@@ -1,6 +1,6 @@
-import { AbstractRunner, RunnerResult } from "./AbstractRunner";
-import { VmGlobals } from "../Types";
-import { isError } from "../Util";
+import { AbstractRunner, RunnerResult } from "../AbstractRunner";
+import { VmGlobals } from "../../Types";
+import { isError } from "../../Util";
 import vm from "vm";
 
 /**
