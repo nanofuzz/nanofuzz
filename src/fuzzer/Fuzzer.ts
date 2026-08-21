@@ -563,11 +563,16 @@ export class Tester {
         this._measures.forEach((e) => {
           e.onRunEnd(this._results);
         });
-        this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
+        await this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
 
         // Shut down runners
-        await runner.onRunEnd();
-        await propRunners.forEach(async (p) => p.onRunEnd());
+        await Promise.all(
+          [
+            runner.onRunEnd(),
+            transformRunner?.onRunEnd(),
+            ...propRunners.map((p) => p.onRunEnd()),
+          ].filter((e) => e !== undefined)
+        );
 
         update({
           msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,

@@ -88,10 +88,6 @@ export class LlmAdapter {
     return this._cacheManager.stats;
   }
 
-  public get cacheManager(): LlmCacheManager {
-    return this._cacheManager;
-  }
-
   public static async flushCache(timeoutMs = 5000): Promise<void> {
     await LlmCacheManager.flushAllActive(timeoutMs);
   }

@@ -6,7 +6,6 @@ import { ScoredInput } from "./Types";
 import { FuzzOptions, InputAndSource } from "./../Types";
 import { FunctionDef, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
-import { AiInputGenerator } from "./AiInputGenerator";
 
 /**
  * The Composite Input Generator subsumes multiple types of input generator and biases
@@ -424,17 +423,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   /**
    * Cleanup all subgens and update stats when the test run ends
    */
-  public onRunEnd(results?: FuzzTestResults): void {
-    super.onRunEnd();
-    this._subgens.forEach((subgen) => {
-      subgen.onRunEnd();
-      if (
-        subgen.name === "AiInputGenerator" &&
-        subgen instanceof AiInputGenerator
-      ) {
-        this._genStats["AiInputGenerator"].gen = subgen.stats;
-      }
-    });
+  public async onRunEnd(results?: FuzzTestResults): Promise<void> {
+    await super.onRunEnd(results);
+    await Promise.all(this._subgens.map((g) => g.onRunEnd(results)));
     if (results) {
       results.stats.generators.CompositeInputGenerator = {
         config: {

@@ -6,7 +6,7 @@ import { ArgDef } from "../analysis/ArgDef";
 import { FuzzOptions, InputAndSource } from "../Types";
 
 describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
-  it("builds checkpoints during _selectNextSubGen and populates them onRunEnd", () => {
+  it("builds checkpoints during _selectNextSubGen and populates them onRunEnd", async () => {
     const program = ProgramFactory.fromSource(
       () => `export function dummyFn(x: number) {}`,
       "typescript"
@@ -109,7 +109,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       },
     };
 
-    cig.onRunEnd(mockResults);
+    await cig.onRunEnd(mockResults);
 
     const cigStats = mockResults.stats.generators.CompositeInputGenerator;
     expect(cigStats).toBeDefined();

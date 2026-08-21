@@ -296,8 +296,6 @@ async function run(): Promise<void> {
       results.stats.counters.passedTests + results.stats.counters.failedTests;
     const someTestsFailed = results.stats.counters.failedTests;
 
-    await LlmAdapter.flushCache(5000);
-
     if (someTestsRan && !results.stats.counters.erroredTests) {
       if (someTestsFailed) {
         process.exit(ERROR_TEST_FAILURE); // tests ran and some failed

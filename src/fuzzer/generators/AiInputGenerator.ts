@@ -8,11 +8,17 @@ import {
 import * as JSONN from "../../Jsonn";
 import * as ValueMapper from "../mappers/ValueMapper";
 import { LlmAdapter } from "../adapters/LlmAdapter";
-import { ArgDef, FunctionDef, InputAndSource } from "../Fuzzer";
+import {
+  ArgDef,
+  FunctionDef,
+  FuzzTestResults,
+  InputAndSource,
+} from "../Fuzzer";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import * as zod from "zod";
 import { InputGeneratorStatsAi } from "./Types";
 import { isError } from "../Util";
+import * as Config from "../../Config";
 
 /**
  * Generates new inputs using a large language model
@@ -446,6 +452,23 @@ export class AiInputGenerator extends AbstractInputGenerator {
     }
     return res;
   } // getter: stats
+
+  /**
+   * Cleanup and flush in-flight LLM requests if in a recording cache mode
+   */
+  public override async onRunEnd(results?: FuzzTestResults): Promise<void> {
+    await super.onRunEnd(results);
+    const cacheMode = Config.get<string>(
+      "nanofuzz.ai.cacheMode",
+      "passthrough"
+    );
+    if (cacheMode.includes("record")) {
+      await LlmAdapter.flushCache(5000);
+    }
+    if (results) {
+      results.stats.generators.AiInputGenerator.gen = this.stats;
+    }
+  } // fn: onRunEnd
 } // class: AiInputGenerator
 
 /**
