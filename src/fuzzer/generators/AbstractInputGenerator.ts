@@ -1,6 +1,7 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "../analysis/ArgDef";
 import { InputAndSource } from "./../Types";
+import { FuzzTestResults } from "../Fuzzer";
 import { InputGeneratorStats } from "./Types";
 
 /**
@@ -63,7 +64,7 @@ export abstract class AbstractInputGenerator {
   /**
    * Executes any tasks when the test run ends
    */
-  public onRunEnd(): void {
+  public async onRunEnd(_results?: FuzzTestResults): Promise<void> {
     return;
   } // fn: onRunEnd
 }
