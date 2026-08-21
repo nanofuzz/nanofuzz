@@ -1,5 +1,6 @@
 import { ArgDef } from "./ArgDef";
 import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
+import * as JSONN from "../../Jsonn";
 
 /**
  * Valides values against their corresponding ArgDef specs
@@ -65,11 +66,18 @@ export class ArgDefValidator {
           );
         }
         case ArgTag.STRING: {
+          const regex =
+            options.strRegex === undefined
+              ? undefined
+              : new RegExp(
+                  options.strRegex.replace(/^\\A/, "^").replace(/\\Z$/, "$")
+                );
           return (
             typeof value === "string" &&
             value.length <= options.strLength.max &&
             value.length >= options.strLength.min &&
-            value.split("").every((e) => options.strCharset.includes(e))
+            value.split("").every((e) => options.strCharset.includes(e)) &&
+            (regex === undefined || regex.test(value))
           );
         }
         case ArgTag.BOOLEAN: {
@@ -83,18 +91,23 @@ export class ArgDefValidator {
           return value === spec.getConstantValue();
         }
         case ArgTag.OBJECT: {
-          if (typeof value === "object" && !Array.isArray(value)) {
+          if (
+            typeof value === "object" &&
+            !Array.isArray(value) &&
+            value !== null
+          ) {
             const children = spec.getChildren();
             for (const c of children) {
               const name = c.getName();
               const childValue = value[name];
+              const hasChildValue = Object.hasOwn(value, name);
               const isNoInput = c.isNoInput();
               const isOptional = c.isOptional();
               let valid = false; // assume invalid & look for cases of validity
-              if (isNoInput && childValue === undefined) {
+              if (isNoInput && !hasChildValue) {
                 valid = true;
               }
-              if (!valid && isOptional && childValue === undefined) {
+              if (!valid && isOptional && !hasChildValue) {
                 valid = true;
               }
               if (
@@ -110,7 +123,7 @@ export class ArgDefValidator {
             }
             return true; // all child checks passed
           }
-          return false; // not an object or is an array
+          return false; // not an object or is an array or null
         }
 
         case ArgTag.TUPLE: {
@@ -190,6 +203,13 @@ const traverse = (
     a.length > levelSizes[currDepth].max
   ) {
     return false;
+  }
+
+  if (currDepth === 0 && spec.getOptions().dimsUnique) {
+    const values = new Set(a.map((value) => JSONN.stringify(value)));
+    if (values.size !== a.length) {
+      return false;
+    }
   }
 
   // Traverse the array and validate its contents

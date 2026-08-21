@@ -62,6 +62,12 @@ export type RunnerResult = {
         coverageArcs?: Arc[]; // arcs taken by this call
       }
     | {
+        tag: "skip";
+        message: string;
+        coverageData?: number[]; // lines executed by this call
+        coverageArcs?: Arc[]; // arcs taken by this call
+      }
+    | {
         tag: "value";
         value: unknown;
         coverageData?: number[]; // lines executed by this call

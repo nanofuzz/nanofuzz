@@ -35,6 +35,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
   private offset: number; // offset of the argument in the function (0-based)
   private type: Tag; // type of the argument
   private typeRef?: string; // type reference name (if the type is a reference)
+  private typeRefDims?: number; // outer dimensions attached to type reference
   private dims: number; // dimensions of the argument (e.g., number=0, number[]=1, etc)
   private optional: boolean; // whether the argument is optional
   private intervals: Interval<TagToType[Tag]>[]; // input intervals for the argument
@@ -51,6 +52,9 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    * @param dims Dimensions of the value (e.g., number = 0, number[] = 1, etc.)
    * @param optional Indicates whether the argument is optional
    * @param intervals Input intervals for the argument. REQUIRED for literal types.
+   * @param children Child arguments (if this is an object, unbion, or tuple)
+   * @param typeRef Type reference name (if the type is a reference)
+   * @param typeRefDims Outer dimensions attached to the type reference
    */
   public constructor(
     name: string,
@@ -61,7 +65,8 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     optional?: boolean,
     intervals?: Interval<TagToType[Tag]>[],
     children?: ArgDef[],
-    typeRef?: string
+    typeRef?: string,
+    typeRefDims?: number
   ) {
     this.name = name;
     this.offset = offset;
@@ -73,6 +78,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         ? (children ?? [])
         : [];
     this.typeRef = typeRef;
+    this.typeRefDims = typeRefDims;
 
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(options))
@@ -117,7 +123,11 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         : intervals;
 
     // Ensure each non-array dimension is valid
-    if (this.intervals.filter((e) => e.min > e.max).length) {
+    if (
+      this.intervals.filter(
+        (e) => e.min !== null && e.max !== null && e.min > e.max
+      ).length
+    ) {
       throw new Error(
         `Invalid interval: ${JSON.stringify(this.intervals, undefined, 2)}`
       );
@@ -176,7 +186,8 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       ref.type.children.map((child, i) =>
         ArgDef.fromTypeRef(child, options, i)
       ), // children
-      ref.typeRefName // type reference
+      ref.typeRefName, // type reference
+      ref.dims // outer dimensions on type reference
     );
   } // fn: fromTypeRef()
 
@@ -268,6 +279,15 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
   } // fn: getTypeRef()
 
   /**
+   * Returns the outer dimensions attached to the type reference.
+   *
+   * @returns The outer dimensions of the type reference, if it exists; `undefined` otherwise
+   */
+  public getTypeRefDims(): number | undefined {
+    return this.typeRefDims;
+  } // fn: getTypeRefDims()
+
+  /**
    * Returns the dimensions of the argument.
    *
    * @returns The dimensions of the argument (e.g., number = 0, number[] = 1, etc)
@@ -322,7 +342,9 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    * Throws an exception if any interval's min>max.
    */
   public setIntervals(intervals: Interval<TagToType[Tag]>[]): void {
-    if (intervals.some((e) => e.min > e.max))
+    if (
+      intervals.some((e) => e.min !== null && e.max !== null && e.min > e.max)
+    )
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
       );
@@ -341,12 +363,14 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       this.type,
       options
     ) as Interval<TagToType[Tag]>[];
-    if (intervals.some((e) => e.min > e.max))
+    if (
+      intervals.some((e) => e.min !== null && e.max !== null && e.min > e.max)
+    )
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
       );
     this.intervals = intervals;
-  } // fn: setIntervals()
+  } // fn: setDefaultIntervals()
 
   /**
    * Indicates whether the argument has a constant input interval.
@@ -496,6 +520,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         min: Config.get("nanofuzz.argdef.strLength.min", DFT_STR_LENGTH.min),
         max: Config.get("nanofuzz.argdef.strLength.max", DFT_STR_LENGTH.max),
       },
+      strRegex: undefined,
 
       // Numeric defaults
       numInteger: Config.get<boolean>("nanofuzz.argdef.numInteger", true),
@@ -516,6 +541,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         ),
       },
       dimLength: [],
+      dimsUnique: false,
     };
   } // fn: getDefaultOptions()
 

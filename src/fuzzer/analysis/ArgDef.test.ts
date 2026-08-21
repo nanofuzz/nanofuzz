@@ -417,6 +417,229 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(val.validate(input)).toBeTrue();
   });
 
+  it("dimsUnique: generates unique outer-dimension values", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "uniqueNumbers",
+      0,
+      ArgTag.NUMBER,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 5, max: 5 }],
+      },
+      1
+    );
+    const generated = ArgDefGenerator.gen(spec, seedrandom("dimsUnique"));
+
+    expect(ArgDefValidator.validate(generated, spec)).toBeTrue();
+    if (!Array.isArray(generated)) {
+      throw new Error("Expected an array");
+    }
+    expect(new Set(generated).size).toEqual(5);
+  });
+
+  it("dimsUnique: can give up at the minimum dimension length", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "uniqueLiteral",
+      0,
+      ArgTag.LITERAL,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 1, max: 2 }],
+      },
+      1,
+      false,
+      [],
+      undefined,
+      1
+    );
+    const generated = ArgDefGenerator.gen(spec, seedrandom("uniqueLiteral"));
+
+    if (!Array.isArray(generated)) {
+      throw new Error("Expected an array");
+    }
+    expect(generated.length).toEqual(1);
+    expect(generated[0] === 1).toBeTrue();
+    expect(ArgDefValidator.validate(generated, spec)).toBeTrue();
+  });
+
+  it("dimsUnique: fails when constraints seem impossible", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "uniqueLiteral",
+      0,
+      ArgTag.LITERAL,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      1,
+      false,
+      [],
+      undefined,
+      1
+    );
+
+    expect(() =>
+      ArgDefGenerator.gen(spec, seedrandom("uniqueLiteral"))
+    ).toThrowError(
+      "Unable to generate enough unique array element. Are constraints possible to meet?"
+    );
+  });
+
+  it("dimsUnique: mutators preserve outer-dimension uniqueness", () => {
+    const spec = new ArgDef(
+      "uniqueNumbers",
+      0,
+      ArgTag.NUMBER,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      1,
+      false,
+      [{ min: 1, max: 2 }]
+    );
+    const input = [{ tag: "ArgValueTypeWrapped" as const, value: [1, 2] }];
+    const validator = new ArgDefValidator([spec]);
+    const mutations = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("dimsUniqueMutations")
+    );
+
+    expect(mutations.length).toBeGreaterThan(0);
+    for (let index = 0; index < mutations.length; index++) {
+      // Mutator functions may run only once per set, so rebuild the same
+      // proposal set for a fresh candidate before testing each mutation.
+      const candidate = JSONN.parse<typeof input>(JSONN.stringify(input));
+      const candidateMutations = ArgDefMutator.getMutators(
+        [spec],
+        candidate,
+        seedrandom("dimsUniqueMutations")
+      );
+      candidateMutations[index].fn();
+      expect(validator.validate(candidate)).toBeTrue();
+    }
+  });
+
+  it("dimsUnique: mutators preserve uniqueness for nested arrays", () => {
+    const spec = new ArgDef(
+      "settings",
+      0,
+      ArgTag.OBJECT,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      0,
+      false,
+      undefined,
+      [
+        new ArgDef(
+          "values",
+          0,
+          ArgTag.NUMBER,
+          {
+            ...argOptions,
+            dimsUnique: true,
+            dimLength: [{ min: 2, max: 2 }],
+          },
+          1
+        ),
+      ]
+    );
+    const input = [
+      { tag: "ArgValueTypeWrapped" as const, value: { values: [1, 2] } },
+    ];
+    const validator = new ArgDefValidator([spec]);
+    const mutations = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("nestedDimsUniqueMutations")
+    );
+
+    expect(mutations.length).toBeGreaterThan(0);
+    for (let index = 0; index < mutations.length; index++) {
+      // Mutator functions may run only once per set, so rebuild the same
+      // proposal set for a fresh candidate before testing each mutation.
+      const candidate = JSONN.parse<typeof input>(JSONN.stringify(input));
+      const candidateMutations = ArgDefMutator.getMutators(
+        [spec],
+        candidate,
+        seedrandom("nestedDimsUniqueMutations")
+      );
+      candidateMutations[index].fn();
+      expect(validator.validate(candidate)).toBeTrue();
+    }
+  });
+
+  it("mutates optional tuple members to undefined", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "tuple",
+      0,
+      ArgTag.TUPLE,
+      argOptions,
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "required", ArgTag.NUMBER, 0),
+        makeTypeRef(
+          dummyModule,
+          "optional",
+          ArgTag.LITERAL,
+          0,
+          true,
+          [],
+          undefined,
+          1
+        ),
+      ]
+    );
+    const input = [{ tag: "ArgValueTypeWrapped" as const, value: [1, 1] }];
+    const mutator = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("optionalTuple")
+    ).find((candidate) => candidate.name === "optional-delete");
+
+    expect(mutator).toBeDefined();
+    mutator?.fn();
+    expect(input[0].value[1]).toBeUndefined();
+    expect(new ArgDefValidator([spec]).validate(input)).toBeTrue();
+  });
+
+  it("mutates regex strings", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "identifier",
+      0,
+      ArgTag.STRING,
+      { ...argOptions, strRegex: "\\A[a-z]{2}\\Z" },
+      0
+    );
+    const input = [{ tag: "ArgValueTypeWrapped" as const, value: "zz" }];
+    const mutations = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("regex-regenerate")
+    );
+
+    expect(mutations.map((mutation) => mutation.name)).toEqual([
+      "regex-regenerate",
+    ]);
+    mutations[0].fn();
+    expect(input[0].value).not.toEqual("zz");
+    expect(new ArgDefValidator([spec]).validate(input)).toBeTrue();
+  });
+
   /**
    * This test generates random ArgDef specs, generates
    * and mutates inputs from those specs, and validates
@@ -438,9 +661,17 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     const failingSpecs: string[] = [];
     const failingMutators: { [k: string]: number } = {};
     const dupeMutators: { [k: string]: number } = {};
-    let i = 50;
+    let uniqueDimensionSpecs = 0;
+    let regexStringSpecs = 0;
+    let i = 100;
     while (i--) {
       const spec = [getRandomArgDef(prng, Math.floor(prng() * 2))];
+      if (spec[0].getDim() > 0 && spec[0].getOptions().dimsUnique) {
+        uniqueDimensionSpecs++;
+      }
+      regexStringSpecs += [spec[0], ...spec[0].getChildrenFlat()].filter(
+        (argument) => argument.getOptions().strRegex !== undefined
+      ).length;
       const stxt = abbrSpec(spec[0]).join("\r\n");
       const gen = new ArgDefGenerator(spec, prng);
       const val = new ArgDefValidator(spec);
@@ -467,7 +698,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
             const inputStringBefore = JSONN.stringify(input);
             const muts = ArgDefMutator.getMutators(spec, input, prng);
             if (muts.length) {
-              const index = Math.floor(prng() * (muts.length - 1));
+              const index = Math.floor(prng() * muts.length);
               const mut = muts[index];
               mut.fn(); // mutate the input
               const inputStringAfter = JSONN.stringify(input);
@@ -539,6 +770,8 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
 
     expect(stats.gens.valid).not.toBe(0);
     expect(stats.gens.invalid).toBe(0);
+    expect(uniqueDimensionSpecs).not.toBe(0);
+    expect(regexStringSpecs).not.toBe(0);
 
     expect(stats.muts.valid).not.toBe(0);
     expect(stats.muts.dupe).toBe(0);
@@ -553,6 +786,8 @@ function abbrSpec(spec: ArgDef, indents = 0): string[] {
   line.push(space);
   line.push(`${spec.getName()}:${TypescriptProgram.getTypeAnnotation(spec)}`);
   line.push(`dims: ${JSONN.stringify(spec.getOptions().dimLength)}`);
+  if (spec.getOptions().dimsUnique) line.push(`DIMS_UNIQUE`);
+  if (spec.getOptions().strRegex) line.push(`STR_REGEX`);
   if (spec.isNoInput()) line.push(`NOINPUT`);
   if (spec.isOptional()) line.push(`OPTIONAL`);
   if (spec.getType() === ArgTag.NUMBER && spec.getOptions().numInteger)
@@ -660,6 +895,7 @@ function getRandomArgDef(
   const name = "abcdefghijklmnopqrstuvwxyz".split("")[Math.floor(prng() * 25)];
   let options: ArgOptions = {
     ...argOptions,
+    dimsUnique: dims.dims > 0 && prng() > 0.5,
     isNoInput:
       (parentType === ArgTag.OBJECT || parentType === ArgTag.UNION) &&
       prng() > 0.5,
@@ -686,6 +922,12 @@ function getRandomArgDef(
       options = {
         ...options,
         strLength: { min: Math.floor(prng() * 2), max: 2 },
+        strRegex:
+          prng() < 0.5
+            ? undefined
+            : ["\\A[a-z]{1,2}\\Z", "\\A\\d{2}\\Z", "\\A(a|b)\\Z"][
+                Math.floor(prng() * 3)
+              ],
       };
       break;
     }

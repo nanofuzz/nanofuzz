@@ -155,6 +155,27 @@
             "type": "boolean",
             "default": false,
             "description": "Write AI debug information to the console"
+          },
+          "nanofuzz.ai.cacheMode": {
+            "title": "LLM response cache mode",
+            "order": 70,
+            "type": "string",
+            "enum": [
+              "passthrough",
+              "record",
+              "replay-record",
+              "replay-error",
+              "replay-passthrough"
+            ],
+            "default": "passthrough",
+            "description": "Mode for caching and replaying LLM query responses"
+          },
+          "nanofuzz.ai.cacheFile": {
+            "title": "LLM response cache file path",
+            "order": 80,
+            "type": "string",
+            "default": ".nanofuzz-llm-cache.json",
+            "description": "File path where recorded LLM query responses and latencies are saved"
           }
         }
       },
@@ -250,6 +271,12 @@
             "type": "boolean",
             "default": true,
             "description": "Show two buttons for validator functions, one to test the associated function with property validators enabled, and one to test the validator itself."
+          },
+          "nanofuzz.ui.codeLens.includeTransformers": {
+            "title": "Show 'NaNofuzz' button for input transformer functions?",
+            "default": true,
+            "type": "boolean",
+            "description": "Show 'NaNofuzz' button for input transformer functions?"
           },
           "nanofuzz.ui.codeLens.ignoreFilePattern": {
             "title": "Regex of files for NaNofuzz to ignore",

@@ -536,12 +536,25 @@ export class PythonProgram extends AbstractProgram {
     options: ArgOptions
   ): [ArgTag, number, string?, ArgType?, ArgOptionOverride?] {
     switch (node.type) {
-      case "type":
-        if (node.firstChild) {
-          return this._getTypeFromAstNode(node.firstChild, options);
+      case "type": {
+        const child = node.firstNamedChild ?? node.firstChild;
+        if (child) {
+          return this._getTypeFromAstNode(child, options);
         } else {
           throw new Error(`Wrong node of type "type" in _getTypeFromAstNode`);
         }
+      }
+      case "tuple":
+      case "parenthesized_expression": {
+        if (node.text === "()" || node.text === "tuple()") {
+          return [ArgTag.TUPLE, 0];
+        }
+        const child = node.firstNamedChild;
+        if (child) {
+          return this._getTypeFromAstNode(child, options);
+        }
+        return [ArgTag.TUPLE, 0];
+      }
       case "identifier":
         switch (node.text) {
           case "int":
@@ -618,6 +631,15 @@ export class PythonProgram extends AbstractProgram {
       case "union_type":
       case "binary_operator":
         return [ArgTag.UNION, 0];
+      case "splat_type":
+      case "list_splat":
+      case "starred_expression": {
+        const child = node.firstNamedChild;
+        if (child) {
+          return this._getTypeFromAstNode(child, options);
+        }
+        throw new Error(`Empty splat type in '${node.text}'`);
+      }
       case "member_type":
       case "attribute":
         return [ArgTag.UNRESOLVED, 0, node.text];
@@ -679,6 +701,16 @@ export class PythonProgram extends AbstractProgram {
         return this._getChildrenFromNode(child);
       }
 
+      case "splat_type":
+      case "list_splat":
+      case "starred_expression": {
+        const child = node.firstNamedChild;
+        if (child) {
+          return this._getChildrenFromNode(child);
+        }
+        return [];
+      }
+
       // Leaves have no children.
       case "identifier":
       case "none":
@@ -688,16 +720,12 @@ export class PythonProgram extends AbstractProgram {
         return [];
 
       // PEP 604 `A | B` parses to `binary_operator`; `union_type` is handled
-      // defensively. Each operand is a child; drop `None` arms, whose
-      // nullability is carried by `TypeRef.optional` instead.
+      // defensively. Keep every arm to match `Union[A, B]`, including None.
       case "binary_operator":
       case "union_type":
-        return node.namedChildren
-          .filter(
-            (arm) =>
-              (arm.type === "type" ? arm.firstNamedChild : arm)?.type !== "none"
-          )
-          .map((arm) => this._getTypeRefFromAstNode(arm));
+        return node.namedChildren.map((arm) =>
+          this._getTypeRefFromAstNode(arm)
+        );
 
       case "generic_type":
       case "subscript": {
@@ -721,10 +749,20 @@ export class PythonProgram extends AbstractProgram {
             return this._getChildrenFromNode(args[0]);
           // Composites: each argument (`type` node) is a child.
           case "Union":
-          case "tuple":
-          case "Tuple":
           case "Optional":
             return args.map((c) => this._getTypeRefFromAstNode(c));
+          case "tuple":
+          case "Tuple": {
+            if (
+              args.length === 1 &&
+              (args[0].text === "()" ||
+                args[0].type === "parenthesized_expression" ||
+                args[0].type === "tuple")
+            ) {
+              return [];
+            }
+            return args.map((c) => this._getTypeRefFromAstNode(c));
+          }
           // Literal / references / unknown generics have no children here.
           default:
             return [];
@@ -760,6 +798,8 @@ export class PythonProgram extends AbstractProgram {
         }
         break; // type-position identifier: classify below (typeNode = node)
       }
+      case "default_parameter":
+        throw new Error(`Missing type annotation: ${node.toString()}`);
       case "type": {
         break;
       }
@@ -819,10 +859,20 @@ export class PythonProgram extends AbstractProgram {
       }
       case ArgTag.UNION:
       case ArgTag.TUPLE: {
+        const children = this._getChildrenFromNode(typeNode);
+        // Collapse unions of a single value
+        if (type === ArgTag.UNION && children.length === 1) {
+          const child = children[0];
+          thisType.dims = child.dims;
+          thisType.optional = child.optional;
+          thisType.type = child.type;
+          thisType.typeRefName = child.typeRefName;
+          break;
+        }
         thisType.type = {
           dims: dims,
           type: type,
-          children: this._getChildrenFromNode(typeNode),
+          children,
         };
         break;
       }
@@ -841,12 +891,21 @@ export class PythonProgram extends AbstractProgram {
     captures: Parser.QueryCapture[]
   ): FunctionRef | undefined {
     const nameNode = captures.find((c) => c.name === "function.name");
-    const bodyNode = captures.find((c) => c.name === "function.body");
     const defNode = captures.find((c) => c.name === "function.def");
-    const argsNode = captures.find((c) => c.name === "function.params");
-    if (!nameNode || !bodyNode || !defNode) {
+    if (!nameNode || !defNode) {
       return undefined;
     }
+    const argsNode = defNode.node.namedChildren.find(
+      (c) => c.type === "lambda_parameters" || c.type === "parameters"
+    );
+    const bodyNode = defNode.node.lastNamedChild;
+    if (!bodyNode) {
+      return undefined;
+    }
+
+    // A lambda is only `void` if its single expression body is 'none' (e.g. lambda: None)
+    const isVoid = bodyNode.type === "none";
+
     return {
       module: this._filename,
       name: nameNode.node.text,
@@ -855,15 +914,18 @@ export class PythonProgram extends AbstractProgram {
       startOffset: defNode.node.startIndex,
       endOffset: defNode.node.endIndex,
       isExported: true,
-      isVoid: false,
-      args: argsNode?.node.namedChildren
-        .filter(
-          (arg) =>
-            arg.type === "identifier" ||
-            arg.type === "typed_parameter" ||
-            arg.type === "typed_default_parameter"
-        )
-        .map((arg) => this._getTypeRefFromAstNode(arg)),
+      isVoid,
+      args: argsNode
+        ? argsNode.namedChildren
+            .filter(
+              (arg) =>
+                arg.type === "identifier" ||
+                arg.type === "default_parameter" ||
+                arg.type === "typed_parameter" ||
+                arg.type === "typed_default_parameter"
+            )
+            .map((arg) => this._getTypeRefFromAstNode(arg))
+        : [], // e.g., `lambda: None`
       returnType: undefined,
       cmt: undefined,
     };
@@ -885,6 +947,7 @@ export class PythonProgram extends AbstractProgram {
 
     // Extract for Hypothesis @given(...) first
     const hypothesisArgMap: Record<string, TypeRef> = {};
+    const hypothesisPositionalArgs: (TypeRef | undefined)[] = [];
     const currentNode: Parser.Node | null = defNode.node.parent;
     if (currentNode?.type === "decorated_definition") {
       for (const child of currentNode.namedChildren) {
@@ -903,7 +966,8 @@ export class PythonProgram extends AbstractProgram {
                   if (
                     paramName &&
                     strategyValue &&
-                    strategyValue.type === "call"
+                    (strategyValue.type === "call" ||
+                      strategyValue.type === "identifier")
                   ) {
                     const hypothesisTypeRef =
                       this._getTypeRefFromStrategy(strategyValue);
@@ -911,6 +975,12 @@ export class PythonProgram extends AbstractProgram {
                       hypothesisArgMap[paramName] = hypothesisTypeRef;
                     }
                   }
+                } else {
+                  hypothesisPositionalArgs.push(
+                    argChild.type === "call" || argChild.type === "identifier"
+                      ? this._getTypeRefFromStrategy(argChild)
+                      : undefined
+                  );
                 }
               }
             }
@@ -924,13 +994,15 @@ export class PythonProgram extends AbstractProgram {
       argsNode?.node.namedChildren.filter(
         (arg) =>
           arg.type === "identifier" ||
+          arg.type === "default_parameter" ||
           arg.type === "typed_parameter" ||
-          arg.type === "typed_default_parameter"
+          arg.type === "typed_default_parameter" ||
+          arg.type === "list_splat_pattern"
       ) ?? [];
 
     // Hypothesis strategies have precedence over native type annotations
     const finalArgs: TypeRef[] = [];
-    for (const paramNode of parameterNodes) {
+    for (const [paramIndex, paramNode] of parameterNodes.entries()) {
       // Get parameter name
       let paramName: string | undefined;
       if (paramNode.type === "identifier") {
@@ -943,18 +1015,117 @@ export class PythonProgram extends AbstractProgram {
         );
         paramName =
           paramNode.namedChildren.find((c) => c.type === "identifier")?.text ??
-          pattern?.firstNamedChild?.text;
+          pattern?.firstNamedChild?.text ??
+          (paramNode.type === "list_splat_pattern"
+            ? paramNode.firstNamedChild?.text
+            : undefined);
       }
+
+      const isSplat =
+        paramNode.type === "list_splat_pattern" ||
+        paramNode.namedChildren.some((c) => c.type === "list_splat_pattern");
 
       // If a hypothesis strategy exists for this parameter, use it.
       // Otherwise, parse the native type annotation
-      if (paramName && paramName in hypothesisArgMap) {
-        const hypType = hypothesisArgMap[paramName];
-        hypType.name = paramName;
-        finalArgs.push(hypType);
+      let typeRef = paramName
+        ? (hypothesisArgMap[paramName] ?? hypothesisPositionalArgs[paramIndex])
+        : hypothesisPositionalArgs[paramIndex];
+
+      if (typeRef !== undefined) {
+        typeRef.name = paramName;
+        // Merge underlying type info from AST if hypothesis strategy left type UNRESOLVED
+        if (!typeRef.type || typeRef.type.type === ArgTag.UNRESOLVED) {
+          try {
+            const astTypeRef = this._getTypeRefFromAstNode(paramNode);
+            if (astTypeRef?.type) {
+              if (!typeRef.type) {
+                typeRef.type = structuredClone(astTypeRef.type);
+              } else {
+                typeRef.type.type = astTypeRef.type.type;
+                typeRef.type.children = structuredClone(
+                  astTypeRef.type.children
+                );
+              }
+            }
+          } catch {
+            // Ignore if parameter lacks native type annotation
+          }
+        }
       } else {
-        finalArgs.push(this._getTypeRefFromAstNode(paramNode));
+        typeRef = this._getTypeRefFromAstNode(paramNode);
       }
+
+      if (isSplat) {
+        // Resolve type reference if unresolved (e.g., *args: MyTuple)
+        if (!typeRef.type && typeRef.typeRefName) {
+          try {
+            typeRef = structuredClone(this.resolveTypeRef(typeRef));
+          } catch {
+            // ignore if resolution is unavailable or external
+          }
+        }
+
+        // Unroll tuple splat parameters (*args: tuple[...])
+        if (typeRef.type?.type === ArgTag.TUPLE && typeRef.type.children) {
+          const unrolled = typeRef.type.children.map((child, i) => {
+            const paramChild = structuredClone(child);
+            paramChild.name = child.name ?? `${paramName ?? "args"}_${i}`;
+            return paramChild;
+          });
+          finalArgs.push(...unrolled);
+          continue;
+        }
+
+        // Unroll union of tuples (*args: tuple[str] | tuple[int, bool])
+        if (typeRef.type?.type === ArgTag.UNION && typeRef.type.children) {
+          const tupleArms = typeRef.type.children.filter(
+            (c) => c.type?.type === ArgTag.TUPLE && c.type.children
+          );
+          if (tupleArms.length > 0) {
+            const totalArms = typeRef.type.children.length;
+            const maxLen = Math.max(
+              ...tupleArms.map((t) => t.type!.children!.length)
+            );
+            const positionalTypeRefs: TypeRef[] = [];
+
+            for (let k = 0; k < maxLen; k++) {
+              const armsWithPos = tupleArms.filter(
+                (t) => t.type!.children!.length > k
+              );
+              const posChildren = armsWithPos.map((t) => t.type!.children![k]);
+              const isOptional = armsWithPos.length < totalArms;
+              const firstName = posChildren.find((c) => c.name)?.name;
+              const posName = firstName ?? `${paramName ?? "args"}_${k}`;
+
+              if (posChildren.length === 1) {
+                const paramChild = structuredClone(posChildren[0]);
+                paramChild.name = posName;
+                if (isOptional) paramChild.optional = true;
+                positionalTypeRefs.push(paramChild);
+              } else if (posChildren.length > 1) {
+                const paramChild: TypeRef = {
+                  module: this._filename,
+                  name: posName,
+                  dims: 0,
+                  optional: isOptional,
+                  isExported: false,
+                  type: {
+                    dims: 0,
+                    type: ArgTag.UNION,
+                    children: posChildren.map((c) => structuredClone(c)),
+                    resolved: true,
+                  },
+                };
+                positionalTypeRefs.push(paramChild);
+              }
+            }
+            finalArgs.push(...positionalTypeRefs);
+            continue;
+          }
+        }
+      }
+
+      finalArgs.push(typeRef);
     } // for: parameter AST node
 
     // Docstring extraction logic...
@@ -975,12 +1146,19 @@ export class PythonProgram extends AbstractProgram {
       )
         ? docstringNode?.text
         : undefined;
+
+    // Determine if this a `void` function
+    const bodyNode = defNode.node.childForFieldName("body");
+    const bodyIsVoid =
+      !!bodyNode && PythonProgram._isFunctionBodyVoid(bodyNode);
     try {
       if (typeNode) {
         isVoid = typeNode.node.namedChild(0)?.type === "none";
         if (!isVoid) {
           returnType = this._getTypeRefFromAstNode(typeNode.node);
         }
+      } else {
+        isVoid = bodyIsVoid;
       }
     } catch {
       if (!isVoid) {
@@ -988,6 +1166,7 @@ export class PythonProgram extends AbstractProgram {
         // what can i say
       }
     }
+
     return {
       module: this._filename,
       name: nameNode.node.text,
@@ -1024,6 +1203,69 @@ export class PythonProgram extends AbstractProgram {
       isExported: false,
     };
 
+    // Best-effort attempt to resolve a reference to a module-level constant. This is.
+    //
+    // Resolve a module-level constant assigned before the strategy reference.
+    // Decorators execute while defining the following function, so assignments
+    // after that point are intentionally ignored.
+    //
+    // This very simple logic does not at all address:
+    // - imports, aliases
+    // - assignments in conditional blocks
+    // - mutations such as <array>.append(...)
+    // - destructuring, global, or scope shadowing
+    // - values computed from other identifiers
+    const resolveReference = (
+      valueNode: Parser.Node | undefined
+    ): Parser.Node | undefined => {
+      if (valueNode?.type !== "identifier" || this._ast === undefined) {
+        return valueNode;
+      }
+
+      let current: Parser.Node = valueNode;
+      let foundNew = true;
+      const visited = new Set<string>();
+
+      // Recursively follow type/strategy identifiers
+      while (current.type === "identifier" && foundNew) {
+        foundNew = false;
+        if (visited.has(current.text)) {
+          break; // avoid cycles
+        }
+        visited.add(current.text);
+
+        // Find the most recent prior assignment
+        for (const statement of this._ast.rootNode.namedChildren) {
+          if (statement.startIndex >= current.startIndex) break;
+          const assignment =
+            statement.type === "assignment"
+              ? statement
+              : statement.namedChildren.find(
+                  (child) => child.type === "assignment"
+                );
+          const left = assignment?.childForFieldName("left");
+          const right = assignment?.childForFieldName("right");
+          if (
+            left?.type === "identifier" &&
+            left.text === current.text &&
+            right
+          ) {
+            // Found a matching assignment; update node & resolve recursively
+            current = right;
+            foundNew = true;
+            break;
+          }
+        }
+      }
+      return current;
+    };
+
+    const actualNode = resolveReference(node);
+    if (!actualNode || actualNode.type !== "call") {
+      return undefined;
+    }
+    node = actualNode;
+
     // Helper to extract keyword argument values from a call expression
     const getKwdArg = (
       callNode: Parser.Node,
@@ -1032,22 +1274,53 @@ export class PythonProgram extends AbstractProgram {
     ): Parser.Node | undefined => {
       const argsNode = callNode.childForFieldName("arguments");
       if (!argsNode) return undefined;
-      let currentPos = 0;
-      for (const child of argsNode.namedChildren) {
-        if (child.type === "keyword_argument") {
-          // Find by name
-          const kwdName = child.childForFieldName("name")?.text;
-          if (kwdName === name) {
-            return child.childForFieldName("value") ?? undefined;
-          }
-        } else {
-          // Find by position
-          if (currentPos === pos) {
-            return child;
-          }
-          currentPos++;
+
+      // 1. Look for a named keyword argument (e.g., min_size=5)
+      const kwdNode = argsNode.namedChildren.find(
+        (child) =>
+          child.type === "keyword_argument" &&
+          child.childForFieldName("name")?.text === name
+      );
+      if (kwdNode) {
+        return resolveReference(
+          kwdNode.childForFieldName("value") ?? undefined
+        );
+      }
+
+      // 2. Fallback: look for a positional argument at index `pos`
+      if (pos >= 0) {
+        const isPositionalArg = (node: Parser.Node): boolean =>
+          [
+            "identifier",
+            "integer",
+            "float",
+            "string",
+            "true",
+            "false",
+            "none",
+            "call",
+            "attribute",
+            "subscript",
+            "list",
+            "tuple",
+            "dictionary",
+            "set",
+            "binary_operator",
+            "unary_operator",
+            "boolean_operator",
+            "comparison_operator",
+            "parenthesized_expression",
+            "lambda",
+            "list_splat",
+            "dictionary_splat",
+          ].includes(node.type);
+
+        const positionalArgs = argsNode.namedChildren.filter(isPositionalArg);
+        if (pos < positionalArgs.length) {
+          return resolveReference(positionalArgs[pos]);
         }
       }
+
       return undefined;
     };
 
@@ -1056,6 +1329,12 @@ export class PythonProgram extends AbstractProgram {
       if (!valNode) return undefined;
       if (valNode.type === "integer" || valNode.type === "float") {
         return Number(valNode.text.replace(/_/g, ""));
+      }
+      if (valNode.type === "unary_operator") {
+        const operand = parseLiteral(valNode.lastNamedChild ?? undefined);
+        if (typeof operand === "number") {
+          return valNode.text.startsWith("-") ? -operand : operand;
+        }
       }
       if (valNode.type === "true") return true;
       if (valNode.type === "false") return false;
@@ -1101,6 +1380,35 @@ export class PythonProgram extends AbstractProgram {
         break;
       }
 
+      case "from_regex": {
+        const parsedRegex = parseLiteral(getKwdArg(node, "regex", 0));
+        const alphabet = parseLiteral(getKwdArg(node, "alphabet", 2));
+        const fullmatch = parseLiteral(getKwdArg(node, "fullmatch", 1));
+        if (typeof parsedRegex !== "string") {
+          console.warn(
+            `Unsupported or unrecognized 'from_regex' regex value. Is it compiled?'.`
+          );
+          return undefined;
+        }
+        let regex = parsedRegex;
+        if (fullmatch === true) {
+          if (!regex.startsWith("\\A")) regex = `\\A${regex}`;
+          if (!regex.endsWith("\\Z")) regex = `${regex}\\Z`;
+        }
+
+        thisType.type = {
+          type: ArgTag.STRING,
+          dims: 0,
+          children: [],
+          options: {
+            strRegex: regex,
+            ...(alphabet === undefined ? {} : { strCharset: String(alphabet) }),
+          },
+          resolved: true,
+        };
+        break;
+      }
+
       case "integers": {
         const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
         const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));
@@ -1130,18 +1438,15 @@ export class PythonProgram extends AbstractProgram {
       }
 
       case "floats": {
-        [
-          "allow_nan",
-          "allow_infinity",
-          "allow_subnormal",
-          "width",
-          "exclude_min",
-          "exclude_max",
-        ].forEach((kwd) => {
-          if (getKwdArg(node, kwd, -1)) {
-            console.warn(`The '${kwd}' property is not yet supported.`);
+        // Note: we ignore "allow_nan" and "allow_infinity" because\
+        //       we don't presently generate those values
+        ["allow_subnormal", "width", "exclude_min", "exclude_max"].forEach(
+          (kwd) => {
+            if (getKwdArg(node, kwd, -1)) {
+              console.warn(`The '${kwd}' property is not yet supported.`);
+            }
           }
-        });
+        );
 
         const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
         const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));
@@ -1204,7 +1509,7 @@ export class PythonProgram extends AbstractProgram {
           };
         } else {
           console.warn(
-            `Unsupported literal in 'sampled_from': ${JSONN.stringify(lit)}.`
+            `Unsupported literal in '${funcName}': ${lit === undefined ? "undefined" : JSONN.stringify(lit)}.`
           );
         }
         break;
@@ -1212,7 +1517,7 @@ export class PythonProgram extends AbstractProgram {
 
       case "sets":
       case "lists": {
-        ["unique", "unique_by"].forEach((kwd) => {
+        ["unique_by"].forEach((kwd) => {
           if (getKwdArg(node, kwd, -1)) {
             console.warn(`The '${kwd}' property is not yet supported.`);
           }
@@ -1220,12 +1525,13 @@ export class PythonProgram extends AbstractProgram {
 
         const elementsArg = getKwdArg(node, "elements", 0);
         let innerTypeRef: TypeRef | undefined;
-        if (elementsArg && elementsArg.type === "call") {
+        if (
+          elementsArg &&
+          (elementsArg.type === "call" || elementsArg.type === "identifier")
+        ) {
           innerTypeRef = this._getTypeRefFromStrategy(elementsArg);
-          if (innerTypeRef === undefined) {
-            return undefined;
-          }
-        } else {
+        }
+        if (innerTypeRef === undefined) {
           // Fallback if elements is a type class like int, str, etc.
           innerTypeRef = {
             module: this._filename,
@@ -1260,6 +1566,12 @@ export class PythonProgram extends AbstractProgram {
         if (innerResolvedType.options.dimLength === undefined) {
           innerResolvedType.options.dimLength = [];
         }
+        const dimsUnique = parseLiteral(getKwdArg(node, "unique", -1));
+        if (typeof dimsUnique === "boolean") {
+          innerResolvedType.options.dimsUnique = dimsUnique;
+        } else if (funcName === "sets") {
+          innerResolvedType.options.dimsUnique = true;
+        }
         innerResolvedType.options.dimLength.push({
           min: Number(minSize ?? dftInterval.min),
           max: Number(maxSize ?? dftInterval.max),
@@ -1283,7 +1595,10 @@ export class PythonProgram extends AbstractProgram {
           for (const argNode of argsNode.namedChildren) {
             // Check if the argument is another hypothesis strategy call
             const childTypeRef = this._getTypeRefFromStrategy(argNode);
-            if (childTypeRef && argNode.type === "call") {
+            if (
+              childTypeRef &&
+              (argNode.type === "call" || argNode.type === "identifier")
+            ) {
               children.push(childTypeRef);
             } else {
               return undefined;
@@ -1302,39 +1617,105 @@ export class PythonProgram extends AbstractProgram {
 
       case "sampled_from": {
         const argsNode = node.childForFieldName("arguments");
-        const listArg = argsNode?.namedChildren[0];
-        const literalValues: ArgType[] = [];
+        const listArg = resolveReference(argsNode?.namedChildren[0]);
+        const sampledTypes: TypeRef[] = [];
+
+        const getSampledType = (
+          valueNode: Parser.Node
+        ): TypeRef | undefined => {
+          if (valueNode.type === "call" || valueNode.type === "identifier") {
+            const strategyTypeRef = this._getTypeRefFromStrategy(valueNode);
+            if (strategyTypeRef) {
+              return strategyTypeRef;
+            }
+          }
+
+          const literalValue = parseLiteral(valueNode);
+          if (isArgType(literalValue)) {
+            return {
+              module: this._filename,
+              dims: 0,
+              optional: false,
+              isExported: false,
+              type: {
+                type: ArgTag.LITERAL,
+                dims: 0,
+                children: [],
+                value: literalValue,
+                resolved: true,
+              },
+            };
+          }
+          if (valueNode.type === "tuple") {
+            const children = valueNode.namedChildren.map(getSampledType);
+            if (
+              children.every((child): child is TypeRef => child !== undefined)
+            ) {
+              return {
+                module: this._filename,
+                dims: 0,
+                optional: false,
+                isExported: false,
+                type: {
+                  type: ArgTag.TUPLE,
+                  dims: 0,
+                  children,
+                  resolved: true,
+                },
+              };
+            }
+          }
+          if (valueNode.type === "dictionary") {
+            const children: TypeRef[] = [];
+            for (const pair of valueNode.namedChildren) {
+              if (pair.type !== "pair") return undefined;
+              const key = parseLiteral(
+                pair.childForFieldName("key") ?? undefined
+              );
+              const value = pair.childForFieldName("value");
+              const child = value ? getSampledType(value) : undefined;
+              if (typeof key !== "string" || child === undefined) {
+                return undefined;
+              }
+              child.name = key;
+              children.push(child);
+            }
+            return {
+              module: this._filename,
+              dims: 0,
+              optional: false,
+              isExported: false,
+              type: {
+                type: ArgTag.OBJECT,
+                dims: 0,
+                children,
+                resolved: true,
+              },
+            };
+          }
+          return undefined;
+        };
 
         if (listArg && (listArg.type === "list" || listArg.type === "tuple")) {
           for (const item of listArg.namedChildren) {
-            const lit = parseLiteral(item);
-            if (isArgType(lit)) {
-              literalValues.push(lit);
+            const sampledType = getSampledType(item);
+            if (sampledType !== undefined) {
+              sampledTypes.push(sampledType);
             } else {
-              console.warn(
-                `Unsupported literal in 'sampled_from': ${JSONN.stringify(lit)}.`
-              );
+              console.warn(`Unsupported value in '${funcName}': ${item.text}.`);
             }
           }
         }
 
-        // Represent sampled_from as a UNION of LITERALs
+        if (sampledTypes.length === 1) {
+          return sampledTypes[0];
+        }
+
+        // Represent multiple sampled values as a union.
         thisType.type = {
           type: ArgTag.UNION,
           dims: 0,
-          children: literalValues.map((val) => ({
-            module: this._filename,
-            dims: 0,
-            optional: false,
-            isExported: false,
-            type: {
-              type: ArgTag.LITERAL,
-              dims: 0,
-              children: [],
-              value: val,
-              resolved: true,
-            },
-          })),
+          children: sampledTypes,
           resolved: true,
         };
         break;
@@ -1367,7 +1748,12 @@ export class PythonProgram extends AbstractProgram {
 
             let fieldTypeRef: TypeRef | undefined =
               this._getTypeRefFromStrategy(valueNode);
-            if (!(fieldTypeRef && valueNode.type === "call")) {
+            if (
+              !(
+                fieldTypeRef &&
+                (valueNode.type === "call" || valueNode.type === "identifier")
+              )
+            ) {
               fieldTypeRef = {
                 module: this._filename,
                 dims: 0,
@@ -1424,12 +1810,19 @@ export class PythonProgram extends AbstractProgram {
         if (argsNode) {
           for (const argNode of argsNode.namedChildren) {
             const child = this._getTypeRefFromStrategy(argNode);
-            if (child && argNode.type === "call") {
+            if (
+              child &&
+              (argNode.type === "call" || argNode.type === "identifier")
+            ) {
               children.push(child);
             } else {
               return undefined;
             }
           }
+        }
+
+        if (children.length === 1) {
+          return children[0];
         }
 
         thisType.type = {
@@ -1500,9 +1893,7 @@ export class PythonProgram extends AbstractProgram {
       `
 (assignment
   left: (identifier) @function.name
-  right: (lambda
-    parameters: (lambda_parameters)? @function.params
-    body: (_)) @function.def)
+  right: (lambda) @function.def)
 `
     );
     const lambdaMatches = lambdaQuery.matches(this._ast.rootNode);
@@ -1541,6 +1932,52 @@ export class PythonProgram extends AbstractProgram {
    */
   protected _findDefaultTypeExport(): TypeRef | undefined {
     return undefined;
+  }
+
+  /**
+   * Determines whether a function body lacks return statements or
+   * if all return statements return None or no data.
+   *
+   * @param `node` AST node of function
+   * @returns `true` if implicitly `void`; false, otherwise
+   */
+  protected static _isFunctionBodyVoid(node: Parser.SyntaxNode): boolean {
+    const returnStatements: Parser.SyntaxNode[] = [];
+
+    const collectReturns = (node: Parser.SyntaxNode) => {
+      // Ignore nested functions and lambdas
+      if (node.type === "function_definition" || node.type === "lambda") {
+        return;
+      }
+      if (node.type === "return_statement") {
+        returnStatements.push(node);
+      }
+      for (const child of node.children) {
+        collectReturns(child);
+      }
+    };
+
+    collectReturns(node);
+
+    // No return statements -> void
+    if (returnStatements.length === 0) {
+      return true;
+    }
+
+    // Check if ALL return statements return nothing or `None`
+    for (const ret of returnStatements) {
+      const namedChildren = ret.namedChildren;
+      if (namedChildren.length > 0) {
+        const expr = namedChildren[0];
+        // If any return statement returns something other than 'none', it is not void
+        if (expr.type !== "none") {
+          return false;
+        }
+      }
+    }
+
+    // No return statements with a value found
+    return true;
   }
 
   public resolveTypeRef(typeRef: TypeRef): TypeRef {
@@ -1746,6 +2183,30 @@ export class PythonProgram extends AbstractProgram {
     arg: ArgDef,
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
+    const typeRef = arg.getTypeRef();
+    if (typeRef && options.useTypeRefs) {
+      const outerDims = arg.getTypeRefDims() ?? 0;
+      let type = `${"List[".repeat(outerDims)}${typeRef}${"]".repeat(outerDims)}`;
+      if (
+        arg.isOptional() &&
+        !(
+          arg.getType() === ArgTag.UNION &&
+          arg.getDim() === 0 &&
+          arg
+            .getChildren()
+            .some(
+              (child) =>
+                child.getType() === ArgTag.LITERAL &&
+                child.isConstant() &&
+                child.getConstantValue() === undefined
+            )
+        )
+      ) {
+        type = `Union[${type}, None]`;
+      }
+      return type;
+    }
+
     // Get the base type annotation
     const baseType = PythonProgram.getBaseType(arg, options);
     const dims = arg.getDim();

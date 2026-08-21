@@ -402,8 +402,8 @@ export class TypescriptCompiler {
 
       options.emitOnError ? "" : "--noEmitOnError",
 
-      //"--rootDir",
-      //process.cwd(),
+      "--rootDir",
+      path.parse(module.filename).root,
 
       "--target",
       options.target ? options.target : "ES2022",
@@ -412,7 +412,7 @@ export class TypescriptCompiler {
       options.moduleKind ? options.moduleKind : "",
 
       "--outDir",
-      path.dirname(jsname),
+      options.tmpDir,
 
       "--baseUrl",
       options.baseUrl,

@@ -39,6 +39,7 @@ const gridTypes = [
   "timeout",
   "badValue",
   "ok",
+  "skip",
 ] as const;
 
 // Column name labels
@@ -88,6 +89,7 @@ const defaultColumnSortOrders: FuzzSortColumns = {
   badValue: getDefaultColumnSortOrder(),
   ok: getDefaultColumnSortOrder(),
   disagree: getDefaultColumnSortOrder(),
+  skip: {}, // no pinned column
 };
 
 // Column sort orders (filled by main or handleColumnSort())
@@ -104,6 +106,7 @@ const data: Record<FuzzResultCategory, any[]> = {
   exception: [],
   disagree: [],
   failure: [],
+  skip: [],
 };
 // Validator functions (filled by main during load event)
 let validators: string[];
@@ -261,6 +264,12 @@ async function main() {
     handleGetListOfValidators
   );
 
+  // Add event listener for the transformer button
+  getElementByIdOrThrow("transformer.add").addEventListener(
+    "click",
+    handleAddTransformer
+  );
+
   // Add event listeners for the pause button
   getElementByIdOrThrow("fuzz.pause").addEventListener("click", () => {
     const message: FuzzPanelMessageFromWebView = { command: "fuzz.pause" };
@@ -405,6 +414,15 @@ async function main() {
   );
   refreshValidators(validators);
 
+  // Load & display the transformer state from the HTML
+  const transformersElem = document.getElementById("transformers");
+  if (transformersElem) {
+    const transformersList: string[] = JSONN.parse(
+      htmlUnescape(transformersElem.innerHTML)
+    );
+    refreshTransformers(transformersList);
+  }
+
   // Load column sort orders from the HTML
   columnSortOrders = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
@@ -412,6 +430,12 @@ async function main() {
   if (Object.keys(columnSortOrders).length === 0) {
     columnSortOrders = defaultColumnSortOrders;
   }
+  // Ensure all grid types are present in columnSortOrders to prevent runtime exceptions on new categories
+  gridTypes.forEach((type) => {
+    if (columnSortOrders[type] === undefined) {
+      columnSortOrders[type] = { ...defaultColumnSortOrders[type] };
+    }
+  });
 
   // Load the coverage heatmap state from the HTML
   if (getElementByIdOrThrow("fuzzShowCoverageHeatmap").innerText === "true") {
@@ -424,6 +448,9 @@ async function main() {
     switch (data.command) {
       case "validator.list":
         refreshValidators(data.validators);
+        break;
+      case "transformer.list":
+        refreshTransformers(data.transformers);
         break;
       case "config.updated": {
         getElementByIdOrThrow("llm-model").innerText =
@@ -629,14 +656,17 @@ async function main() {
       if (e.timeout) {
         outputs[`output`] = "(timeout)";
       }
+      if (e.skipped) {
+        outputs[`output`] = e.skipReason ?? "(none provided)";
+      }
 
       // Toss each result into the appropriate grid
-      if (e.category === "failure") {
+      if (e.category === "failure" || e.category === "skip") {
         data[e.category].push({
           ...id,
           ...src,
           ...inputs,
-          ...outputs, // Exception message contained in outputs
+          ...outputs, // message contained in outputs
         });
       } else {
         data[e.category].push({
@@ -644,10 +674,8 @@ async function main() {
           ...src,
           ...inputs,
           ...outputs,
-          //...elapsedTimes,
           ...passedImplicit,
           ...passedValidator,
-          // ...allValidators,
           ...validatorFns,
           ...passedHuman,
           ...pinned,
@@ -812,7 +840,11 @@ async function main() {
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             const label =
-              type === "failure" && k === "output" ? "exception" : k;
+              type === "failure" && k === "output"
+                ? "exception"
+                : type === "skip" && k === "output"
+                  ? "reason"
+                  : k;
             cell.id = type + "-" + k;
             cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
             cell.innerHTML = `<strong>${htmlEscape(label)}</strong>`;
@@ -2232,6 +2264,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
       useImplicit: getBooleanValue("useImplicit"),
       useHuman: true, // always active
       useProperty: getBooleanValue("useProperty"),
+      useTransformer: getBooleanValue("useTransformer"),
       measures: {
         CoverageMeasure: {
           enabled:
@@ -2294,6 +2327,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const minStrLen = document.getElementById(idBase + "-minStrLen");
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
+    const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
 
     // Process numeric overrides
@@ -2321,10 +2355,16 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
 
     // Process string overrides
     if (minStrLen && maxStrLen && strCharset) {
-      disableArr.push(minStrLen, maxStrLen);
+      disableArr.push(
+        minStrLen,
+        maxStrLen,
+        strCharset,
+        ...(strRegex ? [strRegex] : [])
+      );
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
       const strCharsetVal = strCharset.getAttribute("current-value");
+      const strRegexVal = strRegex?.getAttribute("current-value");
       if (
         minStrLenVal !== null &&
         maxStrLenVal !== null &&
@@ -2337,6 +2377,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           ),
           maxStrLen: Math.max(Number(minStrLenVal), Number(maxStrLenVal), 0),
           strCharset: strCharsetVal,
+          strRegex: strRegexVal === "" ? undefined : (strRegexVal ?? undefined),
         };
       }
     } // TODO: Validation !!!
@@ -2351,13 +2392,15 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
 
     // Process array dimension overrides
     const dimLength = [];
+    let dimsUnique = false;
     let dim = 0;
     let arrayBase = `${idBase}-array-${dim}`;
     while (document.getElementById(`${arrayBase}-min`) !== null) {
       const min = document.getElementById(`${arrayBase}-min`);
       const max = document.getElementById(`${arrayBase}-max`);
+      const unique = document.getElementById(`${arrayBase}-unique`);
       if (min !== null && max !== null) {
-        disableArr.push(min, max);
+        disableArr.push(min, max, ...(unique ? [unique] : []));
         const minVal = min.getAttribute("current-value");
         const maxVal = max.getAttribute("current-value");
         if (minVal !== null && maxVal !== null) {
@@ -2367,11 +2410,17 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           });
         }
       }
+      if (dim === 0 && unique !== null) {
+        dimsUnique =
+          unique.getAttribute("current-checked") === "true" ||
+          ("checked" in unique && unique.checked === true);
+      }
       arrayBase = `${idBase}-array-${++dim}`;
     }
     if (dimLength.length > 0) {
       thisOverride.array = {
         dimLength: dimLength,
+        dimsUnique: dimsUnique,
       };
     }
   }
@@ -2401,6 +2450,22 @@ function refreshValidators(validatorList: string[]) {
 } // fn: refreshValidators
 
 /**
+ * Refreshes the displayed state for input transformers based on a list of
+ * transformer names provided from the back-end.
+ *
+ * @param transformerList list of available input transformer names
+ */
+function refreshTransformers(transformerList: string[]) {
+  const btn = document.getElementById("transformer.add");
+  if (btn) {
+    btn.innerText =
+      transformerList.length > 0
+        ? "Show Input Transformer"
+        : "Create Input Transformer";
+  }
+} // fn: refreshTransformers
+
+/**
  * Send message to back-end to add code skeleton to source code (because the
  * user clicked the customValidator button)
  */
@@ -2410,6 +2475,16 @@ function handleAddValidator() {
   };
   vscode.postMessage(message);
 } // fn: handleAddValidator()
+
+/**
+ * Send message to back-end to add input transformer code skeleton
+ */
+function handleAddTransformer() {
+  vscode.postMessage({
+    command: "transformer.add",
+    json: JSONN.stringify(""),
+  });
+} // fn: handleAddTransformer()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the

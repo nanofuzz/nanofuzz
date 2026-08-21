@@ -60,6 +60,20 @@ export class Leaderboard<T> {
   } // property: get slots
 
   /**
+   * Returns the initial focus for new leaders
+   */
+  public get initialFocus(): number {
+    return this._initialFocus;
+  } // property: get initialFocus
+
+  /**
+   * Returns the focus decay rate
+   */
+  public get focusDecay(): number {
+    return this._focusDecay;
+  } // property: get focusDecay
+
+  /**
    * Updates the leaderboard's minimum score and the leaderboard
    * position with that minimum score.
    */

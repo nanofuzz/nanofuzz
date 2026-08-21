@@ -86,6 +86,7 @@ export type ArgType =
   | number
   | string
   | boolean
+  | null
   | {
       [key: string]: ArgType;
     };
@@ -113,6 +114,7 @@ export type ArgValueType =
       [key: string]: ArgValueType;
     }
   | ArgValueType[]
+  | null
   | undefined;
 export type ArgValueTypeWrapped = {
   tag: "ArgValueTypeWrapped"; // otherwise looks identical to FuzzIoElement
@@ -128,6 +130,7 @@ export type ArgOptions = {
   // For type string
   strCharset: string; // string representing the characters allowed in the input
   strLength: Interval<number>; // length of characters allowed in the input
+  strRegex: string | undefined; // regular expression the input must match
 
   // For type number
   numInteger: boolean; // true if the numeric argument input is an integer
@@ -141,6 +144,7 @@ export type ArgOptions = {
   // for number[][]: dimLength[0] = length of 1st dimension
   // and dimLength[1] = length of 2nd dimension.
   dftDimLength: Interval<number>; // Length of any dimension not specified in dimLength.
+  dimsUnique: boolean; // true = generated dimension values must be unique.
 
   // For members of a union, suppress input generation
   isNoInput?: boolean; // true=do not generate inputs (unions only)
@@ -160,8 +164,10 @@ export type ArgOptionOverride = {
   numInteger?: boolean;
   numIntervals?: Interval<number>[];
   dimLength?: Interval<number>[];
+  dimsUnique?: boolean;
   strLength?: Interval<number>;
   strCharset?: string;
+  strRegex?: string;
   children?: ArgOptionOverrides;
   isNoInput?: boolean;
 };

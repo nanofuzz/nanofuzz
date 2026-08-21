@@ -78,6 +78,16 @@ export class JavascriptRunner extends AbstractRunner {
           },
           env: {},
         });
+      } else if (isUnsatisfiedAssumption(e)) {
+        return Promise.resolve({
+          result: {
+            tag: "skip",
+            name: e.name,
+            message: e.message,
+            seq: thisSeq,
+          },
+          env: {},
+        });
       } else {
         if (isError(e)) {
           return Promise.resolve({
@@ -160,10 +170,22 @@ export class JavascriptRunner extends AbstractRunner {
  * @param error exception
  * @returns true if the exeception is a timeout exception, false otherwise
  */
-function isTimeoutError(error: unknown): boolean {
+function isTimeoutError(error: unknown): error is Error {
   return (
     isError(error) &&
     "code" in error &&
     error.code === "ERR_SCRIPT_EXECUTION_TIMEOUT"
   );
 } // fn: isTimeoutError()
+
+/**
+ * Returns true if the exception is an unsatisfied assumption.
+ *
+ * @param `error` exception
+ * @returns `true` if the exception is an unsatisfied assumption, `false` otherwise
+ */
+function isUnsatisfiedAssumption(error: unknown): error is Error {
+  return (
+    isError(error) && "name" in error && error.name === "UnsatisfiedAssumption"
+  );
+} // fn: isUnsatisfiedAssumption()

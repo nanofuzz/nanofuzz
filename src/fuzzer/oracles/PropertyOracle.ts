@@ -37,6 +37,11 @@ export class PropertyOracle {
               name: `PropertyValidatorTimeout`,
               message: `property validator "${runner.name} timed out`,
             };
+          case "skip":
+            return {
+              name: `UnsatisfiedAssumption`,
+              message: `property validator "${runner.name} assumption unsatisfied`,
+            };
           case "value":
             switch (vOut.result.value) {
               case true: // v0.3

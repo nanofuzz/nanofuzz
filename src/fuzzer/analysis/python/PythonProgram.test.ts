@@ -95,6 +95,23 @@ def greeting(name: a) -> a:
     expect(PythonProgram.getTypeAnnotation(args[0])).toEqual("a");
   });
 
+  it("getTypeAnnotation for type-aliased list types", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `from typing import List
+type MyInt = int
+type MyList = List[int]
+def test_aliases(x: MyInt, y: List[MyInt], z: MyList):
+  pass`,
+      "python"
+    ).functionsExported;
+
+    const args = fns["test_aliases"].getArgDefs();
+    expect(args.length).toEqual(3);
+    expect(PythonProgram.getTypeAnnotation(args[0])).toEqual("MyInt");
+    expect(PythonProgram.getTypeAnnotation(args[1])).toEqual("List[MyInt]");
+    expect(PythonProgram.getTypeAnnotation(args[2])).toEqual("MyList");
+  });
+
   it("extracts Python function docstrings", () => {
     const functions = ProgramFactory.fromSource(
       () => `def plain():
@@ -201,6 +218,15 @@ type MixedColumn = list[int | str]`,
     ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
   });
 
+  it("collapses singleton annotation unions", () => {
+    const types = ProgramFactory.fromSource(
+      () => "type MaybeCount = Optional[int]",
+      "python"
+    ).types;
+
+    expect(types["MaybeCount"].type?.type).toEqual(ArgTag.NUMBER);
+  });
+
   it("extracts TypedDict annotations as fixed objects", () => {
     const types = ProgramFactory.fromSource(
       () => `class Player(TypedDict):
@@ -238,6 +264,11 @@ type MixedColumn = list[int | str]`,
     expect(types["Settings"].type?.children[0].type?.type).toEqual(
       ArgTag.UNION
     );
+    expect(
+      types["Settings"].type?.children[0].type?.children.map(
+        (child) => child.type?.type
+      )
+    ).toEqual([ArgTag.NUMBER, ArgTag.LITERAL]);
     expect(types["Settings"].type?.children[1].type?.type).toEqual(
       ArgTag.TUPLE
     );
@@ -460,7 +491,7 @@ from .schemas import *`,
         bfs
           .getArgDefs()
           .map((argument) => PythonProgram.getTypeAnnotation(argument))
-      ).toEqual(["Vertex", "List[ImportedEdges]"]);
+      ).toEqual(["Vertex", "ImportedEdges"]);
       expect(bfs.getReturnType()).toEqual(
         jasmine.objectContaining({ typeRefName: "Traversal" })
       );
@@ -472,14 +503,14 @@ from .schemas import *`,
       expect(topological.getArgDefs()[0].getType()).toEqual(ArgTag.NUMBER);
       expect(
         PythonProgram.getTypeAnnotation(topological.getArgDefs()[1])
-      ).toEqual("List[ImportedEdges]");
+      ).toEqual("ImportedEdges");
 
       const knapsack = functions["knapsack_from_imported_helper"];
       expect(
         knapsack.getArgDefs().map((argument) => argument.getName())
       ).toEqual(["items", "capacity"]);
       expect(PythonProgram.getTypeAnnotation(knapsack.getArgDefs()[0])).toEqual(
-        "List[List[KnapsackItems]]"
+        "KnapsackItems"
       );
       expect(knapsack.getArgDefs()[1].getType()).toEqual(ArgTag.NUMBER);
 
@@ -642,6 +673,22 @@ from .schemas import *`,
     ]);
     expect(args.map((arg) => arg.getDim())).toEqual([0, 0, 0, 0, 1]);
     expect(fn.isVoid()).toBeTrue();
+  });
+
+  it("rejects unannotated default parameters", () => {
+    spyOn(console, "debug");
+    const program = new InspectablePythonProgram(
+      () => `def x(y=22000):
+    print("hi")`,
+      "default_parameter.py"
+    );
+
+    expect(program.functionsExported["x"]).toBeUndefined();
+    expect(program.unsupportedFunctions["x"]).toEqual(
+      jasmine.objectContaining({
+        reason: jasmine.stringMatching("Missing type annotation"),
+      })
+    );
   });
 
   it("keeps PEP 604 union members as function argument children", () => {
@@ -816,14 +863,8 @@ def func(tdclass: TypedDictClass, tdFunc: TypedDictFunc):
       program.types["TypedDictClass"]
     );
   });
-});
 
-describe("hypothesis @given: ", () => {
-  beforeAll(async () => {
-    await Parser.init();
-  });
-
-  it("primitives and strings with options", () => {
+  it("hypothesis @given primitives with options", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -856,12 +897,39 @@ def test_example(trigger, dep, trigger_val):
     expect(args[2].getIntervals()).toEqual([{ min: 0, max: 100 }]);
   });
 
-  it("positional arguments", () => {
+  it("maps Hypothesis from_regex to the string regex option", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+PATTERN = r"[a-zA-Z_][a-zA-Z0-9_]{0,4}"
+FULLMATCH = False
+
+@given(
+    inline=st.from_regex(r"[a-z]+", fullmatch=True),
+    referenced=st.from_regex(PATTERN, alphabet="super"),
+  partial=st.from_regex(r"[0-9]+", fullmatch=FULLMATCH),
+  anchored=st.from_regex(r"\\A[a-z_]\\Z", fullmatch=True)
+)
+def test_regex(inline, referenced, partial, anchored):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_regex"];
+
+    expect(fn.getArgDefs().map((arg) => arg.getOptions().strRegex)).toEqual([
+      "\\A[a-z]+\\Z",
+      "[a-zA-Z_][a-zA-Z0-9_]{0,4}",
+      "[0-9]+",
+      "\\A[a-z_]\\Z",
+    ]);
+    expect(fn.getArgDefs()[1].getOptions().strCharset).toEqual("super");
+  });
+
+  it("hypothesis @given positional arguments", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
-    year=st.integers(2000, 2030),
-    month=st.integers(1, 12)
+    st.integers(2000, 2030),
+    st.integers(1, 12)
 )
 def test_dates(year, month):
     pass
@@ -874,7 +942,25 @@ def test_dates(year, month):
     expect(args[1].getIntervals()).toEqual([{ min: 1, max: 12 }]);
   });
 
-  it("nested lists and fixed_dictionaries", () => {
+  it("hypothesis @given negative numeric values", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    integer=st.integers(min_value=-10, max_value=200),
+    decimal=st.floats(min_value=-1.5, max_value=2.5)
+)
+def test_bounds(integer, decimal):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_bounds"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getIntervals()).toEqual([{ min: -10, max: 200 }]);
+    expect(args[1].getIntervals()).toEqual([{ min: -1.5, max: 2.5 }]);
+  });
+
+  it("hypothesis @given nested lists and fixed_dictionaries", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -911,7 +997,32 @@ def test_nested(complex_data):
     expect(tagsField?.getDim()).toEqual(1); // st.lists(st.text()) nested inside dict
   });
 
-  it("sampled_from", () => {
+  it("maps Hypothesis list uniqueness to ArgDef option", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+USE_UNIQUE_VALUES = True
+
+@given(
+    unique_values=st.lists(st.one_of(st.integers(), st.text()), unique=True),
+    duplicate_values=st.lists(st.integers(), unique=False),
+    unconstrained_values=st.lists(st.integers()),
+    referenced_unique_values=st.lists(st.integers(), unique=USE_UNIQUE_VALUES)
+)
+def test_lists(unique_values, duplicate_values, unconstrained_values, referenced_unique_values):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_lists"];
+
+    expect(fn.getArgDefs().map((arg) => arg.getOptions().dimsUnique)).toEqual([
+      true,
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  it("hypothesis @given sampled_from", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -935,7 +1046,72 @@ def test_sampled(status):
     ).toBeTrue();
   });
 
-  it("fixed_dictionaries with optional keys", () => {
+  it("hypothesis @given sampled_from module-level constants", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+_KEYWORDS = ["if", "else", "while", "return", "def", "class"]
+
+@settings(max_examples=500, deadline=None)
+@given(kw=st.sampled_from(_KEYWORDS))
+def test_terminal_priority_keyword_wins(kw):
+    print("test")
+        `,
+      "python"
+    ).functionsExported["test_terminal_priority_keyword_wins"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.UNION);
+    expect(arg.getChildren().map((child) => child.getConstantValue())).toEqual([
+      "if",
+      "else",
+      "while",
+      "return",
+      "def",
+      "class",
+    ]);
+  });
+
+  it("hypothesis @given sampled_from tuples", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(st.sampled_from([("input", "disabled")]))
+def test_sampled_tuple(elem_attr):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_sampled_tuple"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.TUPLE);
+    expect(arg.getChildren().map((child) => child.getConstantValue())).toEqual([
+      "input",
+      "disabled",
+    ]);
+  });
+
+  it("hypothesis @given sampled_from dictionaries", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(st.sampled_from([{"mode": "disabled", "retry": 0}]))
+def test_sampled_dictionary(config):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_sampled_dictionary"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getType()).toEqual(ArgTag.OBJECT);
+    expect(arg.getChildren().map((child) => child.getName())).toEqual([
+      "mode",
+      "retry",
+    ]);
+    expect(arg.getChildren().map((child) => child.getConstantValue())).toEqual([
+      "disabled",
+      0,
+    ]);
+  });
+
+  it("hypothesis @given fixed_dictionaries with optional keys", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -961,7 +1137,7 @@ def test_optional_dict(payload):
     expect(optField?.isOptional()).toBeTrue();
   });
 
-  it("@givens take precedence over native type annotations", () => {
+  it("hypothesis @given takes precedence over native type annotations", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -977,5 +1153,290 @@ def test_precedence(val: float):
     expect(arg.getType()).toEqual(ArgTag.NUMBER);
     expect(arg.getOptions().numInteger).toBeTrue();
     expect(arg.getIntervals()).toEqual([{ min: 50, max: 60 }]);
+  });
+
+  it("hypothesis @given follows references to strategy defs", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+values_st = st.one_of(
+    st.integers(min_value=-1000, max_value=1000),
+    st.text(alphabet="abcdef", min_size=1, max_size=10),
+)
+
+keys_st = st.text(alphabet="abcdefghij", min_size=1, max_size=5)
+
+@settings(max_examples=200, deadline=None)
+@given(
+    key=keys_st,
+    old_value=values_st,
+    new_value=values_st,
+)
+def test_add_overwrites_boundary_expired_item(key, old_value, new_value):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_add_overwrites_boundary_expired_item"];
+
+    const args = fn.getArgDefs();
+    expect(args.length).toEqual(3);
+
+    // key=keys_st
+    expect(args[0].getName()).toEqual("key");
+    expect(args[0].getType()).toEqual(ArgTag.STRING);
+    expect(args[0].getOptions().strCharset).toEqual("abcdefghij");
+    expect(args[0].getOptions().strLength).toEqual({ min: 1, max: 5 });
+
+    // old_value=values_st
+    expect(args[1].getName()).toEqual("old_value");
+    expect(args[1].getType()).toEqual(ArgTag.UNION);
+    const oldChildren = args[1].getChildren();
+    expect(oldChildren.length).toEqual(2);
+    expect(oldChildren[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(oldChildren[0].getIntervals()).toEqual([{ min: -1000, max: 1000 }]);
+    expect(oldChildren[1].getType()).toEqual(ArgTag.STRING);
+    expect(oldChildren[1].getOptions().strCharset).toEqual("abcdef");
+    expect(oldChildren[1].getOptions().strLength).toEqual({ min: 1, max: 10 });
+
+    // new_value=values_st
+    expect(args[2].getName()).toEqual("new_value");
+    expect(args[2].getType()).toEqual(ArgTag.UNION);
+    const newChildren = args[2].getChildren();
+    expect(newChildren.length).toEqual(2);
+    expect(newChildren[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(newChildren[0].getIntervals()).toEqual([{ min: -1000, max: 1000 }]);
+    expect(newChildren[1].getType()).toEqual(ArgTag.STRING);
+    expect(newChildren[1].getOptions().strCharset).toEqual("abcdef");
+    expect(newChildren[1].getOptions().strLength).toEqual({ min: 1, max: 10 });
+  });
+
+  it("@given dimsUnique for st.lists(..., unique=True) and st.sets(...)", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    initial=st.lists(st.integers(min_value=0, max_value=20), min_size=3, max_size=12, unique=True),
+    ops=st.lists(
+        st.tuples(
+            st.sampled_from(['add', 'discard']),
+            st.integers()
+        ), 
+        min_size=1, max_size=8
+    ),
+    unique_set=st.sets(st.integers(min_value=1, max_value=5))
+)
+def test_indexedset_index_invariant_after_discard(initial: list[int], ops: List[Tuple[Literal["add","discard"], int]], unique_set: set[int]):
+    pass
+`,
+      "python"
+    ).functionsExported["test_indexedset_index_invariant_after_discard"];
+
+    const argDefs = fn.getArgDefs();
+    const initialArg = argDefs.find((a) => a.getName() === "initial");
+    const opsArg = argDefs.find((a) => a.getName() === "ops");
+    const setArg = argDefs.find((a) => a.getName() === "unique_set");
+
+    expect(initialArg?.getOptions().dimsUnique).toBeTrue();
+    expect(opsArg?.getOptions().dimsUnique).toBeFalse();
+    expect(setArg?.getOptions().dimsUnique).toBeTrue();
+  });
+
+  it("handles min_size after max_size in st.lists regardless of order or inline comments", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    capacity=st.integers(min_value=2, max_value=4),
+    ops1=st.lists(
+        st.tuples(
+            st.sampled_from(['read','write']),
+            st.integers(min_value=0, max_value=10),
+            st.just(999)
+        ),
+        max_size=7, # len(ops) >= capacity
+        min_size=5,
+    ),
+    ops2=st.lists(
+        st.tuples(
+            st.sampled_from(['read','write']),
+            st.integers(min_value=0, max_value=10),
+            st.just(999)
+        ),
+        max_size=7,
+        min_size=5,
+    ),
+    num_pos=st.integers(0, 10)
+)
+def test_lru_eviction_order_after_reads(capacity: int, ops1: list, ops2: list, num_pos: int):
+    pass
+`,
+      "python"
+    ).functionsExported["test_lru_eviction_order_after_reads"];
+
+    const ops1Arg = fn.getArgDefs().find((a) => a.getName() === "ops1");
+    const ops2Arg = fn.getArgDefs().find((a) => a.getName() === "ops2");
+    const numPosArg = fn.getArgDefs().find((a) => a.getName() === "num_pos");
+    expect(ops1Arg?.getOptions().dimLength).toEqual([{ min: 5, max: 7 }]);
+    expect(ops2Arg?.getOptions().dimLength).toEqual([{ min: 5, max: 7 }]);
+    expect(numPosArg?.getIntervals()).toEqual([{ min: 0, max: 10 }]);
+  });
+
+  it("handles strategies like st.tuples inside st.sampled_from", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    capacity=st.integers(min_value=2, max_value=4),
+    ops=st.lists(
+        st.sampled_from([
+            st.tuples(
+                st.just('read'),
+                st.integers(min_value=0, max_value=10)
+            ),
+            st.tuples(
+                st.just('write'),
+                st.integers(min_value=0, max_value=10),
+                st.just(999)
+            )
+        ]),
+        min_size=5,
+        max_size=7,
+    )
+)
+def test_lru_eviction_order_after_reads(capacity: int, ops: list):
+    pass
+`,
+      "python"
+    ).functionsExported["test_lru_eviction_order_after_reads"];
+
+    const opsArg = fn.getArgDefs().find((a) => a.getName() === "ops");
+    expect(opsArg?.getType()).toBe(ArgTag.UNION);
+    expect(opsArg?.getDim()).toBe(1);
+    expect(opsArg?.getChildren().length).toBe(2);
+  });
+
+  it("isVoid===true for functions lacking return statements", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+def no_return():
+    x = 1
+    y = 2
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["no_return"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===true for functions with empty return statements", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+def bare_return():
+    return
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["bare_return"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===true for functions with only `return None`", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+def return_none():
+    return None
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["return_none"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===true for functions where all branches return no value", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+def multi_none_returns(cond: bool):
+    if cond:
+        return None
+    else:
+        return
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["multi_none_returns"].isVoid()).toBeTrue();
+  });
+
+  it("isVoid===false for functions with return <value>", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `
+def returns_value():
+    return 42
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["returns_value"].isVoid()).toBeFalse();
+  });
+
+  it("isVoid===true for lambdas returning None", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `x=5
+lam_none = lambda: None
+lam_val = lambda: x+1
+`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["lam_none"].isVoid()).toBeTrue();
+    expect(fns["lam_val"].isVoid()).toBeFalse();
+  });
+
+  it("unrolls *args: tuple[...] variadic parameters", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `from typing import Tuple
+def transformer_lowercase(*args: tuple[str, int]):
+    pass
+
+def transformer_capitalized(*args: Tuple[str, float]):
+    pass
+
+def transformer_empty(*args: tuple[()]):
+    pass`,
+      "python"
+    ).functionsExported;
+
+    const lowerArgs = fns["transformer_lowercase"].getArgDefs();
+    expect(
+      lowerArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])
+    ).toEqual([
+      ["args_0", "str"],
+      ["args_1", "int"],
+    ]);
+
+    const capArgs = fns["transformer_capitalized"].getArgDefs();
+    expect(
+      capArgs.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])
+    ).toEqual([
+      ["args_0", "str"],
+      ["args_1", "float"],
+    ]);
+
+    const emptyArgs = fns["transformer_empty"].getArgDefs();
+    expect(emptyArgs.length).toEqual(0);
+  });
+
+  it("unrolls *args: MyTupleAliased variadic parameters", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `type MyTuple = tuple[str, int]
+
+def greeting_transformer(*args: MyTuple):
+    pass`,
+      "python"
+    ).functionsExported;
+
+    const args = fns["greeting_transformer"].getArgDefs();
+    expect(
+      args.map((a) => [a.getName(), PythonProgram.getTypeAnnotation(a)])
+    ).toEqual([
+      ["args_0", "str"],
+      ["args_1", "int"],
+    ]);
   });
 });

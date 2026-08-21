@@ -7,6 +7,7 @@ import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import path from "node:path";
 import { isError } from "../fuzzer/Util";
+import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 
 /**
  * Command line interface for NaNofuzz.
@@ -14,62 +15,80 @@ import { isError } from "../fuzzer/Util";
  * Usage: yarn nanofuzz --help
  *
  * Uses mostly pytest-compatible exitcodes:
- *   - Exit code 0: All tests passed successfully
- *   - Exit code 1: Tests ran but some of the tests failed
+ *   - Exit code 0: Tests ran and all passed successfully
+ *   - Exit code 1: Tests ran and some of the tests failed
  *   - Exit code 2: <not used>
  *   - Exit code 3: Internal error happened while running tests
+ *                  Includes cases where no tests were run
+ *                  (e.g., all inputs generated were skipped)
  *   - Exit code 4: Command line usage error
  *   - Exit code 5: <not used>
  */
+const EXIT_OK = 0;
+const ERROR_TEST_FAILURE = 1;
+const ERROR_INTERNAL = 3;
+const ERROR_USAGE = 4;
+
 Commander.program
   .name("nanofuzz")
   .version(`NaNofuzz ${process.env.NANOFUZZ_VERSION}`)
   .argument(`<filename>`, `The Python or Typescript module to test`)
   .argument(`<function>`, `The entrypoint function to test`)
 
+  // -------------------------- Fuzzer Run Parameters -------------------------- //
+
   .option(
     `--output-file <filename>`,
     `Path and filename to output file for test results (in JSONN format)`
   )
-
   .option(
     `--max-runtime <integer>`,
     `Maximum time in ms NaNofuzz may run (0=no limit)`,
-    parseNonNegIntArg,
+    parseIntArgGeZero,
     3000
   )
   .option(
     `--max-tests <integer>`,
     `Maximum number of tests NaNofuzz may run`,
-    parseNonNegIntArg,
+    parseIntArgGeZero,
     1000
   )
   .option(
     `--max-dupe-inputs <integer>`,
     `Maximum number of sequential duplicate inputs`,
-    parseNonNegIntArg,
+    parseIntArgGeZero,
     1000
   )
   .option(
     `--max-failures <integer>`,
     `Maximum number of test failures (0=no limit)`,
-    parseNonNegIntArg,
+    parseIntArgGeZero,
     0
   )
   .option(
     `--fn-timeout <integer>`,
     `Maximum time in ms allowed for a tested function to run`,
-    parseNonNegIntArg,
+    parseIntArgGeZero,
     200
   )
   .option(`--seed <string>`, `Seed for pseudo-random number generator`, "")
+
+  // ------------------------------- Transformers ------------------------------ //
+
+  .option(`--no-transformer`, `Disable input transformers`)
+
+  // --------------------------------- Oracles --------------------------------- //
 
   .option(`--no-heuristic-oracle`, `Disable heuristic oracle`)
   .option(`--no-property-oracle`, `Disable property oracle`)
   .option(`--no-example-oracle`, `Disable example oracle`)
 
+  // --------------------------------- Measures -------------------------------- //
+
   .option(`--no-coverage-measure`, `Disable code coverage measure`)
   .option(`--no-failed-test-measure`, `Disable failed test measure`)
+
+  // ----------------------------- Input Generators ---------------------------- //
 
   .option(`--no-ai-input-generator`, `Disable AI input generator`)
   .option(`--no-mutation-input-generator`, `Disable mutation input generator`)
@@ -77,6 +96,47 @@ Commander.program
   .option(`--model-provider <string>`, `AI model provider`)
   .option(`--model-name <string>`, `AI model name`)
   .option(`--model-key <string>`, `AI model API key`)
+  .option(
+    `--ai-cache-mode <mode>`,
+    `LLM cache mode (passthrough, record, replay-record, replay-error, replay-passthrough)`,
+    parseAiCacheMode
+  )
+  .option(`--ai-cache-file <path>`, `Path to LLM cache file`)
+
+  // ------------------------ Composite Input Generator ------------------------ //
+
+  .option(
+    `--cig-input-lookback <integer>`,
+    `Lookback window when choosing the next input generator`,
+    parseIntArgGeOne,
+    500
+  )
+  .option(
+    `--cig-input-chunk-size <integer>`,
+    `Inputs to generate before choosing the next input generator`,
+    parseIntArgGeOne,
+    20
+  )
+  .option(
+    `--cig-randomness <float>`,
+    `Chance of choosing the next input generator randomly`,
+    parseFloatArgZeroToOne,
+    0.1
+  )
+  .option(
+    `--cig-input-focus <integer>`,
+    `Extra focus for new interesting inputs`,
+    parseIntArgGeOne,
+    200
+  )
+  .option(
+    `--cig-input-focus-decay <integer>`,
+    `Focus decay as interesting inputs age`,
+    parseIntArgGeZero,
+    1
+  )
+
+  // ------------------------------ System Cleanup ----------------------------- //
 
   .option(
     `--clear-compile-cache`,
@@ -86,7 +146,7 @@ Commander.program
 // Process & validate CLI input
 Commander.program
   .exitOverride((_err: Commander.CommanderError) => {
-    process.exit(4); // command line usage error
+    process.exit(ERROR_USAGE); // command line usage error
   })
   .parse();
 
@@ -102,7 +162,7 @@ try {
     filename = path.resolve(filenameIn);
   } else {
     console.error(`Error: file not found: ${filenameIn}`);
-    process.exit(4); // command line usage error
+    process.exit(ERROR_USAGE); // command line usage error
   }
 }
 
@@ -146,10 +206,11 @@ const updateFn = (payload: FuzzBusyStatusMessage) => {
   lastWasMilestone = payload.channel !== "update";
 };
 
-// Set LLM option overrides
+// Set config options
 for (const key in options) {
   const value = options[key];
   switch (key) {
+    // ai config options
     case "modelProvider":
       Config.override("nanofuzz.ai.provider", value);
       break;
@@ -159,15 +220,39 @@ for (const key in options) {
     case "modelKey":
       Config.override("nanofuzz.ai.apiKey", value);
       break;
+    case "aiCacheMode":
+      Config.override("nanofuzz.ai.cacheMode", value);
+      break;
+    case "aiCacheFile":
+      Config.override("nanofuzz.ai.cacheFile", value);
+      break;
+
+    // composite input generator config options
+    case "cigInputLookback":
+      Config.override("nanofuzz.generators.compositeLookbackWindow", value);
+      break;
+    case "cigInputChunkSize":
+      Config.override("nanofuzz.generators.compositeChunkSize", value);
+      break;
+    case "cigRandomness":
+      Config.override("nanofuzz.generators.compositeExplorationChance", value);
+      break;
+    case "cigInputFocus":
+      Config.override("nanofuzz.generators.leaderboardInitialFocus", value);
+      break;
+    case "cigInputFocusDecay":
+      Config.override("nanofuzz.generators.leaderboardFocusDecay", value);
+      break;
   }
 }
 
-// Clear compiler cache
+// Clear compiler cache if requested
 if (options["clearCompileCache"]) {
   CompilerFactory.clean();
 }
 
-// Run NaNofuzz
+// -------------------------------- Run NaNofuzz ------------------------------- //
+
 run();
 
 async function run(): Promise<void> {
@@ -181,6 +266,7 @@ async function run(): Promise<void> {
       seed: options["seed"],
       maxDupeInputs: options["maxDupeInputs"],
       maxFailures: options["maxFailures"],
+      useTransformer: options["transformer"],
       useImplicit: options["heuristicOracle"],
       useHuman: options["exampleOracle"],
       useProperty: options["propertyOracle"],
@@ -198,7 +284,7 @@ async function run(): Promise<void> {
       generators: {
         AiInputGenerator: { enabled: options["aiInputGenerator"] },
         MutationInputGenerator: {
-          enabled: options["murationInputGenerator"],
+          enabled: options["mutationInputGenerator"],
         },
         RandomInputGenerator: {
           enabled: true, // always enabled
@@ -206,19 +292,23 @@ async function run(): Promise<void> {
       },
     }).testSync(undefined, undefined, updateFn);
 
-    const someTestsRan = !!results.results.length;
-    const someTestsFailed = results.results.some((r) => r.category !== "ok");
+    const someTestsRan =
+      results.stats.counters.passedTests + results.stats.counters.failedTests;
+    const someTestsFailed = results.stats.counters.failedTests;
 
-    if (someTestsRan) {
+    await LlmAdapter.flushCache(5000);
+
+    if (someTestsRan && !results.stats.counters.erroredTests) {
       if (someTestsFailed) {
-        process.exit(1); // tests ran and some failed
+        process.exit(ERROR_TEST_FAILURE); // tests ran and some failed
       } else {
-        process.exit(0); // tests ran and none failed
+        process.exit(EXIT_OK); // tests ran and none failed
       }
     } else {
-      process.exit(3); // error
+      process.exit(ERROR_INTERNAL); // internal error
     }
   } catch (e: unknown) {
+    await LlmAdapter.flushCache(5000);
     if (isError(e)) {
       if (e.stack) {
         console.error(e.stack);
@@ -228,11 +318,48 @@ async function run(): Promise<void> {
     } else {
       console.error("Unknown internal error");
     }
-    process.exit(4); // internal error
+    process.exit(ERROR_USAGE); // internal error
   }
 } // fn: run
 
-function parseNonNegIntArg(value: string, _previous: number): number {
+// ---------------------------- Parameter Validators --------------------------- //
+
+function parseFloatArgGeZero(value: string, _previous: number): number {
+  const parsedValue = parseFloat(value);
+  if (isNaN(parsedValue)) {
+    throw new Commander.InvalidArgumentError("Not a number");
+  }
+  if (parsedValue < 0) {
+    throw new Commander.InvalidArgumentError("Negative number not allowed");
+  }
+  return parsedValue;
+} // fn: parseFloatArgGeZero
+
+function parseAiCacheMode(value: string, _previous: string): string {
+  const allowed = [
+    "passthrough",
+    "record",
+    "replay-record",
+    "replay-error",
+    "replay-passthrough",
+  ];
+  if (!allowed.includes(value)) {
+    throw new Commander.InvalidArgumentError(
+      `Invalid ai cache mode '${value}'. Allowed: ${allowed.join(", ")}`
+    );
+  }
+  return value;
+} // fn: parseAiCacheMode
+
+function parseFloatArgZeroToOne(value: string, _previous: number): number {
+  const parsedValue = parseFloatArgGeZero(value, _previous);
+  if (parsedValue > 1) {
+    throw new Commander.InvalidArgumentError("Number > 1 not allowed");
+  }
+  return parsedValue;
+} // fn: parseFloatArgZeroToOne
+
+function parseIntArgGeZero(value: string, _previous: number): number {
   const parsedValue = parseInt(value);
   if (isNaN(parsedValue)) {
     throw new Commander.InvalidArgumentError("Not a number");
@@ -242,3 +369,11 @@ function parseNonNegIntArg(value: string, _previous: number): number {
   }
   return parsedValue;
 } // fn: parseNonNegIntArg
+
+function parseIntArgGeOne(value: string, _previous: number): number {
+  const parsedValue = parseIntArgGeZero(value, _previous);
+  if (parsedValue < 1) {
+    throw new Commander.InvalidArgumentError("Zero not allowed");
+  }
+  return parsedValue;
+} // fn: parseGeOneIntArg

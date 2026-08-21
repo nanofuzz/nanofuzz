@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as esbuild from "esbuild";
 import copyfiles from "copyfiles";
 import * as rimraf from "rimraf";
+import * as ChildProcess from "node:child_process";
 import path from "node:path";
 import pkg from "./package.json" with { type: "json" };
 
@@ -33,22 +34,41 @@ copyfiles(
 );
 
 // Copy Python imports
+let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
-  throw new Error(
-    `Could not find Python virtual environment in ./.venv (see ./CONTRIBUTING.md)`
+  interpreter = "python";
+  console.warn(
+    `WARNING: Did not find Python virtual environment in ./.venv (see ./CONTRIBUTING.md)`
   );
+} else {
+  const venvBin = path.resolve(
+    path.join(".", ".venv", process.platform === "win32" ? "Scripts" : "bin")
+  );
+  interpreter = path.resolve(path.join(venvBin, "python3"));
+  if (!fs.existsSync(interpreter)) {
+    interpreter = path.resolve(path.join(venvBin, "python"));
+  }
 }
 [{ name: "json5" }, { name: "coverage" }].forEach((pkg) => {
-  const libdir = findInDescendants("./.venv/lib", pkg.name);
+  const libdir = resolvePythonModule(pkg.name, interpreter);
   if (libdir === undefined) {
     throw new Error(
-      `Could not find Python package ${pkg.name}. Is it installed in the python virtual environment? (see ./CONTRIBUTING.md)`
+      `Could not find Python package ${pkg.name}. Is it installed? (see ./CONTRIBUTING.md)`
     );
   }
-  fs.cpSync(libdir, `./build/extension/${pkg.name}`, {
-    recursive: true,
-  });
-  rimraf.sync(`./build/extension/${pkg.name}/__pycache__`);
+  fs.cpSync(
+    path.resolve(path.join(libdir, "..")),
+    path.resolve(path.join(".", "build", "extension", pkg.name)),
+    {
+      recursive: true,
+    }
+  );
+  const pycacheDir = path.resolve(
+    path.join(".", "build", "extension", pkg.name, "__pycache__")
+  );
+  if (fs.existsSync(pycacheDir)) {
+    rimraf.sync(pycacheDir);
+  }
   console.log(`copied .py ${pkg.name}`);
 });
 
@@ -213,4 +233,37 @@ function swapModulePlugin(aliasMap) {
       }
     },
   };
+}
+
+/**
+ * Resolves a Python module name by calling Python.
+ * If found, returns the absolute path to the module/package file.
+ * Otherwise, returns `undefined`.
+ *
+ * @param moduleName The dotted Python module name to resolve (e.g., "json", "numpy", "my_package.utils")
+ * @returns Path to the module file or undefined if not found
+ */
+function resolvePythonModule(moduleName, interpreter = "python3") {
+  const output = ChildProcess.execFileSync(
+    interpreter,
+    [
+      "-c",
+      `
+import importlib.util, json
+spec = importlib.util.find_spec("${moduleName}")
+if spec and spec.origin:
+  print(spec.origin)
+else:
+  print("")
+`,
+    ],
+    { encoding: "utf8" }
+  ).trim();
+
+  // If output is empty or "None" (namespace packages without an origin file sometimes return None)
+  if (output && output !== "None") {
+    return output;
+  } else {
+    return undefined;
+  }
 }
