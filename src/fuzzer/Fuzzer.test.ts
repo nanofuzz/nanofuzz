@@ -796,6 +796,15 @@ describe("fuzzer:", () => {
       const transformedInput = Number(r.input[0].value);
       const actualOutput: unknown = r.output[0].value;
       expect(actualOutput).toBe(transformedInput + 1);
+
+      // Verify FuzzValueOrigin of type transformer
+      expect(r.input[0].origin.type).toBe("transformer");
+      if (r.input[0].origin.type === "transformer") {
+        expect(r.input[0].origin.transformer).toBe(
+          "targetTransformedTransformer"
+        );
+        expect(r.input[0].origin.basis.source.type).toBe("generator");
+      }
     });
   });
 
@@ -852,6 +861,16 @@ describe("fuzzer:", () => {
       const transformedInput = Number(r.input[0].value);
       const actualOutput: unknown = r.output[0].value;
       expect(actualOutput).toBe(transformedInput + 1);
+
+      if (transformedInput !== 0) {
+        expect(r.input[0].origin.type).toBe("transformer");
+        if (r.input[0].origin.type === "transformer") {
+          expect(r.input[0].origin.transformer).toBe(
+            "py_transformedTransformer"
+          );
+          expect(r.input[0].origin.basis.source.type).toBe("generator");
+        }
+      }
     });
   });
 

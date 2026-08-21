@@ -1115,10 +1115,10 @@
     https-proxy-agent "^7.0.0"
     tslib "^2.6.2"
 
-"@vscode/codicons@^0.0.45":
-  version "0.0.45"
-  resolved "https://registry.yarnpkg.com/@vscode/codicons/-/codicons-0.0.45.tgz#e5d0531d3c8d0ba26e7b9175ae2e0e579cc73d4f"
-  integrity sha512-1KAZ7XCMagp5Gdrlr4bbbcAqgcIL623iO1wW6rfcSVGAVUQvR0WP7bQx1SbJ11gmV3fdQTSEFIJQ/5C+HuVasw==
+"@vscode/codicons@^0.0.46-37":
+  version "0.0.46-37"
+  resolved "https://registry.yarnpkg.com/@vscode/codicons/-/codicons-0.0.46-37.tgz#d16ff68cc02a27ca4780c8f891a6c56b94e144c9"
+  integrity sha512-VOQ7QqRz9N/NmU7nCcwRBkWzjMScQLddRDr1nAXXIebYs4JL6Qez19V+p5q4GyH4FbehGXOSVYIAtG09HAdvuA==
 
 "@vscode/vsce-sign-alpine-arm64@2.0.6":
   version "2.0.6"
