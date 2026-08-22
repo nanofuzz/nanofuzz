@@ -7,14 +7,18 @@ import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
-import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
+import {
+  isError,
+  getErrorMessageOrJson,
+  normalizePathForKey,
+} from "../fuzzer/Util";
+import { removeTickFromOrigin } from "../Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
 import {
   applyCoverageHeatmapToEditor,
   clearCoverageHeatmapFromEditor,
 } from "./CoverageHeatmap";
-import { normalizePathForKey } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
@@ -836,12 +840,7 @@ export class FuzzPanel {
         output: [],
         input: test.input.map((i) => {
           const i2 = { ...i };
-          if (
-            i2.origin.type === "generator" &&
-            i2.origin.generator === "MutationInputGenerator"
-          ) {
-            delete i2.origin.tick;
-          }
+          removeTickFromOrigin(i2.origin);
           return i2;
         }),
       };
@@ -1475,12 +1474,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                   input: i.input.map((e) => {
                     const e2 = { ...e };
                     // ticks are tester-specific
-                    if (
-                      e2.origin.type === "generator" &&
-                      e2.origin.generator === "MutationInputGenerator"
-                    ) {
-                      delete e2.origin.tick;
-                    }
+                    removeTickFromOrigin(e2.origin);
                     return e2;
                   }),
                   output: [],
@@ -2403,8 +2397,8 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         )[] = [
           {
             id: "failure",
-            name: "Validator Error",
-            description: `A property validator threw an exception for these inputs. Fix the bug in the property validator and retest.`,
+            name: "Testing Error",
+            description: `A property validator or input transformer threw an exception for these inputs. Fix the bug in the testing code and retest.`,
             hasGrid: true,
           },
           {
