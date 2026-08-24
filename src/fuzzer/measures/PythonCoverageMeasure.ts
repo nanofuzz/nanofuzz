@@ -7,7 +7,7 @@ import {
   Range,
 } from "istanbul-lib-coverage";
 import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
-import { CoverageInfo, PythonRunner } from "../runners/PythonRunner";
+import { FullCoverage, PythonRunner } from "../runners/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import * as JSON5 from "json5";
 import { normalizePathForKey } from "../Util";
@@ -84,16 +84,16 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     const measure = super.measure(input, result);
 
     // Sanity check that we have the runner and its coverage info
-    if (this._runner === undefined || !this._runner.coverageInfo) {
+    if (this._runner === undefined) {
       throw new Error("Coverage measure not connected to runner");
     }
 
     // Translate the runner's line/arc coverage into an istanbul
     // CoverageMapData so we can reuse istanbul's merge and summary machinery
     // and stay compatible with the CoverageMeasurement shape.
-    const currentCoverageData = this._toCoverageMapData(
+    const currentCoverageData = this._runner.coverageInfo ? this._toCoverageMapData(
       this._runner.coverageInfo
-    );
+    ) : {};
 
     // Total coverage in a map, summing statements, branches, and functions --
     // matching CoverageMeasure, so that newly-covered branches and functions
@@ -162,64 +162,67 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    * @param `info` coverage reported by the runner
    * @returns equivalent istanbul coverage data
    */
-  protected _toCoverageMapData(info: CoverageInfo): CoverageMapData {
-    const coveredLines = new Set(info.lines ?? []);
-    // Arcs are matched by value, so key them for lookup
-    const takenArcs = new Set((info.arcs ?? []).map(arcKey));
+  protected _toCoverageMapData(covinfo: FullCoverage): CoverageMapData {
+    const ret: CoverageMapData = {};
+    for (const [filename, fileCov] of Object.entries(covinfo)) {
+      const coveredLines = new Set(fileCov.lines ?? []);
+      // Arcs are matched by value, so key them for lookup
+      const takenArcs = new Set((fileCov.arcs ?? []).map(arcKey));
 
-    // Statements: one per executable line
-    const statementMap: FileCoverageData["statementMap"] = {};
-    const s: FileCoverageData["s"] = {};
-    info.executable.forEach((line, i) => {
-      statementMap[i] = wholeLine(line);
-      s[i] = coveredLines.has(line) ? 1 : 0;
-    });
+      // Statements: one per executable line
+      const statementMap: FileCoverageData["statementMap"] = {};
+      const s: FileCoverageData["s"] = {};
+      fileCov.executable.forEach((line, i) => {
+        statementMap[i] = wholeLine(line);
+        s[i] = coveredLines.has(line) ? 1 : 0;
+      });
 
-    // Functions: covered when any of their own lines executed
-    const fnMap: FileCoverageData["fnMap"] = {};
-    const f: FileCoverageData["f"] = {};
-    info.functions.forEach((fn, i) => {
-      fnMap[i] = {
-        name: fn.name,
-        decl: wholeLine(fn.declLine),
-        loc: {
-          start: { line: fn.startLine, column: 0 },
-          end: { line: fn.endLine, column: END_OF_LINE_COLUMN },
-        },
-        line: fn.declLine,
-      };
-      f[i] = fn.lines.some((line) => coveredLines.has(line)) ? 1 : 0;
-    });
+      // Functions: covered when any of their own lines executed
+      const fnMap: FileCoverageData["fnMap"] = {};
+      const f: FileCoverageData["f"] = {};
+      fileCov.functions.forEach((fn, i) => {
+        fnMap[i] = {
+          name: fn.name,
+          decl: wholeLine(fn.declLine),
+          loc: {
+            start: { line: fn.startLine, column: 0 },
+            end: { line: fn.endLine, column: END_OF_LINE_COLUMN },
+          },
+          line: fn.declLine,
+        };
+        f[i] = fn.lines.some((line) => coveredLines.has(line)) ? 1 : 0;
+      });
 
-    // Branches: one hit counter per exit, set when that exit's arc was taken
-    const branchMap: FileCoverageData["branchMap"] = {};
-    const b: FileCoverageData["b"] = {};
-    info.branches.forEach((branch, i) => {
-      branchMap[i] = {
-        loc: wholeLine(branch.line),
-        // Deliberately not "if": the coverage heatmap skips branches of that
-        // type to work around a bug in istanbul's if-branch locations, which
-        // does not apply to locations we compute ourselves from arcs.
-        type: "branch",
-        locations: branch.exits.map((exit) => wholeLine(exit.line)),
-        line: branch.line,
-      };
-      b[i] = branch.exits.map((exit) =>
-        takenArcs.has(arcKey([branch.line, exit.dest])) ? 1 : 0
-      );
-    });
+      // Branches: one hit counter per exit, set when that exit's arc was taken
+      const branchMap: FileCoverageData["branchMap"] = {};
+      const b: FileCoverageData["b"] = {};
+      fileCov.branches.forEach((branch, i) => {
+        branchMap[i] = {
+          loc: wholeLine(branch.line),
+          // Deliberately not "if": the coverage heatmap skips branches of that
+          // type to work around a bug in istanbul's if-branch locations, which
+          // does not apply to locations we compute ourselves from arcs.
+          type: "branch",
+          locations: branch.exits.map((exit) => wholeLine(exit.line)),
+          line: branch.line,
+        };
+        b[i] = branch.exits.map((exit) =>
+          takenArcs.has(arcKey([branch.line, exit.dest])) ? 1 : 0
+        );
+      });
+      
 
-    return {
-      [info.file]: {
-        path: info.file,
-        statementMap,
-        fnMap,
-        branchMap,
-        s,
-        f,
-        b,
-      },
-    };
+      ret[filename] = {
+          path: filename,
+          statementMap,
+          fnMap,
+          branchMap,
+          s,
+          f,
+          b,
+      }
+    }
+    return ret;
   } // fn: _toCoverageMapData
 
   public onRunEnd(results: FuzzTestResults): void {

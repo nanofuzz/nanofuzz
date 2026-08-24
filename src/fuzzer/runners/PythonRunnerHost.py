@@ -27,8 +27,12 @@ class RunnerValueResult(TypedDict):
     tag: Literal["value"]
     value: Any
     seq: int
-    coverageData: NotRequired[List[int]]        # lines executed by this call
-    coverageArcs: NotRequired[List[List[int]]]  # arcs taken by this call
+    # lines executed by this call
+    coverageData: NotRequired[dict[str, List[int]]]
+    # arcs taken by this call
+    coverageArcs: NotRequired[dict[str, List[List[int]]]]
+    # static coverage data
+    staticCoverage: NotRequired[dict[str, dict[str, List]]]
 
 
 class RunnerErrorResult(TypedDict):
@@ -38,8 +42,12 @@ class RunnerErrorResult(TypedDict):
     stack: NotRequired[str]
     source: Literal["put", "host"]
     seq: int
-    coverageData: NotRequired[List[int]]        # lines executed by this call
-    coverageArcs: NotRequired[List[List[int]]]  # arcs taken by this call
+    # lines executed by this call
+    coverageData: NotRequired[dict[str, List[int]]]
+    # arcs taken by this call
+    coverageArcs: NotRequired[dict[str, List[List[int]]]]
+    # static coverage data
+    staticCoverage: NotRequired[dict[str, dict[str, List]]]
 
 
 type RunnerResult = Union[RunnerValueResult, RunnerErrorResult]
@@ -49,6 +57,10 @@ pid = os.getpid()
 
 
 def loadPythonFn(filename: str, modulename: str, fn: str) -> Union[RunnerErrorResult, None]:
+    rootDir = os.path.dirname(filename)
+    if rootDir not in sys.path:
+        sys.path.insert(0, rootDir)
+
     spec = importlib.util.spec_from_file_location(modulename, filename)
     if spec is None:
         return [RunnerErrorResult(
@@ -128,10 +140,6 @@ def coverage_arcs(cov: coverage.Coverage, filename: str) -> List[List[int]]:
     """
     Returns the sorted arcs (line transitions) taken since the last
     `cov.erase()`, as `[from, to]` pairs.
-
-    Arcs are how coverage.py records branch coverage: a branch line with two
-    possible exits contributes one arc per exit actually taken, so comparing
-    these against `static_branches` yields which branches were covered.
     """
     data = cov.get_data()
     key = measured_key(data, filename)
@@ -155,8 +163,7 @@ def report_branch_arcs(entry: dict) -> List[List[int]]:
     taken or not.
 
     Only lines with more than one exit contribute arcs here, so this is exactly
-    the set of branches -- unlike `coverage_arcs`, which also reports the
-    ordinary line-to-line transitions that are not branches.
+    the set of branches
     """
     arcs = {tuple(arc) for arc in entry.get("executed_branches", [])}
     arcs |= {tuple(arc) for arc in entry.get("missing_branches", [])}
@@ -238,8 +245,7 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     # `run_put` erases this before measuring the first test.
     cov.get_data().add_arcs({filename: set()})
 
-    empty = {"file": filename, "executable": [],
-             "functions": [], "branches": []}
+    empty = {"executable": [], "functions": [], "branches": []}
 
     # `json_report` writes to a path rather than returning the report, and
     # stdout is reserved for the protocol, so route it through a temp file.
@@ -262,14 +268,13 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     entry = next(iter(files.values()))
 
     return {
-        "file": filename,
         "executable": report_lines(entry),
         "functions": static_functions(entry),
         "branches": static_branches(entry),
     }
 
 
-def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> RunnerResult:
+def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
     logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
 
     # cov.erase() is too expensive. Seems like only erasing the data works too
@@ -286,8 +291,16 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
         cov.stop()
 
     # Read coverage after stopping: a failing input still covers lines
-    coverageData = coverage_lines(cov, filename)
-    coverageArcs = coverage_arcs(cov, filename)
+    coverageData = {}
+    coverageArcs = {}
+    for file in cov.get_data().measured_files():
+        lines = coverage_lines(cov, file)
+        if not lines:
+            continue
+        if file not in covInfo:
+            covInfo[file] = static_coverage(cov, file)
+        coverageData[file] = lines
+        coverageArcs[file] = coverage_arcs(cov, file)
 
     if error is not None:
         return RunnerErrorResult(
@@ -299,7 +312,8 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
                 type(error), error, error.__traceback__)),
             seq=input["seq"],
             coverageData=coverageData,
-            coverageArcs=coverageArcs
+            coverageArcs=coverageArcs,
+            staticCoverage=covInfo
         )
 
     return RunnerValueResult(
@@ -307,7 +321,8 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
         value=value,
         seq=input["seq"],
         coverageData=coverageData,
-        coverageArcs=coverageArcs
+        coverageArcs=coverageArcs,
+        staticCoverage=covInfo
     )
 
 
@@ -345,11 +360,15 @@ if __name__ == "__main__":
     # and `include` patterns must match it.
     filename = os.path.realpath(filename)
 
+    # Change cwd from the extension to that of the Python script
+    os.chdir(os.path.dirname(filename))
+
     # One in-memory coverage instance for the whole run
-    cov = coverage.Coverage(include=[filename], branch=True, data_file=None)
+    cov = coverage.Coverage(
+        include=[os.path.join(os.path.dirname(filename), "**", "*.py")], branch=True, data_file=None)
 
     # Static analysis of the PUT: the executable lines, functions, and branches
-    coverageInfo = static_coverage(cov, filename)
+    coverageInfo = {filename: static_coverage(cov, filename)}
 
     # Try to load the function: either results in a RunnerErrorResult
     # or a callable function
@@ -359,9 +378,6 @@ if __name__ == "__main__":
         logging.debug(f"[{pid}]  - Unable to load")
     else:
         logging.debug(f"[{pid}]  - Loaded function")
-
-    # Change cwd from the extension to that of the Python script
-    os.chdir(os.path.dirname(filename))
 
     # Pre-warm the coverage machinery. The first `cov.start()` installs the
     # tracer, which costs far more than a steady-state call and can push the
@@ -385,21 +401,12 @@ if __name__ == "__main__":
     sys.stdout.buffer.flush()
     logging.debug(f"[{pid}] Sent READY message (length {len(msg)})")
 
-    # Send the static coverage info once
-    msg = json5.dumps(coverageInfo).encode('utf-8')
-    sys.stdout.buffer.write(struct.pack('>I', len(msg)))  # payload size
-    sys.stdout.buffer.write(msg)  # payload
-    sys.stdout.buffer.flush()
-    logging.debug(
-        f"[{pid}] Sent coverageInfo ({len(coverageInfo['executable'])} executable "
-        f"lines, {len(coverageInfo['functions'])} functions, "
-        f"{len(coverageInfo['branches'])} branches)")
-
     # Start the run loop
     while True:
         logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
-            put_result(run_put(get_inputs(), filename, cov))  # Call the put
+            put_result(run_put(get_inputs(), filename,
+                       cov, coverageInfo))  # Call the put
         else:
             get_inputs()
             put_result(loadError)  # Return the load error
