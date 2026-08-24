@@ -882,6 +882,316 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
   });
 
   // ------------------------------------------------------------------
+  // Multi-file measurement. A real run loads the module under test together
+  // with every module it imports, and all of them publish into the one
+  // `__coverage__` the measure binds to. So a measurement is a map over
+  // *files*, and each of the fields `measure()` builds -- `current`, the
+  // global delta, and the lineage accumulator -- has to span them.
+  // ------------------------------------------------------------------
+
+  const fileA = "/tmp/multiFileA.js"; // twoPathSource: 4 stmts, 1 fn, 1 branch
+  const fileB = "/tmp/multiFileB.js"; // linearSource:  3 stmts, 1 fn, no branch
+
+  /**
+   * Instruments and loads several modules into a single context, the way a
+   * run loads the module under test together with the modules it imports,
+   * and binds a fresh measure to the coverage they all publish there.
+   *
+   * @param `files` the modules to load, as `[filename, source]` pairs
+   * @returns the measure, and each module's exported `absValue` by filename
+   */
+  const loadFiles = (
+    files: [string, string][]
+  ): { measure: TestCoverageMeasure; fns: Record<string, NumericFn> } => {
+    const measure = new TestCoverageMeasure();
+    const module: { exports: Record<string, unknown> } = { exports: {} };
+    const sandbox: VmGlobals = { module, exports: module.exports };
+    sandbox.global = sandbox;
+    vm.createContext(sandbox);
+
+    const fns: Record<string, NumericFn> = {};
+    for (const [fileName, src] of files) {
+      // Each module gets its own exports, but they share `__coverage__`
+      module.exports = {};
+      sandbox.exports = module.exports;
+      vm.runInContext(measure.onAfterCompile(src, fileName), sandbox, {
+        filename: fileName,
+      });
+      fns[fileName] = fnOfExports(module.exports, fileName);
+    }
+    measure.onAfterLoad(sandbox);
+
+    return { measure, fns };
+  }; // fn: loadFiles
+
+  /**
+   * Returns the `absValue` that `exports` exports
+   */
+  const fnOfExports = (
+    exports: Record<string, unknown>,
+    fileName: string
+  ): NumericFn => {
+    const absValue = exports.absValue;
+    if (!isNumericFn(absValue)) {
+      throw new Error(`${fileName} did not export absValue`);
+    }
+    return absValue;
+  }; // fn: fnOfExports
+
+  it("measure records each file's own coverage when a test runs through two", () => {
+    const { measure, fns } = loadFiles([
+      [fileA, jsSrc],
+      [fileB, jsSrcLinear],
+    ]);
+
+    measure.onBeforeNextTestExecution();
+    fns[fileA](-3); // takes the `if (n < 0)` branch and returns early
+    fns[fileB](5); // straight through, no branches to take
+    const current = measure.measure(inputAt(0), anyResult).coverageMeasure
+      .current;
+
+    // The measurement is a map over both files...
+    expect(current.files().sort()).toEqual([fileA, fileB].sort());
+
+    // ...and each carries its own counters, not the other's
+    const a = current.fileCoverageFor(fileA);
+    expect(a.path).toEqual(fileA);
+    expect(a.s).toEqual({
+      0: 1, // `if (n < 0)`      executed
+      1: 1, // `return -n;`      executed
+      2: 0, // `return n;`       not reached
+      3: 0, // `module.exports`  zeroed by the reset before this test
+    });
+    expect(a.f).toEqual({ 0: 1 });
+    expect(a.b).toEqual({ 0: [1, 0] }); // if taken, else not
+
+    const b = current.fileCoverageFor(fileB);
+    expect(b.path).toEqual(fileB);
+    expect(b.s).toEqual({
+      0: 1, // `n * 2`           executed
+      1: 1, // `return doubled;` executed
+      2: 0, // `module.exports`  zeroed by the reset before this test
+    });
+    expect(b.f).toEqual({ 0: 1 });
+    expect(b.b).toEqual({}); // the linear fixture has no branches
+  });
+
+  it("measure reports a loaded file the test never entered as uncovered", () => {
+    const { measure, fns } = loadFiles([
+      [fileA, jsSrc],
+      [fileB, jsSrcLinear],
+    ]);
+
+    measure.onBeforeNextTestExecution();
+    fns[fileA](-3); // only file A runs
+    const current = measure.measure(inputAt(0), anyResult).coverageMeasure
+      .current;
+
+    // File B was loaded, so it is described and counted...
+    expect(current.files().sort()).toEqual([fileA, fileB].sort());
+    const b = current.fileCoverageFor(fileB);
+    expect(Object.keys(b.statementMap)).toEqual(["0", "1", "2"]);
+    expect(Object.keys(b.fnMap)).toEqual(["0"]);
+
+    // ...but nothing in it is marked covered
+    expect(b.s).toEqual({ 0: 0, 1: 0, 2: 0 });
+    expect(b.f).toEqual({ 0: 0 });
+
+    // The file that did run is unaffected by the one that did not
+    expect(current.fileCoverageFor(fileA).f).toEqual({ 0: 1 });
+    expect(current.fileCoverageFor(fileA).b).toEqual({ 0: [1, 0] });
+
+    // The measurement's totals span both files, and only A's are covered
+    const summary = current.getCoverageSummary().toJSON();
+    expect(summary.statements.total).toEqual(7); // 4 in A, 3 in B
+    expect(summary.statements.covered).toEqual(2); // A's `if` and `return -n`
+    expect(summary.functions.total).toEqual(2); // one per file
+    expect(summary.functions.covered).toEqual(1); // only A's ran
+    expect(summary.branches.total).toEqual(2); // A's `if`; B has none
+    expect(summary.branches.covered).toEqual(1);
+  });
+
+  it("measure credits an input for the coverage it added in any file", () => {
+    const { measure, fns } = loadFiles([
+      [fileA, jsSrc],
+      [fileB, jsSrcLinear],
+    ]);
+
+    // The first input runs file A's negative path and never enters B
+    measure.onBeforeNextTestExecution();
+    fns[fileA](-3);
+    const first = measure.measure(inputAt(0), anyResult).coverageMeasure
+      .globalDelta;
+
+    // The second repeats it and additionally runs file B, so everything it
+    // is credited with was discovered in the other file
+    measure.onBeforeNextTestExecution();
+    fns[fileA](-3);
+    fns[fileB](5);
+    const second = measure.measure(inputAt(1), anyResult).coverageMeasure
+      .globalDelta;
+
+    // The third adds file A's other arm, while repeating B
+    measure.onBeforeNextTestExecution();
+    fns[fileA](7);
+    fns[fileB](5);
+    const third = measure.measure(inputAt(2), anyResult).coverageMeasure
+      .globalDelta;
+
+    // A fourth that repeats what both files have already covered adds nothing
+    measure.onBeforeNextTestExecution();
+    fns[fileA](-3);
+    fns[fileB](5);
+    const fourth = measure.measure(inputAt(3), anyResult).coverageMeasure
+      .globalDelta;
+
+    expect(first).toEqual(4); // A: f0, s0, s1, b0.0
+    expect(second).toEqual(3); // B: f0, s0, s1 -- A added nothing
+    expect(third).toEqual(2); // A: s2, b0.1 -- B added nothing
+    expect(fourth).toEqual(0);
+
+    // Between them the inputs covered every item in both files that a call
+    // can reach: 4 + 3 of A's 7, and 3 of B's 4 (the `module.exports`
+    // statements only run at load, before the first reset)
+    expect(first + second + third + fourth).toEqual(9);
+  });
+
+  it("measure reports lineage progress for coverage new in another file", () => {
+    const { measure, fns } = loadFiles([
+      [fileA, jsSrc],
+      [fileB, jsSrcLinear],
+    ]);
+
+    // The lineage root runs only file A
+    measure.onBeforeNextTestExecution();
+    fns[fileA](-3);
+    measure.measure(inputAt(0), anyResult);
+
+    // A child that reaches into file B is new to the lineage...
+    measure.onBeforeNextTestExecution();
+    fns[fileA](-3);
+    fns[fileB](5);
+    const novel = measure.measure(mutantAt(1, 0), anyResult);
+    expect(novel.coverageMeasure.accumDelta).toEqual(3); // B: f0, s0, s1
+
+    // ...while a sibling that repeats it adds nothing to the lineage
+    measure.onBeforeNextTestExecution();
+    fns[fileA](-3);
+    fns[fileB](5);
+    const dupe = measure.measure(mutantAt(2, 0), anyResult);
+    expect(dupe.coverageMeasure.accumDelta).toEqual(0);
+
+    // The root's accumulated coverage now spans both files, though it only
+    // ever ran through one itself. Note that accumulating is a merge, which
+    // sums hit counts: `absValue` reads 2 because both descendants entered
+    // it once. Only covered-ness feeds `accumDelta`, never the count.
+    const rootAccum = measure.getCoverage(0).coverageMeasure.accum;
+    expect(rootAccum.files().sort()).toEqual([fileA, fileB].sort());
+    expect(rootAccum.fileCoverageFor(fileB).f).toEqual({ 0: 2 });
+    expect(rootAccum.fileCoverageFor(fileB).s).toEqual({ 0: 2, 1: 2, 2: 0 });
+  });
+
+  it("measure does not carry a file's coverage into the next test", () => {
+    const { measure, fns } = loadFiles([
+      [fileA, jsSrc],
+      [fileB, jsSrcLinear],
+    ]);
+
+    // The first test runs through both files
+    measure.onBeforeNextTestExecution();
+    fns[fileA](-3);
+    fns[fileB](5);
+    const firstB = measure
+      .measure(inputAt(0), anyResult)
+      .coverageMeasure.current.fileCoverageFor(fileB);
+    expect(firstB.f).toEqual({ 0: 1 }); // guard: B really ran
+
+    // The second runs through file A only, so the reset has to have zeroed
+    // every file's counters, not just those of the first file it walked
+    measure.onBeforeNextTestExecution();
+    fns[fileA](7);
+    const second = measure.measure(inputAt(1), anyResult).coverageMeasure
+      .current;
+
+    expect(second.fileCoverageFor(fileB).s).toEqual({ 0: 0, 1: 0, 2: 0 });
+    expect(second.fileCoverageFor(fileB).f).toEqual({ 0: 0 });
+
+    // ...and file A shows this test's path, not the union with the last
+    expect(second.fileCoverageFor(fileA).s).toEqual({ 0: 1, 1: 0, 2: 1, 3: 0 });
+    expect(second.fileCoverageFor(fileA).b).toEqual({ 0: [0, 1] });
+  });
+
+  // Files in different directories. A coverage map is keyed by path, and
+  // every consumer -- the merge, the per-file stats, the heatmap's lookup --
+  // keys on the whole path rather than the file's name. These pin that, so
+  // that shortening a key to a basename anywhere downstream fails loudly.
+
+  const dirCore = "/tmp/proj/pkg/core.js"; // twoPathSource
+  const dirUtil = "/tmp/proj/lib/util.js"; // linearSource
+
+  it("measure keeps files in separate directories apart", () => {
+    const { measure, fns } = loadFiles([
+      [dirCore, jsSrc],
+      [dirUtil, jsSrcLinear],
+    ]);
+
+    measure.onBeforeNextTestExecution();
+    fns[dirCore](-3);
+    fns[dirUtil](5);
+    const current = measure.measure(inputAt(0), anyResult).coverageMeasure
+      .current;
+
+    // Each directory's file is its own entry, keyed and named by full path
+    expect(current.files().sort()).toEqual([dirCore, dirUtil].sort());
+    expect(current.fileCoverageFor(dirCore).path).toEqual(dirCore);
+    expect(current.fileCoverageFor(dirUtil).path).toEqual(dirUtil);
+
+    // ...carrying the counters of the file at that path, and no other
+    expect(current.fileCoverageFor(dirCore).s).toEqual({
+      0: 1,
+      1: 1,
+      2: 0,
+      3: 0,
+    });
+    expect(current.fileCoverageFor(dirCore).b).toEqual({ 0: [1, 0] });
+    expect(current.fileCoverageFor(dirUtil).s).toEqual({ 0: 1, 1: 1, 2: 0 });
+    expect(current.fileCoverageFor(dirUtil).b).toEqual({});
+  });
+
+  it("measure does not conflate two files sharing a basename", () => {
+    // Same file name in two directories, and the same source in both, so
+    // only the path distinguishes them
+    const pkgUtil = "/tmp/proj/pkg/util.js";
+    const libUtil = "/tmp/proj/lib/util.js";
+    const { measure, fns } = loadFiles([
+      [pkgUtil, jsSrc],
+      [libUtil, jsSrc],
+    ]);
+
+    // The first test takes the `if` in one of them only
+    measure.onBeforeNextTestExecution();
+    fns[pkgUtil](-3);
+    const first = measure.measure(inputAt(0), anyResult).coverageMeasure;
+
+    expect(first.current.files().sort()).toEqual([libUtil, pkgUtil].sort());
+    expect(first.current.fileCoverageFor(pkgUtil).b).toEqual({ 0: [1, 0] });
+    expect(first.current.fileCoverageFor(libUtil).b).toEqual({ 0: [0, 0] });
+    expect(first.current.fileCoverageFor(libUtil).f).toEqual({ 0: 0 });
+    expect(first.globalDelta).toEqual(4); // f0, s0, s1, b0.0 of pkg/util
+
+    // The second takes the other arm in the *other* file. Identical structure
+    // and name, so if the two were keyed by basename this would look like
+    // coverage already seen and be credited nothing.
+    measure.onBeforeNextTestExecution();
+    fns[libUtil](7);
+    const second = measure.measure(inputAt(1), anyResult).coverageMeasure;
+
+    expect(second.current.fileCoverageFor(libUtil).b).toEqual({ 0: [0, 1] });
+    expect(second.current.fileCoverageFor(pkgUtil).b).toEqual({ 0: [0, 0] });
+    expect(second.globalDelta).toEqual(4); // f0, s0, s2, b0.1 of lib/util
+  });
+
+  // ------------------------------------------------------------------
   // onRunEnd: runs once the last test is done, and hands the run's
   // accumulated coverage to `results` as the stats the UI reads.
   //

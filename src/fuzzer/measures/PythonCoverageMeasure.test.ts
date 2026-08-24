@@ -6,7 +6,11 @@ import {
 } from "istanbul-lib-coverage";
 import { PythonCoverageMeasure } from "./PythonCoverageMeasure";
 import { CodeCoverageMeasureStats } from "./AbstractCoverageMeasure";
-import { CoverageInfo, PythonRunner } from "../runners/PythonRunner";
+import {
+  CoverageInfo,
+  FullCoverage,
+  PythonRunner,
+} from "../runners/PythonRunner";
 import {
   ArgDef,
   FunctionDef,
@@ -50,29 +54,35 @@ import {
  *
  * Only the report is stubbed. The constructor does no I/O -- a real runner
  * starts its host in `onRunStart`, which these specs never call -- so the
- * `coverageInfo` getter here is the inherited one, shallow-copying the live
+ * `coverageInfo` getter here is the inherited one, returning the live
  * `_coverageInfo` on every read exactly as it does during a real run.
  */
 class StubPythonRunner extends PythonRunner {
-  public constructor(info: CoverageInfo) {
-    super(info.file, "anyFn");
-    this._coverageInfo = info;
+  public constructor(coverage: FullCoverage) {
+    super(Object.keys(coverage)[0] ?? pyFileName, "anyFn");
+    this._coverageInfo = coverage;
   }
 } // class: StubPythonRunner
 
 /**
  * Connects the measure to a stub runner so that `measure()` can be driven
  * without spawning Python. The real `PythonRunner` keeps one `coverageInfo`
- * object alive for the whole run and replaces its `lines`/`arcs` after every
- * call; `record` does exactly that.
+ * object alive for the whole run and replaces the `lines`/`arcs` of each file
+ * it describes after every call; `record` does exactly that.
+ *
+ * The runner reports coverage for the whole program under test, keyed by file,
+ * so a report is a `FullCoverage`. Most specs below describe a single Python
+ * file, and name it with the constructor's `file` argument.
  */
 class TestPythonCoverageMeasure extends PythonCoverageMeasure {
   private readonly _info: CoverageInfo;
+  private readonly _coverage: FullCoverage;
 
-  public constructor(staticInfo: CoverageInfo) {
+  public constructor(staticInfo: CoverageInfo, file: string = pyFileName) {
     super();
     this._info = { ...staticInfo };
-    this._runner = new StubPythonRunner(this._info);
+    this._coverage = { [file]: this._info };
+    this._runner = new StubPythonRunner(this._coverage);
   }
 
   public record(run: PythonRun): void {
@@ -81,8 +91,8 @@ class TestPythonCoverageMeasure extends PythonCoverageMeasure {
   }
 
   /**
-   * The report the runner is holding, which is the measure's only source of
-   * coverage data
+   * The report the runner is holding for the single file these specs describe,
+   * which is the measure's only source of coverage data
    */
   public get info(): CoverageInfo {
     return this._info;
@@ -92,8 +102,8 @@ class TestPythonCoverageMeasure extends PythonCoverageMeasure {
    * Exposes the translation from the runner's report into istanbul's shape,
    * which `measure()` performs on every call
    */
-  public toCoverageMapData(info: CoverageInfo): CoverageMapData {
-    return this._toCoverageMapData(info);
+  public toCoverageMapData(coverage: FullCoverage): CoverageMapData {
+    return this._toCoverageMapData(coverage);
   }
 } // class: TestPythonCoverageMeasure
 
@@ -321,10 +331,12 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
      * this call does not read.
      *
      * @param `info` the report to translate
-     * @returns the translated coverage data for `info.file`
+     * @returns the translated coverage data for `pyFileName`
      */
     const dataFor = (info: CoverageInfo): FileCoverageData =>
-      new TestPythonCoverageMeasure(info).toCoverageMapData(info)[info.file];
+      new TestPythonCoverageMeasure(info).toCoverageMapData({
+        [pyFileName]: info,
+      })[pyFileName];
 
     // every exit should be matched by `dest` and located by `line`
     it("matches a branch exit by its arc destination, not by its display line", () => {
@@ -439,7 +451,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
     // an empty report is valid, not a special case
     it("translates a module with nothing in it into empty maps", () => {
       const data = new TestPythonCoverageMeasure(emptyStatic).toCoverageMapData(
-        emptyStatic
+        { [pyFileName]: emptyStatic }
       );
 
       // Still one file entry, keyed by and naming the file it describes
@@ -822,12 +834,288 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
     const inputs = [inputAt(0), mutantAt(1, 0), mutantAt(2, 0)];
 
     const deltas = [threePathNegative, threePathZero, threePathPositive].map(
-      (run, i) =>
-        runTest(measure, run, inputs[i]).coverageMeasure.globalDelta
+      (run, i) => runTest(measure, run, inputs[i]).coverageMeasure.globalDelta
     );
 
     expect(deltas).toEqual([4, 4, 2]);
     expect(deltas.reduce((sum, delta) => sum + delta, 0)).toEqual(10);
+  });
+
+  // ------------------------------------------------------------------
+  // Multi-file measurement. The host measures every Python file the program
+  // under test loads, not just the file the fuzz target is written in, so a
+  // report is a `FullCoverage` keyed by file and a measurement is a map over
+  // all of them. Each field `measure()` builds -- `current`, the global
+  // delta, and the lineage accumulator -- has to span them.
+  //
+  // These mirror the multi-file specs in `TypescriptCoverageMeasure.test.ts`.
+  // The one difference is where per-test isolation comes from: the TypeScript
+  // measure zeroes its own counters in `onBeforeNextTestExecution`, while here
+  // the runner replaces each file's `lines`/`arcs` after every call, leaving
+  // them `undefined` for a file the call never entered.
+  // ------------------------------------------------------------------
+  describe("multiple files", () => {
+    const fileA = "/tmp/multi_a.py"; // twoPathStatic: 4 lines, 1 fn, 1 branch
+    const fileB = "/tmp/multi_b.py"; // linearStatic:  3 lines, 1 fn, no branch
+
+    /**
+     * Drives `measure()` with a report describing more than one Python file,
+     * the way the host reports a program under test that imports helpers.
+     */
+    class MultiFileMeasure extends PythonCoverageMeasure {
+      private readonly _coverage: FullCoverage = {};
+
+      public constructor(statics: Record<string, CoverageInfo>) {
+        super();
+        for (const [file, info] of Object.entries(statics)) {
+          this._coverage[file] = { ...info };
+        }
+        this._runner = new StubPythonRunner(this._coverage);
+      }
+
+      /**
+       * Reports `runs` as the most recent call. A file with no entry in `runs`
+       * was not reached by the call, which the runner reports by leaving its
+       * `lines` and `arcs` undefined rather than by omitting the file.
+       *
+       * @param `runs` what the call executed, by file
+       */
+      public record(runs: Record<string, PythonRun>): void {
+        for (const [file, info] of Object.entries(this._coverage)) {
+          info.lines = runs[file]?.lines;
+          info.arcs = runs[file]?.arcs;
+        }
+      }
+    } // class: MultiFileMeasure
+
+    /**
+     * A measure over the two-path file A and the branch-free file B
+     */
+    const twoFileMeasure = () =>
+      new MultiFileMeasure({ [fileA]: twoPathStatic, [fileB]: linearStatic });
+
+    it("measure records each file's own coverage when a call runs through two", () => {
+      const measure = twoFileMeasure();
+
+      measure.record({ [fileA]: twoPathNegative, [fileB]: linearRun });
+      const current = measure.measure(inputAt(0), anyResult).coverageMeasure
+        .current;
+
+      // The measurement is a map over both files...
+      expect(current.files().sort()).toEqual([fileA, fileB].sort());
+
+      // ...and each carries its own counters, not the other's
+      const a = current.fileCoverageFor(fileA);
+      expect(a.path).toEqual(fileA);
+      expect(a.s).toEqual({
+        0: 0, // line 1, `def abs_value(n):`  runs at import, not on a call
+        1: 1, // line 2, `if n < 0:`          executed
+        2: 1, // line 3, `return -n`          executed
+        3: 0, // line 4, `return n`           not reached
+      });
+      expect(a.f).toEqual({ 0: 1 });
+      expect(a.b).toEqual({ 0: [1, 0] }); // if taken, else not
+
+      const b = current.fileCoverageFor(fileB);
+      expect(b.path).toEqual(fileB);
+      expect(b.s).toEqual({
+        0: 0, // line 1, the `def`
+        1: 1, // line 2, `doubled = n * 2`
+        2: 1, // line 3, `return doubled`
+      });
+      expect(b.f).toEqual({ 0: 1 });
+      expect(b.b).toEqual({}); // the linear fixture has no branches
+    });
+
+    it("measure reports a file the call never entered as uncovered", () => {
+      const measure = twoFileMeasure();
+
+      // Only file A runs: the runner leaves B's lines and arcs undefined
+      measure.record({ [fileA]: twoPathNegative });
+      const current = measure.measure(inputAt(0), anyResult).coverageMeasure
+        .current;
+
+      // File B is still described and counted...
+      expect(current.files().sort()).toEqual([fileA, fileB].sort());
+      const b = current.fileCoverageFor(fileB);
+      expect(Object.keys(b.statementMap)).toEqual(["0", "1", "2"]);
+      expect(Object.keys(b.fnMap)).toEqual(["0"]);
+
+      // ...but nothing in it is marked covered
+      expect(b.s).toEqual({ 0: 0, 1: 0, 2: 0 });
+      expect(b.f).toEqual({ 0: 0 });
+
+      // The file that did run is unaffected by the one that did not
+      expect(current.fileCoverageFor(fileA).f).toEqual({ 0: 1 });
+      expect(current.fileCoverageFor(fileA).b).toEqual({ 0: [1, 0] });
+
+      // The measurement's totals span both files, and only A's are covered
+      const summary = current.getCoverageSummary().toJSON();
+      expect(summary.statements.total).toEqual(7); // 4 in A, 3 in B
+      expect(summary.statements.covered).toEqual(2); // A's `if` and `return -n`
+      expect(summary.functions.total).toEqual(2); // one per file
+      expect(summary.functions.covered).toEqual(1); // only A's ran
+      expect(summary.branches.total).toEqual(2); // A's `if`; B has none
+      expect(summary.branches.covered).toEqual(1);
+    });
+
+    it("measure credits an input for the coverage it added in any file", () => {
+      const measure = twoFileMeasure();
+
+      // The first input runs file A's negative path and never enters B
+      measure.record({ [fileA]: twoPathNegative });
+      const first = measure.measure(inputAt(0), anyResult).coverageMeasure
+        .globalDelta;
+
+      // The second repeats it and additionally runs file B, so everything it
+      // is credited with was discovered in the other file
+      measure.record({ [fileA]: twoPathNegative, [fileB]: linearRun });
+      const second = measure.measure(inputAt(1), anyResult).coverageMeasure
+        .globalDelta;
+
+      // The third adds file A's other arm, while repeating B
+      measure.record({ [fileA]: twoPathPositive, [fileB]: linearRun });
+      const third = measure.measure(inputAt(2), anyResult).coverageMeasure
+        .globalDelta;
+
+      // A fourth that repeats what both files have already covered adds nothing
+      measure.record({ [fileA]: twoPathNegative, [fileB]: linearRun });
+      const fourth = measure.measure(inputAt(3), anyResult).coverageMeasure
+        .globalDelta;
+
+      expect(first).toEqual(4); // A: f0, s1, s2, b0.0
+      expect(second).toEqual(3); // B: f0, s1, s2 -- A added nothing
+      expect(third).toEqual(2); // A: s3, b0.1 -- B added nothing
+      expect(fourth).toEqual(0);
+
+      // Between them the inputs covered every item in both files that a call
+      // can reach: 6 of A's 7 and 3 of B's 4 (the `def` lines only run at
+      // import, so no run of calls ever covers them)
+      expect(first + second + third + fourth).toEqual(9);
+    });
+
+    it("measure reports lineage progress for coverage new in another file", () => {
+      const measure = twoFileMeasure();
+
+      // The lineage root runs only file A
+      measure.record({ [fileA]: twoPathNegative });
+      measure.measure(inputAt(0), anyResult);
+
+      // A child that reaches into file B is new to the lineage...
+      measure.record({ [fileA]: twoPathNegative, [fileB]: linearRun });
+      const novel = measure.measure(mutantAt(1, 0), anyResult);
+      expect(novel.coverageMeasure.accumDelta).toEqual(3); // B: f0, s1, s2
+
+      // ...while a sibling that repeats it adds nothing to the lineage
+      measure.record({ [fileA]: twoPathNegative, [fileB]: linearRun });
+      const dupe = measure.measure(mutantAt(2, 0), anyResult);
+      expect(dupe.coverageMeasure.accumDelta).toEqual(0);
+
+      // The root's accumulated coverage now spans both files, though it only
+      // ever ran through one itself. Note that accumulating is a merge, which
+      // sums hit counts: file B reads 2 because both descendants ran it once.
+      // Only covered-ness feeds `accumDelta`, never the count.
+      const rootAccum = measure.getCoverage(0).coverageMeasure.accum;
+      expect(rootAccum.files().sort()).toEqual([fileA, fileB].sort());
+      expect(rootAccum.fileCoverageFor(fileB).f).toEqual({ 0: 2 });
+      expect(rootAccum.fileCoverageFor(fileB).s).toEqual({ 0: 0, 1: 2, 2: 2 });
+    });
+
+    it("measure does not carry a file's coverage into the next call", () => {
+      const measure = twoFileMeasure();
+
+      // The first call runs through both files
+      measure.record({ [fileA]: twoPathNegative, [fileB]: linearRun });
+      const firstB = measure
+        .measure(inputAt(0), anyResult)
+        .coverageMeasure.current.fileCoverageFor(fileB);
+      expect(firstB.f).toEqual({ 0: 1 }); // guard: B really ran
+
+      // The second runs through file A only. Isolation is the runner's doing
+      // rather than a reset: it replaces every file's `lines` and `arcs`, so
+      // B's go back to undefined rather than keeping the previous call's.
+      measure.record({ [fileA]: twoPathPositive });
+      const second = measure.measure(inputAt(1), anyResult).coverageMeasure
+        .current;
+
+      expect(second.fileCoverageFor(fileB).s).toEqual({ 0: 0, 1: 0, 2: 0 });
+      expect(second.fileCoverageFor(fileB).f).toEqual({ 0: 0 });
+
+      // ...and file A shows this call's path, not the union with the last
+      expect(second.fileCoverageFor(fileA).s).toEqual({
+        0: 0,
+        1: 1,
+        2: 0,
+        3: 1,
+      });
+      expect(second.fileCoverageFor(fileA).b).toEqual({ 0: [0, 1] });
+    });
+
+    // Files in different directories. A coverage map is keyed by path, and
+    // every consumer -- the merge, the per-file stats, the heatmap's lookup --
+    // keys on the whole path rather than the file's name. These pin that, so
+    // that shortening a key to a basename anywhere downstream fails loudly.
+
+    const dirCore = "/tmp/proj/pkg/core.py"; // twoPathStatic
+    const dirUtil = "/tmp/proj/lib/util.py"; // linearStatic
+
+    it("measure keeps files in separate directories apart", () => {
+      const measure = new MultiFileMeasure({
+        [dirCore]: twoPathStatic,
+        [dirUtil]: linearStatic,
+      });
+
+      measure.record({ [dirCore]: twoPathNegative, [dirUtil]: linearRun });
+      const current = measure.measure(inputAt(0), anyResult).coverageMeasure
+        .current;
+
+      // Each directory's file is its own entry, keyed and named by full path
+      expect(current.files().sort()).toEqual([dirCore, dirUtil].sort());
+      expect(current.fileCoverageFor(dirCore).path).toEqual(dirCore);
+      expect(current.fileCoverageFor(dirUtil).path).toEqual(dirUtil);
+
+      // ...carrying the counters of the file at that path, and no other
+      expect(current.fileCoverageFor(dirCore).s).toEqual({
+        0: 0,
+        1: 1,
+        2: 1,
+        3: 0,
+      });
+      expect(current.fileCoverageFor(dirCore).b).toEqual({ 0: [1, 0] });
+      expect(current.fileCoverageFor(dirUtil).s).toEqual({ 0: 0, 1: 1, 2: 1 });
+      expect(current.fileCoverageFor(dirUtil).b).toEqual({});
+    });
+
+    it("measure does not conflate two files sharing a basename", () => {
+      // Same file name in two directories, and the same source in both, so
+      // only the path distinguishes them
+      const pkgUtil = "/tmp/proj/pkg/util.py";
+      const libUtil = "/tmp/proj/lib/util.py";
+      const measure = new MultiFileMeasure({
+        [pkgUtil]: twoPathStatic,
+        [libUtil]: twoPathStatic,
+      });
+
+      // The first call takes the `if` in one of them only
+      measure.record({ [pkgUtil]: twoPathNegative });
+      const first = measure.measure(inputAt(0), anyResult).coverageMeasure;
+
+      expect(first.current.files().sort()).toEqual([libUtil, pkgUtil].sort());
+      expect(first.current.fileCoverageFor(pkgUtil).b).toEqual({ 0: [1, 0] });
+      expect(first.current.fileCoverageFor(libUtil).b).toEqual({ 0: [0, 0] });
+      expect(first.current.fileCoverageFor(libUtil).f).toEqual({ 0: 0 });
+      expect(first.globalDelta).toEqual(4); // f0, s1, s2, b0.0 of pkg/util
+
+      // The second takes the other arm in the *other* file. Identical
+      // structure and name, so if the two were keyed by basename this would
+      // look like coverage already seen and be credited nothing.
+      measure.record({ [libUtil]: twoPathPositive });
+      const second = measure.measure(inputAt(1), anyResult).coverageMeasure;
+
+      expect(second.current.fileCoverageFor(libUtil).b).toEqual({ 0: [0, 1] });
+      expect(second.current.fileCoverageFor(pkgUtil).b).toEqual({ 0: [0, 0] });
+      expect(second.globalDelta).toEqual(4); // f0, s1, s3, b0.1 of lib/util
+    });
   });
 
   // ------------------------------------------------------------------
@@ -1094,10 +1382,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
     it("the stats report a normalized path to the Python source", async () => {
       // The path is whatever the Python host reported the file as
       const rawPath = "/tmp/pkg/../abs_value.py";
-      const measure = new TestPythonCoverageMeasure({
-        ...twoPathStatic,
-        file: rawPath,
-      });
+      const measure = new TestPythonCoverageMeasure(twoPathStatic, rawPath);
       runTest(measure, twoPathNegative, inputAt(0));
 
       const stats = await statsOf(measure);

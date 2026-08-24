@@ -56,7 +56,6 @@ export const pyFileName = "/tmp/abs_value.py";
  * every call below.
  */
 export const twoPathStatic: CoverageInfo = {
-  file: pyFileName,
   executable: [1, 2, 3, 4],
   functions: [
     {
@@ -107,7 +106,6 @@ export const twoPathPositive: PythonRun = {
  * five of the six statements, and two two-armed branches.
  */
 export const threePathStatic: CoverageInfo = {
-  file: pyFileName,
   executable: [1, 2, 3, 4, 5, 6],
   functions: [
     {
@@ -170,7 +168,6 @@ export const threePathPositive: PythonRun = {
  * ```
  */
 export const linearStatic: CoverageInfo = {
-  file: pyFileName,
   executable: [1, 2, 3],
   functions: [
     { name: "abs_value", declLine: 1, startLine: 2, endLine: 3, lines: [2, 3] },
@@ -199,7 +196,6 @@ export const linearRun: PythonRun = { lines: [2, 3], arcs: [] };
  * coverage.py: it cannot leave the line, so there is only one arc out of it.
  */
 export const multiFunctionStatic: CoverageInfo = {
-  file: pyFileName,
   executable: [1, 2, 4, 5, 7, 8],
   functions: [
     { name: "abs_value", declLine: 1, startLine: 2, endLine: 2, lines: [2] },
@@ -239,7 +235,6 @@ export const multiFunctionRun: PythonRun = {
  * flip both arms rather than fail to find them.
  */
 export const earlyExitStatic: CoverageInfo = {
-  file: pyFileName,
   executable: [1, 2, 3],
   functions: [
     { name: "report", declLine: 1, startLine: 2, endLine: 3, lines: [2, 3] },
@@ -310,7 +305,6 @@ export const earlyExitNoisyArcs: PythonRun = {
  * downstream may divide by, or summarize, an empty set of arms.
  */
 export const degenerateBranchStatic: CoverageInfo = {
-  file: pyFileName,
   executable: [1, 2, 3],
   functions: [
     { name: "spin", declLine: 1, startLine: 2, endLine: 3, lines: [2, 3] },
@@ -332,7 +326,6 @@ export const degenerateBranchRun: PythonRun = {
  * JSON report has no entry for the file.
  */
 export const emptyStatic: CoverageInfo = {
-  file: pyFileName,
   executable: [],
   functions: [],
   branches: [],
@@ -365,7 +358,6 @@ export const emptyStatic: CoverageInfo = {
  * import, which is why it appears in `executable` and in `nestedImportOnly`.
  */
 export const nestedStatic: CoverageInfo = {
-  file: pyFileName,
   executable: [1, 2, 3, 4, 6],
   functions: [
     { name: "outer", declLine: 1, startLine: 2, endLine: 4, lines: [2, 4] },
