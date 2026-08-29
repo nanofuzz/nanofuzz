@@ -274,6 +274,34 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     }
 
 
+def is_under(root: str, path: str) -> bool:
+    """
+    Returns whether `path` is `root` or sits beneath it.
+    """
+    root = os.path.normcase(root).rstrip(os.sep)
+    path = os.path.normcase(path)
+    return path == root or path.startswith(root + os.sep)
+
+
+def program_files(filename: str) -> List[str]:
+    """
+    Returns the files the program under test is made of: `filename`, plus every
+    module imported from `filename`'s own directory tree.
+
+    Must be called after the PUT is loaded, so that its imports have run.
+    """
+    root = os.path.dirname(filename)
+    files = {filename}
+    for module in list(sys.modules.values()):
+        modfile = getattr(module, "__file__", None)
+        if not modfile or os.path.splitext(modfile)[1] != ".py":
+            continue
+        modfile = os.path.realpath(modfile)
+        if is_under(root, modfile):
+            files.add(modfile)
+    return sorted(files)
+
+
 def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
     logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
 
@@ -367,9 +395,6 @@ if __name__ == "__main__":
     cov = coverage.Coverage(
         include=[os.path.join(os.path.dirname(filename), "**", "*.py")], branch=True, data_file=None)
 
-    # Static analysis of the PUT: the executable lines, functions, and branches
-    coverageInfo = {filename: static_coverage(cov, filename)}
-
     # Try to load the function: either results in a RunnerErrorResult
     # or a callable function
     logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
@@ -378,6 +403,13 @@ if __name__ == "__main__":
         logging.debug(f"[{pid}]  - Unable to load")
     else:
         logging.debug(f"[{pid}]  - Loaded function")
+
+    # Static analysis of the program: the executable lines, functions, and
+    # branches of every file it is made of.
+    coverageInfo = {file: static_coverage(cov, file)
+                    for file in program_files(filename)}
+    logging.debug(
+        f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
 
     # Pre-warm the coverage machinery. The first `cov.start()` installs the
     # tracer, which costs far more than a steady-state call and can push the
