@@ -1,10 +1,16 @@
 import * as Config from "../../Config";
 
 /**
- * Running list of "interesting" inputs.
+ * Type for individual leaders and auxiliary data.
  */
+export type Leader<T> = { leader: T; score: number; focus: number };
+
+/**
+ * Running list of "interesting" inputs.
+ */ 
 export class Leaderboard<T> {
-  private _leaders: { leader: T; score: number; focus: number }[] = []; // List of leaders
+  private _leaders: Leader<T>[] = []; // List of leaders
+  private _outdated_leaders: Leader<T>[] = []; // List of outdated leaders that don't conform to the current specs
   private _minScore = 0.9999; // initial minimum score
   private _minScoreIdx = -1; // index of leader with the minimum score
   private _slots = 200; // maximum number of slots in leaderboard
@@ -176,13 +182,18 @@ export class Leaderboard<T> {
   } // fn: getLeaders
 
   /**
-   * Filter all the leaders in the leaderboard using `fn`.
+   * Filter all the leaders (include outdated leaders) in the leaderboard
+   * using `fn`.
+   *
+   * Leaders satisfy fn are visible to callers, while leaders do not satisfy
+   * fn are kept in _outdated_leaders, and later filter() calls might promote
+   * to be leaders again.
    *
    * @param fn the predicated used for filtering
    */
-  filter(fn: (leader: { leader: T }) => boolean) {
-    if (this._leaders.length) {
-      this._leaders = this._leaders.filter(fn);
-    }
+  public filter(fn: (leader: { leader: T }) => boolean) {
+    const allLeaders = [...this._leaders, ...this._outdated_leaders];
+    this._leaders = allLeaders.filter(fn);
+    this._outdated_leaders = allLeaders.filter((leader) => !fn(leader));
   } // fn: validate
 } // class: Leaderboard
