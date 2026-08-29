@@ -1,8 +1,8 @@
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { FuzzEnv } from "../Fuzzer";
 import { AbstractRunner } from "./AbstractRunner";
-import { JavascriptRunner } from "./JavascriptRunner";
-import { PythonRunner } from "./PythonRunner";
+import { JavascriptRunner } from "./javascript/JavascriptRunner";
+import { PythonRunner } from "./python/PythonRunner";
 
 /**
  * Returns an AbstractRunner appropriate to the input environment, module,
