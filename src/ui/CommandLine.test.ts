@@ -372,6 +372,69 @@ describe("cli:", () => {
     expect(outputData.results.length).toBe(maxFailures);
     expect(outputData.stats.counters.failedTests).toBe(maxFailures);
   });
+
+  it("uses @settings(max_examples=...) for maxTests when CLI argument is default", () => {
+    const outputFile = path.join(tmpDir, "settings_default_output.json5");
+    const pyFile = path.join(tmpDir, "test_settings.py");
+    fs.writeFileSync(
+      pyFile,
+      `
+from hypothesis import given, settings, strategies as st
+
+@settings(max_examples=25)
+@given(x=st.integers())
+def test_target(x):
+    pass
+`,
+      "utf8"
+    );
+
+    const res = runCli([pyFile, "test_target", "--output-file", outputFile]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    expect(outputData.env.options.maxTests).toBe(25);
+  });
+
+  it("explicit --max-tests CLI argument overrides @settings(max_examples=...)", () => {
+    const outputFile = path.join(tmpDir, "settings_override_output.json5");
+    const pyFile = path.join(tmpDir, "test_settings_override.py");
+    fs.writeFileSync(
+      pyFile,
+      `
+from hypothesis import given, settings, strategies as st
+
+@settings(max_examples=25)
+@given(x=st.integers())
+def test_target(x):
+    pass
+`,
+      "utf8"
+    );
+
+    const res = runCli([
+      pyFile,
+      "test_target",
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "10",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    expect(outputData.env.options.maxTests).toBe(10);
+  });
 });
 
 function getFnNameAndModule(fnObj: unknown): {
