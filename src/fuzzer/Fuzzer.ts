@@ -21,7 +21,7 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
-import { isError } from "../fuzzer/Util";
+import { isError } from "./Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
@@ -729,7 +729,20 @@ export class Tester {
             if (Array.isArray(values)) {
               result.inputGenerated.value.forEach((e, i) => {
                 if (i < values.length) {
-                  result.input[i].value = values[i];
+                  const oldValue = result.input[i].value;
+                  const newValue = values[i];
+                  result.input[i].value = newValue;
+
+                  if (JSONN.stringify(oldValue) !== JSONN.stringify(newValue)) {
+                    result.input[i].origin = {
+                      type: "transformer",
+                      transformer: transformRunner.name,
+                      basis: {
+                        value: structuredClone(result.inputGenerated.value),
+                        source: structuredClone(result.inputGenerated.source),
+                      },
+                    };
+                  }
                 }
               });
             } else {

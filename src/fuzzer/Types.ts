@@ -116,6 +116,14 @@ export type FuzzValueOrigin =
       type: "generator";
       generator: "AiInputGenerator";
       model: string;
+    }
+  | {
+      type: "transformer";
+      transformer: string;
+      basis: {
+        value: ArgValueTypeWrapped[];
+        source: FuzzValueOrigin;
+      };
     };
 
 /**
