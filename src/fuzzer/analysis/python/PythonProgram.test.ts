@@ -897,6 +897,38 @@ def test_example(trigger, dep, trigger_val):
     expect(args[2].getIntervals()).toEqual([{ min: 0, max: 100 }]);
   });
 
+  it("hypothesis @settings max_examples option", () => {
+    const program = ProgramFactory.fromSource(
+      () => `
+MAX_EX = 250
+
+@settings(max_examples=500)
+@given(x=st.integers())
+def test_with_settings(x):
+    pass
+
+@hypothesis.settings(max_examples=MAX_EX)
+@given(x=st.integers())
+def test_with_referenced_settings(x):
+    pass
+
+@given(x=st.integers())
+def test_without_settings(x):
+    pass
+      `,
+      "python"
+    );
+
+    const fn1 = program.functionsExported["test_with_settings"];
+    expect(fn1.getRef().fuzzOptions).toEqual({ maxTests: 500 });
+
+    const fn2 = program.functionsExported["test_with_referenced_settings"];
+    expect(fn2.getRef().fuzzOptions).toEqual({ maxTests: 250 });
+
+    const fn3 = program.functionsExported["test_without_settings"];
+    expect(fn3.getRef().fuzzOptions).toBeUndefined();
+  });
+
   it("maps Hypothesis from_regex to the string regex option", () => {
     const fn = ProgramFactory.fromSource(
       () => `

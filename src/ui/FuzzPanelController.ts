@@ -715,11 +715,16 @@ export class FuzzPanel {
    * @returns a new FuzzTests structure for the current function
    */
   private _initFuzzTestsForThisFn(): fuzzer.FuzzTests {
+    const fnRef = this._fuzzEnv.function.getRef();
+
     return {
       version: CURR_FILE_FMT_VER,
       functions: {
         [this._fuzzEnv.function.getName()]: {
-          options: this._fuzzEnv.options,
+          options: {
+            ...this._fuzzEnv.options,
+            ...(fnRef.fuzzOptions ?? {}),
+          },
           argOverrides: this._argOverrides,
           validators: this._fuzzEnv.validators.map((ref) => ref.name),
           tests: {},

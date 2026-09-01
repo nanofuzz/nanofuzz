@@ -5,6 +5,8 @@ import { SingleBar, Presets } from "cli-progress";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
+import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
+import { FuzzOptions } from "../fuzzer/Types";
 import path from "node:path";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
@@ -277,14 +279,53 @@ run();
 async function run(): Promise<void> {
   try {
     await ParserAdapter.init();
+
+    const program = ProgramFactory.fromFile(filename);
+    const targetFnDef = program.functionsExported[fnname];
+    const fnRef = targetFnDef?.getRef();
+    const fnFuzzOptions = fnRef?.fuzzOptions;
+
+    function getEffectiveOption<K extends keyof FuzzOptions>(
+      cliOptionName: string,
+      fuzzOptKey: K,
+      cliValue: FuzzOptions[K]
+    ): FuzzOptions[K] {
+      const isDefault =
+        Commander.program.getOptionValueSource(cliOptionName) === "default";
+      if (
+        isDefault &&
+        fnFuzzOptions &&
+        fnFuzzOptions[fuzzOptKey] !== undefined
+      ) {
+        return fnFuzzOptions[fuzzOptKey]!;
+      }
+      return cliValue;
+    }
+
     const results = await new Tester(filename, fnname, {
       argDefaults: ArgDef.getDefaultOptions(),
-      maxTests: options["maxTests"],
-      fnTimeout: options["fnTimeout"],
-      suiteTimeout: options["maxRuntime"],
+      maxTests: getEffectiveOption("maxTests", "maxTests", options["maxTests"]),
+      fnTimeout: getEffectiveOption(
+        "fnTimeout",
+        "fnTimeout",
+        options["fnTimeout"]
+      ),
+      suiteTimeout: getEffectiveOption(
+        "maxRuntime",
+        "suiteTimeout",
+        options["maxRuntime"]
+      ),
       seed: options["seed"],
-      maxDupeInputs: options["maxDupeInputs"],
-      maxFailures: options["maxFailures"],
+      maxDupeInputs: getEffectiveOption(
+        "maxDupeInputs",
+        "maxDupeInputs",
+        options["maxDupeInputs"]
+      ),
+      maxFailures: getEffectiveOption(
+        "maxFailures",
+        "maxFailures",
+        options["maxFailures"]
+      ),
       useTransformer: options["transformer"],
       useImplicit: options["heuristicOracle"],
       useHuman: options["exampleOracle"],
