@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import JSON5 from "json5";
-import { FuzzTestResults } from "../fuzzer/Fuzzer";
+import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Fuzzer";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AiInputGenerator } from "../fuzzer/generators/AiInputGenerator";
 import { createCacheKey } from "../fuzzer/adapters/LlmCacheManager";
@@ -341,6 +341,36 @@ describe("cli:", () => {
     expect(aiGenStats?.cache?.hits).toBe(1);
     expect(aiGenStats?.cache?.misses).toBe(0);
     expect(aiGenStats?.calls.sent).toBe(1);
+  });
+
+  it("--max-failures: stops fuzzing after reaching maximum allowed failures", () => {
+    const outputFile = path.join(tmpDir, "max_failures_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testStandardVoidReturnException";
+    const maxFailures = 2;
+
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-failures",
+      maxFailures.toString(),
+      "--max-tests",
+      "100",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    expect(outputData.env.options.maxFailures).toBe(maxFailures);
+    expect(outputData.stopReason).toBe(FuzzStopReason.MAXFAILURES);
+    expect(outputData.results.length).toBe(maxFailures);
+    expect(outputData.stats.counters.failedTests).toBe(maxFailures);
   });
 });
 
