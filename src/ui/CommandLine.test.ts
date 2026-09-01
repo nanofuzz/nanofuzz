@@ -11,11 +11,23 @@ import { prompt } from "../fuzzer/adapters/LlmAdapter";
 
 function runCli(args: string[]): ChildProcess.SpawnSyncReturns<string> {
   const cliScript = path.resolve(__dirname, "../../build/cli/cli.cjs");
-  return ChildProcess.spawnSync(process.execPath, [cliScript, ...args], {
-    encoding: "utf8",
-    cwd: path.resolve(__dirname, "../.."),
-    shell: process.platform === "win32",
-  });
+  const result = ChildProcess.spawnSync(
+    process.execPath,
+    [cliScript, ...args],
+    {
+      encoding: "utf8",
+      cwd: path.resolve(__dirname, "../.."),
+      shell: process.platform === "win32",
+    }
+  );
+  // passthrough stdout and stderr for debugging
+  if (result.stdout) {
+    console.log(result.stdout);
+  }
+  if (result.stderr) {
+    console.error(result.stderr);
+  }
+  return result;
 }
 
 describe("cli:", () => {
