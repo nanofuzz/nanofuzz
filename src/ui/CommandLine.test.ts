@@ -372,6 +372,40 @@ describe("cli:", () => {
     expect(outputData.results.length).toBe(maxFailures);
     expect(outputData.stats.counters.failedTests).toBe(maxFailures);
   });
+
+  it("--max-failures: stop fuzzing python put after 1 failure", () => {
+    const pyFile = path.join(
+      tmpDir,
+      `pbt_test_${Math.random().toString(36).substring(2, 9)}.py`
+    );
+    const targetFn = "test_range_max_exclusive_rejects_boundary";
+    fs.writeFileSync(
+      pyFile,
+      `
+def ${targetFn}(n: int) -> int:
+    raise Exception("boundary error")
+`,
+      "utf8"
+    );
+
+    try {
+      const res = runCli([
+        pyFile,
+        targetFn,
+        "--max-runtime",
+        "300000",
+        "--max-failures",
+        "1",
+      ]);
+
+      expect(res.status).toBe(1);
+      expect(res.stdout).toContain("Stopped for reason: maxFailures.");
+    } finally {
+      if (fs.existsSync(pyFile)) {
+        fs.rmSync(pyFile, { force: true });
+      }
+    }
+  });
 });
 
 function getFnNameAndModule(fnObj: unknown): {
