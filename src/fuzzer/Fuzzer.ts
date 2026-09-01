@@ -934,60 +934,62 @@ export class Tester {
         }
 
         const startValTime = performance.now(); // start timer
-        // IMPLICIT ORACLE --------------------------------------------
-        if (this._options.useImplicit) {
-          result.passedImplicit = ImplicitOracle.judge(
-            result.timeout,
-            result.exception,
-            this._function.isVoid(),
-            result.output
-          );
+        if (!result.skipped) {
+          // IMPLICIT ORACLE --------------------------------------------
+          if (this._options.useImplicit) {
+            result.passedImplicit = ImplicitOracle.judge(
+              result.timeout,
+              result.exception,
+              this._function.isVoid(),
+              result.output
+            );
+          }
+
+          // EXAMPLE ORACLE ---------------------------------------------
+          // If a human annotated an expected output, then check it
+          if (this._options.useHuman && result.expectedOutput) {
+            result.passedHuman = ExampleOracle.judge(
+              result.timeout,
+              result.exception,
+              result.expectedOutput,
+              result.output
+            );
+          }
+
+          // PROPERTY ORACLE --------------------------------------------
+          // If a property validator is selected, call it to evaluate the result
+          if (this._options.useProperty) {
+            (
+              await propertyOracle.judge(
+                Object.freeze({
+                  in: result.input.map((i) => i.value), // inputs
+                  out:
+                    result.output.length === 0
+                      ? "timeout or exception"
+                      : result.output[0].value,
+                  exception: result.exception,
+                  timeout: result.timeout,
+                }),
+                Math.max(this._options.fnTimeout, 1)
+              )
+            ).forEach((j, i) => {
+              if (isError(j)) {
+                result.passedValidators.push("unknown");
+                result.validatorException = true;
+                result.validatorExceptionMessage = j.message;
+                result.validatorExceptionFunction = this._validators[i].name;
+                result.validatorExceptionStack = j.stack;
+              } else {
+                result.passedValidators.push(j);
+              }
+            });
+
+            // Summarize propert judgments.
+            result.passedValidator = PropertyOracle.summarize(
+              result.passedValidators
+            );
+          } // if validator
         }
-
-        // EXAMPLE ORACLE ---------------------------------------------
-        // If a human annotated an expected output, then check it
-        if (this._options.useHuman && result.expectedOutput) {
-          result.passedHuman = ExampleOracle.judge(
-            result.timeout,
-            result.exception,
-            result.expectedOutput,
-            result.output
-          );
-        }
-
-        // PROPERTY ORACLE --------------------------------------------
-        // If a property validator is selected, call it to evaluate the result
-        if (this._options.useProperty) {
-          (
-            await propertyOracle.judge(
-              Object.freeze({
-                in: result.input.map((i) => i.value), // inputs
-                out:
-                  result.output.length === 0
-                    ? "timeout or exception"
-                    : result.output[0].value,
-                exception: result.exception,
-                timeout: result.timeout,
-              }),
-              Math.max(this._options.fnTimeout, 1)
-            )
-          ).forEach((j, i) => {
-            if (isError(j)) {
-              result.passedValidators.push("unknown");
-              result.validatorException = true;
-              result.validatorExceptionMessage = j.message;
-              result.validatorExceptionFunction = this._validators[i].name;
-              result.validatorExceptionStack = j.stack;
-            } else {
-              result.passedValidators.push(j);
-            }
-          });
-
-          // Summarize propert judgments.
-          result.passedValidator = PropertyOracle.summarize(
-            result.passedValidators
-          );
-        } // if validator
 
         // Validator stats
         const valTime = performance.now() - startValTime; // stop timer
