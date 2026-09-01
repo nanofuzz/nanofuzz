@@ -575,7 +575,7 @@ export class Tester {
         );
 
         update({
-          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
+          msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
           channel: "update",
           pct: 100,
         });
@@ -643,7 +643,7 @@ export class Tester {
         }
 
         update({
-          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
+          msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
           channel: "milestone",
         });
 
@@ -835,7 +835,7 @@ export class Tester {
 
       // Front-end status update
       update({
-        msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
+        msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
           runStats.counters.passedTests +
           runStats.counters.failedTests +
           runStats.counters.erroredTests +
@@ -1106,15 +1106,13 @@ const _checkStopCondition = (
       (injectCount + (gen ? options.maxTests : 0))
   );
 
-  // End testing if we exceed the maximum number of failures
-  /*
-  if (options.maxFailures > 0) {
+  // End testing if we exceed the maximum number of failures & are done injecting inputs
+  if (options.maxFailures > 0 && !injecting) {
     if (stats.counters.failedTests >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
     pcts.push(stats.counters.failedTests / options.maxFailures);
   }
-  */
 
   // End testing if we exceed the maximum number of sequential duplicates generated
   if (stats.counters.dupesSequential >= options.maxDupeInputs) {
