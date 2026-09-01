@@ -373,7 +373,7 @@ describe("cli:", () => {
     expect(outputData.stats.counters.failedTests).toBe(maxFailures);
   });
 
-  it("uses @settings(max_examples=...) for maxTests when CLI argument is default", () => {
+  it("--max-tests: use @settings(max_examples=...) for defaults", () => {
     const outputFile = path.join(tmpDir, "settings_default_output.json5");
     const pyFile = path.join(tmpDir, "test_settings.py");
     fs.writeFileSync(
@@ -401,7 +401,7 @@ def test_target(x):
     expect(outputData.env.options.maxTests).toBe(25);
   });
 
-  it("explicit --max-tests CLI argument overrides @settings(max_examples=...)", () => {
+  it("--max-tests: cli arguments have precedence over @settings(max_examples=...)", () => {
     const outputFile = path.join(tmpDir, "settings_override_output.json5");
     const pyFile = path.join(tmpDir, "test_settings_override.py");
     fs.writeFileSync(
