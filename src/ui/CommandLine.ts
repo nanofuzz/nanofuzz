@@ -138,6 +138,10 @@ Commander.program
     parseIntArgGeZero,
     1
   )
+  .option(
+    `--cig-stats-checkpoints`,
+    `Track composite generator subgen selection statistics`
+  )
 
   // ------------------------------ System Cleanup ----------------------------- //
 
@@ -263,6 +267,9 @@ for (const key in options) {
       break;
     case "cigInputFocusDecay":
       Config.override("nanofuzz.generators.leaderboardFocusDecay", value);
+      break;
+    case "cigStatsCheckpoints":
+      Config.override("nanofuzz.generators.compositeTrackCheckpoints", value);
       break;
   }
 }

@@ -202,14 +202,41 @@ describe("cli:", () => {
     expect(outputData.results.length).toBeGreaterThan(0);
 
     // Verify composite generator config recorded in output stats
-    const cigConfig =
-      outputData.stats.generators.CompositeInputGenerator?.config;
-    expect(cigConfig).toBeDefined();
-    expect(cigConfig?.lookbackWindow).toBe(300);
-    expect(cigConfig?.chunkSize).toBe(10);
-    expect(cigConfig?.explorationChance).toBe(0.2);
-    expect(cigConfig?.initialFocus).toBe(150);
-    expect(cigConfig?.focusDecay).toBe(2);
+    const cigStats = outputData.stats.generators.CompositeInputGenerator;
+    expect(cigStats?.config).toBeDefined();
+    expect(cigStats?.config?.lookbackWindow).toBe(300);
+    expect(cigStats?.config?.chunkSize).toBe(10);
+    expect(cigStats?.config?.explorationChance).toBe(0.2);
+    expect(cigStats?.config?.initialFocus).toBe(150);
+    expect(cigStats?.config?.focusDecay).toBe(2);
+    expect(cigStats?.checkpoints).toEqual([]);
+  });
+
+  it("--cig-stats-checkpoints flag enables checkpoints tracking in output stats", () => {
+    const outputFile = path.join(tmpDir, "cig_checkpoints_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--cig-stats-checkpoints",
+      "--max-tests",
+      "10",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    const cigStats = outputData.stats.generators.CompositeInputGenerator;
+    expect(cigStats?.checkpoints).toBeDefined();
+    expect(cigStats?.checkpoints?.length).toBeGreaterThan(0);
   });
 
   it("--ai-cache-*: cache miss in replay-error mode", () => {

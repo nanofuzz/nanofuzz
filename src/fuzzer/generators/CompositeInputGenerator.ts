@@ -47,6 +47,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   protected _P = 0.1; // Additional chance of subgen exploration
   protected _permitSubgens = true; // Allow generators to produce inputs
   protected _genStats: FuzzTestStats["generators"]; // Generator statistics
+  protected _trackCheckpoints = false; // Track checkpoints for statistics
   protected _checkpoints: NonNullable<
     FuzzTestStats["generators"]["CompositeInputGenerator"]
   >["checkpoints"] = []; // status of subgens at selection
@@ -108,6 +109,10 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._P = Config.get<number>(
       "nanofuzz.generators.compositeExplorationChance",
       0.1
+    );
+    this._trackCheckpoints = Config.get<boolean>(
+      "nanofuzz.generators.compositeTrackCheckpoints",
+      false
     );
 
     if (L !== this._L || !this._history.length) {
@@ -346,18 +351,22 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         totalProductivity += productivity[g];
       }
 
-      checkpointGens[e.name] = {
-        active: !!this._activeSubgens[g],
-        nextable: !!(this._activeSubgens[g] && e.nextable()),
-        productivity: productivity[g],
-        cost: cost[g],
-      };
+      if (this._trackCheckpoints) {
+        checkpointGens[e.name] = {
+          active: !!this._activeSubgens[g],
+          nextable: !!(this._activeSubgens[g] && e.nextable()),
+          productivity: productivity[g],
+          cost: cost[g],
+        };
+      }
     }); // foreach: subgen
 
-    this._checkpoints.push({
-      tick: this._tick,
-      gens: checkpointGens,
-    });
+    if (this._trackCheckpoints) {
+      this._checkpoints.push({
+        tick: this._tick,
+        gens: checkpointGens,
+      });
+    }
 
     // All active subgens have a minimum chance of being selected,
     // which is determined by _P
