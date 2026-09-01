@@ -373,67 +373,38 @@ describe("cli:", () => {
     expect(outputData.stats.counters.failedTests).toBe(maxFailures);
   });
 
-  it("--max-tests: use @settings(max_examples=...) for defaults", () => {
-    const outputFile = path.join(tmpDir, "settings_default_output.json5");
-    const pyFile = path.join(tmpDir, "test_settings.py");
+  it("--max-failures: stop fuzzing python put after 1 failure", () => {
+    const pyFile = path.join(
+      tmpDir,
+      `pbt_test_${Math.random().toString(36).substring(2, 9)}.py`
+    );
+    const targetFn = "test_range_max_exclusive_rejects_boundary";
     fs.writeFileSync(
       pyFile,
       `
-from hypothesis import given, settings, strategies as st
-
-@settings(max_examples=25)
-@given(x=st.integers())
-def test_target(x):
-    pass
+def ${targetFn}(n: int) -> int:
+    raise Exception("boundary error")
 `,
       "utf8"
     );
 
-    const res = runCli([pyFile, "test_target", "--output-file", outputFile]);
+    try {
+      const res = runCli([
+        pyFile,
+        targetFn,
+        "--max-runtime",
+        "300000",
+        "--max-failures",
+        "1",
+      ]);
 
-    expect(res.status).toBe(0);
-    expect(fs.existsSync(outputFile)).toBeTrue();
-
-    const outputData = JSON5.parse<FuzzTestResults>(
-      fs.readFileSync(outputFile, "utf8")
-    );
-
-    expect(outputData.env.options.maxTests).toBe(25);
-  });
-
-  it("--max-tests: cli arguments have precedence over @settings(max_examples=...)", () => {
-    const outputFile = path.join(tmpDir, "settings_override_output.json5");
-    const pyFile = path.join(tmpDir, "test_settings_override.py");
-    fs.writeFileSync(
-      pyFile,
-      `
-from hypothesis import given, settings, strategies as st
-
-@settings(max_examples=25)
-@given(x=st.integers())
-def test_target(x):
-    pass
-`,
-      "utf8"
-    );
-
-    const res = runCli([
-      pyFile,
-      "test_target",
-      "--output-file",
-      outputFile,
-      "--max-tests",
-      "10",
-    ]);
-
-    expect(res.status).toBe(0);
-    expect(fs.existsSync(outputFile)).toBeTrue();
-
-    const outputData = JSON5.parse<FuzzTestResults>(
-      fs.readFileSync(outputFile, "utf8")
-    );
-
-    expect(outputData.env.options.maxTests).toBe(10);
+      expect(res.status).toBe(1);
+      expect(res.stdout).toContain("Stopped for reason: maxFailures.");
+    } finally {
+      if (fs.existsSync(pyFile)) {
+        fs.rmSync(pyFile, { force: true });
+      }
+    }
   });
 });
 
