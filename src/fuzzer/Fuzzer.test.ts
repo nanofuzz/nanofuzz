@@ -757,6 +757,7 @@ describe("fuzzer:", () => {
     expect(skips.length).toBeGreaterThan(0);
     skips.forEach((r) => {
       expect(r.skipped).toBeTrue();
+      expect(r.passedImplicit).toBe("unknown");
       expect(r.skipReason).toContain("n cannot be 5");
     });
   });
