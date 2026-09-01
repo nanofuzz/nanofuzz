@@ -1,3 +1,5 @@
+import type { FuzzOptions } from "../Types";
+
 /**
  * Languages that NaNofuzz can analyze
  */
@@ -47,6 +49,7 @@ export type FunctionRef = {
   args?: TypeRef[]; // Array of argument types
   returnType?: TypeRef; // Return type of the function
   cmt?: string; // Docstring comment of the function
+  fuzzOptions?: Partial<FuzzOptions>; // Options for this function
 };
 
 /**

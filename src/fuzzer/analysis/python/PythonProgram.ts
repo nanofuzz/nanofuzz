@@ -23,6 +23,7 @@ import * as path from "node:path";
 import { PythonRunner } from "../../runners/PythonRunner";
 import { ArgDef } from "../ArgDef";
 import { isArgType } from "../Util";
+import { FuzzOptions } from "../../Types";
 
 export class PythonProgram extends AbstractProgram {
   public static readonly lang = "python";
@@ -937,6 +938,7 @@ export class PythonProgram extends AbstractProgram {
   ): FunctionRef | undefined {
     let returnType = undefined;
     let isVoid = false;
+    let fuzzOptions: Partial<FuzzOptions> | undefined;
     const nameNode = captures.find((c) => c.name === "function.name");
     const typeNode = captures.find((c) => c.name === "function.return_type");
     const defNode = captures.find((c) => c.name === "function.def");
@@ -945,7 +947,7 @@ export class PythonProgram extends AbstractProgram {
       return undefined;
     }
 
-    // Extract for Hypothesis @given(...) first
+    // Extract for Hypothesis @given(...) and @settings(...) first
     const hypothesisArgMap: Record<string, TypeRef> = {};
     const hypothesisPositionalArgs: (TypeRef | undefined)[] = [];
     const currentNode: Parser.Node | null = defNode.node.parent;
@@ -956,8 +958,18 @@ export class PythonProgram extends AbstractProgram {
           const callNode = child.namedChildren.find((n) => n.type === "call");
           const funcNode = callNode?.childForFieldName("function");
           const decoName = funcNode?.text.split(".").pop();
-          if (decoName === "given") {
-            const argsNode = callNode?.childForFieldName("arguments");
+          if (decoName === "settings" && callNode) {
+            const maxExamplesNode = this._getKwdArg(
+              callNode,
+              "max_examples",
+              -1
+            );
+            const maxExamplesVal = this._parseLiteral(maxExamplesNode);
+            if (typeof maxExamplesVal === "number" && maxExamplesVal >= 0) {
+              fuzzOptions = { ...fuzzOptions, maxTests: maxExamplesVal };
+            }
+          } else if (decoName === "given" && callNode) {
+            const argsNode = callNode.childForFieldName("arguments");
             if (argsNode) {
               for (const argChild of argsNode.namedChildren) {
                 if (argChild.type === "keyword_argument") {
@@ -987,7 +999,7 @@ export class PythonProgram extends AbstractProgram {
           }
         }
       }
-    } // if: has hypothesis @givens
+    } // if: has hypothesis decorators
 
     // Extract native argument type refs
     const parameterNodes =
@@ -1179,8 +1191,147 @@ export class PythonProgram extends AbstractProgram {
       args: finalArgs,
       returnType,
       cmt,
+      ...(fuzzOptions ? { fuzzOptions } : {}),
     };
   } // fn: getFunctionFromNode
+
+  // Best-effort attempt to resolve a reference to a module-level constant. This is.
+  //
+  // Resolve a module-level constant assigned before the strategy reference.
+  // Decorators execute while defining the following function, so assignments
+  // after that point are intentionally ignored.
+  //
+  // This very simple logic does not at all address:
+  // - imports, aliases
+  // - assignments in conditional blocks
+  // - mutations such as <array>.append(...)
+  // - destructuring, global, or scope shadowing
+  // - values computed from other identifiers
+  protected _resolveReference(
+    valueNode: Parser.Node | undefined
+  ): Parser.Node | undefined {
+    if (valueNode?.type !== "identifier" || this._ast === undefined) {
+      return valueNode;
+    }
+
+    let current: Parser.Node = valueNode;
+    let foundNew = true;
+    const visited = new Set<string>();
+
+    // Recursively follow type/strategy identifiers
+    while (current.type === "identifier" && foundNew) {
+      foundNew = false;
+      if (visited.has(current.text)) {
+        break; // avoid cycles
+      }
+      visited.add(current.text);
+
+      // Find the most recent prior assignment
+      for (const statement of this._ast.rootNode.namedChildren) {
+        if (statement.startIndex >= current.startIndex) break;
+        const assignment =
+          statement.type === "assignment"
+            ? statement
+            : statement.namedChildren.find(
+                (child) => child.type === "assignment"
+              );
+        const left = assignment?.childForFieldName("left");
+        const right = assignment?.childForFieldName("right");
+        if (
+          left?.type === "identifier" &&
+          left.text === current.text &&
+          right
+        ) {
+          // Found a matching assignment; update node & resolve recursively
+          current = right;
+          foundNew = true;
+          break;
+        }
+      }
+    }
+    return current;
+  }
+
+  // Helper to extract keyword argument values from a call expression
+  protected _getKwdArg(
+    callNode: Parser.Node,
+    name: string,
+    pos: number
+  ): Parser.Node | undefined {
+    const argsNode = callNode.childForFieldName("arguments");
+    if (!argsNode) return undefined;
+
+    // 1. Look for a named keyword argument (e.g., min_size=5)
+    const kwdNode = argsNode.namedChildren.find(
+      (child) =>
+        child.type === "keyword_argument" &&
+        child.childForFieldName("name")?.text === name
+    );
+    if (kwdNode) {
+      return this._resolveReference(
+        kwdNode.childForFieldName("value") ?? undefined
+      );
+    }
+
+    // 2. Fallback: look for a positional argument at index `pos`
+    if (pos >= 0) {
+      const isPositionalArg = (node: Parser.Node): boolean =>
+        [
+          "identifier",
+          "integer",
+          "float",
+          "string",
+          "true",
+          "false",
+          "none",
+          "call",
+          "attribute",
+          "subscript",
+          "list",
+          "tuple",
+          "dictionary",
+          "set",
+          "binary_operator",
+          "unary_operator",
+          "boolean_operator",
+          "comparison_operator",
+          "parenthesized_expression",
+          "lambda",
+          "list_splat",
+          "dictionary_splat",
+        ].includes(node.type);
+
+      const positionalArgs = argsNode.namedChildren.filter(isPositionalArg);
+      if (pos < positionalArgs.length) {
+        return this._resolveReference(positionalArgs[pos]);
+      }
+    }
+
+    return undefined;
+  }
+
+  // Helper to parse primitive values (int, float, bool, string) from AST nodes
+  protected _parseLiteral(valNode: Parser.Node | undefined): unknown {
+    if (!valNode) return undefined;
+    if (valNode.type === "integer" || valNode.type === "float") {
+      return Number(valNode.text.replace(/_/g, ""));
+    }
+    if (valNode.type === "unary_operator") {
+      const operand = this._parseLiteral(valNode.lastNamedChild ?? undefined);
+      if (typeof operand === "number") {
+        return valNode.text.startsWith("-") ? -operand : operand;
+      }
+    }
+    if (valNode.type === "true") return true;
+    if (valNode.type === "false") return false;
+    if (valNode.type === "string") {
+      const content = valNode.namedChildren.find(
+        (c) => c.type === "string_content"
+      );
+      return content?.text ?? valNode.text.replace(/^['"]|['"]$/g, "");
+    }
+    return undefined;
+  }
 
   /**
    * Parses a Hypothesis strategy (e.g., st.text(...), st.integer(...)) info a
@@ -1203,149 +1354,18 @@ export class PythonProgram extends AbstractProgram {
       isExported: false,
     };
 
-    // Best-effort attempt to resolve a reference to a module-level constant. This is.
-    //
-    // Resolve a module-level constant assigned before the strategy reference.
-    // Decorators execute while defining the following function, so assignments
-    // after that point are intentionally ignored.
-    //
-    // This very simple logic does not at all address:
-    // - imports, aliases
-    // - assignments in conditional blocks
-    // - mutations such as <array>.append(...)
-    // - destructuring, global, or scope shadowing
-    // - values computed from other identifiers
-    const resolveReference = (
-      valueNode: Parser.Node | undefined
-    ): Parser.Node | undefined => {
-      if (valueNode?.type !== "identifier" || this._ast === undefined) {
-        return valueNode;
-      }
-
-      let current: Parser.Node = valueNode;
-      let foundNew = true;
-      const visited = new Set<string>();
-
-      // Recursively follow type/strategy identifiers
-      while (current.type === "identifier" && foundNew) {
-        foundNew = false;
-        if (visited.has(current.text)) {
-          break; // avoid cycles
-        }
-        visited.add(current.text);
-
-        // Find the most recent prior assignment
-        for (const statement of this._ast.rootNode.namedChildren) {
-          if (statement.startIndex >= current.startIndex) break;
-          const assignment =
-            statement.type === "assignment"
-              ? statement
-              : statement.namedChildren.find(
-                  (child) => child.type === "assignment"
-                );
-          const left = assignment?.childForFieldName("left");
-          const right = assignment?.childForFieldName("right");
-          if (
-            left?.type === "identifier" &&
-            left.text === current.text &&
-            right
-          ) {
-            // Found a matching assignment; update node & resolve recursively
-            current = right;
-            foundNew = true;
-            break;
-          }
-        }
-      }
-      return current;
-    };
+    const resolveReference = (valNode: Parser.Node | undefined) =>
+      this._resolveReference(valNode);
+    const getKwdArg = (callNode: Parser.Node, name: string, pos: number) =>
+      this._getKwdArg(callNode, name, pos);
+    const parseLiteral = (valNode: Parser.Node | undefined) =>
+      this._parseLiteral(valNode);
 
     const actualNode = resolveReference(node);
     if (!actualNode || actualNode.type !== "call") {
       return undefined;
     }
     node = actualNode;
-
-    // Helper to extract keyword argument values from a call expression
-    const getKwdArg = (
-      callNode: Parser.Node,
-      name: string,
-      pos: number
-    ): Parser.Node | undefined => {
-      const argsNode = callNode.childForFieldName("arguments");
-      if (!argsNode) return undefined;
-
-      // 1. Look for a named keyword argument (e.g., min_size=5)
-      const kwdNode = argsNode.namedChildren.find(
-        (child) =>
-          child.type === "keyword_argument" &&
-          child.childForFieldName("name")?.text === name
-      );
-      if (kwdNode) {
-        return resolveReference(
-          kwdNode.childForFieldName("value") ?? undefined
-        );
-      }
-
-      // 2. Fallback: look for a positional argument at index `pos`
-      if (pos >= 0) {
-        const isPositionalArg = (node: Parser.Node): boolean =>
-          [
-            "identifier",
-            "integer",
-            "float",
-            "string",
-            "true",
-            "false",
-            "none",
-            "call",
-            "attribute",
-            "subscript",
-            "list",
-            "tuple",
-            "dictionary",
-            "set",
-            "binary_operator",
-            "unary_operator",
-            "boolean_operator",
-            "comparison_operator",
-            "parenthesized_expression",
-            "lambda",
-            "list_splat",
-            "dictionary_splat",
-          ].includes(node.type);
-
-        const positionalArgs = argsNode.namedChildren.filter(isPositionalArg);
-        if (pos < positionalArgs.length) {
-          return resolveReference(positionalArgs[pos]);
-        }
-      }
-
-      return undefined;
-    };
-
-    // Helper to parse primitive values (int, float, bool, string) from AST nodes
-    const parseLiteral = (valNode: Parser.Node | undefined): unknown => {
-      if (!valNode) return undefined;
-      if (valNode.type === "integer" || valNode.type === "float") {
-        return Number(valNode.text.replace(/_/g, ""));
-      }
-      if (valNode.type === "unary_operator") {
-        const operand = parseLiteral(valNode.lastNamedChild ?? undefined);
-        if (typeof operand === "number") {
-          return valNode.text.startsWith("-") ? -operand : operand;
-        }
-      }
-      if (valNode.type === "true") return true;
-      if (valNode.type === "false") return false;
-      if (valNode.type === "string") {
-        const content = valNode.namedChildren.find(
-          (c) => c.type === "string_content"
-        );
-        return content?.text ?? valNode.text.replace(/^['"]|['"]$/g, "");
-      }
-      return undefined;
-    };
 
     // Determine strategy function name (e.g., text, integers, lists, sampled_from)
     const functionNode = node.childForFieldName("function");
