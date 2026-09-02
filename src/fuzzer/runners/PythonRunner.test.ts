@@ -105,12 +105,7 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
       const hexNotUuid = "12345678123441238123123456789abc";
 
       const res = await runner.run(
-        [
-          [uuidStr1, uuidStr2],
-          { id: uuidStr1 },
-          [uuidStr2, 42],
-          hexNotUuid,
-        ],
+        [[uuidStr1, uuidStr2], { id: uuidStr1 }, [uuidStr2, 42], hexNotUuid],
         2000
       );
 
@@ -125,7 +120,16 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
         });
       }
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
     }
   });
 });
