@@ -529,8 +529,26 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       0,
       false,
       [
-        makeTypeRef(dummyModule, "l1", ArgTag.LITERAL, 0, false, [], undefined, 10),
-        makeTypeRef(dummyModule, "l2", ArgTag.LITERAL, 0, false, [], undefined, 20),
+        makeTypeRef(
+          dummyModule,
+          "l1",
+          ArgTag.LITERAL,
+          0,
+          false,
+          [],
+          undefined,
+          10
+        ),
+        makeTypeRef(
+          dummyModule,
+          "l2",
+          ArgTag.LITERAL,
+          0,
+          false,
+          [],
+          undefined,
+          20
+        ),
       ]
     );
     const innerUnion2 = makeArgDef(
@@ -542,8 +560,26 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       0,
       false,
       [
-        makeTypeRef(dummyModule, "l3", ArgTag.LITERAL, 0, false, [], undefined, 30),
-        makeTypeRef(dummyModule, "l4", ArgTag.LITERAL, 0, false, [], undefined, 40),
+        makeTypeRef(
+          dummyModule,
+          "l3",
+          ArgTag.LITERAL,
+          0,
+          false,
+          [],
+          undefined,
+          30
+        ),
+        makeTypeRef(
+          dummyModule,
+          "l4",
+          ArgTag.LITERAL,
+          0,
+          false,
+          [],
+          undefined,
+          40
+        ),
       ]
     );
 
@@ -568,7 +604,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       throw new Error("Expected an array");
     }
     expect(generated.length).toEqual(4);
-    expect(new Set(generated as number[]).size).toEqual(4);
+    expect(new Set(generated).size).toEqual(4);
   });
 
   it("dimsUnique: mutators preserve outer-dimension uniqueness", () => {
