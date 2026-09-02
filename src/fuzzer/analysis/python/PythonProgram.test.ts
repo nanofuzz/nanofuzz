@@ -1,7 +1,9 @@
 import * as ProgramFactory from "../ProgramFactory";
 import { ArgDef } from "../ArgDef";
+import { ArgDefGenerator } from "../ArgDefGenerator";
 import { ArgTag } from "../Types";
 import { PythonProgram } from "./PythonProgram";
+import seedrandom from "seedrandom";
 import * as fs from "fs";
 import * as path from "path";
 import * as Parser from "../../adapters/ParserAdapter";
@@ -1141,6 +1143,86 @@ def test_sampled_dictionary(config):
       "disabled",
       0,
     ]);
+  });
+
+  it("hypothesis @given permutations", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    items=st.permutations(["a", "b", "c"])
+)
+def test_perm(items):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_perm"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getDim()).toEqual(1);
+    expect(arg.getOptions().dimsUnique).toBeTrue();
+    expect(arg.getOptions().dimLength).toEqual([{ min: 3, max: 3 }]);
+    expect(arg.getType()).toEqual(ArgTag.UNION);
+    expect(arg.getChildren().map((c) => c.getConstantValue())).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("hypothesis @given permutations range and constant reference", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+RANGE_CONST = range(1, 5)
+
+@given(
+    nums=st.permutations(range(3)),
+    ref_nums=st.permutations(RANGE_CONST)
+)
+def test_perm_range(nums, ref_nums):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_perm_range"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getDim()).toEqual(1);
+    expect(args[0].getOptions().dimsUnique).toBeTrue();
+    expect(args[0].getOptions().dimLength).toEqual([{ min: 3, max: 3 }]);
+    expect(args[0].getChildren().map((c) => c.getConstantValue())).toEqual([
+      0, 1, 2,
+    ]);
+
+    expect(args[1].getDim()).toEqual(1);
+    expect(args[1].getOptions().dimsUnique).toBeTrue();
+    expect(args[1].getOptions().dimLength).toEqual([{ min: 4, max: 4 }]);
+    expect(args[1].getChildren().map((c) => c.getConstantValue())).toEqual([
+      1, 2, 3, 4,
+    ]);
+  });
+
+  it("hypothesis @given permutations range(2001) generates 2001 unique elements performantly", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    nums=st.permutations(range(2001))
+)
+def test_perm_large(nums):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_perm_large"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getDim()).toEqual(1);
+    expect(arg.getOptions().dimsUnique).toBeTrue();
+    expect(arg.getOptions().dimLength).toEqual([{ min: 2001, max: 2001 }]);
+
+    const generated = ArgDefGenerator.gen(arg, seedrandom("range2001"));
+    expect(Array.isArray(generated)).toBeTrue();
+    if (Array.isArray(generated)) {
+      expect(generated.length).toEqual(2001);
+      expect(new Set(generated).size).toEqual(2001);
+    }
   });
 
   it("hypothesis @given fixed_dictionaries with optional keys", () => {
