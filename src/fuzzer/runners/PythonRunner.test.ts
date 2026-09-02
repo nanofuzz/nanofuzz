@@ -104,12 +104,15 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
       const uuidStr2 = "87654321-4321-3214-3218-cba987654321";
       const hexNotUuid = "12345678123441238123123456789abc";
 
-      const res = await runner.run([
-        [uuidStr1, uuidStr2],
-        { id: uuidStr1 },
-        [uuidStr2, 42],
-        hexNotUuid,
-      ]);
+      const res = await runner.run(
+        [
+          [uuidStr1, uuidStr2],
+          { id: uuidStr1 },
+          [uuidStr2, 42],
+          hexNotUuid,
+        ],
+        2000
+      );
 
       await runner.onRunEnd();
 

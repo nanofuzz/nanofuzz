@@ -556,7 +556,7 @@ class PythonHost {
   protected _onClose = (): void => {
     this._errors.push(
       new Error(
-        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._proc.stderr.read()}, stdout: ${this._proc.stdout.read()}, cli: ${this._cli}, cwd: ${this._cwd})`
+        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._stderr.toString("utf8")}, stdout: ${this._stdout.toString("utf8")}, cli: ${this._cli}, cwd: ${this._cwd})`
       )
     );
     this.kill();
