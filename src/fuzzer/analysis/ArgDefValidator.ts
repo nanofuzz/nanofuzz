@@ -91,7 +91,11 @@ export class ArgDefValidator {
           return value === spec.getConstantValue();
         }
         case ArgTag.OBJECT: {
-          if (typeof value === "object" && !Array.isArray(value)) {
+          if (
+            typeof value === "object" &&
+            !Array.isArray(value) &&
+            value !== null
+          ) {
             const children = spec.getChildren();
             for (const c of children) {
               const name = c.getName();
@@ -119,7 +123,7 @@ export class ArgDefValidator {
             }
             return true; // all child checks passed
           }
-          return false; // not an object or is an array
+          return false; // not an object or is an array or null
         }
 
         case ArgTag.TUPLE: {

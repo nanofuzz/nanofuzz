@@ -1,3 +1,5 @@
+import type { FuzzOptions } from "../Types";
+
 /**
  * Languages that NaNofuzz can analyze
  */
@@ -47,6 +49,7 @@ export type FunctionRef = {
   args?: TypeRef[]; // Array of argument types
   returnType?: TypeRef; // Return type of the function
   cmt?: string; // Docstring comment of the function
+  fuzzOptions?: Partial<FuzzOptions>; // Options for this function
 };
 
 /**
@@ -86,6 +89,7 @@ export type ArgType =
   | number
   | string
   | boolean
+  | null
   | {
       [key: string]: ArgType;
     };
@@ -113,6 +117,7 @@ export type ArgValueType =
       [key: string]: ArgValueType;
     }
   | ArgValueType[]
+  | null
   | undefined;
 export type ArgValueTypeWrapped = {
   tag: "ArgValueTypeWrapped"; // otherwise looks identical to FuzzIoElement

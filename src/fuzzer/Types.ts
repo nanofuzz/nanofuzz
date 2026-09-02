@@ -10,7 +10,8 @@ import { Judgment as _Judgment } from "./oracles/Types";
  */
 export type FuzzTestResult = {
   pinned: boolean; // true if the test was pinned (not randomly generated)
-  input: FuzzIoElement[]; // function input
+  inputGenerated: InputAndSource; // Raw generated input
+  input: FuzzIoElement[]; // function input (may be transformed from inputGenerated)
   output: FuzzIoElement[]; // function output
   exception: boolean; // true if an exception was thrown
   exceptionMessage?: string; // exception message if an exception was thrown
@@ -26,6 +27,7 @@ export type FuzzTestResult = {
   validatorExceptionStack?: string; // validator stack trace if exception was thrown
   timers: {
     gen: number; // time to generate the input in ms
+    transform: number; // time to transform the input in ms
     run: number; // elapsed time of test in ms
   };
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
@@ -114,6 +116,14 @@ export type FuzzValueOrigin =
       type: "generator";
       generator: "AiInputGenerator";
       model: string;
+    }
+  | {
+      type: "transformer";
+      transformer: string;
+      basis: {
+        value: ArgValueTypeWrapped[];
+        source: FuzzValueOrigin;
+      };
     };
 
 /**
@@ -177,6 +187,7 @@ export type FuzzOptions = {
   useImplicit: boolean; // use implicit oracle
   useHuman: boolean; // use human oracle
   useProperty: boolean; // use property validator oracle
+  useTransformer: boolean; // use input transformer
   measures: { [k in SupportedMeasures]: BaseMeasureConfig }; // measure config
   generators: { [k in SupportedInputGenerators]: BaseGeneratorConfig }; // generator config
 };
@@ -291,6 +302,16 @@ export class TypescriptCompilerError extends Error {
   constructor(message: string, details: TypescriptCompilerErrorDetails) {
     super(message);
     this.details = details;
+  }
+}
+
+/**
+ * Throw to skip a test input due to an unsatisfied assumption.
+ */
+export class UnsatisfiedAssumption extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsatisfiedAssumption";
   }
 }
 

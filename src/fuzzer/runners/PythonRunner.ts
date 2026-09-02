@@ -247,6 +247,18 @@ export class PythonRunner extends AbstractRunner {
         pythonEnv.interpreter = pythonEnv.venv.interpreter;
       }
     }
+
+    pythonEnv.interpreter = PythonRunner.resolveInterpreter(
+      pythonEnv.interpreter,
+      pythonEnv.env
+    );
+    if (pythonEnv.venv) {
+      pythonEnv.venv.interpreter = PythonRunner.resolveInterpreter(
+        pythonEnv.venv.interpreter,
+        pythonEnv.env
+      );
+    }
+
     pythonEnv.paths = PythonRunner._pathsFor(pythonEnv);
 
     PythonRunner._envs[filename] = Object.freeze(pythonEnv);
@@ -288,6 +300,65 @@ export class PythonRunner extends AbstractRunner {
     }
     return PythonRunner._paths[interpreter];
   } //fn: _pathsFor
+
+  /**
+   * Resolves the python executable. Tries python3 first, then falls back
+   * to python if python3 is not found or executable.
+   *
+   * @param candidate Preferred python executable or path
+   * @param env Environment variables to use when probing executable
+   * @returns Resolved python executable command or path
+   */
+  public static resolveInterpreter(
+    candidate: string = "python3",
+    env?: Record<string, string | undefined>
+  ): string {
+    const candidates: string[] = [];
+
+    if (candidate) {
+      if (candidate.endsWith("python") || candidate.endsWith("python.exe")) {
+        const python3Alt = candidate.replace(/python(\.exe)?$/, "python3$1");
+        candidates.push(python3Alt, candidate);
+      } else if (
+        candidate.endsWith("python3") ||
+        candidate.endsWith("python3.exe")
+      ) {
+        const pythonAlt = candidate.replace(/python3(\.exe)?$/, "python$1");
+        candidates.push(candidate, pythonAlt);
+      } else {
+        candidates.push(candidate);
+      }
+    }
+
+    if (!candidates.includes("python3")) candidates.push("python3");
+    if (!candidates.includes("python")) candidates.push("python");
+
+    for (const bin of candidates) {
+      if (PythonRunner.canExecute(bin, env)) {
+        return bin;
+      }
+    }
+
+    return candidate || "python3";
+  }
+
+  /**
+   * Probes whether a python executable candidate can be spawned successfully.
+   */
+  public static canExecute(
+    bin: string,
+    env?: Record<string, string | undefined>
+  ): boolean {
+    try {
+      const res = ChildProcess.spawnSync(bin, ["-c", "import sys"], {
+        env: env ?? process.env,
+        encoding: "utf8",
+      });
+      return res.status === 0 && !res.error;
+    } catch {
+      return false;
+    }
+  }
 
   /**
    * Get the current Python host process (creates a new one if needed)

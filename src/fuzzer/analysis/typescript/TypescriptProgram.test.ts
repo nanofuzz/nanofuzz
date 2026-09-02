@@ -229,4 +229,191 @@ export const returnsValueArrow = () => "hello";
     expect(fns["multiBranchNonVoid"].isVoid()).toBeFalse();
     expect(fns["returnsValueArrow"].isVoid()).toBeFalse();
   });
+
+  it("rest parameters: (...args: Parameters<typeof fn>", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `function levenshtein(a: string, b: string): number { return 0; }
+      export function levenshteinTransformer(...args: Parameters<typeof levenshtein>): Parameters<typeof levenshtein> | null {
+        return args;
+      }`,
+      "typescript"
+    );
+    const transformer = prog.functionsExported["levenshteinTransformer"];
+    expect(transformer).toBeDefined();
+    expect(
+      transformer
+        .getArgDefs()
+        .map((arg) => [arg.getName(), TypescriptProgram.getTypeAnnotation(arg)])
+    ).toEqual([
+      ["a", "string"],
+      ["b", "string"],
+    ]);
+  });
+
+  it("rest parameters: explicit tuple types", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `export function myTransformer(...args: [str: string, num: number]): [string, number] {
+        return args;
+      }`,
+      "typescript"
+    );
+    const transformer = prog.functionsExported["myTransformer"];
+    expect(transformer).toBeDefined();
+    expect(
+      transformer
+        .getArgDefs()
+        .map((arg) => [arg.getName(), TypescriptProgram.getTypeAnnotation(arg)])
+    ).toEqual([
+      ["str", "string"],
+      ["num", "number"],
+    ]);
+  });
+
+  it("rest parameters: array types", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `export function arrayTransformer(...items: number[]): number[] {
+        return items;
+      }`,
+      "typescript"
+    );
+    const transformer = prog.functionsExported["arrayTransformer"];
+    expect(transformer).toBeDefined();
+    expect(
+      transformer
+        .getArgDefs()
+        .map((arg) => [arg.getName(), TypescriptProgram.getTypeAnnotation(arg)])
+    ).toEqual([["items", "number[]"]]);
+  });
+
+  it("ReturnType<typeof fn>", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `function getVal(): number { return 10; }
+      export function fn(x: ReturnType<typeof getVal>): void {}`,
+      "typescript"
+    );
+    const fn = prog.functionsExported["fn"];
+    expect(fn).toBeDefined();
+    expect(
+      fn
+        .getArgDefs()
+        .map((arg) => [arg.getName(), TypescriptProgram.getTypeAnnotation(arg)])
+    ).toEqual([["x", "number"]]);
+  });
+
+  it("rest parameters: type-aliased tuple types", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `type MyTuple = [a: string, b: number];
+      export function aliasedTransformer(...args: MyTuple): void {}`,
+      "typescript"
+    );
+    const fn = prog.functionsExported["aliasedTransformer"];
+    expect(fn).toBeDefined();
+    expect(
+      fn
+        .getArgDefs()
+        .map((arg) => [arg.getName(), TypescriptProgram.getTypeAnnotation(arg)])
+    ).toEqual([
+      ["a", "string"],
+      ["b", "number"],
+    ]);
+  });
+
+  it("rest parameters: union of tuple types (inline and type-aliased)", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `type MyTupleUnion = [str: string] | [num: number, flag: boolean];
+      export function inlineUnion(...args: [string] | [number, boolean]): void {}
+      export function aliasedUnion(...args: MyTupleUnion): void {}`,
+      "typescript"
+    );
+
+    const inlineFn = prog.functionsExported["inlineUnion"];
+    expect(inlineFn).toBeDefined();
+    expect(
+      inlineFn
+        .getArgDefs()
+        .map((arg) => [
+          arg.getName(),
+          TypescriptProgram.getTypeAnnotation(arg),
+          arg.isOptional(),
+        ])
+    ).toEqual([
+      ["args_0", "string | number", false],
+      ["args_1", "boolean | undefined", true],
+    ]);
+
+    const aliasedFn = prog.functionsExported["aliasedUnion"];
+    expect(aliasedFn).toBeDefined();
+    expect(
+      aliasedFn
+        .getArgDefs()
+        .map((arg) => [
+          arg.getName(),
+          TypescriptProgram.getTypeAnnotation(arg),
+          arg.isOptional(),
+        ])
+    ).toEqual([
+      ["str", "string | number", false],
+      ["flag", "boolean | undefined", true],
+    ]);
+  });
+
+  it("null literals and keywords in parameter types (inline)", () => {
+    const prog = ProgramFactory.fromSource(
+      () =>
+        `export function nulls(x: null | number, o: {k: null | number}, u: (null | number)[], t: [null, null]): void {}`,
+      "typescript"
+    );
+    const fn = prog.functionsExported["nulls"];
+    expect(fn).toBeDefined();
+
+    expect(
+      fn
+        .getArgDefs()
+        .map((arg) => [arg.getName(), TypescriptProgram.getTypeAnnotation(arg)])
+    ).toEqual([
+      ["x", "null | number"],
+      ["o", "{ k: null | number }"],
+      ["u", "(null | number)[]"],
+      ["t", "[null, null]"],
+    ]);
+  });
+
+  it("null literals and keywords in parameter types (type references)", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `type NullableNumber = null | number;
+      type MyObj = { k: NullableNumber };
+      type MyArray = NullableNumber[];
+      type MyTuple = [null, null];
+      export function nullsAliased(x: NullableNumber, o: MyObj, u: MyArray, t: MyTuple): void {}`,
+      "typescript"
+    );
+    const fn = prog.functionsExported["nullsAliased"];
+    expect(fn).toBeDefined();
+
+    expect(
+      fn
+        .getArgDefs()
+        .map((arg) => [arg.getName(), TypescriptProgram.getTypeAnnotation(arg)])
+    ).toEqual([
+      ["x", "NullableNumber"],
+      ["o", "MyObj"],
+      ["u", "MyArray"],
+      ["t", "MyTuple"],
+    ]);
+
+    // Also verify base type expansion without using type refs
+    expect(
+      fn
+        .getArgDefs()
+        .map((arg) => [
+          arg.getName(),
+          TypescriptProgram.getTypeAnnotation(arg, {}),
+        ])
+    ).toEqual([
+      ["x", "null | number"],
+      ["o", "{ k: null | number }"],
+      ["u", "(null | number)[]"],
+      ["t", "[null, null]"],
+    ]);
+  });
 });

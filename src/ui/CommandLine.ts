@@ -5,8 +5,11 @@ import { SingleBar, Presets } from "cli-progress";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
+import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
+import { FuzzOptions } from "../fuzzer/Types";
 import path from "node:path";
 import { isError } from "../fuzzer/Util";
+import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 
 /**
  * Command line interface for NaNofuzz.
@@ -14,15 +17,18 @@ import { isError } from "../fuzzer/Util";
  * Usage: yarn nanofuzz --help
  *
  * Uses mostly pytest-compatible exitcodes:
- *   - Exit code 0: All tests passed successfully
- *   - Exit code 1: Tests ran but some of the tests failed
- *   - Exit code 2: <not used>
+ *   - Exit code 0: Tests ran and all passed successfully
+ *   - Exit code 1: Tests ran and some of the tests failed
+ *   - Exit code 2: User cancelled testing
  *   - Exit code 3: Internal error happened while running tests
+ *                  Includes cases where no tests were run
+ *                  (e.g., all inputs generated were skipped)
  *   - Exit code 4: Command line usage error
  *   - Exit code 5: <not used>
  */
 const EXIT_OK = 0;
 const ERROR_TEST_FAILURE = 1;
+const USER_CANCELLED = 2;
 const ERROR_INTERNAL = 3;
 const ERROR_USAGE = 4;
 
@@ -70,6 +76,10 @@ Commander.program
   )
   .option(`--seed <string>`, `Seed for pseudo-random number generator`, "")
 
+  // ------------------------------- Transformers ------------------------------ //
+
+  .option(`--no-transformer`, `Disable input transformers`)
+
   // --------------------------------- Oracles --------------------------------- //
 
   .option(`--no-heuristic-oracle`, `Disable heuristic oracle`)
@@ -89,6 +99,12 @@ Commander.program
   .option(`--model-provider <string>`, `AI model provider`)
   .option(`--model-name <string>`, `AI model name`)
   .option(`--model-key <string>`, `AI model API key`)
+  .option(
+    `--ai-cache-mode <mode>`,
+    `LLM cache mode (passthrough, record, replay-record, replay-error, replay-passthrough)`,
+    parseAiCacheMode
+  )
+  .option(`--ai-cache-file <path>`, `Path to LLM cache file`)
 
   // ------------------------ Composite Input Generator ------------------------ //
 
@@ -121,6 +137,10 @@ Commander.program
     `Focus decay as interesting inputs age`,
     parseIntArgGeZero,
     1
+  )
+  .option(
+    `--cig-stats-checkpoints`,
+    `Track composite generator subgen selection statistics`
   )
 
   // ------------------------------ System Cleanup ----------------------------- //
@@ -162,6 +182,7 @@ const outfile = options["outputFile"]
   : undefined;
 
 // Setup update message handler & the progress bar
+let isCancelled = false;
 let lastWasMilestone = true;
 const bar = new SingleBar(
   {
@@ -171,26 +192,43 @@ const bar = new SingleBar(
   },
   Presets.shades_classic
 );
-const updateFn = (payload: FuzzBusyStatusMessage) => {
-  switch (payload.channel) {
-    case "summary":
-    case "milestone": {
-      if (!lastWasMilestone) {
-        bar.stop();
-      }
-      console.log(payload.msg);
-      break;
+
+process.on("SIGINT", () => {
+  if (isCancelled) {
+    process.exit(USER_CANCELLED);
+  } else {
+    isCancelled = true;
+    if (!lastWasMilestone) {
+      bar.stop();
+      lastWasMilestone = true;
     }
-    case "update": {
-      if (lastWasMilestone) {
-        bar.start(100, 0);
+    console.log("Cancellation requested. Stopping NaNofuzz...");
+  }
+});
+
+const updateFn = (payload: FuzzBusyStatusMessage) => {
+  if (!isCancelled) {
+    switch (payload.channel) {
+      case "summary":
+      case "milestone": {
+        if (!lastWasMilestone) {
+          bar.stop();
+        }
+        console.log(payload.msg);
+        break;
       }
-      if (payload.pct) {
-        bar.update(Math.max(0, Math.min(payload.pct, 100)));
+      case "update": {
+        if (lastWasMilestone) {
+          bar.start(100, 0);
+        }
+        if (payload.pct) {
+          bar.update(Math.max(0, Math.min(payload.pct, 100)));
+        }
+        break;
       }
     }
   }
-  lastWasMilestone = payload.channel !== "update";
+  lastWasMilestone = payload.channel !== "update" || isCancelled;
 };
 
 // Set config options
@@ -206,6 +244,12 @@ for (const key in options) {
       break;
     case "modelKey":
       Config.override("nanofuzz.ai.apiKey", value);
+      break;
+    case "aiCacheMode":
+      Config.override("nanofuzz.ai.cacheMode", value);
+      break;
+    case "aiCacheFile":
+      Config.override("nanofuzz.ai.cacheFile", value);
       break;
 
     // composite input generator config options
@@ -224,6 +268,9 @@ for (const key in options) {
     case "cigInputFocusDecay":
       Config.override("nanofuzz.generators.leaderboardFocusDecay", value);
       break;
+    case "cigStatsCheckpoints":
+      Config.override("nanofuzz.generators.compositeTrackCheckpoints", value);
+      break;
   }
 }
 
@@ -239,14 +286,54 @@ run();
 async function run(): Promise<void> {
   try {
     await ParserAdapter.init();
+
+    const program = ProgramFactory.fromFile(filename);
+    const targetFnDef = program.functionsExported[fnname];
+    const fnRef = targetFnDef?.getRef();
+    const fnFuzzOptions = fnRef?.fuzzOptions;
+
+    function getEffectiveOption<K extends keyof FuzzOptions>(
+      cliOptionName: string,
+      fuzzOptKey: K,
+      cliValue: FuzzOptions[K]
+    ): FuzzOptions[K] {
+      const isDefault =
+        Commander.program.getOptionValueSource(cliOptionName) === "default";
+      if (
+        isDefault &&
+        fnFuzzOptions &&
+        fnFuzzOptions[fuzzOptKey] !== undefined
+      ) {
+        return fnFuzzOptions[fuzzOptKey]!;
+      }
+      return cliValue;
+    }
+
     const results = await new Tester(filename, fnname, {
       argDefaults: ArgDef.getDefaultOptions(),
-      maxTests: options["maxTests"],
-      fnTimeout: options["fnTimeout"],
-      suiteTimeout: options["maxRuntime"],
+      maxTests: getEffectiveOption("maxTests", "maxTests", options["maxTests"]),
+      fnTimeout: getEffectiveOption(
+        "fnTimeout",
+        "fnTimeout",
+        options["fnTimeout"]
+      ),
+      suiteTimeout: getEffectiveOption(
+        "maxRuntime",
+        "suiteTimeout",
+        options["maxRuntime"]
+      ),
       seed: options["seed"],
-      maxDupeInputs: options["maxDupeInputs"],
-      maxFailures: options["maxFailures"],
+      maxDupeInputs: getEffectiveOption(
+        "maxDupeInputs",
+        "maxDupeInputs",
+        options["maxDupeInputs"]
+      ),
+      maxFailures: getEffectiveOption(
+        "maxFailures",
+        "maxFailures",
+        options["maxFailures"]
+      ),
+      useTransformer: options["transformer"],
       useImplicit: options["heuristicOracle"],
       useHuman: options["exampleOracle"],
       useProperty: options["propertyOracle"],
@@ -264,28 +351,33 @@ async function run(): Promise<void> {
       generators: {
         AiInputGenerator: { enabled: options["aiInputGenerator"] },
         MutationInputGenerator: {
-          enabled: options["murationInputGenerator"],
+          enabled: options["mutationInputGenerator"],
         },
         RandomInputGenerator: {
           enabled: true, // always enabled
         },
       },
-    }).testSync(undefined, undefined, updateFn);
+    }).testSync(undefined, undefined, updateFn, () => isCancelled);
+
+    if (isCancelled) {
+      process.exit(USER_CANCELLED);
+    }
 
     const someTestsRan =
       results.stats.counters.passedTests + results.stats.counters.failedTests;
     const someTestsFailed = results.stats.counters.failedTests;
 
-    if (someTestsRan) {
+    if (someTestsRan && !results.stats.counters.erroredTests) {
       if (someTestsFailed) {
         process.exit(ERROR_TEST_FAILURE); // tests ran and some failed
       } else {
-        process.exit(EXIT_OK); // tests ran and none failed
+        process.exit(EXIT_OK); // tests ran and none failed);
       }
     } else {
       process.exit(ERROR_INTERNAL); // internal error
     }
   } catch (e: unknown) {
+    await LlmAdapter.flushCache(5000);
     if (isError(e)) {
       if (e.stack) {
         console.error(e.stack);
@@ -311,6 +403,22 @@ function parseFloatArgGeZero(value: string, _previous: number): number {
   }
   return parsedValue;
 } // fn: parseFloatArgGeZero
+
+function parseAiCacheMode(value: string, _previous: string): string {
+  const allowed = [
+    "passthrough",
+    "record",
+    "replay-record",
+    "replay-error",
+    "replay-passthrough",
+  ];
+  if (!allowed.includes(value)) {
+    throw new Commander.InvalidArgumentError(
+      `Invalid ai cache mode '${value}'. Allowed: ${allowed.join(", ")}`
+    );
+  }
+  return value;
+} // fn: parseAiCacheMode
 
 function parseFloatArgZeroToOne(value: string, _previous: number): number {
   const parsedValue = parseFloatArgGeZero(value, _previous);

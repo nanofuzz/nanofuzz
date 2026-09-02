@@ -1,10 +1,5 @@
 import { ArgDef } from "./ArgDef";
-import {
-  FunctionRef,
-  ArgOptionOverrides,
-  ArgOptions,
-  TypeRef,
-} from "./Types";
+import { FunctionRef, ArgOptionOverrides, ArgOptions, TypeRef } from "./Types";
 import { ProgramLanguage } from "./Types";
 
 /**
@@ -213,6 +208,15 @@ export class FunctionDef {
   } // fn: isValidator()
 
   /**
+   * Returns true if the function is an input transformer; false, otherwise.
+   *
+   * @returns true if the function is an input transformer; false, otherwise.
+   */
+  public isTransformer(): boolean {
+    return this.isExported() && this._ref.name.endsWith("Transformer");
+  } // fn: isTransformer()
+
+  /*
    * Returns the validator's target function name if isValidator()===true
    *
    * Throws an exception if the function is not a validator.

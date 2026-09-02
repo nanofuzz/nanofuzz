@@ -8,10 +8,17 @@ import {
 import * as JSONN from "../../Jsonn";
 import * as ValueMapper from "../mappers/ValueMapper";
 import { LlmAdapter } from "../adapters/LlmAdapter";
-import { ArgDef, FunctionDef, InputAndSource } from "../Fuzzer";
+import {
+  ArgDef,
+  FunctionDef,
+  FuzzTestResults,
+  InputAndSource,
+} from "../Fuzzer";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
-import * as zod from "zod";
+import * as zod from "zod/v4";
 import { InputGeneratorStatsAi } from "./Types";
+import { isError } from "../Util";
+import * as Config from "../../Config";
 
 /**
  * Generates new inputs using a large language model
@@ -113,122 +120,128 @@ export class AiInputGenerator extends AbstractInputGenerator {
     if (this._llm) {
       this._callsPending++;
       const modelId = this._llm.id;
-      try {
-        const validInputs: { [k: string]: ArgValueType }[] = [];
-        const invalidInputs: { [k: string]: ArgValueType }[] = [];
-        const validator = new ArgDefValidator(this._specs);
+      const validInputs: { [k: string]: ArgValueType }[] = [];
+      const invalidInputs: { [k: string]: ArgValueType }[] = [];
+      const validator = new ArgDefValidator(this._specs);
 
-        this._stats.calls.sent++;
-        const [schema, directives] = this._getInputsSchema(this._fn.getLang());
+      this._stats.calls.sent++;
+      const [schema, directives] = this._getInputsSchema(this._fn.getLang());
 
-        // Fetch inputs from the llm
-        this._llm
-          .genInputs(this._fn, schema, directives, this._allInputs)
-          .then((inputs) => {
-            // Update tokens received stats
-            if (inputs.stats) {
-              this._stats.tokens.received += inputs.stats.tokensReceived;
-              if (!this._stats.tokens.receivedCost) {
-                this._stats.tokens.receivedCost = {
-                  ...inputs.stats.tokensReceivedCost,
-                };
-              } else if (
-                this._stats.tokens.receivedCost.unit ===
-                inputs.stats.tokensReceivedCost.unit
-              ) {
-                this._stats.tokens.receivedCost.amt +=
-                  inputs.stats.tokensReceivedCost.amt;
-              }
-
-              // Update tokens sent stats
-              this._stats.tokens.sent += inputs.stats.tokensSent;
-              if (!this._stats.tokens.sentCost) {
-                this._stats.tokens.sentCost = {
-                  ...inputs.stats.tokensSentCost,
-                };
-              } else if (
-                this._stats.tokens.sentCost.unit ===
-                inputs.stats.tokensSentCost.unit
-              ) {
-                this._stats.tokens.sentCost.amt +=
-                  inputs.stats.tokensSentCost.amt;
-              }
+      // Fetch inputs from the llm
+      this._llm
+        .genInputs(this._fn, schema, directives, this._allInputs)
+        .then((inputs) => {
+          // Update tokens received stats
+          if (inputs.stats) {
+            this._stats.tokens.received += inputs.stats.tokensReceived;
+            if (!this._stats.tokens.receivedCost) {
+              this._stats.tokens.receivedCost = {
+                ...inputs.stats.tokensReceivedCost,
+              };
+            } else if (
+              this._stats.tokens.receivedCost.unit ===
+              inputs.stats.tokensReceivedCost.unit
+            ) {
+              this._stats.tokens.receivedCost.amt +=
+                inputs.stats.tokensReceivedCost.amt;
             }
 
-            // Handle error cases
-            switch (inputs.error?.type) {
-              case undefined:
-                this._stats.calls.valid++;
-                this._stats.calls.history.push({ success: true });
-                break;
-              case "discard":
-                this._stats.calls.invalid++;
-                this._stats.calls.history.push({ discard: true });
-                break;
-              case "failure":
-                this._stats.calls.failed++;
-                this._stats.calls.history.push({
-                  failure: true,
-                  message: inputs.error.message,
-                });
-                break;
+            // Update tokens sent stats
+            this._stats.tokens.sent += inputs.stats.tokensSent;
+            if (!this._stats.tokens.sentCost) {
+              this._stats.tokens.sentCost = {
+                ...inputs.stats.tokensSentCost,
+              };
+            } else if (
+              this._stats.tokens.sentCost.unit ===
+              inputs.stats.tokensSentCost.unit
+            ) {
+              this._stats.tokens.sentCost.amt +=
+                inputs.stats.tokensSentCost.amt;
             }
+          }
 
-            // Process the inputs
-            inputs.programInputs.forEach((input) => {
-              this._stats.inputs.gen++;
-
-              // Decode the input
-              Object.keys(input).forEach((k) => {
-                input[k] = _decode(input[k]);
+          // Handle error cases
+          switch (inputs.error?.type) {
+            case undefined:
+              this._stats.calls.valid++;
+              this._stats.calls.history.push({ success: true });
+              break;
+            case "discard":
+              this._stats.calls.invalid++;
+              this._stats.calls.history.push({ discard: true });
+              break;
+            case "failure":
+              this._stats.calls.failed++;
+              this._stats.calls.history.push({
+                failure: true,
+                message: inputs.error.message,
               });
+              break;
+          }
 
-              // Validate the input
-              if (
-                validator.validate(
-                  this._specs.map((arg) => {
-                    return {
-                      tag: "ArgValueTypeWrapped",
-                      value: input[arg.getName()],
-                    };
-                  })
-                )
-              ) {
-                validInputs.push(input);
-              } else {
-                invalidInputs.push(input);
-                this._stats.inputs.invalid++;
-              }
+          // Process the inputs
+          inputs.programInputs.forEach((input) => {
+            this._stats.inputs.gen++;
+
+            // Decode the input
+            Object.keys(input).forEach((k) => {
+              input[k] = _decode(input[k]);
             });
-            if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
-              console.debug(
-                `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSONN.stringify(invalidInputs, null, 2)}`
-              );
-            }
 
-            // Push valid inputs to the input queue
-            this._inputQueue.push(
-              ...validInputs.map((input): InputAndSource => {
-                return {
-                  tick: 0,
-                  value: this._specs.map((arg): ArgValueTypeWrapped => {
-                    return {
-                      tag: "ArgValueTypeWrapped",
-                      value: input[arg.getName()],
-                    };
-                  }),
-                  source: {
-                    type: "generator",
-                    generator: "AiInputGenerator",
-                    model: modelId ?? "unknown model",
-                  },
-                };
-              })
-            );
+            // Validate the input
+            if (
+              validator.validate(
+                this._specs.map((arg) => {
+                  return {
+                    tag: "ArgValueTypeWrapped",
+                    value: input[arg.getName()],
+                  };
+                })
+              )
+            ) {
+              validInputs.push(input);
+            } else {
+              invalidInputs.push(input);
+              this._stats.inputs.invalid++;
+            }
           });
-      } finally {
-        this._callsPending--;
-      }
+          if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
+            console.debug(
+              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSONN.stringify(invalidInputs, null, 2)}`
+            );
+          }
+
+          // Push valid inputs to the input queue
+          this._inputQueue.push(
+            ...validInputs.map((input): InputAndSource => {
+              return {
+                tick: 0,
+                value: this._specs.map((arg): ArgValueTypeWrapped => {
+                  return {
+                    tag: "ArgValueTypeWrapped",
+                    value: input[arg.getName()],
+                  };
+                }),
+                source: {
+                  type: "generator",
+                  generator: "AiInputGenerator",
+                  model: modelId ?? "unknown model",
+                },
+              };
+            })
+          );
+        })
+        .catch((e: unknown) => {
+          this._stats.calls.failed++;
+          this._stats.calls.history.push({
+            failure: true,
+            message: isError(e) ? e.message : "unknown error",
+          });
+        })
+        .finally(() => {
+          this._callsPending--;
+        });
     }
   } // fn: _getMoreInputs
 
@@ -346,7 +359,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
               );
               return zod.enum([literalValue]);
             case "object":
-              throw new Error(`Array and Object literals not supported`);
+              if (literalValue === null) {
+                return zod.null();
+              } else {
+                throw new Error(`Array and Object literals not supported`);
+              }
             case "bigint": // fallsthrough
             case "symbol": // fallsthrough
             case "function":
@@ -417,8 +434,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
       : argToZod(inArg); // mandatory
 
     // Dimensions
-    argOptions.dimLength.forEach((dim) => {
-      const desc = `array length must be >= ${dim.min} && <= ${dim.max}`;
+    argOptions.dimLength.forEach((dim, idx) => {
+      const isUnique = idx === 0 && argOptions.dimsUnique;
+      const desc = `array length must be >= ${dim.min} && <= ${dim.max}${
+        isUnique ? "; all elements in the array must be unique" : ""
+      }`;
       directives.push(`${path}: ${desc}`);
       zodArg = zod.array(zodArg).min(dim.min).max(dim.max).describe(desc);
     });
@@ -429,8 +449,29 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * Return stats about the AI input generation process
    */
   public get stats(): InputGeneratorStatsAi {
-    return JSON.parse(JSON.stringify(this._stats));
+    const res: InputGeneratorStatsAi = JSON.parse(JSON.stringify(this._stats));
+    if (this._llm) {
+      res.cache = this._llm.cacheStats;
+    }
+    return res;
   } // getter: stats
+
+  /**
+   * Cleanup and flush in-flight LLM requests if in a recording cache mode
+   */
+  public override async onRunEnd(results?: FuzzTestResults): Promise<void> {
+    await super.onRunEnd(results);
+    const cacheMode = Config.get<string>(
+      "nanofuzz.ai.cacheMode",
+      "passthrough"
+    );
+    if (cacheMode.includes("record")) {
+      await LlmAdapter.flushCache(5000);
+    }
+    if (results) {
+      results.stats.generators.AiInputGenerator.gen = this.stats;
+    }
+  } // fn: onRunEnd
 } // class: AiInputGenerator
 
 /**
@@ -460,6 +501,8 @@ export function _decode(data: ArgValueType): ArgValueType {
     case "object":
       if (Array.isArray(data)) {
         return data.map((e) => _decode(e));
+      } else if (data === null) {
+        return null;
       } else {
         Object.keys(data).forEach((k) => {
           if (data[k] === NANOFUZZ_MISSING_PROPERTY) {

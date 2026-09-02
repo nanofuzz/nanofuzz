@@ -58,6 +58,7 @@ const intOptions: FuzzOptions = {
   maxDupeInputs: 1000,
   maxFailures: 0,
   useImplicit: true,
+  useTransformer: true,
   useHuman: true,
   useProperty: false,
   measures: allMeasures,
@@ -411,6 +412,7 @@ describe("fuzzer:", () => {
     expect(
       resultValue !== undefined &&
         typeof resultValue === "object" &&
+        resultValue !== null &&
         !("b" in resultValue)
     ).toBeTruthy();
   });
@@ -704,6 +706,7 @@ describe("fuzzer:", () => {
     );
     expect(
       typeof failures[0].output[0].value === "object" &&
+        failures[0].output[0].value !== null &&
         "a" in failures[0].output[0].value &&
         failures[0].output[0].value["a"] === null
     ).toBeTrue();
@@ -730,6 +733,7 @@ describe("fuzzer:", () => {
     ).toEqual("6");
     expect(
       typeof failures[0].output[0].value === "object" &&
+        failures[0].output[0].value !== null &&
         "a" in failures[0].output[0].value &&
         failures[0].output[0].value["a"] === undefined
     ).toBeTrue();
@@ -748,14 +752,159 @@ describe("fuzzer:", () => {
       }
     ).testSync();
 
-    const skips = fuzzResult.results.filter(
-      (r) => r.category === "skip"
-    );
+    const skips = fuzzResult.results.filter((r) => r.category === "skip");
 
     expect(skips.length).toBeGreaterThan(0);
     skips.forEach((r) => {
       expect(r.skipped).toBeTrue();
+      expect(r.passedImplicit).toBe("unknown");
       expect(r.skipReason).toContain("n cannot be 5");
+    });
+  });
+
+  it("TypeScript target importing a class from a parent module compiles and runs successfully", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "testCoverageOneFile",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+  });
+
+  it("Typescript transformer skip and modify", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformed",
+      { ...intOptions, maxTests: 200 }
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+
+    // Check skipped inputs
+    const skips = fuzzResult.results.filter((r) => r.category === "skip");
+    expect(skips.length).toBeGreaterThan(0);
+    skips.forEach((r) => {
+      expect(r.skipped).toBeTrue();
+      expect(r.skipReason).toContain("skip negative inputs");
+    });
+
+    // Check transformed non-skipped inputs
+    const passed = fuzzResult.results.filter((r) => r.category === "ok");
+    expect(passed.length).toBeGreaterThan(0);
+    passed.forEach((r) => {
+      // Since transformer doubled n, the output should be (n * 2) + 1
+      const transformedInput = Number(r.input[0].value);
+      const actualOutput: unknown = r.output[0].value;
+      expect(actualOutput).toBe(transformedInput + 1);
+
+      // Verify FuzzValueOrigin of type transformer
+      expect(r.input[0].origin.type).toBe("transformer");
+      if (r.input[0].origin.type === "transformer") {
+        expect(r.input[0].origin.transformer).toBe(
+          "targetTransformedTransformer"
+        );
+        expect(r.input[0].origin.basis.source.type).toBe("generator");
+      }
+    });
+  });
+
+  it("TypeScript transformer exception", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformedException",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toContain(
+        "Transformer error message"
+      );
+      expect(r.category).toBe("failure");
+    });
+  });
+
+  it("TypeScript transformer timeout", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformedTimeout",
+      { ...intOptions, maxTests: 2 }
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toBe("timeout");
+      expect(r.category).toBe("failure");
+    });
+  });
+
+  it("Python transformer input transformation, skips, and null return", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_transformed",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+
+    const skips = fuzzResult.results.filter((r) => r.category === "skip");
+    expect(skips.length).toBeGreaterThan(0);
+    skips.forEach((r) => {
+      expect(r.skipped).toBeTrue();
+    });
+
+    const passed = fuzzResult.results.filter((r) => r.category === "ok");
+    expect(passed.length).toBeGreaterThan(0);
+    passed.forEach((r) => {
+      const transformedInput = Number(r.input[0].value);
+      const actualOutput: unknown = r.output[0].value;
+      expect(actualOutput).toBe(transformedInput + 1);
+
+      if (transformedInput !== 0) {
+        expect(r.input[0].origin.type).toBe("transformer");
+        if (r.input[0].origin.type === "transformer") {
+          expect(r.input[0].origin.transformer).toBe(
+            "py_transformedTransformer"
+          );
+          expect(r.input[0].origin.basis.source.type).toBe("generator");
+        }
+      }
+    });
+  });
+
+  it("Python transformer exception", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_transformed_exception",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toContain("Python transformer error");
+      expect(r.category).toBe("failure");
+    });
+  });
+
+  it("Python transformer timeout", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_transformed_timeout",
+      {
+        ...intOptions,
+        maxTests: 2,
+      }
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toBe("timeout");
+      expect(r.category).toBe("failure");
     });
   });
 });
