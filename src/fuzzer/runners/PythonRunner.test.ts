@@ -125,7 +125,16 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
         });
       }
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
     }
   });
 });
