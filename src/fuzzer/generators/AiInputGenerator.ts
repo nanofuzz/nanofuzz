@@ -434,8 +434,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
       : argToZod(inArg); // mandatory
 
     // Dimensions
-    argOptions.dimLength.forEach((dim) => {
-      const desc = `array length must be >= ${dim.min} && <= ${dim.max}`;
+    argOptions.dimLength.forEach((dim, idx) => {
+      const isUnique = idx === 0 && argOptions.dimsUnique;
+      const desc = `array length must be >= ${dim.min} && <= ${dim.max}${
+        isUnique ? "; all elements in the array must be unique" : ""
+      }`;
       directives.push(`${path}: ${desc}`);
       zodArg = zod.array(zodArg).min(dim.min).max(dim.max).describe(desc);
     });
