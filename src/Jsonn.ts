@@ -5,12 +5,12 @@ import { isKeyedObject } from "./Util";
  * JSONN: JavaScript Object Notation for NaNofuzz
  *
  * Mostly a drop-in replacement for JSON5. Adds support for serializing
- * and unserializing `undefined` and `bigint`, including in arrays and
- * object members.
+ * and unserializing `undefined`, `bigint`, and Uint8Array, including
+ * within arrays and object members.
  *
- * While JSONN is valid JSON5 and might be parsed ok by JSON5, `undefined`
- * and `bigint` values will be parsed inaccurately by the standard JSON5
- * library.
+ * While JSONN is valid JSON5 and might be parsed without error by JSON5,
+ * the special types (`undefined`, `bigint`, and Uint8Array) will be
+ * parsed inaccurately by the standard JSON5 library.
  */
 
 /**
@@ -127,6 +127,15 @@ export function getPlaceholder(_key: "undefined"): string {
  * @returns the replacement value
  */
 function jsonnReplacer(this: unknown, key: string, value: unknown): unknown {
+  if (
+    value instanceof Uint8Array ||
+    (typeof Buffer !== "undefined" && Buffer.isBuffer(value))
+  ) {
+    return {
+      [PlaceHolderUint8ArrayKey]: Array.from(value),
+    };
+  }
+
   // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
   switch (typeof value) {
     case "undefined":
@@ -183,6 +192,21 @@ function jsonnReviver(
         }
       }
     }
+    if (Array.isArray(value[PlaceHolderUint8ArrayKey])) {
+      const arr = value[PlaceHolderUint8ArrayKey];
+      const newValue = new Uint8Array(
+        arr.filter((e): e is number => typeof e === "number")
+      );
+      if (key === "") {
+        return newValue;
+      } else {
+        if (Array.isArray(this)) {
+          targets.push({ arr: this, key, value: newValue });
+        } else if (isKeyedObject(this)) {
+          targets.push({ obj: this, key, value: newValue });
+        }
+      }
+    }
   }
   return value;
 }
@@ -192,6 +216,8 @@ type ReviveTarget = {
   value: unknown;
 } & ({ obj: Record<string, unknown> } | { arr: unknown[] });
 
-const PlaceHolderValueKey = "____JSONN____61581952310____VALUE____";
-const PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____";
-const UndefinedValue = "__undefined__";
+export const PlaceHolderValueKey = "____JSONN____61581952310____VALUE____";
+export const PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____";
+export const PlaceHolderUint8ArrayKey =
+  "____JSONN____61581952310____UINT8ARRAY____";
+export const UndefinedValue = "__undefined__";

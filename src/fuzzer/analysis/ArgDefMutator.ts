@@ -405,6 +405,73 @@ export class ArgDefMutator {
             );
             break;
           }
+          case ArgTag.BYTES: {
+            const subElem = subInput.subElement;
+            const rawBytes: number[] =
+              subElem instanceof Uint8Array ||
+              (typeof Buffer !== "undefined" && Buffer.isBuffer(subElem))
+                ? Array.from(subElem)
+                : Array.isArray(subElem)
+                  ? subElem.filter((e): e is number => typeof e === "number")
+                  : [];
+            const rPos = Math.floor(prng() * Math.max(0, rawBytes.length - 1));
+            const rByte = Math.floor(prng() * 256);
+            const rBit = Math.floor(prng() * 8);
+
+            const proposals: {
+              name: string;
+              value: Uint8Array;
+              path: (string | number)[];
+            }[] = [];
+
+            if (rawBytes.length > 0) {
+              const bitFlipped = new Uint8Array(rawBytes);
+              bitFlipped[rPos] ^= 1 << rBit;
+              proposals.push({
+                name: "bytes-flipBit",
+                value: bitFlipped,
+                path: [...subInput.subPath],
+              });
+
+              const byteInc = new Uint8Array(rawBytes);
+              byteInc[rPos] = (byteInc[rPos] + 1) % 256;
+              proposals.push({
+                name: "bytes-incByte",
+                value: byteInc,
+                path: [...subInput.subPath],
+              });
+
+              const deleted = new Uint8Array(
+                rawBytes.filter((_, idx) => idx !== rPos)
+              );
+              proposals.push({
+                name: "bytes-deleteOneByte",
+                value: deleted,
+                path: [...subInput.subPath],
+              });
+            }
+
+            if (rawBytes.length < options.byteLength.max) {
+              const inserted = new Uint8Array(rawBytes.length + 1);
+              inserted.set(rawBytes.slice(0, rPos));
+              inserted[rPos] = rByte;
+              inserted.set(rawBytes.slice(rPos), rPos + 1);
+              proposals.push({
+                name: "bytes-insertOneByte",
+                value: inserted,
+                path: [...subInput.subPath],
+              });
+            }
+
+            addMutations(
+              proposals.filter(
+                (e) =>
+                  e.value.length <= options.byteLength.max &&
+                  e.value.length >= options.byteLength.min
+              )
+            );
+            break;
+          }
           case ArgTag.BOOLEAN: {
             const value = subInput.subElement;
             addMutations(
@@ -433,6 +500,7 @@ export class ArgDefMutator {
             if (
               typeof value === "object" &&
               !Array.isArray(value) &&
+              !(value instanceof Uint8Array) &&
               value !== null
             ) {
               const children = spec.getChildren().filter((c) => !c.isNoInput());
@@ -667,7 +735,12 @@ export class ArgDefMutator {
         // Walk the path
         if (Array.isArray(element)) {
           element = element[Number(key)];
-        } else if (typeof element === "object" && element !== null) {
+        } else if (
+          typeof element === "object" &&
+          !Array.isArray(element) &&
+          !(element instanceof Uint8Array) &&
+          element !== null
+        ) {
           element = element[String(key)];
         } else {
           throw new Error(
@@ -682,7 +755,12 @@ export class ArgDefMutator {
         // Mutate the input
         if (Array.isArray(element)) {
           element[Number(key)] = newValue;
-        } else if (typeof element === "object" && element !== null) {
+        } else if (
+          typeof element === "object" &&
+          !Array.isArray(element) &&
+          !(element instanceof Uint8Array) &&
+          element !== null
+        ) {
           element[String(key)] = newValue;
         } else {
           throw new Error(
@@ -716,7 +794,12 @@ export class ArgDefMutator {
       if (Number(step) < path.length - 1) {
         if (Array.isArray(element)) {
           element = element[Number(key)];
-        } else if (element !== null && typeof element === "object") {
+        } else if (
+          element !== null &&
+          typeof element === "object" &&
+          !Array.isArray(element) &&
+          !(element instanceof Uint8Array)
+        ) {
           element = element[String(key)];
         } else {
           throw new Error(
@@ -726,7 +809,8 @@ export class ArgDefMutator {
       } else if (
         element !== null &&
         typeof element === "object" &&
-        !Array.isArray(element)
+        !Array.isArray(element) &&
+        !(element instanceof Uint8Array)
       ) {
         delete element[String(key)];
       } else {
@@ -749,7 +833,12 @@ export class ArgDefMutator {
       const key = path[Number(step)];
       if (Array.isArray(parent)) {
         parent = parent[Number(key)];
-      } else if (parent !== null && typeof parent === "object") {
+      } else if (
+        parent !== null &&
+        typeof parent === "object" &&
+        !Array.isArray(parent) &&
+        !(parent instanceof Uint8Array)
+      ) {
         parent = parent[String(key)];
       } else {
         throw new Error(
@@ -760,7 +849,8 @@ export class ArgDefMutator {
     if (
       parent === null ||
       typeof parent !== "object" ||
-      Array.isArray(parent)
+      Array.isArray(parent) ||
+      parent instanceof Uint8Array
     ) {
       throw new Error(
         `Cannot order non-object properties: ${JSONN.stringify(path)}`

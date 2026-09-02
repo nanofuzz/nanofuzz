@@ -583,6 +583,9 @@ export class PythonProgram extends AbstractProgram {
             return [ArgTag.STRING, 0];
           case "bool":
             return [ArgTag.BOOLEAN, 0];
+          case "bytes":
+          case "bytearray":
+            return [ArgTag.BYTES, 0, node.text];
           default:
             return [ArgTag.UNRESOLVED, 0, node.text];
         }
@@ -643,6 +646,13 @@ export class PythonProgram extends AbstractProgram {
       }
       case "member_type":
       case "attribute":
+        if (
+          node.text === "bytes" ||
+          node.text === "bytearray" ||
+          node.text === "typing.ByteString"
+        ) {
+          return [ArgTag.BYTES, 0, "bytes"];
+        }
         return [ArgTag.UNRESOLVED, 0, node.text];
       default:
         throw new Error(
@@ -836,6 +846,7 @@ export class PythonProgram extends AbstractProgram {
 
     // Create the TypeRef data structure
     switch (type) {
+      case ArgTag.BYTES:
       case ArgTag.STRING:
       case ArgTag.BOOLEAN:
       case ArgTag.NUMBER: {
@@ -1560,6 +1571,27 @@ export class PythonProgram extends AbstractProgram {
     const funcName = functionNode?.text.split(".").pop() ?? "";
 
     switch (funcName) {
+      case "binary": {
+        const minSize = parseLiteral(getKwdArg(node, "min_size", 0)) ?? 0;
+        const maxSize = parseLiteral(getKwdArg(node, "max_size", 1));
+        const dftDimLength = ArgDef.getDefaultOptions().dftDimLength;
+
+        thisType.typeRefName = "bytes";
+        thisType.type = {
+          type: ArgTag.BYTES,
+          dims: 0,
+          children: [],
+          options: {
+            byteLength: {
+              min: Number(minSize),
+              max: Number(maxSize ?? dftDimLength.max),
+            },
+          },
+          resolved: true,
+        };
+        break;
+      }
+
       case "text": {
         const alphabet = parseLiteral(getKwdArg(node, "alphabet", 0));
         const minSize = parseLiteral(getKwdArg(node, "min_size", 1));
@@ -2470,6 +2502,9 @@ export class PythonProgram extends AbstractProgram {
 
       case ArgTag.STRING:
         return "str";
+
+      case ArgTag.BYTES:
+        return "bytes";
 
       case ArgTag.UNRESOLVED:
         throw new Error(`Internal error: unresolved types cannot be annotated`);

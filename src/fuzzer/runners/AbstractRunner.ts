@@ -77,9 +77,19 @@ export type RunnerResult = {
   env: VmGlobals;
 };
 
+export type TypeHint =
+  | "uuid"
+  | "bytes"
+  | "default"
+  | { kind: "array"; element: TypeHint }
+  | { kind: "tuple"; elements: TypeHint[] }
+  | { kind: "object"; fields: Record<string, TypeHint> }
+  | { kind: "union"; arms: TypeHint[] };
+
 export type RunnerInput = {
   args: unknown[];
   seq: number;
+  typeHints?: TypeHint[];
 };
 
 /**

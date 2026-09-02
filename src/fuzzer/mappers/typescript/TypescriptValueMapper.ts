@@ -58,6 +58,13 @@ function toJavascriptValues(val: unknown): string {
     return JSON.stringify(val); // handles quotes and escapes
   }
 
+  if (
+    val instanceof Uint8Array ||
+    (typeof Buffer !== "undefined" && Buffer.isBuffer(val))
+  ) {
+    return `new Uint8Array([${Array.from(val).join(", ")}])`;
+  }
+
   if (Array.isArray(val)) {
     const items = val.map((item) => toJavascriptValues(item));
     return `[${items.join(", ")}]`;
@@ -115,6 +122,14 @@ function toJavascriptValue(text: string): unknown {
   if (trimmed === "true") return true;
   if (trimmed === "false") return false;
 
+  // Check if trimmed string is standalone Uint8Array.fromHex(...)
+  const standaloneHexMatch = trimmed.match(
+    /^Uint8Array\.fromHex\s*\(\s*["']([0-9a-fA-F]*)["']\s*\)$/i
+  );
+  if (standaloneHexMatch) {
+    return new Uint8Array(Buffer.from(standaloneHexMatch[1], "hex"));
+  }
+
   // Parse the Javascript value
   const tree = Parser.parse(`typescript`, text);
   if (tree === null) {
@@ -132,6 +147,73 @@ function toJavascriptValue(text: string): unknown {
           });
         }
         break;
+
+      case "new_expression":
+      case "call_expression": {
+        const text = node.text;
+        let bytes: number[] | undefined;
+
+        // 1. Uint8Array.fromHex("000f7fff")
+        const fromHexMatch = text.match(
+          /^Uint8Array\.fromHex\s*\(\s*["']([0-9a-fA-F]*)["']\s*\)/i
+        );
+        if (fromHexMatch) {
+          bytes = Array.from(Buffer.from(fromHexMatch[1], "hex"));
+        }
+
+        // 2. Buffer.from("000f7fff", "hex")
+        if (!bytes) {
+          const bufferHexMatch = text.match(
+            /^Buffer\.from\s*\(\s*["']([0-9a-fA-F]*)["']\s*,\s*["']hex["']\s*\)/i
+          );
+          if (bufferHexMatch) {
+            bytes = Array.from(Buffer.from(bufferHexMatch[1], "hex"));
+          }
+        }
+
+        // 3. new Uint8Array([1, 2, 3]), Uint8Array.from([1, 2, 3]), Buffer.from([1, 2, 3]), new Buffer([1, 2, 3])
+        if (!bytes) {
+          if (
+            /^(new\s+Uint8Array|Uint8Array\.from|Buffer\.from|new\s+Buffer)\s*\(\s*\[/.test(
+              text
+            )
+          ) {
+            const listMatch = text.match(/\[\s*([\d\s,]*)\s*\]/m);
+            if (listMatch) {
+              const rawNums = listMatch[1].trim();
+              const nums =
+                rawNums.length > 0
+                  ? rawNums
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter((s) => s.length > 0)
+                      .map((s) => Number(s))
+                  : [];
+              if (nums.every((n) => !isNaN(n) && n >= 0 && n <= 255)) {
+                bytes = nums;
+              }
+            }
+          }
+        }
+
+        if (bytes !== undefined) {
+          replacements.push({
+            start: node.startIndex,
+            end: node.endIndex,
+            text: `{${JSONN.PlaceHolderUint8ArrayKey}:[${bytes.join(",")}]}`,
+          });
+        } else {
+          // Recursively traverse children
+          for (let i = 0; i < node.childCount; i++) {
+            const child = node.child(i);
+            if (child) {
+              collectReplacements(child);
+            }
+          }
+        }
+        break;
+      }
+
       default:
         // Recursively traverse children
         for (let i = 0; i < node.childCount; i++) {

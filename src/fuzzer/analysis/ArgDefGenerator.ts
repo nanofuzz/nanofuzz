@@ -111,6 +111,9 @@ function generateRandomInputFn(
     case ArgTag.STRING:
       randFn = getRandomString;
       break;
+    case ArgTag.BYTES:
+      randFn = getRandomBytes;
+      break;
     case ArgTag.LITERAL:
       randFn = getLiteral;
       break;
@@ -410,6 +413,26 @@ const getRandomString: PrivateRandFn = (
 
   return outStr;
 }; // fn: getRandomString
+
+const getRandomBytes: PrivateRandFn = (
+  prng: seedrandom.prng,
+  _min: ArgValueType,
+  _max: ArgValueType,
+  options: ArgOptions
+): Uint8Array => {
+  const intOptions = ArgDef.getDefaultOptions();
+  const bytesLen = getRandomNumber(
+    prng,
+    options.byteLength.min,
+    options.byteLength.max,
+    intOptions
+  );
+  const outBytes = new Uint8Array(bytesLen);
+  for (let i = 0; i < bytesLen; i++) {
+    outBytes[i] = getRandomNumber(prng, 0, 255, intOptions);
+  }
+  return outBytes;
+}; // fn: getRandomBytes
 
 /**
  * Adapted from: https://stackoverflow.com/a/12588826

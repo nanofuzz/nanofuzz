@@ -20,7 +20,7 @@ export function RunnerFactory(
 ): AbstractRunner {
   if (typeof module === "string") {
     if (PythonProgram.understands({ filename: module })) {
-      return new PythonRunner(module, fn);
+      return new PythonRunner(module, fn, _env);
     } else {
       throw new Error("Not yet implemented");
     }

@@ -84,12 +84,14 @@ export enum ArgTag {
   UNION = "union",
   TUPLE = "tuple",
   UNRESOLVED = "unresolved", // unresolved type reference
+  BYTES = "bytes",
 }
 export type ArgType =
   | number
   | string
   | boolean
   | null
+  | Uint8Array
   | {
       [key: string]: ArgType;
     };
@@ -108,11 +110,13 @@ export type TagToType = {
   [ArgTag.UNION]: ArgType;
   [ArgTag.TUPLE]: [ArgType];
   [ArgTag.UNRESOLVED]: ArgType;
+  [ArgTag.BYTES]: Uint8Array;
 };
 export type ArgValueType =
   | number
   | string
   | boolean
+  | Uint8Array
   | {
       [key: string]: ArgValueType;
     }
@@ -134,6 +138,9 @@ export type ArgOptions = {
   strCharset: string; // string representing the characters allowed in the input
   strLength: Interval<number>; // length of characters allowed in the input
   strRegex: string | undefined; // regular expression the input must match
+
+  // For type bytes
+  byteLength: Interval<number>; // length of byte array allowed in the input
 
   // For type number
   numInteger: boolean; // true if the numeric argument input is an integer
@@ -169,6 +176,7 @@ export type ArgOptionOverride = {
   dimLength?: Interval<number>[];
   dimsUnique?: boolean;
   strLength?: Interval<number>;
+  byteLength?: Interval<number>;
   strCharset?: string;
   strRegex?: string;
   children?: ArgOptionOverrides;

@@ -235,6 +235,10 @@ export type FuzzArgOverride = {
     strCharset: string;
     strRegex?: string;
   };
+  bytes?: {
+    minByteLen: number;
+    maxByteLen: number;
+  };
   array?: {
     dimLength: { min: number; max: number }[];
     dimsUnique: boolean;

@@ -332,6 +332,15 @@ export class AiInputGenerator extends AbstractInputGenerator {
             .refine((s) => [...s].every((char) => charSet.includes(char)))
             .describe(desc);
         }
+        case ArgTag.BYTES: {
+          const desc = `array of byte integers (0-255) with length >= ${argOptions.byteLength.min} && <= ${argOptions.byteLength.max}`;
+          directives.push(`${path}: ${desc}`);
+          return zod
+            .array(zod.number().int().min(0).max(255))
+            .min(argOptions.byteLength.min)
+            .max(argOptions.byteLength.max)
+            .describe(desc);
+        }
         case ArgTag.LITERAL: {
           const literalValue = arg.getConstantValue();
           switch (typeof literalValue) {
@@ -503,6 +512,8 @@ export function _decode(data: ArgValueType): ArgValueType {
         return data.map((e) => _decode(e));
       } else if (data === null) {
         return null;
+      } else if (data instanceof Uint8Array) {
+        return data;
       } else {
         Object.keys(data).forEach((k) => {
           if (data[k] === NANOFUZZ_MISSING_PROPERTY) {
