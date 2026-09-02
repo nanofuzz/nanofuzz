@@ -6,8 +6,19 @@ import * as Parser from "../adapters/ParserAdapter";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { FuzzEnv } from "../Fuzzer";
+import { ArgDef } from "../analysis/ArgDef";
+import * as ProgramFactory from "../analysis/ProgramFactory";
+import * as Parser from "../adapters/ParserAdapter";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
 describe("fuzzer/runners/PythonRunner", () => {
+  beforeAll(async () => {
+    await Parser.init();
+  });
+
   beforeAll(async () => {
     await Parser.init();
   });
@@ -105,12 +116,7 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
       const hexNotUuid = "12345678123441238123123456789abc";
 
       const res = await runner.run(
-        [
-          [uuidStr1, uuidStr2],
-          { id: uuidStr1 },
-          [uuidStr2, 42],
-          hexNotUuid,
-        ],
+        [[uuidStr1, uuidStr2], { id: uuidStr1 }, [uuidStr2, 42], hexNotUuid],
         2000
       );
 
