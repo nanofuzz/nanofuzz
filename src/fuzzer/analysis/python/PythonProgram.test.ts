@@ -899,7 +899,7 @@ def test_example(trigger, dep, trigger_val):
     expect(args[2].getIntervals()).toEqual([{ min: 0, max: 100 }]);
   });
 
-  it("hypothesis @settings max_examples option", () => {
+  it("hypothesis @settings `max_examples`", () => {
     const program = ProgramFactory.fromSource(
       () => `
 MAX_EX = 250
@@ -931,7 +931,7 @@ def test_without_settings(x):
     expect(fn3.getRef().fuzzOptions).toBeUndefined();
   });
 
-  it("maps Hypothesis from_regex to the string regex option", () => {
+  it("hypothesis @given `from_regex` strategy", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 PATTERN = r"[a-zA-Z_][a-zA-Z0-9_]{0,4}"
@@ -958,7 +958,7 @@ def test_regex(inline, referenced, partial, anchored):
     expect(fn.getArgDefs()[1].getOptions().strCharset).toEqual("super");
   });
 
-  it("maps Hypothesisuuids strategy to string regex and length options", () => {
+  it("hypothesis @given `uuids` strategy", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1045,7 +1045,7 @@ def test_bounds(integer, decimal):
     expect(args[1].getIntervals()).toEqual([{ min: -1.5, max: 2.5 }]);
   });
 
-  it("hypothesis @given nested lists and fixed_dictionaries", () => {
+  it("hypothesis @given `lists` nested and fixed_dictionaries", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1082,7 +1082,7 @@ def test_nested(complex_data):
     expect(tagsField?.getDim()).toEqual(1); // st.lists(st.text()) nested inside dict
   });
 
-  it("maps Hypothesis list uniqueness to ArgDef option", () => {
+  it("hypothesis @given `lists` uniqueness", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 USE_UNIQUE_VALUES = True
@@ -1107,7 +1107,7 @@ def test_lists(unique_values, duplicate_values, unconstrained_values, referenced
     ]);
   });
 
-  it("hypothesis @given sampled_from", () => {
+  it("hypothesis @given `sampled_from`", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1131,7 +1131,7 @@ def test_sampled(status):
     ).toBeTrue();
   });
 
-  it("hypothesis @given sampled_from module-level constants", () => {
+  it("hypothesis @given `sampled_from` module-level constants", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 _KEYWORDS = ["if", "else", "while", "return", "def", "class"]
@@ -1156,7 +1156,7 @@ def test_terminal_priority_keyword_wins(kw):
     ]);
   });
 
-  it("hypothesis @given sampled_from tuples", () => {
+  it("hypothesis @given `sampled_from` tuples", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(st.sampled_from([("input", "disabled")]))
@@ -1174,7 +1174,7 @@ def test_sampled_tuple(elem_attr):
     ]);
   });
 
-  it("hypothesis @given sampled_from dictionaries", () => {
+  it("hypothesis @given `sampled_from` dictionaries", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(st.sampled_from([{"mode": "disabled", "retry": 0}]))
@@ -1196,7 +1196,7 @@ def test_sampled_dictionary(config):
     ]);
   });
 
-  it("hypothesis @given permutations", () => {
+  it("hypothesis @given `permutations`", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1220,7 +1220,7 @@ def test_perm(items):
     ]);
   });
 
-  it("hypothesis @given permutations range and constant reference", () => {
+  it("hypothesis @given `permutations` range and constant reference", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 RANGE_CONST = range(1, 5)
@@ -1251,7 +1251,7 @@ def test_perm_range(nums, ref_nums):
     ]);
   });
 
-  it("hypothesis @given permutations range(2001) generates 2001 unique elements performantly", () => {
+  it("hypothesis @given `permutations` range(2001) generates 2001 unique elements performantly", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1276,7 +1276,7 @@ def test_perm_large(nums):
     }
   });
 
-  it("hypothesis @given fixed_dictionaries with optional keys", () => {
+  it("hypothesis @given `fixed_dictionaries` optional keys", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1374,7 +1374,7 @@ def test_add_overwrites_boundary_expired_item(key, old_value, new_value):
     expect(newChildren[1].getOptions().strLength).toEqual({ min: 1, max: 10 });
   });
 
-  it("@given dimsUnique for st.lists(..., unique=True) and st.sets(...)", () => {
+  it("hypothesis @given `lists` and `sets` uniqueness", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1404,7 +1404,7 @@ def test_indexedset_index_invariant_after_discard(initial: list[int], ops: List[
     expect(setArg?.getOptions().dimsUnique).toBeTrue();
   });
 
-  it("handles min_size after max_size in st.lists regardless of order or inline comments", () => {
+  it("hypothesis @given `lists` handles min_size after max_size regardless of order or inline comments", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1443,7 +1443,7 @@ def test_lru_eviction_order_after_reads(capacity: int, ops1: list, ops2: list, n
     expect(numPosArg?.getIntervals()).toEqual([{ min: 0, max: 10 }]);
   });
 
-  it("handles strategies like st.tuples inside st.sampled_from", () => {
+  it("hypothesis @given `tuples` inside `sampled_from", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
