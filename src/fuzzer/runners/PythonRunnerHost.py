@@ -289,27 +289,66 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     }
 
 
-def transform_uuid_arg(val: Any) -> Any:
-    if isinstance(val, str):
-        try:
-            return uuid.UUID(val)
-        except ValueError:
-            return val
-    if isinstance(val, list):
-        return [transform_uuid_arg(item) for item in val]
-    if isinstance(val, dict):
-        return {k: transform_uuid_arg(v) for k, v in val.items()}
+def transform_uuid_arg(val: Any, hint: Any) -> Any:
+    if val is None:
+        return None
+
+    if hint == "uuid":
+        if isinstance(val, str):
+            if len(val) in (32, 36):
+                try:
+                    return uuid.UUID(val)
+                except ValueError:
+                    return val
+        return val
+
+    if hint == "default" or not isinstance(hint, dict):
+        return val
+
+    kind = hint.get("kind")
+
+    if kind == "array" and isinstance(val, list):
+        elem_hint = hint.get("element", "default")
+        return [transform_uuid_arg(item, elem_hint) for item in val]
+
+    if kind == "tuple" and (isinstance(val, tuple) or isinstance(val, list)):
+        elem_hints = hint.get("elements", [])
+        transformed = [
+            transform_uuid_arg(item, elem_hints[i]) if i < len(elem_hints) else item
+            for i, item in enumerate(val)
+        ]
+        return tuple(transformed) if isinstance(val, tuple) else transformed
+
+    if kind == "object" and isinstance(val, dict):
+        field_hints = hint.get("fields", {})
+        return {
+            k: transform_uuid_arg(v, field_hints[k]) if k in field_hints else v
+            for k, v in val.items()
+        }
+
+    if kind == "union":
+        arms = hint.get("arms", [])
+        if isinstance(val, str) and any(
+            arm == "uuid" or (isinstance(arm, dict) and arm.get("kind") == "uuid")
+            for arm in arms
+        ):
+            try:
+                return uuid.UUID(val)
+            except ValueError:
+                pass
+        for arm in arms:
+            transformed = transform_uuid_arg(val, arm)
+            if isinstance(transformed, uuid.UUID) or transformed != val:
+                return transformed
+        return val
+
     return val
 
 
-def serialize_uuids(val: Any) -> Any:
-    if isinstance(val, uuid.UUID):
-        return str(val)
-    if isinstance(val, list):
-        return [serialize_uuids(item) for item in val]
-    if isinstance(val, dict):
-        return {k: serialize_uuids(v) for k, v in val.items()}
-    return val
+def json5_default(obj: Any) -> Any:
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON5 serializable")
 
 
 def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> RunnerResult:
@@ -325,8 +364,7 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
     args = list(input["args"])
     type_hints = input.get("typeHints", [])
     for i in range(min(len(args), len(type_hints))):
-        if type_hints[i] == "uuid":
-            args[i] = transform_uuid_arg(args[i])
+        args[i] = transform_uuid_arg(args[i], type_hints[i])
 
     try:
         with redirect_stdout(io.StringIO()) as f:
@@ -374,7 +412,7 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
 
     return RunnerValueResult(
         tag="value",
-        value=serialize_uuids(value),
+        value=value,
         seq=input["seq"],
         coverageData=coverageData,
         coverageArcs=coverageArcs
@@ -388,7 +426,7 @@ def put_result(result: RunnerResult) -> None:
 
 
 def send_msg(data: RunnerResult):
-    msg = json5.dumps(data).encode('utf-8')
+    msg = json5.dumps(data, default=json5_default).encode('utf-8')
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes: {msg}")
     sys.stdout.buffer.write(struct.pack(
         '>I', len(msg)))  # payload size
@@ -456,7 +494,7 @@ if __name__ == "__main__":
     logging.debug(f"[{pid}] Sent READY message (length {len(msg)})")
 
     # Send the static coverage info once
-    msg = json5.dumps(coverageInfo).encode('utf-8')
+    msg = json5.dumps(coverageInfo, default=json5_default).encode('utf-8')
     sys.stdout.buffer.write(struct.pack('>I', len(msg)))  # payload size
     sys.stdout.buffer.write(msg)  # payload
     sys.stdout.buffer.flush()

@@ -643,6 +643,9 @@ export class PythonProgram extends AbstractProgram {
       }
       case "member_type":
       case "attribute":
+        if (node.text === "uuid.UUID") {
+          return [ArgTag.UNRESOLVED, 0, "UUID"];
+        }
         return [ArgTag.UNRESOLVED, 0, node.text];
       default:
         throw new Error(
@@ -1634,6 +1637,7 @@ export class PythonProgram extends AbstractProgram {
           ? `\\A(?:${uuidPattern}|00000000-0000-0000-0000-000000000000)\\Z`
           : `\\A${uuidPattern}\\Z`;
 
+        thisType.typeRefName = "UUID";
         thisType.type = {
           type: ArgTag.STRING,
           dims: 0,
@@ -1815,6 +1819,10 @@ export class PythonProgram extends AbstractProgram {
           min: Number(minSize ?? dftInterval.min),
           max: Number(maxSize ?? dftInterval.max),
         });
+
+        if (innerTypeRef.typeRefName) {
+          thisType.typeRefName = innerTypeRef.typeRefName;
+        }
 
         thisType.type = {
           type: innerResolvedType.type,
