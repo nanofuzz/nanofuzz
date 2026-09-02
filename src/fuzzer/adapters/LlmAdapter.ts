@@ -6,7 +6,7 @@ import { FunctionDef } from "../analysis/FunctionDef";
 import * as nodellm from "@node-llm/core";
 import { isError } from "../Util";
 import * as telemetry from "../../telemetry/Telemetry";
-import * as zod from "zod";
+import * as zod from "zod/v4";
 import { zodOutputFormat } from "./AnthropicUtils";
 import { LlmCacheManager } from "./LlmCacheManager";
 import {
@@ -14,6 +14,39 @@ import {
   LlmCacheStats,
   LlmQueryResult,
 } from "../generators/Types";
+
+// Helper function to check if a value is a Record object
+function isRecord(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null && !Array.isArray(val);
+}
+
+// Cleans internal JSON schema fields ($schema, $defs, additionalProperties) that Gemini API rejects
+function cleanJsonSchema(
+  schema: Record<string, unknown>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (
+      key === "$schema" ||
+      key === "$id" ||
+      key === "$defs" ||
+      key === "definitions" ||
+      key === "additionalProperties"
+    ) {
+      continue;
+    }
+    if (Array.isArray(value)) {
+      result[key] = value.map((item) =>
+        isRecord(item) ? cleanJsonSchema(item) : item
+      );
+    } else if (isRecord(value)) {
+      result[key] = cleanJsonSchema(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
 
 /**
  * An adapter for chatting with an LLM about the program under test
@@ -46,7 +79,34 @@ export class LlmAdapter {
     // If apikey is defined, add it to the config.
     // Otherwise, let @node-llm try to infer it from env
     if (cfg.apiKey !== "") {
-      (this._modelConfig as any)[`${cfg.provider}ApiKey`] = cfg.apiKey;
+      switch (cfg.provider) {
+        case "openai":
+          this._modelConfig.openaiApiKey = cfg.apiKey;
+          break;
+        case "anthropic":
+          this._modelConfig.anthropicApiKey = cfg.apiKey;
+          break;
+        case "gemini":
+          this._modelConfig.geminiApiKey = cfg.apiKey;
+          break;
+        case "deepseek":
+          this._modelConfig.deepseekApiKey = cfg.apiKey;
+          break;
+        case "openrouter":
+          this._modelConfig.openrouterApiKey = cfg.apiKey;
+          break;
+        case "xai":
+          this._modelConfig.xaiApiKey = cfg.apiKey;
+          break;
+        case "mistral":
+          this._modelConfig.mistralApiKey = cfg.apiKey;
+          break;
+        case "bedrock":
+          this._modelConfig.bedrockApiKey = cfg.apiKey;
+          break;
+        default:
+          break;
+      }
     }
 
     // Create the model backend
@@ -101,7 +161,7 @@ export class LlmAdapter {
    */
   public async genInputs(
     fn: FunctionDef,
-    schema: zod.ZodObject,
+    schema: zod.ZodType,
     directives: string[],
     allInputs: Map<string, unknown>
   ): Promise<{
@@ -158,14 +218,14 @@ export class LlmAdapter {
    */
   private async _query(
     prompt: string[],
-    schema?: zod.ZodObject
+    schema?: zod.ZodType
   ): Promise<LlmQueryResult> {
     LlmAdapter._handleDebug();
 
     const provider = LlmAdapter._getConfig().provider;
     const modelName = LlmAdapter._getConfig().modelName;
     const schemaJson = schema
-      ? JSON.stringify(schema.toJSONSchema())
+      ? JSON.stringify(zod.toJSONSchema(schema))
       : undefined;
 
     return await this._cacheManager.query(
@@ -192,8 +252,12 @@ export class LlmAdapter {
         );
 
         const baseChat = this._createChat();
+        const jsonSchemaObj = schema ? zod.toJSONSchema(schema) : undefined;
+        const schemaObj = jsonSchemaObj
+          ? nodellm.Schema.fromJson("output", cleanJsonSchema(jsonSchemaObj))
+          : undefined;
         let chat = (
-          schema ? baseChat.withSchema(schema.toJSONSchema()) : baseChat
+          schemaObj ? baseChat.withSchema(schemaObj) : baseChat
         ).withRequestOptions({
           responseFormat: { type: "json_object" },
         });

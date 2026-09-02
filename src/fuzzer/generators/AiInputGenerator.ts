@@ -15,7 +15,7 @@ import {
   InputAndSource,
 } from "../Fuzzer";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
-import * as zod from "zod";
+import * as zod from "zod/v4";
 import { InputGeneratorStatsAi } from "./Types";
 import { isError } from "../Util";
 import * as Config from "../../Config";

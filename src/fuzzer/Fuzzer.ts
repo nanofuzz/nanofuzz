@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as JSONN from "../Jsonn";
 import { ArgDef } from "./analysis/ArgDef";
-import { ArgValueType, FunctionRef, ProgramLanguage } from "./analysis/Types";
+import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as ProgramFactory from "./analysis/ProgramFactory";
@@ -22,6 +22,7 @@ import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
 import { isError } from "./Util";
+import { isArgType } from "./analysis/Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
@@ -910,7 +911,9 @@ export class Tester {
             result.output.push({
               name: "0",
               offset: 0,
-              value: exeOutput.result.value as ArgValueType,
+              value: isArgType(exeOutput.result.value)
+                ? exeOutput.result.value
+                : undefined,
               origin: { type: "put" },
             });
             break;

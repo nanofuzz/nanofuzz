@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import JSON5 from "json5";
+import * as zod from "zod/v4";
 import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Fuzzer";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AiInputGenerator } from "../fuzzer/generators/AiInputGenerator";
@@ -303,7 +304,7 @@ describe("cli:", () => {
     const aiGen = new AiInputGenerator(fn, "seed", new Map());
     const [schema, directives] = aiGen["_getInputsSchema"](fn.getLang());
     const promptText = prompt.genInputs(fn, directives, new Map());
-    const schemaJson = JSON.stringify(schema.toJSONSchema());
+    const schemaJson = JSON.stringify(zod.toJSONSchema(schema));
     const key = createCacheKey(provider, modelName, [promptText], schemaJson);
 
     const seededEntry = {
