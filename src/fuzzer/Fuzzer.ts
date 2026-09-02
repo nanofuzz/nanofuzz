@@ -22,7 +22,7 @@ import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
 import { isError } from "./Util";
-import { isArgType } from "./analysis/Util";
+import { isArgValueType } from "./analysis/Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
@@ -911,7 +911,7 @@ export class Tester {
             result.output.push({
               name: "0",
               offset: 0,
-              value: isArgType(exeOutput.result.value)
+              value: isArgValueType(exeOutput.result.value)
                 ? exeOutput.result.value
                 : undefined,
               origin: { type: "put" },

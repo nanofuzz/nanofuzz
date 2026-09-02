@@ -2,6 +2,7 @@ import * as AiInputGenerator from "./AiInputGenerator";
 import { makeArgDef } from "../analysis/TestUtils";
 import { ArgDef } from "../analysis/ArgDef";
 import { ArgTag } from "../analysis/Types";
+import { FunctionDef } from "../analysis/FunctionDef";
 
 describe("src/fuzzer/generators/AiInputGenerator: ", () => {
   it("dimsUnique schema directives", () => {
@@ -20,9 +21,28 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     );
 
     const directives: string[] = [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const genProto = AiInputGenerator.AiInputGenerator.prototype as any;
-    genProto._argDefToSchema(argDef, "items", directives);
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn() {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 20,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+    class TestAiGenerator extends AiInputGenerator.AiInputGenerator {
+      public testArgDefToSchema(
+        arg: ArgDef,
+        path: string,
+        directivesList: string[]
+      ) {
+        return this._argDefToSchema(arg, path, directivesList);
+      }
+    }
+    const gen = new TestAiGenerator(fnDef, "seed", new Map());
+    gen.testArgDefToSchema(argDef, "items", directives);
 
     expect(directives).toContain(
       "items: array length must be >= 3 && <= 3; all elements in the array must be unique"
