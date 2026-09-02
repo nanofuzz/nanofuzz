@@ -1,6 +1,7 @@
 import { ArgDef } from "./ArgDef";
 import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
 import * as JSONN from "../../Jsonn";
+import { isBufferOrUint8Array } from "../../Util";
 
 /**
  * Valides values against their corresponding ArgDef specs
@@ -88,11 +89,7 @@ export class ArgDefValidator {
           );
         }
         case ArgTag.BYTES: {
-          if (
-            value instanceof Uint8Array ||
-            Buffer.isBuffer(value) ||
-            Array.isArray(value)
-          ) {
+          if (isBufferOrUint8Array(value) || Array.isArray(value)) {
             const arr = Array.from(value);
             return (
               arr.length <= options.byteLength.max &&

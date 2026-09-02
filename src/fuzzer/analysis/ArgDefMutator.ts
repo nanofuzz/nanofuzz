@@ -4,6 +4,7 @@ import { ArgDefValidator } from "./ArgDefValidator";
 import * as RegexStringBuilder from "./RegexStringBuilder";
 import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
 import * as JSONN from "../../Jsonn";
+import { isBufferOrUint8Array } from "../../Util";
 
 /**
  * Utilities for mutating values described by an ArgDef spec
@@ -407,13 +408,11 @@ export class ArgDefMutator {
           }
           case ArgTag.BYTES: {
             const subElem = subInput.subElement;
-            const rawBytes: number[] =
-              subElem instanceof Uint8Array ||
-              (typeof Buffer !== "undefined" && Buffer.isBuffer(subElem))
-                ? Array.from(subElem)
-                : Array.isArray(subElem)
-                  ? subElem.filter((e): e is number => typeof e === "number")
-                  : [];
+            const rawBytes: number[] = isBufferOrUint8Array(subElem)
+              ? Array.from(subElem)
+              : Array.isArray(subElem)
+                ? subElem.filter((e): e is number => typeof e === "number")
+                : [];
             const rPos = Math.floor(prng() * Math.max(0, rawBytes.length - 1));
             const rByte = Math.floor(prng() * 256);
             const rBit = Math.floor(prng() * 8);

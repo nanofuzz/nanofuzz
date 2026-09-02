@@ -1,4 +1,5 @@
 import * as JSONN from "../../../Jsonn";
+import { isBufferOrUint8Array } from "../../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
 
 /**
@@ -41,10 +42,7 @@ function toPythonValues(val: unknown): unknown {
     return PythonNone;
   }
 
-  if (
-    val instanceof Uint8Array ||
-    (typeof Buffer !== "undefined" && Buffer.isBuffer(val))
-  ) {
+  if (isBufferOrUint8Array(val)) {
     return val;
   }
 
@@ -81,7 +79,7 @@ const PythonNone = Symbol("PythonNone");
 /**
  * Converts a Uint8Array into a Python bytes literal string (e.g. b'\xbb{\x01\xed\xf3+').
  */
-function bytesToPythonLiteral(bytes: Uint8Array | Buffer): string {
+function bytesToPythonLiteral(bytes: Uint8Array): string {
   let result = "b'";
   for (let i = 0; i < bytes.length; i++) {
     const b = bytes[i];
@@ -218,10 +216,7 @@ function toPythonFormat(val: unknown): string {
   if (val === PythonNone) {
     return "None";
   }
-  if (
-    val instanceof Uint8Array ||
-    (typeof Buffer !== "undefined" && Buffer.isBuffer(val))
-  ) {
+  if (isBufferOrUint8Array(val)) {
     return bytesToPythonLiteral(val);
   }
   if (typeof val === "boolean") {

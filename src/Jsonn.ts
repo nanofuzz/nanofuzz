@@ -1,5 +1,5 @@
 import * as JSON5 from "json5";
-import { isKeyedObject } from "./Util";
+import { isBufferOrUint8Array, isKeyedObject } from "./Util";
 
 /**
  * JSONN: JavaScript Object Notation for NaNofuzz
@@ -127,10 +127,7 @@ export function getPlaceholder(_key: "undefined"): string {
  * @returns the replacement value
  */
 function jsonnReplacer(this: unknown, key: string, value: unknown): unknown {
-  if (
-    value instanceof Uint8Array ||
-    (typeof Buffer !== "undefined" && Buffer.isBuffer(value))
-  ) {
+  if (isBufferOrUint8Array(value)) {
     return {
       [PlaceHolderUint8ArrayKey]: Array.from(value),
     };

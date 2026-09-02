@@ -88,7 +88,7 @@
           "nanofuzz.fuzzer.fnTimeout": {
             "title": "Timeout test after (ms)",
             "type": "integer",
-            "default": 100,
+            "default": 200,
             "minimum": 0,
             "description": "Default maximum time (in ms) to allow a test function to run before making it as a timeout."
           }

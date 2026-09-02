@@ -1,5 +1,5 @@
 import * as JSONN from "../../../Jsonn";
-import { isKeyedObject } from "../../../Util";
+import { hexToBytes, isBufferOrUint8Array, isKeyedObject } from "../../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
 
 /**
@@ -58,10 +58,7 @@ function toJavascriptValues(val: unknown): string {
     return JSON.stringify(val); // handles quotes and escapes
   }
 
-  if (
-    val instanceof Uint8Array ||
-    (typeof Buffer !== "undefined" && Buffer.isBuffer(val))
-  ) {
+  if (isBufferOrUint8Array(val)) {
     return `new Uint8Array([${Array.from(val).join(", ")}])`;
   }
 
@@ -127,7 +124,7 @@ function toJavascriptValue(text: string): unknown {
     /^Uint8Array\.fromHex\s*\(\s*["']([0-9a-fA-F]*)["']\s*\)$/i
   );
   if (standaloneHexMatch) {
-    return new Uint8Array(Buffer.from(standaloneHexMatch[1], "hex"));
+    return hexToBytes(standaloneHexMatch[1]);
   }
 
   // Parse the Javascript value
@@ -158,7 +155,7 @@ function toJavascriptValue(text: string): unknown {
           /^Uint8Array\.fromHex\s*\(\s*["']([0-9a-fA-F]*)["']\s*\)/i
         );
         if (fromHexMatch) {
-          bytes = Array.from(Buffer.from(fromHexMatch[1], "hex"));
+          bytes = Array.from(hexToBytes(fromHexMatch[1]));
         }
 
         // 2. Buffer.from("000f7fff", "hex")
@@ -167,7 +164,7 @@ function toJavascriptValue(text: string): unknown {
             /^Buffer\.from\s*\(\s*["']([0-9a-fA-F]*)["']\s*,\s*["']hex["']\s*\)/i
           );
           if (bufferHexMatch) {
-            bytes = Array.from(Buffer.from(bufferHexMatch[1], "hex"));
+            bytes = Array.from(hexToBytes(bufferHexMatch[1]));
           }
         }
 
