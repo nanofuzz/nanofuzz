@@ -6,19 +6,8 @@ import * as Parser from "../adapters/ParserAdapter";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { FuzzEnv } from "../Fuzzer";
-import { ArgDef } from "../analysis/ArgDef";
-import * as ProgramFactory from "../analysis/ProgramFactory";
-import * as Parser from "../adapters/ParserAdapter";
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
 
 describe("fuzzer/runners/PythonRunner", () => {
-  beforeAll(async () => {
-    await Parser.init();
-  });
-
   beforeAll(async () => {
     await Parser.init();
   });
