@@ -1367,6 +1367,194 @@ export class PythonProgram extends AbstractProgram {
     }
     node = actualNode;
 
+    const getSampledType = (valueNode: Parser.Node): TypeRef | undefined => {
+      if (valueNode.type === "call" || valueNode.type === "identifier") {
+        const strategyTypeRef = this._getTypeRefFromStrategy(valueNode);
+        if (strategyTypeRef) {
+          return strategyTypeRef;
+        }
+      }
+
+      const literalValue = parseLiteral(valueNode);
+      if (isArgType(literalValue)) {
+        return {
+          module: this._filename,
+          dims: 0,
+          optional: false,
+          isExported: false,
+          type: {
+            type: ArgTag.LITERAL,
+            dims: 0,
+            children: [],
+            value: literalValue,
+            resolved: true,
+          },
+        };
+      }
+      if (valueNode.type === "tuple") {
+        const children = valueNode.namedChildren.map(getSampledType);
+        if (children.every((child): child is TypeRef => child !== undefined)) {
+          return {
+            module: this._filename,
+            dims: 0,
+            optional: false,
+            isExported: false,
+            type: {
+              type: ArgTag.TUPLE,
+              dims: 0,
+              children,
+              resolved: true,
+            },
+          };
+        }
+      }
+      if (valueNode.type === "dictionary") {
+        const children: TypeRef[] = [];
+        for (const pair of valueNode.namedChildren) {
+          if (pair.type !== "pair") return undefined;
+          const key = parseLiteral(pair.childForFieldName("key") ?? undefined);
+          const value = pair.childForFieldName("value");
+          const child = value ? getSampledType(value) : undefined;
+          if (typeof key !== "string" || child === undefined) {
+            return undefined;
+          }
+          child.name = key;
+          children.push(child);
+        }
+        return {
+          module: this._filename,
+          dims: 0,
+          optional: false,
+          isExported: false,
+          type: {
+            type: ArgTag.OBJECT,
+            dims: 0,
+            children,
+            resolved: true,
+          },
+        };
+      }
+      return undefined;
+    };
+
+    const getSequenceElementTypes = (
+      seqNode: Parser.Node | undefined
+    ): TypeRef[] => {
+      if (!seqNode) return [];
+      const resolved = resolveReference(seqNode);
+      if (!resolved) return [];
+
+      // Handle range(...) call
+      if (resolved.type === "call") {
+        const fnNode = resolved.childForFieldName("function");
+        if (fnNode?.text.split(".").pop() === "range") {
+          const argsNode = resolved.childForFieldName("arguments");
+          if (argsNode) {
+            const posArgs = argsNode.namedChildren.filter((c) =>
+              [
+                "integer",
+                "unary_operator",
+                "identifier",
+                "binary_operator",
+              ].includes(c.type)
+            );
+            const parsedArgs = posArgs
+              .map((c) => parseLiteral(resolveReference(c)))
+              .filter((v): v is number => typeof v === "number");
+            if (
+              parsedArgs.length > 0 &&
+              parsedArgs.length === posArgs.length
+            ) {
+              let start = 0;
+              let stop: number;
+              let step = 1;
+              if (parsedArgs.length === 1) {
+                stop = parsedArgs[0];
+              } else if (parsedArgs.length === 2) {
+                start = parsedArgs[0];
+                stop = parsedArgs[1];
+              } else {
+                start = parsedArgs[0];
+                stop = parsedArgs[1];
+                step = parsedArgs[2];
+              }
+
+              const elementTypes: TypeRef[] = [];
+              if (step > 0) {
+                for (let i = start; i < stop; i += step) {
+                  elementTypes.push({
+                    module: this._filename,
+                    dims: 0,
+                    optional: false,
+                    isExported: false,
+                    type: {
+                      type: ArgTag.LITERAL,
+                      dims: 0,
+                      children: [],
+                      value: i,
+                      resolved: true,
+                    },
+                  });
+                }
+              } else if (step < 0) {
+                for (let i = start; i > stop; i += step) {
+                  elementTypes.push({
+                    module: this._filename,
+                    dims: 0,
+                    optional: false,
+                    isExported: false,
+                    type: {
+                      type: ArgTag.LITERAL,
+                      dims: 0,
+                      children: [],
+                      value: i,
+                      resolved: true,
+                    },
+                  });
+                }
+              }
+              return elementTypes;
+            }
+          }
+        }
+      }
+
+      // Handle list, tuple, set
+      if (
+        resolved.type === "list" ||
+        resolved.type === "tuple" ||
+        resolved.type === "set"
+      ) {
+        const elementTypes: TypeRef[] = [];
+        for (const item of resolved.namedChildren) {
+          const itemType = getSampledType(item);
+          if (itemType !== undefined) {
+            elementTypes.push(itemType);
+          }
+        }
+        return elementTypes;
+      }
+
+      // Handle dictionary
+      if (resolved.type === "dictionary") {
+        const elementTypes: TypeRef[] = [];
+        for (const pair of resolved.namedChildren.filter(
+          (n) => n.type === "pair"
+        )) {
+          const keyNode = pair.childForFieldName("key");
+          if (keyNode) {
+            const keyType = getSampledType(keyNode);
+            if (keyType !== undefined) {
+              elementTypes.push(keyType);
+            }
+          }
+        }
+        return elementTypes;
+      }
+
+      return [];
+    };
+
     // Determine strategy function name (e.g., text, integers, lists, sampled_from)
     const functionNode = node.childForFieldName("function");
     const funcName = functionNode?.text.split(".").pop() ?? "";
@@ -1637,95 +1825,9 @@ export class PythonProgram extends AbstractProgram {
 
       case "sampled_from": {
         const argsNode = node.childForFieldName("arguments");
-        const listArg = resolveReference(argsNode?.namedChildren[0]);
-        const sampledTypes: TypeRef[] = [];
-
-        const getSampledType = (
-          valueNode: Parser.Node
-        ): TypeRef | undefined => {
-          if (valueNode.type === "call" || valueNode.type === "identifier") {
-            const strategyTypeRef = this._getTypeRefFromStrategy(valueNode);
-            if (strategyTypeRef) {
-              return strategyTypeRef;
-            }
-          }
-
-          const literalValue = parseLiteral(valueNode);
-          if (isArgType(literalValue)) {
-            return {
-              module: this._filename,
-              dims: 0,
-              optional: false,
-              isExported: false,
-              type: {
-                type: ArgTag.LITERAL,
-                dims: 0,
-                children: [],
-                value: literalValue,
-                resolved: true,
-              },
-            };
-          }
-          if (valueNode.type === "tuple") {
-            const children = valueNode.namedChildren.map(getSampledType);
-            if (
-              children.every((child): child is TypeRef => child !== undefined)
-            ) {
-              return {
-                module: this._filename,
-                dims: 0,
-                optional: false,
-                isExported: false,
-                type: {
-                  type: ArgTag.TUPLE,
-                  dims: 0,
-                  children,
-                  resolved: true,
-                },
-              };
-            }
-          }
-          if (valueNode.type === "dictionary") {
-            const children: TypeRef[] = [];
-            for (const pair of valueNode.namedChildren) {
-              if (pair.type !== "pair") return undefined;
-              const key = parseLiteral(
-                pair.childForFieldName("key") ?? undefined
-              );
-              const value = pair.childForFieldName("value");
-              const child = value ? getSampledType(value) : undefined;
-              if (typeof key !== "string" || child === undefined) {
-                return undefined;
-              }
-              child.name = key;
-              children.push(child);
-            }
-            return {
-              module: this._filename,
-              dims: 0,
-              optional: false,
-              isExported: false,
-              type: {
-                type: ArgTag.OBJECT,
-                dims: 0,
-                children,
-                resolved: true,
-              },
-            };
-          }
-          return undefined;
-        };
-
-        if (listArg && (listArg.type === "list" || listArg.type === "tuple")) {
-          for (const item of listArg.namedChildren) {
-            const sampledType = getSampledType(item);
-            if (sampledType !== undefined) {
-              sampledTypes.push(sampledType);
-            } else {
-              console.warn(`Unsupported value in '${funcName}': ${item.text}.`);
-            }
-          }
-        }
+        const listArg =
+          getKwdArg(node, "elements", 0) ?? argsNode?.namedChildren[0];
+        const sampledTypes = getSequenceElementTypes(listArg);
 
         if (sampledTypes.length === 1) {
           return sampledTypes[0];
@@ -1736,6 +1838,67 @@ export class PythonProgram extends AbstractProgram {
           type: ArgTag.UNION,
           dims: 0,
           children: sampledTypes,
+          resolved: true,
+        };
+        break;
+      }
+
+      case "permutations": {
+        const argsNode = node.childForFieldName("arguments");
+        const valuesArgNode =
+          getKwdArg(node, "values", 0) ?? argsNode?.namedChildren[0];
+        const permTypes = getSequenceElementTypes(valuesArgNode);
+        const N = permTypes.length;
+
+        let innerTypeRef: TypeRef;
+        if (N === 0) {
+          innerTypeRef = {
+            module: this._filename,
+            dims: 0,
+            optional: false,
+            isExported: false,
+            type: {
+              type: ArgTag.NUMBER,
+              dims: 0,
+              children: [],
+              resolved: true,
+            },
+          };
+        } else if (N === 1) {
+          innerTypeRef = permTypes[0];
+        } else {
+          innerTypeRef = {
+            module: this._filename,
+            dims: 0,
+            optional: false,
+            isExported: false,
+            type: {
+              type: ArgTag.UNION,
+              dims: 0,
+              children: permTypes,
+              resolved: true,
+            },
+          };
+        }
+
+        const innerResolvedType = innerTypeRef.type ?? {
+          type: ArgTag.UNRESOLVED,
+          dims: 0,
+          children: [],
+          resolved: false,
+          options: {},
+        };
+        if (innerResolvedType.options === undefined) {
+          innerResolvedType.options = {};
+        }
+        innerResolvedType.options.dimsUnique = true;
+        innerResolvedType.options.dimLength = [{ min: N, max: N }];
+
+        thisType.type = {
+          type: innerResolvedType.type,
+          dims: innerResolvedType.dims + 1,
+          children: innerResolvedType.children,
+          options: innerResolvedType.options,
           resolved: true,
         };
         break;

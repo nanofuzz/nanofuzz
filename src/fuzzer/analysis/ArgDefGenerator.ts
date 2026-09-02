@@ -220,10 +220,61 @@ function generateRandomInputFn(
   };
 
   // If the arg is an array, return the array generator
-  const randArgValueWrapper: PublicRandFn =
-    dimLength.length && genDims
-      ? () => nArray(prng, randFnWrapper, dimLength, options)
-      : randFnWrapper;
+  let randArgValueWrapper: PublicRandFn;
+  const constantLeaves =
+    dimLength.length === 1 &&
+    genDims &&
+    options.dimsUnique &&
+    type === ArgTag.UNION
+      ? getDiscreteConstantLeaves(arg)
+      : undefined;
+
+  if (constantLeaves !== undefined) {
+    randArgValueWrapper = () => {
+      const dim = dimLength[0];
+      const targetLen = getRandomNumber(
+        prng,
+        dim.min,
+        dim.max,
+        ArgDef.getDefaultOptions()
+      );
+
+      if (constantLeaves.length < targetLen) {
+        return nArray(prng, randFnWrapper, dimLength, options);
+      }
+
+      // Partial Fisher-Yates shuffle over constant leaf indices
+      const indices = Array.from(
+        { length: constantLeaves.length },
+        (_, idx) => idx
+      );
+      for (let i = 0; i < targetLen; i++) {
+        const j = getRandomNumber(
+          prng,
+          i,
+          constantLeaves.length - 1,
+          ArgDef.getDefaultOptions()
+        );
+        const temp = indices[i];
+        indices[i] = indices[j];
+        indices[j] = temp;
+      }
+
+      // Generate values for the targetLen selected unique constant leaves
+      const result: ArgValueType[] = [];
+      for (let i = 0; i < targetLen; i++) {
+        result.push(
+          generateRandomInputFn(constantLeaves[indices[i]], prng, false)()
+        );
+      }
+      return result;
+    };
+  } else {
+    randArgValueWrapper =
+      dimLength.length && genDims
+        ? () => nArray(prng, randFnWrapper, dimLength, options)
+        : randFnWrapper;
+  }
 
   // Inject undefined values into arg only if it is optional
   // and we are not generating values inside an array
@@ -428,3 +479,38 @@ const nArray = (
     return genFn(); // Base case -- just an array of values
   }
 }; // fn: nArray
+
+/**
+ * Recursively collects discrete, constant leaf ArgDefs from a UNION argument.
+ * Returns undefined if any non-constant or non-discrete child is present.
+ */
+const getDiscreteConstantLeaves = (arg: ArgDef): ArgDef[] | undefined => {
+  const leaves: ArgDef[] = [];
+  const visited = new Set<string>();
+
+  function collect(node: ArgDef): boolean {
+    if (node.isNoInput()) return true;
+    if (node.getType() === ArgTag.UNION) {
+      const children = node.getChildren().filter((c) => !c.isNoInput());
+      if (children.length === 0) return false;
+      for (const child of children) {
+        if (!collect(child)) return false;
+      }
+      return true;
+    }
+    if (node.getDim() === 0 && node.isConstant()) {
+      const val = JSONN.stringify(node.getConstantValue());
+      if (!visited.has(val)) {
+        visited.add(val);
+        leaves.push(node);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  if (collect(arg) && leaves.length > 0) {
+    return leaves;
+  }
+  return undefined;
+};

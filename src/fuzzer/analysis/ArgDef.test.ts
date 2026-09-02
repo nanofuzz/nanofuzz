@@ -491,6 +491,86 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     );
   });
 
+  it("dimsUnique: union with non-constant types falls back to nArray", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "unionArray",
+      0,
+      ArgTag.UNION,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 5, max: 5 }],
+      },
+      1,
+      false,
+      [
+        makeTypeRef(dummyModule, "num", ArgTag.NUMBER, 0),
+        makeTypeRef(dummyModule, "str", ArgTag.STRING, 0),
+      ]
+    );
+
+    const generated = ArgDefGenerator.gen(spec, seedrandom("unionArray"));
+    expect(ArgDefValidator.validate(generated, spec)).toBeTrue();
+    if (!Array.isArray(generated)) {
+      throw new Error("Expected an array");
+    }
+    expect(generated.length).toEqual(5);
+    expect(new Set(generated.map((e) => JSON.stringify(e))).size).toEqual(5);
+  });
+
+  it("dimsUnique: nested union of constants uses fast path", () => {
+    const innerUnion1 = makeArgDef(
+      dummyModule,
+      "inner1",
+      0,
+      ArgTag.UNION,
+      argOptions,
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "l1", ArgTag.LITERAL, 0, false, [], undefined, 10),
+        makeTypeRef(dummyModule, "l2", ArgTag.LITERAL, 0, false, [], undefined, 20),
+      ]
+    );
+    const innerUnion2 = makeArgDef(
+      dummyModule,
+      "inner2",
+      0,
+      ArgTag.UNION,
+      argOptions,
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "l3", ArgTag.LITERAL, 0, false, [], undefined, 30),
+        makeTypeRef(dummyModule, "l4", ArgTag.LITERAL, 0, false, [], undefined, 40),
+      ]
+    );
+
+    const spec = new ArgDef(
+      "nestedUnionArray",
+      0,
+      ArgTag.UNION,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 4, max: 4 }],
+      },
+      1,
+      false,
+      undefined,
+      [innerUnion1, innerUnion2]
+    );
+
+    const generated = ArgDefGenerator.gen(spec, seedrandom("nestedUnionArray"));
+    expect(ArgDefValidator.validate(generated, spec)).toBeTrue();
+    if (!Array.isArray(generated)) {
+      throw new Error("Expected an array");
+    }
+    expect(generated.length).toEqual(4);
+    expect(new Set(generated as number[]).size).toEqual(4);
+  });
+
   it("dimsUnique: mutators preserve outer-dimension uniqueness", () => {
     const spec = new ArgDef(
       "uniqueNumbers",
