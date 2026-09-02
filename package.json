@@ -325,6 +325,12 @@
             "minimum": 0,
             "description": "Amount of focus to decrement on each random leader selection"
           },
+          "nanofuzz.generators.compositeTrackCheckpoints": {
+            "title": "Track composite generator checkpoints statistics",
+            "type": "boolean",
+            "default": false,
+            "description": "Track composite generator checkpoints statistics"
+          },
           "telemetry.active": {
             "title": "Activate telemetry? (requires restart)",
             "type": "boolean",
