@@ -583,6 +583,19 @@ export class PythonProgram extends AbstractProgram {
             return [ArgTag.STRING, 0];
           case "bool":
             return [ArgTag.BOOLEAN, 0];
+          case "UUID":
+            return [
+              ArgTag.STRING,
+              0,
+              "UUID",
+              undefined,
+              {
+                strLength: { min: 36, max: 36 },
+                strCharset: "0123456789abcdefABCDEF-",
+                strRegex:
+                  "\\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\Z",
+              },
+            ];
           default:
             return [ArgTag.UNRESOLVED, 0, node.text];
         }
@@ -643,6 +656,20 @@ export class PythonProgram extends AbstractProgram {
       }
       case "member_type":
       case "attribute":
+        if (node.text === "uuid.UUID") {
+          return [
+            ArgTag.STRING,
+            0,
+            "UUID",
+            undefined,
+            {
+              strLength: { min: 36, max: 36 },
+              strCharset: "0123456789abcdefABCDEF-",
+              strRegex:
+                "\\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\Z",
+            },
+          ];
+        }
         return [ArgTag.UNRESOLVED, 0, node.text];
       default:
         throw new Error(
@@ -833,6 +860,10 @@ export class PythonProgram extends AbstractProgram {
     // Get the node's type and dimensions
     const [type, dims, typeRefNode, literalValue, typeOptions] =
       this._getTypeFromAstNode(typeNode, this._options);
+
+    if (typeRefNode) {
+      thisType.typeRefName = typeRefNode;
+    }
 
     // Create the TypeRef data structure
     switch (type) {
@@ -1461,10 +1492,7 @@ export class PythonProgram extends AbstractProgram {
             const parsedArgs = posArgs
               .map((c) => parseLiteral(resolveReference(c)))
               .filter((v): v is number => typeof v === "number");
-            if (
-              parsedArgs.length > 0 &&
-              parsedArgs.length === posArgs.length
-            ) {
+            if (parsedArgs.length > 0 && parsedArgs.length === posArgs.length) {
               let start = 0;
               let stop: number;
               let step = 1;
@@ -1611,6 +1639,39 @@ export class PythonProgram extends AbstractProgram {
           options: {
             strRegex: regex,
             ...(alphabet === undefined ? {} : { strCharset: String(alphabet) }),
+          },
+          resolved: true,
+        };
+        break;
+      }
+
+      case "uuids": {
+        const version = parseLiteral(getKwdArg(node, "version", -1));
+        const allowNil =
+          parseLiteral(getKwdArg(node, "allow_nil", -1)) === true;
+
+        // Base pattern depending on version
+        let uuidPattern: string;
+        if (typeof version === "number" && version >= 1 && version <= 5) {
+          uuidPattern = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-${version}[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}`;
+        } else {
+          uuidPattern = `[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}`;
+        }
+
+        // Incorporate the Nil UUID if allow_nil=True
+        const finalRegex = allowNil
+          ? `\\A(?:${uuidPattern}|00000000-0000-0000-0000-000000000000)\\Z`
+          : `\\A${uuidPattern}\\Z`;
+
+        thisType.typeRefName = "UUID";
+        thisType.type = {
+          type: ArgTag.STRING,
+          dims: 0,
+          children: [],
+          options: {
+            strLength: { min: 36, max: 36 },
+            strCharset: "0123456789abcdefABCDEF-",
+            strRegex: finalRegex,
           },
           resolved: true,
         };
@@ -1784,6 +1845,10 @@ export class PythonProgram extends AbstractProgram {
           min: Number(minSize ?? dftInterval.min),
           max: Number(maxSize ?? dftInterval.max),
         });
+
+        if (innerTypeRef.typeRefName) {
+          thisType.typeRefName = innerTypeRef.typeRefName;
+        }
 
         thisType.type = {
           type: innerResolvedType.type,
@@ -2204,6 +2269,24 @@ export class PythonProgram extends AbstractProgram {
         type: this.options.anyType,
         dims: this.options.anyDims,
         children: [],
+        resolved: true,
+      };
+      return typeRef;
+    } else if (
+      typeRef.typeRefName === "UUID" ||
+      typeRef.typeRefName === "uuid.UUID"
+    ) {
+      typeRef.typeRefName = "UUID";
+      typeRef.type = {
+        type: ArgTag.STRING,
+        dims: 0,
+        children: [],
+        options: {
+          strLength: { min: 36, max: 36 },
+          strCharset: "0123456789abcdefABCDEF-",
+          strRegex:
+            "\\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\Z",
+        },
         resolved: true,
       };
       return typeRef;

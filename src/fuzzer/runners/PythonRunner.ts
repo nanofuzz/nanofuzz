@@ -3,7 +3,11 @@ import {
   Arc,
   RunnerInput,
   RunnerResult,
+  TypeHint,
 } from "./AbstractRunner";
+import { ArgDef } from "../analysis/ArgDef";
+import { ArgTag } from "../analysis/Types";
+import { FuzzEnv } from "../Fuzzer";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
@@ -13,6 +17,52 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { findInAncestor, isError } from "../Util";
 
+function isUuidArg(arg: ArgDef): boolean {
+  return arg.getTypeRef() === "UUID";
+}
+
+function getBaseTypeHint(arg: ArgDef): TypeHint {
+  if (isUuidArg(arg)) {
+    return "uuid";
+  }
+
+  switch (arg.getType()) {
+    case ArgTag.TUPLE:
+      return {
+        kind: "tuple",
+        elements: arg.getChildren().map(getTypeHint),
+      };
+    case ArgTag.OBJECT: {
+      const fields: Record<string, TypeHint> = {};
+      for (const child of arg.getChildren()) {
+        fields[child.getName()] = getTypeHint(child);
+      }
+      return { kind: "object", fields };
+    }
+    case ArgTag.UNION:
+      return {
+        kind: "union",
+        arms: arg.getChildren().map(getTypeHint),
+      };
+    case ArgTag.NUMBER:
+    case ArgTag.STRING:
+    case ArgTag.BOOLEAN:
+    case ArgTag.LITERAL:
+    case ArgTag.UNRESOLVED:
+    default:
+      return "default";
+  }
+}
+
+function getTypeHint(arg: ArgDef): TypeHint {
+  const dims = arg.getDim();
+  let hint: TypeHint = getBaseTypeHint(arg);
+  for (let i = 0; i < dims; i++) {
+    hint = { kind: "array", element: hint };
+  }
+  return hint;
+}
+
 /**
  * Python runner
  */
@@ -21,6 +71,7 @@ export class PythonRunner extends AbstractRunner {
   protected _timeout: number;
   protected _runDepth = 0;
   protected _fn: string;
+  protected _env: FuzzEnv | undefined;
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo?: CoverageInfo = undefined;
@@ -37,12 +88,19 @@ export class PythonRunner extends AbstractRunner {
    *
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
+   * @param `env` optional fuzzer environment
    */
-  constructor(filename: string, fn: string, timeout: number = 0) {
+  constructor(
+    filename: string,
+    fn: string,
+    env?: FuzzEnv,
+    timeout: number = 0
+  ) {
     super(fn);
     this._filename = filename;
     this._timeout = timeout;
     this._fn = fn;
+    this._env = env;
   } // fn: constructor
 
   /**
@@ -80,9 +138,13 @@ export class PythonRunner extends AbstractRunner {
 
     try {
       const host = await this._getHost();
+      const typeHints =
+        this._env?.function.getArgDefs().map(getTypeHint) ?? [];
+
       const input: RunnerInput = {
         args: inputs,
         seq: thisSeq,
+        typeHints,
       };
 
       const payload = JSON5.stringify(input);
@@ -494,7 +556,7 @@ class PythonHost {
   protected _onClose = (): void => {
     this._errors.push(
       new Error(
-        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._proc.stderr.read()}, stdout: ${this._proc.stdout.read()}, cli: ${this._cli}, cwd: ${this._cwd})`
+        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._stderr.toString("utf8")}, stdout: ${this._stdout.toString("utf8")}, cli: ${this._cli}, cwd: ${this._cwd})`
       )
     );
     this.kill();
