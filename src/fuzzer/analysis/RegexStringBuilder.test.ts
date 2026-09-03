@@ -45,7 +45,7 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
       // Unicode codepoint ranges
       "\\A[\\u{1F600}-\\u{1F64F}]+\\Z",
       // Negative lookahead
-      "\\A(?:(?![\"\\\\])[\\p{L}\\p{N}])+\\Z",
+      '\\A(?:(?!["\\\\])[\\p{L}\\p{N}])+\\Z',
     ];
 
     /*
@@ -53,23 +53,23 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
      * until their regex features are supported by NaNofuzz's structural
      * builder:
      *
-    * // CSS color: /^(?:#|0x)(?:[a-f0-9]{3}|[a-f0-9]{6})$|^(?:rgb|hsl)a?\([^)]*\)$/
-    * // Unsupported: negated character classes [^...].
-    *
-    * // IPv6: /^((([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4})|...|(([0-9A-Fa-f]{1,4}:){1,7}:))$/
-    * // Unsupported: the full fast-check IPv6 expression requires additional
-    * // structural features beyond the currently supported subset.
-    *
-    * // RFC-5322 email: /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
-    * // Unsupported: negated character classes [^...].
-    *
-    * // General URL: /^(((http|https|ftp):\/\/)?([[a-zA-Z0-9]-\.])+(\.)([[a-zA-Z0-9]]){2,4}([[a-zA-Z0-9]\/+%&_\.~?-]*))*$/
-    * // Unsupported: the original uses character-class forms outside the
-    * // currently supported parser subset.
-    *
-    * // Emojis: /^\p{Emoji}+$/u
-    * // Non-emojis: /^\P{Emoji}+$/u
-    * // Unsupported: Unicode property escapes.
+     * // CSS color: /^(?:#|0x)(?:[a-f0-9]{3}|[a-f0-9]{6})$|^(?:rgb|hsl)a?\([^)]*\)$/
+     * // Unsupported: negated character classes [^...].
+     *
+     * // IPv6: /^((([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4})|...|(([0-9A-Fa-f]{1,4}:){1,7}:))$/
+     * // Unsupported: the full fast-check IPv6 expression requires additional
+     * // structural features beyond the currently supported subset.
+     *
+     * // RFC-5322 email: /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+     * // Unsupported: negated character classes [^...].
+     *
+     * // General URL: /^(((http|https|ftp):\/\/)?([[a-zA-Z0-9]-\.])+(\.)([[a-zA-Z0-9]]){2,4}([[a-zA-Z0-9]\/+%&_\.~?-]*))*$/
+     * // Unsupported: the original uses character-class forms outside the
+     * // currently supported parser subset.
+     *
+     * // Emojis: /^\p{Emoji}+$/u
+     * // Non-emojis: /^\P{Emoji}+$/u
+     * // Unsupported: Unicode property escapes.
      */
 
     for (const regex of regexes) {
@@ -99,7 +99,11 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
       ...options,
       strLength: { min: 3, max: 5 },
     };
-    const builder = create("\\A[a-z]+\\Z", seedrandom("lengths"), boundedOptions);
+    const builder = create(
+      "\\A[a-z]+\\Z",
+      seedrandom("lengths"),
+      boundedOptions
+    );
     for (let index = 0; index < 50; index++) {
       const value = builder();
       expect(value.length).toBeGreaterThanOrEqual(3);
@@ -109,11 +113,108 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
 
   it("fails fast for incompatible regex and strLength bounds", () => {
     expect(() =>
-      create(
-        "\\A[a-z]{6}\\Z",
-        seedrandom("impossible-lengths"),
-        { ...options, strLength: { min: 0, max: 5 } }
-      )
+      create("\\A[a-z]{6}\\Z", seedrandom("impossible-lengths"), {
+        ...options,
+        strLength: { min: 0, max: 5 },
+      })
     ).toThrowError(/conflicts with regex length/);
+  });
+
+  describe("permutation & alphabet Coverage", () => {
+    it("Strategy A: achieves 100% permutation exhaustion for small finite regex domains", () => {
+      const testCases = [
+        {
+          regex: "\\A[a-c]{2}\\Z",
+          expectedPermutations: new Set([
+            "aa",
+            "ab",
+            "ac",
+            "ba",
+            "bb",
+            "bc",
+            "ca",
+            "cb",
+            "cc",
+          ]),
+        },
+        {
+          regex: "\\A(cat|dog)-(1|2)\\Z",
+          expectedPermutations: new Set(["cat-1", "cat-2", "dog-1", "dog-2"]),
+        },
+        {
+          regex: "\\A[01]{3}\\Z",
+          expectedPermutations: new Set([
+            "000",
+            "001",
+            "010",
+            "011",
+            "100",
+            "101",
+            "110",
+            "111",
+          ]),
+        },
+      ];
+
+      for (const { regex, expectedPermutations } of testCases) {
+        const builder = create(
+          regex,
+          seedrandom(`strategy-a:${regex}`),
+          options
+        );
+        const observed = new Set<string>();
+        for (let i = 0; i < 1000; i++) {
+          observed.add(builder());
+        }
+        expect(observed.size).toEqual(expectedPermutations.size);
+        for (const expected of expectedPermutations) {
+          expect(observed.has(expected)).toBeTrue();
+        }
+      }
+    });
+
+    it("Strategy B: achieves 100% alphabet reachability over sampled iterations", () => {
+      const testCases = [
+        {
+          regex: "\\A[a-z]{1,5}\\Z",
+          expectedAlphabet: new Set("abcdefghijklmnopqrstuvwxyz".split("")),
+        },
+        {
+          regex: "\\A[\\u{1F600}-\\u{1F610}]+\\Z",
+          expectedAlphabet: new Set(
+            Array.from({ length: 0x1f610 - 0x1f600 + 1 }, (_, i) =>
+              String.fromCodePoint(0x1f600 + i)
+            )
+          ),
+        },
+        {
+          regex: "\\A\\p{Ll}{1,5}\\Z",
+          expectedAlphabet: new Set("abcdefghijklmnopqrstuvwxyz".split("")),
+        },
+        {
+          regex: "\\A(?:(?![\\\"\\\\])[a-z])+\\Z",
+          expectedAlphabet: new Set("abcdefghijklmnopqrstuvwxyz".split("")),
+        },
+      ];
+
+      for (const { regex, expectedAlphabet } of testCases) {
+        const builder = create(
+          regex,
+          seedrandom(`strategy-b:${regex}`),
+          options
+        );
+        const observed = new Set<string>();
+        for (let i = 0; i < 500; i++) {
+          const generated = builder();
+          for (const char of Array.from(generated)) {
+            observed.add(char);
+          }
+        }
+        expect(observed.size).toEqual(expectedAlphabet.size);
+        for (const expectedChar of expectedAlphabet) {
+          expect(observed.has(expectedChar)).toBeTrue();
+        }
+      }
+    });
   });
 });

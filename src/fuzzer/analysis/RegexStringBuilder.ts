@@ -63,7 +63,7 @@ export const create = (
       case "S":
         return Array.from(options.strCharset).filter((c) => !/\s/.test(c));
       default:
-        if ("\\.^$|?*+()[]{}".includes(escape)) return [escape];
+        if ("\\.^$|?*+()[]{}-'\"/".includes(escape) || /[^\w\s]/.test(escape)) return [escape];
         return fail(`escape \\${escape}`);
     }
   };
@@ -101,7 +101,9 @@ export const create = (
     }
 
     // Unicode 4-hex escape \uXXXX or 2-hex escape \xXX
-    const unicode4Match = rest.match(/^(?:u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2}))/);
+    const unicode4Match = rest.match(
+      /^(?:u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2}))/
+    );
     if (unicode4Match) {
       index += 1 + unicode4Match[0].length;
       const hex = unicode4Match[1] ?? unicode4Match[2];
@@ -204,10 +206,7 @@ export const create = (
       if (source[index] === "?") {
         if (source[index + 1] === ":") {
           index += 2;
-        } else if (
-          source[index + 1] === "!" ||
-          source[index + 1] === "="
-        ) {
+        } else if (source[index + 1] === "!" || source[index + 1] === "=") {
           const isNegative = source[index + 1] === "!";
           index += 2;
           const node = parseChoice();
@@ -363,6 +362,8 @@ export const create = (
         return "";
       case "repeat": {
         const range = node.max - node.min + 1;
+        // Favor shorter expansions so several unbounded repetitions can still
+        // fit within the effective string-length range.
         const count = node.min + Math.floor(prng() * prng() * range);
         return Array.from({ length: count }, () => generate(node.node)).join(
           ""

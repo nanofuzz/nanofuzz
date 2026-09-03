@@ -928,7 +928,7 @@ def test_alphabets(a1, a2, a3, a4, a5, a6, a7, a8, a9):
 
     expect(args[1].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyz");
 
-    expect(args[2].getOptions().strRegex).toEqual("\\A(?:(?![\\'\\\\\\\\])[\\p{L}\\p{N}\\p{P}\\p{S}\\p{Z}])*\\Z");
+    expect(args[2].getOptions().strRegex).toEqual("\\A(?:(?!['\\\\\\\\])[\\p{L}\\p{N}\\p{P}\\p{S}\\p{Z}])*\\Z");
 
     expect(args[3].getOptions().strRegex).toEqual("\\A(?:(?![\"\\\\\\\\])[\\p{L}\\p{N}])*\\Z");
 

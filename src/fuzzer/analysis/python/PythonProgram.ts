@@ -1560,7 +1560,7 @@ export class PythonProgram extends AbstractProgram {
     }
     if (blChars && blChars.length > 0) {
       const escapedBl = Array.from(blChars)
-        .map((c) => ("\\\\]-^'".includes(c) ? `\\${c}` : c))
+        .map((c) => ("\\\\]-^".includes(c) ? `\\${c}` : c))
         .join("");
       lookaheads += `(?![${escapedBl}])`;
     }
