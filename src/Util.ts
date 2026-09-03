@@ -48,6 +48,80 @@ export function removeTickFromOrigin(origin: FuzzValueOrigin): void {
 }
 
 /**
+ * Encodes control characters and backslashes in a string to printable escape sequences
+ * (e.g. newline -> \n, tab -> \t, backslash -> \\).
+ */
+export function encodeEscapeSequences(str: string): string {
+  let result = "";
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    switch (char) {
+      case "\\":
+        result += "\\\\";
+        break;
+      case "\n":
+        result += "\\n";
+        break;
+      case "\r":
+        result += "\\r";
+        break;
+      case "\t":
+        result += "\\t";
+        break;
+      case "\0":
+        result += "\\0";
+        break;
+      default:
+        result += char;
+        break;
+    }
+  }
+  return result;
+}
+
+/**
+ * Decodes printable escape sequences in a string back to their raw character equivalents
+ * (e.g. \n -> newline, \t -> tab, \\ -> backslash).
+ */
+export function decodeEscapeSequences(str: string): string {
+  let result = "";
+  for (let i = 0; i < str.length; i++) {
+    if (str[i] === "\\" && i + 1 < str.length) {
+      const next = str[i + 1];
+      switch (next) {
+        case "\\":
+          result += "\\";
+          i++;
+          break;
+        case "n":
+          result += "\n";
+          i++;
+          break;
+        case "r":
+          result += "\r";
+          i++;
+          break;
+        case "t":
+          result += "\t";
+          i++;
+          break;
+        case "0":
+          result += "\0";
+          i++;
+          break;
+        default:
+          result += "\\" + next;
+          i++;
+          break;
+      }
+    } else {
+      result += str[i];
+    }
+  }
+  return result;
+}
+
+/**
  * Type guard for Uint8Array or Buffer across Node and Webview environments.
  */
 export function isBufferOrUint8Array(val: unknown): val is Uint8Array {

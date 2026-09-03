@@ -928,9 +928,9 @@ def test_alphabets(a1, a2, a3, a4, a5, a6, a7, a8, a9):
 
     expect(args[1].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyz");
 
-    expect(args[2].getOptions().strRegex).toEqual("\\A(?:(?!['\\\\\\\\])[\\p{L}\\p{N}\\p{P}\\p{S}\\p{Z}])*\\Z");
+    expect(args[2].getOptions().strRegex).toEqual("\\A(?:(?!['\\\\])[\\p{L}\\p{N}\\p{P}\\p{S}\\p{Z}])*\\Z");
 
-    expect(args[3].getOptions().strRegex).toEqual("\\A(?:(?![\"\\\\\\\\])[\\p{L}\\p{N}])*\\Z");
+    expect(args[3].getOptions().strRegex).toEqual("\\A(?:(?![\"\\\\])[\\p{L}\\p{N}])*\\Z");
 
     expect(args[4].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ");
     expect(args[4].getOptions().strRegex).toEqual("\\A(?:[\\p{L}\\p{N}\\p{Zs} ])*\\Z");
@@ -944,6 +944,23 @@ def test_alphabets(a1, a2, a3, a4, a5, a6, a7, a8, a9):
 
     expect(args[8].getOptions().strRegex).toEqual("\\A(?:[\\u{20}-\\u{7E}])*\\Z");
     expect(args[8].getOptions().strCharset?.length).toEqual(95);
+  });
+
+  it("hypothesis @given st.text alphabet with special escape sequences like \\n and \\t", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+import string
+from hypothesis import strategies as st
+
+@given(s=st.text(alphabet=st.sampled_from("abcdefghijklmnop \\n\\t")))
+def test_special_chars(s: str):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_special_chars"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().strCharset).toEqual("abcdefghijklmnop \n\t");
   });
 
   it("hypothesis @settings `max_examples`", () => {

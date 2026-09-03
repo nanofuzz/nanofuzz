@@ -14,6 +14,7 @@ import {
   ProgramLanguage,
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
+import { decodeEscapeSequences } from "../../../Util";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as ProgramFactory from "../ProgramFactory";
 import * as JSONN from "../../../Jsonn";
@@ -1367,26 +1368,24 @@ export class PythonProgram extends AbstractProgram {
     if (valNode.type === "true") return true;
     if (valNode.type === "false") return false;
     if (valNode.type === "string") {
+      const isRaw = /^[rR]/.test(valNode.text);
       const parts: string[] = [];
       const children = valNode.namedChildren;
       if (children.length > 0) {
         for (const child of children) {
           if (child.type === "string_content") {
-            parts.push(child.text);
+            parts.push(isRaw ? child.text : decodeEscapeSequences(child.text));
           } else if (child.type === "escape_sequence") {
-            const seq = child.text;
-            if (seq === "\\\\") parts.push("\\");
-            else if (seq === "\\'") parts.push("'");
-            else if (seq === '\\"') parts.push('"');
-            else if (seq === "\\n") parts.push("\n");
-            else if (seq === "\\t") parts.push("\t");
-            else if (seq === "\\r") parts.push("\r");
-            else parts.push(seq.slice(1));
+            parts.push(isRaw ? child.text : decodeEscapeSequences(child.text));
           }
         }
         return parts.join("");
       }
-      return valNode.text.replace(/^['"]|['"]$/g, "");
+      const rawBody = valNode.text.replace(
+        /^[rRfFbBuU]*['"]+|['"]+$/g,
+        ""
+      );
+      return isRaw ? rawBody : decodeEscapeSequences(rawBody);
     }
     return undefined;
   }
