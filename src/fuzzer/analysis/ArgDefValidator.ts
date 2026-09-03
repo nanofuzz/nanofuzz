@@ -74,7 +74,8 @@ export class ArgDefValidator {
                   options.strRegex.replace(/^\\A/, "^").replace(/\\Z$/, "$"),
                   "u"
                 );
-          const cpLength = typeof value === "string" ? Array.from(value).length : 0;
+          const cpLength =
+            typeof value === "string" ? Array.from(value).length : 0;
           return (
             typeof value === "string" &&
             cpLength <= options.strLength.max &&
