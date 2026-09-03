@@ -71,13 +71,14 @@ export class ArgDefValidator {
             options.strRegex === undefined
               ? undefined
               : new RegExp(
-                  options.strRegex.replace(/^\\A/, "^").replace(/\\Z$/, "$")
+                  options.strRegex.replace(/^\\A/, "^").replace(/\\Z$/, "$"),
+                  "u"
                 );
           return (
             typeof value === "string" &&
             value.length <= options.strLength.max &&
             value.length >= options.strLength.min &&
-            value.split("").every((e) => options.strCharset.includes(e)) &&
+            Array.from(value).every((e) => options.strCharset.includes(e)) &&
             (regex === undefined || regex.test(value))
           );
         }

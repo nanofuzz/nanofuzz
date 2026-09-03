@@ -38,6 +38,14 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
       "\\A[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\\Z",
       // RGB CSS color
       "\\Argb\\(\\s*(\\d|[1-9]\\d|1\\d\\d|2[0-5])\\s*,\\s*(\\d|[1-9]\\d|1\\d\\d|2[0-5])\\s*,\\s*(\\d|[1-9]\\d|1\\d\\d|2[0-5])\\s*\\)\\Z",
+      // CSS color with negated class
+      "\\A(?:#|0x)(?:[a-f0-9]{3}|[a-f0-9]{6})|(?:rgb|hsl)a?\\([^)]*\\)\\Z",
+      // Emojis with Unicode property escape
+      "\\A\\p{Letter}+\\Z",
+      // Unicode codepoint ranges
+      "\\A[\\u{1F600}-\\u{1F64F}]+\\Z",
+      // Negative lookahead
+      "\\A(?:(?![\"\\\\])[\\p{L}\\p{N}])+\\Z",
     ];
 
     /*
@@ -65,7 +73,10 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
      */
 
     for (const regex of regexes) {
-      const matcher = new RegExp(regex.replace("\\A", "^").replace("\\Z", "$"));
+      const matcher = new RegExp(
+        regex.replace("\\A", "^").replace("\\Z", "$"),
+        "u"
+      );
       for (let index = 0; index < 50; index++) {
         const builder = create(
           regex,
@@ -79,7 +90,7 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
 
   it("fails fast for unsupported regexes", () => {
     expect(() =>
-      create("\\A(?=a)a\\Z", seedrandom("unsupported"), options)
+      create("\\A(?<invalid)a\\Z", seedrandom("unsupported"), options)
     ).toThrowError(/Unsupported string regex/);
   });
 

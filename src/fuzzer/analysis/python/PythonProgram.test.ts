@@ -899,6 +899,53 @@ def test_example(trigger, dep, trigger_val):
     expect(args[2].getIntervals()).toEqual([{ min: 0, max: 100 }]);
   });
 
+  it("hypothesis @given st.text alphabet strategy expressions", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+import string
+from hypothesis import strategies as st
+
+@given(
+  a1=st.text(alphabet=st.characters(whitelist_categories=("L", "N"))),
+  a2=st.text(alphabet=string.ascii_lowercase),
+  a3=st.text(alphabet=st.characters(whitelist_categories=("L", "N", "P", "S", "Z"), blacklist_characters="'\\\\")),
+  a4=st.text(alphabet=st.characters(whitelist_categories=("L", "N"), blacklist_characters='"\\\\')),
+  a5=st.text(alphabet=st.characters(whitelist_categories=('L', 'N', 'Zs'), whitelist_characters=' ')),
+  a6=st.text(alphabet=st.sampled_from("aäöüéèêëàâîïôûçñ")),
+  a7=st.text(alphabet=st.characters(min_codepoint=0x1F600, max_codepoint=0x1F64F)),
+  a8=st.text(alphabet=string.ascii_letters + string.digits),
+  a9=st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126))
+)
+def test_alphabets(a1, a2, a3, a4, a5, a6, a7, a8, a9):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_alphabets"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+    expect(args[0].getOptions().strRegex).toEqual("\\A(?:[\\p{L}\\p{N}])*\\Z");
+
+    expect(args[1].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyz");
+
+    expect(args[2].getOptions().strRegex).toEqual("\\A(?:(?![\\'\\\\\\\\])[\\p{L}\\p{N}\\p{P}\\p{S}\\p{Z}])*\\Z");
+
+    expect(args[3].getOptions().strRegex).toEqual("\\A(?:(?![\"\\\\\\\\])[\\p{L}\\p{N}])*\\Z");
+
+    expect(args[4].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ");
+    expect(args[4].getOptions().strRegex).toEqual("\\A(?:[\\p{L}\\p{N}\\p{Zs} ])*\\Z");
+
+    expect(args[5].getOptions().strCharset).toEqual("aäöüéèêëàâîïôûçñ");
+
+    expect(args[6].getOptions().strRegex).toEqual("\\A(?:[\\u{1F600}-\\u{1F64F}])*\\Z");
+    expect(Array.from(args[6].getOptions().strCharset ?? "").length).toEqual(80);
+
+    expect(args[7].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+
+    expect(args[8].getOptions().strRegex).toEqual("\\A(?:[\\u{20}-\\u{7E}])*\\Z");
+    expect(args[8].getOptions().strCharset?.length).toEqual(95);
+  });
+
   it("hypothesis @settings `max_examples`", () => {
     const program = ProgramFactory.fromSource(
       () => `
