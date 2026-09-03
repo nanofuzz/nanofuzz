@@ -389,7 +389,7 @@ const getRandomString: PrivateRandFn = (
   if (typeof min !== "string" || typeof max !== "string")
     throw new Error("Min and max must be strings");
 
-  const charSet = options.strCharset;
+  const charSet = Array.from(options.strCharset);
   const intOptions = ArgDef.getDefaultOptions(); // use default for integer selection
 
   // This generator does not currently support min and max, but we don't make
@@ -406,12 +406,12 @@ const getRandomString: PrivateRandFn = (
   // Note: This provides a uniform distribution at each position, but
   //       the distribution of output is not uniform.
   const charSetLen = charSet.length - 1;
-  let outStr = "";
+  const outChars: string[] = [];
   for (let i = 0; i < strLen; i++) {
-    outStr += charSet[getRandomNumber(prng, 0, charSetLen, intOptions)];
+    outChars.push(charSet[getRandomNumber(prng, 0, charSetLen, intOptions)]);
   }
 
-  return outStr;
+  return outChars.join("");
 }; // fn: getRandomString
 
 const getRandomBytes: PrivateRandFn = (

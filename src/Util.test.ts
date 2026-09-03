@@ -9,6 +9,10 @@ describe("src/Util escape sequence encoder/decoder", () => {
     expect(decodeEscapeSequences("abc\\n\\r\\t\\0\\\\def")).toEqual("abc\n\r\t\0\\def");
   });
 
+  it("decodes hex and unicode escape sequences like \\u{1F600}, \\u0041, \\x41", () => {
+    expect(decodeEscapeSequences("\\u{1F600}\\u0041\\x42")).toEqual("😀AB");
+  });
+
   it("handles round-trip encoding and decoding", () => {
     const original = "abcdefghijklmnop \n\t\r\0\\";
     const encoded = encodeEscapeSequences(original);
