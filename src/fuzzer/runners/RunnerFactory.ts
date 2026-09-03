@@ -14,13 +14,13 @@ import { PythonRunner } from "./PythonRunner";
  * @returns an appropriate AbstractRunner instance
  */
 export function RunnerFactory(
-  _env: FuzzEnv,
+  env: FuzzEnv,
   module: NodeJS.Module | string,
   fn: string
 ): AbstractRunner {
   if (typeof module === "string") {
     if (PythonProgram.understands({ filename: module })) {
-      return new PythonRunner(module, fn, _env);
+      return new PythonRunner(module, fn, env);
     } else {
       throw new Error("Not yet implemented");
     }

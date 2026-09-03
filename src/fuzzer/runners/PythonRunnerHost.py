@@ -8,6 +8,8 @@ import struct
 import logging
 import tempfile
 import traceback
+import re
+import uuid
 from contextlib import redirect_stdout
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired
 
@@ -337,8 +339,7 @@ def transform_arg(val: Any, hint: Any) -> Any:
     if kind == "union":
         arms = hint.get("arms", [])
         if isinstance(val, str) and any(
-            arm == "uuid" or (isinstance(arm, dict)
-                              and arm.get("kind") == "uuid")
+            arm == "uuid" or (isinstance(arm, dict) and arm.get("kind") == "uuid")
             for arm in arms
         ):
             try:
@@ -359,8 +360,7 @@ def json5_default(obj: Any) -> Any:
         return list(obj)
     if isinstance(obj, uuid.UUID):
         return str(obj)
-    raise TypeError(
-        f"Object of type {type(obj).__name__} is not JSON5 serializable")
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON5 serializable")
 
 
 def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> RunnerResult:
