@@ -192,7 +192,7 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
           expectedAlphabet: new Set("abcdefghijklmnopqrstuvwxyz".split("")),
         },
         {
-          regex: "\\A(?:(?![\\\"\\\\])[a-z])+\\Z",
+          regex: '\\A(?:(?![\\"\\\\])[a-z])+\\Z',
           expectedAlphabet: new Set("abcdefghijklmnopqrstuvwxyz".split("")),
         },
       ];
