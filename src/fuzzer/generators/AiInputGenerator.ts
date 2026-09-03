@@ -18,6 +18,7 @@ import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import * as zod from "zod/v4";
 import { InputGeneratorStatsAi } from "./Types";
 import { isError } from "../Util";
+import { isBufferOrUint8Array } from "../../Util";
 import * as Config from "../../Config";
 
 /**
@@ -181,12 +182,15 @@ export class AiInputGenerator extends AbstractInputGenerator {
           }
 
           // Process the inputs
+          const specMap = new Map(
+            this._specs.map((arg) => [arg.getName(), arg])
+          );
           inputs.programInputs.forEach((input) => {
             this._stats.inputs.gen++;
 
             // Decode the input
             Object.keys(input).forEach((k) => {
-              input[k] = _decode(input[k]);
+              input[k] = _decode(input[k], specMap.get(k));
             });
 
             // Validate the input
@@ -330,6 +334,15 @@ export class AiInputGenerator extends AbstractInputGenerator {
             .min(argOptions.strLength.min)
             .max(argOptions.strLength.max)
             .refine((s) => [...s].every((char) => charSet.includes(char)))
+            .describe(desc);
+        }
+        case ArgTag.BYTES: {
+          const desc = `array of byte integers (0-255) with length >= ${argOptions.byteLength.min} && <= ${argOptions.byteLength.max}`;
+          directives.push(`${path}: ${desc}`);
+          return zod
+            .array(zod.number().int().min(0).max(255))
+            .min(argOptions.byteLength.min)
+            .max(argOptions.byteLength.max)
             .describe(desc);
         }
         case ArgTag.LITERAL: {
@@ -490,19 +503,65 @@ function _initStats(): InputGeneratorStatsAi {
 
 /**
  * Replaces special placeholder values in an ArgValueType with
- * the actual values. We do this to work around the cases Zod
- * can't handle natively.
+ * the actual values, and converts number[] arrays to Uint8Array
+ * for BYTES types. We do this primarily to work around the
+ * cases Zod can't handle natively.
+ *
  *
  * @param data
+ * @param spec
  * @returns
  */
-export function _decode(data: ArgValueType): ArgValueType {
+export function _decode(data: ArgValueType, spec?: ArgDef): ArgValueType {
+  if (spec !== undefined) {
+    if (spec.getDim() > 0 && Array.isArray(data)) {
+      return data.map((e) => _decode(e, spec));
+    }
+
+    if (spec.getType() === ArgTag.BYTES && spec.getDim() === 0) {
+      if (Array.isArray(data)) {
+        return new Uint8Array(data.map((e) => Number(e)));
+      } else if (isBufferOrUint8Array(data)) {
+        return data;
+      }
+    } else if (
+      spec.getType() === ArgTag.OBJECT &&
+      typeof data === "object" &&
+      data !== null &&
+      !Array.isArray(data) &&
+      !(data instanceof Uint8Array)
+    ) {
+      const children = spec.getChildren();
+      Object.keys(data).forEach((k) => {
+        if (data[k] === NANOFUZZ_MISSING_PROPERTY) {
+          delete data[k];
+        } else {
+          const childSpec = children.find((c) => c.getName() === k);
+          data[k] = _decode(data[k], childSpec);
+        }
+      });
+      return data;
+    } else if (spec.getType() === ArgTag.TUPLE && Array.isArray(data)) {
+      const children = spec.getChildren();
+      return data.map((item, i) => _decode(item, children[i]));
+    } else if (spec.getType() === ArgTag.UNION && Array.isArray(data)) {
+      const bytesChild = spec
+        .getChildren()
+        .find((c) => c.getType() === ArgTag.BYTES);
+      if (bytesChild) {
+        return new Uint8Array(data.map((e) => Number(e)));
+      }
+    }
+  }
+
   switch (typeof data) {
     case "object":
       if (Array.isArray(data)) {
         return data.map((e) => _decode(e));
       } else if (data === null) {
         return null;
+      } else if (data instanceof Uint8Array) {
+        return data;
       } else {
         Object.keys(data).forEach((k) => {
           if (data[k] === NANOFUZZ_MISSING_PROPERTY) {

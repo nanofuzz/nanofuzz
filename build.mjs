@@ -11,7 +11,7 @@ import pkg from "./package.json" with { type: "json" };
 const version = JSON.stringify(pkg.version);
 
 // Clear the build folder
-rimraf.sync("./build");
+fs.rmSync("./build", { recursive: true, force: true });
 
 // Copy static assets
 copyfiles(["./src/ui/*.css", "./build/ui"], true /* flat */, () =>

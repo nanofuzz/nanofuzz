@@ -958,6 +958,30 @@ def test_regex(inline, referenced, partial, anchored):
     expect(fn.getArgDefs()[1].getOptions().strCharset).toEqual("super");
   });
 
+  it("hypothesis @given `binary` strategy", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    data1=st.binary(),
+    data2=st.binary(min_size=4, max_size=16)
+)
+def test_binary(data1, data2):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_binary"];
+
+    const args = fn.getArgDefs();
+    expect(args.length).toEqual(2);
+
+    expect(args[0].getName()).toEqual("data1");
+    expect(args[0].getType()).toEqual(ArgTag.BYTES);
+
+    expect(args[1].getName()).toEqual("data2");
+    expect(args[1].getType()).toEqual(ArgTag.BYTES);
+    expect(args[1].getOptions().byteLength).toEqual({ min: 4, max: 16 });
+  });
+
   it("hypothesis @given `uuids` strategy", () => {
     const fn = ProgramFactory.fromSource(
       () => `

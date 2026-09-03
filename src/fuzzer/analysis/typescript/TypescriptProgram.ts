@@ -673,6 +673,7 @@ export class TypescriptProgram extends AbstractProgram {
 
       // Create the TypeRef data structure
       switch (type) {
+        case ArgTag.BYTES:
         case ArgTag.STRING:
         case ArgTag.BOOLEAN:
         case ArgTag.NUMBER: {
@@ -772,7 +773,11 @@ export class TypescriptProgram extends AbstractProgram {
         return this._getTypeFromAstNode(node.typeAnnotation, options);
       }
       case "TSTypeReference": {
-        return [ArgTag.UNRESOLVED, 0, getIdentifierName(node.typeName)];
+        const typeName = getIdentifierName(node.typeName);
+        if (typeName === "Uint8Array" || typeName === "Buffer") {
+          return [ArgTag.BYTES, 0, typeName];
+        }
+        return [ArgTag.UNRESOLVED, 0, typeName];
       }
       default:
         throw new Error(

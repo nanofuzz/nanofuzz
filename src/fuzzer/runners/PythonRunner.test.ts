@@ -36,6 +36,80 @@ describe("fuzzer/runners/PythonRunner", () => {
     expect(PythonRunner.resolveInterpreter("python3")).toBe("python3");
   });
 
+  it("handles binary bytes inputs and outputs", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "binary_test.py");
+    const pyCode = `
+def process_bytes(data: bytes) -> bytes:
+    assert isinstance(data, bytes), "data must be bytes"
+    return data + b"!"
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def process_bytes(data: bytes) -> bytes:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["process_bytes"];
+      const env: FuzzEnv = {
+        function: fnDef,
+        options: {
+          argDefaults: ArgDef.getDefaultOptions(),
+          maxTests: 1000,
+          maxDupeInputs: 1000,
+          maxFailures: 0,
+          fnTimeout: 100,
+          suiteTimeout: 0,
+          useImplicit: true,
+          useHuman: false,
+          useProperty: false,
+          useTransformer: false,
+          measures: {
+            CoverageMeasure: { enabled: true, weight: 1 },
+            FailedTestMeasure: { enabled: true, weight: 1 },
+          },
+          generators: {
+            RandomInputGenerator: { enabled: true },
+            MutationInputGenerator: { enabled: true },
+            AiInputGenerator: { enabled: false },
+          },
+        },
+        validators: [],
+        transformers: [],
+      };
+
+      const runner = new PythonRunner(pyPath, "process_bytes", env, 2000);
+      await runner.onRunStart();
+
+      const inputBytes = new Uint8Array([104, 101, 108, 108, 111]); // "hello"
+      const res = await runner.run([inputBytes], 2000);
+
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toEqual([104, 101, 108, 108, 111, 33]); // "hello!"
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
+    }
+  });
+
   it("nested UUID inputs and outputs", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
     const pyPath = path.join(tmpDir, "uuid_test.py");

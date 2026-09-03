@@ -109,4 +109,21 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
       expect<unknown>(AiInputGenerator._decode(data)).toEqual(preDecoded[i]);
     });
   });
+
+  it("decode number array as Uint8Array per spec", () => {
+    const bytesSpec = makeArgDef(
+      "test.ts",
+      "data",
+      0,
+      ArgTag.BYTES,
+      ArgDef.getDefaultOptions(),
+      0
+    );
+
+    const rawArray = [104, 101, 108, 108, 111];
+    const decoded = AiInputGenerator._decode(rawArray, bytesSpec);
+
+    expect(decoded instanceof Uint8Array).toBeTrue();
+    expect<unknown>(decoded).toEqual(new Uint8Array([104, 101, 108, 108, 111]));
+  });
 });

@@ -3,6 +3,7 @@ import sys
 import os
 import io
 import json
+import uuid
 import struct
 import logging
 import tempfile
@@ -289,7 +290,7 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     }
 
 
-def transform_uuid_arg(val: Any, hint: Any) -> Any:
+def transform_arg(val: Any, hint: Any) -> Any:
     if val is None:
         return None
 
@@ -302,6 +303,15 @@ def transform_uuid_arg(val: Any, hint: Any) -> Any:
                     return val
         return val
 
+    if hint == "bytes":
+        if isinstance(val, (bytes, bytearray)):
+            return val
+        if isinstance(val, list):
+            return bytes(val)
+        if isinstance(val, str):
+            return val.encode("latin1")
+        return val
+
     if hint == "default" or not isinstance(hint, dict):
         return val
 
@@ -309,12 +319,12 @@ def transform_uuid_arg(val: Any, hint: Any) -> Any:
 
     if kind == "array" and isinstance(val, list):
         elem_hint = hint.get("element", "default")
-        return [transform_uuid_arg(item, elem_hint) for item in val]
+        return [transform_arg(item, elem_hint) for item in val]
 
     if kind == "tuple" and (isinstance(val, tuple) or isinstance(val, list)):
         elem_hints = hint.get("elements", [])
         transformed = [
-            transform_uuid_arg(item, elem_hints[i]) if i < len(elem_hints) else item
+            transform_arg(item, elem_hints[i]) if i < len(elem_hints) else item
             for i, item in enumerate(val)
         ]
         return tuple(transformed) if isinstance(val, tuple) else transformed
@@ -322,7 +332,7 @@ def transform_uuid_arg(val: Any, hint: Any) -> Any:
     if kind == "object" and isinstance(val, dict):
         field_hints = hint.get("fields", {})
         return {
-            k: transform_uuid_arg(v, field_hints[k]) if k in field_hints else v
+            k: transform_arg(v, field_hints[k]) if k in field_hints else v
             for k, v in val.items()
         }
 
@@ -337,8 +347,8 @@ def transform_uuid_arg(val: Any, hint: Any) -> Any:
             except ValueError:
                 pass
         for arm in arms:
-            transformed = transform_uuid_arg(val, arm)
-            if isinstance(transformed, uuid.UUID) or transformed != val:
+            transformed = transform_arg(val, arm)
+            if isinstance(transformed, (uuid.UUID, bytes, bytearray)) or transformed != val:
                 return transformed
         return val
 
@@ -346,6 +356,8 @@ def transform_uuid_arg(val: Any, hint: Any) -> Any:
 
 
 def json5_default(obj: Any) -> Any:
+    if isinstance(obj, (bytes, bytearray)):
+        return list(obj)
     if isinstance(obj, uuid.UUID):
         return str(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON5 serializable")
@@ -364,7 +376,7 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
     args = list(input["args"])
     type_hints = input.get("typeHints", [])
     for i in range(min(len(args), len(type_hints))):
-        args[i] = transform_uuid_arg(args[i], type_hints[i])
+        args[i] = transform_arg(args[i], type_hints[i])
 
     try:
         with redirect_stdout(io.StringIO()) as f:

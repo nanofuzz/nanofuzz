@@ -1,6 +1,7 @@
 import { ArgDef } from "./ArgDef";
 import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
 import * as JSONN from "../../Jsonn";
+import { isBufferOrUint8Array } from "../../Util";
 
 /**
  * Valides values against their corresponding ArgDef specs
@@ -87,6 +88,17 @@ export class ArgDefValidator {
               value === Boolean(spec.getIntervals()[0].min))
           );
         }
+        case ArgTag.BYTES: {
+          if (isBufferOrUint8Array(value) || Array.isArray(value)) {
+            const arr = Array.from(value);
+            return (
+              arr.length <= options.byteLength.max &&
+              arr.length >= options.byteLength.min &&
+              arr.every((b) => typeof b === "number" && b >= 0 && b <= 255)
+            );
+          }
+          return false;
+        }
         case ArgTag.LITERAL: {
           return value === spec.getConstantValue();
         }
@@ -94,6 +106,7 @@ export class ArgDefValidator {
           if (
             typeof value === "object" &&
             !Array.isArray(value) &&
+            !(value instanceof Uint8Array) &&
             value !== null
           ) {
             const children = spec.getChildren();

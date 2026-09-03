@@ -1057,6 +1057,13 @@ function getRandomArgDef(
       ];
       break;
     }
+    case ArgTag.BYTES: {
+      options = {
+        ...options,
+        byteLength: { min: Math.floor(prng() * 2), max: 2 },
+      };
+      break;
+    }
     case ArgTag.OBJECT: {
       break;
     }

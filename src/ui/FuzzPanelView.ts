@@ -2372,6 +2372,8 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const falseOnly = document.getElementById(idBase + "-falseOnly");
     const minStrLen = document.getElementById(idBase + "-minStrLen");
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
+    const minByteLen = document.getElementById(idBase + "-minByteLen");
+    const maxByteLen = document.getElementById(idBase + "-maxByteLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
     const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
@@ -2427,6 +2429,22 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
         };
       }
     } // TODO: Validation !!!
+
+    // Process bytes overrides
+    if (minByteLen && maxByteLen) {
+      disableArr.push(minByteLen, maxByteLen);
+      const minByteLenVal = minByteLen.getAttribute("current-value");
+      const maxByteLenVal = maxByteLen.getAttribute("current-value");
+      if (minByteLenVal !== null && maxByteLenVal !== null) {
+        thisOverride.bytes = {
+          minByteLen: Math.max(
+            0,
+            Math.min(Number(minByteLenVal), Number(maxByteLenVal))
+          ),
+          maxByteLen: Math.max(Number(minByteLenVal), Number(maxByteLenVal), 0),
+        };
+      }
+    }
 
     // Process isNoInput overrides
     if (isNoInput !== null) {

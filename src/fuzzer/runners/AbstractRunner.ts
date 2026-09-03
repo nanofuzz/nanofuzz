@@ -79,6 +79,7 @@ export type RunnerResult = {
 
 export type TypeHint =
   | "uuid"
+  | "bytes"
   | "default"
   | { kind: "array"; element: TypeHint }
   | { kind: "tuple"; elements: TypeHint[] }

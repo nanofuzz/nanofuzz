@@ -3238,6 +3238,18 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         break;
       }
 
+      // Bytes-specific Options
+      case fuzzer.ArgTag.BYTES: {
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minByteLen" name="${idBase}-min" value="${htmlEscape(
+          arg.getOptions().byteLength.min.toString()
+        )}">Min length</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxByteLen" name="${idBase}-max" value="${htmlEscape(
+          arg.getOptions().byteLength.max.toString()
+        )}">Max length</vscode-text-field>`;
+        break;
+      }
+
       // Boolean-specific Options
       case fuzzer.ArgTag.BOOLEAN: {
         let intervals = arg.getIntervals();
@@ -3814,6 +3826,16 @@ function _applyArgOverrides(
                 ? argDefaults.strCharset
                 : thisOverride.string.strCharset,
             strRegex: thisOverride.string.strRegex,
+          });
+        }
+        break;
+      case fuzzer.ArgTag.BYTES:
+        if (thisOverride.bytes) {
+          thisArg.setOptions({
+            byteLength: {
+              min: Number(thisOverride.bytes.minByteLen),
+              max: Number(thisOverride.bytes.maxByteLen),
+            },
           });
         }
         break;

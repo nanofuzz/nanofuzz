@@ -219,6 +219,8 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         ];
       case ArgTag.BOOLEAN:
         return [{ min: false, max: true }];
+      case ArgTag.BYTES:
+        return [{ min: new Uint8Array(0), max: new Uint8Array(0) }];
       case ArgTag.OBJECT:
       case ArgTag.LITERAL:
       case ArgTag.UNION:
@@ -238,6 +240,12 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     this.intervals = [{ min: value, max: value }];
     if (this.type === ArgTag.STRING && typeof value === "string") {
       this.options.strLength = { min: value.length, max: value.length };
+    }
+    if (
+      this.type === ArgTag.BYTES &&
+      (value instanceof Uint8Array || Array.isArray(value))
+    ) {
+      this.options.byteLength = { min: value.length, max: value.length };
     }
     this.dims = 0;
   } // fn: makeConstant()
@@ -522,6 +530,12 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       },
       strRegex: undefined,
 
+      // Byte array defaults
+      byteLength: {
+        min: Config.get("nanofuzz.argdef.byteLength.min", DFT_BYTE_LENGTH.min),
+        max: Config.get("nanofuzz.argdef.byteLength.max", DFT_BYTE_LENGTH.max),
+      },
+
       // Numeric defaults
       numInteger: Config.get<boolean>("nanofuzz.argdef.numInteger", true),
 
@@ -556,6 +570,8 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       options.strCharset.length === 0 ||
       options.strLength.min < 0 ||
       options.strLength.min > options.strLength.max ||
+      options.byteLength.min < 0 ||
+      options.byteLength.min > options.byteLength.max ||
       options.anyDims < 0 ||
       options.dimLength.some((dim) => dim.min < 0 || dim.min > dim.max) ||
       options.dftDimLength.min < 0 ||
@@ -575,3 +591,4 @@ const DFT_DIMENSION_LENGTH: Interval<number> = { min: 0, max: 10 };
 const DFT_STR_CHARSET =
   " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 const DFT_STR_LENGTH: Interval<number> = { min: 0, max: 10 };
+const DFT_BYTE_LENGTH: Interval<number> = { min: 0, max: 10 };
