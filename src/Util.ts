@@ -81,41 +81,68 @@ export function encodeEscapeSequences(str: string): string {
 
 /**
  * Decodes printable escape sequences in a string back to their raw character equivalents
- * (e.g. \n -> newline, \t -> tab, \\ -> backslash).
+ * (e.g. \n -> newline, \t -> tab, \\ -> backslash, \u{1F600} -> 😀, \x41 -> A).
  */
 export function decodeEscapeSequences(str: string): string {
   let result = "";
-  for (let i = 0; i < str.length; i++) {
+  let i = 0;
+  while (i < str.length) {
     if (str[i] === "\\" && i + 1 < str.length) {
+      const rest = str.slice(i + 1);
+
+      // 1. Unicode code point escape \u{HEX}
+      const unicodeHexMatch = rest.match(/^u\{([0-9a-fA-F]+)\}/);
+      if (unicodeHexMatch) {
+        const cp = parseInt(unicodeHexMatch[1], 16);
+        if (!isNaN(cp)) {
+          result += String.fromCodePoint(cp);
+          i += 1 + unicodeHexMatch[0].length;
+          continue;
+        }
+      }
+
+      // 2. Unicode 4-hex escape \uXXXX or 2-hex escape \xXX
+      const hexMatch = rest.match(/^(?:u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2}))/);
+      if (hexMatch) {
+        const hex = hexMatch[1] ?? hexMatch[2];
+        const cp = parseInt(hex, 16);
+        if (!isNaN(cp)) {
+          result += String.fromCodePoint(cp);
+          i += 1 + hexMatch[0].length;
+          continue;
+        }
+      }
+
+      // 3. Single-character escape sequences (\n, \r, \t, \0, \\)
       const next = str[i + 1];
       switch (next) {
         case "\\":
           result += "\\";
-          i++;
+          i += 2;
           break;
         case "n":
           result += "\n";
-          i++;
+          i += 2;
           break;
         case "r":
           result += "\r";
-          i++;
+          i += 2;
           break;
         case "t":
           result += "\t";
-          i++;
+          i += 2;
           break;
         case "0":
           result += "\0";
-          i++;
+          i += 2;
           break;
         default:
           result += "\\" + next;
-          i++;
+          i += 2;
           break;
       }
     } else {
-      result += str[i];
+      result += str[i++];
     }
   }
   return result;
@@ -175,4 +202,3 @@ export function bytesToBase64(bytes: Uint8Array): string {
   }
   return btoa(binary);
 }
-
