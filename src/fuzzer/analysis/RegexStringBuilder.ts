@@ -2,13 +2,20 @@ import seedrandom from "seedrandom";
 import { ArgOptions } from "./Types";
 
 type RegexNode =
-  | { type: "chars"; chars: string[] }
+  | { type: "chars"; chars: readonly string[] }
   | { type: "sequence"; nodes: RegexNode[] }
   | { type: "choice"; nodes: RegexNode[] }
   | { type: "repeat"; node: RegexNode; min: number; max: number }
-  | { type: "assertion"; kind: "wordBoundary" | "nonWordBoundary" };
+  | { type: "assertion"; kind: "wordBoundary" | "nonWordBoundary" }
+  | { type: "lookahead"; negative: boolean; node: RegexNode };
 
 type LengthBounds = { min: number; max: number };
+
+const DIGIT_CHARS: readonly string[] = Object.freeze("0123456789".split(""));
+const WORD_CHARS: readonly string[] = Object.freeze(
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_".split("")
+);
+const SPACE_CHARS: readonly string[] = Object.freeze([" ", "\t", "\n", "\r"]);
 
 /**
  * Builds a structural string generator for the supported regular-expression
@@ -30,51 +37,165 @@ export const create = (
   const fail = (message: string): never => {
     throw new Error(`Unsupported string regex '${regex}': ${message}`);
   };
-  const charsForEscape = (escape: string): string[] => {
+
+  const filterCharset = (testRegex: RegExp): string[] => {
+    const charSetChars = Array.from(options.strCharset);
+    const matched = charSetChars.filter((c) => testRegex.test(c));
+    if (matched.length > 0) return matched;
+    const fallbackPool = Array.from(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r"
+    );
+    return fallbackPool.filter((c) => testRegex.test(c));
+  };
+
+  const charsForEscape = (escape: string): readonly string[] => {
     switch (escape) {
       case "d":
-        return "0123456789".split("");
+        return DIGIT_CHARS;
+      case "D":
+        return Array.from(options.strCharset).filter((c) => !/\d/.test(c));
       case "w":
-        return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_".split(
-          ""
-        );
+        return WORD_CHARS;
+      case "W":
+        return Array.from(options.strCharset).filter((c) => !/\w/.test(c));
       case "s":
-        return [" ", "\t", "\n", "\r"];
+        return SPACE_CHARS;
+      case "S":
+        return Array.from(options.strCharset).filter((c) => !/\s/.test(c));
       default:
-        if ("\\.^$|?*+()[]{}".includes(escape)) return [escape];
+        if ("\\.^$|?*+()[]{}-'\"/".includes(escape) || /[^\w\s]/.test(escape)) return [escape];
         return fail(`escape \\${escape}`);
     }
   };
+
+  const parseEscapeSequence = (): readonly string[] => {
+    if (source[index] !== "\\") {
+      fail("expected escape sequence");
+    }
+    const rest = source.slice(index + 1);
+
+    // Unicode property escapes \p{Property} / \P{Property}
+    const unicodePropMatch = rest.match(/^([pP])\{([A-Za-z0-9_]+)\}/);
+    if (unicodePropMatch) {
+      const isNegated = unicodePropMatch[1] === "P";
+      const prop = unicodePropMatch[2];
+      index += 1 + unicodePropMatch[0].length;
+      try {
+        const re = new RegExp(
+          "^\\" + (isNegated ? "P" : "p") + "{" + prop + "}$",
+          "u"
+        );
+        return filterCharset(re);
+      } catch {
+        fail(`unicode property escape \\${unicodePropMatch[0]}`);
+      }
+    }
+
+    // Unicode code point escape \u{HEX}
+    const unicodeHexMatch = rest.match(/^u\{([0-9a-fA-F]+)\}/);
+    if (unicodeHexMatch) {
+      index += 1 + unicodeHexMatch[0].length;
+      const cp = parseInt(unicodeHexMatch[1], 16);
+      if (isNaN(cp)) fail("invalid unicode codepoint");
+      return [String.fromCodePoint(cp)];
+    }
+
+    // Unicode 4-hex escape \uXXXX or 2-hex escape \xXX
+    const unicode4Match = rest.match(
+      /^(?:u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2}))/
+    );
+    if (unicode4Match) {
+      index += 1 + unicode4Match[0].length;
+      const hex = unicode4Match[1] ?? unicode4Match[2];
+      const cp = parseInt(hex, 16);
+      return [String.fromCodePoint(cp)];
+    }
+
+    // Single character escapes \n, \r, \t, \f, \v, \0
+    if (rest.startsWith("n")) {
+      index += 2;
+      return ["\n"];
+    }
+    if (rest.startsWith("r")) {
+      index += 2;
+      return ["\r"];
+    }
+    if (rest.startsWith("t")) {
+      index += 2;
+      return ["\t"];
+    }
+    if (rest.startsWith("0")) {
+      index += 2;
+      return ["\0"];
+    }
+
+    // Standard single escapes (\d, \D, \w, \W, \s, \S, or escaped symbol)
+    index++; // consume '\'
+    const char = source[index++];
+    return charsForEscape(char);
+  };
+
+  const parseClassItem = (): readonly string[] => {
+    if (source[index] === "\\") {
+      return parseEscapeSequence();
+    }
+    const char = source[index++];
+    return [char];
+  };
+
   const parseClass = (): RegexNode => {
-    index++;
-    if (source[index] === "^") fail("negated character class");
+    index++; // consume '['
+    let isNegated = false;
+    if (source[index] === "^") {
+      isNegated = true;
+      index++;
+    }
     const chars: string[] = [];
     while (index < source.length && source[index] !== "]") {
-      const start = source[index++];
-      if (start === "\\") {
-        chars.push(...charsForEscape(source[index++]));
-        continue;
-      }
+      const item1 = parseClassItem();
       if (source[index] === "-" && source[index + 1] !== "]") {
-        index++;
-        const end = source[index++];
-        if (
-          end === "\\" ||
-          start.codePointAt(0) === undefined ||
-          end.codePointAt(0) === undefined
-        )
-          fail("character class range");
-        for (
-          let code = start.codePointAt(0)!;
-          code <= end.codePointAt(0)!;
-          code++
-        )
-          chars.push(String.fromCodePoint(code));
-      } else chars.push(start);
+        index++; // consume '-'
+        const item2 = parseClassItem();
+        if (item1.length === 1 && item2.length === 1) {
+          const startCp = item1[0].codePointAt(0);
+          const endCp = item2[0].codePointAt(0);
+          if (
+            startCp !== undefined &&
+            endCp !== undefined &&
+            startCp <= endCp
+          ) {
+            for (let code = startCp; code <= endCp; code++) {
+              chars.push(String.fromCodePoint(code));
+            }
+          } else {
+            fail("character class range");
+          }
+        } else {
+          chars.push(...item1, "-", ...item2);
+        }
+      } else {
+        chars.push(...item1);
+      }
     }
-    if (source[index++] !== "]" || !chars.length) fail("character class");
-    return { type: "chars", chars };
+    if (source[index++] !== "]") fail("character class");
+
+    let finalChars = Array.from(new Set(chars));
+    if (isNegated) {
+      const excluded = new Set(finalChars);
+      finalChars = Array.from(options.strCharset).filter(
+        (c) => !excluded.has(c)
+      );
+      if (!finalChars.length) {
+        const fallback = Array.from(
+          "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ "
+        );
+        finalChars = fallback.filter((c) => !excluded.has(c));
+      }
+    }
+    if (!finalChars.length) fail("character class");
+    return { type: "chars", chars: finalChars };
   };
+
   const parseAtom = (): RegexNode => {
     const char = source[index++];
     if (char === "[") {
@@ -82,32 +203,43 @@ export const create = (
       return parseClass();
     }
     if (char === "(") {
-      // Capturing and non-capturing groups have identical generation
-      // semantics. Other `(?...)` forms remain unsupported because they
-      // affect matching without consuming text.
       if (source[index] === "?") {
-        if (source[index + 1] !== ":") fail("special group");
-        index += 2;
+        if (source[index + 1] === ":") {
+          index += 2;
+        } else if (source[index + 1] === "!" || source[index + 1] === "=") {
+          const isNegative = source[index + 1] === "!";
+          index += 2;
+          const node = parseChoice();
+          if (source[index++] !== ")") fail("unclosed group");
+          return { type: "lookahead", negative: isNegative, node };
+        } else {
+          fail("special group");
+        }
       }
       const node = parseChoice();
       if (source[index++] !== ")") fail("unclosed group");
       return node;
     }
     if (char === "\\") {
-      const escaped = source[index++];
-      if (escaped === "b") {
+      const next = source[index];
+      if (next === "b") {
+        index++;
         return { type: "assertion", kind: "wordBoundary" };
       }
-      if (escaped === "B") {
+      if (next === "B") {
+        index++;
         return { type: "assertion", kind: "nonWordBoundary" };
       }
-      return { type: "chars", chars: charsForEscape(escaped) };
+      index--; // back up so parseEscapeSequence can read '\\'
+      const escapedChars = parseEscapeSequence();
+      return { type: "chars", chars: escapedChars };
     }
     if (char === ".")
-      return { type: "chars", chars: options.strCharset.split("") };
+      return { type: "chars", chars: Array.from(options.strCharset) };
     if ("^$|)*+?{}]".includes(char)) fail(`token '${char}'`);
     return { type: "chars", chars: [char] };
   };
+
   const parseQuantifier = (node: RegexNode): RegexNode => {
     const char = source[index];
     if (char === "?") {
@@ -141,12 +273,14 @@ export const create = (
     if (min > max) fail("quantifier range");
     return { type: "repeat", node, min, max };
   };
+
   const parseSequence = (): RegexNode => {
     const nodes: RegexNode[] = [];
     while (index < source.length && !"|)$".includes(source[index]))
       nodes.push(parseQuantifier(parseAtom()));
     return { type: "sequence", nodes };
   };
+
   const parseChoice = (): RegexNode => {
     const nodes = [parseSequence()];
     while (source[index] === "|") {
@@ -160,11 +294,13 @@ export const create = (
   const root = parseChoice();
   if (source[index] === "$") index++;
   if (index !== source.length) fail("trailing input");
+
   const boundsFor = (node: RegexNode): LengthBounds => {
     switch (node.type) {
       case "chars":
         return { min: 1, max: 1 };
       case "assertion":
+      case "lookahead":
         return { min: 0, max: 0 };
       case "sequence":
         return node.nodes.reduce(
@@ -193,6 +329,7 @@ export const create = (
       }
     }
   };
+
   const regexBounds = boundsFor(root);
   const effectiveBounds = {
     min: Math.max(regexBounds.min, options.strLength.min),
@@ -203,7 +340,14 @@ export const create = (
       `length range ${options.strLength.min}-${options.strLength.max} conflicts with regex length ${regexBounds.min}-${regexBounds.max}`
     );
   }
-  const matcher = new RegExp(source);
+
+  let matcher: RegExp;
+  try {
+    matcher = new RegExp(source, "u");
+  } catch {
+    matcher = new RegExp(source);
+  }
+
   const generate = (node: RegexNode): string => {
     switch (node.type) {
       case "chars":
@@ -213,19 +357,21 @@ export const create = (
       case "choice": {
         return generate(node.nodes[Math.floor(prng() * node.nodes.length)]);
       }
-      case "assertion": return "";
+      case "assertion":
+      case "lookahead":
+        return "";
       case "repeat": {
         const range = node.max - node.min + 1;
         // Favor shorter expansions so several unbounded repetitions can still
         // fit within the effective string-length range.
-        const count =
-          node.min + Math.floor(prng() * prng() * range);
+        const count = node.min + Math.floor(prng() * prng() * range);
         return Array.from({ length: count }, () => generate(node.node)).join(
           ""
         );
       }
     }
   };
+
   return () => {
     for (let attempt = 0; attempt < 100; attempt++) {
       const value = generate(root);

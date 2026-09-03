@@ -1119,7 +1119,9 @@ const _checkStopCondition = (
   pcts.push(
     (stats.counters.inputsInjected +
       (gen
-        ? stats.counters.inputsGenerated - stats.counters.dupesGenerated
+        ? stats.counters.inputsGenerated -
+          stats.counters.dupesGenerated -
+          stats.counters.inputsSkipped
         : 0)) /
       (injectCount + (gen ? options.maxTests : 0))
   );

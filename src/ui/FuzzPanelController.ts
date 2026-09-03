@@ -12,7 +12,11 @@ import {
   getErrorMessageOrJson,
   normalizePathForKey,
 } from "../fuzzer/Util";
-import { removeTickFromOrigin } from "../Util";
+import {
+  removeTickFromOrigin,
+  encodeEscapeSequences,
+  decodeEscapeSequences,
+} from "../Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
 import {
@@ -3229,7 +3233,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         )}">Max length</vscode-text-field>`;
         html += " ";
         html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
-          arg.getOptions().strCharset
+          encodeEscapeSequences(arg.getOptions().strCharset)
         )}">Character set</vscode-text-field>`;
         html += " ";
         html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strRegex" placeholder="(none)" name="${idBase}-strRegex" value="${htmlEscape(
@@ -3824,7 +3828,7 @@ function _applyArgOverrides(
             strCharset:
               thisOverride.string.strCharset === ""
                 ? argDefaults.strCharset
-                : thisOverride.string.strCharset,
+                : decodeEscapeSequences(thisOverride.string.strCharset),
             strRegex: thisOverride.string.strRegex,
           });
         }
