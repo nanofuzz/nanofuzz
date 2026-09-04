@@ -923,26 +923,46 @@ def test_alphabets(a1, a2, a3, a4, a5, a6, a7, a8, a9):
     ).functionsExported["test_alphabets"];
 
     const args = fn.getArgDefs();
-    expect(args[0].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+    expect(args[0].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    );
     expect(args[0].getOptions().strRegex).toEqual("\\A(?:[\\p{L}\\p{N}])*\\Z");
 
-    expect(args[1].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyz");
+    expect(args[1].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyz"
+    );
 
-    expect(args[2].getOptions().strRegex).toEqual("\\A(?:(?!['\\\\])[\\p{L}\\p{N}\\p{P}\\p{S}\\p{Z}])*\\Z");
+    expect(args[2].getOptions().strRegex).toEqual(
+      "\\A(?:(?!['\\\\])[\\p{L}\\p{N}\\p{P}\\p{S}\\p{Z}])*\\Z"
+    );
 
-    expect(args[3].getOptions().strRegex).toEqual("\\A(?:(?![\"\\\\])[\\p{L}\\p{N}])*\\Z");
+    expect(args[3].getOptions().strRegex).toEqual(
+      '\\A(?:(?!["\\\\])[\\p{L}\\p{N}])*\\Z'
+    );
 
-    expect(args[4].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ");
-    expect(args[4].getOptions().strRegex).toEqual("\\A(?:[\\p{L}\\p{N}\\p{Zs} ])*\\Z");
+    expect(args[4].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
+    );
+    expect(args[4].getOptions().strRegex).toEqual(
+      "\\A(?:[\\p{L}\\p{N}\\p{Zs} ])*\\Z"
+    );
 
     expect(args[5].getOptions().strCharset).toEqual("aäöüéèêëàâîïôûçñ");
 
-    expect(args[6].getOptions().strRegex).toEqual("\\A(?:[\\u{1F600}-\\u{1F64F}])*\\Z");
-    expect(Array.from(args[6].getOptions().strCharset ?? "").length).toEqual(80);
+    expect(args[6].getOptions().strRegex).toEqual(
+      "\\A(?:[\\u{1F600}-\\u{1F64F}])*\\Z"
+    );
+    expect(Array.from(args[6].getOptions().strCharset ?? "").length).toEqual(
+      80
+    );
 
-    expect(args[7].getOptions().strCharset).toEqual("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+    expect(args[7].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    );
 
-    expect(args[8].getOptions().strRegex).toEqual("\\A(?:[\\u{20}-\\u{7E}])*\\Z");
+    expect(args[8].getOptions().strRegex).toEqual(
+      "\\A(?:[\\u{20}-\\u{7E}])*\\Z"
+    );
     expect(args[8].getOptions().strCharset?.length).toEqual(95);
   });
 

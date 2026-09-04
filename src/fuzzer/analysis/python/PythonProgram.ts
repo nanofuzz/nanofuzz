@@ -1221,7 +1221,6 @@ export class PythonProgram extends AbstractProgram {
         // what can i say
       }
     }
-
     return {
       module: this._filename,
       name: nameNode.node.text,
@@ -1381,10 +1380,7 @@ export class PythonProgram extends AbstractProgram {
         }
         return parts.join("");
       }
-      const rawBody = valNode.text.replace(
-        /^[rRfFbBuU]*['"]+|['"]+$/g,
-        ""
-      );
+      const rawBody = valNode.text.replace(/^[rRfFbBuU]*['"]+|['"]+$/g, "");
       return isRaw ? rawBody : decodeEscapeSequences(rawBody);
     }
     return undefined;
@@ -1426,9 +1422,7 @@ export class PythonProgram extends AbstractProgram {
   /**
    * Helper to parse integer / codepoint literals (decimal or hex like 0x1F600).
    */
-  protected _parseCodepoint(
-    node: Parser.Node | undefined
-  ): number | undefined {
+  protected _parseCodepoint(node: Parser.Node | undefined): number | undefined {
     if (!node) return undefined;
     const resolved = this._resolveReference(node);
     if (!resolved) return undefined;
@@ -1664,16 +1658,16 @@ export class PythonProgram extends AbstractProgram {
             left?.strCharset || right?.strCharset
               ? Array.from(
                   new Set(
-                    ((left?.strCharset ?? "") + (right?.strCharset ?? "")).split(
-                      ""
-                    )
+                    (
+                      (left?.strCharset ?? "") + (right?.strCharset ?? "")
+                    ).split("")
                   )
                 ).join("")
               : undefined;
           const regex =
             left?.strRegex && right?.strRegex
               ? `(?:${left.strRegex}|${right.strRegex})`
-              : left?.strRegex ?? right?.strRegex;
+              : (left?.strRegex ?? right?.strRegex);
           return {
             ...(charset !== undefined ? { strCharset: charset } : {}),
             ...(regex !== undefined ? { strRegex: regex } : {}),

@@ -5,11 +5,11 @@ import { isBufferOrUint8Array, isKeyedObject } from "./Util";
  * JSONN: JavaScript Object Notation for NaNofuzz
  *
  * Mostly a drop-in replacement for JSON5. Adds support for serializing
- * and unserializing `undefined`, `bigint`, and Uint8Array, including
+ * and unserializing `undefined`, `bigint`, and `Uint8Array`, including
  * within arrays and object members.
  *
  * While JSONN is valid JSON5 and might be parsed without error by JSON5,
- * the special types (`undefined`, `bigint`, and Uint8Array) will be
+ * the special types (`undefined`, `bigint`, and `Uint8Array`) will be
  * parsed inaccurately by the standard JSON5 library.
  */
 
