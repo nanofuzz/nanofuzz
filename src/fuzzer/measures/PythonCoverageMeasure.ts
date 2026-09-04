@@ -9,7 +9,7 @@ import {
 import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
 import { FullCoverage, PythonRunner } from "../runners/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
-import * as JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 import { normalizePathForKey } from "../Util";
 import {
   AbstractCoverageMeasure,
@@ -91,9 +91,9 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     // Translate the runner's line/arc coverage into an istanbul
     // CoverageMapData so we can reuse istanbul's merge and summary machinery
     // and stay compatible with the CoverageMeasurement shape.
-    const currentCoverageData = this._runner.coverageInfo ? this._toCoverageMapData(
-      this._runner.coverageInfo
-    ) : {};
+    const currentCoverageData = this._runner.coverageInfo
+      ? this._toCoverageMapData(this._runner.coverageInfo)
+      : {};
 
     // Total coverage in a map, summing statements, branches, and functions --
     // matching CoverageMeasure, so that newly-covered branches and functions
@@ -118,7 +118,10 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     while (nextPred) {
       if (!nextPred.pred) {
         accumBefore = covered(nextPred.meas.coverageMeasure.accum);
-        AbstractCoverageMeasure.better_merge(nextPred.meas.coverageMeasure.accum, currentCoverageData);
+        AbstractCoverageMeasure.better_merge(
+          nextPred.meas.coverageMeasure.accum,
+          currentCoverageData
+        );
         accumAfter = covered(nextPred.meas.coverageMeasure.accum);
       }
       nextPred = nextPred.pred;
@@ -126,7 +129,10 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
 
     // Merge the current coverage into the global coverage map
     const globalBefore = covered(this._globalCoverageMap);
-    AbstractCoverageMeasure.better_merge(this._globalCoverageMap, currentCoverageData);
+    AbstractCoverageMeasure.better_merge(
+      this._globalCoverageMap,
+      currentCoverageData
+    );
 
     // Build the measurement object
     const meas = {
@@ -135,7 +141,10 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
         globalDelta: covered(this._globalCoverageMap) - globalBefore,
-        accum: AbstractCoverageMeasure.better_merge(createCoverageMap({}), currentCoverageData),
+        accum: AbstractCoverageMeasure.better_merge(
+          createCoverageMap({}),
+          currentCoverageData
+        ),
         accumDelta: accumAfter - accumBefore,
       },
     };
@@ -210,17 +219,16 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
           takenArcs.has(arcKey([branch.line, exit.dest])) ? 1 : 0
         );
       });
-      
 
       ret[filename] = {
-          path: filename,
-          statementMap,
-          fnMap,
-          branchMap,
-          s,
-          f,
-          b,
-      }
+        path: filename,
+        statementMap,
+        fnMap,
+        branchMap,
+        s,
+        f,
+        b,
+      };
     }
     return ret;
   } // fn: _toCoverageMapData
@@ -239,8 +247,8 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
             const fileSummary = pyCoverageMap
               .fileCoverageFor(filePath)
               .toSummary();
-            const fileMap = JSON5.parse<FileCoverage>(
-              JSON5.stringify(pyCoverageMap.fileCoverageFor(filePath))
+            const fileMap = JSONN.parse<FileCoverage>(
+              JSONN.stringify(pyCoverageMap.fileCoverageFor(filePath))
             );
             // Omit functions and branches with no hits
             for (const k of Object.keys(fileMap.f)) {
@@ -269,7 +277,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
               fileMap,
             };
           });
-    
+
         return {
           counters: {
             functionsTotal: coverageSummary.functions.total,
@@ -301,6 +309,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     if (this.hasCoverage(tick)) {
       return this._history[tick].meas; // rep leak !!!!!!!
     }
-    throw new Error(`No coverage data for "${tick}"`);
+    throw new Error(`No coverahe data for "${tick}"`);
   }
 }

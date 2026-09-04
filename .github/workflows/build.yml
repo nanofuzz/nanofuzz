@@ -71,10 +71,12 @@ jobs:
         run: |
           source .venv/bin/activate
           cd packages/runtime/python
+          python prebuild.py
           python -m build
       - name: Build Python package (Windows)
         if: runner.os == 'Windows'
         run: |
           .venv\Scripts\activate
           cd packages\runtime\python
+          python prebuild.py
           python -m build

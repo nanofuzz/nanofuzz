@@ -101,24 +101,41 @@ export type RunnerResult = {
         message: string;
         stack?: string;
         source?: "put" | "host"; // if the error originated within the put
-        coverageData?: Record<string, number[]>; // lines executed by this call
-        coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
-        staticCoverage?: Record<string, CoverageInfo> // This coverageInfo should only contain static data, i.e. all executable lines, branches, functions
+        coverageData?: number[]; // lines executed by this call
+        coverageArcs?: Arc[]; // arcs taken by this call
+        staticCoverage?: Record<string, CoverageInfo>;
+      }
+    | {
+        tag: "skip";
+        message: string;
+        coverageData?: number[]; // lines executed by this call
+        coverageArcs?: Arc[]; // arcs taken by this call
+        staticCoverage?: Record<string, CoverageInfo>;
       }
     | {
         tag: "value";
         value: unknown;
         coverageData?: number[]; // lines executed by this call
         coverageArcs?: Arc[]; // arcs taken by this call
-        staticCoverage?: Record<string, CoverageInfo>
+        staticCoverage?: Record<string, CoverageInfo>;
       }
   ) & { seq: number };
   env: VmGlobals;
 };
 
+export type TypeHint =
+  | "uuid"
+  | "bytes"
+  | "default"
+  | { kind: "array"; element: TypeHint }
+  | { kind: "tuple"; elements: TypeHint[] }
+  | { kind: "object"; fields: Record<string, TypeHint> }
+  | { kind: "union"; arms: TypeHint[] };
+
 export type RunnerInput = {
   args: unknown[];
   seq: number;
+  typeHints?: TypeHint[];
 };
 
 /**

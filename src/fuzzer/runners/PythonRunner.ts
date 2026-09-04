@@ -1,7 +1,17 @@
-import { AbstractRunner, CoverageInfo, RunnerInput, RunnerResult } from "./AbstractRunner";
+import {
+  AbstractRunner,
+  CoverageInfo,
+  RunnerInput,
+  RunnerResult,
+  TypeHint,
+} from "./AbstractRunner";
+import { ArgDef } from "../analysis/ArgDef";
+import { ArgTag } from "../analysis/Types";
+import { FuzzEnv } from "../Fuzzer";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
+import * as Config from "../../Config";
 import * as ChildProcess from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -15,6 +25,7 @@ export class PythonRunner extends AbstractRunner {
   protected _timeout: number;
   protected _runDepth = 0;
   protected _fn: string;
+  protected _env: FuzzEnv | undefined;
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo?: FullCoverage = undefined;
@@ -31,12 +42,19 @@ export class PythonRunner extends AbstractRunner {
    *
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
+   * @param `env` optional fuzzer environment
    */
-  constructor(filename: string, fn: string, timeout: number = 0) {
+  constructor(
+    filename: string,
+    fn: string,
+    env?: FuzzEnv,
+    timeout: number = 0
+  ) {
     super(fn);
     this._filename = filename;
-    this._timeout = timeout;
     this._fn = fn;
+    this._env = env;
+    this._timeout = timeout;
   } // fn: constructor
 
   /**
@@ -74,12 +92,17 @@ export class PythonRunner extends AbstractRunner {
 
     try {
       const host = await this._getHost();
+      const typeHints = this._env?.function.getArgDefs().map(getTypeHint) ?? [];
+
       const input: RunnerInput = {
         args: inputs,
         seq: thisSeq,
+        typeHints,
       };
 
-      const payload = JSON5.stringify(input);
+      const payload = JSON5.stringify(input, (_key, val) =>
+        val instanceof Uint8Array ? Array.from(val) : val
+      );
       const lengthBuffer = Buffer.alloc(4);
       lengthBuffer.writeUInt32BE(Buffer.byteLength(payload), 0);
 
@@ -95,7 +118,6 @@ export class PythonRunner extends AbstractRunner {
         ),
         env: {},
       };
-      
       if (result.result.seq >= 0 && result.result.seq !== thisSeq) {
         throw new Error(
           `Internal error: RunnerResult seq# does not match RunnerInput`
@@ -123,7 +145,7 @@ export class PythonRunner extends AbstractRunner {
           }
         }
       }
-      
+
       return result;
     } catch (e: unknown) {
       this._killHost();
@@ -178,20 +200,15 @@ export class PythonRunner extends AbstractRunner {
       env: { ...process.env },
       libs: findPythonLibDir(path.dirname(module.filename), "json5"),
       paths: [],
-      interpreter: vscode.workspace
-        .getConfiguration("python")
-        .get("defaultInterpreterPath", "python3"),
+      interpreter: Config.get("python.defaultInterpreterPath", "python3"),
     };
 
     // Load .env file if configured
-    if (
-      vscode.workspace
-        .getConfiguration("python.terminal")
-        .get("useEnvFile", false)
-    ) {
-      const envFile = vscode.workspace
-        .getConfiguration("python")
-        .get("envFile", undefined);
+    if (Config.get<boolean>("python.terminal.useEnvFile", false)) {
+      const envFile = Config.get<string | undefined>(
+        "python.envFile",
+        undefined
+      );
       if (envFile && fs.existsSync(envFile)) {
         DotEnv.config({ processEnv: pythonEnv.env, path: envFile });
       }
@@ -206,22 +223,21 @@ export class PythonRunner extends AbstractRunner {
     }
 
     // Use a virtual environment if specified & found
-    const searchGlobs: string[] = vscode.workspace
-      .getConfiguration("python-envs")
-      .get<string[]>("workspaceSearchPaths", []);
+    const searchGlobs = Config.get<string[]>(
+      "python-envs.workspaceSearchPaths",
+      []
+    );
     const workspace = vscode.workspace.getWorkspaceFolder(
       vscode.Uri.file(filename)
     )?.uri.fsPath;
     if (
       searchGlobs.length &&
       workspace &&
-      vscode.workspace
-        .getConfiguration("python.terminal")
-        .get<boolean>("activateEnvironment", false) &&
-      vscode.workspace
-        .getConfiguration("python-envs.terminal")
-        .get<string>("autoActivationType", "command") ===
-        "command" /* TODO shellStartup */
+      Config.get<boolean>("python.terminal.activateEnvironment", false) &&
+      Config.get<string>(
+        "python-envs.terminal.autoActivationType",
+        "command"
+      ) === "command" /* TODO shellStartup */
     ) {
       const matches = fs.globSync(searchGlobs, { cwd: workspace });
       if (matches.length) {
@@ -243,6 +259,18 @@ export class PythonRunner extends AbstractRunner {
         pythonEnv.interpreter = pythonEnv.venv.interpreter;
       }
     }
+
+    pythonEnv.interpreter = PythonRunner.resolveInterpreter(
+      pythonEnv.interpreter,
+      pythonEnv.env
+    );
+    if (pythonEnv.venv) {
+      pythonEnv.venv.interpreter = PythonRunner.resolveInterpreter(
+        pythonEnv.venv.interpreter,
+        pythonEnv.env
+      );
+    }
+
     pythonEnv.paths = PythonRunner._pathsFor(pythonEnv);
 
     PythonRunner._envs[filename] = Object.freeze(pythonEnv);
@@ -286,6 +314,65 @@ export class PythonRunner extends AbstractRunner {
   } //fn: _pathsFor
 
   /**
+   * Resolves the python executable. Tries python3 first, then falls back
+   * to python if python3 is not found or executable.
+   *
+   * @param candidate Preferred python executable or path
+   * @param env Environment variables to use when probing executable
+   * @returns Resolved python executable command or path
+   */
+  public static resolveInterpreter(
+    candidate: string = "python3",
+    env?: Record<string, string | undefined>
+  ): string {
+    const candidates: string[] = [];
+
+    if (candidate) {
+      if (candidate.endsWith("python") || candidate.endsWith("python.exe")) {
+        const python3Alt = candidate.replace(/python(\.exe)?$/, "python3$1");
+        candidates.push(python3Alt, candidate);
+      } else if (
+        candidate.endsWith("python3") ||
+        candidate.endsWith("python3.exe")
+      ) {
+        const pythonAlt = candidate.replace(/python3(\.exe)?$/, "python$1");
+        candidates.push(candidate, pythonAlt);
+      } else {
+        candidates.push(candidate);
+      }
+    }
+
+    if (!candidates.includes("python3")) candidates.push("python3");
+    if (!candidates.includes("python")) candidates.push("python");
+
+    for (const bin of candidates) {
+      if (PythonRunner.canExecute(bin, env)) {
+        return bin;
+      }
+    }
+
+    return candidate || "python3";
+  }
+
+  /**
+   * Probes whether a python executable candidate can be spawned successfully.
+   */
+  public static canExecute(
+    bin: string,
+    env?: Record<string, string | undefined>
+  ): boolean {
+    try {
+      const res = ChildProcess.spawnSync(bin, ["-c", "import sys"], {
+        env: env ?? process.env,
+        encoding: "utf8",
+      });
+      return res.status === 0 && !res.error;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Get the current Python host process (creates a new one if needed)
    */
   protected async _getHost(): Promise<PythonHost> {
@@ -302,14 +389,27 @@ export class PythonRunner extends AbstractRunner {
       throw new Error("Internal error: cannot '_getHost' prior to 'runStart'");
     }
 
+    // Find the runner host under three different conditions:
+    //  1. Executing within VSCode as /build/extension/extension.js
+    //  2. Executing within Node as /build/cli/cli.cjs
+    //  3. Executing within Jasmine as /src/fuzzer/runners/PythonRunner.ts
+    const currModuleDir = path.dirname(path.resolve(module.filename));
+    const projectRoot = findInAncestor(currModuleDir, "package.json");
+    if (projectRoot === undefined) {
+      throw new Error(`Unable to find project root from: ${currModuleDir}`);
+    }
+    const runnerHost = path.resolve(
+      path.join(
+        path.dirname(projectRoot),
+        "build",
+        "extension",
+        "PythonRunnerHost.py"
+      )
+    );
+
     const filenameBase = path.basename(this._filename);
     const args = [
-      path.resolve(
-        path.join(
-          path.dirname(path.resolve(module.filename)),
-          "PythonRunnerHost.py"
-        )
-      ),
+      runnerHost,
       this._filename,
       filenameBase.substring(
         0,
@@ -350,7 +450,6 @@ export class PythonRunner extends AbstractRunner {
   public get coverageInfo(): FullCoverage | undefined {
     return this._coverageInfo;
   }
-
 } // class: PythonRunner
 
 /**
@@ -408,7 +507,7 @@ class PythonHost {
   protected _onClose = (): void => {
     this._errors.push(
       new Error(
-        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._proc.stderr.read()}, stdout: ${this._proc.stdout.read()}, cli: ${this._cli}, cwd: ${this._cwd})`
+        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._stderr.toString("utf8")}, stdout: ${this._stdout.toString("utf8")}, cli: ${this._cli}, cwd: ${this._cwd})`
       )
     );
     this.kill();
@@ -537,11 +636,65 @@ function findPythonLibDir(dir: string, item: string): string | null {
   return null;
 }
 
+function isUuidArg(arg: ArgDef): boolean {
+  return arg.getTypeRef() === "UUID" && arg.getType() === ArgTag.STRING;
+}
+
+function getBaseTypeHint(arg: ArgDef): TypeHint {
+  if (isUuidArg(arg)) {
+    return "uuid";
+  }
+  if (
+    arg.getType() === ArgTag.BYTES ||
+    arg.getTypeRef() === "bytes" ||
+    arg.getTypeRef() === "bytearray"
+  ) {
+    return "bytes";
+  }
+
+  switch (arg.getType()) {
+    case ArgTag.TUPLE:
+      return {
+        kind: "tuple",
+        elements: arg.getChildren().map(getTypeHint),
+      };
+    case ArgTag.OBJECT: {
+      const fields: Record<string, TypeHint> = {};
+      for (const child of arg.getChildren()) {
+        fields[child.getName()] = getTypeHint(child);
+      }
+      return { kind: "object", fields };
+    }
+    case ArgTag.UNION:
+      return {
+        kind: "union",
+        arms: arg.getChildren().map(getTypeHint),
+      };
+    case ArgTag.BYTES:
+      return "bytes";
+    case ArgTag.NUMBER:
+    case ArgTag.STRING:
+    case ArgTag.BOOLEAN:
+    case ArgTag.LITERAL:
+    case ArgTag.UNRESOLVED:
+    default:
+      return "default";
+  }
+}
+
+function getTypeHint(arg: ArgDef): TypeHint {
+  const dims = arg.getDim();
+  let hint: TypeHint = getBaseTypeHint(arg);
+  for (let i = 0; i < dims; i++) {
+    hint = { kind: "array", element: hint };
+  }
+  return hint;
+}
+
 /**
  * Coverage for the entire program under test.
  */
 export type FullCoverage = Record<string, CoverageInfo>;
-
 
 export { Arc, CoverageInfo } from "./AbstractRunner";
 

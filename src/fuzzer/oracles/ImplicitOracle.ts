@@ -5,7 +5,7 @@ import { Judgment } from "./Types";
  * The implicit oracle only passes when:
  *  - the value contains no nulls, undefineds, NaNs, or Infinity values
  *  - the function did not throw an exception or timeout
- *  - if a void return function, output is `undefined`
+ *  - if a void return function, output is `undefined` or `null`
  */
 export class ImplicitOracle {
   public static judge(
@@ -18,8 +18,10 @@ export class ImplicitOracle {
       // Exceptions and timeouts fail the implicit oracle
       return "fail";
     } else if (isVoidFn) {
-      // Functions with a void return type should only return undefined
-      return outputValue.some((e) => e.value !== undefined) ? "fail" : "pass";
+      // Functions with a void return type may return undefined or null
+      return outputValue.some((e) => e.value !== undefined && e.value !== null)
+        ? "fail"
+        : "pass";
     } else {
       // Non-void functions should not output disallowed values
       return outputValue.some((e) => !implicitOracle(e.value))

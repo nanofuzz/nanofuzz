@@ -1,18 +1,20 @@
 import { ArgDef } from "./ArgDef";
-import { ArgTag, ArgType, ArgValueType, ArgValueTypeWrapped } from "./Types";
+import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
+import * as JSONN from "../../Jsonn";
+import { isBufferOrUint8Array } from "../../Util";
 
 /**
  * Valides values against their corresponding ArgDef specs
  */
 export class ArgDefValidator {
-  protected _specs: ArgDef<ArgType>[];
+  protected _specs: ArgDef[];
 
   /**
    * Create an ArgDefValidator object
    *
    * @param `specs` ArgDef spec against which to check values
    */
-  constructor(specs: ArgDef<ArgType>[]) {
+  constructor(specs: ArgDef[]) {
     this._specs = specs;
   } // fn: constructor
 
@@ -43,7 +45,7 @@ export class ArgDefValidator {
    */
   public static validate(
     value: ArgValueType,
-    spec: ArgDef<ArgType>,
+    spec: ArgDef,
     inArray = false
   ): boolean {
     const options = spec.getOptions();
@@ -65,11 +67,21 @@ export class ArgDefValidator {
           );
         }
         case ArgTag.STRING: {
+          const regex =
+            options.strRegex === undefined
+              ? undefined
+              : new RegExp(
+                  options.strRegex.replace(/^\\A/, "^").replace(/\\Z$/, "$"),
+                  "u"
+                );
+          const cpLength =
+            typeof value === "string" ? Array.from(value).length : 0;
           return (
             typeof value === "string" &&
-            value.length <= options.strLength.max &&
-            value.length >= options.strLength.min &&
-            value.split("").every((e) => options.strCharset.includes(e))
+            cpLength <= options.strLength.max &&
+            cpLength >= options.strLength.min &&
+            Array.from(value).every((e) => options.strCharset.includes(e)) &&
+            (regex === undefined || regex.test(value))
           );
         }
         case ArgTag.BOOLEAN: {
@@ -79,22 +91,39 @@ export class ArgDefValidator {
               value === Boolean(spec.getIntervals()[0].min))
           );
         }
+        case ArgTag.BYTES: {
+          if (isBufferOrUint8Array(value) || Array.isArray(value)) {
+            const arr = Array.from(value);
+            return (
+              arr.length <= options.byteLength.max &&
+              arr.length >= options.byteLength.min &&
+              arr.every((b) => typeof b === "number" && b >= 0 && b <= 255)
+            );
+          }
+          return false;
+        }
         case ArgTag.LITERAL: {
           return value === spec.getConstantValue();
         }
         case ArgTag.OBJECT: {
-          if (typeof value === "object" && !Array.isArray(value)) {
+          if (
+            typeof value === "object" &&
+            !Array.isArray(value) &&
+            !(value instanceof Uint8Array) &&
+            value !== null
+          ) {
             const children = spec.getChildren();
             for (const c of children) {
               const name = c.getName();
               const childValue = value[name];
+              const hasChildValue = Object.hasOwn(value, name);
               const isNoInput = c.isNoInput();
               const isOptional = c.isOptional();
               let valid = false; // assume invalid & look for cases of validity
-              if (isNoInput && childValue === undefined) {
+              if (isNoInput && !hasChildValue) {
                 valid = true;
               }
-              if (!valid && isOptional && childValue === undefined) {
+              if (!valid && isOptional && !hasChildValue) {
                 valid = true;
               }
               if (
@@ -110,7 +139,7 @@ export class ArgDefValidator {
             }
             return true; // all child checks passed
           }
-          return false; // not an object or is an array
+          return false; // not an object or is an array or null
         }
 
         case ArgTag.TUPLE: {
@@ -179,7 +208,7 @@ export class ArgDefValidator {
  */
 const traverse = (
   a: Array<ArgValueType>,
-  spec: ArgDef<ArgType>,
+  spec: ArgDef,
   currDepth = 0
 ): boolean => {
   // Check the depth and number of elements in the array
@@ -190,6 +219,13 @@ const traverse = (
     a.length > levelSizes[currDepth].max
   ) {
     return false;
+  }
+
+  if (currDepth === 0 && spec.getOptions().dimsUnique) {
+    const values = new Set(a.map((value) => JSONN.stringify(value)));
+    if (values.size !== a.length) {
+      return false;
+    }
   }
 
   // Traverse the array and validate its contents

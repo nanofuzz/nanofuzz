@@ -136,6 +136,11 @@ function mutantAt(tick: number, from?: number): InputAndSource {
  */
 const anyResult: FuzzTestResult = {
   pinned: false,
+  inputGenerated: {
+    tick: 0,
+    value: [],
+    source: { type: "unknown" },
+  },
   input: [],
   output: [],
   exception: false,
@@ -145,7 +150,7 @@ const anyResult: FuzzTestResult = {
   passedValidator: "unknown",
   passedValidators: [],
   validatorException: false,
-  timers: { gen: 0, run: 0 },
+  timers: { gen: 0, transform: 0, run: 0 },
   category: "ok",
   interestingReasons: [],
 };
@@ -167,6 +172,7 @@ const anyEnv: FuzzEnv = {
     useImplicit: true,
     useHuman: false,
     useProperty: false,
+    useTransformer: false,
     measures: {
       FailedTestMeasure: { enabled: false, weight: 0 },
       CoverageMeasure: { enabled: true, weight: 1 },
@@ -189,6 +195,7 @@ const anyEnv: FuzzEnv = {
     args: [],
   }),
   validators: [],
+  transformers: [],
 };
 
 /**
@@ -196,7 +203,7 @@ const anyEnv: FuzzEnv = {
  */
 const anyGeneratorStats = (): FuzzGeneratorStatsBase => ({
   counters: { inputsGenerated: 0, dupesGenerated: 0 },
-  timers: { run: 0, val: 0, gen: 0, measure: 0 },
+  timers: { run: 0, transform: 0, val: 0, gen: 0, measure: 0 },
 });
 
 /**
@@ -1138,6 +1145,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
      * is arbitrary, and the specs assert that `onRunEnd` leaves them alone.
      */
     const resultsStub = (): FuzzTestResults => ({
+      toolVersion: "0.0.0",
       env: anyEnv,
       stopReason: FuzzStopReason.MAXTESTS,
       interesting: { inputs: [] },
@@ -1148,8 +1156,20 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
           inputsGenerated: 3,
           dupesGenerated: 0,
           inputsInjected: 0,
+          erroredTests: 0,
+          passedTests: 0,
+          inputsSkipped: 0,
+          failedTests: 0,
         },
-        timers: { total: 21, compile: 5, put: 10, val: 1, gen: 2, measure: 3 },
+        timers: {
+          total: 21,
+          compile: 5,
+          transform: 0,
+          put: 10,
+          val: 1,
+          gen: 2,
+          measure: 3,
+        },
         generators: {
           RandomInputGenerator: anyGeneratorStats(),
           MutationInputGenerator: anyGeneratorStats(),

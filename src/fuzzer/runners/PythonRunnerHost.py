@@ -3,12 +3,15 @@ import sys
 import os
 import io
 import json
+import uuid
 import struct
 import logging
 import tempfile
 import traceback
+import re
+import uuid
 from contextlib import redirect_stdout
-from typing import Any, Literal, List, Union, TypedDict, NotRequired
+from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired
 
 try:
     import json5
@@ -19,7 +22,7 @@ except ModuleNotFoundError as e:
 
 
 class RunnerInput(TypedDict):
-    args: List[any]
+    args: List[Any]
     seq: int
 
 
@@ -50,42 +53,63 @@ class RunnerErrorResult(TypedDict):
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
 
 
-type RunnerResult = Union[RunnerValueResult, RunnerErrorResult]
+class RunnerSkipResult(TypedDict):
+    tag: Literal["skip"]
+    message: str
+    seq: int
+    # lines executed by this call
+    coverageData: NotRequired[dict[str, List[int]]]
+    # arcs taken by this call
+    coverageArcs: NotRequired[dict[str, List[List[int]]]]
+    # static coverage data
+    staticCoverage: NotRequired[dict[str, dict[str, List]]]
+
+
+type RunnerResult = Union[RunnerValueResult,
+                          RunnerErrorResult, RunnerSkipResult]
 
 
 pid = os.getpid()
 
 
-def loadPythonFn(filename: str, modulename: str, fn: str) -> Union[RunnerErrorResult, None]:
+def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
     rootDir = os.path.dirname(filename)
     if rootDir not in sys.path:
         sys.path.insert(0, rootDir)
 
     spec = importlib.util.spec_from_file_location(modulename, filename)
     if spec is None:
-        return [RunnerErrorResult(
+        return (RunnerErrorResult(
             tag="error",
             name="PythonRunnerHostError",
             message=f"Could not import python module: {filename}",
             source="host",
             seq=-1
-        ), None]
+        ), None)
     module = importlib.util.module_from_spec(spec)
 
     try:
         sys.modules[modulename] = module
         with redirect_stdout(io.StringIO()) as f:
+            if spec.loader is None:
+                return (RunnerErrorResult(
+                    tag="error",
+                    name="PythonRunnerHostError",
+                    message=f"Could not load python module: {filename}",
+                    source="host",
+                    seq=-1
+                ), None)
             spec.loader.exec_module(module)
-        return [None, getattr(module, fnname)]
+        return (None, getattr(module, fn))
     except Exception as e:
-        return [RunnerErrorResult(
+        return (RunnerErrorResult(
             tag="error",
             name="PythonPutLoadError",
             message=str(e),
             source="put",
             stack=traceback.format_exc(),
             seq=-1
-        ), None]
+        ), None)
 
 
 def get_inputs() -> RunnerInput:
@@ -107,6 +131,7 @@ def get_inputs() -> RunnerInput:
         logging.debug(f"[{pid}]  - Parsed ok")
 
         return input
+    raise Exception("Unreachable path")
 
 
 def measured_key(data, filename: str) -> Union[str, None]:
@@ -255,7 +280,7 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
             cov.json_report(morfs=[filename], outfile=outfile)
             with open(outfile, encoding="utf-8") as f:
                 report = json.load(f)
-    except coverage.exceptions.CoverageException as e:
+    except coverage.CoverageException as e:
         logging.debug(f"[{pid}] coverage.py could not analyze {filename}: {e}")
         return empty
 
@@ -302,6 +327,81 @@ def program_files(filename: str) -> List[str]:
     return sorted(files)
 
 
+def transform_arg(val: Any, hint: Any) -> Any:
+    if val is None:
+        return None
+
+    if hint == "uuid":
+        if isinstance(val, str):
+            if len(val) in (32, 36):
+                try:
+                    return uuid.UUID(val)
+                except ValueError:
+                    return val
+        return val
+
+    if hint == "bytes":
+        if isinstance(val, (bytes, bytearray)):
+            return val
+        if isinstance(val, list):
+            return bytes(val)
+        if isinstance(val, str):
+            return val.encode("latin1")
+        return val
+
+    if hint == "default" or not isinstance(hint, dict):
+        return val
+
+    kind = hint.get("kind")
+
+    if kind == "array" and isinstance(val, list):
+        elem_hint = hint.get("element", "default")
+        return [transform_arg(item, elem_hint) for item in val]
+
+    if kind == "tuple" and (isinstance(val, tuple) or isinstance(val, list)):
+        elem_hints = hint.get("elements", [])
+        transformed = [
+            transform_arg(item, elem_hints[i]) if i < len(elem_hints) else item
+            for i, item in enumerate(val)
+        ]
+        return tuple(transformed) if isinstance(val, tuple) else transformed
+
+    if kind == "object" and isinstance(val, dict):
+        field_hints = hint.get("fields", {})
+        return {
+            k: transform_arg(v, field_hints[k]) if k in field_hints else v
+            for k, v in val.items()
+        }
+
+    if kind == "union":
+        arms = hint.get("arms", [])
+        if isinstance(val, str) and any(
+            arm == "uuid" or (isinstance(arm, dict)
+                              and arm.get("kind") == "uuid")
+            for arm in arms
+        ):
+            try:
+                return uuid.UUID(val)
+            except ValueError:
+                pass
+        for arm in arms:
+            transformed = transform_arg(val, arm)
+            if isinstance(transformed, (uuid.UUID, bytes, bytearray)) or transformed != val:
+                return transformed
+        return val
+
+    return val
+
+
+def json5_default(obj: Any) -> Any:
+    if isinstance(obj, (bytes, bytearray)):
+        return list(obj)
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    raise TypeError(
+        f"Object of type {type(obj).__name__} is not JSON5 serializable")
+
+
 def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
     logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
 
@@ -309,12 +409,29 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: 
     cov.get_data().erase()
     cov.start()
     error = None
+    skip = None
     value = None
+
+    args = list(input["args"])
+    type_hints = input.get("typeHints", [])
+    for i in range(min(len(args), len(type_hints))):
+        args[i] = transform_arg(args[i], type_hints[i])
+
     try:
         with redirect_stdout(io.StringIO()) as f:
-            value = fn(*input["args"])
+            # If fn is a Hypothesis-wrapped test, bypass Hypothesis
+            # and call the original underlying function
+            if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
+                # Unwrap Hypothesis test function
+                value = fn.hypothesis.inner_test(*args)
+            else:
+                # Not Hypothesis; call directly
+                value = fn(*args)
     except Exception as e:
-        error = e
+        if e.__class__.__name__ == "UnsatisfiedAssumption":
+            skip = e
+        else:
+            error = e
     finally:
         cov.stop()
 
@@ -329,6 +446,16 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: 
             covInfo[file] = static_coverage(cov, file)
         coverageData[file] = lines
         coverageArcs[file] = coverage_arcs(cov, file)
+
+    if skip is not None:
+        return RunnerSkipResult(
+            tag="skip",
+            message=str(skip),
+            seq=input["seq"],
+            coverageData=coverageData,
+            coverageArcs=coverageArcs,
+            staticCoverage=covInfo
+        )
 
     if error is not None:
         return RunnerErrorResult(
@@ -361,7 +488,7 @@ def put_result(result: RunnerResult) -> None:
 
 
 def send_msg(data: RunnerResult):
-    msg = json5.dumps(data).encode('utf-8')
+    msg = json5.dumps(data, default=json5_default).encode('utf-8')
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes: {msg}")
     sys.stdout.buffer.write(struct.pack(
         '>I', len(msg)))  # payload size
@@ -388,9 +515,6 @@ if __name__ == "__main__":
     # and `include` patterns must match it.
     filename = os.path.realpath(filename)
 
-    # Change cwd from the extension to that of the Python script
-    os.chdir(os.path.dirname(filename))
-
     # One in-memory coverage instance for the whole run
     cov = coverage.Coverage(
         include=[os.path.join(os.path.dirname(filename), "**", "*.py")], branch=True, data_file=None)
@@ -399,7 +523,7 @@ if __name__ == "__main__":
     # or a callable function
     logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
     [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-    if (loadError):
+    if (loadError is not None):
         logging.debug(f"[{pid}]  - Unable to load")
     else:
         logging.debug(f"[{pid}]  - Loaded function")
@@ -410,6 +534,9 @@ if __name__ == "__main__":
                     for file in program_files(filename)}
     logging.debug(
         f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
+
+    # Change cwd from the extension to that of the Python script
+    os.chdir(os.path.dirname(filename))
 
     # Pre-warm the coverage machinery. The first `cov.start()` installs the
     # tracer, which costs far more than a steady-state call and can push the

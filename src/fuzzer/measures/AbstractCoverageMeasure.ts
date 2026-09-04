@@ -1,4 +1,11 @@
-import { CoverageMap, CoverageMapData, createCoverageMap, createFileCoverage, FileCoverage, FileCoverageData } from "istanbul-lib-coverage";
+import {
+  CoverageMap,
+  CoverageMapData,
+  createCoverageMap,
+  createFileCoverage,
+  FileCoverage,
+  FileCoverageData,
+} from "istanbul-lib-coverage";
 import { InputAndSource } from "../Types";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 
@@ -26,7 +33,7 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
    * @param `tick` input tick
    * @returns true if coverage data exists for `tick`, false otherwise
    */
-  public abstract hasCoverage(tick: number) : boolean;
+  public abstract hasCoverage(tick: number): boolean;
 
   /**
    * Returns the coverage measurement for `tick`
@@ -36,7 +43,7 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
    */
   public abstract getCoverage(tick: number): CoverageMeasurement;
 
-  protected static file_snapshot(data: FileCoverageData) : FileCoverageData {
+  protected static file_snapshot(data: FileCoverageData): FileCoverageData {
     // A `FileCoverage` instance is assignable to `FileCoverageData`, and
     // `CoverageMap.data` holds instances, so this is routinely called with
     // one. It keeps `path` and the location maps behind prototype getters --
@@ -52,10 +59,13 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
     return { ...fileData, s: { ...fileData.s }, f: { ...fileData.f }, b };
   }
 
-  protected static better_merge(accum: CoverageMap, new_cov: CoverageMap | CoverageMapData) : CoverageMap {
+  protected static better_merge(
+    accum: CoverageMap,
+    new_cov: CoverageMap | CoverageMapData
+  ): CoverageMap {
     const other = createCoverageMap(new_cov);
     const existed = new Set(accum.files());
-    Object.values(other.data).forEach(fc => {
+    Object.values(other.data).forEach((fc) => {
       if (existed.has(fc.path)) {
         accum.addFileCoverage(fc);
       } else {
@@ -65,7 +75,6 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
     return accum;
   }
 }
-
 
 /**
  * Extends BaseMeasurement with code coverage details

@@ -15,11 +15,17 @@ describe("JSONN: ", () => {
       "hello",
       true,
       false,
+      BigInt(100),
+      100n,
+      new Uint8Array([187, 123, 1, 237, 243, 43]),
       {
         trueValue: true,
         noValue: undefined,
         nullValue: null,
         nanValue: NaN,
+        bigintValue1: BigInt(100),
+        bigintValue2: 100n,
+        bytesValue: new Uint8Array([187, 123, 1, 237, 243, 43]),
         arrayValue: [
           null,
           NaN,
@@ -32,6 +38,9 @@ describe("JSONN: ", () => {
           "hello",
           true,
           false,
+          BigInt(100),
+          100n,
+          new Uint8Array([187, 123, 1, 237, 243, 43]),
         ],
       },
       [
@@ -46,7 +55,18 @@ describe("JSONN: ", () => {
         "hello",
         true,
         false,
-        { trueValue: true, noValue: undefined, nanValue: NaN, nullValue: null },
+        BigInt(100),
+        100n,
+        new Uint8Array([187, 123, 1, 237, 243, 43]),
+        {
+          trueValue: true,
+          noValue: undefined,
+          nanValue: NaN,
+          nullValue: null,
+          bigintValue1: BigInt(100),
+          bigintValue2: 100n,
+          bytesValue: new Uint8Array([187, 123, 1, 237, 243, 43]),
+        },
       ],
     ].forEach((value) => {
       const roundtripValue = JSONN.parse<typeof value>(JSONN.stringify(value));
@@ -64,5 +84,17 @@ describe("JSONN: ", () => {
         }
       }
     });
+  });
+
+  it("serializes and parses Uint8Array", () => {
+    const bytesVal = new Uint8Array([187, 123, 1, 237, 243, 43]);
+    const jsonnStr = JSONN.stringify(bytesVal);
+    expect(jsonnStr).toEqual(
+      "{____JSONN____61581952310____UINT8ARRAY____:[187,123,1,237,243,43]}"
+    );
+
+    const parsedVal = JSONN.parse<Uint8Array>(jsonnStr);
+    expect(parsedVal instanceof Uint8Array).toBeTrue();
+    expect(parsedVal).toEqual(bytesVal);
   });
 });

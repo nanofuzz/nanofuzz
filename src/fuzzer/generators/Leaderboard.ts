@@ -1,13 +1,15 @@
+import * as Config from "../../Config";
+
 /**
  * Running list of "interesting" inputs.
  */
 export class Leaderboard<T> {
   private _leaders: { leader: T; score: number; focus: number }[] = []; // List of leaders
-  private _minScore = 0.9999; // initial minimum score !!!!!!! externalize
+  private _minScore = 0.9999; // initial minimum score
   private _minScoreIdx = -1; // index of leader with the minimum score
   private _slots = 200; // maximum number of slots in leaderboard
-  private _initialFocus = 200; // Amount of focus for new leaders !!!!!!! externalize
-  private _focusDecay = 1; // Amount of focus to decrement on each random leader selection !!!!!!! externalize
+  private _initialFocus = 200; // Amount of focus for new leaders
+  private _focusDecay = 1; // Amount of focus to decrement on each random leader selection
 
   /**
    * Create a new list of interesting inputs
@@ -21,7 +23,27 @@ export class Leaderboard<T> {
     if (slots !== undefined) {
       this._slots = slots;
     }
+    this.loadConfig();
   } // fn: constructor
+
+  /**
+   * (Re)loads the leaderboard's configurable parameters from the
+   * `nanofuzz.generators.*` configuration.
+   */
+  public loadConfig(): void {
+    this._minScore = Config.get<number>(
+      "nanofuzz.generators.leaderboardMinScore",
+      0.9999
+    );
+    this._initialFocus = Config.get<number>(
+      "nanofuzz.generators.leaderboardInitialFocus",
+      200
+    );
+    this._focusDecay = Config.get<number>(
+      "nanofuzz.generators.leaderboardFocusDecay",
+      1
+    );
+  } // fn: loadConfig
 
   /**
    * Returns the leaderboard's name (currently just the constructor name)
@@ -36,6 +58,20 @@ export class Leaderboard<T> {
   public get slots(): number {
     return this._slots;
   } // property: get slots
+
+  /**
+   * Returns the initial focus for new leaders
+   */
+  public get initialFocus(): number {
+    return this._initialFocus;
+  } // property: get initialFocus
+
+  /**
+   * Returns the focus decay rate
+   */
+  public get focusDecay(): number {
+    return this._focusDecay;
+  } // property: get focusDecay
 
   /**
    * Updates the leaderboard's minimum score and the leaderboard
@@ -138,4 +174,15 @@ export class Leaderboard<T> {
   public getLeaders(): { leader: T; score: number }[] {
     return structuredClone(this._leaders);
   } // fn: getLeaders
+
+  /**
+   * Filter all the leaders in the leaderboard using `fn`.
+   *
+   * @param fn the predicated used for filtering
+   */
+  filter(fn: (leader: { leader: T }) => boolean) {
+    if (this._leaders.length) {
+      this._leaders = this._leaders.filter(fn);
+    }
+  } // fn: validate
 } // class: Leaderboard

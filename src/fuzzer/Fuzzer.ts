@@ -1,9 +1,8 @@
 import * as fs from "fs";
 import * as JSONN from "../Jsonn";
 import { ArgDef } from "./analysis/ArgDef";
-import { ArgValueType, FunctionRef } from "./analysis/Types";
+import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
-import * as compiler from "./compilers/TypescriptCompiler";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as ProgramFactory from "./analysis/ProgramFactory";
 import * as ValueMapper from "./mappers/ValueMapper";
@@ -22,22 +21,24 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
-import { isError } from "../fuzzer/Util";
+import { isError } from "./Util";
+import { isArgValueType } from "./analysis/Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
-import { TypescriptProgram } from "./analysis/typescript/TypescriptProgram";
 import { RunnerResult } from "./runners/AbstractRunner";
+import { CompilerStaleness } from "./compilers/Types";
+import { getToolVersion } from "../ToolVersion";
 
 export class Tester {
   protected _module: string; // module filename
   protected _fnName: string; // function name
   protected _leaderboard = new Leaderboard<InputAndSource>(); // top test results, according to measures
   protected _measures; // set of measures for executions
-  protected _allInputs: Record<string, true> = {}; // dupe check for input generation
+  protected _allInputs: Map<string, unknown> = new Map(); // language-specific dupe check for input generation
   protected _state: "init" | "ready" | "running" | "paused" | "crashed" =
     "init"; // tester state
 
@@ -46,7 +47,10 @@ export class Tester {
   protected _function: FunctionDef; // function under test
   protected _compositeInputGenerator: CompositeInputGenerator; // composite input generator
   protected _validators: FunctionRef[] = []; // property validator functions
-  protected _lastCompiler?: compiler.TypescriptCompiler; // last compiler object used
+  protected _transformers: FunctionRef[] = []; // input transformer functions
+  protected _lastCompiler?: ReturnType<
+    (typeof CompilerFactory)["fromSourcefile"]
+  >; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
 
@@ -68,7 +72,7 @@ export class Tester {
       );
     } catch (e: unknown) {
       throw new Error(
-        `The TypeScript program could not be parsed. Please fix the errors and retest.${
+        `The program could not be parsed. Please fix the errors and retest.${
           isError(e) ? ` (${e.message})` : ``
         }`,
         { cause: e }
@@ -84,6 +88,9 @@ export class Tester {
 
     // Get the list of property validators
     this._validators = getValidators(this._program, fnList[this._fnName]);
+
+    // Get the list of input transformers
+    this._transformers = getTransformers(this._program, fnList[this._fnName]);
 
     // Options
     if (!isOptionValid(options)) {
@@ -114,14 +121,16 @@ export class Tester {
       options.seed, // prng seed
       this._measures, // active measures
       this._leaderboard, // leaderboard
-      this._results.stats.generators
+      this._results.stats.generators, // generator stats
+      this._allInputs // running list of dupe-checked inputs
     );
 
-    // Start a background compilation
-    if (mode.precompile && CompilerFactory.needsCompilation(module)) {
-      compiler.TypescriptCompiler.compileAsync(module);
+    // Start a background compilation if precompile mode is active
+    // and this is a compiled language.
+    if (mode.precompile) {
+      CompilerFactory.fromSourcefile(module)?.compileAsync(module);
     }
-  }
+  } // constructor
 
   /**
    * Returns `true` if the tester is out-of-date or crashed
@@ -131,10 +140,7 @@ export class Tester {
    */
   public isStale(
     options: FuzzOptions
-  ):
-    | ReturnType<compiler.TypescriptCompiler["isStale"]>
-    | "optionschanged"
-    | "crashed" {
+  ): CompilerStaleness | "optionschanged" | "crashed" {
     // Stale: compilation is stale
     if (this._lastCompiler) {
       const compilerIsStale = this._lastCompiler.isStale();
@@ -177,10 +183,12 @@ export class Tester {
    */
   protected _getInitializedResults(): FuzzTestResults {
     return {
+      toolVersion: getToolVersion(),
       env: {
         options: structuredClone(this._options),
         function: this._function,
         validators: structuredClone(this._validators),
+        transformers: getTransformers(this._program, this._function),
       },
       stopReason: FuzzStopReason.CRASH, // updated later
       stats: {
@@ -191,12 +199,17 @@ export class Tester {
           gen: 0, // updated later
           measure: 0, // updated later
           compile: 0, // updated later
+          transform: 0, // updated later
         },
         counters: {
           testingRuns: 0, // updated later
           inputsGenerated: 0, // updated later
           dupesGenerated: 0, // updated later
           inputsInjected: 0, // updated later
+          passedTests: 0, // updated later
+          erroredTests: 0, // updated later
+          inputsSkipped: 0, // updated later
+          failedTests: 0, // updated later
         },
         generators: {
           RandomInputGenerator: {
@@ -205,6 +218,7 @@ export class Tester {
               run: 0, // updated later
               val: 0, // updated later
               measure: 0, // updated later
+              transform: 0, // updated later
             },
             counters: {
               dupesGenerated: 0, // updated later
@@ -217,6 +231,7 @@ export class Tester {
               run: 0, // updated later
               val: 0, // updated later
               measure: 0, // updated later
+              transform: 0, // updated later
             },
             counters: {
               dupesGenerated: 0, // updated later
@@ -229,6 +244,7 @@ export class Tester {
               run: 0, // updated later
               val: 0, // updated later
               measure: 0, // updated later
+              transform: 0, // updated later
             },
             counters: {
               dupesGenerated: 0, // updated later
@@ -275,6 +291,7 @@ export class Tester {
       options: structuredClone(this._options),
       function: this._function,
       validators: structuredClone(this._validators),
+      transformers: structuredClone(this._transformers),
     };
   } // property: get env
 
@@ -294,11 +311,13 @@ export class Tester {
    */
   public async testSync(
     injectTests: FuzzPinnedTest[] = [],
-    mode: FuzzMode = { gen: true }
+    mode: FuzzMode = { gen: true },
+    updateFn?: (payload: FuzzBusyStatusMessage) => void,
+    cancelFn?: () => boolean
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
     try {
-      const run = this._run(injectTests, mode);
+      const run = this._run(injectTests, mode, updateFn, cancelFn);
       while (!result) {
         result = (await run.next()).value;
       }
@@ -401,23 +420,21 @@ export class Tester {
 
     const update = (payload: FuzzBusyStatusMessage): void => {
       if (updateFn) {
-        updateFn({
-          msg: payload.msg,
-          milestone: payload.milestone,
-          pct: payload.pct,
-        });
-      } else if (payload.milestone) {
+        updateFn({ ...payload });
+      } else if (payload.channel !== "update") {
         console.log(payload.msg);
       }
     };
-    const runStats = {
+    const runStats: CurrentRunStats = {
       counters: {
         inputsInjected: 0, // number of inputs injected for testing
         inputsGenerated: 0, // number of inputs generated so far
         dupesGenerated: 0, // number of duplicate inputs generated so far
         dupesSequential: 0, // current number of duplicate inputs generated in a row
+        erroredTests: 0, // number of tests with internal errors so far
         failedTests: 0, // number of failed tests encountered so far
         passedTests: 0, // number of passed tests encountered so far
+        inputsSkipped: 0, // number of skipped tests so far
       },
       timers: {
         startTime: performance.now(), // time the tester started in this run
@@ -425,10 +442,11 @@ export class Tester {
       },
     };
 
-    if (!updateFn) console.log("\r\n\r\n");
+    if (!updateFn && process.env.BUILD_TARGET !== "node-cli")
+      console.log("\r\n\r\n");
     update({
       msg: `Target: ${this._function.getName()} of ${this._function.getModule()}`,
-      milestone: true,
+      channel: "milestone",
     });
 
     const argDefs = this._function.getArgDefs();
@@ -465,10 +483,7 @@ export class Tester {
     // it to JavaScript (and possibly instrument it) prior to execution.
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
-    const isNativeTs = TypescriptProgram.understands({ filename: fqSrcFile });
-    if (isNativeTs) {
-      this._lastCompiler = new compiler.TypescriptCompiler(fqSrcFile);
-    }
+    this._lastCompiler = CompilerFactory.fromSourcefile(fqSrcFile);
     const mod = this._lastCompiler
       ? this._lastCompiler.compileSync(this._measures, update) // native ts
       : fqSrcFile; // something other than native ts
@@ -477,6 +492,17 @@ export class Tester {
     // Build a test runner for executing tests
     const runner = RunnerFactory(this.env, mod, this._function.getName());
     await runner.onRunStart();
+
+    // Build a test runner for executing transformers, if any are present and enabled
+    let transformRunner: ReturnType<typeof RunnerFactory> | undefined;
+    if (this.env.options.useTransformer && this.env.transformers.length) {
+      transformRunner = RunnerFactory(
+        this.env,
+        mod,
+        this.env.transformers[0].name
+      );
+      await transformRunner.onRunStart();
+    }
 
     // Connect the measures to the runner. Measures that source their data
     // from the runner (e.g., Python coverage) need it before the first test.
@@ -494,7 +520,7 @@ export class Tester {
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
 
-    update({ msg: `Target ready to test.`, milestone: true, pct: 0.01 });
+    update({ msg: `Target ready to test.`, channel: "milestone" });
     this._state = "ready";
 
     // Main test loop
@@ -521,20 +547,14 @@ export class Tester {
           runStats.counters.dupesGenerated;
         this._results.stats.counters.inputsInjected +=
           runStats.counters.inputsInjected;
-        update({
-          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
-          milestone: true,
-          pct: 100,
-        });
-        update({
-          msg: `Testing ${
-            cancelFn && cancelFn() ? "paused" : "finished"
-          }.\r\n  Tests passed: ${
-            runStats.counters.passedTests
-          }\r\n  Tests failed: ${runStats.counters.failedTests}`,
-          milestone: false,
-          pct: 100,
-        });
+        this._results.stats.counters.erroredTests +=
+          runStats.counters.erroredTests;
+        this._results.stats.counters.passedTests +=
+          runStats.counters.passedTests;
+        this._results.stats.counters.inputsSkipped +=
+          runStats.counters.inputsSkipped;
+        this._results.stats.counters.failedTests +=
+          runStats.counters.failedTests;
 
         // Update interesting inputs
         this._results.interesting.inputs =
@@ -544,52 +564,72 @@ export class Tester {
         this._measures.forEach((e) => {
           e.onRunEnd(this._results);
         });
-        this._compositeInputGenerator.onRunEnd(); // also handles shutdown for subgens
+        await this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
 
         // Shut down runners
-        await runner.onRunEnd();
-        await propRunners.forEach(async (p) => p.onRunEnd());
+        await Promise.all(
+          [
+            runner.onRunEnd(),
+            transformRunner?.onRunEnd(),
+            ...propRunners.map((p) => p.onRunEnd()),
+          ].filter((e) => e !== undefined)
+        );
 
-        console.log(
-          ` - Executed ${
-            runStats.counters.passedTests + runStats.counters.failedTests
-          } tests in ${(performance.now() - runStats.timers.startTime).toFixed(
+        update({
+          msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
+          channel: "update",
+          pct: 100,
+        });
+        update({
+          msg: ` - Executed ${
+            runStats.counters.passedTests +
+            runStats.counters.failedTests +
+            runStats.counters.erroredTests
+          } and skipped ${runStats.counters.inputsSkipped} tests in ${(
+            performance.now() - runStats.timers.startTime
+          ).toFixed(
             0
-          )} ms this run. Stopped for reason: ${this._results.stopReason}.`
-        );
-        console.log(
-          ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`
-        );
-        console.log(
-          ` - Total tests with exceptions: ${
+          )} ms this run. Stopped for reason: ${this._results.stopReason}.`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests with exceptions: ${
             this._results.results.filter((e) => e.exception).length
-          }, timeouts: ${this._results.results.filter((e) => e.timeout).length}`
-        );
-        console.log(
-          ` - Total tests where human validator passed: ${
+          }, timeouts: ${this._results.results.filter((e) => e.timeout).length}, errors: ${this._results.stats.counters.erroredTests}`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests where human validator passed: ${
             this._results.results.filter((e) => e.passedHuman === "pass").length
           }, failed: ${
             this._results.results.filter((e) => e.passedHuman === "fail").length
-          }`
-        );
-        console.log(
-          ` - Total tests where property validator passed: ${
+          }`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests where property validator passed: ${
             this._results.results.filter((e) => e.passedValidator === "pass")
               .length
           }, failed: ${
             this._results.results.filter((e) => e.passedValidator === "fail")
               .length
-          }`
-        );
-        console.log(
-          ` - Total tests where heuristic validator passed: ${
+          }`,
+          channel: "summary",
+        });
+        update({
+          msg: ` - Total tests where heuristic validator passed: ${
             this._results.results.filter((e) => e.passedImplicit === "pass")
               .length
           }, failed: ${
             this._results.results.filter((e) => e.passedImplicit === "fail")
               .length
-          }`
-        );
+          }`,
+          channel: "summary",
+        });
 
         // Persist to outfile, if requested
         if (this._options.outputFile) {
@@ -598,10 +638,16 @@ export class Tester {
             JSONN.stringify(this._results)
           );
           update({
-            msg: `Wrote results to: ${this._options.outputFile}`,
-            milestone: true,
+            msg: ` - Test results: ${this._options.outputFile}`,
+            channel: "summary",
           });
         }
+
+        update({
+          msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
+          channel: "milestone",
+        });
+
         this._state = "paused";
         return this._results;
       }
@@ -614,11 +660,17 @@ export class Tester {
       // Initialized test result - overwritten below
       const result: FuzzTestResult = {
         pinned: false,
+        inputGenerated: {
+          tick: 0,
+          value: [],
+          source: { type: "unknown" },
+        },
         input: [],
         output: [],
         exception: false,
         validatorException: false,
         timeout: false,
+        skipped: false,
         passedImplicit: "unknown",
         passedHuman: "unknown",
         passedValidator: "unknown",
@@ -626,6 +678,7 @@ export class Tester {
         timers: {
           run: 0,
           gen: 0,
+          transform: 0,
         },
         category: "ok",
         interestingReasons: [],
@@ -633,16 +686,77 @@ export class Tester {
 
       // Generate and store the inputs
       const startGenTime = performance.now(); // start time: input generation
-      const genInput = this._compositeInputGenerator.next();
+      result.inputGenerated = this._compositeInputGenerator.next();
       result.timers.gen = performance.now() - startGenTime; // total time: input generation
-      result.input = genInput.value.map((e, i) => {
+
+      // Map the generated inputs to the result object
+      // (the transformer might modify these)
+      result.input = result.inputGenerated.value.map((e, i) => {
         return {
-          name: argDefs[i].getName(),
+          name: argDefs[i]?.getName() ?? "?",
           offset: i,
           value: e.value,
-          origin: genInput.source,
+          origin: result.inputGenerated.source,
         };
       });
+
+      // Apply input transformers to generated inputs (before dedup)
+      const startTransformTime = performance.now(); // start time: input transformation
+      if (!result.inputGenerated.injected && transformRunner) {
+        const transformerResult = await transformRunner.run(
+          structuredClone(result.inputGenerated.value.map((e) => e.value)),
+          Math.max(this._options.fnTimeout, 1)
+        );
+
+        // If transformer returns null, then input was rejected so skip this input
+        switch (transformerResult.result.tag) {
+          case "skip":
+            result.skipped = true;
+            result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
+            break;
+          case "timeout":
+            result.validatorException = true;
+            result.validatorExceptionFunction = transformRunner.name;
+            result.validatorExceptionMessage = `timeout`;
+            break;
+          case "error":
+            // TODO: These need their own place in the results
+            result.validatorException = true;
+            result.validatorExceptionFunction = transformRunner.name;
+            result.validatorExceptionMessage = transformerResult.result.message;
+            break;
+          case "value": {
+            const values = transformerResult.result.value;
+            if (Array.isArray(values)) {
+              result.inputGenerated.value.forEach((e, i) => {
+                if (i < values.length) {
+                  const oldValue = result.input[i].value;
+                  const newValue = values[i];
+                  result.input[i].value = newValue;
+
+                  if (JSONN.stringify(oldValue) !== JSONN.stringify(newValue)) {
+                    result.input[i].origin = {
+                      type: "transformer",
+                      transformer: transformRunner.name,
+                      basis: {
+                        value: structuredClone(result.inputGenerated.value),
+                        source: structuredClone(result.inputGenerated.source),
+                      },
+                    };
+                  }
+                }
+              });
+            } else {
+              // TODO: These need their own place in the results (see above)
+              result.validatorException = true;
+              result.validatorExceptionFunction = transformRunner.name;
+              result.validatorExceptionMessage = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
+              break;
+            }
+          }
+        }
+      }
+      result.timers.transform = performance.now() - startTransformTime; // total time: input transformation
 
       // Pointer to generator stats for this input, if not injected
       let genStats:
@@ -651,12 +765,14 @@ export class Tester {
 
       // Handle injected and generated tests differently, e.g.,
       // we need to retain any saved details for injected tests.
-      if (genInput.injected) {
+      if (result.inputGenerated.injected) {
         // Ensure the injected inputs are in the expected order
         const expectedInput = JSONN.stringify(
-          injectTests[runStats.counters.inputsInjected].input
+          injectTests[runStats.counters.inputsInjected].input.map(
+            (i) => i.value
+          )
         );
-        const returnedInput = JSONN.stringify(result.input);
+        const returnedInput = JSONN.stringify(result.input.map((i) => i.value));
         if (expectedInput !== returnedInput) {
           throw new Error(
             `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
@@ -673,11 +789,18 @@ export class Tester {
         runStats.counters.inputsInjected++; // increment the number of pinned tests injected
       } else {
         // Update generator stats
-        if (genInput.source.type === "generator") {
+        if (result.inputGenerated.source.type === "generator") {
           // Add generation times to the generator stats
-          genStats = this._results.stats.generators[genInput.source.generator];
+          genStats =
+            this._results.stats.generators[
+              result.inputGenerated.source.generator
+            ];
           genStats.timers.gen += result.timers.gen;
           this._results.stats.timers.gen += result.timers.gen;
+
+          // Add transform times to the stats
+          genStats.timers.transform += result.timers.transform;
+          this._results.stats.timers.transform += result.timers.transform;
 
           // Increment the number of inputs generated
           runStats.counters.inputsGenerated++;
@@ -705,167 +828,200 @@ export class Tester {
         }
       }
 
-      // Skip tests if we previously processed the input
-      const inputHash = getIoKey(result.input);
-      if (inputHash in this._allInputs) {
-        runStats.counters.dupesSequential++; // increment the dupe counter
-        runStats.counters.dupesGenerated++; // incremement the total run dupe counter
-        this._compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
-        if (genStats) {
-          genStats.counters.dupesGenerated++; // increment the generator's dupe counter
-        }
-
-        continue; // skip this test
-      } else {
-        runStats.counters.dupesSequential = 0; // reset the duplicate count
-        // if the function accepts inputs, add test input
-        // to the list so we don't test it again,
-        if (this._function.getArgDefs().length) {
-          this._allInputs[inputHash] = true;
+      // If the function accepts inputs, check if the input is a dupe
+      if (this._function.getArgDefs().length) {
+        // Skip tests if we previously processed the input
+        // Note the our hash value is language specific
+        const inputHash = getLangIoKey(lang, result.input);
+        if (this._allInputs.has(inputHash)) {
+          runStats.counters.dupesSequential++; // increment the sequential dupe counter
+          runStats.counters.dupesGenerated++; // incremement the total run dupe counter
+          this._compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
+          if (genStats) {
+            genStats.counters.dupesGenerated++; // increment the generator's dupe counter
+          }
+          continue; // skip this test
+        } else {
+          runStats.counters.dupesSequential = 0; // reset the sequential duplicate count
+          this._allInputs.set(inputHash, true);
         }
       }
 
       // Front-end status update
       update({
-        msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Generating new test"} input# ${
-          runStats.counters.passedTests + runStats.counters.failedTests + 1
+        msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
+          runStats.counters.passedTests +
+          runStats.counters.failedTests +
+          runStats.counters.erroredTests +
+          1
         }: ${this._function.getName()}(${result.input
           .map((i) => ValueMapper.toLang(lang, i.value))
-          .join(",")})\r\n  Tests passed: ${
-          runStats.counters.passedTests
-        }\r\n  Tests failed: ${runStats.counters.failedTests}`,
+          .join(
+            ","
+          )})\r\n  Passed: ${runStats.counters.passedTests}${`\r\n  Failed: ${runStats.counters.failedTests}`}${
+          runStats.counters.erroredTests
+            ? `\r\n Errored: ${runStats.counters.erroredTests}`
+            : ""
+        }${
+          runStats.counters.inputsSkipped
+            ? `\r\n Skipped: ${runStats.counters.inputsSkipped}`
+            : ""
+        }`,
+        channel: "update",
         pct: typeof stopCondition === "number" ? stopCondition : 100,
       });
 
       // Call the PUT via its runner
-      const startRunTime = performance.now(); // start timer
-      let exeOutput: RunnerResult;
-      try {
-        exeOutput = await runner.run(
-          structuredClone(result.input.map((e) => e.value)),
-          Math.max(this._options.fnTimeout, 1)
-        );
-      } catch (e: unknown) {
-        if (isError(e)) {
-          exeOutput = {
-            result: {
-              tag: "error",
-              name: e.name,
-              message: e.message,
-              stack: e.stack ?? "<no stack>",
-              seq: -1,
-            },
-            env: {},
-          };
-        } else {
-          exeOutput = {
-            result: {
-              tag: "error",
-              name: "unknown internal runner error",
-              message: "unknown",
-              stack: "<no stack>",
-              seq: -1,
-            },
-            env: {},
-          };
-        }
-      }
-      result.timers.run = performance.now() - startRunTime; // stop timer
-      switch (exeOutput.result.tag) {
-        case "value":
-          result.output.push({
-            name: "0",
-            offset: 0,
-            value: exeOutput.result.value as ArgValueType,
-            origin: { type: "put" },
-          });
-          break;
-        case "error":
-          result.exception = true;
-          result.exceptionMessage = exeOutput.result.message;
-          result.stack = exeOutput.result.stack;
-          break;
-        case "timeout":
-          result.timeout = true;
-          break;
-      }
-
-      this._results.stats.timers.put += result.timers.run;
-      if (genStats) {
-        genStats.timers.run += result.timers.run;
-      }
-
-      const startValTime = performance.now(); // start timer
-      // IMPLICIT ORACLE --------------------------------------------
-      if (this._options.useImplicit) {
-        result.passedImplicit = ImplicitOracle.judge(
-          result.timeout,
-          result.exception,
-          this._function.isVoid(),
-          result.output
-        );
-      }
-
-      // EXAMPLE ORACLE ---------------------------------------------
-      // If a human annotated an expected output, then check it
-      if (this._options.useHuman && result.expectedOutput) {
-        result.passedHuman = ExampleOracle.judge(
-          result.timeout,
-          result.exception,
-          result.expectedOutput,
-          result.output
-        );
-      }
-
-      // PROPERTY ORACLE --------------------------------------------
-      // If a property validator is selected, call it to evaluate the result
-      if (this._options.useProperty) {
-        (
-          await propertyOracle.judge(
-            Object.freeze({
-              in: result.input.map((i) => i.value), // inputs
-              out:
-                result.output.length === 0
-                  ? "timeout or exception"
-                  : result.output[0].value,
-              exception: result.exception,
-              timeout: result.timeout,
-            }),
+      if (!result.skipped && !result.validatorException) {
+        const startRunTime = performance.now(); // start timer
+        let exeOutput: RunnerResult;
+        try {
+          exeOutput = await runner.run(
+            structuredClone(result.input.map((e) => e.value)),
             Math.max(this._options.fnTimeout, 1)
-          )
-        ).forEach((j, i) => {
-          if (isError(j)) {
-            result.passedValidators.push("unknown");
-            result.validatorException = true;
-            result.validatorExceptionMessage = j.message;
-            result.validatorExceptionFunction = this._validators[i].name;
-            result.validatorExceptionStack = j.stack;
+          );
+        } catch (e: unknown) {
+          if (isError(e)) {
+            exeOutput = {
+              result: {
+                tag: "error",
+                name: e.name,
+                message: e.message,
+                stack: e.stack ?? "<no stack>",
+                seq: -1,
+              },
+              env: {},
+            };
           } else {
-            result.passedValidators.push(j);
+            exeOutput = {
+              result: {
+                tag: "error",
+                name: "unknown internal runner error",
+                message: "unknown",
+                stack: "<no stack>",
+                seq: -1,
+              },
+              env: {},
+            };
           }
-        });
+        }
+        result.timers.run = performance.now() - startRunTime; // stop timer
+        switch (exeOutput.result.tag) {
+          case "value":
+            result.output.push({
+              name: "0",
+              offset: 0,
+              value: isArgValueType(exeOutput.result.value)
+                ? exeOutput.result.value
+                : undefined,
+              origin: { type: "put" },
+            });
+            break;
+          case "error":
+            result.exception = true;
+            result.exceptionMessage = exeOutput.result.message;
+            result.stack = exeOutput.result.stack;
+            break;
+          case "timeout":
+            result.timeout = true;
+            break;
+          case "skip":
+            result.skipped = true;
+            result.skipReason = exeOutput.result.message;
+            break;
+        }
 
-        // Summarize propert judgments.
-        result.passedValidator = PropertyOracle.summarize(
-          result.passedValidators
-        );
-      } // if validator
+        this._results.stats.timers.put += result.timers.run;
+        if (genStats) {
+          genStats.timers.run += result.timers.run;
+        }
 
-      // Validator stats
-      const valTime = performance.now() - startValTime; // stop timer
-      this._results.stats.timers.val += valTime;
-      if (genStats) {
-        genStats.timers.val += valTime;
+        const startValTime = performance.now(); // start timer
+        if (!result.skipped) {
+          // IMPLICIT ORACLE --------------------------------------------
+          if (this._options.useImplicit) {
+            result.passedImplicit = ImplicitOracle.judge(
+              result.timeout,
+              result.exception,
+              this._function.isVoid(),
+              result.output
+            );
+          }
+
+          // EXAMPLE ORACLE ---------------------------------------------
+          // If a human annotated an expected output, then check it
+          if (this._options.useHuman && result.expectedOutput) {
+            result.passedHuman = ExampleOracle.judge(
+              result.timeout,
+              result.exception,
+              result.expectedOutput,
+              result.output
+            );
+          }
+
+          // PROPERTY ORACLE --------------------------------------------
+          // If a property validator is selected, call it to evaluate the result
+          if (this._options.useProperty) {
+            (
+              await propertyOracle.judge(
+                Object.freeze({
+                  in: result.input.map((i) => i.value), // inputs
+                  out:
+                    result.output.length === 0
+                      ? "timeout or exception"
+                      : result.output[0].value,
+                  exception: result.exception,
+                  timeout: result.timeout,
+                }),
+                Math.max(this._options.fnTimeout, 1)
+              )
+            ).forEach((j, i) => {
+              if (isError(j)) {
+                result.passedValidators.push("unknown");
+                result.validatorException = true;
+                result.validatorExceptionMessage = j.message;
+                result.validatorExceptionFunction = this._validators[i].name;
+                result.validatorExceptionStack = j.stack;
+              } else {
+                result.passedValidators.push(j);
+              }
+            });
+
+            // Summarize propert judgments.
+            result.passedValidator = PropertyOracle.summarize(
+              result.passedValidators
+            );
+          } // if validator
+        }
+
+        // Validator stats
+        const valTime = performance.now() - startValTime; // stop timer
+        this._results.stats.timers.val += valTime;
+        if (genStats) {
+          genStats.timers.val += valTime;
+        }
       }
 
       // (Re-)categorize the result
       result.category = categorizeResult(result);
 
       // Increment the test counters
-      if (result.category === "ok") {
-        runStats.counters.passedTests++;
-      } else {
-        runStats.counters.failedTests++;
+      switch (result.category) {
+        case "ok":
+          runStats.counters.passedTests++;
+          break;
+        case "skip":
+          runStats.counters.inputsSkipped++;
+          break;
+        case "failure":
+        case "disagree":
+          runStats.counters.erroredTests++;
+          break;
+        case "badValue":
+        case "timeout":
+        case "exception":
+          runStats.counters.failedTests++;
+          break;
       }
 
       // Store the result for this iteration
@@ -875,7 +1031,10 @@ export class Tester {
       {
         const startMeasureTime = performance.now(); // start timer
         const measurements = this._measures.map((e) =>
-          e.measure(structuredClone(genInput), structuredClone(result))
+          e.measure(
+            structuredClone(result.inputGenerated),
+            structuredClone(result)
+          )
         );
 
         // Provide measures feedback to the composite input generator
@@ -949,7 +1108,9 @@ const _checkStopCondition = (
   if (
     stats.counters.inputsInjected +
       (gen
-        ? stats.counters.inputsGenerated - stats.counters.dupesGenerated
+        ? stats.counters.inputsGenerated -
+          stats.counters.dupesGenerated -
+          stats.counters.inputsSkipped
         : 0) >=
     injectCount + (gen ? options.maxTests : 0)
   ) {
@@ -958,20 +1119,20 @@ const _checkStopCondition = (
   pcts.push(
     (stats.counters.inputsInjected +
       (gen
-        ? stats.counters.inputsGenerated - stats.counters.dupesGenerated
+        ? stats.counters.inputsGenerated -
+          stats.counters.dupesGenerated -
+          stats.counters.inputsSkipped
         : 0)) /
       (injectCount + (gen ? options.maxTests : 0))
   );
 
-  // End testing if we exceed the maximum number of failures
-  /*
-  if (options.maxFailures > 0) {
+  // End testing if we exceed the maximum number of failures & are done injecting inputs
+  if (options.maxFailures > 0 && !injecting) {
     if (stats.counters.failedTests >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
     pcts.push(stats.counters.failedTests / options.maxFailures);
   }
-  */
 
   // End testing if we exceed the maximum number of sequential duplicates generated
   if (stats.counters.dupesSequential >= options.maxDupeInputs) {
@@ -1028,6 +1189,25 @@ export function getValidators(
 } // fn: getValidators()
 
 /**
+ * Returns a list of input transformer functions for the function under test.
+ *
+ * @param program the program to search
+ * @param fnUnderTest the function under test
+ * @returns an array of transformer FunctionRefs
+ */
+export function getTransformers(
+  program: AbstractProgram,
+  fnUnderTest: FunctionDef
+): FunctionRef[] {
+  return Object.values(program.functionsExported)
+    .filter(
+      (fn) =>
+        fn.isTransformer() && fn.getName().startsWith(fnUnderTest.getName())
+    )
+    .map((fn) => fn.getRef());
+} // fn: getTransformers()
+
+/**
  * Categorizes the result of a fuzz test according to the available
  * categories defined in ResultType.
  * @param result of the test
@@ -1035,7 +1215,10 @@ export function getValidators(
  */
 export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   if (result.validatorException) {
-    return "failure"; // Validator failed
+    return "failure"; // Validator or transformer failed
+  }
+  if (result.skipped) {
+    return "skip";
   }
 
   // Returns the type of bad value: execption, timeout, or badvalue
@@ -1086,18 +1269,37 @@ export function getIoKey(io: FuzzIoElement[]): string {
 } // fn: getIoKey
 
 /**
+ * Gets the langiage-specific input key as a string from an array of `FuzzIoElement`s
+ *
+ * @param `lang` programming language
+ * @param `io` array of `FuzzIoElements`
+ * @returns string representation array of inputs in `lang` format
+ */
+export function getLangIoKey(
+  lang: ProgramLanguage,
+  io: FuzzIoElement[]
+): string {
+  return ValueMapper.toLang(
+    lang,
+    io.map((i) => i.value)
+  );
+} // fn: getLangIoKey
+
+/**
  * Fuzzer Environment required to fuzz a function.
  */
 export type FuzzEnv = {
   options: FuzzOptions; // fuzzer options
   function: FunctionDef; // the function to fuzz
   validators: FunctionRef[]; // list of the module's validator functions
+  transformers: FunctionRef[]; // list of the module's input transformer functions
 };
 
 /**
  * Fuzzer Test Result
  */
 export type FuzzTestResults = {
+  toolVersion: string; // NaNofuzz name and version that generated the results
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped
   stats: FuzzTestStats; // fuzzer statistics
@@ -1120,6 +1322,7 @@ export type FuzzGeneratorStatsBase = {
     val: number; // elapsed time to categorize outputs
     gen: number; // elapsed time to generate inputs
     measure: number; // elapsed time to measure
+    transform: number; // elapsed time to transform inputs
   };
 };
 export type FuzzTestStats = {
@@ -1129,6 +1332,7 @@ export type FuzzTestStats = {
     put: number; // elapsed time the PUT ran
     val: number; // elapsed time to categorize outputs
     gen: number; // elapsed time to generate inputs
+    transform: number; // elapsed time to transform inputs
     measure: number; // elapsed time to measure
   };
   counters: {
@@ -1136,11 +1340,36 @@ export type FuzzTestStats = {
     inputsGenerated: number; // number of inputs generated, including dupes
     dupesGenerated: number; // number of duplicate inputs generated
     inputsInjected: number; // number of inputs pinned
+    erroredTests: number; // number of tests with internal errors
+    passedTests: number; // number of passed tests
+    inputsSkipped: number; // number of skipped tests
+    failedTests: number; // number of failed tests
   };
   generators: {
     RandomInputGenerator: FuzzGeneratorStatsBase;
     MutationInputGenerator: FuzzGeneratorStatsBase;
     AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
+    CompositeInputGenerator?: {
+      config?: {
+        lookbackWindow: number;
+        chunkSize: number;
+        explorationChance: number;
+        initialFocus: number;
+        focusDecay: number;
+      };
+      checkpoints: {
+        tick: number; // tick of the checkpoint
+        gens: Record<
+          string,
+          {
+            active: boolean; // subgen is active
+            nextable: boolean; // subgen is active and nextable
+            productivity: number; // current productivity[g] for this input generator
+            cost: number; // current cost[g] for this input generator
+          }
+        >;
+      }[];
+    };
   };
   measures: {
     CodeCoverageMeasure?: () => Promise<CodeCoverageMeasureStats>;
@@ -1156,8 +1385,10 @@ type CurrentRunStats = {
     inputsGenerated: number; // number of inputs generated so far
     dupesGenerated: number; // number of duplicate inputs generated so far
     dupesSequential: number; // current number of duplicate inputs generated in a row
+    erroredTests: number; // number of tests with internal errors so far
     failedTests: number; // number of failed tests so far
     passedTests: number; // number of passed tests so far
+    inputsSkipped: number; // number of skipped tests so far
   };
   timers: {
     startTime: number; // time the tester started in this run

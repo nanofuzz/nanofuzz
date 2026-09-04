@@ -1,18 +1,25 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import {
   ArgTag,
-  ArgType,
   ArgValueType,
   ArgValueTypeWrapped,
   ProgramLanguage,
 } from "../analysis/Types";
-import * as JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 import * as ValueMapper from "../mappers/ValueMapper";
 import { LlmAdapter } from "../adapters/LlmAdapter";
-import { ArgDef, FunctionDef, InputAndSource } from "../Fuzzer";
+import {
+  ArgDef,
+  FunctionDef,
+  FuzzTestResults,
+  InputAndSource,
+} from "../Fuzzer";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
-import * as zod from "zod";
+import * as zod from "zod/v4";
 import { InputGeneratorStatsAi } from "./Types";
+import { isError } from "../Util";
+import { isBufferOrUint8Array } from "../../Util";
+import * as Config from "../../Config";
 
 /**
  * Generates new inputs using a large language model
@@ -23,10 +30,16 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _llm?: LlmAdapter; // Back-end AI model
   protected _callsPending = 0; // Number of calls to AI model pending
   protected _stats = _initStats(); // Stats about inputs generated
+  protected _allInputs; // Running list of all generated inputs
 
-  public constructor(fn: FunctionDef, rngSeed: string | undefined) {
+  public constructor(
+    fn: FunctionDef,
+    rngSeed: string | undefined,
+    allInputs: Map<string, unknown>
+  ) {
     super(fn.getArgDefs(), rngSeed);
     this._fn = fn;
+    this._allInputs = allInputs;
   } // fn: constructor
 
   /**
@@ -99,7 +112,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   /**
    * Gets more inputs from the back-end AI model
    */
-  private _getMoreInputs(): void {
+  protected _getMoreInputs(): void {
     // Let any prior calls finish before making a new one
     if (this._callsPending) {
       return;
@@ -108,16 +121,17 @@ export class AiInputGenerator extends AbstractInputGenerator {
     if (this._llm) {
       this._callsPending++;
       const modelId = this._llm.id;
-      try {
-        const validInputs: { [k: string]: ArgValueType }[] = [];
-        const invalidInputs: { [k: string]: ArgValueType }[] = [];
-        const validator = new ArgDefValidator(this._specs);
+      const validInputs: { [k: string]: ArgValueType }[] = [];
+      const invalidInputs: { [k: string]: ArgValueType }[] = [];
+      const validator = new ArgDefValidator(this._specs);
 
-        this._stats.calls.sent++;
-        const [schema, directives] = this._getInputsSchema(this._fn.getLang());
+      this._stats.calls.sent++;
+      const [schema, directives] = this._getInputsSchema(this._fn.getLang());
 
-        // Fetch inputs from the llm
-        this._llm.genInputs(this._fn, [schema, directives]).then((inputs) => {
+      // Fetch inputs from the llm
+      this._llm
+        .genInputs(this._fn, schema, directives, this._allInputs)
+        .then((inputs) => {
           // Update tokens received stats
           if (inputs.stats) {
             this._stats.tokens.received += inputs.stats.tokensReceived;
@@ -168,12 +182,15 @@ export class AiInputGenerator extends AbstractInputGenerator {
           }
 
           // Process the inputs
+          const specMap = new Map(
+            this._specs.map((arg) => [arg.getName(), arg])
+          );
           inputs.programInputs.forEach((input) => {
             this._stats.inputs.gen++;
 
             // Decode the input
             Object.keys(input).forEach((k) => {
-              input[k] = _decode(input[k]);
+              input[k] = _decode(input[k], specMap.get(k));
             });
 
             // Validate the input
@@ -195,7 +212,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
           });
           if (invalidInputs.length && LlmAdapter.isDebugConfigured()) {
             console.debug(
-              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSON5.stringify(invalidInputs, null, 2)}`
+              `Discarded ${invalidInputs.length} of ${invalidInputs.length + validInputs.length} LLM inputs for being invalid: ${JSONN.stringify(invalidInputs, null, 2)}`
             );
           }
 
@@ -218,10 +235,17 @@ export class AiInputGenerator extends AbstractInputGenerator {
               };
             })
           );
+        })
+        .catch((e: unknown) => {
+          this._stats.calls.failed++;
+          this._stats.calls.history.push({
+            failure: true,
+            message: isError(e) ? e.message : "unknown error",
+          });
+        })
+        .finally(() => {
+          this._callsPending--;
         });
-      } finally {
-        this._callsPending--;
-      }
     }
   } // fn: _getMoreInputs
 
@@ -270,7 +294,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @returns a Zod schema for the ArgDef
    */
   protected _argDefToSchema(
-    inArg: ArgDef<ArgType>,
+    inArg: ArgDef,
     path: string,
     directives: string[]
   ): zod.ZodType {
@@ -279,7 +303,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
     const argOptions = inArg.getOptions();
 
     // Helper function that creates a Zod schema from an ArgDef
-    const argToZod = (arg: ArgDef<ArgType>): zod.ZodType => {
+    const argToZod = (arg: ArgDef): zod.ZodType => {
       switch (arg.getType()) {
         case ArgTag.NUMBER: {
           const desc = `value must be >= ${Number(argIntervals[0].min)} && <= ${Number(argIntervals[0].max)}`;
@@ -312,6 +336,15 @@ export class AiInputGenerator extends AbstractInputGenerator {
             .refine((s) => [...s].every((char) => charSet.includes(char)))
             .describe(desc);
         }
+        case ArgTag.BYTES: {
+          const desc = `array of byte integers (0-255) with length >= ${argOptions.byteLength.min} && <= ${argOptions.byteLength.max}`;
+          directives.push(`${path}: ${desc}`);
+          return zod
+            .array(zod.number().int().min(0).max(255))
+            .min(argOptions.byteLength.min)
+            .max(argOptions.byteLength.max)
+            .describe(desc);
+        }
         case ArgTag.LITERAL: {
           const literalValue = arg.getConstantValue();
           switch (typeof literalValue) {
@@ -339,7 +372,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
               );
               return zod.enum([literalValue]);
             case "object":
-              throw new Error(`Array and Object literals not supported`);
+              if (literalValue === null) {
+                return zod.null();
+              } else {
+                throw new Error(`Array and Object literals not supported`);
+              }
             case "bigint": // fallsthrough
             case "symbol": // fallsthrough
             case "function":
@@ -410,8 +447,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
       : argToZod(inArg); // mandatory
 
     // Dimensions
-    argOptions.dimLength.forEach((dim) => {
-      const desc = `array length must be >= ${dim.min} && <= ${dim.max}`;
+    argOptions.dimLength.forEach((dim, idx) => {
+      const isUnique = idx === 0 && argOptions.dimsUnique;
+      const desc = `array length must be >= ${dim.min} && <= ${dim.max}${
+        isUnique ? "; all elements in the array must be unique" : ""
+      }`;
       directives.push(`${path}: ${desc}`);
       zodArg = zod.array(zodArg).min(dim.min).max(dim.max).describe(desc);
     });
@@ -422,8 +462,29 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * Return stats about the AI input generation process
    */
   public get stats(): InputGeneratorStatsAi {
-    return JSON.parse(JSON.stringify(this._stats));
+    const res: InputGeneratorStatsAi = JSON.parse(JSON.stringify(this._stats));
+    if (this._llm) {
+      res.cache = this._llm.cacheStats;
+    }
+    return res;
   } // getter: stats
+
+  /**
+   * Cleanup and flush in-flight LLM requests if in a recording cache mode
+   */
+  public override async onRunEnd(results?: FuzzTestResults): Promise<void> {
+    await super.onRunEnd(results);
+    const cacheMode = Config.get<string>(
+      "nanofuzz.ai.cacheMode",
+      "passthrough"
+    );
+    if (cacheMode.includes("record")) {
+      await LlmAdapter.flushCache(5000);
+    }
+    if (results) {
+      results.stats.generators.AiInputGenerator.gen = this.stats;
+    }
+  } // fn: onRunEnd
 } // class: AiInputGenerator
 
 /**
@@ -442,17 +503,65 @@ function _initStats(): InputGeneratorStatsAi {
 
 /**
  * Replaces special placeholder values in an ArgValueType with
- * the actual values. We do this to work around the cases Zod
- * can't handle natively.
+ * the actual values, and converts number[] arrays to Uint8Array
+ * for BYTES types. We do this primarily to work around the
+ * cases Zod can't handle natively.
+ *
  *
  * @param data
+ * @param spec
  * @returns
  */
-function _decode(data: ArgValueType): ArgValueType {
+export function _decode(data: ArgValueType, spec?: ArgDef): ArgValueType {
+  if (spec !== undefined) {
+    if (spec.getDim() > 0 && Array.isArray(data)) {
+      return data.map((e) => _decode(e, spec));
+    }
+
+    if (spec.getType() === ArgTag.BYTES && spec.getDim() === 0) {
+      if (Array.isArray(data)) {
+        return new Uint8Array(data.map((e) => Number(e)));
+      } else if (isBufferOrUint8Array(data)) {
+        return data;
+      }
+    } else if (
+      spec.getType() === ArgTag.OBJECT &&
+      typeof data === "object" &&
+      data !== null &&
+      !Array.isArray(data) &&
+      !(data instanceof Uint8Array)
+    ) {
+      const children = spec.getChildren();
+      Object.keys(data).forEach((k) => {
+        if (data[k] === NANOFUZZ_MISSING_PROPERTY) {
+          delete data[k];
+        } else {
+          const childSpec = children.find((c) => c.getName() === k);
+          data[k] = _decode(data[k], childSpec);
+        }
+      });
+      return data;
+    } else if (spec.getType() === ArgTag.TUPLE && Array.isArray(data)) {
+      const children = spec.getChildren();
+      return data.map((item, i) => _decode(item, children[i]));
+    } else if (spec.getType() === ArgTag.UNION && Array.isArray(data)) {
+      const bytesChild = spec
+        .getChildren()
+        .find((c) => c.getType() === ArgTag.BYTES);
+      if (bytesChild) {
+        return new Uint8Array(data.map((e) => Number(e)));
+      }
+    }
+  }
+
   switch (typeof data) {
     case "object":
       if (Array.isArray(data)) {
         return data.map((e) => _decode(e));
+      } else if (data === null) {
+        return null;
+      } else if (data instanceof Uint8Array) {
+        return data;
       } else {
         Object.keys(data).forEach((k) => {
           if (data[k] === NANOFUZZ_MISSING_PROPERTY) {
@@ -490,8 +599,8 @@ function _decode(data: ArgValueType): ArgValueType {
 } // fn: _decode
 
 // Constants for encoding/decoding
-const NANOFUZZ_UNDEFINED = "___NANOFUZZ____6158195231___UNDEFINED___";
-const NANOFUZZ_MISSING_PROPERTY =
+export const NANOFUZZ_UNDEFINED = "___NANOFUZZ____6158195231___UNDEFINED___";
+export const NANOFUZZ_MISSING_PROPERTY =
   "___NANOFUZZ____6158195231___MISSING___PROPERTY___";
-const NANOFUZZ_TRUE = "___NANOFUZZ____6158195231___TRUE___";
-const NANOFUZZ_FALSE = "___NANOFUZZ____6158195231___FALSE___";
+export const NANOFUZZ_TRUE = "___NANOFUZZ____6158195231___TRUE___";
+export const NANOFUZZ_FALSE = "___NANOFUZZ____6158195231___FALSE___";

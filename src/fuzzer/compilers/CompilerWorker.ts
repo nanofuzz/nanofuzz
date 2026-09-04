@@ -17,7 +17,7 @@ function processMessage(message: TypeScriptCompilerMessageToWorker): void {
     case "compile": {
       try {
         new TypescriptCompiler(message.module).compileSync([], (msg) => {
-          if (msg.milestone) {
+          if (msg.channel === "milestone") {
             console.log(msg.msg);
           }
         });

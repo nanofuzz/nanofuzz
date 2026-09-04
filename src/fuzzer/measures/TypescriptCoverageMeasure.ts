@@ -1,4 +1,4 @@
-import * as JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createSourceMapStore, MapStore } from "istanbul-lib-source-maps";
 import { RawSourceMap } from "source-map";
@@ -131,7 +131,10 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     while (nextPred) {
       if (!nextPred.pred) {
         accumBefore = this._toNumber(nextPred.meas.coverageMeasure.accum);
-        AbstractCoverageMeasure.better_merge(nextPred.meas.coverageMeasure.accum, currentCoverageData);
+        AbstractCoverageMeasure.better_merge(
+          nextPred.meas.coverageMeasure.accum,
+          currentCoverageData
+        );
         accumAfter = this._toNumber(nextPred.meas.coverageMeasure.accum);
       }
       nextPred = nextPred.pred;
@@ -139,7 +142,10 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
 
     // Merge the current coverage into the global coverage map
     const globalBefore = this._toNumber(this._globalCoverageMap);
-    AbstractCoverageMeasure.better_merge(this._globalCoverageMap, currentCoverageData);
+    AbstractCoverageMeasure.better_merge(
+      this._globalCoverageMap,
+      currentCoverageData
+    );
 
     // Build the measurement object
     const meas = {
@@ -149,7 +155,10 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
         current: createCoverageMap(currentCoverageData),
         globalDelta: this._toNumber(this._globalCoverageMap) - globalBefore,
         // Python version does not have _snapshot, so this is to keep consistency with Python
-        accum: AbstractCoverageMeasure.better_merge(createCoverageMap({}), currentCoverageData),
+        accum: AbstractCoverageMeasure.better_merge(
+          createCoverageMap({}),
+          currentCoverageData
+        ),
         accumDelta: accumAfter - accumBefore,
       },
     };
@@ -223,8 +232,8 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
             const fileSummary = tsCoverageMap
               .fileCoverageFor(filePath)
               .toSummary();
-            const fileMap = JSON5.parse<FileCoverage>(
-              JSON5.stringify(tsCoverageMap.fileCoverageFor(filePath))
+            const fileMap = JSONN.parse<FileCoverage>(
+              JSONN.stringify(tsCoverageMap.fileCoverageFor(filePath))
             );
             // Omit functions and branches with no hits
             for (const k of Object.keys(fileMap.f)) {
