@@ -80,6 +80,8 @@ export enum ArgTag {
   STRING = "string",
   BOOLEAN = "boolean",
   OBJECT = "object",
+  /** A Python/JSON mapping whose children are `[keyType, valueType]`. */
+  DICTIONARY = "dictionary",
   LITERAL = "literal",
   UNION = "union",
   TUPLE = "tuple",
@@ -106,6 +108,7 @@ export type TagToType = {
   [ArgTag.STRING]: string;
   [ArgTag.BOOLEAN]: boolean;
   [ArgTag.OBJECT]: { [key: string]: ArgType };
+  [ArgTag.DICTIONARY]: { [key: string]: ArgType };
   [ArgTag.LITERAL]: ArgType;
   [ArgTag.UNION]: ArgType;
   [ArgTag.TUPLE]: [ArgType];

@@ -277,7 +277,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
               fileMap,
             };
           });
-
         return {
           counters: {
             functionsTotal: coverageSummary.functions.total,

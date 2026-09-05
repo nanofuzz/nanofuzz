@@ -74,7 +74,10 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     this.dims = dims ?? 0;
     this.optional = optional ?? false;
     this.children =
-      type === ArgTag.OBJECT || type === ArgTag.UNION || type === ArgTag.TUPLE
+      type === ArgTag.OBJECT ||
+      type === ArgTag.DICTIONARY ||
+      type === ArgTag.UNION ||
+      type === ArgTag.TUPLE
         ? (children ?? [])
         : [];
     this.typeRef = typeRef;
@@ -125,7 +128,12 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     // Ensure each non-array dimension is valid
     if (
       this.intervals.filter(
-        (e) => e.min !== null && e.max !== null && e.min > e.max
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
       ).length
     ) {
       throw new Error(
@@ -222,6 +230,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       case ArgTag.BYTES:
         return [{ min: new Uint8Array(0), max: new Uint8Array(0) }];
       case ArgTag.OBJECT:
+      case ArgTag.DICTIONARY:
       case ArgTag.LITERAL:
       case ArgTag.UNION:
       case ArgTag.TUPLE:
@@ -351,7 +360,14 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    */
   public setIntervals(intervals: Interval<TagToType[Tag]>[]): void {
     if (
-      intervals.some((e) => e.min !== null && e.max !== null && e.min > e.max)
+      intervals.some(
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
+      )
     )
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
@@ -372,7 +388,14 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       options
     ) as Interval<TagToType[Tag]>[];
     if (
-      intervals.some((e) => e.min !== null && e.max !== null && e.min > e.max)
+      intervals.some(
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
+      )
     )
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`

@@ -672,6 +672,7 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
       };
     case ArgTag.BYTES:
       return "bytes";
+    case ArgTag.DICTIONARY:
     case ArgTag.NUMBER:
     case ArgTag.STRING:
     case ArgTag.BOOLEAN:

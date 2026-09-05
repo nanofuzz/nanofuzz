@@ -220,6 +220,42 @@ type MixedColumn = list[int | str]`,
     ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
   });
 
+  it("extracts built-in and typing dictionary/container annotations", () => {
+    // Covers PEP 585 built-ins, `typing`-qualified generics, and composition
+    // with a union-like wrapper. These are parser-level tests, so no typing
+    // package import is needed at runtime.
+    const types = ProgramFactory.fromSource(
+      () => `type Scores = dict[str, list[int]]
+type Lookup = typing.Dict[str, float]
+type Labels = set[str]
+type TaggedScores = dict[str, int | str]
+type MaybeScores = Optional[dict[str, int]]`,
+      "python"
+    ).types;
+
+    expect(types["Scores"].type?.type).toEqual(ArgTag.DICTIONARY);
+    expect(types["Scores"].type?.children.map((child) => child.name)).toEqual([
+      "key",
+      "value",
+    ]);
+    expect(types["Scores"].type?.children[1].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.NUMBER, dims: 1 })
+    );
+    expect(types["Lookup"].type?.type).toEqual(ArgTag.DICTIONARY);
+    expect(types["Labels"].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.STRING, dims: 1 })
+    );
+    expect(types["TaggedScores"].type?.children[1].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.UNION })
+    );
+    expect(
+      types["TaggedScores"].type?.children[1].type?.children.map(
+        (child) => child.type?.type
+      )
+    ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
+    expect(types["MaybeScores"].type?.type).toEqual(ArgTag.DICTIONARY);
+  });
+
   it("collapses singleton annotation unions", () => {
     const types = ProgramFactory.fromSource(
       () => "type MaybeCount = Optional[int]",
@@ -309,16 +345,6 @@ class Admin(User):
     ).types;
 
     expect(types["Player"]).toBeUndefined();
-  });
-
-  it("does not model ordinary dictionaries as fixed objects", () => {
-    const types = ProgramFactory.fromSource(
-      () => "type DynamicConfig = dict[str, int]",
-      "python"
-    ).types;
-
-    expect(types["DynamicConfig"].type).toBeUndefined();
-    expect(types["DynamicConfig"].typeRefName).toEqual("dict");
   });
 
   it("handles Python numeric literal spellings", () => {

@@ -627,7 +627,16 @@ export class PythonProgram extends AbstractProgram {
               this._getTypeFromAstNode(arg, options);
             return [type, dims + 1, typeName, literalValue, typeOptions];
           }
-
+          case "dict":
+          case "Dict":
+          case "Mapping":
+          case "MutableMapping":
+            if (args.length !== 2) {
+              throw new Error(
+                `Dictionary type requires key and value types: ${node.text}`
+              );
+            }
+            return [ArgTag.DICTIONARY, 0];
           case "tuple":
           case "Tuple":
             return [ArgTag.TUPLE, 0];
@@ -788,6 +797,25 @@ export class PythonProgram extends AbstractProgram {
             return this._getChildrenFromNode(args[0]);
           // Composites: each argument (`type` node) is a child.
           case "Union":
+          case "dict":
+          case "Dict":
+          case "Mapping":
+          case "MutableMapping":
+            return args.map((c, index) => {
+              const child = this._getTypeRefFromAstNode(c);
+              // A dictionary has no fixed property names. Preserve its two
+              // type parameters explicitly so generators and validators can
+              // apply the key and value constraints to every entry.
+              if (
+                base === "dict" ||
+                base === "Dict" ||
+                base === "Mapping" ||
+                base === "MutableMapping"
+              ) {
+                child.name = index === 0 ? "key" : "value";
+              }
+              return child;
+            });
           case "Optional":
             return args.map((c) => this._getTypeRefFromAstNode(c));
           case "tuple":
@@ -898,6 +926,14 @@ export class PythonProgram extends AbstractProgram {
           children: [],
           value: literalValue,
           resolved: true,
+        };
+        break;
+      }
+      case ArgTag.DICTIONARY: {
+        thisType.type = {
+          dims: dims,
+          type: type,
+          children: this._getChildrenFromNode(typeNode),
         };
         break;
       }
@@ -2918,6 +2954,13 @@ export class PythonProgram extends AbstractProgram {
           return `'${child.getName()}': ${type}`;
         });
         return `TypedDict('${arg.getName()}',{${childTypeAnnotations.join(", ")} }`;
+      }
+
+      case ArgTag.DICTIONARY: {
+        const [key, value] = arg.getChildren();
+        return `Record<${PythonProgram.getTypeAnnotation(key, options) ?? "string"}, ${
+          PythonProgram.getTypeAnnotation(value, options) ?? "unknown"
+        }>`;
       }
 
       case ArgTag.UNION: {
