@@ -137,7 +137,7 @@ export class Leaderboard<T> {
   /**
    * Get a random leader from the leaderboard. This random selection
    * is biased by recentness, so that more recent additions to the
-   * leaderbnoard are more likely to be returned than older ones.
+   * leaderboard are more likely to be returned than older ones.
    *
    * @param `prng` pseudo random number generator
    * @returns a random leader

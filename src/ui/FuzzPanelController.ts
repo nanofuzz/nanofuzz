@@ -3221,6 +3221,30 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         break;
       }
 
+      // BigInt-specific Options
+      case fuzzer.ArgTag.BIGINT: {
+        const interval = arg.getIntervals()[0];
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
+          BigInt(interval.min as string | number | bigint | boolean).toString()
+        )}">Min value</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-max" name="${idBase}-max" value="${htmlEscape(
+          BigInt(interval.max as string | number | bigint | boolean).toString()
+        )}">Max value</vscode-text-field>`;
+        html += " ";
+        html +=
+          /*html*/
+          `<vscode-radio-group style="display: inline-block;">
+            <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
+              arg.getOptions().numInteger ? " checked " : ""
+            }>Integer</vscode-radio>
+            <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
+              !arg.getOptions().numInteger ? " checked " : ""
+            }>Float</vscode-radio>
+          </vscode-radio-group>`;
+        break;
+      }
+
       // String-specific Options
       case fuzzer.ArgTag.STRING: {
         // TODO: validate for ints > 0 !!!
@@ -3805,6 +3829,19 @@ function _applyArgOverrides(
           });
         }
         break;
+
+      case fuzzer.ArgTag.BIGINT:
+        if (thisOverride.bigInt) {
+          // Min / Max
+          thisArg.setIntervals([
+            {
+              min: thisOverride.bigInt.min,
+              max: thisOverride.bigInt.max,
+            },
+          ]);
+        }
+        break;
+
       case fuzzer.ArgTag.BOOLEAN:
         if (thisOverride.boolean) {
           // Min / Max

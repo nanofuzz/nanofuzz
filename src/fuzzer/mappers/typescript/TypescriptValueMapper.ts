@@ -87,7 +87,7 @@ function toJavascriptValues(val: unknown): string {
   }
 
   if (typeof val === "bigint") {
-    throw new Error("Bigints are not supported");
+    return String(val) + "n";
   }
 
   if (typeof val === "symbol") {
