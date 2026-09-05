@@ -49,6 +49,49 @@ export abstract class AbstractRunner {
   }
 }
 
+/**
+ * Coverage reported for one file. Used in Python
+ */
+export type CoverageInfo = {
+  executable: number[]; // static: all executable lines
+  functions: FunctionInfo[]; // static: all functions
+  branches: BranchInfo[]; // static: all branch points
+  lines?: number[]; // dynamic: lines executed by this one call
+  arcs?: Arc[]; // dynamic: arcs taken by this one call
+};
+
+/**
+ * A function in the program under test. `lines` holds only the function's own
+ * executable lines: coverage.py attributes lines per function, so lines inside
+ * a nested function are not charged to its parent.
+ */
+export type FunctionInfo = {
+  name: string; // e.g. "fn" or "Class.method"
+  declLine: number; // the `def` line
+  startLine: number; // first executable line of the body
+  endLine: number; // last executable line of the body
+  lines: number[]; // the function's own executable lines
+};
+
+/**
+ * A branch point: a line with more than one possible exit.
+ */
+export type BranchInfo = {
+  line: number; // the branching line
+  exits: BranchExit[]; // every destination it can reach
+};
+
+/**
+ * One possible exit from a branch. `dest` is the raw arc target, used to match
+ * against the arcs actually taken. coverage.py uses non-positive `dest` values
+ * to mean "left the enclosing scope"; those have no line of their own, so
+ * `line` reports where to display them (the branch line itself).
+ */
+export type BranchExit = {
+  dest: number; // arc target, for matching against `Arc`s
+  line: number; // where to display this exit
+};
+
 export type RunnerResult = {
   result: (
     | { tag: "timeout" }
@@ -60,20 +103,39 @@ export type RunnerResult = {
         source?: "put" | "host"; // if the error originated within the put
         coverageData?: number[]; // lines executed by this call
         coverageArcs?: Arc[]; // arcs taken by this call
+        staticCoverage?: Record<string, CoverageInfo>;
+      }
+    | {
+        tag: "skip";
+        message: string;
+        coverageData?: number[]; // lines executed by this call
+        coverageArcs?: Arc[]; // arcs taken by this call
+        staticCoverage?: Record<string, CoverageInfo>;
       }
     | {
         tag: "value";
         value: unknown;
         coverageData?: number[]; // lines executed by this call
         coverageArcs?: Arc[]; // arcs taken by this call
+        staticCoverage?: Record<string, CoverageInfo>;
       }
   ) & { seq: number };
   env: VmGlobals;
 };
 
+export type TypeHint =
+  | "uuid"
+  | "bytes"
+  | "default"
+  | { kind: "array"; element: TypeHint }
+  | { kind: "tuple"; elements: TypeHint[] }
+  | { kind: "object"; fields: Record<string, TypeHint> }
+  | { kind: "union"; arms: TypeHint[] };
+
 export type RunnerInput = {
   args: unknown[];
   seq: number;
+  typeHints?: TypeHint[];
 };
 
 /**

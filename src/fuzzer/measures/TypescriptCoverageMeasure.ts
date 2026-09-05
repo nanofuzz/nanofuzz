@@ -1,4 +1,4 @@
-import * as JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createSourceMapStore, MapStore } from "istanbul-lib-source-maps";
 import { RawSourceMap } from "source-map";
@@ -112,8 +112,13 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
       throw new Error("No current coverage data found");
     }
 
-    // Shallow clone the raw current coverage data
-    const currentCoverageData = { ...this._coverageData };
+    // Snapshot the raw current coverage data. A shallow clone would share
+    // the `s`, `f`, and `b` counters with the instrumented code, which
+    // mutates them during the next test and zeroes them in
+    // `onBeforeNextTestExecution`. Anything retaining those objects --
+    // this measurement, and the global map on its first merge -- would
+    // otherwise be rewritten or emptied after the fact.
+    const currentCoverageData = this._snapshot();
 
     // Merge the current coverage into root predecessor
     const pred =
@@ -126,7 +131,10 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     while (nextPred) {
       if (!nextPred.pred) {
         accumBefore = this._toNumber(nextPred.meas.coverageMeasure.accum);
-        nextPred.meas.coverageMeasure.accum.merge(currentCoverageData);
+        AbstractCoverageMeasure.better_merge(
+          nextPred.meas.coverageMeasure.accum,
+          currentCoverageData
+        );
         accumAfter = this._toNumber(nextPred.meas.coverageMeasure.accum);
       }
       nextPred = nextPred.pred;
@@ -134,7 +142,10 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
 
     // Merge the current coverage into the global coverage map
     const globalBefore = this._toNumber(this._globalCoverageMap);
-    this._globalCoverageMap.merge(currentCoverageData);
+    AbstractCoverageMeasure.better_merge(
+      this._globalCoverageMap,
+      currentCoverageData
+    );
 
     // Build the measurement object
     const meas = {
@@ -143,7 +154,11 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
         globalDelta: this._toNumber(this._globalCoverageMap) - globalBefore,
-        accum: createCoverageMap(currentCoverageData),
+        // Python version does not have _snapshot, so this is to keep consistency with Python
+        accum: AbstractCoverageMeasure.better_merge(
+          createCoverageMap({}),
+          currentCoverageData
+        ),
         accumDelta: accumAfter - accumBefore,
       },
     };
@@ -217,8 +232,8 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
             const fileSummary = tsCoverageMap
               .fileCoverageFor(filePath)
               .toSummary();
-            const fileMap = JSON5.parse<FileCoverage>(
-              JSON5.stringify(tsCoverageMap.fileCoverageFor(filePath))
+            const fileMap = JSONN.parse<FileCoverage>(
+              JSONN.stringify(tsCoverageMap.fileCoverageFor(filePath))
             );
             // Omit functions and branches with no hits
             for (const k of Object.keys(fileMap.f)) {
@@ -261,6 +276,37 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
         };
       };
   } // fn: onRunEnd
+
+  /**
+   * Returns a private copy of the current coverage data.
+   *
+   * Only the `s`, `f`, and `b` counters are copied: those are the objects
+   * the instrumented code increments and `onBeforeNextTestExecution` zeroes,
+   * so anything that outlives the current test needs its own. The location
+   * maps are shared, because nothing mutates them in place -- istanbul's
+   * `FileCoverage.merge` replaces them on its target rather than editing
+   * them -- and copying them for every test costs far more than the
+   * counters themselves.
+   *
+   * @returns a copy of the current coverage data that no other object holds
+   */
+  protected _snapshot(): CoverageMapData {
+    const snapshot: CoverageMapData = {};
+    for (const path of Object.keys(this._coverageData)) {
+      const fileCoverage = this._coverageData[path];
+      const b: FileCoverage["b"] = {};
+      for (const bKey of Object.keys(fileCoverage.b)) {
+        b[bKey] = [...fileCoverage.b[bKey]];
+      }
+      snapshot[path] = {
+        ...fileCoverage,
+        s: { ...fileCoverage.s },
+        f: { ...fileCoverage.f },
+        b,
+      };
+    }
+    return snapshot;
+  } // fn: _snapshot
 
   /**
    * Returns a numeric value that is the sum of branches, statements, and

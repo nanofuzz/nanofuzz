@@ -1,8 +1,9 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "./ArgDef";
+import * as RegexStringBuilder from "./RegexStringBuilder";
+import * as JSONN from "../../Jsonn";
 import {
   ArgTag,
-  ArgType,
   ArgValueType,
   ArgOptions,
   Interval,
@@ -22,7 +23,7 @@ export class ArgDefGenerator {
    * @param `argDefs` array of ArgDef specs that describe the shape of values
    * @param `prng` pseudo-random number generator
    */
-  public constructor(argDefs: ArgDef<ArgType>[], prng: seedrandom.prng) {
+  public constructor(argDefs: ArgDef[], prng: seedrandom.prng) {
     this._prng = prng;
     this._gens = argDefs.map((argDef) =>
       generateRandomInputFn(argDef, this._prng)
@@ -46,14 +47,18 @@ export class ArgDefGenerator {
    * @param `spec` ArgDef spec that describes the shape of the values
    * @param `prng` pseudo random number generator
    * @param `genDims` generate array dimensions? (default: `true`)
+   * @param `allowOptional` permit optional arguments to generate undefined? (default: `true`)
+   *        E.g., ArgDefMutator sets this to `false` to force generation of a new value
+   *        for an optional object member that was previously missing.
    * @returns value that conforms to the ArgDef specs
    */
   public static gen(
-    spec: ArgDef<ArgType>,
+    spec: ArgDef,
     prng: seedrandom.prng,
-    genDims = true
+    genDims = true,
+    allowOptional = true
   ): ArgValueType {
-    return generateRandomInputFn(spec, prng, genDims)();
+    return generateRandomInputFn(spec, prng, genDims, allowOptional)();
   }
 } // class: ArgDefGenerator
 
@@ -74,17 +79,20 @@ type PublicRandFn = () => ArgValueType;
  *
  * @param `arg` the argument definition for which to generate an input
  * @param `prng` pseudo-random number generator
+ * @param `genDims` whether to generate dimensions for array arguments
+ * @param `allowOptional` whether optional arguments may generate undefined
  * @returns a function that generates pseudo-random input values
  *
  * Throws an exception if the argument type is not supported.
  *
  * TODO: bias selection of input interval based on interval size
  */
-function generateRandomInputFn<T extends ArgType>(
-  arg: ArgDef<T>,
+function generateRandomInputFn(
+  arg: ArgDef,
   prng: seedrandom.prng,
   genDims = true /* true=generate array dimensions if present;
-                    false=generate only the value */
+                    false=generate only the value */,
+  allowOptional = true
 ): PublicRandFn {
   let randFn: PrivateRandFn;
 
@@ -102,6 +110,9 @@ function generateRandomInputFn<T extends ArgType>(
       break;
     case ArgTag.STRING:
       randFn = getRandomString;
+      break;
+    case ArgTag.BYTES:
+      randFn = getRandomBytes;
       break;
     case ArgTag.LITERAL:
       randFn = getLiteral;
@@ -206,6 +217,10 @@ function generateRandomInputFn<T extends ArgType>(
   const options = arg.getOptions();
   const dimLength = arg.getOptions().dimLength;
   const isOptional = arg.isOptional();
+  const regexGenerator =
+    type === ArgTag.STRING && options.strRegex !== undefined
+      ? RegexStringBuilder.create(options.strRegex, prng, options)
+      : undefined;
 
   // Callback fn to generate value
   const randFnWrapper: PublicRandFn = () => {
@@ -225,6 +240,7 @@ function generateRandomInputFn<T extends ArgType>(
       }
     }
     if (type === ArgTag.LITERAL && !intervals.length) return undefined;
+    if (regexGenerator) return regexGenerator();
 
     // TODO: weight interval selection based on the size of the interval !!!
     const interval =
@@ -240,14 +256,65 @@ function generateRandomInputFn<T extends ArgType>(
   };
 
   // If the arg is an array, return the array generator
-  const randArgValueWrapper: PublicRandFn =
-    dimLength.length && genDims
-      ? () => nArray(prng, randFnWrapper, dimLength, options)
-      : randFnWrapper;
+  let randArgValueWrapper: PublicRandFn;
+  const constantLeaves =
+    dimLength.length === 1 &&
+    genDims &&
+    options.dimsUnique &&
+    type === ArgTag.UNION
+      ? getDiscreteConstantLeaves(arg)
+      : undefined;
+
+  if (constantLeaves !== undefined) {
+    randArgValueWrapper = () => {
+      const dim = dimLength[0];
+      const targetLen = getRandomNumber(
+        prng,
+        dim.min,
+        dim.max,
+        ArgDef.getDefaultOptions()
+      );
+
+      if (constantLeaves.length < targetLen) {
+        return nArray(prng, randFnWrapper, dimLength, options);
+      }
+
+      // Partial Fisher-Yates shuffle over constant leaf indices
+      const indices = Array.from(
+        { length: constantLeaves.length },
+        (_, idx) => idx
+      );
+      for (let i = 0; i < targetLen; i++) {
+        const j = getRandomNumber(
+          prng,
+          i,
+          constantLeaves.length - 1,
+          ArgDef.getDefaultOptions()
+        );
+        const temp = indices[i];
+        indices[i] = indices[j];
+        indices[j] = temp;
+      }
+
+      // Generate values for the targetLen selected unique constant leaves
+      const result: ArgValueType[] = [];
+      for (let i = 0; i < targetLen; i++) {
+        result.push(
+          generateRandomInputFn(constantLeaves[indices[i]], prng, false)()
+        );
+      }
+      return result;
+    };
+  } else {
+    randArgValueWrapper =
+      dimLength.length && genDims
+        ? () => nArray(prng, randFnWrapper, dimLength, options)
+        : randFnWrapper;
+  }
 
   // Inject undefined values into arg only if it is optional
   // and we are not generating values inside an array
-  return isOptional && genDims
+  return isOptional && genDims && allowOptional
     ? () => {
         if (prng() >= 0.5) return undefined;
         else return randArgValueWrapper();
@@ -355,7 +422,7 @@ const getRandomString: PrivateRandFn = (
   if (typeof min !== "string" || typeof max !== "string")
     throw new Error("Min and max must be strings");
 
-  const charSet = options.strCharset;
+  const charSet = Array.from(options.strCharset);
   const intOptions = ArgDef.getDefaultOptions(); // use default for integer selection
 
   // This generator does not currently support min and max, but we don't make
@@ -372,13 +439,33 @@ const getRandomString: PrivateRandFn = (
   // Note: This provides a uniform distribution at each position, but
   //       the distribution of output is not uniform.
   const charSetLen = charSet.length - 1;
-  let outStr = "";
+  const outChars: string[] = [];
   for (let i = 0; i < strLen; i++) {
-    outStr += charSet[getRandomNumber(prng, 0, charSetLen, intOptions)];
+    outChars.push(charSet[getRandomNumber(prng, 0, charSetLen, intOptions)]);
   }
 
-  return outStr;
+  return outChars.join("");
 }; // fn: getRandomString
+
+const getRandomBytes: PrivateRandFn = (
+  prng: seedrandom.prng,
+  _min: ArgValueType,
+  _max: ArgValueType,
+  options: ArgOptions
+): Uint8Array => {
+  const intOptions = ArgDef.getDefaultOptions();
+  const bytesLen = getRandomNumber(
+    prng,
+    options.byteLength.min,
+    options.byteLength.max,
+    intOptions
+  );
+  const outBytes = new Uint8Array(bytesLen);
+  for (let i = 0; i < bytesLen; i++) {
+    outBytes[i] = getRandomNumber(prng, 0, 255, intOptions);
+  }
+  return outBytes;
+}; // fn: getRandomBytes
 
 /**
  * Adapted from: https://stackoverflow.com/a/12588826
@@ -392,28 +479,94 @@ const getRandomString: PrivateRandFn = (
  * @param `genFn` generator for array element inputs
  * @param `dimLength` array of lengths for each n-dimension
  * @param `options` argument option set
+ * @param `currDepth` current depth of recursion (default: 0)
  * @returns n-dimensional array of random values
  */
 const nArray = (
   prng: seedrandom.prng,
   genFn: PublicRandFn,
   dimLength: Interval<number>[],
-  options: ArgOptions
+  options: ArgOptions,
+  currDepth = 0
 ): ArgValueType => {
   if (dimLength.length) {
     const [dim, ...rest] = dimLength; // split the array: head, tail
     const newArray: ArgValueType[] = []; // output array
+    const seen =
+      currDepth === 0 && options.dimsUnique ? new Set<string>() : undefined;
     const thisDim = getRandomNumber(
       prng,
       dim.min,
       dim.max,
       ArgDef.getDefaultOptions()
     );
-    for (let i = 0; i < thisDim; i++) {
-      newArray[i] = nArray(prng, genFn, rest, options);
+    // Only outer elements must be unique; nested dimensions may repeat. When
+    // a finite value domain is exhausted, keep the generated prefix if it
+    // already satisfies the minimum dimension length, or fail if it cannot.
+    elementLoop: for (let i = 0; i < thisDim; i++) {
+      let attempts = 0;
+      while (true) {
+        // TODO: generate unique by construction when dims>0 && dimUnique
+        const value = nArray(prng, genFn, rest, options, currDepth + 1);
+        if (!seen) {
+          newArray[i] = value;
+          continue elementLoop;
+        }
+
+        const serializedValue = JSONN.stringify(value);
+        if (!seen.has(serializedValue)) {
+          seen.add(serializedValue);
+          newArray[i] = value;
+          continue elementLoop;
+        }
+
+        if (++attempts > 50) {
+          if (newArray.length >= dim.min) {
+            break elementLoop; // return if it satisfies the min length constraint
+          }
+          throw new Error(
+            "Unable to generate enough unique array element. Are constraints possible to meet?"
+          );
+        }
+      }
     }
     return newArray;
   } else {
     return genFn(); // Base case -- just an array of values
   }
 }; // fn: nArray
+
+/**
+ * Recursively collects discrete, constant leaf ArgDefs from a UNION argument.
+ * Returns undefined if any non-constant or non-discrete child is present.
+ */
+const getDiscreteConstantLeaves = (arg: ArgDef): ArgDef[] | undefined => {
+  const leaves: ArgDef[] = [];
+  const visited = new Set<string>();
+
+  function collect(node: ArgDef): boolean {
+    if (node.isNoInput()) return true;
+    if (node.getType() === ArgTag.UNION) {
+      const children = node.getChildren().filter((c) => !c.isNoInput());
+      if (children.length === 0) return false;
+      for (const child of children) {
+        if (!collect(child)) return false;
+      }
+      return true;
+    }
+    if (node.getDim() === 0 && node.isConstant()) {
+      const val = JSONN.stringify(node.getConstantValue());
+      if (!visited.has(val)) {
+        visited.add(val);
+        leaves.push(node);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  if (collect(arg) && leaves.length > 0) {
+    return leaves;
+  }
+  return undefined;
+};

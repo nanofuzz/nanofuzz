@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
-import JSON5 from "json5";
+import * as JSONN from "../Jsonn";
 
 /**
  * Type guard function that returns true if the input object
@@ -48,14 +48,14 @@ export function normalizePathForKey(rawPath: string): string {
  * Extracts an error message from an unknown exception value.
  *
  * If the value is an Error-like object (has message and stack),
- * returns the message. Otherwise, stringifies the value using JSON5.
+ * returns the message. Otherwise, stringifies the value using JSONN.
  *
  * @param e the exception value to extract a message from
  *
  * @returns the error message string
  */
 export function getErrorMessageOrJson(e: unknown): string {
-  return isError(e) ? e.message : JSON5.stringify(e);
+  return isError(e) ? e.message : JSONN.stringify(e);
 } // fn: getErrorMessageOrJson
 
 /**

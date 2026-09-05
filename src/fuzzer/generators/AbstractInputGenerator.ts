@@ -1,7 +1,7 @@
 import seedrandom from "seedrandom";
-import { ArgType } from "../analysis/Types";
 import { ArgDef } from "../analysis/ArgDef";
 import { InputAndSource } from "./../Types";
+import { FuzzTestResults } from "../Fuzzer";
 import { InputGeneratorStats } from "./Types";
 
 /**
@@ -17,7 +17,7 @@ export abstract class AbstractInputGenerator {
    * @param `specs` ArgDef specs that describe the inputs to generate
    * @param `rngSeed` seed for pseudo random nunber generator
    */
-  protected constructor(specs: ArgDef<ArgType>[], rngSeed: string | undefined) {
+  protected constructor(specs: ArgDef[], rngSeed: string | undefined) {
     this._specs = specs;
     this._prng = seedrandom(rngSeed);
   } // fn: constructor
@@ -43,7 +43,12 @@ export abstract class AbstractInputGenerator {
 
   /**
    * Returns true If the generator has inputs available for use
-   * and false otherwise.
+   * and false otherwise. If it returns true, the next `next()` call
+   * should not fail.
+   *
+   * Note: since generators can have asynchronous behavior, `next()` could
+   * still succeed even when `nextable()` is false. E.g., AiInputGenerator
+   * could receive a response between `nextable()` and `next()`.
    */
   public nextable(): boolean {
     return true;
@@ -59,7 +64,7 @@ export abstract class AbstractInputGenerator {
   /**
    * Executes any tasks when the test run ends
    */
-  public onRunEnd(): void {
+  public async onRunEnd(_results?: FuzzTestResults): Promise<void> {
     return;
   } // fn: onRunEnd
 }

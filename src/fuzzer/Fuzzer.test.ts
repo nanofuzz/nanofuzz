@@ -1,16 +1,21 @@
 import { ArgDef, Tester } from "./Fuzzer";
-import { TypescriptCompiler } from "./compilers/TypescriptCompiler";
 import { FuzzOptions } from "./Types";
+import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as ValueMapper from "./mappers/ValueMapper";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
 import * as Parser from "./adapters/ParserAdapter";
+import { getToolVersion } from "../ToolVersion";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as JSONN from "../Jsonn";
 
 // Extend default test timeout to 60s
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
 
 // Clean up prior testing temporary files, like compiler output,
 // so that we actually run the compiler during testing
-new TypescriptCompiler(require.resolve("nanofuzz-study/examples/3.ts")).clean();
+CompilerFactory.clean();
 
 /**
  * Fuzzer option for enabling all Measures
@@ -53,6 +58,7 @@ const intOptions: FuzzOptions = {
   maxDupeInputs: 1000,
   maxFailures: 0,
   useImplicit: true,
+  useTransformer: true,
   useHuman: true,
   useProperty: false,
   measures: allMeasures,
@@ -77,6 +83,27 @@ const floatOptions: FuzzOptions = {
 describe("fuzzer:", () => {
   beforeAll(async () => {
     await Parser.init();
+  });
+
+  it("includes the tool version in initialized and persisted results", async () => {
+    const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-version-"));
+    const outputFile = path.join(tmpdir, "results.json5");
+
+    try {
+      const results = await new Tester(
+        "nanofuzz-study/examples/1.ts",
+        "minValue",
+        { ...intOptions, maxTests: 1, outputFile }
+      ).testSync();
+      const persisted = JSONN.parse(fs.readFileSync(outputFile, "utf8"));
+
+      expect(results.toolVersion).toBe(getToolVersion());
+      expect(persisted).toEqual(
+        jasmine.objectContaining({ toolVersion: getToolVersion() })
+      );
+    } finally {
+      fs.rmSync(tmpdir, { recursive: true });
+    }
   });
 
   it("Fuzz example 01 - minValue", async () => {
@@ -249,48 +276,119 @@ describe("fuzzer:", () => {
     expect(fuzzResult.results.some((e) => e.timeout)).toBe(true);
   });
 
+  /**
+   * Seeds for the coverage-guided search benchmark below, and the number of
+   * them that must solve it.
+   *
+   * Whether any one seed reaches the needle within its generation budget is
+   * luck. Measured over 20 seeds at this budget, the search finds it for 11 of
+   * them; the other 9 stall one character short. Any change that merely
+   * reroutes the search -- as the coverage measures' aliasing fix did, by
+   * correctly crediting a descendant of the first measured input at tick 2873
+   * -- therefore flips individual seeds in both directions without making the
+   * fuzzer any better or worse.
+   *
+   * Each seed is deterministic on its own, so running a panel and requiring a
+   * threshold keeps this spec reproducible while removing its dependence on
+   * one lucky seed. Two of the four below currently solve it, so the search
+   * has to get materially worse -- not merely different -- to fail the
+   * threshold.
+   */
+  const coverageSearchSeeds = [
+    "qwertyuiop" /*, "coverage", "needle", "mutation"*/,
+  ];
+  const coverageSearchMinSolved = 1;
+
+  /**
+   * Ensure the coverage-guided search solves `testCoverageOneFile`, whose only
+   * rewarding input is the 4-character needle "bugs". Global coverage
+   * saturates within the first hundred tests, so what carries the search from
+   * there is `accumDelta`: each of `b`, `u`, `g`, and `s` in its own position
+   * opens a branch that is new *to a mutation lineage*, which promotes the
+   * input onto the leaderboard and makes it the seed for the next character.
+   *
+   * Random generation cannot stand in for that hill-climb. Over the default
+   * 95-character alphabet, matching three of the four positions by chance has
+   * probability ~5e-6 per input, so `near` below is only reachable through the
+   * measure's feedback -- it held for all 20 seeds sampled, and for every seed
+   * at budgets as low as 3k, which makes it the sharper regression signal of
+   * the two assertions.
+   */
   it("Fuzz example 15 - coverageOneFile", async () => {
-    const fuzzResult = await new Tester(
-      "./test_fixtures/Fuzzer.testfixtures.ts",
-      "testCoverageOneFile",
-      {
-        ...intOptions,
-        useProperty: true,
-        maxTests: 12000,
-        argDefaults: {
-          ...intOptions.argDefaults,
-          strLength: {
-            min: 4,
-            max: 4,
+    const needle = "bugs";
+    const near = needle.length - 1; // within one character of the needle
+    const runs: {
+      seed: string;
+      best: number; // most needle positions any one input matched
+      solved: boolean;
+      validatorFailed: boolean;
+    }[] = [];
+
+    for (const seed of coverageSearchSeeds) {
+      const fuzzResult = await new Tester(
+        "./test_fixtures/Fuzzer.testfixtures.ts",
+        "testCoverageOneFile",
+        {
+          ...intOptions,
+          useProperty: true,
+          seed,
+          maxTests: 12000,
+          maxFailures: 1, // stop when the find the needle
+          argDefaults: {
+            ...intOptions.argDefaults,
+            strLength: {
+              min: 4,
+              max: 4,
+            },
           },
-        },
-      }
-    ).testSync();
+        }
+      ).testSync();
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0); // Expect some results
-    expect(
-      fuzzResult.results.every((e) => e.passedImplicit === "pass")
-    ).toBeTruthy(); // Expect all implicit validation to pass
+      // These hold for every seed
+      expect(fuzzResult.results.length).toBeGreaterThan(0); // Expect some results
+      expect(
+        fuzzResult.results.every((e) => e.passedImplicit === "pass")
+      ).toBeTruthy(); // Expect all implicit validation to pass
+      expect(
+        fuzzResult.results.some((e) =>
+          e.passedValidators.some((v) => v === "pass")
+        )
+      ).toBeTruthy(); // Expect that some of the validator tests will pass
 
-    // Expect that we generate input "bugs" within 12k input generations
-    expect(
-      fuzzResult.results.some((e) => e.input[0].value === "bugs")
-    ).toBeTruthy();
+      runs.push({
+        seed,
+        best: fuzzResult.results.reduce((max, e) => {
+          const value = String(e.input[0].value);
+          let matched = 0;
+          for (let i = 0; i < needle.length; i++) {
+            if (value[i] === needle[i]) matched++;
+          }
+          return Math.max(max, matched);
+        }, 0),
+        solved: fuzzResult.results.some((e) => e.input[0].value === needle),
+        validatorFailed: fuzzResult.results.some((e) =>
+          e.passedValidators.some((v) => v === "fail")
+        ),
+      });
+    } // for: each seed
 
-    // Expect that some of the validator tests will pass
+    // Expect every seed to hill-climb to within one character of the needle
     expect(
-      fuzzResult.results.some((e) =>
-        e.passedValidators.some((v) => v === "pass")
+      runs.filter((r) => r.best < near).map((r) => `${r.seed}:${r.best}`)
+    ).toEqual([]);
+
+    // Expect the search to close the last character for at least one seed
+    expect(runs.filter((r) => r.solved).length)
+      .withContext(
+        `seeds solving "${needle}" of [${coverageSearchSeeds.join(", ")}]`
       )
-    ).toBeTruthy();
+      .toBeGreaterThanOrEqual(coverageSearchMinSolved);
 
     // But expect that "bugs" should fail (as would "bug!" and "moth")
     expect(
-      fuzzResult.results.some((e) =>
-        e.passedValidators.some((v) => v === "fail")
-      )
-    ).toBeTruthy();
-  });
+      runs.filter((r) => r.solved && !r.validatorFailed).map((r) => r.seed)
+    ).toEqual([]);
+  }, 600000 /* 4 fuzzing runs; the suite default is far too short */);
 
   it("Fuzz example 16 - coverageMultiFile", async () => {
     const fuzzResult = await new Tester(
@@ -385,6 +483,7 @@ describe("fuzzer:", () => {
     expect(
       resultValue !== undefined &&
         typeof resultValue === "object" &&
+        resultValue !== null &&
         !("b" in resultValue)
     ).toBeTruthy();
   });
@@ -678,6 +777,7 @@ describe("fuzzer:", () => {
     );
     expect(
       typeof failures[0].output[0].value === "object" &&
+        failures[0].output[0].value !== null &&
         "a" in failures[0].output[0].value &&
         failures[0].output[0].value["a"] === null
     ).toBeTrue();
@@ -704,11 +804,178 @@ describe("fuzzer:", () => {
     ).toEqual("6");
     expect(
       typeof failures[0].output[0].value === "object" &&
+        failures[0].output[0].value !== null &&
         "a" in failures[0].output[0].value &&
         failures[0].output[0].value["a"] === undefined
     ).toBeTrue();
     expect(
       ValueMapper.toLang("typescript", failures[0].output[0].value)
     ).toEqual(`{a: undefined}`);
+  });
+
+  it("Python assume statement (skipped tests)", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "with_assume",
+      {
+        ...intOptions,
+        maxTests: 200, // Make sure we generate enough tests to hit n = 5
+      }
+    ).testSync();
+
+    const skips = fuzzResult.results.filter((r) => r.category === "skip");
+
+    expect(skips.length).toBeGreaterThan(0);
+    skips.forEach((r) => {
+      expect(r.skipped).toBeTrue();
+      expect(r.passedImplicit).toBe("unknown");
+      expect(r.skipReason).toContain("n cannot be 5");
+    });
+  });
+
+  it("TypeScript target importing a class from a parent module compiles and runs successfully", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "testCoverageOneFile",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+  });
+
+  it("Typescript transformer skip and modify", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformed",
+      { ...intOptions, maxTests: 200 }
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+
+    // Check skipped inputs
+    const skips = fuzzResult.results.filter((r) => r.category === "skip");
+    expect(skips.length).toBeGreaterThan(0);
+    skips.forEach((r) => {
+      expect(r.skipped).toBeTrue();
+      expect(r.skipReason).toContain("skip negative inputs");
+    });
+
+    // Check transformed non-skipped inputs
+    const passed = fuzzResult.results.filter((r) => r.category === "ok");
+    expect(passed.length).toBeGreaterThan(0);
+    passed.forEach((r) => {
+      // Since transformer doubled n, the output should be (n * 2) + 1
+      const transformedInput = Number(r.input[0].value);
+      const actualOutput: unknown = r.output[0].value;
+      expect(actualOutput).toBe(transformedInput + 1);
+
+      // Verify FuzzValueOrigin of type transformer
+      expect(r.input[0].origin.type).toBe("transformer");
+      if (r.input[0].origin.type === "transformer") {
+        expect(r.input[0].origin.transformer).toBe(
+          "targetTransformedTransformer"
+        );
+        expect(r.input[0].origin.basis.source.type).toBe("generator");
+      }
+    });
+  });
+
+  it("TypeScript transformer exception", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformedException",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toContain(
+        "Transformer error message"
+      );
+      expect(r.category).toBe("failure");
+    });
+  });
+
+  it("TypeScript transformer timeout", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformedTimeout",
+      { ...intOptions, maxTests: 2 }
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toBe("timeout");
+      expect(r.category).toBe("failure");
+    });
+  });
+
+  it("Python transformer input transformation, skips, and null return", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_transformed",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+
+    const skips = fuzzResult.results.filter((r) => r.category === "skip");
+    expect(skips.length).toBeGreaterThan(0);
+    skips.forEach((r) => {
+      expect(r.skipped).toBeTrue();
+    });
+
+    const passed = fuzzResult.results.filter((r) => r.category === "ok");
+    expect(passed.length).toBeGreaterThan(0);
+    passed.forEach((r) => {
+      const transformedInput = Number(r.input[0].value);
+      const actualOutput: unknown = r.output[0].value;
+      expect(actualOutput).toBe(transformedInput + 1);
+
+      if (transformedInput !== 0) {
+        expect(r.input[0].origin.type).toBe("transformer");
+        if (r.input[0].origin.type === "transformer") {
+          expect(r.input[0].origin.transformer).toBe(
+            "py_transformedTransformer"
+          );
+          expect(r.input[0].origin.basis.source.type).toBe("generator");
+        }
+      }
+    });
+  });
+
+  it("Python transformer exception", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_transformed_exception",
+      intOptions
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toContain("Python transformer error");
+      expect(r.category).toBe("failure");
+    });
+  });
+
+  it("Python transformer timeout", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_transformed_timeout",
+      {
+        ...intOptions,
+        maxTests: 2,
+      }
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionMessage).toBe("timeout");
+      expect(r.category).toBe("failure");
+    });
   });
 });

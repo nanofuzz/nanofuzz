@@ -116,6 +116,7 @@ dist
 /telemetry
 
 # Python residue
+/.venv/
 __pycache__/
 
 # direnv files

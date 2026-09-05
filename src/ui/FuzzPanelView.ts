@@ -1,4 +1,4 @@
-import * as JSON5 from "../Jsonn";
+import * as JSONN from "../Jsonn";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./Util";
 import {
@@ -12,6 +12,7 @@ import {
   isFuzzResultTab,
   Judgment,
 } from "../fuzzer/Types";
+import { getBaseOrigin } from "../Util";
 import * as Parser from "../fuzzer/adapters/ParserAdapter";
 import {
   ArgValueType,
@@ -39,6 +40,7 @@ const gridTypes = [
   "timeout",
   "badValue",
   "ok",
+  "skip",
 ] as const;
 
 // Column name labels
@@ -88,6 +90,7 @@ const defaultColumnSortOrders: FuzzSortColumns = {
   badValue: getDefaultColumnSortOrder(),
   ok: getDefaultColumnSortOrder(),
   disagree: getDefaultColumnSortOrder(),
+  skip: {}, // no pinned column
 };
 
 // Column sort orders (filled by main or handleColumnSort())
@@ -96,6 +99,8 @@ let columnSortOrders: FuzzSortColumns;
 let resultsData: FuzzTestResults;
 // Fuzzer Language (filled by main during load event)
 let lang: ProgramLanguage;
+// PUT input column names (filled by main during load event)
+let putInputCols: string[] = [];
 // Results grouped by type (filled by main during load event)
 const data: Record<FuzzResultCategory, any[]> = {
   ok: [],
@@ -104,6 +109,7 @@ const data: Record<FuzzResultCategory, any[]> = {
   exception: [],
   disagree: [],
   failure: [],
+  skip: [],
 };
 // Validator functions (filled by main during load event)
 let validators: string[];
@@ -131,6 +137,11 @@ async function main() {
   // Add event listener for the fuzz.run button
   getElementByIdOrThrow("fuzz.run").addEventListener("click", () => {
     handleFuzzRun();
+  });
+
+  // Add event listener for the fuzz.continue button
+  getElementByIdOrThrow("fuzz.continue").addEventListener("click", () => {
+    handleFuzzContinue();
   });
 
   // Add event listener for the fuzz.retest button
@@ -254,6 +265,12 @@ async function main() {
   getElementByIdOrThrow(`validator.getList`).addEventListener(
     "click",
     handleGetListOfValidators
+  );
+
+  // Add event listener for the transformer button
+  getElementByIdOrThrow("transformer.add").addEventListener(
+    "click",
+    handleAddTransformer
   );
 
   // Add event listeners for the pause button
@@ -390,23 +407,38 @@ async function main() {
   // ----------------------- Data Loads ----------------------- //
 
   // Load the fuzzer results data from the HTML
-  resultsData = JSON5.parse(
+  resultsData = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzResultsData").innerHTML)
   );
 
   // Load & display the validator functions from the HTML
-  validators = JSON5.parse(
+  validators = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("validators").innerHTML)
   );
   refreshValidators(validators);
 
+  // Load & display the transformer state from the HTML
+  const transformersElem = document.getElementById("transformers");
+  if (transformersElem) {
+    const transformersList: string[] = JSONN.parse(
+      htmlUnescape(transformersElem.innerHTML)
+    );
+    refreshTransformers(transformersList);
+  }
+
   // Load column sort orders from the HTML
-  columnSortOrders = JSON5.parse(
+  columnSortOrders = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
   );
   if (Object.keys(columnSortOrders).length === 0) {
     columnSortOrders = defaultColumnSortOrders;
   }
+  // Ensure all grid types are present in columnSortOrders to prevent runtime exceptions on new categories
+  gridTypes.forEach((type) => {
+    if (columnSortOrders[type] === undefined) {
+      columnSortOrders[type] = { ...defaultColumnSortOrders[type] };
+    }
+  });
 
   // Load the coverage heatmap state from the HTML
   if (getElementByIdOrThrow("fuzzShowCoverageHeatmap").innerText === "true") {
@@ -419,6 +451,9 @@ async function main() {
     switch (data.command) {
       case "validator.list":
         refreshValidators(data.validators);
+        break;
+      case "transformer.list":
+        refreshTransformers(data.transformers);
         break;
       case "config.updated": {
         getElementByIdOrThrow("llm-model").innerText =
@@ -433,8 +468,8 @@ async function main() {
           "fuzzBusyMessageNonMilestone"
         );
         nonMilestone.innerHTML = htmlEscape(data.message.msg);
-        if (data.message.pct) {
-          const pct = Math.min(data.message.pct, 100);
+        if (data.message.channel === "update") {
+          const pct = Math.max(0.1, Math.min(data.message.pct, 100));
           const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
           progressBar.style.width = pct + "%";
           if (pct > 0) {
@@ -466,11 +501,11 @@ async function main() {
   // an 'official' way to directly persist state within the extension itself,
   // at least as of vscode 1.69.2.  Hence, the roundtrip.
   vscode.setState(
-    JSON5.parse(htmlUnescape(getElementByIdOrThrow("fuzzPanelState").innerHTML))
+    JSONN.parse(htmlUnescape(getElementByIdOrThrow("fuzzPanelState").innerHTML))
   );
 
   // Update the list of hidden columns
-  const addlHiddenColumns = JSON5.parse(
+  const addlHiddenColumns = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzHideColumns").innerHTML)
   );
   if (Array.isArray(addlHiddenColumns)) {
@@ -478,8 +513,13 @@ async function main() {
   }
 
   // Get the fuzzer language
-  lang = JSON5.parse<ProgramLanguage>(
+  lang = JSONN.parse<ProgramLanguage>(
     htmlUnescape(getElementByIdOrThrow("fuzzLang").innerHTML)
+  );
+
+  // Get the PUT's current input argument names
+  putInputCols = JSONN.parse<string[]>(
+    htmlUnescape(getElementByIdOrThrow("fuzzInputCols").innerHTML)
   );
 
   // ----------------------- Fill Grids ----------------------- //
@@ -493,6 +533,23 @@ async function main() {
       data[type] = [];
     });
 
+    // Calculate maximum number of arguments present in the data
+    let dataInputColCount = 0;
+    for (const e of resultsData.results) {
+      if (e.input.length > dataInputColCount) {
+        dataInputColCount = e.input.length;
+      }
+    }
+
+    // An empty input set containing the maximum number
+    // of arguments present in the data.
+    const emptyInputs: Record<string, string> = {};
+    for (let i = 0; i < dataInputColCount; i++) {
+      emptyInputs[
+        `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`
+      ] = "(no input)";
+    }
+
     // Loop over each result
     let idx = 0;
     for (const e of resultsData.results) {
@@ -501,9 +558,8 @@ async function main() {
       const id = { [idLabel]: idx++ };
 
       // Input Source
-      const inputSrc: FuzzValueOrigin = e.input.length
-        ? e.input[0].origin
-        : { type: "unknown" };
+      const inputSrc: Exclude<FuzzValueOrigin, { type: "transformer" }> =
+        getBaseOrigin(e.input.length ? e.input[0].origin : { type: "unknown" });
       let src: { [srcLabel]: string };
       switch (inputSrc.type) {
         case "unknown":
@@ -528,7 +584,7 @@ async function main() {
               break;
             default:
               throw new Error(
-                `Unexpected FuzzValueOrigin generator at input# ${idx}: ${JSON5.stringify(
+                `Unexpected FuzzValueOrigin generator at input# ${idx}: ${JSONN.stringify(
                   inputSrc
                 )}`
               );
@@ -536,7 +592,7 @@ async function main() {
           break;
         default:
           throw new Error(
-            `Unexpected FuzzValueOrigin at input# ${idx}: ${JSON5.stringify(
+            `Unexpected FuzzValueOrigin at input# ${idx}: ${JSONN.stringify(
               inputSrc
             )}`
           );
@@ -572,14 +628,15 @@ async function main() {
       });
 
       // Name each input argument and make it clear which inputs were not provided
-      // (i.e., the argument was optional).  Otherwise, stringify the value for
-      // display.
-      const inputs: Record<string, string> = {};
-      e.input.forEach((i) => {
-        inputs[`input: ${i.name}`] =
-          i.value === undefined
+      // (i.e., it was optional). Otherwise, translate & display the value.
+      const inputs: Record<string, string> = { ...emptyInputs };
+      e.input.forEach((input, i) => {
+        inputs[
+          `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`
+        ] =
+          input.value === undefined
             ? "(no input)"
-            : ValueMapper.toLang(lang, i.value);
+            : ValueMapper.toLang(lang, input.value);
       });
 
       // There are 0-1 outputs: if an output is present, just name it `output`
@@ -601,14 +658,17 @@ async function main() {
       if (e.timeout) {
         outputs[`output`] = "(timeout)";
       }
+      if (e.skipped) {
+        outputs[`output`] = e.skipReason ?? "(none provided)";
+      }
 
       // Toss each result into the appropriate grid
-      if (e.category === "failure") {
+      if (e.category === "failure" || e.category === "skip") {
         data[e.category].push({
           ...id,
           ...src,
           ...inputs,
-          ...outputs, // Exception message contained in outputs
+          ...outputs, // message contained in outputs
         });
       } else {
         data[e.category].push({
@@ -616,10 +676,8 @@ async function main() {
           ...src,
           ...inputs,
           ...outputs,
-          //...elapsedTimes,
           ...passedImplicit,
           ...passedValidator,
-          // ...allValidators,
           ...validatorFns,
           ...passedHuman,
           ...pinned,
@@ -784,7 +842,11 @@ async function main() {
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             const label =
-              type === "failure" && k === "output" ? "exception" : k;
+              type === "failure" && k === "output"
+                ? "exception"
+                : type === "skip" && k === "output"
+                  ? "reason"
+                  : k;
             cell.id = type + "-" + k;
             cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
             cell.innerHTML = `<strong>${htmlEscape(label)}</strong>`;
@@ -822,7 +884,7 @@ async function main() {
     // If we need to toast a result, do that now
     const toastResultElement = document.getElementById("fuzzFocusInput");
     if (toastResultElement) {
-      const toastResult: unknown = JSON5.parse(
+      const toastResult: unknown = JSONN.parse(
         htmlUnescape(toastResultElement.innerHTML)
       );
       if (
@@ -838,7 +900,7 @@ async function main() {
         );
       } else {
         throw new Error(
-          `Command to toast result ${JSON5.stringify(toastResult)} is invalid.`
+          `Command to toast result ${JSONN.stringify(toastResult)} is invalid.`
         );
       }
     }
@@ -890,14 +952,14 @@ function handleAddTestInput() {
   // Only call the fuzzer if the input is not already in the grid
   const tick = resultsData.results.findIndex(
     (r) =>
-      JSON5.stringify(r.input.map((i) => i.value)) ===
-      JSON5.stringify(overrides.input?.map((i) => i.value))
+      JSONN.stringify(r.input.map((i) => i.value)) ===
+      JSONN.stringify(overrides.input?.map((i) => i.value))
   );
   if (tick === -1) {
     // Call the extension to test this one input
     const message: FuzzPanelMessageFromWebView = {
       command: "fuzz.addTestInput",
-      json: JSON5.stringify(overrides),
+      json: JSONN.stringify(overrides),
     };
     vscode.postMessage(message);
   } else {
@@ -1132,7 +1194,7 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   window.setTimeout(() => {
     const message: FuzzPanelMessageFromWebView = {
       command: pinning ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(msg),
+      json: JSONN.stringify(msg),
     };
     vscode.postMessage(message);
 
@@ -1248,7 +1310,7 @@ function handleCorrectToggle(
   window.setTimeout(() => {
     const message: FuzzPanelMessageFromWebView = {
       command: isPinned ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(msg),
+      json: JSONN.stringify(msg),
     };
     vscode.postMessage(message);
   });
@@ -1296,7 +1358,7 @@ function toggleExpandColumn(type: FuzzResultCategory) {
       : FuzzSortOrder.desc;
   const message: FuzzPanelMessageFromWebView = {
     command: "columns.sorted",
-    json: JSON5.stringify(columnSortOrders),
+    json: JSONN.stringify(columnSortOrders),
   };
   vscode.postMessage(message);
 } // fn: toggleExpandColumn
@@ -1475,7 +1537,7 @@ function handleColumnSort(
 
     const message: FuzzPanelMessageFromWebView = {
       command: "columns.sorted",
-      json: JSON5.stringify(columnSortOrders),
+      json: JSONN.stringify(columnSortOrders),
     };
     vscode.postMessage(message);
   }
@@ -1744,7 +1806,6 @@ function drawTableBody({
         cell2.classList.add("colGroupEnd", "clickable");
       } else {
         const cell = row.appendChild(document.createElement("td"));
-        const span = cell.appendChild(document.createElement("span"));
         cell.classList.add(
           `tableCol-${k.replace(" ", "")}`,
           `editorFont`,
@@ -1753,7 +1814,52 @@ function drawTableBody({
         if (e[k] === "(no input)") {
           cell.classList.add("noInput");
         }
+
+        const span = cell.appendChild(document.createElement("span"));
         span.textContent = e[k];
+
+        if (k.startsWith("input: ") && id >= 0 && resultsData.results[id]) {
+          const res = resultsData.results[id];
+          const inputIndex = res.input.findIndex((_inp, i) => {
+            const colKey = `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`;
+            return colKey === k;
+          });
+          if (inputIndex !== -1) {
+            const inputEl = res.input[inputIndex];
+            if (
+              inputEl &&
+              inputEl.origin &&
+              inputEl.origin.type === "transformer"
+            ) {
+              const basis = inputEl.origin.basis;
+              const originalWrapped = basis.value[inputIndex];
+              const originalVal = originalWrapped
+                ? originalWrapped.value
+                : undefined;
+              const origValueStr =
+                originalVal === undefined
+                  ? "(no input)"
+                  : ValueMapper.toLang(lang, originalVal);
+
+              const tooltipSpan = cell.appendChild(
+                document.createElement("span")
+              );
+              tooltipSpan.classList.add("tooltipped", "tooltipped-s");
+              const tooltipText = `Pre-transformed input: ${origValueStr}`;
+              tooltipSpan.setAttribute("aria-label", tooltipText);
+              tooltipSpan.style.marginLeft = "0.3em";
+
+              const iconSpan = tooltipSpan.appendChild(
+                document.createElement("span")
+              );
+              iconSpan.classList.add(
+                "codicon",
+                "codicon-replace",
+                "editorFont"
+              );
+            }
+          }
+        }
       }
     });
   });
@@ -1875,7 +1981,7 @@ function handleExpectedOutput({
           window.setTimeout(() => {
             const message: FuzzPanelMessageFromWebView = {
               command: "test.pin",
-              json: JSON5.stringify(msg),
+              json: JSONN.stringify(msg),
             };
             vscode.postMessage(message);
           });
@@ -2065,7 +2171,19 @@ function buildExpectedTestCase(
 function handleFuzzRun() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.run",
-    json: JSON5.stringify(getConfigFromUi()),
+    json: JSONN.stringify(getConfigFromUi()),
+  };
+  vscode.postMessage(message);
+} // fn: handleFuzzRun
+
+/**
+ * Handles the fuzz.continue button onClick() event: retrieves the fuzzer options
+ * from the UI and sends them to the extension to start the fuzzer.
+ */
+function handleFuzzContinue() {
+  const message: FuzzPanelMessageFromWebView = {
+    command: "fuzz.continue",
+    json: JSONN.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
 } // fn: handleFuzzRun
@@ -2077,7 +2195,7 @@ function handleFuzzRun() {
 function handleFuzzRetest() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.retest",
-    json: JSON5.stringify(getConfigFromUi()),
+    json: JSONN.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
 } // fn: handleFuzzRetest
@@ -2089,7 +2207,7 @@ function handleFuzzRetest() {
 function handleFuzzClear() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.clear",
-    json: JSON5.stringify(getConfigFromUi()),
+    json: JSONN.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
 } // fn: handleFuzzClear
@@ -2192,6 +2310,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
       useImplicit: getBooleanValue("useImplicit"),
       useHuman: true, // always active
       useProperty: getBooleanValue("useProperty"),
+      useTransformer: getBooleanValue("useTransformer"),
       measures: {
         CoverageMeasure: {
           enabled:
@@ -2253,7 +2372,10 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const falseOnly = document.getElementById(idBase + "-falseOnly");
     const minStrLen = document.getElementById(idBase + "-minStrLen");
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
+    const minByteLen = document.getElementById(idBase + "-minByteLen");
+    const maxByteLen = document.getElementById(idBase + "-maxByteLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
+    const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
 
     // Process numeric overrides
@@ -2281,10 +2403,16 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
 
     // Process string overrides
     if (minStrLen && maxStrLen && strCharset) {
-      disableArr.push(minStrLen, maxStrLen);
+      disableArr.push(
+        minStrLen,
+        maxStrLen,
+        strCharset,
+        ...(strRegex ? [strRegex] : [])
+      );
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
       const strCharsetVal = strCharset.getAttribute("current-value");
+      const strRegexVal = strRegex?.getAttribute("current-value");
       if (
         minStrLenVal !== null &&
         maxStrLenVal !== null &&
@@ -2297,9 +2425,26 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           ),
           maxStrLen: Math.max(Number(minStrLenVal), Number(maxStrLenVal), 0),
           strCharset: strCharsetVal,
+          strRegex: strRegexVal === "" ? undefined : (strRegexVal ?? undefined),
         };
       }
     } // TODO: Validation !!!
+
+    // Process bytes overrides
+    if (minByteLen && maxByteLen) {
+      disableArr.push(minByteLen, maxByteLen);
+      const minByteLenVal = minByteLen.getAttribute("current-value");
+      const maxByteLenVal = maxByteLen.getAttribute("current-value");
+      if (minByteLenVal !== null && maxByteLenVal !== null) {
+        thisOverride.bytes = {
+          minByteLen: Math.max(
+            0,
+            Math.min(Number(minByteLenVal), Number(maxByteLenVal))
+          ),
+          maxByteLen: Math.max(Number(minByteLenVal), Number(maxByteLenVal), 0),
+        };
+      }
+    }
 
     // Process isNoInput overrides
     if (isNoInput !== null) {
@@ -2311,13 +2456,15 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
 
     // Process array dimension overrides
     const dimLength = [];
+    let dimsUnique = false;
     let dim = 0;
     let arrayBase = `${idBase}-array-${dim}`;
     while (document.getElementById(`${arrayBase}-min`) !== null) {
       const min = document.getElementById(`${arrayBase}-min`);
       const max = document.getElementById(`${arrayBase}-max`);
+      const unique = document.getElementById(`${arrayBase}-unique`);
       if (min !== null && max !== null) {
-        disableArr.push(min, max);
+        disableArr.push(min, max, ...(unique ? [unique] : []));
         const minVal = min.getAttribute("current-value");
         const maxVal = max.getAttribute("current-value");
         if (minVal !== null && maxVal !== null) {
@@ -2327,11 +2474,17 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           });
         }
       }
+      if (dim === 0 && unique !== null) {
+        dimsUnique =
+          unique.getAttribute("current-checked") === "true" ||
+          ("checked" in unique && unique.checked === true);
+      }
       arrayBase = `${idBase}-array-${++dim}`;
     }
     if (dimLength.length > 0) {
       thisOverride.array = {
         dimLength: dimLength,
+        dimsUnique: dimsUnique,
       };
     }
   }
@@ -2361,6 +2514,22 @@ function refreshValidators(validatorList: string[]) {
 } // fn: refreshValidators
 
 /**
+ * Refreshes the displayed state for input transformers based on a list of
+ * transformer names provided from the back-end.
+ *
+ * @param transformerList list of available input transformer names
+ */
+function refreshTransformers(transformerList: string[]) {
+  const btn = document.getElementById("transformer.add");
+  if (btn) {
+    btn.innerText =
+      transformerList.length > 0
+        ? "Show Input Transformer"
+        : "Create Input Transformer";
+  }
+} // fn: refreshTransformers
+
+/**
  * Send message to back-end to add code skeleton to source code (because the
  * user clicked the customValidator button)
  */
@@ -2370,6 +2539,16 @@ function handleAddValidator() {
   };
   vscode.postMessage(message);
 } // fn: handleAddValidator()
+
+/**
+ * Send message to back-end to add input transformer code skeleton
+ */
+function handleAddTransformer() {
+  vscode.postMessage({
+    command: "transformer.add",
+    json: JSONN.stringify(""),
+  });
+} // fn: handleAddTransformer()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the

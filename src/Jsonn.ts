@@ -1,16 +1,16 @@
 import * as JSON5 from "json5";
-import { isKeyedObject } from "./Util";
+import { isBufferOrUint8Array, isKeyedObject } from "./Util";
 
 /**
  * JSONN: JavaScript Object Notation for NaNofuzz
  *
  * Mostly a drop-in replacement for JSON5. Adds support for serializing
- * and unserializing `undefined`, including in arrays and object members.
+ * and unserializing `undefined`, `bigint`, and `Uint8Array`, including
+ * within arrays and object members.
  *
- * While JSONN is valid JSON5 and might be parsed ok by JSON5, `undefined`
- * values will be parsed inaccurately by the standard JSON5 library.
- *
- * JSONN output includes the predicate above.
+ * While JSONN is valid JSON5 and might be parsed without error by JSON5,
+ * the special types (`undefined`, `bigint`, and `Uint8Array`) will be
+ * parsed inaccurately by the standard JSON5 library.
  */
 
 /**
@@ -42,20 +42,14 @@ export function stringify(
     | undefined,
   space?: string | number | null | undefined
 ): string {
-  const stats: JsonnStats = { replacements: false };
   const text = JSON5.stringify(
     value,
     replacer
       ? function (this: unknown, key: string, value: unknown): unknown {
-          return jsonnReplacer.call(
-            this,
-            key,
-            replacer.call(this, key, value),
-            stats
-          );
+          return jsonnReplacer.call(this, key, replacer.call(this, key, value));
         }
       : function (this: unknown, key: string, value: unknown): unknown {
-          return jsonnReplacer.call(this, key, value, stats);
+          return jsonnReplacer.call(this, key, value);
         },
     space
   );
@@ -120,7 +114,7 @@ export function parse<T>(
  * @returns stringified placeholder value
  */
 export function getPlaceholder(_key: "undefined"): string {
-  return `{${PlaceHolderKey}:'${UndefinedKey}'}`;
+  return `{${PlaceHolderValueKey}:'${UndefinedValue}'}`;
   //  return Undefined;
 }
 
@@ -132,19 +126,26 @@ export function getPlaceholder(_key: "undefined"): string {
  * @param `value` value at object key
  * @returns the replacement value
  */
-function jsonnReplacer(
-  this: unknown,
-  key: string,
-  value: unknown,
-  stats: JsonnStats
-): unknown {
-  if (value === undefined) {
-    stats.replacements = true;
+function jsonnReplacer(this: unknown, key: string, value: unknown): unknown {
+  if (isBufferOrUint8Array(value)) {
     return {
-      [PlaceHolderKey]: UndefinedKey,
+      [PlaceHolderUint8ArrayKey]: Array.from(value),
     };
   }
-  return value;
+
+  // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
+  switch (typeof value) {
+    case "undefined":
+      return {
+        [PlaceHolderValueKey]: UndefinedValue,
+      };
+    case "bigint":
+      return {
+        [PlaceHolderBigIntKey]: value.toString(),
+      };
+    default:
+      return value;
+  }
 }
 
 /**
@@ -164,18 +165,43 @@ function jsonnReviver(
   value: unknown,
   targets: ReviveTarget[]
 ): unknown {
-  if (
-    isKeyedObject(value) &&
-    PlaceHolderKey in value &&
-    value[PlaceHolderKey] === UndefinedKey
-  ) {
-    if (key === "") {
-      return undefined;
-    } else {
-      if (Array.isArray(this)) {
-        targets.push({ arr: this, key, value: undefined });
-      } else if (isKeyedObject(this)) {
-        targets.push({ obj: this, key, value: undefined });
+  if (isKeyedObject(value)) {
+    if (value[PlaceHolderValueKey] === UndefinedValue) {
+      if (key === "") {
+        return undefined;
+      } else {
+        if (Array.isArray(this)) {
+          targets.push({ arr: this, key, value: undefined });
+        } else if (isKeyedObject(this)) {
+          targets.push({ obj: this, key, value: undefined });
+        }
+      }
+    }
+    if (typeof value[PlaceHolderBigIntKey] === "string") {
+      const newValue = BigInt(String(value[PlaceHolderBigIntKey]));
+      if (key === "") {
+        return newValue;
+      } else {
+        if (Array.isArray(this)) {
+          targets.push({ arr: this, key, value: newValue });
+        } else if (isKeyedObject(this)) {
+          targets.push({ obj: this, key, value: newValue });
+        }
+      }
+    }
+    if (Array.isArray(value[PlaceHolderUint8ArrayKey])) {
+      const arr = value[PlaceHolderUint8ArrayKey];
+      const newValue = new Uint8Array(
+        arr.filter((e): e is number => typeof e === "number")
+      );
+      if (key === "") {
+        return newValue;
+      } else {
+        if (Array.isArray(this)) {
+          targets.push({ arr: this, key, value: newValue });
+        } else if (isKeyedObject(this)) {
+          targets.push({ obj: this, key, value: newValue });
+        }
       }
     }
   }
@@ -187,7 +213,8 @@ type ReviveTarget = {
   value: unknown;
 } & ({ obj: Record<string, unknown> } | { arr: unknown[] });
 
-type JsonnStats = { replacements: boolean };
-
-const PlaceHolderKey = "____JSONN____61581952310____VALUE____";
-const UndefinedKey = "__undefined__";
+export const PlaceHolderValueKey = "____JSONN____61581952310____VALUE____";
+export const PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____";
+export const PlaceHolderUint8ArrayKey =
+  "____JSONN____61581952310____UINT8ARRAY____";
+export const UndefinedValue = "__undefined__";

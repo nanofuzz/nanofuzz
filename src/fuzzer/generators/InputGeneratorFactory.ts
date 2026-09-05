@@ -18,11 +18,12 @@ export function InputGeneratorFactory(
   options: FuzzOptions["generators"],
   fn: FunctionDef,
   rngSeed: string | undefined,
-  leaderboard: Leaderboard<InputAndSource>
+  leaderboard: Leaderboard<InputAndSource>,
+  allInputs: Map<string, unknown>
 ): AbstractInputGenerator[] {
   return [
     new RandomInputGenerator(fn.getArgDefs(), rngSeed),
     new MutationInputGenerator(fn.getArgDefs(), rngSeed, leaderboard),
-    new AiInputGenerator(fn, rngSeed),
+    new AiInputGenerator(fn, rngSeed, allInputs),
   ];
 } // fn: InputGeneratorFactory

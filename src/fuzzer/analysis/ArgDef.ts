@@ -1,10 +1,11 @@
-import vscode from "vscode";
+import * as Config from "../../Config";
 import {
   ArgOptionOverride,
   ArgOptions,
   ArgTag,
   ArgType,
   Interval,
+  TagToType,
   TypeRef,
 } from "./Types";
 
@@ -29,16 +30,17 @@ import {
  * - Deconstructed types
  * - Generics
  */
-export class ArgDef<T extends ArgType> {
+export class ArgDef<Tag extends ArgTag = ArgTag> {
   private name: string; // name of the argument
   private offset: number; // offset of the argument in the function (0-based)
-  private type: ArgTag; // type of the argument
+  private type: Tag; // type of the argument
   private typeRef?: string; // type reference name (if the type is a reference)
+  private typeRefDims?: number; // outer dimensions attached to type reference
   private dims: number; // dimensions of the argument (e.g., number=0, number[]=1, etc)
   private optional: boolean; // whether the argument is optional
-  private intervals: Interval<T>[]; // input intervals for the argument
+  private intervals: Interval<TagToType[Tag]>[]; // input intervals for the argument
   private options: ArgOptions; // default argument options
-  private children: ArgDef<ArgType>[]; // child arguments (if this is an object)
+  private children: ArgDef[]; // child arguments (if this is an object)
 
   /**
    * Constructor to instantiate a new ArgDef object.
@@ -50,17 +52,21 @@ export class ArgDef<T extends ArgType> {
    * @param dims Dimensions of the value (e.g., number = 0, number[] = 1, etc.)
    * @param optional Indicates whether the argument is optional
    * @param intervals Input intervals for the argument. REQUIRED for literal types.
+   * @param children Child arguments (if this is an object, unbion, or tuple)
+   * @param typeRef Type reference name (if the type is a reference)
+   * @param typeRefDims Outer dimensions attached to the type reference
    */
   public constructor(
     name: string,
     offset: number,
-    type: ArgTag,
+    type: Tag,
     options: ArgOptions,
     dims?: number,
     optional?: boolean,
-    intervals?: Interval<T>[],
-    children?: ArgDef<ArgType>[],
-    typeRef?: string
+    intervals?: Interval<TagToType[Tag]>[],
+    children?: ArgDef[],
+    typeRef?: string,
+    typeRefDims?: number
   ) {
     this.name = name;
     this.offset = offset;
@@ -75,6 +81,7 @@ export class ArgDef<T extends ArgType> {
         ? (children ?? [])
         : [];
     this.typeRef = typeRef;
+    this.typeRefDims = typeRefDims;
 
     // Ensure the options are valid before ingesting them
     if (!ArgDef.isOptionValid(options))
@@ -113,11 +120,22 @@ export class ArgDef<T extends ArgType> {
       intervals === undefined ||
       intervals.length === 0 ||
       type === ArgTag.OBJECT
-        ? (ArgDef.getDefaultIntervals(this.type, this.options) as Interval<T>[])
+        ? (ArgDef.getDefaultIntervals(this.type, this.options) as Interval<
+            TagToType[Tag]
+          >[])
         : intervals;
 
     // Ensure each non-array dimension is valid
-    if (this.intervals.filter((e) => e.min > e.max).length) {
+    if (
+      this.intervals.filter(
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
+      ).length
+    ) {
       throw new Error(
         `Invalid interval: ${JSON.stringify(this.intervals, undefined, 2)}`
       );
@@ -137,9 +155,8 @@ export class ArgDef<T extends ArgType> {
     ref: TypeRef,
     options: ArgOptions,
     offset?: number
-  ): ArgDef<ArgType> {
+  ): ArgDef {
     offset = offset ?? 0;
-    let i = 0; // Child counter
 
     // Ensure we have a resolved type
     if (!ref.type)
@@ -149,11 +166,16 @@ export class ArgDef<T extends ArgType> {
         )}`
       );
 
+    let intervals: Interval<ArgType>[] | undefined = undefined;
     // An interval is mandatory for the Literal type
-    const intervals: Interval<ArgType>[] | undefined =
-      ref.type.type === ArgTag.LITERAL && ref.type.value !== undefined
-        ? [{ min: ref.type.value, max: ref.type.value }]
-        : undefined;
+    if (ref.type.type === ArgTag.LITERAL) {
+      intervals =
+        ref.type.value !== undefined
+          ? [{ min: ref.type.value, max: ref.type.value }]
+          : undefined;
+    } else if (ref.type.options?.numIntervals) {
+      intervals = ref.type.options?.numIntervals;
+    }
 
     // A source language may provide additional constraints for an otherwise
     // shared ArgTag. For example, Python `int` and `float` are both NUMBERs,
@@ -161,7 +183,7 @@ export class ArgDef<T extends ArgType> {
     const typeOptions: ArgOptions = { ...options, ...ref.type.options };
 
     // Use the type reference to build the ArgDef
-    return new ArgDef<ArgType>(
+    return new ArgDef(
       ref.name ?? "unknown", // name
       offset, // offset
       ref.type.type, // type
@@ -169,8 +191,11 @@ export class ArgDef<T extends ArgType> {
       ref.dims + ref.type.dims, // type reference dims + concrete type dims
       ref.optional, // optional
       intervals, // intervals
-      ref.type.children.map((child) => ArgDef.fromTypeRef(child, options, i++)), // children
-      ref.typeRefName // type reference
+      ref.type.children.map((child, i) =>
+        ArgDef.fromTypeRef(child, options, i)
+      ), // children
+      ref.typeRefName, // type reference
+      ref.dims // outer dimensions on type reference
     );
   } // fn: fromTypeRef()
 
@@ -181,7 +206,7 @@ export class ArgDef<T extends ArgType> {
    * @param options Default argument options
    * @returns Default input intervals based on the type and options
    */
-  private static getDefaultIntervals(
+  public static getDefaultIntervals(
     type: ArgTag,
     options: ArgOptions
   ): Interval<ArgType>[] {
@@ -202,6 +227,8 @@ export class ArgDef<T extends ArgType> {
         ];
       case ArgTag.BOOLEAN:
         return [{ min: false, max: true }];
+      case ArgTag.BYTES:
+        return [{ min: new Uint8Array(0), max: new Uint8Array(0) }];
       case ArgTag.OBJECT:
       case ArgTag.DICTIONARY:
       case ArgTag.LITERAL:
@@ -218,10 +245,16 @@ export class ArgDef<T extends ArgType> {
    *
    * @param value Constant value to set as the input
    */
-  public makeConstant(value: T): void {
+  public makeConstant(value: TagToType[Tag]): void {
     this.intervals = [{ min: value, max: value }];
     if (this.type === ArgTag.STRING && typeof value === "string") {
       this.options.strLength = { min: value.length, max: value.length };
+    }
+    if (
+      this.type === ArgTag.BYTES &&
+      (value instanceof Uint8Array || Array.isArray(value))
+    ) {
+      this.options.byteLength = { min: value.length, max: value.length };
     }
     this.dims = 0;
   } // fn: makeConstant()
@@ -249,7 +282,7 @@ export class ArgDef<T extends ArgType> {
    *
    * @returns The type of the argument
    */
-  public getType(): ArgTag {
+  public getType(): Tag {
     return this.type;
   } // fn: getType()
 
@@ -261,6 +294,15 @@ export class ArgDef<T extends ArgType> {
   public getTypeRef(): string | undefined {
     return this.typeRef;
   } // fn: getTypeRef()
+
+  /**
+   * Returns the outer dimensions attached to the type reference.
+   *
+   * @returns The outer dimensions of the type reference, if it exists; `undefined` otherwise
+   */
+  public getTypeRefDims(): number | undefined {
+    return this.typeRefDims;
+  } // fn: getTypeRefDims()
 
   /**
    * Returns the dimensions of the argument.
@@ -305,7 +347,7 @@ export class ArgDef<T extends ArgType> {
    *
    * @returns The input intervals of the argument
    */
-  public getIntervals(): Interval<T>[] {
+  public getIntervals(): Interval<TagToType[Tag]>[] {
     return this.intervals;
   } // fn: getIntervals()
 
@@ -316,8 +358,17 @@ export class ArgDef<T extends ArgType> {
    *
    * Throws an exception if any interval's min>max.
    */
-  public setIntervals(intervals: Interval<T>[]): void {
-    if (intervals.some((e) => e.min > e.max))
+  public setIntervals(intervals: Interval<TagToType[Tag]>[]): void {
+    if (
+      intervals.some(
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
+      )
+    )
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
       );
@@ -335,13 +386,22 @@ export class ArgDef<T extends ArgType> {
     const intervals = ArgDef.getDefaultIntervals(
       this.type,
       options
-    ) as Interval<T>[];
-    if (intervals.some((e) => e.min > e.max))
+    ) as Interval<TagToType[Tag]>[];
+    if (
+      intervals.some(
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
+      )
+    )
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
       );
     this.intervals = intervals;
-  } // fn: setIntervals()
+  } // fn: setDefaultIntervals()
 
   /**
    * Indicates whether the argument has a constant input interval.
@@ -364,7 +424,7 @@ export class ArgDef<T extends ArgType> {
    *
    * Throws an exception is isConstant() is false
    */
-  public getConstantValue(): T | undefined {
+  public getConstantValue(): TagToType[Tag] | undefined {
     if (!this.isConstant())
       throw new Error("Arg is not a constant -- check isConstant() first");
     if (
@@ -374,7 +434,7 @@ export class ArgDef<T extends ArgType> {
       const result = this.intervals[0].min
         .padEnd(this.options.strLength.min, this.options.strCharset[0])
         .substring(0, this.options.strLength.max);
-      return result as T;
+      return result as TagToType[Tag];
     }
     if (this.type === ArgTag.LITERAL && !this.intervals.length) {
       return undefined;
@@ -415,7 +475,7 @@ export class ArgDef<T extends ArgType> {
     // Handle numMin and numMax overrides
     if (this.type === ArgTag.NUMBER) {
       if ("numIntervals" in options && options.numIntervals !== undefined)
-        this.setIntervals(options.numIntervals as Interval<T>[]);
+        this.setIntervals(options.numIntervals as Interval<TagToType[Tag]>[]);
     }
 
     // Merge the two option sets; incoming has precedence
@@ -459,7 +519,7 @@ export class ArgDef<T extends ArgType> {
    *
    * @returns the argument's children (if it is an object)
    */
-  public getChildren(): ArgDef<ArgType>[] {
+  public getChildren(): ArgDef[] {
     return [...this.children];
   } // fn: getChildren()
 
@@ -469,8 +529,8 @@ export class ArgDef<T extends ArgType> {
    *
    * @returns the argument's descendents (if it is an object)
    */
-  public getChildrenFlat(): ArgDef<ArgType>[] {
-    const ret: ArgDef<ArgType>[] = [];
+  public getChildrenFlat(): ArgDef[] {
+    const ret: ArgDef[] = [];
     for (const child of this.children) {
       ret.push(child);
       ret.push(...child.getChildrenFlat());
@@ -486,41 +546,39 @@ export class ArgDef<T extends ArgType> {
   public static getDefaultOptions(): ArgOptions {
     return {
       // String defaults
-      strCharset: vscode.workspace
-        .getConfiguration("nanofuzz.argdef")
-        .get("strCharset", DFT_STR_CHARSET),
+      strCharset: Config.get("nanofuzz.argdef.strCharset", DFT_STR_CHARSET),
       strLength: {
-        min: vscode.workspace
-          .getConfiguration("nanofuzz.argdef.strLength")
-          .get("min", DFT_STR_LENGTH.min),
-        max: vscode.workspace
-          .getConfiguration("nanofuzz.argdef.strLength")
-          .get("max", DFT_STR_LENGTH.max),
+        min: Config.get("nanofuzz.argdef.strLength.min", DFT_STR_LENGTH.min),
+        max: Config.get("nanofuzz.argdef.strLength.max", DFT_STR_LENGTH.max),
+      },
+      strRegex: undefined,
+
+      // Byte array defaults
+      byteLength: {
+        min: Config.get("nanofuzz.argdef.byteLength.min", DFT_BYTE_LENGTH.min),
+        max: Config.get("nanofuzz.argdef.byteLength.max", DFT_BYTE_LENGTH.max),
       },
 
       // Numeric defaults
-      numInteger: vscode.workspace
-        .getConfiguration("nanofuzz.argdef")
-        .get("numInteger", true),
+      numInteger: Config.get<boolean>("nanofuzz.argdef.numInteger", true),
 
       // `Any` defaults
-      anyType: vscode.workspace
-        .getConfiguration("nanofuzz.argdef")
-        .get("anyType", ArgTag.NUMBER),
-      anyDims: vscode.workspace
-        .getConfiguration("nanofuzz.argdef")
-        .get("anyDims", 0),
+      anyType: Config.get("nanofuzz.argdef.anyType", ArgTag.NUMBER),
+      anyDims: Config.get("nanofuzz.argdef.anyDims", 0),
 
       // Dimensions
       dftDimLength: {
-        min: vscode.workspace
-          .getConfiguration("nanofuzz.argdef.dftDimLength")
-          .get("min", DFT_DIMENSION_LENGTH.min),
-        max: vscode.workspace
-          .getConfiguration("nanofuzz.argdef.dftDimLength")
-          .get("max", DFT_DIMENSION_LENGTH.max),
+        min: Config.get(
+          "nanofuzz.argdef.dftDimLength.min",
+          DFT_DIMENSION_LENGTH.min
+        ),
+        max: Config.get(
+          "nanofuzz.argdef.dftDimLength.max",
+          DFT_DIMENSION_LENGTH.max
+        ),
       },
       dimLength: [],
+      dimsUnique: false,
     };
   } // fn: getDefaultOptions()
 
@@ -535,6 +593,8 @@ export class ArgDef<T extends ArgType> {
       options.strCharset.length === 0 ||
       options.strLength.min < 0 ||
       options.strLength.min > options.strLength.max ||
+      options.byteLength.min < 0 ||
+      options.byteLength.min > options.byteLength.max ||
       options.anyDims < 0 ||
       options.dimLength.some((dim) => dim.min < 0 || dim.min > dim.max) ||
       options.dftDimLength.min < 0 ||
@@ -554,3 +614,4 @@ const DFT_DIMENSION_LENGTH: Interval<number> = { min: 0, max: 10 };
 const DFT_STR_CHARSET =
   " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 const DFT_STR_LENGTH: Interval<number> = { min: 0, max: 10 };
+const DFT_BYTE_LENGTH: Interval<number> = { min: 0, max: 10 };

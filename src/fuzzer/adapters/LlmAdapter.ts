@@ -1,12 +1,52 @@
-import * as vscode from "vscode";
-import { ArgValueType, ProgramLanguage } from "../analysis/Types";
-import * as JSON5 from "json5";
+import vscode from "vscode";
+import * as Config from "../../Config";
+import { ArgValueType } from "../analysis/Types";
+import * as JSONN from "../../Jsonn";
 import { FunctionDef } from "../analysis/FunctionDef";
 import * as nodellm from "@node-llm/core";
 import { isError } from "../Util";
 import * as telemetry from "../../telemetry/Telemetry";
-import * as zod from "zod";
+import * as zod from "zod/v4";
 import { zodOutputFormat } from "./AnthropicUtils";
+import { LlmCacheManager } from "./LlmCacheManager";
+import {
+  LlmCacheMode,
+  LlmCacheStats,
+  LlmQueryResult,
+} from "../generators/Types";
+
+// Helper function to check if a value is a Record object
+function isRecord(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null && !Array.isArray(val);
+}
+
+// Cleans internal JSON schema fields ($schema, $defs, additionalProperties) that Gemini API rejects
+function cleanJsonSchema(
+  schema: Record<string, unknown>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (
+      key === "$schema" ||
+      key === "$id" ||
+      key === "$defs" ||
+      key === "definitions" ||
+      key === "additionalProperties"
+    ) {
+      continue;
+    }
+    if (Array.isArray(value)) {
+      result[key] = value.map((item) =>
+        isRecord(item) ? cleanJsonSchema(item) : item
+      );
+    } else if (isRecord(value)) {
+      result[key] = cleanJsonSchema(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
 
 /**
  * An adapter for chatting with an LLM about the program under test
@@ -14,14 +54,14 @@ import { zodOutputFormat } from "./AnthropicUtils";
 export class LlmAdapter {
   protected _modelConfig: Parameters<typeof nodellm.createLLM>[0] = {}; // LLM configuration
   protected _backend: nodellm.NodeLLMCore; // LLM instance
-  protected _chat: nodellm.Chat; // LLM chat
+  protected _cacheManager: LlmCacheManager; // Cache manager
   protected _cfgString: string; // LLM config; for detecting config changes
 
   public constructor() {
     LlmAdapter._handleDebug();
 
     const cfg = LlmAdapter._getConfig();
-    this._cfgString = JSON5.stringify(cfg);
+    this._cfgString = JSONN.stringify(cfg);
 
     if (!LlmAdapter.isConfigured()) {
       throw new Error("AI Models are disabled");
@@ -39,15 +79,52 @@ export class LlmAdapter {
     // If apikey is defined, add it to the config.
     // Otherwise, let @node-llm try to infer it from env
     if (cfg.apiKey !== "") {
-      (this._modelConfig as any)[`${cfg.provider}ApiKey`] = cfg.apiKey;
+      switch (cfg.provider) {
+        case "openai":
+          this._modelConfig.openaiApiKey = cfg.apiKey;
+          break;
+        case "anthropic":
+          this._modelConfig.anthropicApiKey = cfg.apiKey;
+          break;
+        case "gemini":
+          this._modelConfig.geminiApiKey = cfg.apiKey;
+          break;
+        case "deepseek":
+          this._modelConfig.deepseekApiKey = cfg.apiKey;
+          break;
+        case "openrouter":
+          this._modelConfig.openrouterApiKey = cfg.apiKey;
+          break;
+        case "xai":
+          this._modelConfig.xaiApiKey = cfg.apiKey;
+          break;
+        case "mistral":
+          this._modelConfig.mistralApiKey = cfg.apiKey;
+          break;
+        case "bedrock":
+          this._modelConfig.bedrockApiKey = cfg.apiKey;
+          break;
+        default:
+          break;
+      }
     }
 
-    // Create the model chat session
+    // Create the model backend
     this._backend = nodellm.createLLM(this._modelConfig);
-    this._chat = this._backend.chat(cfg.modelName, {
+    this._cacheManager = new LlmCacheManager(cfg.cacheMode, cfg.cacheFile);
+  } // constructor
+
+  /**
+   * Creates a fresh, stateless LLM chat session for a single query.
+   *
+   * @returns a new nodellm.Chat instance
+   */
+  protected _createChat(): nodellm.Chat {
+    const cfg = LlmAdapter._getConfig();
+    return this._backend.chat(cfg.modelName, {
       systemPrompt: prompt.system(),
     });
-  } // constructor
+  } // fn: createChat
 
   /**
    * Determine if the LLM config used to connect to the LLM is now out of date
@@ -55,7 +132,7 @@ export class LlmAdapter {
    * @returns `true` if the LLM config has changed since instantiation
    */
   public isStale(): boolean {
-    return JSON5.stringify(LlmAdapter._getConfig()) !== this._cfgString;
+    return JSONN.stringify(LlmAdapter._getConfig()) !== this._cfgString;
   } // fn: isStale
 
   /**
@@ -64,8 +141,16 @@ export class LlmAdapter {
    * @returns a string indicating the configured provider and model id
    */
   public get id(): string | undefined {
-    return `v=${this._backend.provider?.id},n=${this._chat.modelId}`;
-  } /// getter: id
+    return `v=${this._backend.provider?.id},n=${LlmAdapter._getConfig().modelName}`;
+  } // getter: id
+
+  public get cacheStats(): LlmCacheStats {
+    return this._cacheManager.stats;
+  }
+
+  public static async flushCache(timeoutMs = 5000): Promise<void> {
+    await LlmCacheManager.flushAllActive(timeoutMs);
+  }
 
   /**
    * Prompt an LLM to generate inputs for a function
@@ -76,7 +161,9 @@ export class LlmAdapter {
    */
   public async genInputs(
     fn: FunctionDef,
-    schema?: [zod.ZodObject, string[]]
+    schema: zod.ZodType,
+    directives: string[],
+    allInputs: Map<string, unknown>
   ): Promise<{
     programInputs: { [k: string]: ArgValueType }[];
     stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
@@ -85,16 +172,32 @@ export class LlmAdapter {
     let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
     try {
       response = await this._query(
-        [
-          prompt.genInputs(
-            this._getPromptVars(
-              fn,
-              schema === undefined || schema[1].length === 0 ? [] : schema[1]
-            )
-          ),
-        ],
-        schema ? schema[0] : undefined
+        [prompt.genInputs(fn, directives, allInputs)],
+        schema
       );
+      const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
+        JSONN.parse(response.text);
+
+      // Sanity check llm output
+      if (
+        !(
+          typeof inputs === "object" &&
+          "programInputs" in inputs &&
+          Array.isArray(inputs.programInputs) &&
+          inputs.programInputs.every(
+            (e) => typeof e === "object" && !Array.isArray(e)
+          )
+        )
+      ) {
+        return {
+          programInputs: [],
+          error: { type: "discard" },
+          stats: { ...response.stats },
+        };
+      }
+
+      // Deeper validation is the client's role
+      return { ...inputs, stats: { ...response.stats } };
     } catch (e: unknown) {
       return {
         programInputs: [],
@@ -104,57 +207,7 @@ export class LlmAdapter {
         },
       };
     }
-    const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
-      JSON5.parse(response.response);
-
-    // Sanity check llm output
-    if (
-      !(
-        typeof inputs === "object" &&
-        "programInputs" in inputs &&
-        Array.isArray(inputs.programInputs) &&
-        inputs.programInputs.every(
-          (e) => typeof e === "object" && !Array.isArray(e)
-        )
-      )
-    ) {
-      return {
-        programInputs: [],
-        error: { type: "discard" },
-        stats: { ...response.stats },
-      };
-    }
-
-    // Deeper validation is the client's role
-    return { ...inputs, stats: { ...response.stats } };
   } // fn: genInputs
-
-  /**
-   * Returns a commmunication structure of data for building prompts
-   * for a program.
-   *
-   * @param `fn` the function under test
-   * @returns a set of prompt variables
-   */
-  protected _getPromptVars(
-    fn: FunctionDef,
-    directives: string[]
-  ): {
-    lang: ProgramLanguage;
-    fnName: string;
-    fnSource: string;
-    fnSpec: string;
-    directives: string[];
-  } {
-    const fnRef = fn.getRef();
-    return {
-      lang: fnRef.lang,
-      fnName: fnRef.name,
-      fnSource: fnRef.src,
-      fnSpec: fn.getCmt() ?? "",
-      directives,
-    };
-  } // fn: _getPromptVars
 
   /**
    * Prompts the LLM and returns a response
@@ -165,78 +218,84 @@ export class LlmAdapter {
    */
   private async _query(
     prompt: string[],
-    schema?: zod.ZodObject
-  ): Promise<{
-    response: string;
-    stats: {
-      tokensSent: number;
-      tokensSentCost: { amt: number; unit: string };
-      tokensReceived: number;
-      tokensReceivedCost: { amt: number; unit: string };
-    };
-  }> {
+    schema?: zod.ZodType
+  ): Promise<LlmQueryResult> {
     LlmAdapter._handleDebug();
 
-    const promptParts: nodellm.ContentPart[] = [];
-    prompt.forEach((e) => {
-      promptParts.push({
-        type: "text",
-        text: e,
-      });
-    });
-
     const provider = LlmAdapter._getConfig().provider;
-    vscode.commands.executeCommand(
-      telemetry.commands.logTelemetry.name,
-      new telemetry.LoggerEntry(
-        "LlmAdapter.query.send",
-        "Sending query to LLM (v=%s;m=%s). Query: %s.",
-        [provider, LlmAdapter._getConfig().modelName, prompt.join("\n")]
-      )
-    );
+    const modelName = LlmAdapter._getConfig().modelName;
+    const schemaJson = schema
+      ? JSON.stringify(zod.toJSONSchema(schema))
+      : undefined;
 
-    let chat = (
-      schema ? this._chat.withSchema(schema.toJSONSchema()) : this._chat
-    ).withRequestOptions({
-      responseFormat: { type: "json_object" },
-    });
-
-    // Provider specific settings
-    if (provider === "anthropic") {
-      if (schema) {
-        // Anthropic doesn't always respect responseFormat
-        chat = chat.withParams({
-          output_config: {
-            format: zodOutputFormat(schema),
-          },
+    return await this._cacheManager.query(
+      provider,
+      modelName,
+      prompt,
+      schemaJson,
+      async () => {
+        const promptParts: nodellm.ContentPart[] = [];
+        prompt.forEach((e) => {
+          promptParts.push({
+            type: "text",
+            text: e,
+          });
         });
+
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "LlmAdapter.query.send",
+            "Sending query to LLM (v=%s;m=%s). Query: %s.",
+            [provider, modelName, prompt.join("\n")]
+          )
+        );
+
+        const baseChat = this._createChat();
+        const jsonSchemaObj = schema ? zod.toJSONSchema(schema) : undefined;
+        const schemaObj = jsonSchemaObj
+          ? nodellm.Schema.fromJson("output", cleanJsonSchema(jsonSchemaObj))
+          : undefined;
+        let chat = (
+          schemaObj ? baseChat.withSchema(schemaObj) : baseChat
+        ).withRequestOptions({
+          responseFormat: { type: "json_object" },
+        });
+
+        // Provider specific settings
+        if (provider === "anthropic") {
+          if (schema) {
+            // Anthropic doesn't always respect responseFormat
+            chat = chat.withParams({
+              output_config: {
+                format: zodOutputFormat(schema),
+              },
+            });
+          }
+        }
+
+        const response = await chat.ask(promptParts);
+
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "LlmAdapter.query.response",
+            "Received response from LLM (v=%s;m=%s). Response: %s.",
+            [provider, modelName, response.toString()]
+          )
+        );
+
+        return {
+          text: response.toString(),
+          stats: {
+            tokensSent: response.inputTokens,
+            tokensSentCost: { amt: response.input_cost ?? 0, unit: "USD" }, // USD per docs
+            tokensReceived: response.outputTokens,
+            tokensReceivedCost: { amt: response.output_cost ?? 0, unit: "USD" }, // USD per docs
+          },
+        };
       }
-    }
-
-    const response = await chat.ask(promptParts);
-
-    vscode.commands.executeCommand(
-      telemetry.commands.logTelemetry.name,
-      new telemetry.LoggerEntry(
-        "LlmAdapter.query.response",
-        "Received response from LLM (v=%s;m=%s). Response: %s.",
-        [
-          LlmAdapter._getConfig().provider,
-          LlmAdapter._getConfig().modelName,
-          response.toString(),
-        ]
-      )
     );
-
-    return {
-      response: response.toString(),
-      stats: {
-        tokensSent: response.inputTokens,
-        tokensSentCost: { amt: response.input_cost ?? 0, unit: "USD" }, // USD per docs
-        tokensReceived: response.outputTokens,
-        tokensReceivedCost: { amt: response.output_cost ?? 0, unit: "USD" }, // USD per docs
-      },
-    };
   } // fn: _query
 
   /**
@@ -258,11 +317,21 @@ export class LlmAdapter {
     provider: string;
     modelName: string;
     apiKey: string;
+    cacheMode: LlmCacheMode;
+    cacheFile: string;
   } {
     return {
       provider: LlmAdapter._getConfigValue("provider", "disabled"),
       modelName: LlmAdapter._getConfigValue("model", ""),
       apiKey: LlmAdapter._getConfigValue("apiKey", ""),
+      cacheMode: LlmAdapter._getConfigValue<LlmCacheMode>(
+        "cacheMode",
+        "passthrough"
+      ),
+      cacheFile: LlmAdapter._getConfigValue<string>(
+        "cacheFile",
+        ".nanofuzz-llm-cache.json"
+      ),
     };
   } // fn: _getConfig
 
@@ -274,9 +343,7 @@ export class LlmAdapter {
    * @returns extension configuration element or default
    */
   protected static _getConfigValue<T>(section: string, dft: T): T {
-    return vscode.workspace
-      .getConfiguration("nanofuzz.ai")
-      .get<T>(section, dft);
+    return Config.get<T>(`nanofuzz.ai.${section}`, dft);
   } // fn: _getConfigValue
 
   /**
@@ -299,24 +366,39 @@ export class LlmAdapter {
 /**
  * Parameterized prompts for the LLM
  */
-const prompt = {
+export const prompt = {
   system: (): string => {
     return `You are an experienced software engineer who writes efficient tests that thoroughly evaluate the correctness of programs. You are aware of the important differences between a programming language's various equality operators.`;
   },
-  genInputs: (vars: ReturnType<LlmAdapter["_getPromptVars"]>): string => {
-    return `To evaluate whether the following ${vars.lang} program "${vars.fnName}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+  genInputs: (
+    fn: FunctionDef,
+    directives: string[],
+    allInputs: Map<string, unknown>
+  ): string => {
+    const fnRef = fn.getRef();
+    const spec = fn.getCmt() ?? "";
+    let inputs = Config.get<boolean>("nanofuzz.ai.backfeedPriorInputs", true)
+      ? Array.from(allInputs.keys())
+      : [];
+    // draw a line at 10k inputs
+    if (inputs.length > 10000) {
+      inputs = inputs.slice(-10000);
+    }
+    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
 
-The specification for the "${vars.fnName}" program:
+The specification for the "${fnRef.name}" program:
 \`\`\`
-${vars.fnSpec ? vars.fnSpec : `(no specification was found. try to infer the spec from the program below)`}
-\`\`\`
-
-The "${vars.fnName}" program:
-\`\`\`${vars.lang}
-${vars.fnSource}
+${spec ? spec : `(no specification was found. try to infer the spec from the program below)`}
 \`\`\`
 
-${vars.directives.length ? `Important details about the program's inputs:\n${vars.directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+The "${fnRef.name}" program:
+\`\`\`${fnRef.lang}
+${fnRef.src}
+\`\`\`
+
+${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+
+${inputs.length ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}` : ""}
 `;
   },
 };
