@@ -133,6 +133,12 @@ function jsonnReplacer(this: unknown, key: string, value: unknown): unknown {
     };
   }
 
+  if (value instanceof Map) {
+    return {
+      [PlaceHolderMapKey]: Array.from(value.entries()),
+    };
+  }
+
   // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
   switch (typeof value) {
     case "undefined":
@@ -204,6 +210,25 @@ function jsonnReviver(
         }
       }
     }
+    if (Array.isArray(value[PlaceHolderMapKey])) {
+      const rawEntries = value[PlaceHolderMapKey];
+      const entries: Array<[unknown, unknown]> = [];
+      for (const entry of rawEntries) {
+        if (Array.isArray(entry) && entry.length === 2) {
+          entries.push([entry[0], entry[1]]);
+        }
+      }
+      const newValue = new Map(entries);
+      if (key === "") {
+        return newValue;
+      } else {
+        if (Array.isArray(this)) {
+          targets.push({ arr: this, key, value: newValue });
+        } else if (isKeyedObject(this)) {
+          targets.push({ obj: this, key, value: newValue });
+        }
+      }
+    }
   }
   return value;
 }
@@ -217,4 +242,5 @@ export const PlaceHolderValueKey = "____JSONN____61581952310____VALUE____";
 export const PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____";
 export const PlaceHolderUint8ArrayKey =
   "____JSONN____61581952310____UINT8ARRAY____";
+export const PlaceHolderMapKey = "____JSONN____61581952310____MAP____";
 export const UndefinedValue = "__undefined__";

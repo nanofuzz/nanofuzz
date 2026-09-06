@@ -74,7 +74,10 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     this.dims = dims ?? 0;
     this.optional = optional ?? false;
     this.children =
-      type === ArgTag.OBJECT || type === ArgTag.UNION || type === ArgTag.TUPLE
+      type === ArgTag.OBJECT ||
+      type === ArgTag.DICTIONARY ||
+      type === ArgTag.UNION ||
+      type === ArgTag.TUPLE
         ? (children ?? [])
         : [];
     this.typeRef = typeRef;
@@ -125,7 +128,12 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     // Ensure each non-array dimension is valid
     if (
       this.intervals.filter(
-        (e) => e.min !== null && e.max !== null && e.min > e.max
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
       ).length
     ) {
       throw new Error(
@@ -222,6 +230,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       case ArgTag.BYTES:
         return [{ min: new Uint8Array(0), max: new Uint8Array(0) }];
       case ArgTag.OBJECT:
+      case ArgTag.DICTIONARY:
       case ArgTag.LITERAL:
       case ArgTag.UNION:
       case ArgTag.TUPLE:
@@ -351,7 +360,14 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    */
   public setIntervals(intervals: Interval<TagToType[Tag]>[]): void {
     if (
-      intervals.some((e) => e.min !== null && e.max !== null && e.min > e.max)
+      intervals.some(
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
+      )
     )
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
@@ -372,7 +388,14 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       options
     ) as Interval<TagToType[Tag]>[];
     if (
-      intervals.some((e) => e.min !== null && e.max !== null && e.min > e.max)
+      intervals.some(
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
+      )
     )
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
@@ -536,6 +559,12 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         max: Config.get("nanofuzz.argdef.byteLength.max", DFT_BYTE_LENGTH.max),
       },
 
+      // Dictionary defaults
+      dictLength: {
+        min: Config.get("nanofuzz.argdef.dictLength.min", DFT_DICT_LENGTH.min),
+        max: Config.get("nanofuzz.argdef.dictLength.max", DFT_DICT_LENGTH.max),
+      },
+
       // Numeric defaults
       numInteger: Config.get<boolean>("nanofuzz.argdef.numInteger", true),
 
@@ -572,6 +601,8 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       options.strLength.min > options.strLength.max ||
       options.byteLength.min < 0 ||
       options.byteLength.min > options.byteLength.max ||
+      options.dictLength.min < 0 ||
+      options.dictLength.min > options.dictLength.max ||
       options.anyDims < 0 ||
       options.dimLength.some((dim) => dim.min < 0 || dim.min > dim.max) ||
       options.dftDimLength.min < 0 ||
@@ -583,12 +614,17 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
 /**
  * Default length of array dimensions
  */
-const DFT_DIMENSION_LENGTH: Interval<number> = { min: 0, max: 10 };
+const DFT_DIMENSION_LENGTH: Interval<number> = { min: 0, max: 4 };
+
+/**
+ * Default length of dictionary entries
+ */
+const DFT_DICT_LENGTH: Interval<number> = { min: 0, max: 4 };
 
 /**
  * Default characters allowed in string input
  */
 const DFT_STR_CHARSET =
   " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
-const DFT_STR_LENGTH: Interval<number> = { min: 0, max: 10 };
-const DFT_BYTE_LENGTH: Interval<number> = { min: 0, max: 10 };
+const DFT_STR_LENGTH: Interval<number> = { min: 0, max: 4 };
+const DFT_BYTE_LENGTH: Interval<number> = { min: 0, max: 4 };

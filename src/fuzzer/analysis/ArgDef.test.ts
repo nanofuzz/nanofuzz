@@ -519,6 +519,72 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(new Set(generated.map((e) => JSON.stringify(e))).size).toEqual(5);
   });
 
+  it("dictionary: generates unique keys within dictLength bounds", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "dict",
+      0,
+      ArgTag.DICTIONARY,
+      {
+        ...argOptions,
+        dictLength: { min: 3, max: 5 },
+      },
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "key", ArgTag.STRING, 0),
+        makeTypeRef(dummyModule, "val", ArgTag.NUMBER, 0),
+      ]
+    );
+
+    const generated = ArgDefGenerator.gen(spec, seedrandom("dictUniqueKeys"));
+    expect(ArgDefValidator.validate(generated, spec)).toBeTrue();
+    if (
+      typeof generated !== "object" ||
+      generated === null ||
+      Array.isArray(generated)
+    ) {
+      throw new Error("Expected an object");
+    }
+    const keys = Object.keys(generated);
+    expect(keys.length).toBeGreaterThanOrEqual(3);
+    expect(keys.length).toBeLessThanOrEqual(5);
+  });
+
+  it("dictionary: throws when unique key constraint cannot meet min dictLength", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "dictImpossible",
+      0,
+      ArgTag.DICTIONARY,
+      {
+        ...argOptions,
+        dictLength: { min: 2, max: 2 },
+      },
+      0,
+      false,
+      [
+        makeTypeRef(
+          dummyModule,
+          "key",
+          ArgTag.LITERAL,
+          0,
+          false,
+          [],
+          undefined,
+          "fixedKey"
+        ),
+        makeTypeRef(dummyModule, "val", ArgTag.NUMBER, 0),
+      ]
+    );
+
+    expect(() =>
+      ArgDefGenerator.gen(spec, seedrandom("dictImpossible"))
+    ).toThrowError(
+      "Unable to generate enough unique dictionary keys. Are constraints possible to meet?"
+    );
+  });
+
   it("dimsUnique: nested union of constants uses fast path", () => {
     const innerUnion1 = makeArgDef(
       dummyModule,
@@ -1065,6 +1131,9 @@ function getRandomArgDef(
       break;
     }
     case ArgTag.OBJECT: {
+      break;
+    }
+    case ArgTag.DICTIONARY: {
       break;
     }
     case ArgTag.LITERAL: {

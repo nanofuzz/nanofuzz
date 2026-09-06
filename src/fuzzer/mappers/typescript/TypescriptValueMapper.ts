@@ -62,6 +62,16 @@ function toJavascriptValues(val: unknown): string {
     return `new Uint8Array([${Array.from(val).join(", ")}])`;
   }
 
+  if (val instanceof Map) {
+    const entries: string[] = [];
+    for (const [key, value] of val.entries()) {
+      entries.push(
+        `[${toJavascriptValues(key)}, ${toJavascriptValues(value)}]`
+      );
+    }
+    return `new Map([${entries.join(", ")}])`;
+  }
+
   if (Array.isArray(val)) {
     const items = val.map((item) => toJavascriptValues(item));
     return `[${items.join(", ")}]`;
@@ -200,11 +210,20 @@ function toJavascriptValue(text: string): unknown {
             text: `{${JSONN.PlaceHolderUint8ArrayKey}:[${bytes.join(",")}]}`,
           });
         } else {
-          // Recursively traverse children
-          for (let i = 0; i < node.childCount; i++) {
-            const child = node.child(i);
-            if (child) {
-              collectReplacements(child);
+          const mapMatch = text.match(/^new\s+Map\s*\(\s*(\[[\s\S]*\])\s*\)/i);
+          if (mapMatch) {
+            replacements.push({
+              start: node.startIndex,
+              end: node.endIndex,
+              text: `{${JSONN.PlaceHolderMapKey}:${mapMatch[1]}}`,
+            });
+          } else {
+            // Recursively traverse children
+            for (let i = 0; i < node.childCount; i++) {
+              const child = node.child(i);
+              if (child) {
+                collectReplacements(child);
+              }
             }
           }
         }

@@ -42,7 +42,7 @@ import { ArgDef } from "../ArgDef";
 const traverse: typeof _traverse =
   typeof _traverse === "function"
     ? _traverse
-    : (_traverse as { default: typeof _traverse }).default;
+    : Reflect.get(_traverse, "default");
 
 /**
  * The TypescriptProgram class represents a TypeScript program definition in a
@@ -695,6 +695,7 @@ export class TypescriptProgram extends AbstractProgram {
           };
           break;
         }
+        case ArgTag.DICTIONARY:
         case ArgTag.UNION:
         case ArgTag.OBJECT:
         case ArgTag.TUPLE: {
@@ -741,8 +742,18 @@ export class TypescriptProgram extends AbstractProgram {
         return this._getTypeFromAstNode(node.typeAnnotation, options);
       case "TSUnionType":
         return [ArgTag.UNION, 0];
-      case "TSTypeLiteral": // Object literal
+      case "TSTypeLiteral": {
+        const hasIndexSig = node.members.some(
+          (m) => m.type === "TSIndexSignature"
+        );
+        const hasPropSig = node.members.some(
+          (m) => m.type === "TSPropertySignature"
+        );
+        if (hasIndexSig && !hasPropSig) {
+          return [ArgTag.DICTIONARY, 0];
+        }
         return [ArgTag.OBJECT, 0];
+      }
       case "TSLiteralType":
         return [
           ArgTag.LITERAL,
@@ -776,6 +787,9 @@ export class TypescriptProgram extends AbstractProgram {
         const typeName = getIdentifierName(node.typeName);
         if (typeName === "Uint8Array" || typeName === "Buffer") {
           return [ArgTag.BYTES, 0, typeName];
+        }
+        if (typeName === "Record" || typeName === "Map") {
+          return [ArgTag.DICTIONARY, 0, typeName];
         }
         return [ArgTag.UNRESOLVED, 0, typeName];
       }
@@ -832,14 +846,78 @@ export class TypescriptProgram extends AbstractProgram {
         return this._getChildrenFromNode(node.elementType);
       case "TSParenthesizedType":
         return this._getChildrenFromNode(node.typeAnnotation);
-      case "TSTypeReference":
+      case "TSTypeReference": {
+        const typeName = getIdentifierName(node.typeName);
+        if (
+          (typeName === "Record" || typeName === "Map") &&
+          "typeParameters" in node &&
+          node.typeParameters &&
+          node.typeParameters.params.length === 2
+        ) {
+          const keyTypeRef = this._getTypeRefFromAstNode(
+            node.typeParameters.params[0],
+            node
+          );
+          keyTypeRef.name = "key";
+          const valTypeRef = this._getTypeRefFromAstNode(
+            node.typeParameters.params[1],
+            node
+          );
+          valTypeRef.name = "value";
+          return [keyTypeRef, valTypeRef];
+        }
         throw new Error(
           `Internal Error: Unresolved type reference found: ${JSONN.stringify(
             node,
             removeParents
           )}`
         );
+      }
       case "TSTypeLiteral": {
+        const hasIndexSig = node.members.some(
+          (m) => m.type === "TSIndexSignature"
+        );
+        const hasPropSig = node.members.some(
+          (m) => m.type === "TSPropertySignature"
+        );
+        if (hasIndexSig && !hasPropSig) {
+          for (const member of node.members) {
+            if (
+              member.type === "TSIndexSignature" &&
+              member.parameters.length === 1 &&
+              member.typeAnnotation
+            ) {
+              const keyParam = member.parameters[0];
+              const keyTypeNode =
+                "typeAnnotation" in keyParam ? keyParam.typeAnnotation : undefined;
+              const keyTypeRef =
+                keyTypeNode && keyTypeNode.type !== "Noop"
+                  ? this._getTypeRefFromAstNode(keyTypeNode, node)
+                  : {
+                      module: this._filename,
+                      name: "key",
+                      dims: 0,
+                      optional: false,
+                      isExported: false,
+                      type: {
+                        dims: 0,
+                        type: ArgTag.STRING,
+                        children: [],
+                        resolved: true,
+                      },
+                    };
+              keyTypeRef.name = "key";
+
+              const valTypeRef = this._getTypeRefFromAstNode(
+                member.typeAnnotation,
+                node
+              );
+              valTypeRef.name = "value";
+
+              return [keyTypeRef, valTypeRef];
+            }
+          }
+        }
         return node.members.map((member) => {
           if (member.type === "TSPropertySignature")
             return this._getTypeRefFromAstNode(member, node);
@@ -882,15 +960,7 @@ export class TypescriptProgram extends AbstractProgram {
           }
 
           case "TSTypeLiteral": {
-            return innerNode.members.map((member) => {
-              if (member.type === "TSPropertySignature")
-                return this._getTypeRefFromAstNode(member, node);
-              else
-                throw new Error(
-                  "Unsupported object property type annotation: " +
-                    JSONN.stringify(member, removeParents, 2)
-                );
-            });
+            return this._getChildrenFromNode(innerNode);
           }
 
           default:
@@ -1226,6 +1296,37 @@ export class TypescriptProgram extends AbstractProgram {
               });
             }
             return innerEvaluated;
+          }
+          break;
+        }
+
+        case "Map":
+        case "Record": {
+          if (typeParams.length === 2) {
+            const keyTypeRef = this._getTypeRefFromAstNode(
+              typeParams[0],
+              parent
+            );
+            keyTypeRef.name = "key";
+            const valTypeRef = this._getTypeRefFromAstNode(
+              typeParams[1],
+              parent
+            );
+            valTypeRef.name = "value";
+
+            return {
+              module: this._filename,
+              dims: 0,
+              optional: false,
+              isExported: false,
+              typeRefName: typeName,
+              type: {
+                dims: 0,
+                type: ArgTag.DICTIONARY,
+                children: [keyTypeRef, valTypeRef],
+                resolved: true,
+              },
+            };
           }
           break;
         }
@@ -1652,6 +1753,22 @@ export class TypescriptProgram extends AbstractProgram {
               }: ${TypescriptProgram.getTypeAnnotation(child, options)}`
           );
         return `{ ${childTypeAnnotations.join("; ")} }`;
+      }
+
+      case ArgTag.DICTIONARY: {
+        const children = arg.getChildren();
+        const keyChild = children[0];
+        const valChild = children[1];
+        const keyType = keyChild
+          ? TypescriptProgram.getTypeAnnotation(keyChild, options)
+          : "string";
+        const valType = valChild
+          ? TypescriptProgram.getTypeAnnotation(valChild, options)
+          : "any";
+        if (arg.getTypeRef() === "Map") {
+          return `Map<${keyType}, ${valType}>`;
+        }
+        return `Record<${keyType}, ${valType}>`;
       }
 
       case ArgTag.UNION: {

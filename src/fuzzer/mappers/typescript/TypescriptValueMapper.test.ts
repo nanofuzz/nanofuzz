@@ -106,4 +106,19 @@ describe("fuzzer/mappers/typescript/TypescriptValueMapper: ", () => {
     const tsObjStr = TypescriptValueMapper.toTypescript(nestedObj);
     expect(TypescriptValueMapper.fromTypescript(tsObjStr)).toEqual(nestedObj);
   });
+
+  it("Maps", () => {
+    const mapVal = new Map<unknown, unknown>([
+      ["a", 1],
+      ["b", true],
+    ]);
+
+    const tsCode = TypescriptValueMapper.toTypescript(mapVal);
+    expect(tsCode).toEqual('new Map([["a", 1], ["b", true]])');
+
+    const parsedMap =
+      TypescriptValueMapper.fromTypescript<Map<unknown, unknown>>(tsCode);
+    expect(parsedMap instanceof Map).toBeTrue();
+    expect(parsedMap).toEqual(mapVal);
+  });
 });

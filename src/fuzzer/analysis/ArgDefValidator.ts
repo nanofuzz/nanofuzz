@@ -142,6 +142,28 @@ export class ArgDefValidator {
           return false; // not an object or is an array or null
         }
 
+        case ArgTag.DICTIONARY: {
+          if (
+            typeof value !== "object" ||
+            value === null ||
+            Array.isArray(value)
+          ) {
+            return false;
+          }
+          const dictLen = options.dictLength;
+          const entries = Object.entries(value);
+          if (entries.length < dictLen.min || entries.length > dictLen.max) {
+            return false;
+          }
+          const [keySpec, valueSpec] = spec.getChildren();
+          if (!keySpec || !valueSpec) return false;
+          return entries.every(
+            ([key, entry]) =>
+              ArgDefValidator.validate(key, keySpec) &&
+              ArgDefValidator.validate(entry, valueSpec)
+          );
+        }
+
         case ArgTag.TUPLE: {
           if (typeof value === "object" && Array.isArray(value)) {
             const children = spec.getChildren();

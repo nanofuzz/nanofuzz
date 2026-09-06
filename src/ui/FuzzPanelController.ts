@@ -3254,6 +3254,12 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         break;
       }
 
+      // Dictionaries use the normal child-editor rows for their key and
+      // value specs; they have no scalar options of their own.
+      case fuzzer.ArgTag.DICTIONARY: {
+        break;
+      }
+
       // Boolean-specific Options
       case fuzzer.ArgTag.BOOLEAN: {
         let intervals = arg.getIntervals();

@@ -416,4 +416,79 @@ export const returnsValueArrow = () => "hello";
       ["t", "[null, null]"],
     ]);
   });
+
+  it("Record and index signature dictionary support", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `
+      type ScoreMap = Record<string, number>;
+      export function testDicts(
+        rec: Record<string, number>,
+        idxSig: { [key: string]: boolean },
+        aliased: ScoreMap,
+        myMap: Map<string, number>
+      ): void {}
+      `,
+      "typescript"
+    );
+
+    const fn = prog.functionsExported["testDicts"];
+    expect(fn).toBeDefined();
+
+    const args = fn.getArgDefs();
+    expect(args.length).toBe(4);
+
+    expect(args[0].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(
+      args[0].getChildren().map((c) => [c.getName(), c.getType()])
+    ).toEqual([
+      ["key", ArgTag.STRING],
+      ["value", ArgTag.NUMBER],
+    ]);
+
+    expect(args[1].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(
+      args[1].getChildren().map((c) => [c.getName(), c.getType()])
+    ).toEqual([
+      ["key", ArgTag.STRING],
+      ["value", ArgTag.BOOLEAN],
+    ]);
+
+    expect(args[2].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(
+      args[2].getChildren().map((c) => [c.getName(), c.getType()])
+    ).toEqual([
+      ["key", ArgTag.STRING],
+      ["value", ArgTag.NUMBER],
+    ]);
+
+    expect(args[3].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[3].getTypeRef()).toEqual("Map");
+    expect(
+      args[3].getChildren().map((c) => [c.getName(), c.getType()])
+    ).toEqual([
+      ["key", ArgTag.STRING],
+      ["value", ArgTag.NUMBER],
+    ]);
+
+    expect(
+      args.map((arg) => TypescriptProgram.getTypeAnnotation(arg, {}))
+    ).toEqual([
+      "Record<string, number>",
+      "Record<string, boolean>",
+      "Record<string, number>",
+      "Map<string, number>",
+    ]);
+  });
+
+  it("mixed property & index signatures in object literal not yet supported", () => {
+    // Eventually we would like to support this, but we don't right now
+    // and need to ensure that we do not silently ingest such types.
+    const prog = ProgramFactory.fromSource(
+      () => `
+      export function testMixed(obj: { id: string; [key: string]: number }): void {}
+      `,
+      "typescript"
+    );
+    expect(prog.functionsExported["testMixed"]).toBeUndefined();
+  });
 });
