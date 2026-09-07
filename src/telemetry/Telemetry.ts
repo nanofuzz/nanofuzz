@@ -1,6 +1,16 @@
 import * as vscode from "vscode";
 import { Logger, LoggerEntry } from "./Logger";
-import { Listener } from "../extension";
+
+export type Listener = {
+  register: () => vscode.Disposable;
+};
+
+function createListener<T>(
+  event: vscode.Event<T>,
+  fn: (e: T) => void
+): Listener {
+  return { register: () => event(fn) };
+}
 
 let currentWindow = ""; // Current editor window filename / uri
 let currentTerm = ""; // Current terminal window name
@@ -120,9 +130,9 @@ export const listeners: Listener[] = [
   //
   // ----------------------- Workspace Handlers ---------------------- //
 
-  {
-    event: vscode.workspace.onDidChangeConfiguration,
-    fn: (): void => {
+  createListener(
+    vscode.workspace.onDidChangeConfiguration,
+    (): void => {
       // If the config is active, we need to log the change and re-load
       if (config && config.active) {
         logger.push(new LoggerEntry("onDidChangeConfiguration"));
@@ -132,11 +142,11 @@ export const listeners: Listener[] = [
         loadConfig(); // Re-load config due to config change
         logger.push(new LoggerEntry("onDidChangeConfiguration"));
       }
-    },
-  },
-  {
-    event: vscode.workspace.onDidChangeTextDocument,
-    fn: (e: vscode.TextDocumentChangeEvent): void => {
+    }
+  ),
+  createListener(
+    vscode.workspace.onDidChangeTextDocument,
+    (e: vscode.TextDocumentChangeEvent): void => {
       for (const c of e.contentChanges) {
         logger.push(
           new LoggerEntry(
@@ -153,14 +163,14 @@ export const listeners: Listener[] = [
           )
         );
       }
-    },
-  },
+    }
+  ),
 
   // ------------------------ Window Handlers ------------------------ //
 
-  {
-    event: vscode.window.onDidChangeActiveTextEditor,
-    fn: (editor: vscode.TextEditor | undefined): void => {
+  createListener(
+    vscode.window.onDidChangeActiveTextEditor,
+    (editor: vscode.TextEditor | undefined): void => {
       const previousWindow = currentWindow;
       currentWindow =
         editor !== undefined && isCodeEditor(editor.document.fileName)
@@ -173,11 +183,11 @@ export const listeners: Listener[] = [
           [currentWindow, previousWindow]
         )
       );
-    },
-  },
-  {
-    event: vscode.window.onDidChangeTextEditorSelection,
-    fn: (e: vscode.TextEditorSelectionChangeEvent): void => {
+    }
+  ),
+  createListener(
+    vscode.window.onDidChangeTextEditorSelection,
+    (e: vscode.TextEditorSelectionChangeEvent): void => {
       for (const s of e.selections) {
         const selectedText = e.textEditor.document.getText(s);
         logger.push(
@@ -195,11 +205,11 @@ export const listeners: Listener[] = [
           )
         );
       }
-    },
-  },
-  {
-    event: vscode.window.onDidChangeTextEditorVisibleRanges,
-    fn: (e: vscode.TextEditorVisibleRangesChangeEvent): void => {
+    }
+  ),
+  createListener(
+    vscode.window.onDidChangeTextEditorVisibleRanges,
+    (e: vscode.TextEditorVisibleRangesChangeEvent): void => {
       for (const r of e.visibleRanges) {
         logger.push(
           new LoggerEntry(
@@ -215,24 +225,24 @@ export const listeners: Listener[] = [
           )
         );
       }
-    },
-  },
+    }
+  ),
 
   // ----------------------- Terminal Handlers ----------------------- //
 
-  {
-    event: vscode.window.onDidOpenTerminal,
-    fn: (term: vscode.Terminal): void => {
+  createListener(
+    vscode.window.onDidOpenTerminal,
+    (term: vscode.Terminal): void => {
       logger.push(
         new LoggerEntry("onDidOpenTerminal", "Opened terminal: [%s]", [
           term.name,
         ])
       );
-    },
-  },
-  {
-    event: vscode.window.onDidChangeActiveTerminal,
-    fn: (term: vscode.Terminal | undefined): void => {
+    }
+  ),
+  createListener(
+    vscode.window.onDidChangeActiveTerminal,
+    (term: vscode.Terminal | undefined): void => {
       const previousTerm: string = currentTerm;
       currentTerm = term === undefined ? "" : term.name;
       logger.push(
@@ -242,11 +252,11 @@ export const listeners: Listener[] = [
           [currentTerm, previousTerm]
         )
       );
-    },
-  },
-  {
-    event: vscode.window.onDidChangeTerminalState,
-    fn: (term: vscode.Terminal): void => {
+    }
+  ),
+  createListener(
+    vscode.window.onDidChangeTerminalState,
+    (term: vscode.Terminal): void => {
       logger.push(
         new LoggerEntry(
           "onDidChangeTerminalState",
@@ -254,18 +264,18 @@ export const listeners: Listener[] = [
           [term.name, term.state.isInteractedWith ? "true" : "false"]
         )
       );
-    },
-  },
-  {
-    event: vscode.window.onDidCloseTerminal,
-    fn: (term: vscode.Terminal): void => {
+    }
+  ),
+  createListener(
+    vscode.window.onDidCloseTerminal,
+    (term: vscode.Terminal): void => {
       logger.push(
         new LoggerEntry("onDidCloseTerminal", "Closed terminal: [%s]", [
           term.name,
         ])
       );
-    },
-  },
+    }
+  ),
 ];
 
 // ----------------------------- Types ----------------------------- //

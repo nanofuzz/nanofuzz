@@ -1,4 +1,15 @@
 import * as vscode from "vscode";
+
+export type Listener = {
+  register: () => vscode.Disposable;
+};
+
+function createListener<T>(
+  event: vscode.Event<T>,
+  fn: (e: T) => void
+): Listener {
+  return { register: () => event(fn) };
+}
 import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
@@ -4141,16 +4152,16 @@ export function deinit(): void {
 /**
  * Export this module's listeners to the extension.
  */
-export const listeners = [
-  {
-    event: vscode.workspace.onDidChangeConfiguration,
-    fn: (): void => {
+export const listeners: Listener[] = [
+  createListener(
+    vscode.workspace.onDidChangeConfiguration,
+    (): void => {
       // Notify the open webviews about configuration changes
       Object.values(FuzzPanel.currentPanels).forEach((panel) => {
         panel.onDidChangeConfiguration();
       });
-    },
-  },
+    }
+  ),
 ];
 
 // --------------------------- Constants --------------------------- //
