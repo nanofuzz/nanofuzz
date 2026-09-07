@@ -100,9 +100,15 @@ export class PythonRunner extends AbstractRunner {
         typeHints,
       };
 
-      const payload = JSON5.stringify(input, (_key, val) =>
-        val instanceof Uint8Array ? Array.from(val) : val
-      );
+      const payload = JSON5.stringify(input, (_key, val) => {
+        if (val instanceof Uint8Array || val instanceof Set) {
+          return Array.from(val);
+        }
+        if (val instanceof Map) {
+          return Object.fromEntries(val);
+        }
+        return val;
+      });
       const lengthBuffer = Buffer.alloc(4);
       lengthBuffer.writeUInt32BE(Buffer.byteLength(payload), 0);
 
@@ -118,6 +124,7 @@ export class PythonRunner extends AbstractRunner {
         ),
         env: {},
       };
+
       if (result.result.seq >= 0 && result.result.seq !== thisSeq) {
         throw new Error(
           `Internal error: RunnerResult seq# does not match RunnerInput`
@@ -653,6 +660,18 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
   }
 
   switch (arg.getType()) {
+    case ArgTag.SET: {
+      const [elemChild] = arg.getChildren();
+      const elemHint = elemChild ? getTypeHint(elemChild) : "default";
+      const typeRef = arg.getTypeRef();
+      const baseTypeRef = arg.getBaseTypeRef();
+      const isFrozen =
+        typeRef === "frozenset" ||
+        typeRef === "FrozenSet" ||
+        baseTypeRef === "frozenset" ||
+        baseTypeRef === "FrozenSet";
+      return { kind: "set", element: elemHint, frozenset: isFrozen };
+    }
     case ArgTag.TUPLE:
       return {
         kind: "tuple",
@@ -672,8 +691,14 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
       };
     case ArgTag.BYTES:
       return "bytes";
-    case ArgTag.DICTIONARY:
     case ArgTag.NUMBER:
+      return "number";
+    case ArgTag.DICTIONARY: {
+      const children = arg.getChildren();
+      const keyHint = children[0] ? getTypeHint(children[0]) : "default";
+      const valHint = children[1] ? getTypeHint(children[1]) : "default";
+      return { kind: "dictionary", key: keyHint, value: valHint };
+    }
     case ArgTag.STRING:
     case ArgTag.BOOLEAN:
     case ArgTag.LITERAL:

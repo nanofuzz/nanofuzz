@@ -105,4 +105,24 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
     );
     expect(PythonValueMapper.fromPython(pyDictStr)).toEqual(nestedObj);
   });
+
+  it("Set and Map to/from Python expressions", () => {
+    const setVal = new Set([1, "two", true]);
+    const pySetCode = PythonValueMapper.toPython(setVal);
+    expect(pySetCode).toEqual('{1, "two", True}');
+
+    const parsedSet = PythonValueMapper.fromPython<Set<unknown>>(pySetCode);
+    expect(parsedSet).toEqual(setVal);
+
+    expect(PythonValueMapper.fromPython("set([1, 'two', True])")).toEqual(setVal);
+    expect(PythonValueMapper.fromPython("frozenset([1, 'two', True])")).toEqual(setVal);
+    expect(PythonValueMapper.toPython(new Set())).toEqual("set()");
+
+    const mapVal = new Map([
+      ["a", 1],
+      ["b", 2],
+    ]);
+    const pyMapCode = PythonValueMapper.toPython(mapVal);
+    expect(pyMapCode).toEqual('{"a": 1, "b": 2}');
+  });
 });

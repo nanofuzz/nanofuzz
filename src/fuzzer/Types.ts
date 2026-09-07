@@ -239,6 +239,14 @@ export type FuzzArgOverride = {
     minByteLen: number;
     maxByteLen: number;
   };
+  dictionary?: {
+    minDictLen: number;
+    maxDictLen: number;
+  };
+  set?: {
+    minSetLen: number;
+    maxSetLen: number;
+  };
   array?: {
     dimLength: { min: number; max: number }[];
     dimsUnique: boolean;

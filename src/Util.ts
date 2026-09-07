@@ -1,4 +1,19 @@
 import { FuzzValueOrigin } from "./fuzzer/Types";
+import * as JSONN from "./Jsonn";
+
+/**
+ * Constructs a new JavaScript Set whose elements are sorted in canonical
+ * order based on their stringified JSONN representation.
+ */
+export function makeCanonicalSet<T>(elements: Iterable<T>): Set<T> {
+  const items = Array.from(elements);
+  items.sort((a, b) => {
+    const strA = JSONN.stringify(a);
+    const strB = JSONN.stringify(b);
+    return strA < strB ? -1 : strA > strB ? 1 : 0;
+  });
+  return new Set(items);
+}
 
 /**
  * Type guard function that returns true if `obj` has keys

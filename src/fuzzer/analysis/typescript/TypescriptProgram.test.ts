@@ -425,7 +425,10 @@ export const returnsValueArrow = () => "hello";
         rec: Record<string, number>,
         idxSig: { [key: string]: boolean },
         aliased: ScoreMap,
-        myMap: Map<string, number>
+        myMap: Map<string, number>,
+        roMap: ReadonlyMap<string, boolean>,
+        mySet: Set<number>,
+        roSet: ReadonlySet<string>
       ): void {}
       `,
       "typescript"
@@ -435,30 +438,30 @@ export const returnsValueArrow = () => "hello";
     expect(fn).toBeDefined();
 
     const args = fn.getArgDefs();
-    expect(args.length).toBe(4);
+    expect(args.length).toBe(7);
 
     expect(args[0].getType()).toEqual(ArgTag.DICTIONARY);
     expect(
       args[0].getChildren().map((c) => [c.getName(), c.getType()])
     ).toEqual([
-      ["key", ArgTag.STRING],
-      ["value", ArgTag.NUMBER],
+      ["keys", ArgTag.STRING],
+      ["values", ArgTag.NUMBER],
     ]);
 
     expect(args[1].getType()).toEqual(ArgTag.DICTIONARY);
     expect(
       args[1].getChildren().map((c) => [c.getName(), c.getType()])
     ).toEqual([
-      ["key", ArgTag.STRING],
-      ["value", ArgTag.BOOLEAN],
+      ["keys", ArgTag.STRING],
+      ["values", ArgTag.BOOLEAN],
     ]);
 
     expect(args[2].getType()).toEqual(ArgTag.DICTIONARY);
     expect(
       args[2].getChildren().map((c) => [c.getName(), c.getType()])
     ).toEqual([
-      ["key", ArgTag.STRING],
-      ["value", ArgTag.NUMBER],
+      ["keys", ArgTag.STRING],
+      ["values", ArgTag.NUMBER],
     ]);
 
     expect(args[3].getType()).toEqual(ArgTag.DICTIONARY);
@@ -466,9 +469,22 @@ export const returnsValueArrow = () => "hello";
     expect(
       args[3].getChildren().map((c) => [c.getName(), c.getType()])
     ).toEqual([
-      ["key", ArgTag.STRING],
-      ["value", ArgTag.NUMBER],
+      ["keys", ArgTag.STRING],
+      ["values", ArgTag.NUMBER],
     ]);
+
+    expect(args[4].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[4].getTypeRef()).toEqual("ReadonlyMap");
+
+    expect(args[5].getType()).toEqual(ArgTag.SET);
+    expect(args[5].getTypeRef()).toEqual("Set");
+    expect(args[5].getDim()).toBe(0);
+    expect(args[5].getOptions().dimsUnique).toBeTrue();
+
+    expect(args[6].getType()).toEqual(ArgTag.SET);
+    expect(args[6].getTypeRef()).toEqual("ReadonlySet");
+    expect(args[6].getDim()).toBe(0);
+    expect(args[6].getOptions().dimsUnique).toBeTrue();
 
     expect(
       args.map((arg) => TypescriptProgram.getTypeAnnotation(arg, {}))
@@ -477,7 +493,168 @@ export const returnsValueArrow = () => "hello";
       "Record<string, boolean>",
       "Record<string, number>",
       "Map<string, number>",
+      "ReadonlyMap<string, boolean>",
+      "Set<number>",
+      "ReadonlySet<string>",
     ]);
+  });
+
+  it("Map alias type reference and base type expansion", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `
+      type AliasMap = Map<string, number>;
+      export function testMap(map: Map<string, number>, aMap: AliasMap): void {}
+      `,
+      "typescript"
+    );
+    const fn = prog.functionsExported["testMap"];
+    const args = fn.getArgDefs();
+
+    expect(TypescriptProgram.getTypeAnnotation(args[0])).toEqual("Map<string, number>");
+    expect(TypescriptProgram.getTypeAnnotation(args[1])).toEqual("AliasMap");
+
+    expect(TypescriptProgram.getTypeAnnotation(args[0], {})).toEqual("Map<string, number>");
+    expect(TypescriptProgram.getTypeAnnotation(args[1], {})).toEqual("Map<string, number>");
+  });
+
+  it("chains of type refs over Set, Map, Record w/dims", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `
+      type BaseSet = Set<number>;
+      type AliasedSet = BaseSet;
+      type SetArray = AliasedSet[];
+
+      type BaseMap = Map<string, boolean>;
+      type AliasedMap = BaseMap;
+      type MapArray = AliasedMap[];
+
+      type BaseRec = Record<string, number>;
+      type AliasedRec = BaseRec;
+      type RecArray = AliasedRec[];
+
+      export function testChains(
+        s1: AliasedSet,
+        s2: SetArray,
+        s3: AliasedSet[],
+        m1: AliasedMap,
+        m2: MapArray,
+        m3: AliasedMap[],
+        r1: AliasedRec,
+        r2: RecArray,
+        r3: AliasedRec[]
+      ): void {}
+      `,
+      "typescript"
+    );
+
+    const fn = prog.functionsExported["testChains"];
+    expect(fn).toBeDefined();
+
+    const args = fn.getArgDefs();
+    expect(args.length).toBe(9);
+
+    // Verify Set types, dimensions, and children
+    expect(args[0].getType()).toEqual(ArgTag.SET);
+    expect(args[0].getDim()).toBe(0);
+    expect(
+      args[0].getChildren().map((c) => [c.getName(), c.getType()])
+    ).toEqual([["values", ArgTag.NUMBER]]);
+
+    expect(args[1].getType()).toEqual(ArgTag.SET);
+    expect(args[1].getDim()).toBe(1);
+
+    expect(args[2].getType()).toEqual(ArgTag.SET);
+    expect(args[2].getDim()).toBe(1);
+
+    // Verify Map types, dimensions, and children
+    expect(args[3].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[3].getDim()).toBe(0);
+    expect(
+      args[3].getChildren().map((c) => [c.getName(), c.getType()])
+    ).toEqual([
+      ["keys", ArgTag.STRING],
+      ["values", ArgTag.BOOLEAN],
+    ]);
+
+    expect(args[4].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[4].getDim()).toBe(1);
+    expect(
+      args[4].getChildren().map((c) => [c.getName(), c.getType()])
+    ).toEqual([
+      ["keys", ArgTag.STRING],
+      ["values", ArgTag.BOOLEAN],
+    ]);
+
+    expect(args[5].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[5].getDim()).toBe(1);
+    expect(
+      args[5].getChildren().map((c) => [c.getName(), c.getType()])
+    ).toEqual([
+      ["keys", ArgTag.STRING],
+      ["values", ArgTag.BOOLEAN],
+    ]);
+
+    // Verify Record types, dimensions, and children
+    expect(args[6].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[6].getDim()).toBe(0);
+    expect(
+      args[6].getChildren().map((c) => [c.getName(), c.getType()])
+    ).toEqual([
+      ["keys", ArgTag.STRING],
+      ["values", ArgTag.NUMBER],
+    ]);
+
+    expect(args[7].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[7].getDim()).toBe(1);
+
+    expect(args[8].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[8].getDim()).toBe(1);
+
+    // Default formatting (preserving top-level type references when useTypeRefs is true)
+    expect(TypescriptProgram.getTypeAnnotation(args[0])).toEqual("AliasedSet");
+    expect(TypescriptProgram.getTypeAnnotation(args[1])).toEqual("SetArray");
+    expect(TypescriptProgram.getTypeAnnotation(args[2])).toEqual(
+      "AliasedSet[]"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[3])).toEqual("AliasedMap");
+    expect(TypescriptProgram.getTypeAnnotation(args[4])).toEqual("MapArray");
+    expect(TypescriptProgram.getTypeAnnotation(args[5])).toEqual(
+      "AliasedMap[]"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[6])).toEqual("AliasedRec");
+    expect(TypescriptProgram.getTypeAnnotation(args[7])).toEqual("RecArray");
+    expect(TypescriptProgram.getTypeAnnotation(args[8])).toEqual(
+      "AliasedRec[]"
+    );
+
+    // Expanded base type annotations (useTypeRefs = false)
+    expect(TypescriptProgram.getTypeAnnotation(args[0], {})).toEqual(
+      "Set<number>"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[1], {})).toEqual(
+      "Set<number>[]"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[2], {})).toEqual(
+      "Set<number>[]"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[3], {})).toEqual(
+      "Map<string, boolean>"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[4], {})).toEqual(
+      "Map<string, boolean>[]"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[5], {})).toEqual(
+      "Map<string, boolean>[]"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[6], {})).toEqual(
+      "Record<string, number>"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[7], {})).toEqual(
+      "Record<string, number>[]"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[8], {})).toEqual(
+      "Record<string, number>[]"
+    );
   });
 
   it("mixed property & index signatures in object literal not yet supported", () => {

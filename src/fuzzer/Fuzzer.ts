@@ -63,12 +63,17 @@ export class Tester {
     this._module = require.resolve(module);
     this._fnName = fnName;
 
+    const normalizedOptions: FuzzOptions = {
+      ...options,
+      argDefaults: ArgDef.normalizeOptions(options?.argDefaults),
+    };
+
     // Get the program & function definitions
     try {
       this._program = ProgramFactory.fromFile(
         this._module,
         undefined,
-        options.argDefaults
+        normalizedOptions.argDefaults
       );
     } catch (e: unknown) {
       throw new Error(
@@ -93,12 +98,12 @@ export class Tester {
     this._transformers = getTransformers(this._program, fnList[this._fnName]);
 
     // Options
-    if (!isOptionValid(options)) {
+    if (!isOptionValid(normalizedOptions)) {
       throw new Error(
-        `Invalid options provided: ${JSONN.stringify(options, null, 2)}`
+        `Invalid options provided: ${JSONN.stringify(normalizedOptions, null, 2)}`
       );
     }
-    this._options = structuredClone(options);
+    this._options = structuredClone(normalizedOptions);
 
     // Get the active measures, which will take various measurements
     // during execution that guide the composite generator
@@ -266,18 +271,23 @@ export class Tester {
    * (can we eliminate this? !!!!!!)
    */
   public set options(options: FuzzOptions) {
+    const normalizedOptions: FuzzOptions = {
+      ...options,
+      argDefaults: ArgDef.normalizeOptions(options?.argDefaults),
+    };
+
     // Ensure we have a valid set of Fuzz options
-    if (!isOptionValid(options)) {
+    if (!isOptionValid(normalizedOptions)) {
       throw new Error(
-        `Invalid options provided: ${JSONN.stringify(options, null, 2)}`
+        `Invalid options provided: ${JSONN.stringify(normalizedOptions, null, 2)}`
       );
     }
 
     // If we already have an option set and it differs
     // from the new one, use the new options.
-    if (JSONN.stringify(this._options) !== JSONN.stringify(options)) {
-      this._options = structuredClone(options);
-      this._results.env.options = structuredClone(options);
+    if (JSONN.stringify(this._options) !== JSONN.stringify(normalizedOptions)) {
+      this._options = structuredClone(normalizedOptions);
+      this._results.env.options = structuredClone(normalizedOptions);
       this._compositeInputGenerator.options = this._options.generators;
     }
   } // property: set options

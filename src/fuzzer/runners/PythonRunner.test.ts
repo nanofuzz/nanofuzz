@@ -206,4 +206,267 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
       }
     }
   });
+
+  it("set & frozenset inputs and outputs", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "set_test.py");
+    const pyCode = `from typing import FrozenSet
+
+def process_sets(s_data: set[int], f_data: FrozenSet[str]):
+    assert isinstance(s_data, set), "s_data must be a python set"
+    assert isinstance(f_data, frozenset), "f_data must be a python frozenset"
+    return {
+        "set_res": {x * 2 for x in s_data},
+        "frozenset_res": frozenset(x.upper() for x in f_data)
+    }
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `from typing import FrozenSet
+
+def process_sets(s_data: set[int], f_data: FrozenSet[str]):
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["process_sets"];
+      const env: FuzzEnv = {
+        function: fnDef,
+        options: {
+          argDefaults: ArgDef.getDefaultOptions(),
+          maxTests: 1000,
+          maxDupeInputs: 1000,
+          maxFailures: 0,
+          fnTimeout: 100,
+          suiteTimeout: 0,
+          useImplicit: true,
+          useHuman: false,
+          useProperty: false,
+          useTransformer: false,
+          measures: {
+            CoverageMeasure: { enabled: true, weight: 1 },
+            FailedTestMeasure: { enabled: true, weight: 1 },
+          },
+          generators: {
+            RandomInputGenerator: { enabled: true },
+            MutationInputGenerator: { enabled: true },
+            AiInputGenerator: { enabled: false },
+          },
+        },
+        validators: [],
+        transformers: [],
+      };
+
+      const runner = new PythonRunner(pyPath, "process_sets", env, 2000);
+      await runner.onRunStart();
+
+      const inputSet = new Set([1, 2, 3]);
+      const inputFrozenSet = new Set(["a", "b"]);
+
+      const res = await runner.run([inputSet, inputFrozenSet], 2000);
+
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        const val = res.result.value;
+        if (
+          val !== null &&
+          typeof val === "object" &&
+          "set_res" in val &&
+          "frozenset_res" in val &&
+          Array.isArray(val.set_res) &&
+          Array.isArray(val.frozenset_res)
+        ) {
+          expect(new Set(val.set_res)).toEqual(new Set([2, 4, 6]));
+          expect(new Set(val.frozenset_res)).toEqual(new Set(["A", "B"]));
+        } else {
+          fail("Expected object with set_res and frozenset_res arrays");
+        }
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
+    }
+  });
+
+  it("handles tuple arguments, dict with numeric keys, and non-string dict return keys", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "tuple_dict_test.py");
+    const pyCode = `
+def process_data(t: tuple[int, str], d: dict[int, str]):
+    assert isinstance(t, tuple), "t must be a tuple"
+    assert all(isinstance(k, int) for k in d.keys()), "d keys must be int"
+    return {
+        10: "ten",
+        20: "twenty"
+    }
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def process_data(t: tuple[int, str], d: dict[int, str]):
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["process_data"];
+      const env: FuzzEnv = {
+        function: fnDef,
+        options: {
+          argDefaults: ArgDef.getDefaultOptions(),
+          maxTests: 1000,
+          maxDupeInputs: 1000,
+          maxFailures: 0,
+          fnTimeout: 100,
+          suiteTimeout: 0,
+          useImplicit: true,
+          useHuman: false,
+          useProperty: false,
+          useTransformer: false,
+          measures: {
+            CoverageMeasure: { enabled: true, weight: 1 },
+            FailedTestMeasure: { enabled: true, weight: 1 },
+          },
+          generators: {
+            RandomInputGenerator: { enabled: true },
+            MutationInputGenerator: { enabled: true },
+            AiInputGenerator: { enabled: false },
+          },
+        },
+        validators: [],
+        transformers: [],
+      };
+
+      const runner = new PythonRunner(pyPath, "process_data", env, 2000);
+      await runner.onRunStart();
+
+      const res = await runner.run([[10, "foo"], { "1": "one", "2": "two" }], 2000);
+
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toEqual({
+          "10": "ten",
+          "20": "twenty",
+        });
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
+    }
+  });
+
+  it("handles NaN and Infinity float numbers passed as strings", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "float_test.py");
+    const pyCode = `import math
+
+def process_floats(nan_val: float, inf_val: float) -> dict:
+    assert isinstance(nan_val, float), "nan_val must be float"
+    assert math.isnan(nan_val), "nan_val must be NaN"
+    assert isinstance(inf_val, float), "inf_val must be float"
+    assert math.isinf(inf_val), "inf_val must be Infinity"
+    return {"nan": nan_val, "inf": inf_val}
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def process_floats(nan_val: float, inf_val: float):
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["process_floats"];
+      const env: FuzzEnv = {
+        function: fnDef,
+        options: {
+          argDefaults: ArgDef.getDefaultOptions(),
+          maxTests: 1000,
+          maxDupeInputs: 1000,
+          maxFailures: 0,
+          fnTimeout: 100,
+          suiteTimeout: 0,
+          useImplicit: true,
+          useHuman: false,
+          useProperty: false,
+          useTransformer: false,
+          measures: {
+            CoverageMeasure: { enabled: true, weight: 1 },
+            FailedTestMeasure: { enabled: true, weight: 1 },
+          },
+          generators: {
+            RandomInputGenerator: { enabled: true },
+            MutationInputGenerator: { enabled: true },
+            AiInputGenerator: { enabled: false },
+          },
+        },
+        validators: [],
+        transformers: [],
+      };
+
+      const runner = new PythonRunner(pyPath, "process_floats", env, 2000);
+      await runner.onRunStart();
+
+      const res = await runner.run(["NaN", "Infinity"], 2000);
+
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        const val = res.result.value;
+        if (
+          val !== null &&
+          typeof val === "object" &&
+          "nan" in val &&
+          "inf" in val
+        ) {
+          expect(Number.isNaN(val.nan)).toBeTrue();
+          expect(val.inf).toBe(Infinity);
+        } else {
+          fail("Expected object with nan and inf properties");
+        }
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
+    }
+  });
 });

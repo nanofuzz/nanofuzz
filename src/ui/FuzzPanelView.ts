@@ -2374,6 +2374,10 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
     const minByteLen = document.getElementById(idBase + "-minByteLen");
     const maxByteLen = document.getElementById(idBase + "-maxByteLen");
+    const minDictLen = document.getElementById(idBase + "-minDictLen");
+    const maxDictLen = document.getElementById(idBase + "-maxDictLen");
+    const minSetLen = document.getElementById(idBase + "-minSetLen");
+    const maxSetLen = document.getElementById(idBase + "-maxSetLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
     const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
@@ -2442,6 +2446,38 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
             Math.min(Number(minByteLenVal), Number(maxByteLenVal))
           ),
           maxByteLen: Math.max(Number(minByteLenVal), Number(maxByteLenVal), 0),
+        };
+      }
+    }
+
+    // Process dictionary overrides
+    if (minDictLen && maxDictLen) {
+      disableArr.push(minDictLen, maxDictLen);
+      const minDictLenVal = minDictLen.getAttribute("current-value");
+      const maxDictLenVal = maxDictLen.getAttribute("current-value");
+      if (minDictLenVal !== null && maxDictLenVal !== null) {
+        thisOverride.dictionary = {
+          minDictLen: Math.max(
+            0,
+            Math.min(Number(minDictLenVal), Number(maxDictLenVal))
+          ),
+          maxDictLen: Math.max(Number(minDictLenVal), Number(maxDictLenVal), 0),
+        };
+      }
+    }
+
+    // Process set overrides
+    if (minSetLen && maxSetLen) {
+      disableArr.push(minSetLen, maxSetLen);
+      const minSetLenVal = minSetLen.getAttribute("current-value");
+      const maxSetLenVal = maxSetLen.getAttribute("current-value");
+      if (minSetLenVal !== null && maxSetLenVal !== null) {
+        thisOverride.set = {
+          minSetLen: Math.max(
+            0,
+            Math.min(Number(minSetLenVal), Number(maxSetLenVal))
+          ),
+          maxSetLen: Math.max(Number(minSetLenVal), Number(maxSetLenVal), 0),
         };
       }
     }

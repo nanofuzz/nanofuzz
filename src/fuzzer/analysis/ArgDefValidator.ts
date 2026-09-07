@@ -110,6 +110,7 @@ export class ArgDefValidator {
             typeof value === "object" &&
             !Array.isArray(value) &&
             !(value instanceof Uint8Array) &&
+            !(value instanceof Set) &&
             value !== null
           ) {
             const children = spec.getChildren();
@@ -157,11 +158,56 @@ export class ArgDefValidator {
           }
           const [keySpec, valueSpec] = spec.getChildren();
           if (!keySpec || !valueSpec) return false;
-          return entries.every(
-            ([key, entry]) =>
+          return entries.every(([rawKey, entry]) => {
+            let key: ArgValueType = rawKey;
+            if (keySpec.getType() === ArgTag.NUMBER) {
+              key = Number(rawKey);
+            } else if (keySpec.getType() === ArgTag.BOOLEAN) {
+              if (rawKey === "true") key = true;
+              else if (rawKey === "false") key = false;
+            }
+            return (
               ArgDefValidator.validate(key, keySpec) &&
               ArgDefValidator.validate(entry, valueSpec)
-          );
+            );
+          });
+        }
+
+        case ArgTag.SET: {
+          const isSet = value instanceof Set;
+          const isArr = Array.isArray(value);
+          if (!isSet && !isArr) {
+            return false;
+          }
+          const items =
+            value instanceof Set
+              ? Array.from(value.values())
+              : Array.isArray(value)
+              ? value
+              : [];
+          const setLen = options.setLength;
+          if (items.length < setLen.min || items.length > setLen.max) {
+            return false;
+          }
+          const [elemSpec] = spec.getChildren();
+          if (!elemSpec) return false;
+
+          for (let i = 0; i < items.length; i++) {
+            if (!ArgDefValidator.validate(items[i], elemSpec)) {
+              return false;
+            }
+            // Enforce the in-memory canonical set invariant: adjacent elements
+            // must be in strictly ascending order based on JSONN.stringify.
+            // This simultaneously validates set sorting and element uniqueness.
+            if (i < items.length - 1) {
+              const currentStr = JSONN.stringify(items[i]);
+              const nextStr = JSONN.stringify(items[i + 1]);
+              if (currentStr >= nextStr) {
+                return false;
+              }
+            }
+          }
+          return true;
         }
 
         case ArgTag.TUPLE: {

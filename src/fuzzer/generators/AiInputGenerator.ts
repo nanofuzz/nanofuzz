@@ -398,19 +398,28 @@ export class AiInputGenerator extends AbstractInputGenerator {
           });
           return zod.strictObject(obj);
         }
+        case ArgTag.SET: {
+          const [elemSpec] = argChildren;
+          if (!elemSpec) {
+            throw new Error("Set arguments require an element type");
+          }
+          return zod.array(
+            this._argDefToSchema(elemSpec, `${path}.values`, directives)
+          );
+        }
         case ArgTag.DICTIONARY: {
           const [key, value] = argChildren;
           if (!key || !value) {
             throw new Error("Dictionary arguments require key and value types");
           }
-          const zodKey = this._argDefToSchema(key, `${path}.key`, directives);
+          const zodKey = this._argDefToSchema(key, `${path}.keys`, directives);
           if (
             zodKey instanceof zod.ZodString ||
             zodKey instanceof zod.ZodNumber
           ) {
             return zod.record(
               zodKey,
-              this._argDefToSchema(value, `${path}.value`, directives)
+              this._argDefToSchema(value, `${path}.values`, directives)
             );
           } else {
             throw new Error("Dictionary key must be of type string or number");
@@ -547,7 +556,8 @@ export function _decode(data: ArgValueType, spec?: ArgDef): ArgValueType {
       typeof data === "object" &&
       data !== null &&
       !Array.isArray(data) &&
-      !(data instanceof Uint8Array)
+      !(data instanceof Uint8Array) &&
+      !(data instanceof Set)
     ) {
       const children = spec.getChildren();
       Object.keys(data).forEach((k) => {
@@ -578,7 +588,7 @@ export function _decode(data: ArgValueType, spec?: ArgDef): ArgValueType {
         return data.map((e) => _decode(e));
       } else if (data === null) {
         return null;
-      } else if (data instanceof Uint8Array) {
+      } else if (data instanceof Uint8Array || data instanceof Set) {
         return data;
       } else {
         Object.keys(data).forEach((k) => {
