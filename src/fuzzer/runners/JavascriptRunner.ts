@@ -25,14 +25,14 @@ export class JavascriptRunner extends AbstractRunner {
     this._jsFn = jsFn;
 
     // Ensure we found an export module member
-    if (!(jsFn in module)) {
+    if (module === null || module === undefined || !(jsFn in module)) {
       throw new Error(
         `Could not find exported function ${jsFn} in ${module.filename} to fuzz`
       );
     }
 
     // Module function to call
-    const fnToCall = (module as any)[jsFn];
+    const fnToCall = Reflect.get(module, jsFn);
 
     // Ensure that what's exported is a function
     if (typeof fnToCall !== "function") {

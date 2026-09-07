@@ -17,6 +17,11 @@ export function toPython(jsValue: unknown): string {
   return toPythonFormat(toPythonValues(jsValue));
 }
 
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+}
+
 /**
  * Converts a snippet of Python code containing a value into
  * a corresponding Javascript representation.
@@ -25,7 +30,7 @@ export function toPython(jsValue: unknown): string {
  * @returns Javascript value corresponding to `text`
  */
 export function fromPython<T>(text: string): T {
-  return toJavascriptValues(text) as T;
+  return cast<T>(toJavascriptValues(text));
 }
 
 // --------------- From Javascript value to Python string --------------- //

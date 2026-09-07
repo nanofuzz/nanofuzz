@@ -17,7 +17,6 @@ import {
   encodeEscapeSequences,
   decodeEscapeSequences,
 } from "../Util";
-import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
 import {
   applyCoverageHeatmapToEditor,
@@ -4019,7 +4018,7 @@ export function deinit(): void {
 /**
  * Export this module's listeners to the extension.
  */
-export const listeners: Listener<unknown>[] = [
+export const listeners = [
   {
     event: vscode.workspace.onDidChangeConfiguration,
     fn: (): void => {

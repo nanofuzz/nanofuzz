@@ -471,17 +471,19 @@ export class TypescriptCompiler {
       // Wrap stdout.write() for this context
       stdout: {
         ...process.stdout,
-        write: function () {
-          logData.push(String(arguments[0]));
-          process.stdout.write.apply(process.stdout, arguments as any);
+        write: function (...args: Parameters<typeof process.stdout.write>) {
+          logData.push(String(args[0]));
+          Reflect.apply(process.stdout.write, process.stdout, args);
+          return true;
         },
       },
       // Wrap stderr.write() for this context
       stderr: {
         ...process.stderr,
-        write: function () {
-          logData.push(String(arguments[0]));
-          process.stderr.write.apply(process.stderr, arguments as any);
+        write: function (...args: Parameters<typeof process.stderr.write>) {
+          logData.push(String(args[0]));
+          Reflect.apply(process.stderr.write, process.stderr, args);
+          return true;
         },
       },
     });
@@ -829,10 +831,12 @@ export class TypescriptCompiler {
 /**
  * Merge two objects
  */
-function merge(a: any, b: any) {
+function merge<T extends Record<string, unknown>>(a: T, b: Partial<T>): T {
   if (a && b) {
     for (const key in b) {
-      a[key] = b[key];
+      if (Object.hasOwn(b, key)) {
+        a[key] = b[key]!;
+      }
     }
   }
   return a;

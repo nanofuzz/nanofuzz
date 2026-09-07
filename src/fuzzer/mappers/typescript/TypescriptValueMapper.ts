@@ -14,6 +14,11 @@ export function toTypescript(jsValue: unknown): string {
   return toJavascriptValues(jsValue);
 }
 
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+}
+
 /**
  * Converts a snippet of Javacript code containing a value into
  * a corresponding Javascript representation.
@@ -22,7 +27,7 @@ export function toTypescript(jsValue: unknown): string {
  * @returns Javascript value corresponding to `text`
  */
 export function fromTypescript<T>(text: string): T {
-  return toJavascriptValue(text) as T;
+  return cast<T>(toJavascriptValue(text));
 }
 
 // ------------- From Javascript value to Javascript string -------------

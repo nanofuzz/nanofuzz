@@ -1,7 +1,7 @@
 import { ArgDef } from "./ArgDef";
 import { ArgDefValidator } from "./ArgDefValidator";
 import { makeArgDef, makeTypeRef } from "./TestUtils";
-import { ArgTag } from "./Types";
+import { ArgTag, ArgValueType } from "./Types";
 
 const argOptions = ArgDef.getDefaultOptions();
 const dummyModule = "dummy.ts";
@@ -46,7 +46,7 @@ describe("fuzzer/analysis/typescript/ArgDefValidator:", () => {
   });
 
   it("Validates valid arbitrary dimensional array", () => {
-    let arr: any = 1;
+    let arr: ArgValueType = 1;
     for (let dim = 1; dim < 5; dim++) {
       arr = [arr];
       const arrayDef = makeArgDef(

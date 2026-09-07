@@ -116,7 +116,7 @@ export const commands = {
 /**
  * Export this module's listeners to the extension.
  */
-export const listeners: Listener<any>[] = [
+export const listeners: Listener[] = [
   //
   // ----------------------- Workspace Handlers ---------------------- //
 

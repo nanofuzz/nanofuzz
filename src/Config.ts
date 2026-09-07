@@ -19,15 +19,20 @@ pkg.contributes.configuration.forEach((area) => {
   }
 });
 
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+}
+
 // Gets the current configuratio value
 export function get<T>(key: string, dft: T): T {
   if (key in overrides) {
-    return overrides[key] as T;
+    return cast<T>(overrides[key]);
   }
 
   if (notReallyVscode) {
     if (key in cfg) {
-      return cfg[key] as T;
+      return cast<T>(cfg[key]);
     } else {
       return dft;
     }
