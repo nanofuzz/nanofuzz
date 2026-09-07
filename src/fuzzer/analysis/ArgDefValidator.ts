@@ -191,7 +191,23 @@ export class ArgDefValidator {
           }
           const [elemSpec] = spec.getChildren();
           if (!elemSpec) return false;
-          return items.every((item) => ArgDefValidator.validate(item, elemSpec));
+
+          for (let i = 0; i < items.length; i++) {
+            if (!ArgDefValidator.validate(items[i], elemSpec)) {
+              return false;
+            }
+            // Enforce the in-memory canonical set invariant: adjacent elements
+            // must be in strictly ascending order based on JSONN.stringify.
+            // This simultaneously validates set sorting and element uniqueness.
+            if (i < items.length - 1) {
+              const currentStr = JSONN.stringify(items[i]);
+              const nextStr = JSONN.stringify(items[i + 1]);
+              if (currentStr >= nextStr) {
+                return false;
+              }
+            }
+          }
+          return true;
         }
 
         case ArgTag.TUPLE: {
