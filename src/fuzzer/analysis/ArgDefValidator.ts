@@ -159,7 +159,7 @@ export class ArgDefValidator {
           const [keySpec, valueSpec] = spec.getChildren();
           if (!keySpec || !valueSpec) return false;
           return entries.every(([rawKey, entry]) => {
-            let key: unknown = rawKey;
+            let key: ArgValueType = rawKey;
             if (keySpec.getType() === ArgTag.NUMBER) {
               key = Number(rawKey);
             } else if (keySpec.getType() === ArgTag.BOOLEAN) {
@@ -167,7 +167,7 @@ export class ArgDefValidator {
               else if (rawKey === "false") key = false;
             }
             return (
-              ArgDefValidator.validate(key as ArgValueType, keySpec) &&
+              ArgDefValidator.validate(key, keySpec) &&
               ArgDefValidator.validate(entry, valueSpec)
             );
           });
