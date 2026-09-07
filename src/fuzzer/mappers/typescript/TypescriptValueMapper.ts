@@ -1,6 +1,8 @@
 import * as JSONN from "../../../Jsonn";
 import { hexToBytes, isBufferOrUint8Array, isKeyedObject } from "../../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
+import { ArgDef } from "../../analysis/ArgDef";
+import { ArgTag } from "../../analysis/Types";
 
 /**
  * Accepts an arbitrary JavaScript value and returns a string representing
@@ -10,8 +12,8 @@ import * as Parser from "../../adapters/ParserAdapter";
  * @param `jsValue` An arbitrary JavaScript value
  * @returns A string formatted as a valid TypeScript expression
  */
-export function toTypescript(jsValue: unknown): string {
-  return toJavascriptValues(jsValue);
+export function toTypescript(jsValue: unknown, argDef?: ArgDef): string {
+  return toJavascriptValues(jsValue, argDef);
 }
 
 /**
@@ -34,7 +36,7 @@ export function fromTypescript<T>(text: string): T {
  * @param `val` arbitrary Javascript value
  * @returns `val` where JS values are mapped to Python values
  */
-function toJavascriptValues(val: unknown): string {
+function toJavascriptValues(val: unknown, argDef?: ArgDef): string {
   if (val === undefined) {
     return "undefined";
   }
@@ -62,18 +64,50 @@ function toJavascriptValues(val: unknown): string {
     return `new Uint8Array([${Array.from(val).join(", ")}])`;
   }
 
-  if (val instanceof Map) {
+  if (
+    val instanceof Map ||
+    (argDef &&
+      argDef.getType() === ArgTag.DICTIONARY &&
+      (argDef.getBaseTypeRef() === "Map" ||
+        argDef.getBaseTypeRef() === "ReadonlyMap" ||
+        argDef.getTypeRef() === "Map" ||
+        argDef.getTypeRef() === "ReadonlyMap") &&
+      val !== null &&
+      typeof val === "object" &&
+      !Array.isArray(val))
+  ) {
+    const keyDef = argDef?.getChildren()[0];
+    const valDef = argDef?.getChildren()[1];
     const entries: string[] = [];
-    for (const [key, value] of val.entries()) {
-      entries.push(
-        `[${toJavascriptValues(key)}, ${toJavascriptValues(value)}]`
-      );
+    if (val instanceof Map) {
+      for (const [key, value] of val.entries()) {
+        entries.push(
+          `[${toJavascriptValues(key, keyDef)}, ${toJavascriptValues(value, valDef)}]`
+        );
+      }
+    } else if (isKeyedObject(val)) {
+      for (const key of Object.keys(val)) {
+        entries.push(
+          `[${toJavascriptValues(key, keyDef)}, ${toJavascriptValues(val[key], valDef)}]`
+        );
+      }
     }
     return `new Map([${entries.join(", ")}])`;
   }
 
+  if (
+    val instanceof Set ||
+    (argDef && argDef.getType() === ArgTag.SET && Array.isArray(val))
+  ) {
+    const elemDef = argDef?.getChildren()[0];
+    const rawItems = val instanceof Set ? Array.from(val.values()) : Array.isArray(val) ? val : [];
+    const items = rawItems.map((item) => toJavascriptValues(item, elemDef));
+    return `new Set([${items.join(", ")}])`;
+  }
+
   if (Array.isArray(val)) {
-    const items = val.map((item) => toJavascriptValues(item));
+    const elemDef = argDef?.getChildren()[0];
+    const items = val.map((item) => toJavascriptValues(item, elemDef));
     return `[${items.join(", ")}]`;
   }
 
@@ -210,12 +244,23 @@ function toJavascriptValue(text: string): unknown {
             text: `{${JSONN.PlaceHolderUint8ArrayKey}:[${bytes.join(",")}]}`,
           });
         } else {
-          const mapMatch = text.match(/^new\s+Map\s*\(\s*(\[[\s\S]*\])\s*\)/i);
+          const mapMatch = text.match(
+            /^new\s+(?:Readonly)?Map\s*\(\s*(\[[\s\S]*\])\s*\)/i
+          );
+          const setMatch = text.match(
+            /^new\s+(?:Readonly)?Set\s*\(\s*(\[[\s\S]*\])\s*\)/i
+          );
           if (mapMatch) {
             replacements.push({
               start: node.startIndex,
               end: node.endIndex,
               text: `{${JSONN.PlaceHolderMapKey}:${mapMatch[1]}}`,
+            });
+          } else if (setMatch) {
+            replacements.push({
+              start: node.startIndex,
+              end: node.endIndex,
+              text: `{${JSONN.PlaceHolderSetKey}:${setMatch[1]}}`,
             });
           } else {
             // Recursively traverse children

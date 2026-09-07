@@ -126,9 +126,12 @@ export type RunnerResult = {
 export type TypeHint =
   | "uuid"
   | "bytes"
+  | "number"
   | "default"
   | { kind: "array"; element: TypeHint }
+  | { kind: "set"; element: TypeHint; frozenset?: boolean }
   | { kind: "tuple"; elements: TypeHint[] }
+  | { kind: "dictionary"; key: TypeHint; value: TypeHint }
   | { kind: "object"; fields: Record<string, TypeHint> }
   | { kind: "union"; arms: TypeHint[] };
 

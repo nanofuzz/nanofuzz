@@ -235,15 +235,16 @@ type MaybeScores = Optional[dict[str, int]]`,
 
     expect(types["Scores"].type?.type).toEqual(ArgTag.DICTIONARY);
     expect(types["Scores"].type?.children.map((child) => child.name)).toEqual([
-      "key",
-      "value",
+      "keys",
+      "values",
     ]);
     expect(types["Scores"].type?.children[1].type).toEqual(
       jasmine.objectContaining({ type: ArgTag.NUMBER, dims: 1 })
     );
     expect(types["Lookup"].type?.type).toEqual(ArgTag.DICTIONARY);
-    expect(types["Labels"].type).toEqual(
-      jasmine.objectContaining({ type: ArgTag.STRING, dims: 1 })
+    expect(types["Labels"].type?.type).toEqual(ArgTag.SET);
+    expect(types["Labels"].type?.children[0].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.STRING, dims: 0 })
     );
     expect(types["TaggedScores"].type?.children[1].type).toEqual(
       jasmine.objectContaining({ type: ArgTag.UNION })
@@ -1459,11 +1460,11 @@ def test_popitem_returns_key_value_pair(pairs):
     const children = arg.getChildren();
     expect(children.length).toEqual(2);
 
-    expect(children[0].getName()).toEqual("key");
+    expect(children[0].getName()).toEqual("keys");
     expect(children[0].getType()).toEqual(ArgTag.NUMBER);
     expect(children[0].getIntervals()).toEqual([{ min: 0, max: 200 }]);
 
-    expect(children[1].getName()).toEqual("value");
+    expect(children[1].getName()).toEqual("values");
     expect(children[1].getType()).toEqual(ArgTag.NUMBER);
     expect(children[1].getIntervals()).toEqual([{ min: 0, max: 200 }]);
 

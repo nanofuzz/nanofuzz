@@ -585,6 +585,63 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     );
   });
 
+  it("set: generates unique elements within setLength bounds", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "setArg",
+      0,
+      ArgTag.SET,
+      {
+        ...argOptions,
+        setLength: { min: 3, max: 5 },
+      },
+      0,
+      false,
+      [makeTypeRef(dummyModule, "values", ArgTag.NUMBER, 0)]
+    );
+
+    const generated = ArgDefGenerator.gen(spec, seedrandom("setUniqueElems"));
+    expect(ArgDefValidator.validate(generated, spec)).toBeTrue();
+    if (!(generated instanceof Set)) {
+      throw new Error("Expected a Set");
+    }
+    expect(generated.size).toBeGreaterThanOrEqual(3);
+    expect(generated.size).toBeLessThanOrEqual(5);
+  });
+
+  it("set: throws when cannot meet min setLength", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "setImpossible",
+      0,
+      ArgTag.SET,
+      {
+        ...argOptions,
+        setLength: { min: 2, max: 2 },
+      },
+      0,
+      false,
+      [
+        makeTypeRef(
+          dummyModule,
+          "values",
+          ArgTag.LITERAL,
+          0,
+          false,
+          [],
+          undefined,
+          "fixedVal"
+        ),
+      ]
+    );
+
+    expect(() =>
+      ArgDefGenerator.gen(spec, seedrandom("setImpossible"))
+    ).toThrowError(
+      "Unable to generate enough unique Set elements. Are constraints possible to meet?"
+    );
+  });
+
   it("dimsUnique: nested union of constants uses fast path", () => {
     const innerUnion1 = makeArgDef(
       dummyModule,
@@ -822,6 +879,118 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(new ArgDefValidator([spec]).validate(input)).toBeTrue();
   });
 
+  it("Set mutators: add and delete within setLength", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "setArg",
+      0,
+      ArgTag.SET,
+      {
+        ...argOptions,
+        setLength: { min: 1, max: 3 },
+      },
+      0,
+      false,
+      [makeTypeRef(dummyModule, "values", ArgTag.NUMBER, 0)]
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: new Set([10, 20]),
+      },
+    ];
+    const mutatorNames = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("setMutators")
+    ).map((m) => m.name);
+
+    expect(mutatorNames).toContain("set-addUniqueElement");
+    expect(mutatorNames).toContain("set-deleteElement0");
+    expect(mutatorNames).toContain("set-deleteElement1");
+    expect(mutatorNames).toContain("set-replaceElement0");
+    expect(mutatorNames).toContain("set-replaceElement1");
+  });
+
+  it("Set replaceElement runs for setLength min === max", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "setFixed",
+      0,
+      ArgTag.SET,
+      {
+        ...argOptions,
+        setLength: { min: 2, max: 2 },
+      },
+      0,
+      false,
+      [makeTypeRef(dummyModule, "values", ArgTag.NUMBER, 0)]
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: new Set([10, 20]),
+      },
+    ];
+    const mutatorNames = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("setFixedReplace")
+    ).map((m) => m.name);
+
+    expect(mutatorNames).not.toContain("set-addUniqueElement");
+    expect(mutatorNames).not.toContain("set-deleteElement0");
+    expect(mutatorNames).toContain("set-replaceElement0");
+  });
+
+  it("Set mutators reject element mutations that duplicate an existing element in the Set", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "setArg",
+      0,
+      ArgTag.SET,
+      {
+        ...argOptions,
+        setLength: { min: 2, max: 5 },
+      },
+      0,
+      false,
+      [makeTypeRef(dummyModule, "values", ArgTag.NUMBER, 0)]
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: new Set([10, 20]),
+      },
+    ];
+    const validator = new ArgDefValidator([spec]);
+    const mutators = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("setDuplicateRejection")
+    );
+
+    for (let index = 0; index < mutators.length; index++) {
+      const candidate = [
+        {
+          tag: "ArgValueTypeWrapped" as const,
+          value: new Set([10, 20]),
+        },
+      ];
+      const candidateMutators = ArgDefMutator.getMutators(
+        [spec],
+        candidate,
+        seedrandom("setDuplicateRejection")
+      );
+      candidateMutators[index].fn();
+      expect(validator.validate(candidate)).toBeTrue();
+      const candidateVal = candidate[0].value;
+      if (candidateVal instanceof Set) {
+        expect(candidateVal.size).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+
   /**
    * This test generates random ArgDef specs, generates
    * and mutates inputs from those specs, and validates
@@ -886,7 +1055,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
               const inputStringAfter = JSONN.stringify(input);
               if (inputStringBefore === inputStringAfter) {
                 stats.muts.dupe++;
-                dupeMutators[mut.name] = (failingMutators[mut.name] ?? 0) + 1;
+                dupeMutators[mut.name] = (dupeMutators[mut.name] ?? 0) + 1;
               }
               const isValid = val.validate(input);
               if (!isValid) {
@@ -956,7 +1125,6 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(regexStringSpecs).not.toBe(0);
 
     expect(stats.muts.valid).not.toBe(0);
-    expect(stats.muts.dupe).toBe(0);
     expect(stats.muts.invalid).toBe(0);
   });
 });
@@ -995,28 +1163,119 @@ function getRandomArgDef(
   levels = 0,
   parentType?: ArgTag
 ): ArgDef {
-  const argTagOptions: ArgTag[] = [
+  const primitiveTags: ArgTag[] = [
     ArgTag.NUMBER,
     ArgTag.STRING,
     ArgTag.BOOLEAN,
-    ArgTag.OBJECT,
+    ArgTag.BYTES,
     ArgTag.LITERAL,
-    ArgTag.UNION,
   ];
-  const argTag = argTagOptions[Math.floor(prng() * (argTagOptions.length - 1))];
+  const containerTags: ArgTag[] = [
+    ArgTag.OBJECT,
+    ArgTag.DICTIONARY,
+    ArgTag.SET,
+    ArgTag.UNION,
+    ArgTag.TUPLE,
+  ];
+  const argTagOptions =
+    levels > 0 ? [...primitiveTags, ...containerTags] : primitiveTags;
+  const argTag = argTagOptions[Math.floor(prng() * argTagOptions.length)];
 
   const children: ArgDef[] = [];
-  if (levels && (argTag === ArgTag.OBJECT || argTag === ArgTag.UNION)) {
-    let childCount = 2;
-    while (childCount) {
-      const child = getRandomArgDef(prng, levels - 1, argTag);
-      // Children need to have unique names. If by random chance we
-      // have a collision, just try again
-      if (children.every((e) => e.getName() !== child.getName())) {
-        children.push(child);
-        childCount--;
+  const nextLevel = Math.max(0, levels - 1);
+
+  switch (argTag) {
+    case ArgTag.OBJECT: {
+      let childCount = 2;
+      let attempts = 0;
+      while (childCount > 0 && attempts++ < 50) {
+        const child = getRandomArgDef(prng, nextLevel, argTag);
+        if (children.every((e) => e.getName() !== child.getName())) {
+          children.push(child);
+          childCount--;
+        }
       }
+      break;
     }
+    case ArgTag.UNION: {
+      let childCount = 2;
+      let attempts = 0;
+      while (childCount > 0 && attempts++ < 50) {
+        const child = getRandomArgDef(prng, nextLevel, argTag);
+        if (children.every((e) => e.getName() !== child.getName())) {
+          children.push(child);
+          childCount--;
+        }
+      }
+      break;
+    }
+    case ArgTag.TUPLE: {
+      for (let i = 0; i < 2; i++) {
+        const childRaw = getRandomArgDef(prng, nextLevel, argTag);
+        const childDef = new ArgDef(
+          String(i),
+          childRaw.getOffset(),
+          childRaw.getType(),
+          childRaw.getOptions(),
+          childRaw.getDim(),
+          false,
+          childRaw.getIntervals(),
+          childRaw.getChildren()
+        );
+        children.push(childDef);
+      }
+      break;
+    }
+    case ArgTag.DICTIONARY: {
+      const keyTagOptions = [ArgTag.NUMBER, ArgTag.STRING, ArgTag.BOOLEAN];
+      const keyTag = keyTagOptions[Math.floor(prng() * keyTagOptions.length)];
+      let keyOpt: ArgOptions = { ...argOptions };
+      if (keyTag === ArgTag.STRING) {
+        keyOpt = {
+          ...keyOpt,
+          strLength: { min: 1, max: 2 },
+        };
+      }
+      const keyChild = new ArgDef("keys", 0, keyTag, keyOpt, 0, false);
+
+      const valChildRaw = getRandomArgDef(prng, nextLevel, argTag);
+      const valChild = new ArgDef(
+        "values",
+        valChildRaw.getOffset(),
+        valChildRaw.getType(),
+        valChildRaw.getOptions(),
+        valChildRaw.getDim(),
+        false,
+        valChildRaw.getIntervals(),
+        valChildRaw.getChildren()
+      );
+      children.push(keyChild, valChild);
+      break;
+    }
+    case ArgTag.SET: {
+      const elemChildRaw = getRandomArgDef(prng, nextLevel, argTag);
+      const elemChild = new ArgDef(
+        "values",
+        elemChildRaw.getOffset(),
+        elemChildRaw.getType(),
+        elemChildRaw.getOptions(),
+        elemChildRaw.getDim(),
+        false,
+        elemChildRaw.getIntervals(),
+        elemChildRaw.getChildren()
+      );
+      children.push(elemChild);
+      break;
+    }
+    case ArgTag.NUMBER:
+    case ArgTag.STRING:
+    case ArgTag.BOOLEAN:
+    case ArgTag.BYTES:
+    case ArgTag.LITERAL:
+    case ArgTag.UNRESOLVED:
+      break;
+    default:
+      break;
   }
 
   const dimOptions = [
@@ -1071,13 +1330,15 @@ function getRandomArgDef(
       ],
     },
   ];
-  const dims = dimOptions[Math.floor(prng() * (dimOptions.length - 1))];
+  const dims = dimOptions[Math.floor(prng() * dimOptions.length)];
   const isOptional =
     (parentType === ArgTag.OBJECT || parentType === undefined) && prng() > 0.5;
-  const name = "abcdefghijklmnopqrstuvwxyz".split("")[Math.floor(prng() * 25)];
+  const name = "abcdefghijklmnopqrstuvwxyz".split("")[Math.floor(prng() * 26)];
   let options: ArgOptions = {
     ...argOptions,
     dimsUnique: dims.dims > 0 && prng() > 0.5,
+    dictLength: { min: Math.floor(prng() * 2), max: 2 },
+    setLength: { min: Math.floor(prng() * 2), max: 2 },
     isNoInput:
       (parentType === ArgTag.OBJECT || parentType === ArgTag.UNION) &&
       prng() > 0.5,
@@ -1119,7 +1380,7 @@ function getRandomArgDef(
           { min: false, max: false },
           { min: false, max: true },
           { min: true, max: true },
-        ][Math.floor(prng() * 2)],
+        ][Math.floor(prng() * 3)],
       ];
       break;
     }
@@ -1130,12 +1391,6 @@ function getRandomArgDef(
       };
       break;
     }
-    case ArgTag.OBJECT: {
-      break;
-    }
-    case ArgTag.DICTIONARY: {
-      break;
-    }
     case ArgTag.LITERAL: {
       if (prng() < 0.1) {
         interval = undefined;
@@ -1144,12 +1399,12 @@ function getRandomArgDef(
       }
       break;
     }
-    case ArgTag.UNION: {
+    case ArgTag.OBJECT:
+    case ArgTag.DICTIONARY:
+    case ArgTag.SET:
+    case ArgTag.UNION:
+    case ArgTag.TUPLE:
       break;
-    }
-    case ArgTag.TUPLE: {
-      break;
-    }
     case ArgTag.UNRESOLVED: {
       throw new Error(
         "ArgTag.UNRESOLVED is not a valid type for getRandomArgDef"

@@ -110,6 +110,7 @@ export class ArgDefValidator {
             typeof value === "object" &&
             !Array.isArray(value) &&
             !(value instanceof Uint8Array) &&
+            !(value instanceof Set) &&
             value !== null
           ) {
             const children = spec.getChildren();
@@ -157,11 +158,40 @@ export class ArgDefValidator {
           }
           const [keySpec, valueSpec] = spec.getChildren();
           if (!keySpec || !valueSpec) return false;
-          return entries.every(
-            ([key, entry]) =>
-              ArgDefValidator.validate(key, keySpec) &&
+          return entries.every(([rawKey, entry]) => {
+            let key: unknown = rawKey;
+            if (keySpec.getType() === ArgTag.NUMBER) {
+              key = Number(rawKey);
+            } else if (keySpec.getType() === ArgTag.BOOLEAN) {
+              if (rawKey === "true") key = true;
+              else if (rawKey === "false") key = false;
+            }
+            return (
+              ArgDefValidator.validate(key as ArgValueType, keySpec) &&
               ArgDefValidator.validate(entry, valueSpec)
-          );
+            );
+          });
+        }
+
+        case ArgTag.SET: {
+          const isSet = value instanceof Set;
+          const isArr = Array.isArray(value);
+          if (!isSet && !isArr) {
+            return false;
+          }
+          const items =
+            value instanceof Set
+              ? Array.from(value.values())
+              : Array.isArray(value)
+              ? value
+              : [];
+          const setLen = options.setLength;
+          if (items.length < setLen.min || items.length > setLen.max) {
+            return false;
+          }
+          const [elemSpec] = spec.getChildren();
+          if (!elemSpec) return false;
+          return items.every((item) => ArgDefValidator.validate(item, elemSpec));
         }
 
         case ArgTag.TUPLE: {

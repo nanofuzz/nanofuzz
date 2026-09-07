@@ -1,5 +1,5 @@
 import * as JSONN from "./Jsonn";
-import { isKeyedObject } from "./Util";
+import { isKeyedObject, makeCanonicalSet } from "./Util";
 
 describe("JSONN: ", () => {
   it("round-trip values", () => {
@@ -96,5 +96,20 @@ describe("JSONN: ", () => {
     const parsedVal = JSONN.parse<Uint8Array>(jsonnStr);
     expect(parsedVal instanceof Uint8Array).toBeTrue();
     expect(parsedVal).toEqual(bytesVal);
+  });
+
+  it("canonicalizes Set iteration order during serialization and revival", () => {
+    const set1 = makeCanonicalSet([3, 1, 2]);
+    const set2 = makeCanonicalSet([1, 2, 3]);
+
+    const jsonn1 = JSONN.stringify(set1);
+    const jsonn2 = JSONN.stringify(set2);
+
+    expect(jsonn1).toEqual(jsonn2);
+    expect(jsonn1).toEqual("{____JSONN____61581952310____SET____:[1,2,3]}");
+
+    const revived = JSONN.parse<Set<number>>(jsonn1);
+    expect(revived instanceof Set).toBeTrue();
+    expect(Array.from(revived.values())).toEqual([1, 2, 3]);
   });
 });

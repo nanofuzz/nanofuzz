@@ -390,6 +390,16 @@ export class TypescriptProgram extends AbstractProgram {
       if (typeRef.type) {
         typeRef.type.dims += resolvedType.dims;
       }
+      const baseTypeRef =
+        resolvedType.baseTypeRef ??
+        resolvedType.type?.baseTypeRef ??
+        resolvedType.typeRefName;
+      if (baseTypeRef !== undefined) {
+        typeRef.baseTypeRef = baseTypeRef;
+      }
+      if (typeRef.type && typeRef.baseTypeRef) {
+        typeRef.type.baseTypeRef = typeRef.baseTypeRef;
+      }
       typeRef.optional = typeRef.optional || resolvedType.optional;
 
       return typeRef; // this._types[typeRef.typeRefName];
@@ -671,6 +681,21 @@ export class TypescriptProgram extends AbstractProgram {
         this._options
       );
 
+      // Set typeRefName if returned by _getTypeFromAstNode
+      if (!thisType.typeRefName && typeRefNode) {
+        thisType.typeRefName = typeRefNode;
+      }
+      const builtInGenerics = [
+        "Record",
+        "Map",
+        "ReadonlyMap",
+        "Set",
+        "ReadonlySet",
+      ];
+      if (typeRefNode && builtInGenerics.includes(typeRefNode)) {
+        thisType.baseTypeRef = typeRefNode;
+      }
+
       // Create the TypeRef data structure
       switch (type) {
         case ArgTag.BYTES:
@@ -682,6 +707,9 @@ export class TypescriptProgram extends AbstractProgram {
             type: type,
             children: [],
             resolved: true,
+            ...(thisType.baseTypeRef
+              ? { baseTypeRef: thisType.baseTypeRef }
+              : {}),
           };
           break;
         }
@@ -692,10 +720,14 @@ export class TypescriptProgram extends AbstractProgram {
             children: [],
             value: literalValue,
             resolved: true,
+            ...(thisType.baseTypeRef
+              ? { baseTypeRef: thisType.baseTypeRef }
+              : {}),
           };
           break;
         }
         case ArgTag.DICTIONARY:
+        case ArgTag.SET:
         case ArgTag.UNION:
         case ArgTag.OBJECT:
         case ArgTag.TUPLE: {
@@ -703,6 +735,9 @@ export class TypescriptProgram extends AbstractProgram {
             dims: dims,
             type: type,
             children: this._getChildrenFromNode(typeNode),
+            ...(thisType.baseTypeRef
+              ? { baseTypeRef: thisType.baseTypeRef }
+              : {}),
           };
           break;
         }
@@ -788,8 +823,15 @@ export class TypescriptProgram extends AbstractProgram {
         if (typeName === "Uint8Array" || typeName === "Buffer") {
           return [ArgTag.BYTES, 0, typeName];
         }
-        if (typeName === "Record" || typeName === "Map") {
+        if (
+          typeName === "Record" ||
+          typeName === "Map" ||
+          typeName === "ReadonlyMap"
+        ) {
           return [ArgTag.DICTIONARY, 0, typeName];
+        }
+        if (typeName === "Set" || typeName === "ReadonlySet") {
+          return [ArgTag.SET, 0, typeName];
         }
         return [ArgTag.UNRESOLVED, 0, typeName];
       }
@@ -849,7 +891,9 @@ export class TypescriptProgram extends AbstractProgram {
       case "TSTypeReference": {
         const typeName = getIdentifierName(node.typeName);
         if (
-          (typeName === "Record" || typeName === "Map") &&
+          (typeName === "Record" ||
+            typeName === "Map" ||
+            typeName === "ReadonlyMap") &&
           "typeParameters" in node &&
           node.typeParameters &&
           node.typeParameters.params.length === 2
@@ -858,13 +902,26 @@ export class TypescriptProgram extends AbstractProgram {
             node.typeParameters.params[0],
             node
           );
-          keyTypeRef.name = "key";
+          keyTypeRef.name = "keys";
           const valTypeRef = this._getTypeRefFromAstNode(
             node.typeParameters.params[1],
             node
           );
-          valTypeRef.name = "value";
+          valTypeRef.name = "values";
           return [keyTypeRef, valTypeRef];
+        }
+        if (
+          (typeName === "Set" || typeName === "ReadonlySet") &&
+          "typeParameters" in node &&
+          node.typeParameters &&
+          node.typeParameters.params.length === 1
+        ) {
+          const elemTypeRef = this._getTypeRefFromAstNode(
+            node.typeParameters.params[0],
+            node
+          );
+          elemTypeRef.name = "values";
+          return [elemTypeRef];
         }
         throw new Error(
           `Internal Error: Unresolved type reference found: ${JSONN.stringify(
@@ -889,13 +946,15 @@ export class TypescriptProgram extends AbstractProgram {
             ) {
               const keyParam = member.parameters[0];
               const keyTypeNode =
-                "typeAnnotation" in keyParam ? keyParam.typeAnnotation : undefined;
+                "typeAnnotation" in keyParam
+                  ? keyParam.typeAnnotation
+                  : undefined;
               const keyTypeRef =
                 keyTypeNode && keyTypeNode.type !== "Noop"
                   ? this._getTypeRefFromAstNode(keyTypeNode, node)
                   : {
                       module: this._filename,
-                      name: "key",
+                      name: "keys",
                       dims: 0,
                       optional: false,
                       isExported: false,
@@ -906,13 +965,13 @@ export class TypescriptProgram extends AbstractProgram {
                         resolved: true,
                       },
                     };
-              keyTypeRef.name = "key";
+              keyTypeRef.name = "keys";
 
               const valTypeRef = this._getTypeRefFromAstNode(
                 member.typeAnnotation,
                 node
               );
-              valTypeRef.name = "value";
+              valTypeRef.name = "values";
 
               return [keyTypeRef, valTypeRef];
             }
@@ -949,6 +1008,15 @@ export class TypescriptProgram extends AbstractProgram {
         switch (innerNode.type) {
           case "TSTypeReference": {
             const typeName = getIdentifierName(innerNode.typeName);
+            if (
+              typeName === "Record" ||
+              typeName === "Map" ||
+              typeName === "ReadonlyMap" ||
+              typeName === "Set" ||
+              typeName === "ReadonlySet"
+            ) {
+              return this._getChildrenFromNode(innerNode);
+            }
             throw new Error(
               `Internal Error: Unable to find type reference '${typeName}' in program`
             );
@@ -1300,6 +1368,7 @@ export class TypescriptProgram extends AbstractProgram {
           break;
         }
 
+        case "ReadonlyMap":
         case "Map":
         case "Record": {
           if (typeParams.length === 2) {
@@ -1307,12 +1376,12 @@ export class TypescriptProgram extends AbstractProgram {
               typeParams[0],
               parent
             );
-            keyTypeRef.name = "key";
+            keyTypeRef.name = "keys";
             const valTypeRef = this._getTypeRefFromAstNode(
               typeParams[1],
               parent
             );
-            valTypeRef.name = "value";
+            valTypeRef.name = "values";
 
             return {
               module: this._filename,
@@ -1320,11 +1389,42 @@ export class TypescriptProgram extends AbstractProgram {
               optional: false,
               isExported: false,
               typeRefName: typeName,
+              baseTypeRef: typeName,
               type: {
                 dims: 0,
                 type: ArgTag.DICTIONARY,
                 children: [keyTypeRef, valTypeRef],
                 resolved: true,
+                baseTypeRef: typeName,
+              },
+            };
+          }
+          break;
+        }
+
+        case "ReadonlySet":
+        case "Set": {
+          if (typeParams.length === 1) {
+            const elemTypeRef = this._getTypeRefFromAstNode(
+              typeParams[0],
+              parent
+            );
+            elemTypeRef.name = "values";
+
+            return {
+              module: this._filename,
+              dims: 0,
+              optional: false,
+              isExported: false,
+              typeRefName: typeName,
+              baseTypeRef: typeName,
+              type: {
+                dims: 0,
+                type: ArgTag.SET,
+                children: [elemTypeRef],
+                resolved: true,
+                options: { dimsUnique: true },
+                baseTypeRef: typeName,
               },
             };
           }
@@ -1669,7 +1769,14 @@ export class TypescriptProgram extends AbstractProgram {
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
     const typeRef = arg.getTypeRef();
-    if (typeRef && options.useTypeRefs) {
+    const isBuiltInGeneric =
+      typeRef === "Record" ||
+      typeRef === "Map" ||
+      typeRef === "ReadonlyMap" ||
+      typeRef === "Set" ||
+      typeRef === "ReadonlySet";
+
+    if (typeRef && options.useTypeRefs && !isBuiltInGeneric) {
       const outerDims = arg.getTypeRefDims() ?? 0;
       let type = `${typeRef}${"[]".repeat(outerDims)}`;
       if (
@@ -1737,11 +1844,29 @@ export class TypescriptProgram extends AbstractProgram {
     options: TypeAnnotationOptions = TypeAnnotationOptionDefaults
   ): string {
     const typeRef = arg.getTypeRef();
-    if (typeRef && options.useTypeRefs) {
+    const baseTypeRef = arg.getBaseTypeRef() ?? typeRef;
+    const isBuiltInGeneric =
+      typeRef === "Record" ||
+      typeRef === "Map" ||
+      typeRef === "ReadonlyMap" ||
+      typeRef === "Set" ||
+      typeRef === "ReadonlySet";
+
+    if (typeRef && options.useTypeRefs && !isBuiltInGeneric) {
       return typeRef;
     }
 
     switch (arg.getType()) {
+      case ArgTag.SET: {
+        const children = arg.getChildren();
+        const elemChild = children[0];
+        const elemType = elemChild
+          ? TypescriptProgram.getTypeAnnotation(elemChild, options)
+          : "any";
+        const container = baseTypeRef === "ReadonlySet" ? "ReadonlySet" : "Set";
+        return `${container}<${elemType}>`;
+      }
+
       case ArgTag.OBJECT: {
         // Literal object, no type. Recursively walk the children to build the type.
         const childTypeAnnotations = arg
@@ -1765,10 +1890,13 @@ export class TypescriptProgram extends AbstractProgram {
         const valType = valChild
           ? TypescriptProgram.getTypeAnnotation(valChild, options)
           : "any";
-        if (arg.getTypeRef() === "Map") {
-          return `Map<${keyType}, ${valType}>`;
-        }
-        return `Record<${keyType}, ${valType}>`;
+        const container =
+          baseTypeRef === "ReadonlyMap"
+            ? "ReadonlyMap"
+            : baseTypeRef === "Map"
+              ? "Map"
+              : "Record";
+        return `${container}<${keyType}, ${valType}>`;
       }
 
       case ArgTag.UNION: {
