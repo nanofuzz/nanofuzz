@@ -349,6 +349,17 @@ def transform_arg(val: Any, hint: Any) -> Any:
             return val.encode("latin1")
         return val
 
+    if hint == "number":
+        if isinstance(val, str):
+            try:
+                f = float(val)
+                if f.is_integer() and not ("." in val or "e" in val.lower() or val.lower() in ("nan", "inf", "-inf", "infinity", "-infinity")):
+                    return int(f)
+                return f
+            except ValueError:
+                return val
+        return val
+
     if hint == "default" or not isinstance(hint, dict):
         return val
 
@@ -358,13 +369,26 @@ def transform_arg(val: Any, hint: Any) -> Any:
         elem_hint = hint.get("element", "default")
         return [transform_arg(item, elem_hint) for item in val]
 
+    if kind == "set" and isinstance(val, (list, set, frozenset)):
+        elem_hint = hint.get("element", "default")
+        items = [transform_arg(item, elem_hint) for item in val]
+        return frozenset(items) if hint.get("frozenset") else set(items)
+
     if kind == "tuple" and (isinstance(val, tuple) or isinstance(val, list)):
         elem_hints = hint.get("elements", [])
         transformed = [
             transform_arg(item, elem_hints[i]) if i < len(elem_hints) else item
             for i, item in enumerate(val)
         ]
-        return tuple(transformed) if isinstance(val, tuple) else transformed
+        return tuple(transformed)
+
+    if kind == "dictionary" and isinstance(val, dict):
+        key_hint = hint.get("key", "default")
+        val_hint = hint.get("value", "default")
+        return {
+            transform_arg(k, key_hint): transform_arg(v, val_hint)
+            for k, v in val.items()
+        }
 
     if kind == "object" and isinstance(val, dict):
         field_hints = hint.get("fields", {})
@@ -393,8 +417,30 @@ def transform_arg(val: Any, hint: Any) -> Any:
     return val
 
 
+def sanitize_output(obj: Any) -> Any:
+    if isinstance(obj, (bytes, bytearray)):
+        return list(obj)
+    if isinstance(obj, (set, frozenset, tuple, list)):
+        return [sanitize_output(x) for x in obj]
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    if isinstance(obj, dict):
+        res = {}
+        for k, v in obj.items():
+            s_k = sanitize_output(k)
+            if isinstance(s_k, list):
+                s_k = str(s_k)
+            elif not isinstance(s_k, (str, int, float, bool)) and s_k is not None:
+                s_k = str(s_k)
+            res[s_k] = sanitize_output(v)
+        return res
+    return obj
+
+
 def json5_default(obj: Any) -> Any:
     if isinstance(obj, (bytes, bytearray)):
+        return list(obj)
+    if isinstance(obj, (set, frozenset)):
         return list(obj)
     if isinstance(obj, uuid.UUID):
         return str(obj)
@@ -473,7 +519,7 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: 
 
     return RunnerValueResult(
         tag="value",
-        value=value,
+        value=sanitize_output(value),
         seq=input["seq"],
         coverageData=coverageData,
         coverageArcs=coverageArcs,

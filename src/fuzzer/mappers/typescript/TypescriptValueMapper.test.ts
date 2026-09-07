@@ -121,4 +121,15 @@ describe("fuzzer/mappers/typescript/TypescriptValueMapper: ", () => {
     expect(parsedMap instanceof Map).toBeTrue();
     expect(parsedMap).toEqual(mapVal);
   });
+
+  it("Sets", () => {
+    const setVal = new Set<unknown>([1, "two", true]);
+
+    const tsCode = TypescriptValueMapper.toTypescript(setVal);
+    expect(tsCode).toEqual('new Set([1, "two", true])');
+
+    const parsedSet = TypescriptValueMapper.fromTypescript<Set<unknown>>(tsCode);
+    expect(parsedSet instanceof Set).toBeTrue();
+    expect(parsedSet).toEqual(setVal);
+  });
 });

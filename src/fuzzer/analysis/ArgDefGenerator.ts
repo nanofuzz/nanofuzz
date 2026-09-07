@@ -2,6 +2,7 @@ import seedrandom from "seedrandom";
 import { ArgDef } from "./ArgDef";
 import * as RegexStringBuilder from "./RegexStringBuilder";
 import * as JSONN from "../../Jsonn";
+import { makeCanonicalSet } from "../../Util";
 import {
   ArgTag,
   ArgValueType,
@@ -208,6 +209,50 @@ function generateRandomInputFn(
       };
       break;
 
+    case ArgTag.SET:
+      randFn = (
+        prng: seedrandom.prng,
+        min: ArgValueType,
+        max: ArgValueType
+      ): ArgValueType => {
+        if (typeof min !== "object" || typeof max !== "object")
+          throw new Error("Min and max must be objects");
+        const [elemSpec] = arg.getChildren();
+        if (!elemSpec) {
+          throw new Error("Set arguments require an element type specification");
+        }
+        const setLen = arg.getOptions().setLength;
+        const count = getRandomNumber(
+          prng,
+          setLen.min,
+          setLen.max,
+          ArgDef.getDefaultOptions()
+        );
+        const rawItems: ArgValueType[] = [];
+        const seen = new Set<string>();
+        const elemGen = generateRandomInputFn(elemSpec, prng);
+
+        let attempts = 0;
+        while (rawItems.length < count) {
+          const elem = elemGen();
+          const serialized = JSONN.stringify(elem);
+          if (!seen.has(serialized)) {
+            seen.add(serialized);
+            rawItems.push(elem);
+          }
+          if (++attempts > 50) {
+            if (rawItems.length >= setLen.min) {
+              break;
+            }
+            throw new Error(
+              "Unable to generate enough unique Set elements. Are constraints possible to meet?"
+            );
+          }
+        }
+        return makeCanonicalSet(rawItems);
+      };
+      break;
+
     case ArgTag.TUPLE:
       randFn = (
         prng: seedrandom.prng,
@@ -245,6 +290,7 @@ function generateRandomInputFn(
     if (
       type === ArgTag.OBJECT ||
       type === ArgTag.DICTIONARY ||
+      type === ArgTag.SET ||
       type === ArgTag.TUPLE
     ) {
       return randFn(prng, {}, {}, options);

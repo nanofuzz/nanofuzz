@@ -614,11 +614,7 @@ export class PythonProgram extends AbstractProgram {
           case "Sequence":
           case "MutableSequence":
           case "Iterable":
-          case "Collection":
-          case "set":
-          case "Set":
-          case "frozenset":
-          case "FrozenSet": {
+          case "Collection": {
             // sets use JSON-array inputs
             const arg = args[0];
             if (!arg) throw new Error(`Missing element type in '${node.text}'`);
@@ -626,6 +622,14 @@ export class PythonProgram extends AbstractProgram {
             const [type, dims, typeName, literalValue, typeOptions] =
               this._getTypeFromAstNode(arg, options);
             return [type, dims + 1, typeName, literalValue, typeOptions];
+          }
+          case "set":
+          case "Set":
+          case "frozenset":
+          case "FrozenSet": {
+            const arg = args[0];
+            if (!arg) throw new Error(`Missing element type in '${node.text}'`);
+            return [ArgTag.SET, 0, base];
           }
           case "dict":
           case "Dict":
@@ -788,13 +792,15 @@ export class PythonProgram extends AbstractProgram {
           case "MutableSequence":
           case "Iterable":
           case "Collection":
+            return this._getChildrenFromNode(args[0]);
           case "set":
           case "Set":
           case "frozenset":
-          case "FrozenSet":
-            // Sets are modeled as arrays because fuzzer inputs are JSON.
-            // The Python runner can reconstruct a set at its boundary later.
-            return this._getChildrenFromNode(args[0]);
+          case "FrozenSet": {
+            const elemTypeRef = this._getTypeRefFromAstNode(args[0]);
+            elemTypeRef.name = "values";
+            return [elemTypeRef];
+          }
           // Composites: each argument (`type` node) is a child.
           case "Union":
           case "dict":
@@ -812,7 +818,7 @@ export class PythonProgram extends AbstractProgram {
                 base === "Mapping" ||
                 base === "MutableMapping"
               ) {
-                child.name = index === 0 ? "key" : "value";
+                child.name = index === 0 ? "keys" : "values";
               }
               return child;
             });
@@ -902,6 +908,19 @@ export class PythonProgram extends AbstractProgram {
 
     if (typeRefNode) {
       thisType.typeRefName = typeRefNode;
+      const pyContainers = [
+        "dict",
+        "Dict",
+        "Mapping",
+        "MutableMapping",
+        "set",
+        "Set",
+        "frozenset",
+        "FrozenSet",
+      ];
+      if (pyContainers.includes(typeRefNode)) {
+        thisType.baseTypeRef = typeRefNode;
+      }
     }
 
     // Create the TypeRef data structure
@@ -916,6 +935,9 @@ export class PythonProgram extends AbstractProgram {
           children: [],
           ...(typeOptions ? { options: typeOptions } : {}),
           resolved: true,
+          ...(thisType.baseTypeRef
+            ? { baseTypeRef: thisType.baseTypeRef }
+            : {}),
         };
         break;
       }
@@ -926,14 +948,21 @@ export class PythonProgram extends AbstractProgram {
           children: [],
           value: literalValue,
           resolved: true,
+          ...(thisType.baseTypeRef
+            ? { baseTypeRef: thisType.baseTypeRef }
+            : {}),
         };
         break;
       }
+      case ArgTag.SET:
       case ArgTag.DICTIONARY: {
         thisType.type = {
           dims: dims,
           type: type,
           children: this._getChildrenFromNode(typeNode),
+          ...(thisType.baseTypeRef
+            ? { baseTypeRef: thisType.baseTypeRef }
+            : {}),
         };
         break;
       }
@@ -1257,6 +1286,7 @@ export class PythonProgram extends AbstractProgram {
         // what can i say
       }
     }
+
     return {
       module: this._filename,
       name: nameNode.node.text,
@@ -2275,6 +2305,28 @@ export class PythonProgram extends AbstractProgram {
           max: Number(maxSize ?? dftInterval.max),
         });
 
+        if (funcName === "sets") {
+          const dftSetInterval = ArgDef.getDefaultOptions().setLength;
+          innerTypeRef.name = "values";
+          thisType.typeRefName = "set";
+          thisType.baseTypeRef = "set";
+          thisType.type = {
+            type: ArgTag.SET,
+            dims: 0,
+            children: [innerTypeRef],
+            options: {
+              dimsUnique: true,
+              setLength: {
+                min: Number(minSize ?? dftSetInterval.min),
+                max: Number(maxSize ?? dftSetInterval.max),
+              },
+            },
+            resolved: true,
+            baseTypeRef: "set",
+          };
+          break;
+        }
+
         if (innerTypeRef.typeRefName) {
           thisType.typeRefName = innerTypeRef.typeRefName;
         }
@@ -2506,7 +2558,7 @@ export class PythonProgram extends AbstractProgram {
             typeRefName: keysArg?.text ?? "Any",
           };
         }
-        keyTypeRef.name = "key";
+        keyTypeRef.name = "keys";
 
         let valueTypeRef: TypeRef | undefined;
         if (
@@ -2530,7 +2582,7 @@ export class PythonProgram extends AbstractProgram {
             typeRefName: valuesArg?.text ?? "Any",
           };
         }
-        valueTypeRef.name = "value";
+        valueTypeRef.name = "values";
 
         const minSize = parseLiteral(getKwdArg(node, "min_size", -1));
         const maxSize = parseLiteral(getKwdArg(node, "max_size", -1));
@@ -2544,12 +2596,14 @@ export class PythonProgram extends AbstractProgram {
           };
         }
 
+        thisType.baseTypeRef = "dict";
         thisType.type = {
           type: ArgTag.DICTIONARY,
           dims: 0,
           children: [keyTypeRef, valueTypeRef],
           ...(Object.keys(options).length > 0 ? { options } : {}),
           resolved: true,
+          baseTypeRef: "dict",
         };
         break;
       }
@@ -2763,6 +2817,16 @@ export class PythonProgram extends AbstractProgram {
 
       if (typeRef.type) {
         typeRef.type.dims += resolvedType.dims;
+      }
+      const baseTypeRef =
+        resolvedType.baseTypeRef ??
+        resolvedType.type?.baseTypeRef ??
+        resolvedType.typeRefName;
+      if (baseTypeRef !== undefined) {
+        typeRef.baseTypeRef = baseTypeRef;
+      }
+      if (typeRef.type && typeRef.baseTypeRef) {
+        typeRef.type.baseTypeRef = typeRef.baseTypeRef;
       }
       typeRef.optional = typeRef.optional || resolvedType.optional;
 
@@ -3018,6 +3082,18 @@ export class PythonProgram extends AbstractProgram {
     }
 
     switch (arg.getType()) {
+      case ArgTag.SET: {
+        const [elemChild] = arg.getChildren();
+        const elemType = elemChild
+          ? PythonProgram.getTypeAnnotation(elemChild, options)
+          : "Any";
+        const container =
+          typeRef === "frozenset" || typeRef === "FrozenSet"
+            ? "frozenset"
+            : "set";
+        return `${container}[${elemType}]`;
+      }
+
       case ArgTag.OBJECT: {
         // Literal object, no type. Recursively walk the children to build the type.
         const childTypeAnnotations = arg.getChildren().map((child) => {

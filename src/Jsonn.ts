@@ -139,6 +139,12 @@ function jsonnReplacer(this: unknown, key: string, value: unknown): unknown {
     };
   }
 
+  if (value instanceof Set) {
+    return {
+      [PlaceHolderSetKey]: Array.from(value.values()),
+    };
+  }
+
   // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
   switch (typeof value) {
     case "undefined":
@@ -184,31 +190,13 @@ function jsonnReviver(
       }
     }
     if (typeof value[PlaceHolderBigIntKey] === "string") {
-      const newValue = BigInt(String(value[PlaceHolderBigIntKey]));
-      if (key === "") {
-        return newValue;
-      } else {
-        if (Array.isArray(this)) {
-          targets.push({ arr: this, key, value: newValue });
-        } else if (isKeyedObject(this)) {
-          targets.push({ obj: this, key, value: newValue });
-        }
-      }
+      return BigInt(String(value[PlaceHolderBigIntKey]));
     }
     if (Array.isArray(value[PlaceHolderUint8ArrayKey])) {
       const arr = value[PlaceHolderUint8ArrayKey];
-      const newValue = new Uint8Array(
+      return new Uint8Array(
         arr.filter((e): e is number => typeof e === "number")
       );
-      if (key === "") {
-        return newValue;
-      } else {
-        if (Array.isArray(this)) {
-          targets.push({ arr: this, key, value: newValue });
-        } else if (isKeyedObject(this)) {
-          targets.push({ obj: this, key, value: newValue });
-        }
-      }
     }
     if (Array.isArray(value[PlaceHolderMapKey])) {
       const rawEntries = value[PlaceHolderMapKey];
@@ -218,16 +206,11 @@ function jsonnReviver(
           entries.push([entry[0], entry[1]]);
         }
       }
-      const newValue = new Map(entries);
-      if (key === "") {
-        return newValue;
-      } else {
-        if (Array.isArray(this)) {
-          targets.push({ arr: this, key, value: newValue });
-        } else if (isKeyedObject(this)) {
-          targets.push({ obj: this, key, value: newValue });
-        }
-      }
+      return new Map(entries);
+    }
+    if (Array.isArray(value[PlaceHolderSetKey])) {
+      const rawValues = value[PlaceHolderSetKey];
+      return new Set(rawValues);
     }
   }
   return value;
@@ -243,4 +226,5 @@ export const PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____";
 export const PlaceHolderUint8ArrayKey =
   "____JSONN____61581952310____UINT8ARRAY____";
 export const PlaceHolderMapKey = "____JSONN____61581952310____MAP____";
+export const PlaceHolderSetKey = "____JSONN____61581952310____SET____";
 export const UndefinedValue = "__undefined__";
