@@ -1,5 +1,5 @@
 import * as JSON5 from "json5";
-import { isBufferOrUint8Array, isKeyedObject } from "./Util";
+import { isBufferOrUint8Array, isKeyedObject, makeCanonicalSet } from "./Util";
 
 /**
  * JSONN: JavaScript Object Notation for NaNofuzz
@@ -210,7 +210,7 @@ function jsonnReviver(
     }
     if (Array.isArray(value[PlaceHolderSetKey])) {
       const rawValues = value[PlaceHolderSetKey];
-      return new Set(rawValues);
+      return makeCanonicalSet(rawValues);
     }
   }
   return value;
