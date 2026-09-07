@@ -39,7 +39,7 @@ export class RandomInputGenerator extends AbstractInputGenerator {
    * Don't re-use generators across runs because the ranges may
    * have changed.
    */
-  public onRunEnd(): void {
+  public override async onRunEnd(): Promise<void> {
     this._gen = undefined;
   } // fn: onRunEnd
 } // class: RandomInputGenerator

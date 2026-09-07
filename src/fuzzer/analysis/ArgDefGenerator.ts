@@ -2,6 +2,7 @@ import seedrandom from "seedrandom";
 import { ArgDef } from "./ArgDef";
 import * as RegexStringBuilder from "./RegexStringBuilder";
 import * as JSONN from "../../Jsonn";
+import { makeCanonicalSet } from "../../Util";
 import {
   ArgTag,
   ArgValueType,
@@ -111,6 +112,9 @@ function generateRandomInputFn(
     case ArgTag.STRING:
       randFn = getRandomString;
       break;
+    case ArgTag.BYTES:
+      randFn = getRandomBytes;
+      break;
     case ArgTag.LITERAL:
       randFn = getLiteral;
       break;
@@ -159,6 +163,96 @@ function generateRandomInputFn(
       };
       break;
 
+    case ArgTag.DICTIONARY:
+      randFn = (
+        prng: seedrandom.prng,
+        min: ArgValueType,
+        max: ArgValueType
+      ): ArgValueType => {
+        if (typeof min !== "object" || typeof max !== "object")
+          throw new Error("Min and max must be objects");
+        const [keySpec, valueSpec] = arg.getChildren();
+        if (!keySpec || !valueSpec) {
+          throw new Error("Dictionary arguments require key and value types");
+        }
+        // The number of key-value entries is sampled dictLength times.
+        const dictLen = arg.getOptions().dictLength;
+        const count = getRandomNumber(
+          prng,
+          dictLen.min,
+          dictLen.max,
+          ArgDef.getDefaultOptions()
+        );
+        const out: { [key: string]: ArgValueType } = {};
+        const keyGen = generateRandomInputFn(keySpec, prng);
+        const valGen = generateRandomInputFn(valueSpec, prng);
+
+        entryLoop: for (let i = 0; i < count; i++) {
+          let attempts = 0;
+          while (true) {
+            const keyStr = String(keyGen());
+            if (!Object.prototype.hasOwnProperty.call(out, keyStr)) {
+              out[keyStr] = valGen();
+              continue entryLoop;
+            }
+            if (++attempts > 50) {
+              if (Object.keys(out).length >= dictLen.min) {
+                break entryLoop;
+              }
+              throw new Error(
+                "Unable to generate enough unique dictionary keys. Are constraints possible to meet?"
+              );
+            }
+          }
+        }
+        return out;
+      };
+      break;
+
+    case ArgTag.SET:
+      randFn = (
+        prng: seedrandom.prng,
+        min: ArgValueType,
+        max: ArgValueType
+      ): ArgValueType => {
+        if (typeof min !== "object" || typeof max !== "object")
+          throw new Error("Min and max must be objects");
+        const [elemSpec] = arg.getChildren();
+        if (!elemSpec) {
+          throw new Error("Set arguments require an element type specification");
+        }
+        const setLen = arg.getOptions().setLength;
+        const count = getRandomNumber(
+          prng,
+          setLen.min,
+          setLen.max,
+          ArgDef.getDefaultOptions()
+        );
+        const rawItems: ArgValueType[] = [];
+        const seen = new Set<string>();
+        const elemGen = generateRandomInputFn(elemSpec, prng);
+
+        let attempts = 0;
+        while (rawItems.length < count) {
+          const elem = elemGen();
+          const serialized = JSONN.stringify(elem);
+          if (!seen.has(serialized)) {
+            seen.add(serialized);
+            rawItems.push(elem);
+          }
+          if (++attempts > 50) {
+            if (rawItems.length >= setLen.min) {
+              break;
+            }
+            throw new Error(
+              "Unable to generate enough unique Set elements. Are constraints possible to meet?"
+            );
+          }
+        }
+        return makeCanonicalSet(rawItems);
+      };
+      break;
+
     case ArgTag.TUPLE:
       randFn = (
         prng: seedrandom.prng,
@@ -193,7 +287,12 @@ function generateRandomInputFn(
   // Callback fn to generate value
   const randFnWrapper: PublicRandFn = () => {
     if (arg.isNoInput()) return undefined;
-    if (type === ArgTag.OBJECT || type === ArgTag.TUPLE) {
+    if (
+      type === ArgTag.OBJECT ||
+      type === ArgTag.DICTIONARY ||
+      type === ArgTag.SET ||
+      type === ArgTag.TUPLE
+    ) {
       return randFn(prng, {}, {}, options);
     }
     if (type === ArgTag.UNION) {
@@ -220,10 +319,61 @@ function generateRandomInputFn(
   };
 
   // If the arg is an array, return the array generator
-  const randArgValueWrapper: PublicRandFn =
-    dimLength.length && genDims
-      ? () => nArray(prng, randFnWrapper, dimLength, options)
-      : randFnWrapper;
+  let randArgValueWrapper: PublicRandFn;
+  const constantLeaves =
+    dimLength.length === 1 &&
+    genDims &&
+    options.dimsUnique &&
+    type === ArgTag.UNION
+      ? getDiscreteConstantLeaves(arg)
+      : undefined;
+
+  if (constantLeaves !== undefined) {
+    randArgValueWrapper = () => {
+      const dim = dimLength[0];
+      const targetLen = getRandomNumber(
+        prng,
+        dim.min,
+        dim.max,
+        ArgDef.getDefaultOptions()
+      );
+
+      if (constantLeaves.length < targetLen) {
+        return nArray(prng, randFnWrapper, dimLength, options);
+      }
+
+      // Partial Fisher-Yates shuffle over constant leaf indices
+      const indices = Array.from(
+        { length: constantLeaves.length },
+        (_, idx) => idx
+      );
+      for (let i = 0; i < targetLen; i++) {
+        const j = getRandomNumber(
+          prng,
+          i,
+          constantLeaves.length - 1,
+          ArgDef.getDefaultOptions()
+        );
+        const temp = indices[i];
+        indices[i] = indices[j];
+        indices[j] = temp;
+      }
+
+      // Generate values for the targetLen selected unique constant leaves
+      const result: ArgValueType[] = [];
+      for (let i = 0; i < targetLen; i++) {
+        result.push(
+          generateRandomInputFn(constantLeaves[indices[i]], prng, false)()
+        );
+      }
+      return result;
+    };
+  } else {
+    randArgValueWrapper =
+      dimLength.length && genDims
+        ? () => nArray(prng, randFnWrapper, dimLength, options)
+        : randFnWrapper;
+  }
 
   // Inject undefined values into arg only if it is optional
   // and we are not generating values inside an array
@@ -335,7 +485,7 @@ const getRandomString: PrivateRandFn = (
   if (typeof min !== "string" || typeof max !== "string")
     throw new Error("Min and max must be strings");
 
-  const charSet = options.strCharset;
+  const charSet = Array.from(options.strCharset);
   const intOptions = ArgDef.getDefaultOptions(); // use default for integer selection
 
   // This generator does not currently support min and max, but we don't make
@@ -352,13 +502,33 @@ const getRandomString: PrivateRandFn = (
   // Note: This provides a uniform distribution at each position, but
   //       the distribution of output is not uniform.
   const charSetLen = charSet.length - 1;
-  let outStr = "";
+  const outChars: string[] = [];
   for (let i = 0; i < strLen; i++) {
-    outStr += charSet[getRandomNumber(prng, 0, charSetLen, intOptions)];
+    outChars.push(charSet[getRandomNumber(prng, 0, charSetLen, intOptions)]);
   }
 
-  return outStr;
+  return outChars.join("");
 }; // fn: getRandomString
+
+const getRandomBytes: PrivateRandFn = (
+  prng: seedrandom.prng,
+  _min: ArgValueType,
+  _max: ArgValueType,
+  options: ArgOptions
+): Uint8Array => {
+  const intOptions = ArgDef.getDefaultOptions();
+  const bytesLen = getRandomNumber(
+    prng,
+    options.byteLength.min,
+    options.byteLength.max,
+    intOptions
+  );
+  const outBytes = new Uint8Array(bytesLen);
+  for (let i = 0; i < bytesLen; i++) {
+    outBytes[i] = getRandomNumber(prng, 0, 255, intOptions);
+  }
+  return outBytes;
+}; // fn: getRandomBytes
 
 /**
  * Adapted from: https://stackoverflow.com/a/12588826
@@ -428,3 +598,38 @@ const nArray = (
     return genFn(); // Base case -- just an array of values
   }
 }; // fn: nArray
+
+/**
+ * Recursively collects discrete, constant leaf ArgDefs from a UNION argument.
+ * Returns undefined if any non-constant or non-discrete child is present.
+ */
+const getDiscreteConstantLeaves = (arg: ArgDef): ArgDef[] | undefined => {
+  const leaves: ArgDef[] = [];
+  const visited = new Set<string>();
+
+  function collect(node: ArgDef): boolean {
+    if (node.isNoInput()) return true;
+    if (node.getType() === ArgTag.UNION) {
+      const children = node.getChildren().filter((c) => !c.isNoInput());
+      if (children.length === 0) return false;
+      for (const child of children) {
+        if (!collect(child)) return false;
+      }
+      return true;
+    }
+    if (node.getDim() === 0 && node.isConstant()) {
+      const val = JSONN.stringify(node.getConstantValue());
+      if (!visited.has(val)) {
+        visited.add(val);
+        leaves.push(node);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  if (collect(arg) && leaves.length > 0) {
+    return leaves;
+  }
+  return undefined;
+};

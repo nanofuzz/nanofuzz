@@ -6,7 +6,6 @@ import { ScoredInput } from "./Types";
 import { FuzzOptions, InputAndSource } from "./../Types";
 import { FunctionDef, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
-import { AiInputGenerator } from "./AiInputGenerator";
 
 /**
  * The Composite Input Generator subsumes multiple types of input generator and biases
@@ -28,27 +27,28 @@ import { AiInputGenerator } from "./AiInputGenerator";
  * false when the injected inputs are exhausted.
  */
 export class CompositeInputGenerator extends AbstractInputGenerator {
-  private _subgens; // Subordinate input generators
-  private _activeSubgens: boolean[] = []; // boolean array of whether subgen is active
-  private _tick = 0; // Number of inputs generated
-  private _ticksLeftInChunk = 0; // Number of input generations remaining in this chunk
-  private _measures: AbstractMeasure[]; // Measures that provide feedback
-  private _history: {
+  protected _subgens; // Subordinate input generators
+  protected _activeSubgens: boolean[] = []; // boolean array of whether subgen is active
+  protected _tick = 0; // Number of inputs generated
+  protected _ticksLeftInChunk = 0; // Number of input generations remaining in this chunk
+  protected _measures: AbstractMeasure[]; // Measures that provide feedback
+  protected _history: {
     progress: (number | undefined)[][]; // progress by measure and input tick (of L)
     cost: (number | undefined)[]; // cost by input tick (of L)
     currentIndex: number; // current index (of L) into last dimension of progress and cost
   }[] = []; // history for each input generator
-  private _scoredInputs: ScoredInput[] = []; // List of scored inputs
-  private _injectedInputs: Omit<InputAndSource, "tick">[] = []; // Inputs to force generate first
-  private _selectedSubgenIndex = -1; // Selected subordinate input generator (e.g., by efficiency)
-  private _leaderboard; // Interesting inputs
-  private _lastInput?: InputAndSource; // Last input generated
-  private _L = 500; // Lookback window size for history
-  private _chunkSize = 20; // Re-evaluate subgen after _chunkSize inputs generated
-  private _P = 0.1; // Additional chance of subgen exploration
-  private _permitSubgens = true; // Allow generators to produce inputs
-  private _genStats: FuzzTestStats["generators"]; // Generator statistics
-  private _checkpoints: NonNullable<
+  protected _scoredInputs: ScoredInput[] = []; // List of scored inputs
+  protected _injectedInputs: Omit<InputAndSource, "tick">[] = []; // Inputs to force generate first
+  protected _selectedSubgenIndex = -1; // Selected subordinate input generator (e.g., by efficiency)
+  protected _leaderboard; // Interesting inputs
+  protected _lastInput?: InputAndSource; // Last input generated
+  protected _L = 500; // Lookback window size for history
+  protected _chunkSize = 20; // Re-evaluate subgen after _chunkSize inputs generated
+  protected _P = 0.1; // Additional chance of subgen exploration
+  protected _permitSubgens = true; // Allow generators to produce inputs
+  protected _genStats: FuzzTestStats["generators"]; // Generator statistics
+  protected _trackCheckpoints = false; // Track checkpoints for statistics
+  protected _checkpoints: NonNullable<
     FuzzTestStats["generators"]["CompositeInputGenerator"]
   >["checkpoints"] = []; // status of subgens at selection
   public static readonly INJECTED = "injected";
@@ -97,7 +97,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * If the lookback window size changes, the measure history is reset with
    * the new window size.
    */
-  private _loadConfig(): void {
+  protected _loadConfig(): void {
     const L = Config.get<number>(
       "nanofuzz.generators.compositeLookbackWindow",
       500
@@ -109,6 +109,10 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._P = Config.get<number>(
       "nanofuzz.generators.compositeExplorationChance",
       0.1
+    );
+    this._trackCheckpoints = Config.get<boolean>(
+      "nanofuzz.generators.compositeTrackCheckpoints",
+      false
     );
 
     if (L !== this._L || !this._history.length) {
@@ -202,7 +206,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // subgen is no longer available, start a new chunk and choose
     // the subgen for that chunk
     if (
-      this._ticksLeftInChunk-- < 1 ||
+      this._ticksLeftInChunk-- <= 1 ||
       !this._subgens[this._selectedSubgenIndex].nextable() ||
       !this._activeSubgens[this._selectedSubgenIndex]
     ) {
@@ -313,7 +317,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    *
    * @returns the index of the selected subgen
    */
-  private _selectNextSubGen(): number {
+  protected _selectNextSubGen(): number {
     // At least one subgen needs to be available
     if (!this._subgens.some((g) => g.nextable())) {
       throw new Error(
@@ -347,18 +351,22 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         totalProductivity += productivity[g];
       }
 
-      checkpointGens[e.name] = {
-        active: !!this._activeSubgens[g],
-        nextable: !!(this._activeSubgens[g] && e.nextable()),
-        productivity: productivity[g],
-        cost: cost[g],
-      };
+      if (this._trackCheckpoints) {
+        checkpointGens[e.name] = {
+          active: !!this._activeSubgens[g],
+          nextable: !!(this._activeSubgens[g] && e.nextable()),
+          productivity: productivity[g],
+          cost: cost[g],
+        };
+      }
     }); // foreach: subgen
 
-    this._checkpoints.push({
-      tick: this._tick,
-      gens: checkpointGens,
-    });
+    if (this._trackCheckpoints) {
+      this._checkpoints.push({
+        tick: this._tick,
+        gens: checkpointGens,
+      });
+    }
 
     // All active subgens have a minimum chance of being selected,
     // which is determined by _P
@@ -424,17 +432,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   /**
    * Cleanup all subgens and update stats when the test run ends
    */
-  public onRunEnd(results?: FuzzTestResults): void {
-    super.onRunEnd();
-    this._subgens.forEach((subgen) => {
-      subgen.onRunEnd();
-      if (
-        subgen.name === "AiInputGenerator" &&
-        subgen instanceof AiInputGenerator
-      ) {
-        this._genStats["AiInputGenerator"].gen = subgen.stats;
-      }
-    });
+  public async onRunEnd(results?: FuzzTestResults): Promise<void> {
+    await super.onRunEnd(results);
+    await Promise.all(this._subgens.map((g) => g.onRunEnd(results)));
     if (results) {
       results.stats.generators.CompositeInputGenerator = {
         config: {

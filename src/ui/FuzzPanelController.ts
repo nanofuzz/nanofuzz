@@ -7,14 +7,22 @@ import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
-import { isError, getErrorMessageOrJson } from "../fuzzer/Util";
+import {
+  isError,
+  getErrorMessageOrJson,
+  normalizePathForKey,
+} from "../fuzzer/Util";
+import {
+  removeTickFromOrigin,
+  encodeEscapeSequences,
+  decodeEscapeSequences,
+} from "../Util";
 import { Listener } from "../extension";
 import { Tester } from "../fuzzer/Fuzzer";
 import {
   applyCoverageHeatmapToEditor,
   clearCoverageHeatmapFromEditor,
 } from "./CoverageHeatmap";
-import { normalizePathForKey } from "../fuzzer/Util";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
@@ -128,7 +136,9 @@ export class FuzzPanel {
       return new FuzzPanel(
         panel,
         extensionUri,
-        new Tester(moduleFile, fnName, options, { precompile: true })
+        new Tester(moduleFile, fnName, normalizeFuzzOptions(options), {
+          precompile: true,
+        })
       );
     }
   } // fn: render()
@@ -172,7 +182,7 @@ export class FuzzPanel {
           new fuzzer.Tester(
             state.fnRef.module,
             state.fnRef.name,
-            state.options,
+            normalizeFuzzOptions(state.options),
             { precompile: true }
           )
         );
@@ -275,7 +285,7 @@ export class FuzzPanel {
 
     // Load & apply any fuzz settings previously persisted
     const testSet = this._getFuzzTestsForThisFn();
-    this._fuzzEnv.options = testSet.options;
+    this._fuzzEnv.options = normalizeFuzzOptions(testSet.options);
     this._argOverrides = testSet.argOverrides ?? [];
     this._sortColumns = testSet.sortColumns;
 
@@ -711,11 +721,16 @@ export class FuzzPanel {
    * @returns a new FuzzTests structure for the current function
    */
   private _initFuzzTestsForThisFn(): fuzzer.FuzzTests {
+    const fnRef = this._fuzzEnv.function.getRef();
+
     return {
       version: CURR_FILE_FMT_VER,
       functions: {
         [this._fuzzEnv.function.getName()]: {
-          options: this._fuzzEnv.options,
+          options: {
+            ...this._fuzzEnv.options,
+            ...(fnRef.fuzzOptions ?? {}),
+          },
           argOverrides: this._argOverrides,
           validators: this._fuzzEnv.validators.map((ref) => ref.name),
           tests: {},
@@ -740,6 +755,10 @@ export class FuzzPanel {
       fnName in moduleSet.functions
         ? moduleSet.functions[fnName]
         : this._initFuzzTestsForThisFn().functions[fnName];
+
+    if (fnSet.options) {
+      fnSet.options = normalizeFuzzOptions(fnSet.options);
+    }
 
     return fnSet;
   } // fn: _getFuzzTestsForThisFn()
@@ -836,12 +855,7 @@ export class FuzzPanel {
         output: [],
         input: test.input.map((i) => {
           const i2 = { ...i };
-          if (
-            i2.origin.type === "generator" &&
-            i2.origin.generator === "MutationInputGenerator"
-          ) {
-            delete i2.origin.tick;
-          }
+          removeTickFromOrigin(i2.origin);
           return i2;
         }),
       };
@@ -1475,12 +1489,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                   input: i.input.map((e) => {
                     const e2 = { ...e };
                     // ticks are tester-specific
-                    if (
-                      e2.origin.type === "generator" &&
-                      e2.origin.generator === "MutationInputGenerator"
-                    ) {
-                      delete e2.origin.tick;
-                    }
+                    removeTickFromOrigin(e2.origin);
                     return e2;
                   }),
                   output: [],
@@ -2403,8 +2412,8 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         )[] = [
           {
             id: "failure",
-            name: "Validator Error",
-            description: `A property validator threw an exception for these inputs. Fix the bug in the property validator and retest.`,
+            name: "Testing Error",
+            description: `A property validator or input transformer threw an exception for these inputs. Fix the bug in the testing code and retest.`,
             hasGrid: true,
           },
           {
@@ -2902,7 +2911,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
             html += /*html*/ `
                   <div class="fuzzGridPanel${showThisGrid ? `` : ` hidden`}" id="view-${e.id}">
-                    <div class="fuzzPanelDescription">${e.description}</div>`;
+                    <div class="fuzzPanelDescription">${htmlEscape(e.description)}</div>`;
             if (e.hasGrid) {
               html += /*html*/ `
                     <div id="fuzzResultsGrid-${e.id}">
@@ -3119,6 +3128,12 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         case fuzzer.ArgTag.OBJECT:
           typeString = "Object";
           break;
+        case fuzzer.ArgTag.DICTIONARY:
+          typeString = "Dict";
+          break;
+        case fuzzer.ArgTag.SET:
+          typeString = "Set";
+          break;
         case fuzzer.ArgTag.LITERAL:
           if (arg.isConstant()) {
             const constantValue = arg.getConstantValue();
@@ -3151,7 +3166,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       case fuzzer.ArgTag.UNION:
         sep = ":";
         break;
+      case fuzzer.ArgTag.SET:
       case fuzzer.ArgTag.OBJECT:
+      case fuzzer.ArgTag.DICTIONARY:
         sep = ` = {` + htmlEllipsis;
         break;
       case fuzzer.ArgTag.TUPLE:
@@ -3230,12 +3247,83 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         )}">Max length</vscode-text-field>`;
         html += " ";
         html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
-          arg.getOptions().strCharset
+          encodeEscapeSequences(arg.getOptions().strCharset)
         )}">Character set</vscode-text-field>`;
         html += " ";
         html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strRegex" placeholder="(none)" name="${idBase}-strRegex" value="${htmlEscape(
           arg.getOptions().strRegex ?? ""
         )}">Regex</vscode-text-field>`;
+        break;
+      }
+
+      // Bytes-specific Options
+      case fuzzer.ArgTag.BYTES: {
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minByteLen" name="${idBase}-min" value="${htmlEscape(
+          arg.getOptions().byteLength.min.toString()
+        )}">Min length</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxByteLen" name="${idBase}-max" value="${htmlEscape(
+          arg.getOptions().byteLength.max.toString()
+        )}">Max length</vscode-text-field>`;
+        break;
+      }
+
+      // Dictionary-specific Options
+      case fuzzer.ArgTag.DICTIONARY: {
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minDictLen" name="${idBase}-min" value="${htmlEscape(
+          arg.getOptions().dictLength.min.toString()
+        )}">Min entries</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxDictLen" name="${idBase}-max" value="${htmlEscape(
+          arg.getOptions().dictLength.max.toString()
+        )}">Max entries</vscode-text-field>`;
+
+        html += `<div>`;
+        const children = arg.getChildren();
+        if (children.length === 2) {
+          html += this._argDefToHtmlForm(
+            children[0],
+            counter,
+            "",
+            "",
+            arg.getType()
+          );
+          html += this._argDefToHtmlForm(
+            children[1],
+            counter,
+            "",
+            "",
+            arg.getType()
+          );
+        }
+        html += `</div>`;
+        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
+        break;
+      }
+
+      // Set-specific Options
+      case fuzzer.ArgTag.SET: {
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minSetLen" name="${idBase}-min" value="${htmlEscape(
+          arg.getOptions().setLength.min.toString()
+        )}">Min entries</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxSetLen" name="${idBase}-max" value="${htmlEscape(
+          arg.getOptions().setLength.max.toString()
+        )}">Max entries</vscode-text-field>`;
+
+        html += `<div>`;
+        const children = arg.getChildren();
+        if (children.length >= 1) {
+          html += this._argDefToHtmlForm(
+            children[0],
+            counter,
+            "",
+            "",
+            arg.getType()
+          );
+        }
+        html += `</div>`;
+        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
         break;
       }
 
@@ -3337,15 +3425,27 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         );
     }
 
-    // For objects & unions: output the array settings
-    if (argType !== fuzzer.ArgTag.OBJECT && argType !== fuzzer.ArgTag.UNION) {
+    // For composite types: array settings were already output prior to children
+    if (
+      argType !== fuzzer.ArgTag.OBJECT &&
+      argType !== fuzzer.ArgTag.UNION &&
+      argType !== fuzzer.ArgTag.TUPLE &&
+      argType !== fuzzer.ArgTag.DICTIONARY &&
+      argType !== fuzzer.ArgTag.SET
+    ) {
       html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
     }
 
     html += `</div>`;
-    // For objects: output the end of object character ("}") here
-    if (argType === fuzzer.ArgTag.OBJECT || argType === fuzzer.ArgTag.TUPLE) {
-      html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close">${argType === fuzzer.ArgTag.OBJECT ? "}" : "]"}${endSep}</div>`;
+    // For container types: output end character ("}" or "]") here
+    if (
+      argType === fuzzer.ArgTag.OBJECT ||
+      argType === fuzzer.ArgTag.TUPLE ||
+      argType === fuzzer.ArgTag.DICTIONARY ||
+      argType === fuzzer.ArgTag.SET
+    ) {
+      const closeChar = argType === fuzzer.ArgTag.TUPLE ? "]" : "}";
+      html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close">${closeChar}${endSep}</div>`;
     }
     html += `</div>`;
 
@@ -3813,8 +3913,38 @@ function _applyArgOverrides(
             strCharset:
               thisOverride.string.strCharset === ""
                 ? argDefaults.strCharset
-                : thisOverride.string.strCharset,
+                : decodeEscapeSequences(thisOverride.string.strCharset),
             strRegex: thisOverride.string.strRegex,
+          });
+        }
+        break;
+      case fuzzer.ArgTag.BYTES:
+        if (thisOverride.bytes) {
+          thisArg.setOptions({
+            byteLength: {
+              min: Number(thisOverride.bytes.minByteLen),
+              max: Number(thisOverride.bytes.maxByteLen),
+            },
+          });
+        }
+        break;
+      case fuzzer.ArgTag.DICTIONARY:
+        if (thisOverride.dictionary) {
+          thisArg.setOptions({
+            dictLength: {
+              min: Number(thisOverride.dictionary.minDictLen),
+              max: Number(thisOverride.dictionary.maxDictLen),
+            },
+          });
+        }
+        break;
+      case fuzzer.ArgTag.SET:
+        if (thisOverride.set) {
+          thisArg.setOptions({
+            setLength: {
+              min: Number(thisOverride.set.minSetLen),
+              max: Number(thisOverride.set.maxSetLen),
+            },
           });
         }
         break;
@@ -3882,6 +4012,30 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     },
   };
 }; // fn: getDefaultFuzzOptions()
+
+/**
+ * Normalizes a FuzzOptions object by deeply populating missing fields with default options.
+ *
+ * @param options partial fuzzer options
+ * @returns a complete, normalized FuzzOptions object
+ */
+export const normalizeFuzzOptions = (
+  options?: Partial<fuzzer.FuzzOptions>
+): fuzzer.FuzzOptions => {
+  const dft = getDefaultFuzzOptions();
+  if (!options) return dft;
+  return {
+    ...dft,
+    ...options,
+    argDefaults: fuzzer.ArgDef.normalizeOptions(options.argDefaults),
+    generators: options.generators
+      ? { ...dft.generators, ...options.generators }
+      : dft.generators,
+    measures: options.measures
+      ? { ...dft.measures, ...options.measures }
+      : dft.measures,
+  };
+}; // fn: normalizeFuzzOptions()
 
 /**
  * Accepts an array of strings and returns a prettier list including

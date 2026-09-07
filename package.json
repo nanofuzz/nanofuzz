@@ -88,7 +88,7 @@
           "nanofuzz.fuzzer.fnTimeout": {
             "title": "Timeout test after (ms)",
             "type": "integer",
-            "default": 100,
+            "default": 200,
             "minimum": 0,
             "description": "Default maximum time (in ms) to allow a test function to run before making it as a timeout."
           }
@@ -325,6 +325,12 @@
             "minimum": 0,
             "description": "Amount of focus to decrement on each random leader selection"
           },
+          "nanofuzz.generators.compositeTrackCheckpoints": {
+            "title": "Track composite generator checkpoints statistics",
+            "type": "boolean",
+            "default": false,
+            "description": "Track composite generator checkpoints statistics"
+          },
           "telemetry.active": {
             "title": "Activate telemetry? (requires restart)",
             "type": "boolean",
@@ -338,7 +344,8 @@
   },
   "scripts": {
     "build": "npx tsc -noEmit && node build.mjs",
-    "test": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
+    "test": "node test.cjs",
+    "test:seq": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
     "lint": "eslint src",
     "lint:errors": "eslint --quiet src",
     "vscode:prepublish": "yarn build",
@@ -361,7 +368,7 @@
     ]
   },
   "dependencies": {
-    "@vscode/codicons": "^0.0.45",
+    "@vscode/codicons": "^0.0.46-37",
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-typescript": "^0.23.2",

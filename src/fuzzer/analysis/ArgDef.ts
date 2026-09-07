@@ -35,6 +35,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
   private offset: number; // offset of the argument in the function (0-based)
   private type: Tag; // type of the argument
   private typeRef?: string; // type reference name (if the type is a reference)
+  private baseTypeRef?: string; // terminal concrete type reference name (if the type is a reference)
   private typeRefDims?: number; // outer dimensions attached to type reference
   private dims: number; // dimensions of the argument (e.g., number=0, number[]=1, etc)
   private optional: boolean; // whether the argument is optional
@@ -74,22 +75,28 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     this.dims = dims ?? 0;
     this.optional = optional ?? false;
     this.children =
-      type === ArgTag.OBJECT || type === ArgTag.UNION || type === ArgTag.TUPLE
+      type === ArgTag.OBJECT ||
+      type === ArgTag.DICTIONARY ||
+      type === ArgTag.SET ||
+      type === ArgTag.UNION ||
+      type === ArgTag.TUPLE
         ? (children ?? [])
         : [];
     this.typeRef = typeRef;
     this.typeRefDims = typeRefDims;
 
+    const fullOptions = ArgDef.normalizeOptions(options);
+
     // Ensure the options are valid before ingesting them
-    if (!ArgDef.isOptionValid(options))
+    if (!ArgDef.isOptionValid(fullOptions))
       throw new Error(
-        `Invalid options provided.  Check intervals and length values: ${JSON.stringify(
-          options,
+        `Invalid options provided. Check intervals and length values: ${JSON.stringify(
+          fullOptions,
           null,
           2
         )}`
       );
-    this.options = { ...options };
+    this.options = { ...fullOptions };
 
     // Fill the array dimensions w/defaults if missing or incongruent with the AST
     if (this.options.dimLength.length !== this.getDim()) {
@@ -125,7 +132,12 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     // Ensure each non-array dimension is valid
     if (
       this.intervals.filter(
-        (e) => e.min !== null && e.max !== null && e.min > e.max
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
       ).length
     ) {
       throw new Error(
@@ -175,7 +187,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     const typeOptions: ArgOptions = { ...options, ...ref.type.options };
 
     // Use the type reference to build the ArgDef
-    return new ArgDef(
+    const argDef = new ArgDef(
       ref.name ?? "unknown", // name
       offset, // offset
       ref.type.type, // type
@@ -189,6 +201,11 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       ref.typeRefName, // type reference
       ref.dims // outer dimensions on type reference
     );
+    const baseTypeRef = ref.baseTypeRef ?? ref.type.baseTypeRef;
+    if (baseTypeRef !== undefined) {
+      argDef.baseTypeRef = baseTypeRef;
+    }
+    return argDef;
   } // fn: fromTypeRef()
 
   /**
@@ -219,7 +236,11 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         ];
       case ArgTag.BOOLEAN:
         return [{ min: false, max: true }];
+      case ArgTag.BYTES:
+        return [{ min: new Uint8Array(0), max: new Uint8Array(0) }];
       case ArgTag.OBJECT:
+      case ArgTag.DICTIONARY:
+      case ArgTag.SET:
       case ArgTag.LITERAL:
       case ArgTag.UNION:
       case ArgTag.TUPLE:
@@ -238,6 +259,12 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     this.intervals = [{ min: value, max: value }];
     if (this.type === ArgTag.STRING && typeof value === "string") {
       this.options.strLength = { min: value.length, max: value.length };
+    }
+    if (
+      this.type === ArgTag.BYTES &&
+      (value instanceof Uint8Array || Array.isArray(value))
+    ) {
+      this.options.byteLength = { min: value.length, max: value.length };
     }
     this.dims = 0;
   } // fn: makeConstant()
@@ -277,6 +304,15 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
   public getTypeRef(): string | undefined {
     return this.typeRef;
   } // fn: getTypeRef()
+
+  /**
+   * Returns the terminal concrete type reference name (e.g., Map, Set) if available.
+   *
+   * @returns The terminal base type reference name
+   */
+  public getBaseTypeRef(): string | undefined {
+    return this.baseTypeRef;
+  } // fn: getBaseTypeRef()
 
   /**
    * Returns the outer dimensions attached to the type reference.
@@ -343,7 +379,14 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    */
   public setIntervals(intervals: Interval<TagToType[Tag]>[]): void {
     if (
-      intervals.some((e) => e.min !== null && e.max !== null && e.min > e.max)
+      intervals.some(
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
+      )
     )
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
@@ -364,7 +407,14 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       options
     ) as Interval<TagToType[Tag]>[];
     if (
-      intervals.some((e) => e.min !== null && e.max !== null && e.min > e.max)
+      intervals.some(
+        (e) =>
+          e.min !== null &&
+          e.min !== undefined &&
+          e.max !== null &&
+          e.max !== undefined &&
+          e.min > e.max
+      )
     )
       throw new Error(
         `Invalid interval provided (max>min): ${JSON.stringify(intervals)}`
@@ -447,8 +497,11 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
         this.setIntervals(options.numIntervals as Interval<TagToType[Tag]>[]);
     }
 
-    // Merge the two option sets; incoming has precedence
-    const newOptions: ArgOptions = { ...this.options, ...options };
+    // Merge the option sets and normalize missing fields
+    const newOptions: ArgOptions = ArgDef.normalizeOptions({
+      ...this.options,
+      ...options,
+    });
 
     // Ensure this.dims-1 === dimLength.length
     while (newOptions.dimLength.length < this.dims) {
@@ -522,6 +575,24 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
       },
       strRegex: undefined,
 
+      // Byte array defaults
+      byteLength: {
+        min: Config.get("nanofuzz.argdef.byteLength.min", DFT_BYTE_LENGTH.min),
+        max: Config.get("nanofuzz.argdef.byteLength.max", DFT_BYTE_LENGTH.max),
+      },
+
+      // Dictionary defaults
+      dictLength: {
+        min: Config.get("nanofuzz.argdef.dictLength.min", DFT_DICT_LENGTH.min),
+        max: Config.get("nanofuzz.argdef.dictLength.max", DFT_DICT_LENGTH.max),
+      },
+
+      // Set defaults
+      setLength: {
+        min: Config.get("nanofuzz.argdef.setLength.min", DFT_SET_LENGTH.min),
+        max: Config.get("nanofuzz.argdef.setLength.max", DFT_SET_LENGTH.max),
+      },
+
       // Numeric defaults
       numInteger: Config.get<boolean>("nanofuzz.argdef.numInteger", true),
 
@@ -546,20 +617,77 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
   } // fn: getDefaultOptions()
 
   /**
+   * Deeply normalizes an ArgOptions object by merging missing or undefined properties
+   * with system defaults.
+   *
+   * @param options partial argument options
+   * @returns a complete ArgOptions object
+   */
+  public static normalizeOptions(options?: Partial<ArgOptions>): ArgOptions {
+    const dft = ArgDef.getDefaultOptions();
+    if (!options) return dft;
+    return {
+      ...dft,
+      ...options,
+      strCharset: options.strCharset ?? dft.strCharset,
+      strLength: options.strLength
+        ? { ...dft.strLength, ...options.strLength }
+        : dft.strLength,
+      byteLength: options.byteLength
+        ? { ...dft.byteLength, ...options.byteLength }
+        : dft.byteLength,
+      dictLength: options.dictLength
+        ? { ...dft.dictLength, ...options.dictLength }
+        : dft.dictLength,
+      setLength: options.setLength
+        ? { ...dft.setLength, ...options.setLength }
+        : dft.setLength,
+      dftDimLength: options.dftDimLength
+        ? { ...dft.dftDimLength, ...options.dftDimLength }
+        : dft.dftDimLength,
+      dimLength: options.dimLength
+        ? options.dimLength.map((dim) => ({ ...dft.dftDimLength, ...dim }))
+        : [],
+    };
+  } // fn: normalizeOptions()
+
+  /**
    * Accepts an option set and returns true if it is valid; false otherwise.
    *
    * @param options an option set to validate
    * @returns true if the option set is valid; false otherwise
    */
   public static isOptionValid(options: ArgOptions): boolean {
+    if (!options) return false;
+    const strLen = options.strLength;
+    const byteLen = options.byteLength;
+    const dictLen = options.dictLength;
+    const setLen = options.setLength;
+    const dftDimLen = options.dftDimLength;
+
     return !(
+      !options.strCharset ||
       options.strCharset.length === 0 ||
-      options.strLength.min < 0 ||
-      options.strLength.min > options.strLength.max ||
+      !strLen ||
+      strLen.min < 0 ||
+      strLen.min > strLen.max ||
+      !byteLen ||
+      byteLen.min < 0 ||
+      byteLen.min > byteLen.max ||
+      !dictLen ||
+      dictLen.min < 0 ||
+      dictLen.min > dictLen.max ||
+      !setLen ||
+      setLen.min < 0 ||
+      setLen.min > setLen.max ||
       options.anyDims < 0 ||
-      options.dimLength.some((dim) => dim.min < 0 || dim.min > dim.max) ||
-      options.dftDimLength.min < 0 ||
-      options.dftDimLength.min > options.dftDimLength.max
+      !options.dimLength ||
+      options.dimLength.some(
+        (dim) => !dim || dim.min < 0 || dim.min > dim.max
+      ) ||
+      !dftDimLen ||
+      dftDimLen.min < 0 ||
+      dftDimLen.min > dftDimLen.max
     );
   } // fn: isOptionValid
 } // class: ArgDef
@@ -567,11 +695,22 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
 /**
  * Default length of array dimensions
  */
-const DFT_DIMENSION_LENGTH: Interval<number> = { min: 0, max: 10 };
+const DFT_DIMENSION_LENGTH: Interval<number> = { min: 0, max: 4 };
+
+/**
+ * Default length of dictionary entries
+ */
+const DFT_DICT_LENGTH: Interval<number> = { min: 0, max: 4 };
+
+/**
+ * Default length of set entries
+ */
+const DFT_SET_LENGTH: Interval<number> = { min: 0, max: 4 };
 
 /**
  * Default characters allowed in string input
  */
 const DFT_STR_CHARSET =
   " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
-const DFT_STR_LENGTH: Interval<number> = { min: 0, max: 10 };
+const DFT_STR_LENGTH: Interval<number> = { min: 0, max: 4 };
+const DFT_BYTE_LENGTH: Interval<number> = { min: 0, max: 4 };

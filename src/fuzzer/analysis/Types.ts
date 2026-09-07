@@ -1,3 +1,5 @@
+import type { FuzzOptions } from "../Types";
+
 /**
  * Languages that NaNofuzz can analyze
  */
@@ -47,6 +49,7 @@ export type FunctionRef = {
   args?: TypeRef[]; // Array of argument types
   returnType?: TypeRef; // Return type of the function
   cmt?: string; // Docstring comment of the function
+  fuzzOptions?: Partial<FuzzOptions>; // Options for this function
 };
 
 /**
@@ -56,6 +59,7 @@ export type TypeRef = {
   module: ProgramPath; // Module where the type resides
   name?: IdentifierName; // Name of the type
   typeRefName?: IdentifierName; // Name of the type reference (if any)
+  baseTypeRef?: IdentifierName; // Terminal type reference name (e.g. "Map", "Set")
   optional: boolean; // True if the type is optional; false, otherwise
   dims: number; // Number of dimensions for the type (0 for non-array types)
   type?: {
@@ -65,6 +69,7 @@ export type TypeRef = {
     value?: ArgType; // Value if a literal type
     options?: ArgOptionOverride; // Type-specific input-generation options
     resolved?: boolean; // True if the type's children have been resolved; false, otherwise
+    baseTypeRef?: IdentifierName; // Terminal type reference name on concrete type
   };
   isExported: boolean; // True if the type is exported; false, otherwise
 };
@@ -77,16 +82,21 @@ export enum ArgTag {
   STRING = "string",
   BOOLEAN = "boolean",
   OBJECT = "object",
+  DICTIONARY = "dictionary",
+  SET = "set",
   LITERAL = "literal",
   UNION = "union",
   TUPLE = "tuple",
   UNRESOLVED = "unresolved", // unresolved type reference
+  BYTES = "bytes",
 }
 export type ArgType =
   | number
   | string
   | boolean
   | null
+  | Uint8Array
+  | Set<ArgType>
   | {
       [key: string]: ArgType;
     };
@@ -101,15 +111,20 @@ export type TagToType = {
   [ArgTag.STRING]: string;
   [ArgTag.BOOLEAN]: boolean;
   [ArgTag.OBJECT]: { [key: string]: ArgType };
+  [ArgTag.DICTIONARY]: { [key: string]: ArgType };
+  [ArgTag.SET]: Set<ArgType>;
   [ArgTag.LITERAL]: ArgType;
   [ArgTag.UNION]: ArgType;
   [ArgTag.TUPLE]: [ArgType];
   [ArgTag.UNRESOLVED]: ArgType;
+  [ArgTag.BYTES]: Uint8Array;
 };
 export type ArgValueType =
   | number
   | string
   | boolean
+  | Uint8Array
+  | Set<ArgValueType>
   | {
       [key: string]: ArgValueType;
     }
@@ -131,6 +146,15 @@ export type ArgOptions = {
   strCharset: string; // string representing the characters allowed in the input
   strLength: Interval<number>; // length of characters allowed in the input
   strRegex: string | undefined; // regular expression the input must match
+
+  // For type bytes
+  byteLength: Interval<number>; // length of byte array allowed in the input
+
+  // For dictionaries
+  dictLength: Interval<number>; // length of dictionary allowed in the input
+
+  // For sets
+  setLength: Interval<number>; // length of set allowed in the input
 
   // For type number
   numInteger: boolean; // true if the numeric argument input is an integer
@@ -160,16 +184,9 @@ export type ArgOptionOverrides = {
 /**
  * Argument option overrides
  */
-export type ArgOptionOverride = {
-  numInteger?: boolean;
+export type ArgOptionOverride = Partial<ArgOptions> & {
   numIntervals?: Interval<number>[];
-  dimLength?: Interval<number>[];
-  dimsUnique?: boolean;
-  strLength?: Interval<number>;
-  strCharset?: string;
-  strRegex?: string;
   children?: ArgOptionOverrides;
-  isNoInput?: boolean;
 };
 
 /** Options for generating type annotations */

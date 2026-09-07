@@ -116,6 +116,14 @@ export type FuzzValueOrigin =
       type: "generator";
       generator: "AiInputGenerator";
       model: string;
+    }
+  | {
+      type: "transformer";
+      transformer: string;
+      basis: {
+        value: ArgValueTypeWrapped[];
+        source: FuzzValueOrigin;
+      };
     };
 
 /**
@@ -226,6 +234,18 @@ export type FuzzArgOverride = {
     maxStrLen: number;
     strCharset: string;
     strRegex?: string;
+  };
+  bytes?: {
+    minByteLen: number;
+    maxByteLen: number;
+  };
+  dictionary?: {
+    minDictLen: number;
+    maxDictLen: number;
+  };
+  set?: {
+    minSetLen: number;
+    maxSetLen: number;
   };
   array?: {
     dimLength: { min: number; max: number }[];

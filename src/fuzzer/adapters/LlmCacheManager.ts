@@ -198,6 +198,16 @@ export class LlmCacheManager {
     this.saveCache();
   }
 
+  public static readonly inFlight = {
+    get length(): number {
+      let len = 0;
+      for (const manager of LlmCacheManager._activeManagers) {
+        len += manager._pendingQueries.size;
+      }
+      return len;
+    },
+  };
+
   public static async flushAllActive(timeoutMs = 5000): Promise<void> {
     for (const manager of LlmCacheManager._activeManagers) {
       await manager.flush(timeoutMs);

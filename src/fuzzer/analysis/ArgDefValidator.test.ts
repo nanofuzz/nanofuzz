@@ -153,4 +153,28 @@ describe("fuzzer/analysis/typescript/ArgDefValidator:", () => {
       ArgDefValidator.validate([{ a: undefined }, {}], uniqueObjects)
     ).toBe(false);
   });
+
+  it("validates that Set is in canonical order and rejects non-canonical or duplicate sets", () => {
+    const setDef = makeArgDef(
+      dummyModule,
+      "setArg",
+      0,
+      ArgTag.SET,
+      { ...argOptions, setLength: { min: 0, max: 5 } },
+      0,
+      false,
+      [makeTypeRef(dummyModule, "values", ArgTag.NUMBER, 0)]
+    );
+
+    // Canonical Set: items 1, 2, 3 sorted by JSONN string representation
+    const canonicalSet = new Set([1, 2, 3]);
+    expect(ArgDefValidator.validate(canonicalSet, setDef)).toBe(true);
+
+    // Non-canonical Set (insertion order 3, 1, 2)
+    const nonCanonicalSet = new Set([3, 1, 2]);
+    expect(ArgDefValidator.validate(nonCanonicalSet, setDef)).toBe(false);
+
+    // Array with duplicates (non-canonical)
+    expect(ArgDefValidator.validate([1, 1, 2], setDef)).toBe(false);
+  });
 });

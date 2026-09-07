@@ -1,9 +1,13 @@
 import {
   AbstractRunner,
-  Arc,
+  CoverageInfo,
   RunnerInput,
   RunnerResult,
+  TypeHint,
 } from "../AbstractRunner";
+import { ArgDef } from "../../analysis/ArgDef";
+import { ArgTag } from "../../analysis/Types";
+import { FuzzEnv } from "../../Fuzzer";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
@@ -23,9 +27,10 @@ export class PythonRunner extends AbstractRunner {
   protected _timeout: number;
   protected _runDepth = 0;
   protected _fn: string;
+  protected _env: FuzzEnv | undefined;
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
-  protected _coverageInfo?: CoverageInfo = undefined;
+  protected _coverageInfo?: FullCoverage = undefined;
   protected _pythonEnv: PythonEnv | undefined;
   protected static _envs: {
     [file: string]: PythonEnv;
@@ -39,12 +44,19 @@ export class PythonRunner extends AbstractRunner {
    *
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
+   * @param `env` optional fuzzer environment
    */
-  constructor(filename: string, fn: string, timeout: number = 0) {
+  constructor(
+    filename: string,
+    fn: string,
+    env?: FuzzEnv,
+    timeout: number = 0
+  ) {
     super(fn);
     this._filename = filename;
-    this._timeout = timeout;
     this._fn = fn;
+    this._env = env;
+    this._timeout = timeout;
   } // fn: constructor
 
   /**
@@ -82,12 +94,25 @@ export class PythonRunner extends AbstractRunner {
 
     try {
       const host = await this._getHost();
+      const typeHints = this._env?.function.getArgDefs().map(getTypeHint) ?? [];
+
       const input: RunnerInput = {
         args: inputs,
         seq: thisSeq,
+        typeHints,
       };
 
-      host.sendMessage(JSON5.stringify(input));
+      const payload = JSON5.stringify(input, (_key, val) => {
+        if (val instanceof Uint8Array || val instanceof Set) {
+          return Array.from(val);
+        }
+        if (val instanceof Map) {
+          return Object.fromEntries(val);
+        }
+        return val;
+      });
+
+      host.sendMessage(payload);
       const result: RunnerResult = {
         result: JSON5.parse(await host.getResponse(timeout)),
         env: {},
@@ -101,20 +126,34 @@ export class PythonRunner extends AbstractRunner {
 
       // Refresh the dynamic coverage with what this call executed. A timeout
       // is killed mid-run, so the host never reports coverage for it.
-      if (this._coverageInfo) {
-        if (result.result.tag === "timeout") {
-          this._coverageInfo.lines = undefined;
-          this._coverageInfo.arcs = undefined;
-        } else {
-          this._coverageInfo.lines = result.result.coverageData;
-          this._coverageInfo.arcs = result.result.coverageArcs;
+      if (result.result.tag === "timeout") {
+        this._coverageInfo = undefined;
+      } else {
+        this._coverageInfo = result.result.staticCoverage;
+        if (this._coverageInfo) {
+          for (const filename in this._coverageInfo) {
+            const coverageData = result.result.coverageData;
+            const coverageArcs = result.result.coverageArcs;
+            this._coverageInfo[filename].lines =
+              coverageData && !Array.isArray(coverageData)
+                ? coverageData[filename]
+                : undefined;
+            this._coverageInfo[filename].arcs =
+              coverageArcs && !Array.isArray(coverageArcs)
+                ? coverageArcs[filename]
+                : undefined;
+          }
         }
       }
+
       return result;
     } catch (e: unknown) {
       this._killHost();
       if (!isError(e)) {
         throw e;
+      }
+      if (this._coverageInfo) {
+        this._coverageInfo = undefined;
       }
       if (e.name === PutTimeoutName) {
         return { result: { tag: "timeout", seq: thisSeq }, env: {} };
@@ -392,13 +431,9 @@ export class PythonRunner extends AbstractRunner {
 
       // Get the static coverage structure, which the host sends once. The
       // dynamic `lines`/`arcs` are filled in by each `run`.
-      const data = JSON5.parse<CoverageInfo>(await host.getResponse(10000));
-      this._coverageInfo = {
-        file: data.file,
-        executable: data.executable ?? [],
-        functions: data.functions ?? [],
-        branches: data.branches ?? [],
-      };
+      this._coverageInfo = JSON5.parse<FullCoverage>(
+        await host.getResponse(10000)
+      );
       return host;
     } else {
       host.kill();
@@ -416,12 +451,8 @@ export class PythonRunner extends AbstractRunner {
     }
   }
 
-  /**
-   * Get coverage info
-   * Needs to be a shallow copy since the covered lines changes every run
-   */
-  public get coverageInfo(): CoverageInfo | undefined {
-    return this._coverageInfo ? { ...this._coverageInfo } : undefined;
+  public get coverageInfo(): FullCoverage | undefined {
+    return this._coverageInfo;
   }
 } // class: PythonRunner
 
@@ -440,34 +471,84 @@ function findPythonLibDir(dir: string, item: string): string | null {
   return null;
 }
 
-/**
- * Coverage reported by the Python host for the program under test.
- *
- * The static fields describe what the program *can* execute and are sent once
- * at startup; the dynamic fields describe what a single call *did* execute and
- * are refreshed on every `run`.
- */
-export type CoverageInfo = {
-  file: string;
-  executable: number[]; // static: all executable lines
-  functions: FunctionInfo[]; // static: all functions
-  branches: BranchInfo[]; // static: all branch points
-  lines?: number[]; // dynamic: lines executed by this one call
-  arcs?: Arc[]; // dynamic: arcs taken by this one call
-};
+function isUuidArg(arg: ArgDef): boolean {
+  return arg.getTypeRef() === "UUID" && arg.getType() === ArgTag.STRING;
+}
+
+function getBaseTypeHint(arg: ArgDef): TypeHint {
+  if (isUuidArg(arg)) {
+    return "uuid";
+  }
+  if (
+    arg.getType() === ArgTag.BYTES ||
+    arg.getTypeRef() === "bytes" ||
+    arg.getTypeRef() === "bytearray"
+  ) {
+    return "bytes";
+  }
+
+  switch (arg.getType()) {
+    case ArgTag.SET: {
+      const [elemChild] = arg.getChildren();
+      const elemHint = elemChild ? getTypeHint(elemChild) : "default";
+      const typeRef = arg.getTypeRef();
+      const baseTypeRef = arg.getBaseTypeRef();
+      const isFrozen =
+        typeRef === "frozenset" ||
+        typeRef === "FrozenSet" ||
+        baseTypeRef === "frozenset" ||
+        baseTypeRef === "FrozenSet";
+      return { kind: "set", element: elemHint, frozenset: isFrozen };
+    }
+    case ArgTag.TUPLE:
+      return {
+        kind: "tuple",
+        elements: arg.getChildren().map(getTypeHint),
+      };
+    case ArgTag.OBJECT: {
+      const fields: Record<string, TypeHint> = {};
+      for (const child of arg.getChildren()) {
+        fields[child.getName()] = getTypeHint(child);
+      }
+      return { kind: "object", fields };
+    }
+    case ArgTag.UNION:
+      return {
+        kind: "union",
+        arms: arg.getChildren().map(getTypeHint),
+      };
+    case ArgTag.BYTES:
+      return "bytes";
+    case ArgTag.NUMBER:
+      return "number";
+    case ArgTag.DICTIONARY: {
+      const children = arg.getChildren();
+      const keyHint = children[0] ? getTypeHint(children[0]) : "default";
+      const valHint = children[1] ? getTypeHint(children[1]) : "default";
+      return { kind: "dictionary", key: keyHint, value: valHint };
+    }
+    case ArgTag.STRING:
+    case ArgTag.BOOLEAN:
+    case ArgTag.LITERAL:
+    case ArgTag.UNRESOLVED:
+    default:
+      return "default";
+  }
+}
+
+function getTypeHint(arg: ArgDef): TypeHint {
+  const dims = arg.getDim();
+  let hint: TypeHint = getBaseTypeHint(arg);
+  for (let i = 0; i < dims; i++) {
+    hint = { kind: "array", element: hint };
+  }
+  return hint;
+}
 
 /**
- * A function in the program under test. `lines` holds only the function's own
- * executable lines: coverage.py attributes lines per function, so lines inside
- * a nested function are not charged to its parent.
+ * Coverage for the entire program under test.
  */
-export type FunctionInfo = {
-  name: string; // e.g. "fn" or "Class.method"
-  declLine: number; // the `def` line
-  startLine: number; // first executable line of the body
-  endLine: number; // last executable line of the body
-  lines: number[]; // the function's own executable lines
-};
+export type FullCoverage = Record<string, CoverageInfo>;
 
 /**
  * A branch point: a line with more than one possible exit.
@@ -488,4 +569,5 @@ export type BranchExit = {
   line: number; // where to display this exit
 };
 
-export { Arc } from "../AbstractRunner";
+export { Arc, CoverageInfo } from "../AbstractRunner";
+export type { PythonEnv } from "./PythonHost";

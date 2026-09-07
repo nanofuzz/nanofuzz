@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as JSONN from "../Jsonn";
 import { ArgDef } from "./analysis/ArgDef";
-import { ArgValueType, FunctionRef, ProgramLanguage } from "./analysis/Types";
+import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as ProgramFactory from "./analysis/ProgramFactory";
@@ -21,7 +21,8 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
-import { isError } from "../fuzzer/Util";
+import { isError } from "./Util";
+import { isArgValueType } from "./analysis/Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
@@ -62,12 +63,17 @@ export class Tester {
     this._module = require.resolve(module);
     this._fnName = fnName;
 
+    const normalizedOptions: FuzzOptions = {
+      ...options,
+      argDefaults: ArgDef.normalizeOptions(options?.argDefaults),
+    };
+
     // Get the program & function definitions
     try {
       this._program = ProgramFactory.fromFile(
         this._module,
         undefined,
-        options.argDefaults
+        normalizedOptions.argDefaults
       );
     } catch (e: unknown) {
       throw new Error(
@@ -92,12 +98,12 @@ export class Tester {
     this._transformers = getTransformers(this._program, fnList[this._fnName]);
 
     // Options
-    if (!isOptionValid(options)) {
+    if (!isOptionValid(normalizedOptions)) {
       throw new Error(
-        `Invalid options provided: ${JSONN.stringify(options, null, 2)}`
+        `Invalid options provided: ${JSONN.stringify(normalizedOptions, null, 2)}`
       );
     }
-    this._options = structuredClone(options);
+    this._options = structuredClone(normalizedOptions);
 
     // Get the active measures, which will take various measurements
     // during execution that guide the composite generator
@@ -265,18 +271,23 @@ export class Tester {
    * (can we eliminate this? !!!!!!)
    */
   public set options(options: FuzzOptions) {
+    const normalizedOptions: FuzzOptions = {
+      ...options,
+      argDefaults: ArgDef.normalizeOptions(options?.argDefaults),
+    };
+
     // Ensure we have a valid set of Fuzz options
-    if (!isOptionValid(options)) {
+    if (!isOptionValid(normalizedOptions)) {
       throw new Error(
-        `Invalid options provided: ${JSONN.stringify(options, null, 2)}`
+        `Invalid options provided: ${JSONN.stringify(normalizedOptions, null, 2)}`
       );
     }
 
     // If we already have an option set and it differs
     // from the new one, use the new options.
-    if (JSONN.stringify(this._options) !== JSONN.stringify(options)) {
-      this._options = structuredClone(options);
-      this._results.env.options = structuredClone(options);
+    if (JSONN.stringify(this._options) !== JSONN.stringify(normalizedOptions)) {
+      this._options = structuredClone(normalizedOptions);
+      this._results.env.options = structuredClone(normalizedOptions);
       this._compositeInputGenerator.options = this._options.generators;
     }
   } // property: set options
@@ -563,14 +574,19 @@ export class Tester {
         this._measures.forEach((e) => {
           e.onRunEnd(this._results);
         });
-        this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
+        await this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
 
         // Shut down runners
-        await runner.onRunEnd();
-        await propRunners.forEach(async (p) => p.onRunEnd());
+        await Promise.all(
+          [
+            runner.onRunEnd(),
+            transformRunner?.onRunEnd(),
+            ...propRunners.map((p) => p.onRunEnd()),
+          ].filter((e) => e !== undefined)
+        );
 
         update({
-          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
+          msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
           channel: "update",
           pct: 100,
         });
@@ -638,7 +654,7 @@ export class Tester {
         }
 
         update({
-          msg: `Testing ${cancelFn && cancelFn() ? "paused" : "finished"}.`,
+          msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
           channel: "milestone",
         });
 
@@ -724,7 +740,20 @@ export class Tester {
             if (Array.isArray(values)) {
               result.inputGenerated.value.forEach((e, i) => {
                 if (i < values.length) {
-                  result.input[i].value = values[i];
+                  const oldValue = result.input[i].value;
+                  const newValue = values[i];
+                  result.input[i].value = newValue;
+
+                  if (JSONN.stringify(oldValue) !== JSONN.stringify(newValue)) {
+                    result.input[i].origin = {
+                      type: "transformer",
+                      transformer: transformRunner.name,
+                      basis: {
+                        value: structuredClone(result.inputGenerated.value),
+                        source: structuredClone(result.inputGenerated.source),
+                      },
+                    };
+                  }
                 }
               });
             } else {
@@ -830,7 +859,7 @@ export class Tester {
 
       // Front-end status update
       update({
-        msg: `${cancelFn && cancelFn() && stillInjecting ? "Pause pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
+        msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
           runStats.counters.passedTests +
           runStats.counters.failedTests +
           runStats.counters.erroredTests +
@@ -892,7 +921,9 @@ export class Tester {
             result.output.push({
               name: "0",
               offset: 0,
-              value: exeOutput.result.value as ArgValueType,
+              value: isArgValueType(exeOutput.result.value)
+                ? exeOutput.result.value
+                : undefined,
               origin: { type: "put" },
             });
             break;
@@ -916,60 +947,62 @@ export class Tester {
         }
 
         const startValTime = performance.now(); // start timer
-        // IMPLICIT ORACLE --------------------------------------------
-        if (this._options.useImplicit) {
-          result.passedImplicit = ImplicitOracle.judge(
-            result.timeout,
-            result.exception,
-            this._function.isVoid(),
-            result.output
-          );
+        if (!result.skipped) {
+          // IMPLICIT ORACLE --------------------------------------------
+          if (this._options.useImplicit) {
+            result.passedImplicit = ImplicitOracle.judge(
+              result.timeout,
+              result.exception,
+              this._function.isVoid(),
+              result.output
+            );
+          }
+
+          // EXAMPLE ORACLE ---------------------------------------------
+          // If a human annotated an expected output, then check it
+          if (this._options.useHuman && result.expectedOutput) {
+            result.passedHuman = ExampleOracle.judge(
+              result.timeout,
+              result.exception,
+              result.expectedOutput,
+              result.output
+            );
+          }
+
+          // PROPERTY ORACLE --------------------------------------------
+          // If a property validator is selected, call it to evaluate the result
+          if (this._options.useProperty) {
+            (
+              await propertyOracle.judge(
+                Object.freeze({
+                  in: result.input.map((i) => i.value), // inputs
+                  out:
+                    result.output.length === 0
+                      ? "timeout or exception"
+                      : result.output[0].value,
+                  exception: result.exception,
+                  timeout: result.timeout,
+                }),
+                Math.max(this._options.fnTimeout, 1)
+              )
+            ).forEach((j, i) => {
+              if (isError(j)) {
+                result.passedValidators.push("unknown");
+                result.validatorException = true;
+                result.validatorExceptionMessage = j.message;
+                result.validatorExceptionFunction = this._validators[i].name;
+                result.validatorExceptionStack = j.stack;
+              } else {
+                result.passedValidators.push(j);
+              }
+            });
+
+            // Summarize propert judgments.
+            result.passedValidator = PropertyOracle.summarize(
+              result.passedValidators
+            );
+          } // if validator
         }
-
-        // EXAMPLE ORACLE ---------------------------------------------
-        // If a human annotated an expected output, then check it
-        if (this._options.useHuman && result.expectedOutput) {
-          result.passedHuman = ExampleOracle.judge(
-            result.timeout,
-            result.exception,
-            result.expectedOutput,
-            result.output
-          );
-        }
-
-        // PROPERTY ORACLE --------------------------------------------
-        // If a property validator is selected, call it to evaluate the result
-        if (this._options.useProperty) {
-          (
-            await propertyOracle.judge(
-              Object.freeze({
-                in: result.input.map((i) => i.value), // inputs
-                out:
-                  result.output.length === 0
-                    ? "timeout or exception"
-                    : result.output[0].value,
-                exception: result.exception,
-                timeout: result.timeout,
-              }),
-              Math.max(this._options.fnTimeout, 1)
-            )
-          ).forEach((j, i) => {
-            if (isError(j)) {
-              result.passedValidators.push("unknown");
-              result.validatorException = true;
-              result.validatorExceptionMessage = j.message;
-              result.validatorExceptionFunction = this._validators[i].name;
-              result.validatorExceptionStack = j.stack;
-            } else {
-              result.passedValidators.push(j);
-            }
-          });
-
-          // Summarize propert judgments.
-          result.passedValidator = PropertyOracle.summarize(
-            result.passedValidators
-          );
-        } // if validator
 
         // Validator stats
         const valTime = performance.now() - startValTime; // stop timer
@@ -1096,20 +1129,20 @@ const _checkStopCondition = (
   pcts.push(
     (stats.counters.inputsInjected +
       (gen
-        ? stats.counters.inputsGenerated - stats.counters.dupesGenerated
+        ? stats.counters.inputsGenerated -
+          stats.counters.dupesGenerated -
+          stats.counters.inputsSkipped
         : 0)) /
       (injectCount + (gen ? options.maxTests : 0))
   );
 
-  // End testing if we exceed the maximum number of failures
-  /*
-  if (options.maxFailures > 0) {
+  // End testing if we exceed the maximum number of failures & are done injecting inputs
+  if (options.maxFailures > 0 && !injecting) {
     if (stats.counters.failedTests >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
     pcts.push(stats.counters.failedTests / options.maxFailures);
   }
-  */
 
   // End testing if we exceed the maximum number of sequential duplicates generated
   if (stats.counters.dupesSequential >= options.maxDupeInputs) {

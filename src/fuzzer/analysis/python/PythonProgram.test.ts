@@ -1,7 +1,9 @@
 import * as ProgramFactory from "../ProgramFactory";
 import { ArgDef } from "../ArgDef";
+import { ArgDefGenerator } from "../ArgDefGenerator";
 import { ArgTag } from "../Types";
 import { PythonProgram } from "./PythonProgram";
+import seedrandom from "seedrandom";
 import * as fs from "fs";
 import * as path from "path";
 import * as Parser from "../../adapters/ParserAdapter";
@@ -218,6 +220,43 @@ type MixedColumn = list[int | str]`,
     ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
   });
 
+  it("extracts built-in and typing dictionary/container annotations", () => {
+    // Covers PEP 585 built-ins, `typing`-qualified generics, and composition
+    // with a union-like wrapper. These are parser-level tests, so no typing
+    // package import is needed at runtime.
+    const types = ProgramFactory.fromSource(
+      () => `type Scores = dict[str, list[int]]
+type Lookup = typing.Dict[str, float]
+type Labels = set[str]
+type TaggedScores = dict[str, int | str]
+type MaybeScores = Optional[dict[str, int]]`,
+      "python"
+    ).types;
+
+    expect(types["Scores"].type?.type).toEqual(ArgTag.DICTIONARY);
+    expect(types["Scores"].type?.children.map((child) => child.name)).toEqual([
+      "keys",
+      "values",
+    ]);
+    expect(types["Scores"].type?.children[1].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.NUMBER, dims: 1 })
+    );
+    expect(types["Lookup"].type?.type).toEqual(ArgTag.DICTIONARY);
+    expect(types["Labels"].type?.type).toEqual(ArgTag.SET);
+    expect(types["Labels"].type?.children[0].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.STRING, dims: 0 })
+    );
+    expect(types["TaggedScores"].type?.children[1].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.UNION })
+    );
+    expect(
+      types["TaggedScores"].type?.children[1].type?.children.map(
+        (child) => child.type?.type
+      )
+    ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
+    expect(types["MaybeScores"].type?.type).toEqual(ArgTag.DICTIONARY);
+  });
+
   it("collapses singleton annotation unions", () => {
     const types = ProgramFactory.fromSource(
       () => "type MaybeCount = Optional[int]",
@@ -307,16 +346,6 @@ class Admin(User):
     ).types;
 
     expect(types["Player"]).toBeUndefined();
-  });
-
-  it("does not model ordinary dictionaries as fixed objects", () => {
-    const types = ProgramFactory.fromSource(
-      () => "type DynamicConfig = dict[str, int]",
-      "python"
-    ).types;
-
-    expect(types["DynamicConfig"].type).toBeUndefined();
-    expect(types["DynamicConfig"].typeRefName).toEqual("dict");
   });
 
   it("handles Python numeric literal spellings", () => {
@@ -897,7 +926,123 @@ def test_example(trigger, dep, trigger_val):
     expect(args[2].getIntervals()).toEqual([{ min: 0, max: 100 }]);
   });
 
-  it("maps Hypothesis from_regex to the string regex option", () => {
+  it("hypothesis @given st.text alphabet strategy expressions", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+import string
+from hypothesis import strategies as st
+
+@given(
+  a1=st.text(alphabet=st.characters(whitelist_categories=("L", "N"))),
+  a2=st.text(alphabet=string.ascii_lowercase),
+  a3=st.text(alphabet=st.characters(whitelist_categories=("L", "N", "P", "S", "Z"), blacklist_characters="'\\\\")),
+  a4=st.text(alphabet=st.characters(whitelist_categories=("L", "N"), blacklist_characters='"\\\\')),
+  a5=st.text(alphabet=st.characters(whitelist_categories=('L', 'N', 'Zs'), whitelist_characters=' ')),
+  a6=st.text(alphabet=st.sampled_from("aäöüéèêëàâîïôûçñ")),
+  a7=st.text(alphabet=st.characters(min_codepoint=0x1F600, max_codepoint=0x1F64F)),
+  a8=st.text(alphabet=string.ascii_letters + string.digits),
+  a9=st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126))
+)
+def test_alphabets(a1, a2, a3, a4, a5, a6, a7, a8, a9):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_alphabets"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    );
+    expect(args[0].getOptions().strRegex).toEqual("\\A(?:[\\p{L}\\p{N}])*\\Z");
+
+    expect(args[1].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyz"
+    );
+
+    expect(args[2].getOptions().strRegex).toEqual(
+      "\\A(?:(?!['\\\\])[\\p{L}\\p{N}\\p{P}\\p{S}\\p{Z}])*\\Z"
+    );
+
+    expect(args[3].getOptions().strRegex).toEqual(
+      '\\A(?:(?!["\\\\])[\\p{L}\\p{N}])*\\Z'
+    );
+
+    expect(args[4].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
+    );
+    expect(args[4].getOptions().strRegex).toEqual(
+      "\\A(?:[\\p{L}\\p{N}\\p{Zs} ])*\\Z"
+    );
+
+    expect(args[5].getOptions().strCharset).toEqual("aäöüéèêëàâîïôûçñ");
+
+    expect(args[6].getOptions().strRegex).toEqual(
+      "\\A(?:[\\u{1F600}-\\u{1F64F}])*\\Z"
+    );
+    expect(Array.from(args[6].getOptions().strCharset ?? "").length).toEqual(
+      80
+    );
+
+    expect(args[7].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    );
+
+    expect(args[8].getOptions().strRegex).toEqual(
+      "\\A(?:[\\u{20}-\\u{7E}])*\\Z"
+    );
+    expect(args[8].getOptions().strCharset?.length).toEqual(95);
+  });
+
+  it("hypothesis @given st.text alphabet with special escape sequences like \\n and \\t", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+import string
+from hypothesis import strategies as st
+
+@given(s=st.text(alphabet=st.sampled_from("abcdefghijklmnop \\n\\t")))
+def test_special_chars(s: str):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_special_chars"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().strCharset).toEqual("abcdefghijklmnop \n\t");
+  });
+
+  it("hypothesis @settings `max_examples`", () => {
+    const program = ProgramFactory.fromSource(
+      () => `
+MAX_EX = 250
+
+@settings(max_examples=500)
+@given(x=st.integers())
+def test_with_settings(x):
+    pass
+
+@hypothesis.settings(max_examples=MAX_EX)
+@given(x=st.integers())
+def test_with_referenced_settings(x):
+    pass
+
+@given(x=st.integers())
+def test_without_settings(x):
+    pass
+      `,
+      "python"
+    );
+
+    const fn1 = program.functionsExported["test_with_settings"];
+    expect(fn1.getRef().fuzzOptions).toEqual({ maxTests: 500 });
+
+    const fn2 = program.functionsExported["test_with_referenced_settings"];
+    expect(fn2.getRef().fuzzOptions).toEqual({ maxTests: 250 });
+
+    const fn3 = program.functionsExported["test_without_settings"];
+    expect(fn3.getRef().fuzzOptions).toBeUndefined();
+  });
+
+  it("hypothesis @given `from_regex` strategy", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 PATTERN = r"[a-zA-Z_][a-zA-Z0-9_]{0,4}"
@@ -922,6 +1067,81 @@ def test_regex(inline, referenced, partial, anchored):
       "\\A[a-z_]\\Z",
     ]);
     expect(fn.getArgDefs()[1].getOptions().strCharset).toEqual("super");
+  });
+
+  it("hypothesis @given `binary` strategy", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    data1=st.binary(),
+    data2=st.binary(min_size=4, max_size=16)
+)
+def test_binary(data1, data2):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_binary"];
+
+    const args = fn.getArgDefs();
+    expect(args.length).toEqual(2);
+
+    expect(args[0].getName()).toEqual("data1");
+    expect(args[0].getType()).toEqual(ArgTag.BYTES);
+
+    expect(args[1].getName()).toEqual("data2");
+    expect(args[1].getType()).toEqual(ArgTag.BYTES);
+    expect(args[1].getOptions().byteLength).toEqual({ min: 4, max: 16 });
+  });
+
+  it("hypothesis @given `uuids` strategy", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    id1=st.uuids(),
+    id2=st.uuids(version=4),
+    id3=st.uuids(allow_nil=True),
+    id4=st.uuids(version=5, allow_nil=True)
+)
+def test_uuid(id1, id2, id3, id4):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_uuid"];
+
+    const args = fn.getArgDefs();
+    expect(args.length).toEqual(4);
+
+    expect(args[0].getName()).toEqual("id1");
+    expect(args[0].getType()).toEqual(ArgTag.STRING);
+    expect(args[0].getOptions().strLength).toEqual({ min: 36, max: 36 });
+    expect(args[0].getOptions().strCharset).toEqual("0123456789abcdefABCDEF-");
+    expect(args[0].getOptions().strRegex).toEqual(
+      "\\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\Z"
+    );
+
+    expect(args[1].getName()).toEqual("id2");
+    expect(args[1].getType()).toEqual(ArgTag.STRING);
+    expect(args[1].getOptions().strLength).toEqual({ min: 36, max: 36 });
+    expect(args[1].getOptions().strCharset).toEqual("0123456789abcdefABCDEF-");
+    expect(args[1].getOptions().strRegex).toEqual(
+      "\\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\Z"
+    );
+
+    expect(args[2].getName()).toEqual("id3");
+    expect(args[2].getType()).toEqual(ArgTag.STRING);
+    expect(args[2].getOptions().strLength).toEqual({ min: 36, max: 36 });
+    expect(args[2].getOptions().strCharset).toEqual("0123456789abcdefABCDEF-");
+    expect(args[2].getOptions().strRegex).toEqual(
+      "\\A(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000)\\Z"
+    );
+
+    expect(args[3].getName()).toEqual("id4");
+    expect(args[3].getType()).toEqual(ArgTag.STRING);
+    expect(args[3].getOptions().strLength).toEqual({ min: 36, max: 36 });
+    expect(args[3].getOptions().strCharset).toEqual("0123456789abcdefABCDEF-");
+    expect(args[3].getOptions().strRegex).toEqual(
+      "\\A(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-5[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000)\\Z"
+    );
   });
 
   it("hypothesis @given positional arguments", () => {
@@ -960,7 +1180,7 @@ def test_bounds(integer, decimal):
     expect(args[1].getIntervals()).toEqual([{ min: -1.5, max: 2.5 }]);
   });
 
-  it("hypothesis @given nested lists and fixed_dictionaries", () => {
+  it("hypothesis @given `lists` nested and fixed_dictionaries", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -997,7 +1217,7 @@ def test_nested(complex_data):
     expect(tagsField?.getDim()).toEqual(1); // st.lists(st.text()) nested inside dict
   });
 
-  it("maps Hypothesis list uniqueness to ArgDef option", () => {
+  it("hypothesis @given `lists` uniqueness", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 USE_UNIQUE_VALUES = True
@@ -1022,7 +1242,7 @@ def test_lists(unique_values, duplicate_values, unconstrained_values, referenced
     ]);
   });
 
-  it("hypothesis @given sampled_from", () => {
+  it("hypothesis @given `sampled_from`", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1046,7 +1266,7 @@ def test_sampled(status):
     ).toBeTrue();
   });
 
-  it("hypothesis @given sampled_from module-level constants", () => {
+  it("hypothesis @given `sampled_from` module-level constants", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 _KEYWORDS = ["if", "else", "while", "return", "def", "class"]
@@ -1071,7 +1291,7 @@ def test_terminal_priority_keyword_wins(kw):
     ]);
   });
 
-  it("hypothesis @given sampled_from tuples", () => {
+  it("hypothesis @given `sampled_from` tuples", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(st.sampled_from([("input", "disabled")]))
@@ -1089,7 +1309,7 @@ def test_sampled_tuple(elem_attr):
     ]);
   });
 
-  it("hypothesis @given sampled_from dictionaries", () => {
+  it("hypothesis @given `sampled_from` dictionaries", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(st.sampled_from([{"mode": "disabled", "retry": 0}]))
@@ -1111,7 +1331,87 @@ def test_sampled_dictionary(config):
     ]);
   });
 
-  it("hypothesis @given fixed_dictionaries with optional keys", () => {
+  it("hypothesis @given `permutations`", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    items=st.permutations(["a", "b", "c"])
+)
+def test_perm(items):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_perm"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getDim()).toEqual(1);
+    expect(arg.getOptions().dimsUnique).toBeTrue();
+    expect(arg.getOptions().dimLength).toEqual([{ min: 3, max: 3 }]);
+    expect(arg.getType()).toEqual(ArgTag.UNION);
+    expect(arg.getChildren().map((c) => c.getConstantValue())).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("hypothesis @given `permutations` range and constant reference", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+RANGE_CONST = range(1, 5)
+
+@given(
+    nums=st.permutations(range(3)),
+    ref_nums=st.permutations(RANGE_CONST)
+)
+def test_perm_range(nums, ref_nums):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_perm_range"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getDim()).toEqual(1);
+    expect(args[0].getOptions().dimsUnique).toBeTrue();
+    expect(args[0].getOptions().dimLength).toEqual([{ min: 3, max: 3 }]);
+    expect(args[0].getChildren().map((c) => c.getConstantValue())).toEqual([
+      0, 1, 2,
+    ]);
+
+    expect(args[1].getDim()).toEqual(1);
+    expect(args[1].getOptions().dimsUnique).toBeTrue();
+    expect(args[1].getOptions().dimLength).toEqual([{ min: 4, max: 4 }]);
+    expect(args[1].getChildren().map((c) => c.getConstantValue())).toEqual([
+      1, 2, 3, 4,
+    ]);
+  });
+
+  it("hypothesis @given `permutations` range(2001) generates 2001 unique elements performantly", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    nums=st.permutations(range(2001))
+)
+def test_perm_large(nums):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_perm_large"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getDim()).toEqual(1);
+    expect(arg.getOptions().dimsUnique).toBeTrue();
+    expect(arg.getOptions().dimLength).toEqual([{ min: 2001, max: 2001 }]);
+
+    const generated = ArgDefGenerator.gen(arg, seedrandom("range2001"));
+    expect(Array.isArray(generated)).toBeTrue();
+    if (Array.isArray(generated)) {
+      expect(generated.length).toEqual(2001);
+      expect(new Set(generated).size).toEqual(2001);
+    }
+  });
+
+  it("hypothesis @given `fixed_dictionaries` optional keys", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1135,6 +1435,40 @@ def test_optional_dict(payload):
 
     expect(reqField?.isOptional()).toBeFalse();
     expect(optField?.isOptional()).toBeTrue();
+  });
+
+  it("hypothesis @given `dictionaries` strategy", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@settings(max_examples=500, deadline=None)
+@given(
+    pairs=st.dictionaries(
+        st.integers(min_value=0, max_value=200),
+        st.integers(min_value=0, max_value=200),
+        min_size=3, max_size=20,
+    ),
+)
+def test_popitem_returns_key_value_pair(pairs):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_popitem_returns_key_value_pair"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getName()).toEqual("pairs");
+    expect(arg.getType()).toEqual(ArgTag.DICTIONARY);
+    const children = arg.getChildren();
+    expect(children.length).toEqual(2);
+
+    expect(children[0].getName()).toEqual("keys");
+    expect(children[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(children[0].getIntervals()).toEqual([{ min: 0, max: 200 }]);
+
+    expect(children[1].getName()).toEqual("values");
+    expect(children[1].getType()).toEqual(ArgTag.NUMBER);
+    expect(children[1].getIntervals()).toEqual([{ min: 0, max: 200 }]);
+
+    expect(arg.getOptions().dictLength).toEqual({ min: 3, max: 20 });
   });
 
   it("hypothesis @given takes precedence over native type annotations", () => {
@@ -1209,7 +1543,7 @@ def test_add_overwrites_boundary_expired_item(key, old_value, new_value):
     expect(newChildren[1].getOptions().strLength).toEqual({ min: 1, max: 10 });
   });
 
-  it("@given dimsUnique for st.lists(..., unique=True) and st.sets(...)", () => {
+  it("hypothesis @given `lists` and `sets` uniqueness", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1239,7 +1573,7 @@ def test_indexedset_index_invariant_after_discard(initial: list[int], ops: List[
     expect(setArg?.getOptions().dimsUnique).toBeTrue();
   });
 
-  it("handles min_size after max_size in st.lists regardless of order or inline comments", () => {
+  it("hypothesis @given `lists` handles min_size after max_size regardless of order or inline comments", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(
@@ -1278,7 +1612,7 @@ def test_lru_eviction_order_after_reads(capacity: int, ops1: list, ops2: list, n
     expect(numPosArg?.getIntervals()).toEqual([{ min: 0, max: 10 }]);
   });
 
-  it("handles strategies like st.tuples inside st.sampled_from", () => {
+  it("hypothesis @given `tuples` inside `sampled_from", () => {
     const fn = ProgramFactory.fromSource(
       () => `
 @given(

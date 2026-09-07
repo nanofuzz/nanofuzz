@@ -1,6 +1,8 @@
 import * as JSONN from "../../../Jsonn";
-import { isKeyedObject } from "../../../Util";
+import { hexToBytes, isBufferOrUint8Array, isKeyedObject } from "../../../Util";
 import * as Parser from "../../adapters/ParserAdapter";
+import { ArgDef } from "../../analysis/ArgDef";
+import { ArgTag } from "../../analysis/Types";
 
 /**
  * Accepts an arbitrary JavaScript value and returns a string representing
@@ -10,8 +12,8 @@ import * as Parser from "../../adapters/ParserAdapter";
  * @param `jsValue` An arbitrary JavaScript value
  * @returns A string formatted as a valid TypeScript expression
  */
-export function toTypescript(jsValue: unknown): string {
-  return toJavascriptValues(jsValue);
+export function toTypescript(jsValue: unknown, argDef?: ArgDef): string {
+  return toJavascriptValues(jsValue, argDef);
 }
 
 /**
@@ -34,7 +36,7 @@ export function fromTypescript<T>(text: string): T {
  * @param `val` arbitrary Javascript value
  * @returns `val` where JS values are mapped to Python values
  */
-function toJavascriptValues(val: unknown): string {
+function toJavascriptValues(val: unknown, argDef?: ArgDef): string {
   if (val === undefined) {
     return "undefined";
   }
@@ -58,8 +60,54 @@ function toJavascriptValues(val: unknown): string {
     return JSON.stringify(val); // handles quotes and escapes
   }
 
+  if (isBufferOrUint8Array(val)) {
+    return `new Uint8Array([${Array.from(val).join(", ")}])`;
+  }
+
+  if (
+    val instanceof Map ||
+    (argDef &&
+      argDef.getType() === ArgTag.DICTIONARY &&
+      (argDef.getBaseTypeRef() === "Map" ||
+        argDef.getBaseTypeRef() === "ReadonlyMap" ||
+        argDef.getTypeRef() === "Map" ||
+        argDef.getTypeRef() === "ReadonlyMap") &&
+      val !== null &&
+      typeof val === "object" &&
+      !Array.isArray(val))
+  ) {
+    const keyDef = argDef?.getChildren()[0];
+    const valDef = argDef?.getChildren()[1];
+    const entries: string[] = [];
+    if (val instanceof Map) {
+      for (const [key, value] of val.entries()) {
+        entries.push(
+          `[${toJavascriptValues(key, keyDef)}, ${toJavascriptValues(value, valDef)}]`
+        );
+      }
+    } else if (isKeyedObject(val)) {
+      for (const key of Object.keys(val)) {
+        entries.push(
+          `[${toJavascriptValues(key, keyDef)}, ${toJavascriptValues(val[key], valDef)}]`
+        );
+      }
+    }
+    return `new Map([${entries.join(", ")}])`;
+  }
+
+  if (
+    val instanceof Set ||
+    (argDef && argDef.getType() === ArgTag.SET && Array.isArray(val))
+  ) {
+    const elemDef = argDef?.getChildren()[0];
+    const rawItems = val instanceof Set ? Array.from(val.values()) : Array.isArray(val) ? val : [];
+    const items = rawItems.map((item) => toJavascriptValues(item, elemDef));
+    return `new Set([${items.join(", ")}])`;
+  }
+
   if (Array.isArray(val)) {
-    const items = val.map((item) => toJavascriptValues(item));
+    const elemDef = argDef?.getChildren()[0];
+    const items = val.map((item) => toJavascriptValues(item, elemDef));
     return `[${items.join(", ")}]`;
   }
 
@@ -115,6 +163,14 @@ function toJavascriptValue(text: string): unknown {
   if (trimmed === "true") return true;
   if (trimmed === "false") return false;
 
+  // Check if trimmed string is standalone Uint8Array.fromHex(...)
+  const standaloneHexMatch = trimmed.match(
+    /^Uint8Array\.fromHex\s*\(\s*["']([0-9a-fA-F]*)["']\s*\)$/i
+  );
+  if (standaloneHexMatch) {
+    return hexToBytes(standaloneHexMatch[1]);
+  }
+
   // Parse the Javascript value
   const tree = Parser.parse(`typescript`, text);
   if (tree === null) {
@@ -132,6 +188,93 @@ function toJavascriptValue(text: string): unknown {
           });
         }
         break;
+
+      case "new_expression":
+      case "call_expression": {
+        const text = node.text;
+        let bytes: number[] | undefined;
+
+        // 1. Uint8Array.fromHex("000f7fff")
+        const fromHexMatch = text.match(
+          /^Uint8Array\.fromHex\s*\(\s*["']([0-9a-fA-F]*)["']\s*\)/i
+        );
+        if (fromHexMatch) {
+          bytes = Array.from(hexToBytes(fromHexMatch[1]));
+        }
+
+        // 2. Buffer.from("000f7fff", "hex")
+        if (!bytes) {
+          const bufferHexMatch = text.match(
+            /^Buffer\.from\s*\(\s*["']([0-9a-fA-F]*)["']\s*,\s*["']hex["']\s*\)/i
+          );
+          if (bufferHexMatch) {
+            bytes = Array.from(hexToBytes(bufferHexMatch[1]));
+          }
+        }
+
+        // 3. new Uint8Array([1, 2, 3]), Uint8Array.from([1, 2, 3]), Buffer.from([1, 2, 3]), new Buffer([1, 2, 3])
+        if (!bytes) {
+          if (
+            /^(new\s+Uint8Array|Uint8Array\.from|Buffer\.from|new\s+Buffer)\s*\(\s*\[/.test(
+              text
+            )
+          ) {
+            const listMatch = text.match(/\[\s*([\d\s,]*)\s*\]/m);
+            if (listMatch) {
+              const rawNums = listMatch[1].trim();
+              const nums =
+                rawNums.length > 0
+                  ? rawNums
+                      .split(",")
+                      .map((s) => s.trim())
+                      .filter((s) => s.length > 0)
+                      .map((s) => Number(s))
+                  : [];
+              if (nums.every((n) => !isNaN(n) && n >= 0 && n <= 255)) {
+                bytes = nums;
+              }
+            }
+          }
+        }
+
+        if (bytes !== undefined) {
+          replacements.push({
+            start: node.startIndex,
+            end: node.endIndex,
+            text: `{${JSONN.PlaceHolderUint8ArrayKey}:[${bytes.join(",")}]}`,
+          });
+        } else {
+          const mapMatch = text.match(
+            /^new\s+(?:Readonly)?Map\s*\(\s*(\[[\s\S]*\])\s*\)/i
+          );
+          const setMatch = text.match(
+            /^new\s+(?:Readonly)?Set\s*\(\s*(\[[\s\S]*\])\s*\)/i
+          );
+          if (mapMatch) {
+            replacements.push({
+              start: node.startIndex,
+              end: node.endIndex,
+              text: `{${JSONN.PlaceHolderMapKey}:${mapMatch[1]}}`,
+            });
+          } else if (setMatch) {
+            replacements.push({
+              start: node.startIndex,
+              end: node.endIndex,
+              text: `{${JSONN.PlaceHolderSetKey}:${setMatch[1]}}`,
+            });
+          } else {
+            // Recursively traverse children
+            for (let i = 0; i < node.childCount; i++) {
+              const child = node.child(i);
+              if (child) {
+                collectReplacements(child);
+              }
+            }
+          }
+        }
+        break;
+      }
+
       default:
         // Recursively traverse children
         for (let i = 0; i < node.childCount; i++) {

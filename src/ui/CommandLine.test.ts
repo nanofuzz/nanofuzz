@@ -3,7 +3,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import JSON5 from "json5";
-import { FuzzTestResults } from "../fuzzer/Fuzzer";
+import * as zod from "zod/v4";
+import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Fuzzer";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AiInputGenerator } from "../fuzzer/generators/AiInputGenerator";
 import { createCacheKey } from "../fuzzer/adapters/LlmCacheManager";
@@ -202,14 +203,41 @@ describe("cli:", () => {
     expect(outputData.results.length).toBeGreaterThan(0);
 
     // Verify composite generator config recorded in output stats
-    const cigConfig =
-      outputData.stats.generators.CompositeInputGenerator?.config;
-    expect(cigConfig).toBeDefined();
-    expect(cigConfig?.lookbackWindow).toBe(300);
-    expect(cigConfig?.chunkSize).toBe(10);
-    expect(cigConfig?.explorationChance).toBe(0.2);
-    expect(cigConfig?.initialFocus).toBe(150);
-    expect(cigConfig?.focusDecay).toBe(2);
+    const cigStats = outputData.stats.generators.CompositeInputGenerator;
+    expect(cigStats?.config).toBeDefined();
+    expect(cigStats?.config?.lookbackWindow).toBe(300);
+    expect(cigStats?.config?.chunkSize).toBe(10);
+    expect(cigStats?.config?.explorationChance).toBe(0.2);
+    expect(cigStats?.config?.initialFocus).toBe(150);
+    expect(cigStats?.config?.focusDecay).toBe(2);
+    expect(cigStats?.checkpoints).toEqual([]);
+  });
+
+  it("--cig-stats-checkpoints flag enables checkpoints tracking in output stats", () => {
+    const outputFile = path.join(tmpDir, "cig_checkpoints_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--cig-stats-checkpoints",
+      "--max-tests",
+      "10",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    const cigStats = outputData.stats.generators.CompositeInputGenerator;
+    expect(cigStats?.checkpoints).toBeDefined();
+    expect(cigStats?.checkpoints?.length).toBeGreaterThan(0);
   });
 
   it("--ai-cache-*: cache miss in replay-error mode", () => {
@@ -276,7 +304,7 @@ describe("cli:", () => {
     const aiGen = new AiInputGenerator(fn, "seed", new Map());
     const [schema, directives] = aiGen["_getInputsSchema"](fn.getLang());
     const promptText = prompt.genInputs(fn, directives, new Map());
-    const schemaJson = JSON.stringify(schema.toJSONSchema());
+    const schemaJson = JSON.stringify(zod.toJSONSchema(schema));
     const key = createCacheKey(provider, modelName, [promptText], schemaJson);
 
     const seededEntry = {
@@ -341,6 +369,70 @@ describe("cli:", () => {
     expect(aiGenStats?.cache?.hits).toBe(1);
     expect(aiGenStats?.cache?.misses).toBe(0);
     expect(aiGenStats?.calls.sent).toBe(1);
+  });
+
+  it("--max-failures: stops fuzzing after reaching maximum allowed failures", () => {
+    const outputFile = path.join(tmpDir, "max_failures_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testStandardVoidReturnException";
+    const maxFailures = 2;
+
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-failures",
+      maxFailures.toString(),
+      "--max-tests",
+      "100",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    expect(outputData.env.options.maxFailures).toBe(maxFailures);
+    expect(outputData.stopReason).toBe(FuzzStopReason.MAXFAILURES);
+    expect(outputData.results.length).toBe(maxFailures);
+    expect(outputData.stats.counters.failedTests).toBe(maxFailures);
+  });
+
+  it("--max-failures: stop fuzzing python put after 1 failure", () => {
+    const pyFile = path.join(
+      tmpDir,
+      `pbt_test_${Math.random().toString(36).substring(2, 9)}.py`
+    );
+    const targetFn = "test_range_max_exclusive_rejects_boundary";
+    fs.writeFileSync(
+      pyFile,
+      `
+def ${targetFn}(n: int) -> int:
+    raise Exception("boundary error")
+`,
+      "utf8"
+    );
+
+    try {
+      const res = runCli([
+        pyFile,
+        targetFn,
+        "--max-runtime",
+        "300000",
+        "--max-failures",
+        "1",
+      ]);
+
+      expect(res.status).toBe(1);
+      expect(res.stdout).toContain("Stopped for reason: maxFailures.");
+    } finally {
+      if (fs.existsSync(pyFile)) {
+        fs.rmSync(pyFile, { force: true });
+      }
+    }
   });
 });
 

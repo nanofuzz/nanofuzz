@@ -12,6 +12,7 @@ import {
   isFuzzResultTab,
   Judgment,
 } from "../fuzzer/Types";
+import { getBaseOrigin } from "../Util";
 import * as Parser from "../fuzzer/adapters/ParserAdapter";
 import {
   ArgValueType,
@@ -98,6 +99,8 @@ let columnSortOrders: FuzzSortColumns;
 let resultsData: FuzzTestResults;
 // Fuzzer Language (filled by main during load event)
 let lang: ProgramLanguage;
+// PUT input column names (filled by main during load event)
+let putInputCols: string[] = [];
 // Results grouped by type (filled by main during load event)
 const data: Record<FuzzResultCategory, any[]> = {
   ok: [],
@@ -515,7 +518,7 @@ async function main() {
   );
 
   // Get the PUT's current input argument names
-  const putInputCols = JSONN.parse<string[]>(
+  putInputCols = JSONN.parse<string[]>(
     htmlUnescape(getElementByIdOrThrow("fuzzInputCols").innerHTML)
   );
 
@@ -555,9 +558,8 @@ async function main() {
       const id = { [idLabel]: idx++ };
 
       // Input Source
-      const inputSrc: FuzzValueOrigin = e.input.length
-        ? e.input[0].origin
-        : { type: "unknown" };
+      const inputSrc: Exclude<FuzzValueOrigin, { type: "transformer" }> =
+        getBaseOrigin(e.input.length ? e.input[0].origin : { type: "unknown" });
       let src: { [srcLabel]: string };
       switch (inputSrc.type) {
         case "unknown":
@@ -1804,7 +1806,6 @@ function drawTableBody({
         cell2.classList.add("colGroupEnd", "clickable");
       } else {
         const cell = row.appendChild(document.createElement("td"));
-        const span = cell.appendChild(document.createElement("span"));
         cell.classList.add(
           `tableCol-${k.replace(" ", "")}`,
           `editorFont`,
@@ -1813,7 +1814,52 @@ function drawTableBody({
         if (e[k] === "(no input)") {
           cell.classList.add("noInput");
         }
+
+        const span = cell.appendChild(document.createElement("span"));
         span.textContent = e[k];
+
+        if (k.startsWith("input: ") && id >= 0 && resultsData.results[id]) {
+          const res = resultsData.results[id];
+          const inputIndex = res.input.findIndex((_inp, i) => {
+            const colKey = `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`;
+            return colKey === k;
+          });
+          if (inputIndex !== -1) {
+            const inputEl = res.input[inputIndex];
+            if (
+              inputEl &&
+              inputEl.origin &&
+              inputEl.origin.type === "transformer"
+            ) {
+              const basis = inputEl.origin.basis;
+              const originalWrapped = basis.value[inputIndex];
+              const originalVal = originalWrapped
+                ? originalWrapped.value
+                : undefined;
+              const origValueStr =
+                originalVal === undefined
+                  ? "(no input)"
+                  : ValueMapper.toLang(lang, originalVal);
+
+              const tooltipSpan = cell.appendChild(
+                document.createElement("span")
+              );
+              tooltipSpan.classList.add("tooltipped", "tooltipped-s");
+              const tooltipText = `Pre-transformed input: ${origValueStr}`;
+              tooltipSpan.setAttribute("aria-label", tooltipText);
+              tooltipSpan.style.marginLeft = "0.3em";
+
+              const iconSpan = tooltipSpan.appendChild(
+                document.createElement("span")
+              );
+              iconSpan.classList.add(
+                "codicon",
+                "codicon-replace",
+                "editorFont"
+              );
+            }
+          }
+        }
       }
     });
   });
@@ -2326,6 +2372,12 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const falseOnly = document.getElementById(idBase + "-falseOnly");
     const minStrLen = document.getElementById(idBase + "-minStrLen");
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
+    const minByteLen = document.getElementById(idBase + "-minByteLen");
+    const maxByteLen = document.getElementById(idBase + "-maxByteLen");
+    const minDictLen = document.getElementById(idBase + "-minDictLen");
+    const maxDictLen = document.getElementById(idBase + "-maxDictLen");
+    const minSetLen = document.getElementById(idBase + "-minSetLen");
+    const maxSetLen = document.getElementById(idBase + "-maxSetLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
     const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
@@ -2381,6 +2433,54 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
         };
       }
     } // TODO: Validation !!!
+
+    // Process bytes overrides
+    if (minByteLen && maxByteLen) {
+      disableArr.push(minByteLen, maxByteLen);
+      const minByteLenVal = minByteLen.getAttribute("current-value");
+      const maxByteLenVal = maxByteLen.getAttribute("current-value");
+      if (minByteLenVal !== null && maxByteLenVal !== null) {
+        thisOverride.bytes = {
+          minByteLen: Math.max(
+            0,
+            Math.min(Number(minByteLenVal), Number(maxByteLenVal))
+          ),
+          maxByteLen: Math.max(Number(minByteLenVal), Number(maxByteLenVal), 0),
+        };
+      }
+    }
+
+    // Process dictionary overrides
+    if (minDictLen && maxDictLen) {
+      disableArr.push(minDictLen, maxDictLen);
+      const minDictLenVal = minDictLen.getAttribute("current-value");
+      const maxDictLenVal = maxDictLen.getAttribute("current-value");
+      if (minDictLenVal !== null && maxDictLenVal !== null) {
+        thisOverride.dictionary = {
+          minDictLen: Math.max(
+            0,
+            Math.min(Number(minDictLenVal), Number(maxDictLenVal))
+          ),
+          maxDictLen: Math.max(Number(minDictLenVal), Number(maxDictLenVal), 0),
+        };
+      }
+    }
+
+    // Process set overrides
+    if (minSetLen && maxSetLen) {
+      disableArr.push(minSetLen, maxSetLen);
+      const minSetLenVal = minSetLen.getAttribute("current-value");
+      const maxSetLenVal = maxSetLen.getAttribute("current-value");
+      if (minSetLenVal !== null && maxSetLenVal !== null) {
+        thisOverride.set = {
+          minSetLen: Math.max(
+            0,
+            Math.min(Number(minSetLenVal), Number(maxSetLenVal))
+          ),
+          maxSetLen: Math.max(Number(minSetLenVal), Number(maxSetLenVal), 0),
+        };
+      }
+    }
 
     // Process isNoInput overrides
     if (isNoInput !== null) {

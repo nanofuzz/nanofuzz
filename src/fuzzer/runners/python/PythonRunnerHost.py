@@ -3,10 +3,13 @@ import sys
 import os
 import io
 import json
+import uuid
 import struct
 import logging
 import tempfile
 import traceback
+import re
+import uuid
 from contextlib import redirect_stdout
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired
 
@@ -27,8 +30,12 @@ class RunnerValueResult(TypedDict):
     tag: Literal["value"]
     value: Any
     seq: int
-    coverageData: NotRequired[List[int]]        # lines executed by this call
-    coverageArcs: NotRequired[List[List[int]]]  # arcs taken by this call
+    # lines executed by this call
+    coverageData: NotRequired[dict[str, List[int]]]
+    # arcs taken by this call
+    coverageArcs: NotRequired[dict[str, List[List[int]]]]
+    # static coverage data
+    staticCoverage: NotRequired[dict[str, dict[str, List]]]
 
 
 class RunnerErrorResult(TypedDict):
@@ -38,16 +45,24 @@ class RunnerErrorResult(TypedDict):
     stack: NotRequired[str]
     source: Literal["put", "host"]
     seq: int
-    coverageData: NotRequired[List[int]]        # lines executed by this call
-    coverageArcs: NotRequired[List[List[int]]]  # arcs taken by this call
+    # lines executed by this call
+    coverageData: NotRequired[dict[str, List[int]]]
+    # arcs taken by this call
+    coverageArcs: NotRequired[dict[str, List[List[int]]]]
+    # static coverage data
+    staticCoverage: NotRequired[dict[str, dict[str, List]]]
 
 
 class RunnerSkipResult(TypedDict):
     tag: Literal["skip"]
     message: str
     seq: int
-    coverageData: NotRequired[List[int]]        # lines executed by this call
-    coverageArcs: NotRequired[List[List[int]]]  # arcs taken by this call
+    # lines executed by this call
+    coverageData: NotRequired[dict[str, List[int]]]
+    # arcs taken by this call
+    coverageArcs: NotRequired[dict[str, List[List[int]]]]
+    # static coverage data
+    staticCoverage: NotRequired[dict[str, dict[str, List]]]
 
 
 type RunnerResult = Union[RunnerValueResult,
@@ -58,6 +73,10 @@ pid = os.getpid()
 
 
 def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
+    rootDir = os.path.dirname(filename)
+    if rootDir not in sys.path:
+        sys.path.insert(0, rootDir)
+
     spec = importlib.util.spec_from_file_location(modulename, filename)
     if spec is None:
         return (RunnerErrorResult(
@@ -146,10 +165,6 @@ def coverage_arcs(cov: coverage.Coverage, filename: str) -> List[List[int]]:
     """
     Returns the sorted arcs (line transitions) taken since the last
     `cov.erase()`, as `[from, to]` pairs.
-
-    Arcs are how coverage.py records branch coverage: a branch line with two
-    possible exits contributes one arc per exit actually taken, so comparing
-    these against `static_branches` yields which branches were covered.
     """
     data = cov.get_data()
     key = measured_key(data, filename)
@@ -173,8 +188,7 @@ def report_branch_arcs(entry: dict) -> List[List[int]]:
     taken or not.
 
     Only lines with more than one exit contribute arcs here, so this is exactly
-    the set of branches -- unlike `coverage_arcs`, which also reports the
-    ordinary line-to-line transitions that are not branches.
+    the set of branches
     """
     arcs = {tuple(arc) for arc in entry.get("executed_branches", [])}
     arcs |= {tuple(arc) for arc in entry.get("missing_branches", [])}
@@ -256,8 +270,7 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     # `run_put` erases this before measuring the first test.
     cov.get_data().add_arcs({filename: set()})
 
-    empty = {"file": filename, "executable": [],
-             "functions": [], "branches": []}
+    empty = {"executable": [], "functions": [], "branches": []}
 
     # `json_report` writes to a path rather than returning the report, and
     # stdout is reserved for the protocol, so route it through a temp file.
@@ -280,14 +293,162 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     entry = next(iter(files.values()))
 
     return {
-        "file": filename,
         "executable": report_lines(entry),
         "functions": static_functions(entry),
         "branches": static_branches(entry),
     }
 
 
-def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> RunnerResult:
+def is_under(root: str, path: str) -> bool:
+    """
+    Returns whether `path` is `root` or sits beneath it.
+    """
+    root = os.path.normcase(root).rstrip(os.sep)
+    path = os.path.normcase(path)
+    return path == root or path.startswith(root + os.sep)
+
+
+def program_files(filename: str) -> List[str]:
+    """
+    Returns the files the program under test is made of: `filename`, plus every
+    module imported from `filename`'s own directory tree.
+
+    Must be called after the PUT is loaded, so that its imports have run.
+    """
+    root = os.path.dirname(filename)
+    files = {filename}
+    for module in list(sys.modules.values()):
+        modfile = getattr(module, "__file__", None)
+        if not modfile or os.path.splitext(modfile)[1] != ".py":
+            continue
+        modfile = os.path.realpath(modfile)
+        if is_under(root, modfile):
+            files.add(modfile)
+    return sorted(files)
+
+
+def transform_arg(val: Any, hint: Any) -> Any:
+    if val is None:
+        return None
+
+    if hint == "uuid":
+        if isinstance(val, str):
+            if len(val) in (32, 36):
+                try:
+                    return uuid.UUID(val)
+                except ValueError:
+                    return val
+        return val
+
+    if hint == "bytes":
+        if isinstance(val, (bytes, bytearray)):
+            return val
+        if isinstance(val, list):
+            return bytes(val)
+        if isinstance(val, str):
+            return val.encode("latin1")
+        return val
+
+    if hint == "number":
+        if isinstance(val, str):
+            try:
+                f = float(val)
+                if f.is_integer() and not ("." in val or "e" in val.lower() or val.lower() in ("nan", "inf", "-inf", "infinity", "-infinity")):
+                    return int(f)
+                return f
+            except ValueError:
+                return val
+        return val
+
+    if hint == "default" or not isinstance(hint, dict):
+        return val
+
+    kind = hint.get("kind")
+
+    if kind == "array" and isinstance(val, list):
+        elem_hint = hint.get("element", "default")
+        return [transform_arg(item, elem_hint) for item in val]
+
+    if kind == "set" and isinstance(val, (list, set, frozenset)):
+        elem_hint = hint.get("element", "default")
+        items = [transform_arg(item, elem_hint) for item in val]
+        return frozenset(items) if hint.get("frozenset") else set(items)
+
+    if kind == "tuple" and (isinstance(val, tuple) or isinstance(val, list)):
+        elem_hints = hint.get("elements", [])
+        transformed = [
+            transform_arg(item, elem_hints[i]) if i < len(elem_hints) else item
+            for i, item in enumerate(val)
+        ]
+        return tuple(transformed)
+
+    if kind == "dictionary" and isinstance(val, dict):
+        key_hint = hint.get("key", "default")
+        val_hint = hint.get("value", "default")
+        return {
+            transform_arg(k, key_hint): transform_arg(v, val_hint)
+            for k, v in val.items()
+        }
+
+    if kind == "object" and isinstance(val, dict):
+        field_hints = hint.get("fields", {})
+        return {
+            k: transform_arg(v, field_hints[k]) if k in field_hints else v
+            for k, v in val.items()
+        }
+
+    if kind == "union":
+        arms = hint.get("arms", [])
+        if isinstance(val, str) and any(
+            arm == "uuid" or (isinstance(arm, dict)
+                              and arm.get("kind") == "uuid")
+            for arm in arms
+        ):
+            try:
+                return uuid.UUID(val)
+            except ValueError:
+                pass
+        for arm in arms:
+            transformed = transform_arg(val, arm)
+            if isinstance(transformed, (uuid.UUID, bytes, bytearray)) or transformed != val:
+                return transformed
+        return val
+
+    return val
+
+
+def sanitize_output(obj: Any) -> Any:
+    if isinstance(obj, (bytes, bytearray)):
+        return list(obj)
+    if isinstance(obj, (set, frozenset, tuple, list)):
+        return [sanitize_output(x) for x in obj]
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    if isinstance(obj, dict):
+        res = {}
+        for k, v in obj.items():
+            s_k = sanitize_output(k)
+            if isinstance(s_k, list):
+                s_k = str(s_k)
+            elif not isinstance(s_k, (str, int, float, bool)) and s_k is not None:
+                s_k = str(s_k)
+            res[s_k] = sanitize_output(v)
+        return res
+    return obj
+
+
+def json5_default(obj: Any) -> Any:
+    if isinstance(obj, (bytes, bytearray)):
+        return list(obj)
+    if isinstance(obj, (set, frozenset)):
+        return list(obj)
+    if isinstance(obj, uuid.UUID):
+        return str(obj)
+    raise TypeError(
+        f"Object of type {type(obj).__name__} is not JSON5 serializable")
+
+
+def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
     logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
 
     # cov.erase() is too expensive. Seems like only erasing the data works too
@@ -296,16 +457,22 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
     error = None
     skip = None
     value = None
+
+    args = list(input["args"])
+    type_hints = input.get("typeHints", [])
+    for i in range(min(len(args), len(type_hints))):
+        args[i] = transform_arg(args[i], type_hints[i])
+
     try:
         with redirect_stdout(io.StringIO()) as f:
             # If fn is a Hypothesis-wrapped test, bypass Hypothesis
             # and call the original underlying function
             if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
                 # Unwrap Hypothesis test function
-                value = fn.hypothesis.inner_test(*input["args"])
+                value = fn.hypothesis.inner_test(*args)
             else:
                 # Not Hypothesis; call directly
-                value = fn(*input["args"])
+                value = fn(*args)
     except Exception as e:
         if e.__class__.__name__ == "UnsatisfiedAssumption":
             skip = e
@@ -315,8 +482,16 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
         cov.stop()
 
     # Read coverage after stopping: a failing input still covers lines
-    coverageData = coverage_lines(cov, filename)
-    coverageArcs = coverage_arcs(cov, filename)
+    coverageData = {}
+    coverageArcs = {}
+    for file in cov.get_data().measured_files():
+        lines = coverage_lines(cov, file)
+        if not lines:
+            continue
+        if file not in covInfo:
+            covInfo[file] = static_coverage(cov, file)
+        coverageData[file] = lines
+        coverageArcs[file] = coverage_arcs(cov, file)
 
     if skip is not None:
         return RunnerSkipResult(
@@ -324,7 +499,8 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
             message=str(skip),
             seq=input["seq"],
             coverageData=coverageData,
-            coverageArcs=coverageArcs
+            coverageArcs=coverageArcs,
+            staticCoverage=covInfo
         )
 
     if error is not None:
@@ -337,15 +513,17 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage) -> Runner
                 type(error), error, error.__traceback__)),
             seq=input["seq"],
             coverageData=coverageData,
-            coverageArcs=coverageArcs
+            coverageArcs=coverageArcs,
+            staticCoverage=covInfo
         )
 
     return RunnerValueResult(
         tag="value",
-        value=value,
+        value=sanitize_output(value),
         seq=input["seq"],
         coverageData=coverageData,
-        coverageArcs=coverageArcs
+        coverageArcs=coverageArcs,
+        staticCoverage=covInfo
     )
 
 
@@ -355,8 +533,8 @@ def put_result(result: RunnerResult) -> None:
     logging.debug(f"[{pid}]  - Result returned")
 
 
-def send_msg(data: Any):
-    msg = json5.dumps(data).encode('utf-8')
+def send_msg(data: RunnerResult):
+    msg = json5.dumps(data, default=json5_default).encode('utf-8')
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes: {msg}")
     sys.stdout.buffer.write(struct.pack(
         '>I', len(msg)))  # payload size
@@ -384,10 +562,8 @@ if __name__ == "__main__":
     filename = os.path.realpath(filename)
 
     # One in-memory coverage instance for the whole run
-    cov = coverage.Coverage(include=[filename], branch=True, data_file=None)
-
-    # Static analysis of the PUT: the executable lines, functions, and branches
-    coverageInfo = static_coverage(cov, filename)
+    cov = coverage.Coverage(
+        include=[os.path.join(os.path.dirname(filename), "**", "*.py")], branch=True, data_file=None)
 
     # Try to load the function: either results in a RunnerErrorResult
     # or a callable function
@@ -397,6 +573,13 @@ if __name__ == "__main__":
         logging.debug(f"[{pid}]  - Unable to load")
     else:
         logging.debug(f"[{pid}]  - Loaded function")
+
+    # Static analysis of the program: the executable lines, functions, and
+    # branches of every file it is made of.
+    coverageInfo = {file: static_coverage(cov, file)
+                    for file in program_files(filename)}
+    logging.debug(
+        f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
 
     # Change cwd from the extension to that of the Python script
     os.chdir(os.path.dirname(filename))
@@ -424,15 +607,14 @@ if __name__ == "__main__":
     # Send the static coverage info once
     send_msg(coverageInfo)
     logging.debug(
-        f"[{pid}] Sent coverageInfo ({len(coverageInfo['executable'])} executable "
-        f"lines, {len(coverageInfo['functions'])} functions, "
-        f"{len(coverageInfo['branches'])} branches)")
+        f"[{pid}] Sent coverageInfo for {len(coverageInfo)} file(s)")
 
     # Start the run loop
     while True:
         logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
-            put_result(run_put(get_inputs(), filename, cov))  # Call the put
+            put_result(run_put(get_inputs(), filename,
+                       cov, coverageInfo))  # Call the put
         else:
             get_inputs()
             put_result(loadError)  # Return the load error
