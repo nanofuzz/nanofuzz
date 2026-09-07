@@ -346,7 +346,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
           progress[g] += (e || 0) * this._measures[m].weight;
         });
       });
-      productivity[g] = cost[g] ? progress[g] / cost[g] : 0;
+      productivity[g] = Math.max(0, cost[g] ? progress[g] / cost[g] : 0);
       if (e.nextable()) {
         totalProductivity += productivity[g];
       }
@@ -373,7 +373,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     const activeSubgens = this._subgens.filter(
       (e, i) => this._activeSubgens[i] && e.nextable()
     );
-    const addlChanceSpace = totalProductivity ? totalProductivity * this._P : 1;
+    const addlChanceSpace = totalProductivity > 0 ? totalProductivity * this._P : 1;
     const addlChance = addlChanceSpace / activeSubgens.length;
 
     // Randomly select an active subgen with a bias toward subgens

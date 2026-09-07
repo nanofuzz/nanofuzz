@@ -140,12 +140,12 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       name: this.name,
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
-        globalDelta: covered(this._globalCoverageMap) - globalBefore,
+        globalDelta: Math.max(0, covered(this._globalCoverageMap) - globalBefore),
         accum: AbstractCoverageMeasure.better_merge(
           createCoverageMap({}),
           currentCoverageData
         ),
-        accumDelta: accumAfter - accumBefore,
+        accumDelta: Math.max(0, accumAfter - accumBefore),
       },
     };
 
@@ -298,7 +298,10 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    * @returns a numeric value representing the progress of the test execution
    */
   public delta(a: CoverageMeasurement): number {
-    return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
+    return Math.max(
+      0,
+      a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta
+    );
   } // fn: delta
 
   public hasCoverage(tick: number): boolean {

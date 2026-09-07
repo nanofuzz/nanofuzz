@@ -153,13 +153,16 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
       name: this.name,
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
-        globalDelta: this._toNumber(this._globalCoverageMap) - globalBefore,
+        globalDelta: Math.max(
+          0,
+          this._toNumber(this._globalCoverageMap) - globalBefore
+        ),
         // Python version does not have _snapshot, so this is to keep consistency with Python
         accum: AbstractCoverageMeasure.better_merge(
           createCoverageMap({}),
           currentCoverageData
         ),
-        accumDelta: accumAfter - accumBefore,
+        accumDelta: Math.max(0, accumAfter - accumBefore),
       },
     };
 
@@ -180,7 +183,10 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @returns a numeric value representing the progress of the test execution
    */
   public delta(a: CoverageMeasurement): number {
-    return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
+    return Math.max(
+      0,
+      a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta
+    );
   } // fn: delta
 
   /**
