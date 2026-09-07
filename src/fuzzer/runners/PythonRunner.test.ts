@@ -357,7 +357,10 @@ def process_data(t: tuple[int, str], d: dict[int, str]):
       const runner = new PythonRunner(pyPath, "process_data", env, 2000);
       await runner.onRunStart();
 
-      const res = await runner.run([[10, "foo"], { "1": "one", "2": "two" }], 2000);
+      const res = await runner.run(
+        [[10, "foo"], { "1": "one", "2": "two" }],
+        2000
+      );
 
       await runner.onRunEnd();
 

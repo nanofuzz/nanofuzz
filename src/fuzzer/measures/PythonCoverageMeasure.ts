@@ -7,7 +7,11 @@ import {
   Range,
 } from "istanbul-lib-coverage";
 import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
-import { CoverageInfo, FullCoverage, PythonRunner } from "../runners/python/PythonRunner";
+import {
+  CoverageInfo,
+  FullCoverage,
+  PythonRunner,
+} from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import * as JSONN from "../../Jsonn";
 import { normalizePathForKey } from "../Util";
