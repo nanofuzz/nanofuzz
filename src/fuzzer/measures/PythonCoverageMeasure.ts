@@ -52,7 +52,8 @@ function arcKey(arc: Arc): string {
 export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   protected _runner?: PythonRunner;
   protected _globalCoverageMap = createCoverageMap({});
-  protected _history: CoverageMeasurementNode[] = []; // measurement history
+  protected _history = new Map<number, CoverageMeasurementNode>(); // measurement history
+  protected _lastNode: CoverageMeasurementNode | undefined = undefined;
 
   /**
    * Connects this measure to the run's Python runner, which is the source of
@@ -71,7 +72,8 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     // Reset per-run state so a re-run does not accumulate coverage from the
     // previous run.
     this._globalCoverageMap = createCoverageMap({});
-    this._history = [];
+    this._history.clear();
+    this._lastNode = undefined;
   } // fn: onRunStart
 
   /**
@@ -114,8 +116,12 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     // Merge the current coverage into root predecessor
     const pred =
       "tick" in input.source && input.source.tick !== undefined
-        ? this._history[input.source.tick]
+        ? this._history.get(input.source.tick)
         : undefined;
+    if (pred) {
+      pred.refCount++;
+    }
+
     let accumBefore = 0;
     let accumAfter = 0;
     let nextPred = pred;
@@ -144,21 +150,42 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       name: this.name,
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
-        globalDelta: covered(this._globalCoverageMap) - globalBefore,
+        globalDelta: Math.max(
+          0,
+          covered(this._globalCoverageMap) - globalBefore
+        ),
         accum: AbstractCoverageMeasure.better_merge(
           createCoverageMap({}),
           currentCoverageData
         ),
-        accumDelta: accumAfter - accumBefore,
+        accumDelta: Math.max(0, accumAfter - accumBefore),
       },
     };
 
     // Update measure history
-    this._history[input.tick] = {
+    const node: CoverageMeasurementNode = {
       input,
       pred,
       meas,
+      refCount: 0,
     };
+
+    // Prune previous node if it was unreferenced and produced no coverage progress
+    if (this._lastNode) {
+      if (
+        this._lastNode.refCount === 0 &&
+        this._lastNode.meas.coverageMeasure.globalDelta === 0 &&
+        this._lastNode.meas.coverageMeasure.accumDelta === 0
+      ) {
+        if (this._lastNode.pred) {
+          this._lastNode.pred.refCount--;
+        }
+        this._history.delete(this._lastNode.input.tick);
+      }
+    }
+
+    this._history.set(input.tick, node);
+    this._lastNode = node;
 
     return meas;
   } // fn: measure
@@ -305,15 +332,19 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    * @returns a numeric value representing the progress of the test execution
    */
   public delta(a: CoverageMeasurement): number {
-    return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
+    return Math.max(
+      0,
+      a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta
+    );
   } // fn: delta
 
   public hasCoverage(tick: number): boolean {
-    return !!this._history[tick];
+    return this._history.has(tick);
   }
   public getCoverage(tick: number): CoverageMeasurement {
-    if (this.hasCoverage(tick)) {
-      return this._history[tick].meas; // rep leak !!!!!!!
+    const node = this._history.get(tick);
+    if (node) {
+      return node.meas; // rep leak !!!!!!!
     }
     throw new Error(`No coverahe data for "${tick}"`);
   }

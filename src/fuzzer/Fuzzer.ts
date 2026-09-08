@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as JSONN from "../Jsonn";
+import { isKeyedObject } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
@@ -524,7 +525,7 @@ export class Tester {
     const propRunners = this._validators.map((vFnRef) =>
       RunnerFactory(this.env, mod, vFnRef.name)
     );
-    propRunners.forEach(async (p) => await p.onRunStart());
+    await Promise.all(propRunners.map((p) => p.onRunStart()));
     const propertyOracle = new PropertyOracle(propRunners);
 
     // Are we currently injecting inputs?
@@ -575,6 +576,11 @@ export class Tester {
           e.onRunEnd(this._results);
         });
         await this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
+
+        const covStats =
+          typeof this._results.stats.measures.CodeCoverageMeasure === "function"
+            ? await this._results.stats.measures.CodeCoverageMeasure()
+            : undefined;
 
         // Shut down runners
         await Promise.all(
@@ -645,7 +651,13 @@ export class Tester {
         if (this._options.outputFile) {
           fs.writeFileSync(
             this._options.outputFile,
-            JSONN.stringify(this._results)
+            JSONN.stringify(this._results, (k, v) =>
+              k === "CodeCoverageMeasure"
+                ? covStats
+                : k === "coverageMeasure" && isKeyedObject(v)
+                  ? { current: v.current }
+                  : v
+            )
           );
           update({
             msg: ` - Test results: ${this._options.outputFile}`,

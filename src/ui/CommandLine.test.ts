@@ -434,6 +434,50 @@ def ${targetFn}(n: int) -> int:
       }
     }
   });
+
+  it("--output-file: includes coverage counters", () => {
+    const outputFile = path.join(tmpDir, "cov_counters_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "5",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const outputData = JSON5.parse<any>(fs.readFileSync(outputFile, "utf8"));
+
+    expect(outputData.stats.measures.CodeCoverageMeasure).toBeDefined();
+    const cov = outputData.stats.measures.CodeCoverageMeasure;
+    expect(cov.counters).toBeDefined();
+    expect(typeof cov.counters.statementsTotal).toBe("number");
+    expect(typeof cov.counters.statementsCovered).toBe("number");
+    expect(typeof cov.counters.functionsTotal).toBe("number");
+    expect(typeof cov.counters.functionsCovered).toBe("number");
+    expect(typeof cov.counters.branchesTotal).toBe("number");
+    expect(typeof cov.counters.branchesCovered).toBe("number");
+    expect(Array.isArray(cov.files)).toBeTrue();
+    expect(cov.files.length).toBeGreaterThan(0);
+
+    // Verify results[].coverageMeasure only retains `current` (accum/accumDelta/globalDelta omitted)
+    expect(outputData.results.length).toBeGreaterThan(0);
+    for (const r of outputData.results) {
+      if (r.coverageMeasure) {
+        expect(r.coverageMeasure.current).toBeDefined();
+        expect(r.coverageMeasure.accum).toBeUndefined();
+        expect(r.coverageMeasure.accumDelta).toBeUndefined();
+        expect(r.coverageMeasure.globalDelta).toBeUndefined();
+      }
+    }
+  });
 });
 
 function getFnNameAndModule(fnObj: unknown): {
