@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as JSONN from "../Jsonn";
+import { isKeyedObject } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
@@ -651,7 +652,11 @@ export class Tester {
           fs.writeFileSync(
             this._options.outputFile,
             JSONN.stringify(this._results, (k, v) =>
-              k === "CodeCoverageMeasure" ? covStats : v
+              k === "CodeCoverageMeasure"
+                ? covStats
+                : k === "coverageMeasure" && isKeyedObject(v)
+                  ? { current: v.current }
+                  : v
             )
           );
           update({
