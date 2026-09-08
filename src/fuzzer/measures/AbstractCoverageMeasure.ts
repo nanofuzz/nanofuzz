@@ -97,6 +97,7 @@ export type CoverageMeasurementNode = {
   input: InputAndSource;
   pred: CoverageMeasurementNode | undefined;
   meas: CoverageMeasurement;
+  refCount: number;
 };
 
 type CodeCoverageCounters = {
