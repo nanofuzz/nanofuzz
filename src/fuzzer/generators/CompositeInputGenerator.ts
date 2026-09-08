@@ -37,7 +37,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     cost: (number | undefined)[]; // cost by input tick (of L)
     currentIndex: number; // current index (of L) into last dimension of progress and cost
   }[] = []; // history for each input generator
-  protected _scoredInputs: ScoredInput[] = []; // List of scored inputs
+  protected interestingInputs: ScoredInput[] = []; // List of interesting inputs
   protected _injectedInputs: Omit<InputAndSource, "tick">[] = []; // Inputs to force generate first
   protected _selectedSubgenIndex = -1; // Selected subordinate input generator (e.g., by efficiency)
   protected _leaderboard; // Interesting inputs
@@ -288,7 +288,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
     // Update history of composite input generator if the input was interesting
     if (interestingReasons.length > 0) {
-      this._scoredInputs.push({
+      this.interestingInputs.push({
         input: this._lastInput,
         tick: this._tick,
         score: weightedProgress,
@@ -375,7 +375,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     const activeSubgens = this._subgens.filter(
       (e, i) => this._activeSubgens[i] && e.nextable()
     );
-    const addlChanceSpace = totalProductivity > 0 ? totalProductivity * this._P : 1;
+    const addlChanceSpace =
+      totalProductivity > 0 ? totalProductivity * this._P : 1;
     const addlChance = addlChanceSpace / activeSubgens.length;
 
     // Randomly select an active subgen with a bias toward subgens
@@ -413,7 +414,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * @returns interesting inputs
    */
   public getInterestingInputs(): ScoredInput[] {
-    return this._scoredInputs.map((i) => {
+    return this.interestingInputs.map((i) => {
       return { ...i };
     });
   } // fn: getInterestingInputs
