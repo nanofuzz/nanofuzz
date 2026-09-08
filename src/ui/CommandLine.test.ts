@@ -466,6 +466,17 @@ def ${targetFn}(n: int) -> int:
     expect(typeof cov.counters.branchesCovered).toBe("number");
     expect(Array.isArray(cov.files)).toBeTrue();
     expect(cov.files.length).toBeGreaterThan(0);
+
+    // Verify results[].coverageMeasure only retains `current` (accum/accumDelta/globalDelta omitted)
+    expect(outputData.results.length).toBeGreaterThan(0);
+    for (const r of outputData.results) {
+      if (r.coverageMeasure) {
+        expect(r.coverageMeasure.current).toBeDefined();
+        expect(r.coverageMeasure.accum).toBeUndefined();
+        expect(r.coverageMeasure.accumDelta).toBeUndefined();
+        expect(r.coverageMeasure.globalDelta).toBeUndefined();
+      }
+    }
   });
 });
 
