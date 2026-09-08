@@ -576,6 +576,11 @@ export class Tester {
         });
         await this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
 
+        const covStats =
+          typeof this._results.stats.measures.CodeCoverageMeasure === "function"
+            ? await this._results.stats.measures.CodeCoverageMeasure()
+            : undefined;
+
         // Shut down runners
         await Promise.all(
           [
@@ -645,7 +650,9 @@ export class Tester {
         if (this._options.outputFile) {
           fs.writeFileSync(
             this._options.outputFile,
-            JSONN.stringify(this._results)
+            JSONN.stringify(this._results, (k, v) =>
+              k === "CodeCoverageMeasure" ? covStats : v
+            )
           );
           update({
             msg: ` - Test results: ${this._options.outputFile}`,
