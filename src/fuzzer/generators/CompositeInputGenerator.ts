@@ -286,15 +286,17 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       h.currentIndex = (h.currentIndex + 1) % this._L;
     }
 
-    // Update history of composite input generator
-    this._scoredInputs[this._tick] = {
-      input: this._lastInput,
-      tick: this._tick,
-      score: weightedProgress,
-      cost,
-      measurements,
-      interestingReasons,
-    };
+    // Update history of composite input generator if the input was interesting
+    if (interestingReasons.length > 0) {
+      this._scoredInputs.push({
+        input: this._lastInput,
+        tick: this._tick,
+        score: weightedProgress,
+        cost,
+        measurements,
+        interestingReasons,
+      });
+    }
 
     // Update leaderboard & last measured input if we have measures
     // (e.g., the input was not a dupe and was actually executed)
@@ -411,11 +413,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * @returns interesting inputs
    */
   public getInterestingInputs(): ScoredInput[] {
-    return this._scoredInputs
-      .filter((i) => i.interestingReasons.length)
-      .map((i) => {
-        return { ...i };
-      });
+    return this._scoredInputs.map((i) => {
+      return { ...i };
+    });
   } // fn: getInterestingInputs
 
   /**
