@@ -43,14 +43,6 @@ describe("fuzzer: coverageOneFile benchmark", () => {
       ).testSync();
 
       expect(fuzzResult.results.length).toBeGreaterThan(0);
-      // Output to the console the results of any results that did not pass the implicit validator
-      console.log(
-        JSONN.stringify(
-          fuzzResult.results.filter((e) => e.passedImplicit !== "pass"),
-          null,
-          2
-        )
-      ); // !!!!!!!!!!
       expect(
         fuzzResult.results.every((e) => e.passedImplicit === "pass")
       ).toBeTruthy();
