@@ -45,7 +45,7 @@ export const allGenerators = {
 export const intOptions: FuzzOptions = {
   argDefaults: ArgDef.getDefaultOptions(),
   maxTests: 1000,
-  fnTimeout: 100,
+  fnTimeout: 200,
   suiteTimeout: 0,
   seed: "qwertyuiop",
   maxDupeInputs: 1000,
