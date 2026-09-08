@@ -113,16 +113,20 @@ async function main() {
   }
 
   const testFiles = sortTestFiles(rawFiles);
+  const totalFiles = testFiles.length;
 
   // Use OS available parallelism (number of CPU cores) or JOBS env var
-  const maxConcurrency = process.env.JOBS
-    ? parseInt(process.env.JOBS, 10)
-    : Math.max(
-        1,
-        os.availableParallelism ? os.availableParallelism() : os.cpus().length
-      );
+  // Do not exceed the number of test files to avoid idle workers
+  const maxConcurrency = Math.min(
+    process.env.JOBS
+      ? parseInt(process.env.JOBS, 10)
+      : Math.max(
+          1,
+          os.availableParallelism ? os.availableParallelism() : os.cpus().length
+        ),
+    totalFiles
+  );
 
-  const totalFiles = testFiles.length;
   console.log(
     `Running ${totalFiles} test file(s) in parallel using ${maxConcurrency} worker(s)...\n`
   );
