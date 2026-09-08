@@ -1,6 +1,5 @@
 import { Tester } from "./Fuzzer";
 import { intOptions, initParser } from "./FuzzerTestHelper";
-import * as JSONN from "../Jsonn";
 
 const coverageSearchSeeds = [
   "qwertyuiop" /*, "coverage", "needle", "mutation"*/,
