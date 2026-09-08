@@ -2912,7 +2912,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             html += /*html*/ `
                   <div class="fuzzGridPanel${showThisGrid ? `` : ` hidden`}" id="view-${e.id}">
                     <div class="fuzzPanelDescription">${
-                      e.id === "runInfo" ? e.description : htmlEscape(e.description)
+                      e.id === "runInfo"
+                        ? e.description
+                        : htmlEscape(e.description)
                     }</div>`;
             if (e.hasGrid) {
               html += /*html*/ `
