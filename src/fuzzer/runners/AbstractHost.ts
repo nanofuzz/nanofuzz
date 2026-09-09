@@ -45,20 +45,22 @@ export abstract class AbstractHost {
 
   protected abstract _spawn(): ChildProcess.ChildProcessWithoutNullStreams;
 
-  public sendMessage(payload: string): void {
+  public sendMessage(payload: string | Buffer): void {
     if (!this._isActive) {
       throw new Error("Internal error: Cannot write to an inactive host");
     }
 
+    const payloadBuffer =
+      typeof payload === "string" ? Buffer.from(payload, "utf-8") : payload;
     const lengthBuffer = Buffer.alloc(PayloadSizeBytes);
-    lengthBuffer.writeUInt32BE(Buffer.byteLength(payload), 0);
+    lengthBuffer.writeUInt32BE(payloadBuffer.length, 0);
 
     this._proc.stdin.write(lengthBuffer);
-    this._proc.stdin.write(payload);
+    this._proc.stdin.write(payloadBuffer);
   }
 
-  public async getResponse(timeout: number = Infinity): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
+  public async getResponseBuffer(timeout: number = Infinity): Promise<Buffer> {
+    return new Promise<Buffer>((resolve, reject) => {
       let timedOut = false;
       const timer =
         timeout > 0 && timeout !== Infinity
@@ -81,7 +83,7 @@ export abstract class AbstractHost {
             (payload) => {
               if (timedOut) return;
               if (timer) clearTimeout(timer);
-              resolve(payload.toString());
+              resolve(payload);
             },
             (reason) => {
               if (timedOut) return;
@@ -97,6 +99,11 @@ export abstract class AbstractHost {
         }
       );
     });
+  }
+
+  public async getResponse(timeout: number = Infinity): Promise<string> {
+    const buf = await this.getResponseBuffer(timeout);
+    return buf.toString("utf-8");
   }
 
   public get isActive(): boolean {

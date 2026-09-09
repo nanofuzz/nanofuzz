@@ -2,6 +2,7 @@ import * as JSONN from "../../../Jsonn";
 import * as path from "node:path";
 import * as moduleApi from "node:module";
 import vm from "node:vm";
+import { serialize, deserialize } from "node:v8";
 import { RunnerInput, TypeHint } from "../AbstractRunner";
 import { isError } from "../../Util";
 
@@ -79,9 +80,7 @@ async function main() {
 
     const length = header.readUInt32BE(0);
     const payloadBuf = await readBytes(length);
-    const input: RunnerInput & { timeout?: number } = JSONN.parse(
-      payloadBuf.toString("utf-8")
-    );
+    const input: RunnerInput & { timeout?: number } = deserialize(payloadBuf);
 
     resetCoverageCounters(getGlobalCoverageData());
 
@@ -254,14 +253,28 @@ function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
       return val.map((item) => transformArg(item, hint.element));
     }
 
-    if (hint.kind === "set" && (Array.isArray(val) || val instanceof Set)) {
-      const items = Array.from(val).map((item) =>
-        transformArg(item, hint.element)
-      );
-      return new Set(items);
+    if (hint.kind === "set") {
+      if (val instanceof Set) {
+        const set = new Set<unknown>();
+        for (const item of val) {
+          set.add(transformArg(item, hint.element));
+        }
+        return set;
+      }
+      if (Array.isArray(val)) {
+        const items = val.map((item) => transformArg(item, hint.element));
+        return new Set(items);
+      }
     }
 
-    if (hint.kind === "dictionary" && (val instanceof Map || isRecord(val))) {
+    if (hint.kind === "dictionary") {
+      if (val instanceof Map) {
+        const map = new Map<unknown, unknown>();
+        for (const [k, v] of val.entries()) {
+          map.set(transformArg(k, hint.key), transformArg(v, hint.value));
+        }
+        return map;
+      }
       if (Array.isArray(val)) {
         const entries: [unknown, unknown][] = [];
         for (const item of val) {
@@ -273,7 +286,8 @@ function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
           }
         }
         return new Map(entries);
-      } else if (isRecord(val)) {
+      }
+      if (isRecord(val)) {
         const map = new Map<unknown, unknown>();
         for (const [k, v] of Object.entries(val)) {
           map.set(transformArg(k, hint.key), transformArg(v, hint.value));
@@ -321,32 +335,8 @@ function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
  * @returns The sanitized object.
  */
 function sanitizeOutput(obj: unknown): unknown {
-  if (obj instanceof Uint8Array) {
-    return Array.from(obj);
-  }
-  if (obj instanceof Set) {
-    return Array.from(obj).map(sanitizeOutput);
-  }
-  if (obj instanceof Map) {
-    const res: Record<string, unknown> = {};
-    for (const [k, v] of obj.entries()) {
-      const sKey =
-        typeof k === "string" || typeof k === "number"
-          ? String(k)
-          : JSONN.stringify(sanitizeOutput(k));
-      res[sKey] = sanitizeOutput(v);
-    }
-    return res;
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(sanitizeOutput);
-  }
-  if (isRecord(obj)) {
-    const res: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj)) {
-      res[k] = sanitizeOutput(v);
-    }
-    return res;
+  if (typeof obj === "function" || typeof obj === "symbol") {
+    return String(obj);
   }
   return obj;
 } // fn: sanitizeOutput
@@ -404,7 +394,7 @@ async function readBytes(bytes: number): Promise<Buffer> {
  */
 function sendMsg(data: unknown): void {
   try {
-    const payload = Buffer.from(JSONN.stringify(data), "utf-8");
+    const payload = serialize(data);
     const message = Buffer.alloc(4 + payload.length);
     message.writeUInt32BE(payload.length, 0);
     payload.copy(message, 4);

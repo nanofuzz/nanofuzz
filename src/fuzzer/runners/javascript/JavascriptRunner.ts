@@ -11,7 +11,7 @@ import { FuzzEnv } from "../../Fuzzer";
 import { findInAncestor, isError, normalizePathForKey } from "../../Util";
 import { PutTimeoutName } from "../AbstractHost";
 import * as CompilerFactory from "../../compilers/CompilerFactory";
-import * as JSONN from "../../../Jsonn";
+import { serialize, deserialize } from "node:v8";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
@@ -92,20 +92,12 @@ export class JavascriptRunner extends AbstractRunner {
         filename: this._filename,
       };
 
-      const payload = JSONN.stringify(input, (_key, val) => {
-        if (val instanceof Uint8Array || val instanceof Set) {
-          return Array.from(val);
-        }
-        if (val instanceof Map) {
-          return Object.fromEntries(val);
-        }
-        return val;
-      });
+      const payload = serialize(input);
 
       host.sendMessage(payload);
       const hostTimeout = timeout && timeout > 0 ? timeout + 200 : Infinity;
-      const rawRes = await host.getResponse(hostTimeout);
-      const parsedRes = JSONN.parse(rawRes);
+      const rawResBuf = await host.getResponseBuffer(hostTimeout);
+      const parsedRes = deserialize(rawResBuf);
 
       if (isParsedHostResponse(parsedRes) && parsedRes.coverageData) {
         const globalCov = getGlobalCoverageMap();
@@ -256,10 +248,11 @@ export class JavascriptRunner extends AbstractRunner {
     const args = [runnerHost, this._filename, this._jsFn];
     const host = new NodeHost(args, path.dirname(this._filename));
 
-    const okcode = await host.getResponse(10000);
-    if (JSONN.parse(okcode) === "READY") {
+    const okcodeBuf = await host.getResponseBuffer(10000);
+    const okcode = deserialize(okcodeBuf);
+    if (okcode === "READY") {
       this._host = host;
-      const initialCoverage = JSONN.parse(await host.getResponse(10000));
+      const initialCoverage = deserialize(await host.getResponseBuffer(10000));
       this._coverageInfo = initialCoverage;
 
       // Populate main process global.__coverage__ with static map structures
