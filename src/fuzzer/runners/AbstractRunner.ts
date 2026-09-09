@@ -110,7 +110,12 @@ export type BranchExit = {
 
 export type RunnerResult = {
   result: (
-    | { tag: "timeout" }
+    | {
+        tag: "timeout";
+        coverageData?: number[];
+        coverageArcs?: Arc[];
+        staticCoverage?: Record<string, CoverageInfo>;
+      }
     | {
         tag: "error";
         name: string;

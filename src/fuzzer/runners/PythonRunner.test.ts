@@ -533,4 +533,84 @@ def add_one(x: int) -> int:
       }
     }
   });
+
+  it("timeouts with partial coverage", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "timeout_test.py");
+    const pyCode = `
+def loop_timeout(n: int) -> int:
+    a = 1
+    if n > 0:
+        while True:
+            pass
+    b = 2
+    return a + b
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def loop_timeout(n: int) -> int:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["loop_timeout"];
+      const env: FuzzEnv = {
+        function: fnDef,
+        options: {
+          argDefaults: ArgDef.getDefaultOptions(),
+          maxTests: 1000,
+          maxDupeInputs: 1000,
+          maxFailures: 0,
+          fnTimeout: 100,
+          suiteTimeout: 0,
+          useImplicit: true,
+          useHuman: false,
+          useProperty: false,
+          useTransformer: false,
+          measures: {
+            CoverageMeasure: { enabled: true, weight: 1 },
+            FailedTestMeasure: { enabled: true, weight: 1 },
+          },
+          generators: {
+            RandomInputGenerator: { enabled: true },
+            MutationInputGenerator: { enabled: true },
+            AiInputGenerator: { enabled: false },
+          },
+        },
+        validators: [],
+        transformers: [],
+      };
+
+      const runner = new PythonRunner(pyPath, "loop_timeout", env, 100);
+      await runner.onRunStart();
+
+      // First run times out in-host
+      const timeoutRes = await runner.run([5], 100);
+      console.log("TIMEOUT RES:", JSON.stringify(timeoutRes.result, null, 2));
+      expect(timeoutRes.result.tag).toBe("timeout");
+      expect(runner.coverageInfo).toBeDefined();
+
+      // Second run after timeout reuses same host and succeeds
+      const fastRes = await runner.run([0], 0);
+      expect(fastRes.result.tag).toBe("value");
+
+      await runner.onRunEnd();
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
 });
