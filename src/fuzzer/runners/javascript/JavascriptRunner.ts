@@ -70,7 +70,8 @@ export class JavascriptRunner extends AbstractRunner {
     await super.onRunStart();
     this._killHost();
     if (this._env?.options?.measures?.CoverageMeasure?.enabled !== undefined) {
-      this._coverageEnabled = this._env.options.measures.CoverageMeasure.enabled;
+      this._coverageEnabled =
+        this._env.options.measures.CoverageMeasure.enabled;
     }
     await this._getHost();
   } // fn: onRunStart
@@ -113,6 +114,9 @@ export class JavascriptRunner extends AbstractRunner {
       const parsedRes = deserialize(rawResBuf);
 
       if (isParsedHostResponse(parsedRes) && parsedRes.coverageData) {
+        if (isCoverageMapData(parsedRes.coverageData)) {
+          this._coverageInfo = parsedRes.coverageData;
+        }
         this._coverageCallback?.(parsedRes.coverageData);
       }
 
@@ -120,7 +124,10 @@ export class JavascriptRunner extends AbstractRunner {
       if (isParsedHostResponse(parsedRes)) {
         const seq = typeof parsedRes.seq === "number" ? parsedRes.seq : thisSeq;
         if (parsedRes.tag === "timeout") {
-          resultInner = { tag: "timeout", seq };
+          resultInner = {
+            tag: "timeout",
+            seq,
+          };
         } else if (parsedRes.tag === "skip") {
           resultInner = {
             tag: "skip",

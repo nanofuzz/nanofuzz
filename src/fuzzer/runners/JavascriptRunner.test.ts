@@ -208,4 +208,40 @@ module.exports = { crash, ok };
       }
     }
   });
+
+  it("timeout coverage data is retained", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-jsrunner-"));
+    const jsPath = path.join(tmpDir, "timeoutModule.js");
+    const jsCode = `
+function loopTimeout(n) {
+  let a = 1;
+  while (true) {
+    /* infinite loop */
+  }
+}
+module.exports = { loopTimeout };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      let capturedCov: unknown;
+      const runner = new JavascriptRunner(jsPath, "loopTimeout");
+      runner.onCoverage((cov) => {
+        capturedCov = cov;
+      });
+      await runner.onRunStart();
+
+      const timeoutRes = await runner.run([5], 100);
+      expect(timeoutRes.result.tag).toBe("timeout");
+      expect(capturedCov).toBeDefined();
+
+      await runner.onRunEnd();
+    } finally {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    }
+  });
 });
