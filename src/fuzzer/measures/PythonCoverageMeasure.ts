@@ -30,7 +30,7 @@ import {
  */
 export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   protected _runners: PythonRunner[] = [];
-  protected _coverageData: CoverageMapData = {};
+  protected _coverageData: CoverageMap = createCoverageMap({});
   protected _globalCoverageMap = createCoverageMap({});
   protected _history = new Map<number, CoverageMeasurementNode>(); // measurement history
   protected _lastNode: CoverageMeasurementNode | undefined = undefined;
@@ -44,7 +44,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   public override onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
     const runnerList = Array.isArray(runners) ? runners : [runners];
     this._runners = [];
-    this._coverageData = {};
+    this._coverageData = createCoverageMap({});
 
     runnerList.forEach((r) => {
       if (r instanceof PythonRunner) {
@@ -74,15 +74,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    */
   public recordHits(covinfo: FullCoverage): void {
     const mapData = this._toCoverageMapData(covinfo);
-    const map = createCoverageMap(this._coverageData);
-    AbstractCoverageMeasure.better_merge(map, mapData);
-    const plainData: CoverageMapData = {};
-    for (const f of map.files()) {
-      plainData[f] = AbstractCoverageMeasure.file_snapshot(
-        map.fileCoverageFor(f)
-      );
-    }
-    this._coverageData = plainData;
+    AbstractCoverageMeasure.better_merge(this._coverageData, mapData);
   } // fn: recordHits
 
   /**
@@ -91,9 +83,8 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    */
   public override onBeforeNextTestExecution(): void {
     if (this._coverageData) {
-      for (const fileKey of Object.keys(this._coverageData)) {
-        this._coverageData[fileKey] = { ...this._coverageData[fileKey] };
-        const fileCoverage = this._coverageData[fileKey];
+      for (const fileKey of this._coverageData.files()) {
+        const fileCoverage = this._coverageData.fileCoverageFor(fileKey);
         if (fileCoverage.b) {
           Object.keys(fileCoverage.b).forEach((bKey) => {
             fileCoverage.b[bKey] = Array<number>(
@@ -136,23 +127,15 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     // Translate the runner's line/arc coverage into an istanbul
     // CoverageMapData so we can reuse istanbul's merge and summary machinery
     // and stay compatible with the CoverageMeasurement shape.
-    let currentCoverageData: CoverageMapData = {};
-    if (Object.keys(this._coverageData).length > 0) {
-      currentCoverageData = this._snapshot();
-    } else {
-      const map = createCoverageMap({});
+    if (this._coverageData.files().length === 0) {
       for (const r of this._runners) {
         if (r.coverageInfo) {
           const mapData = this._toCoverageMapData(r.coverageInfo);
-          AbstractCoverageMeasure.better_merge(map, mapData);
+          AbstractCoverageMeasure.better_merge(this._coverageData, mapData);
         }
       }
-      for (const f of map.files()) {
-        currentCoverageData[f] = AbstractCoverageMeasure.file_snapshot(
-          map.fileCoverageFor(f)
-        );
-      }
     }
+    const currentCoverageData = this._snapshot();
 
     // Total coverage in a map, summing statements, branches, and functions --
     // matching CoverageMeasure, so that newly-covered branches and functions
@@ -425,18 +408,10 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    */
   protected _snapshot(): CoverageMapData {
     const snapshot: CoverageMapData = {};
-    for (const fileKey of Object.keys(this._coverageData)) {
-      const fileCoverage = this._coverageData[fileKey];
-      const b: FileCoverage["b"] = {};
-      for (const bKey of Object.keys(fileCoverage.b)) {
-        b[bKey] = [...fileCoverage.b[bKey]];
-      }
-      snapshot[fileKey] = {
-        ...fileCoverage,
-        s: { ...fileCoverage.s },
-        f: { ...fileCoverage.f },
-        b,
-      };
+    for (const fileKey of this._coverageData.files()) {
+      snapshot[fileKey] = AbstractCoverageMeasure.file_snapshot(
+        this._coverageData.fileCoverageFor(fileKey)
+      );
     }
     return snapshot;
   } // fn: _snapshot
