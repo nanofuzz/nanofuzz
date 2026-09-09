@@ -7,11 +7,7 @@ import {
   Range,
 } from "istanbul-lib-coverage";
 import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
-import {
-  CoverageInfo,
-  FullCoverage,
-  PythonRunner,
-} from "../runners/python/PythonRunner";
+import { FullCoverage, PythonRunner } from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import * as JSONN from "../../Jsonn";
 import { normalizePathForKey } from "../Util";
@@ -240,10 +236,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    */
   protected _toCoverageMapData(covinfo: FullCoverage): CoverageMapData {
     const ret: CoverageMapData = {};
-    for (const [filename, fileCov] of Object.entries(covinfo) as [
-      string,
-      CoverageInfo,
-    ][]) {
+    for (const [filename, fileCov] of Object.entries(covinfo)) {
       const coveredLines = new Set(fileCov.lines ?? []);
       // Arcs are matched by value, so key them for lookup
       const takenArcs = new Set((fileCov.arcs ?? []).map(arcKey));

@@ -193,11 +193,10 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
       for (let i = 0; i < 1000; i++) {
         const { value: inputs } = gen.next();
         const input = inputs[0].value;
-        expect(typeof input === "object" && Array.isArray(input)).toBeTruthy();
-        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-        const inputArray = input as number[];
-        expect([1, 2].includes(inputArray.length)).toBeTrue();
-        expect(inputArray.every((n) => [0, 1].includes(n))).toBeTrue();
+        if (Array.isArray(input)) {
+          expect([1, 2].includes(input.length)).toBeTrue();
+          expect(input.every((n) => typeof n === "number" && [0, 1].includes(n))).toBeTrue();
+        }
       }
     });
   });

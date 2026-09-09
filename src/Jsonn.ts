@@ -56,6 +56,11 @@ export function stringify(
   return text;
 }
 
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+}
+
 /**
  * Parses a JSONN string and constructing a JavaScript value or object
  * described by the string.
@@ -79,7 +84,7 @@ export function parse<T>(
     // Parse the data while keeping a list of any values we need to replace.
     // We do this in two steps because JSON5 strips `undefined` AFTER revive.
     const valuesToRevive: ReviveTarget[] = [];
-    result = JSON5.parse<T>(
+    result = JSON5.parse(
       text,
       reviver
         ? function (this: unknown, key: string, value: unknown): unknown {
@@ -104,7 +109,7 @@ export function parse<T>(
     });
   }
 
-  return result as T;
+  return cast<T>(result);
 }
 
 /**

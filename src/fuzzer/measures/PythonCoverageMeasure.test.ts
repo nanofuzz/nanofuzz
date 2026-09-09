@@ -891,10 +891,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
        */
       public record(runs: Record<string, PythonRun>): void {
         this.onBeforeNextTestExecution();
-        for (const [file, info] of Object.entries(this._coverage) as [
-          string,
-          CoverageInfo,
-        ][]) {
+        for (const [file, info] of Object.entries(this._coverage)) {
           info.lines = runs[file]?.lines;
           info.arcs = runs[file]?.arcs;
         }
