@@ -103,7 +103,7 @@ export class JavascriptRunner extends AbstractRunner {
       });
 
       host.sendMessage(payload);
-      const hostTimeout = timeout && timeout > 0 ? timeout + 2000 : Infinity;
+      const hostTimeout = timeout && timeout > 0 ? timeout + 200 : Infinity;
       const rawRes = await host.getResponse(hostTimeout);
       const parsedRes = JSONN.parse(rawRes);
 

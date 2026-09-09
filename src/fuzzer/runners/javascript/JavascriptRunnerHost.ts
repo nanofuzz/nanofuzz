@@ -1,6 +1,7 @@
 import * as JSONN from "../../../Jsonn";
 import * as path from "node:path";
 import * as moduleApi from "node:module";
+import vm from "node:vm";
 import { RunnerInput, TypeHint } from "../AbstractRunner";
 import { isError } from "../../Util";
 
@@ -104,7 +105,11 @@ async function main() {
         i < typeHints.length ? transformArg(arg, typeHints[i]) : arg
       );
 
-      value = fnToExec(...hydratedArgs);
+      if (input.timeout && input.timeout > 0) {
+        value = functionTimeout(fnToExec)(input.timeout, ...hydratedArgs);
+      } else {
+        value = fnToExec(...hydratedArgs);
+      }
     } catch (e: unknown) {
       const isTimeout =
         isError(e) &&
@@ -208,6 +213,22 @@ function setup() {
     stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
   });
 } // fn: setup
+
+function functionTimeout(
+  fnToCall: (...args: unknown[]) => unknown
+): (timeout: number | undefined, ...args: unknown[]) => unknown {
+  const script = new vm.Script(`returnValue = function_();`);
+
+  return (timeout: number | undefined, ...args: unknown[]): unknown => {
+    const context: Record<string, unknown> = {
+      returnValue: undefined,
+      function_: () => fnToCall(...args),
+    };
+
+    script.runInNewContext(context, timeout ? { timeout } : {});
+    return context.returnValue;
+  };
+}
 
 /**
  * Transforms an argument based on the provided type hint.
