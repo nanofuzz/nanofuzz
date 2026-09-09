@@ -46,7 +46,14 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     const runnerList = Array.isArray(runners) ? runners : [runners];
     const initialCov = runnerList[0]?.coverageInfo;
     if (isCoverageMapData(initialCov)) {
-      this._coverageData = structuredClone(initialCov);
+      this._coverageData = {};
+      for (const k of Object.keys(initialCov)) {
+        const normKey = normalizePathForKey(k);
+        this._coverageData[normKey] = {
+          ...structuredClone(initialCov[k]),
+          path: normKey,
+        };
+      }
     } else {
       this._coverageData = emptyCoverageMapData([]);
     }
@@ -149,15 +156,6 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
         JSON.stringify(combinedSourceMap),
         "utf8"
       );
-      const realPath = fs.realpathSync(jsFileName);
-      if (realPath !== jsFileName) {
-        this._sourceMapStore.registerMap(realPath, combinedSourceMap);
-        fs.writeFileSync(
-          realPath + ".map",
-          JSON.stringify(combinedSourceMap),
-          "utf8"
-        );
-      }
     } catch {
       // ignore
     }
@@ -362,10 +360,6 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
                 );
               }
               this._sourceMapStore.registerMap(fileKey, mapData);
-              const realPath = fs.realpathSync(fileKey);
-              if (realPath !== fileKey) {
-                this._sourceMapStore.registerMap(realPath, mapData);
-              }
             } catch {
               // ignore
             }
