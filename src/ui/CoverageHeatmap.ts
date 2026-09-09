@@ -106,6 +106,7 @@ function _calculateDecorationRanges(fileMap: FileCoverage): vscode.Range[][] {
   // Function coverage
   for (const f of Object.keys(fileMap.f)) {
     const element = fileMap.fnMap[f]; // hit element
+    if (!element?.decl?.start || !element?.loc?.end) continue;
     spans.insert(
       {
         begin: {
@@ -121,6 +122,7 @@ function _calculateDecorationRanges(fileMap: FileCoverage): vscode.Range[][] {
   // Branch coverage
   for (const b of Object.keys(fileMap.b)) {
     const element = fileMap.branchMap[b]; // hit element
+    if (!element || !element.locations) continue;
     const hits = fileMap.b[b]; // array of hits
 
     // Note: instanbul's branch locations for if statements are broken.
@@ -128,15 +130,17 @@ function _calculateDecorationRanges(fileMap: FileCoverage): vscode.Range[][] {
     // Workaround here: ignore if branches.
     if (element.type !== "if") {
       for (const i in hits) {
+        const loc = element.locations[i];
+        if (!loc?.start || !loc?.end) continue;
         spans.insert(
           {
             begin: {
-              line: element.locations[i].start.line - 1,
-              col: element.locations[i].start.column,
+              line: loc.start.line - 1,
+              col: loc.start.column,
             },
             end: {
-              line: element.locations[i].end.line - 1,
-              col: element.locations[i].end.column,
+              line: loc.end.line - 1,
+              col: loc.end.column,
             },
           },
           hits[i]
@@ -148,6 +152,7 @@ function _calculateDecorationRanges(fileMap: FileCoverage): vscode.Range[][] {
   // Statement coverage
   for (const s of Object.keys(fileMap.s)) {
     const element = fileMap.statementMap[s]; // hit element
+    if (!element?.start || !element?.end) continue;
     spans.insert(
       {
         begin: {

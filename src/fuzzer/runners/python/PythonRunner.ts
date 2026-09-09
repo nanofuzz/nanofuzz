@@ -4,18 +4,20 @@ import {
   RunnerInput,
   RunnerResult,
   TypeHint,
-} from "./AbstractRunner";
-import { ArgDef } from "../analysis/ArgDef";
-import { ArgTag } from "../analysis/Types";
-import { FuzzEnv } from "../Fuzzer";
+} from "../AbstractRunner";
+import { ArgDef } from "../../analysis/ArgDef";
+import { ArgTag } from "../../analysis/Types";
+import { FuzzEnv } from "../../Fuzzer";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
-import * as Config from "../../Config";
-import * as ChildProcess from "node:child_process";
+import * as Config from "../../../Config";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { findInAncestor, isError } from "../Util";
+import { findInAncestor, isError } from "../../Util";
+import { PutTimeoutName } from "../AbstractHost";
+import { PythonHost, PythonEnv } from "./PythonHost";
+import * as ChildProcess from "node:child_process";
 
 /**
  * Python runner
@@ -109,19 +111,10 @@ export class PythonRunner extends AbstractRunner {
         }
         return val;
       });
-      const lengthBuffer = Buffer.alloc(4);
-      lengthBuffer.writeUInt32BE(Buffer.byteLength(payload), 0);
 
-      // Send length + payload
-      host.write(lengthBuffer);
-      host.write(payload);
-
-      // Get response length + payload
-      const length = (await host.readStdout(4, timeout)).readUInt32BE(0);
+      host.sendMessage(payload);
       const result: RunnerResult = {
-        result: JSON5.parse(
-          (await host.readStdout(length, timeout)).toString()
-        ),
+        result: JSON5.parse(await host.getResponse(timeout)),
         env: {},
       };
 
@@ -162,7 +155,7 @@ export class PythonRunner extends AbstractRunner {
       if (this._coverageInfo) {
         this._coverageInfo = undefined;
       }
-      if (e.name === putTimeoutName) {
+      if (e.name === PutTimeoutName) {
         return { result: { tag: "timeout", seq: thisSeq }, env: {} };
       } else {
         return {
@@ -430,17 +423,21 @@ export class PythonRunner extends AbstractRunner {
       path.dirname(module.filename),
       this._pythonEnv
     );
-    const okcode = await host.readStdout(5, 30000); // a longer timeout tolerance for the host to pre-warm the coverage
 
-    if (okcode.toString() === "READY") {
+    // a longer timeout tolerance for the host to pre-warm the coverage
+    const okcode = await host.getResponse(10000);
+    if (okcode === `"READY"`) {
       this._host = host;
+
+      // Get the static coverage structure, which the host sends once. The
+      // dynamic `lines`/`arcs` are filled in by each `run`.
+      this._coverageInfo = JSON5.parse<FullCoverage>(
+        await host.getResponse(10000)
+      );
       return host;
     } else {
-      const stdout = await host.readStdout();
       host.kill();
-      throw new Error(
-        `PythonHost not ready (okcode: ${okcode}, stdout: ${stdout})`
-      );
+      throw new Error(`PythonHost not ready (okcode: ${okcode})`);
     }
   } // get: host
 
@@ -458,175 +455,6 @@ export class PythonRunner extends AbstractRunner {
     return this._coverageInfo;
   }
 } // class: PythonRunner
-
-/**
- * Wrapper for running and interacting with running Python programs
- */
-class PythonHost {
-  protected _proc: ChildProcess.ChildProcessWithoutNullStreams;
-  protected _isActive: boolean = true;
-  protected _stdout: Buffer<ArrayBuffer>;
-  protected _stderr: Buffer<ArrayBuffer>;
-  protected _errors: Error[];
-  protected _cli: string;
-  protected _cwd: string | undefined;
-
-  constructor(args: string[], cwd: string | undefined, pythonEnv: PythonEnv) {
-    this._stdout = Buffer.alloc(0);
-    this._stderr = Buffer.alloc(0);
-    this._errors = [];
-    this._cwd = cwd;
-    this._cli = [pythonEnv.interpreter, ...args].join(" ");
-
-    // Spawn the host
-    this._proc = ChildProcess.spawn(pythonEnv.interpreter, args, {
-      cwd,
-      env: pythonEnv.env,
-      windowsHide: true,
-    });
-
-    this._proc.stdout.on("data", this._onStdout);
-    this._proc.stdout.on("error", this._onError);
-    this._proc.stderr.on("data", this._onStderr);
-    this._proc.stderr.on("error", this._onError);
-    this._proc.once("close", this._onClose);
-
-    this._isActive = true;
-  }
-
-  public get isActive(): boolean {
-    return this._isActive;
-  }
-
-  protected _onStdout = (chunk: Buffer): void => {
-    this._stdout = Buffer.concat([this._stdout, chunk]);
-  };
-
-  protected _onStderr = (chunk: Buffer): void => {
-    this._stderr = Buffer.concat([this._stderr, chunk]);
-  };
-
-  protected _onError = (err: Error): void => {
-    this._errors.push(new Error(`PythonHost pipe error: ${err.message}`));
-    this.kill();
-  };
-
-  protected _onClose = (): void => {
-    this._errors.push(
-      new Error(
-        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._stderr.toString("utf8")}, stdout: ${this._stdout.toString("utf8")}, cli: ${this._cli}, cwd: ${this._cwd})`
-      )
-    );
-    this.kill();
-  };
-
-  public kill(): void {
-    this._isActive = false;
-
-    this._proc.stdout.removeListener("data", this._onStdout);
-    this._proc.stdout.removeListener("error", this._onError);
-    this._proc.stderr.removeListener("data", this._onStderr);
-    this._proc.stderr.removeListener("error", this._onError);
-    this._proc.removeListener("close", this._onClose);
-
-    this._proc.kill();
-  }
-
-  public write(chunk: Parameters<typeof this._proc.stdin.write>[0]): void {
-    if (!this._isActive) {
-      throw new Error("Internal error: Cannot write to an inactive host");
-    }
-    this._proc.stdin.write(chunk);
-  }
-
-  /**
-   * Reads bytes from the stdout buffer. If the bytes have not arrived yet,
-   * then wait `timeout` ms.
-   *
-   * @param `n` number of bytes to read ("all"=return the entire current buffer)
-   * @param `timeout` number of ms before giving up (0=don't wait, Infinity=no timeout)
-   * @returns `n` bytes, or the entire buffer if n is 0
-   */
-  public async readStdout(
-    n: number | "all" = "all",
-    timeout: number = 0
-  ): Promise<Buffer> {
-    return new Promise<Buffer>((resolve, reject) => {
-      if (!this._isActive) {
-        reject(new Error("Internal error: Cannot read from an inactive host"));
-        return;
-      }
-      const bytes = n === "all" ? this._stdout.length : n;
-
-      if (this._stdout.length >= bytes) {
-        // Return the data if it's already in the buffer
-        const result = this._stdout!.subarray(0, bytes);
-        this._stdout = this._stdout!.subarray(bytes);
-        resolve(result);
-        return;
-      }
-
-      if (timeout === 0) {
-        reject(new Error(`Read past buffer end`));
-        return;
-      }
-
-      const onData = (_chunk: Buffer) => {
-        // Another listener writes to the buffer
-        if (this._stdout.length >= bytes) {
-          cleanup();
-          try {
-            resolve(this.readStdout(n, 0));
-          } catch (e: unknown) {
-            reject(e);
-          }
-        }
-      };
-
-      const onError = (err: Error) => {
-        reject(err);
-        cleanup();
-      };
-
-      const onClose = () => {
-        const exitCode = this._proc.exitCode;
-        reject(
-          this._errors.at(-1) ??
-            new Error(`Host exited unexpectedly with exit code: ${exitCode}`)
-        );
-        cleanup();
-      };
-
-      const timer =
-        timeout > 0 && timeout !== Infinity
-          ? setTimeout(() => {
-              cleanup();
-              const exception = new Error(
-                `PythonRunnerHost did not return expected data within ${timeout} ms timeout`
-              );
-              exception.name = putTimeoutName;
-              this.kill();
-              reject(exception);
-            }, timeout)
-          : undefined;
-
-      const cleanup = () => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-        this._proc.stdout.removeListener("data", onData);
-        this._proc.stdout.removeListener("error", onError);
-        this._proc.removeListener("close", onClose);
-      };
-
-      this._proc.stdout.on("data", onData);
-      this._proc.stdout.on("error", onError);
-      this._proc.once("close", onClose);
-    });
-  } // fn: _readBytes
-} // class: PythonHost
-
-const putTimeoutName = "PythonRunnerPutTimeout";
 
 function findPythonLibDir(dir: string, item: string): string | null {
   // Co-located with this module (e.g., as built)
@@ -722,16 +550,24 @@ function getTypeHint(arg: ArgDef): TypeHint {
  */
 export type FullCoverage = Record<string, CoverageInfo>;
 
-export { Arc, CoverageInfo } from "./AbstractRunner";
-
-export type PythonEnv = {
-  env: { [k: string]: string | undefined };
-  libs: string | undefined | null;
-  interpreter: string;
-  paths: readonly string[];
-  venv?: {
-    activateCmd: string;
-    path: string;
-    interpreter: string;
-  };
+/**
+ * A branch point: a line with more than one possible exit.
+ */
+export type BranchInfo = {
+  line: number; // the branching line
+  exits: BranchExit[]; // every destination it can reach
 };
+
+/**
+ * One possible exit from a branch. `dest` is the raw arc target, used to match
+ * against the arcs actually taken. coverage.py uses non-positive `dest` values
+ * to mean "left the enclosing scope"; those have no line of their own, so
+ * `line` reports where to display them (the branch line itself).
+ */
+export type BranchExit = {
+  dest: number; // arc target, for matching against `Arc`s
+  line: number; // where to display this exit
+};
+
+export { Arc, CoverageInfo } from "../AbstractRunner";
+export type { PythonEnv } from "./PythonHost";

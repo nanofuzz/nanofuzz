@@ -1,8 +1,8 @@
 import { PythonProgram } from "../analysis/python/PythonProgram";
 import { FuzzEnv } from "../Fuzzer";
 import { AbstractRunner } from "./AbstractRunner";
-import { JavascriptRunner } from "./JavascriptRunner";
-import { PythonRunner } from "./PythonRunner";
+import { JavascriptRunner } from "./javascript/JavascriptRunner";
+import { PythonRunner } from "./python/PythonRunner";
 
 /**
  * Returns an AbstractRunner appropriate to the input environment, module,
@@ -15,16 +15,20 @@ import { PythonRunner } from "./PythonRunner";
  */
 export function RunnerFactory(
   env: FuzzEnv,
-  module: NodeJS.Module | string,
+  module: string,
   fn: string
 ): AbstractRunner {
-  if (typeof module === "string") {
-    if (PythonProgram.understands({ filename: module })) {
-      return new PythonRunner(module, fn, env);
-    } else {
-      throw new Error("Not yet implemented");
-    }
-  } else {
-    return new JavascriptRunner(module, fn);
+  if (
+    module.endsWith(".js") ||
+    module.endsWith(".mjs") ||
+    module.endsWith(".cjs")
+  ) {
+    return new JavascriptRunner(module, fn, env);
   }
+
+  if (PythonProgram.understands({ filename: module })) {
+    return new PythonRunner(module, fn, env);
+  }
+
+  throw new Error(`Support not yet implemented for program in: ${module}`);
 } // fn: RunnerFactory

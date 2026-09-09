@@ -7,7 +7,11 @@ import {
   Range,
 } from "istanbul-lib-coverage";
 import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
-import { FullCoverage, PythonRunner } from "../runners/PythonRunner";
+import {
+  CoverageInfo,
+  FullCoverage,
+  PythonRunner,
+} from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import * as JSONN from "../../Jsonn";
 import { normalizePathForKey } from "../Util";
@@ -57,10 +61,11 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    *
    * @param `runner` the test runner for this run
    */
-  public onRunStart(runner: AbstractRunner): void {
+  public onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
+    const runner = Array.isArray(runners) ? runners[0] : runners;
     if (!(runner instanceof PythonRunner)) {
       throw new Error(
-        `${this.name} requires a PythonRunner, but received a ${runner.constructor.name}`
+        `${this.name} requires a PythonRunner, but received a ${runner?.constructor.name}`
       );
     }
     this._runner = runner;
@@ -200,7 +205,10 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    */
   protected _toCoverageMapData(covinfo: FullCoverage): CoverageMapData {
     const ret: CoverageMapData = {};
-    for (const [filename, fileCov] of Object.entries(covinfo)) {
+    for (const [filename, fileCov] of Object.entries(covinfo) as [
+      string,
+      CoverageInfo,
+    ][]) {
       const coveredLines = new Set(fileCov.lines ?? []);
       // Arcs are matched by value, so key them for lookup
       const takenArcs = new Set((fileCov.arcs ?? []).map(arcKey));

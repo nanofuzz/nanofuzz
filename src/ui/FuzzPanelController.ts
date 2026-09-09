@@ -1778,7 +1778,34 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     const files = panel._coverageStats.files;
     for (const editor of vscode.window.visibleTextEditors) {
       const fsPath = normalizePathForKey(editor.document.uri.fsPath);
-      const fileMap = files.find((f) => f.path === fsPath)?.fileMap;
+      let fileMap = files.find((f) => f.path === fsPath)?.fileMap;
+
+      // Fall back to canonical realpath matching if direct path equality fails.
+      // On macOS, system symlinks (e.g. /var -> /private/var or /tmp -> /private/tmp)
+      // can cause source maps to resolve paths like /private/Users/... while VS Code
+      // editor document URIs report /Users/...
+      // On Windows, drive letter casing or NTFS junction points / short 8.3 paths
+      // can cause identical path string mismatches. Comparing realpaths ensures
+      // editor documents correctly match coverage stats on macOS, Windows, and Linux.
+      if (!fileMap) {
+        try {
+          const realFsPath = fs.existsSync(fsPath)
+            ? normalizePathForKey(fs.realpathSync(fsPath))
+            : fsPath;
+          fileMap = files.find((f) => {
+            try {
+              return (
+                fs.existsSync(f.path) &&
+                normalizePathForKey(fs.realpathSync(f.path)) === realFsPath
+              );
+            } catch {
+              return false;
+            }
+          })?.fileMap;
+        } catch {
+          // ignore
+        }
+      }
 
       if (fileMap) {
         applyCoverageHeatmapToEditor(editor, fileMap);
@@ -2816,7 +2843,8 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             <div class="fuzzResultHeading">Where did ${toolName} spend its time?</div>
             <p>
               Compiling and instrumenting the program used ${Math.round(
-                this._results.stats.timers.compile
+                this._results.stats.timers.compile +
+                  this._results.stats.timers.instrument
               )} ms, generating inputs used ${Math.round(
                 this._results.stats.timers.gen
               )} ms, executing the program used ${Math.round(

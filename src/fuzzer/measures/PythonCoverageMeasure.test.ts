@@ -10,7 +10,7 @@ import {
   CoverageInfo,
   FullCoverage,
   PythonRunner,
-} from "../runners/PythonRunner";
+} from "../runners/python/PythonRunner";
 import {
   ArgDef,
   FunctionDef,
@@ -888,7 +888,10 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
        * @param `runs` what the call executed, by file
        */
       public record(runs: Record<string, PythonRun>): void {
-        for (const [file, info] of Object.entries(this._coverage)) {
+        for (const [file, info] of Object.entries(this._coverage) as [
+          string,
+          CoverageInfo,
+        ][]) {
           info.lines = runs[file]?.lines;
           info.arcs = runs[file]?.arcs;
         }
@@ -1164,6 +1167,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
         timers: {
           total: 21,
           compile: 5,
+          instrument: 0,
           transform: 0,
           put: 10,
           val: 1,

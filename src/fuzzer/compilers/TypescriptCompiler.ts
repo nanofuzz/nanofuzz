@@ -16,7 +16,6 @@ import { Worker } from "worker_threads";
 import path from "node:path";
 import os from "node:os";
 import * as JSONN from "../../Jsonn";
-import { AbstractMeasure } from "../measures/AbstractMeasure";
 import {
   FuzzBusyStatusMessage,
   TypescriptCompilerError,
@@ -147,12 +146,19 @@ export class TypescriptCompiler {
   } // fn: compileAsync
 
   /**
+   * Returns clean compiled JS paths for all dependencies required during compilation
+   */
+  public getCompiledDependencies(): string[] {
+    const tsFiles = _compilationsByModule[this._moduleFile] ?? [
+      this._moduleFile,
+    ];
+    return tsFiles.map((tsFile) => this._getJsFilename(tsFile));
+  }
+
+  /**
    * Compile the TypeScript file
    */
-  public compileSync(
-    measures: AbstractMeasure[],
-    updateFn: (msg: FuzzBusyStatusMessage) => void
-  ): ReturnType<NodeJS.Require> {
+  public compileSync(updateFn: (msg: FuzzBusyStatusMessage) => void): string {
     // Determine options using the module path
     this._options = structuredClone(defaultOptions);
     this._determineOptions();
@@ -205,7 +211,7 @@ export class TypescriptCompiler {
     let hookException: unknown | undefined = undefined;
 
     // Hook require to compile ts files
-    require.extensions[hookType] = async (module) => {
+    require.extensions[hookType] = (module) => {
       const jsname = this._getJsFilename(module.filename);
 
       // Log the compile attempt
@@ -222,22 +228,10 @@ export class TypescriptCompiler {
             this._tsc(module, updateFn);
           }
 
-          // Apply measurement instrumentation
-          let src = fs.readFileSync(jsname, "utf8"); // TODO: encoding
-          for (const measure of measures) {
-            src = measure.onAfterCompile(src, jsname);
-          }
+          const src = fs.readFileSync(jsname, "utf8");
 
-          // Load the module & collect measurements from the initial load
-          const context: VmGlobals = this._run(
-            jsname,
-            module,
-            src,
-            moduleVmGlobals
-          );
-          for (const measure of measures) {
-            measure.onAfterLoad(context);
-          }
+          // Load the module
+          this._run(jsname, module, src, moduleVmGlobals);
         } catch (e: unknown) {
           // Save the exception and throw it outside the hook
           hookException = e;
@@ -247,7 +241,7 @@ export class TypescriptCompiler {
 
     // Require the modules requested
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require(this._moduleFile);
+    require(this._moduleFile);
 
     // Unhook require
     require.extensions[hookType] =
@@ -267,7 +261,7 @@ export class TypescriptCompiler {
       _compilationsByModule[this._moduleFile] = localCompilations;
     }
 
-    return mod;
+    return this.getJsFilename(this._moduleFile);
   } // fn: compileSync
 
   /**
@@ -522,6 +516,17 @@ export class TypescriptCompiler {
       JSON.stringify(this._newCompilationRecord(module.filename))
     );
   } // fn: _tsc
+
+  /**
+   * Returns the name of the compiled output file
+   *
+   * @param `moduleFile` module to compile
+   * @returns filename of the compiled output file
+   */
+  public getJsFilename(moduleFile: string = this._moduleFile): string {
+    this._determineOptions();
+    return this._getJsFilename(moduleFile);
+  }
 
   /**
    * Returns the name of the compiled output file
@@ -820,8 +825,11 @@ export class TypescriptCompiler {
    */
   public static clean(tmpDir: string = defaultOptions.tmpDir): void {
     if (fs.existsSync(tmpDir)) {
-      console.info(`Removing compiler temp files: ${tmpDir}`);
-      fs.rmSync(tmpDir, { recursive: true });
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // ignore parallel worker cleanup collisions
+      }
     }
   } // fn: clean
 } // class: TypeScriptCompiler
@@ -909,7 +917,7 @@ const defaultOptions: CompilerOptions = {
   target: "ES2022", // default to ES2022
   moduleKind: "nodenext", // cjs is required for running inside express
   emitOnError: false, // fail compilation in case of errors
-  tmpDir: path.join(os.tmpdir(), "nanofuzz", "tsc"), // path for compiled files
+  tmpDir: path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "tsc", String(process.pid)), // path for compiled files
   lib: ["DOM", "ScriptHost", "ES2020", "ES2021.String", "ES2022"], // default to ES2020
   types: [""], // do not automatically import types
   typeRoots: [], // do not automatically import types
