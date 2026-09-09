@@ -10,7 +10,7 @@ import {
   CoverageInfo,
   FullCoverage,
   PythonRunner,
-} from "../runners/PythonRunner";
+} from "../runners/python/PythonRunner";
 import {
   ArgDef,
   FunctionDef,
@@ -82,12 +82,14 @@ class TestPythonCoverageMeasure extends PythonCoverageMeasure {
     super();
     this._info = { ...staticInfo };
     this._coverage = { [file]: this._info };
-    this._runner = new StubPythonRunner(this._coverage);
+    this._runners = [new StubPythonRunner(this._coverage)];
   }
 
   public record(run: PythonRun): void {
+    this.onBeforeNextTestExecution();
     this._info.lines = run.lines;
     this._info.arcs = run.arcs;
+    this.recordHits(this._coverage);
   }
 
   /**
@@ -877,7 +879,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
         for (const [file, info] of Object.entries(statics)) {
           this._coverage[file] = { ...info };
         }
-        this._runner = new StubPythonRunner(this._coverage);
+        this._runners = [new StubPythonRunner(this._coverage)];
       }
 
       /**
@@ -888,10 +890,15 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
        * @param `runs` what the call executed, by file
        */
       public record(runs: Record<string, PythonRun>): void {
-        for (const [file, info] of Object.entries(this._coverage)) {
+        this.onBeforeNextTestExecution();
+        for (const [file, info] of Object.entries(this._coverage) as [
+          string,
+          CoverageInfo,
+        ][]) {
           info.lines = runs[file]?.lines;
           info.arcs = runs[file]?.arcs;
         }
+        this.recordHits(this._coverage);
       }
     } // class: MultiFileMeasure
 
@@ -1164,6 +1171,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
         timers: {
           total: 21,
           compile: 5,
+          instrument: 0,
           transform: 0,
           put: 10,
           val: 1,

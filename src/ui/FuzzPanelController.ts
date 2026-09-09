@@ -37,6 +37,7 @@ import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMea
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";
+import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -1788,7 +1789,34 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     const files = panel._coverageStats.files;
     for (const editor of vscode.window.visibleTextEditors) {
       const fsPath = normalizePathForKey(editor.document.uri.fsPath);
-      const fileMap = files.find((f) => f.path === fsPath)?.fileMap;
+      let fileMap = files.find((f) => f.path === fsPath)?.fileMap;
+
+      // Fall back to canonical realpath matching if direct path equality fails.
+      // On macOS, system symlinks (e.g. /var -> /private/var or /tmp -> /private/tmp)
+      // can cause source maps to resolve paths like /private/Users/... while VS Code
+      // editor document URIs report /Users/...
+      // On Windows, drive letter casing or NTFS junction points / short 8.3 paths
+      // can cause identical path string mismatches. Comparing realpaths ensures
+      // editor documents correctly match coverage stats on macOS, Windows, and Linux.
+      if (!fileMap) {
+        try {
+          const realFsPath = fs.existsSync(fsPath)
+            ? normalizePathForKey(fs.realpathSync(fsPath))
+            : fsPath;
+          fileMap = files.find((f) => {
+            try {
+              return (
+                fs.existsSync(f.path) &&
+                normalizePathForKey(fs.realpathSync(f.path)) === realFsPath
+              );
+            } catch {
+              return false;
+            }
+          })?.fileMap;
+        } catch {
+          // ignore
+        }
+      }
 
       if (fileMap) {
         applyCoverageHeatmapToEditor(editor, fileMap);
@@ -2568,7 +2596,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               moreCalls -= pendingCalls;
               callCategories++;
               aiGeneratorText.push(
-                `${pendingCalls} ${pendingCalls === 1 ? "was" : "were"} awaiting a response when testing ended${moreCalls ? "," : "."}`
+                `${pendingCalls} ${pendingCalls === 1 ? "was" : "were"} still in-flight when testing ended, and their results will be used if you click the "continue" button${moreCalls ? "," : "."}`
               );
             }
             if (aiGenStats.gen.calls.valid) {
@@ -2616,7 +2644,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             // Tokens and estimated costs
             if (aiGenStats.gen.tokens.sent + aiGenStats.gen.tokens.received) {
               aiGeneratorText.push(
-                `All these interactions used ${aiGenStats.gen.tokens.sent} input tokens and ${aiGenStats.gen.tokens.received} output tokens.`
+                `These non in-flight interactions used ${aiGenStats.gen.tokens.sent} input tokens and ${aiGenStats.gen.tokens.received} output tokens.`
               );
               if (
                 !(
@@ -2826,7 +2854,8 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             <div class="fuzzResultHeading">Where did ${toolName} spend its time?</div>
             <p>
               Compiling and instrumenting the program used ${Math.round(
-                this._results.stats.timers.compile
+                this._results.stats.timers.compile +
+                  this._results.stats.timers.instrument
               )} ms, generating inputs used ${Math.round(
                 this._results.stats.timers.gen
               )} ms, executing the program used ${Math.round(
@@ -2921,7 +2950,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
             html += /*html*/ `
                   <div class="fuzzGridPanel${showThisGrid ? `` : ` hidden`}" id="view-${e.id}">
-                    <div class="fuzzPanelDescription">${htmlEscape(e.description)}</div>`;
+                    <div class="fuzzPanelDescription">${
+                      e.id === "runInfo"
+                        ? e.description
+                        : htmlEscape(e.description)
+                    }</div>`;
             if (e.hasGrid) {
               html += /*html*/ `
                     <div id="fuzzResultsGrid-${e.id}">
@@ -4176,6 +4209,13 @@ export const commands = {
   fuzzWithValidator: {
     name: "nanofuzz.FuzzWithValidator",
     fn: handleFuzzWithValidatorCommand,
+  },
+  clearCompileCache: {
+    name: "nanofuzz.ClearCompileCache",
+    fn: () => {
+      CompilerFactory.clean();
+      vscode.window.showInformationMessage(`Compile cache cleared`);
+    },
   },
 };
 

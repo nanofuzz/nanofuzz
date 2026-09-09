@@ -3,7 +3,6 @@ import sys
 import os
 import io
 import json
-import uuid
 import struct
 import logging
 import tempfile
@@ -21,9 +20,14 @@ except ModuleNotFoundError as e:
     exit(3)
 
 
+class CollectOptions(TypedDict):
+    coverageData: NotRequired[Literal[True]]
+
+
 class RunnerInput(TypedDict):
     args: List[Any]
     seq: int
+    collect: NotRequired[CollectOptions]
 
 
 class RunnerValueResult(TypedDict):
@@ -448,12 +452,20 @@ def json5_default(obj: Any) -> Any:
         f"Object of type {type(obj).__name__} is not JSON5 serializable")
 
 
-def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
+def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
     logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
 
-    # cov.erase() is too expensive. Seems like only erasing the data works too
-    cov.get_data().erase()
-    cov.start()
+    collect_options = input.get("collect")
+    if collect_options is None:
+        coverage_enabled = True
+    else:
+        coverage_enabled = bool(collect_options.get("coverageData"))
+
+    if coverage_enabled:
+        # cov.erase() is too expensive. Seems like only erasing the data works too
+        cov.get_data().erase()
+        cov.start()
+
     error = None
     skip = None
     value = None
@@ -479,19 +491,21 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: 
         else:
             error = e
     finally:
-        cov.stop()
+        if coverage_enabled:
+            cov.stop()
 
     # Read coverage after stopping: a failing input still covers lines
     coverageData = {}
     coverageArcs = {}
-    for file in cov.get_data().measured_files():
-        lines = coverage_lines(cov, file)
-        if not lines:
-            continue
-        if file not in covInfo:
-            covInfo[file] = static_coverage(cov, file)
-        coverageData[file] = lines
-        coverageArcs[file] = coverage_arcs(cov, file)
+    if coverage_enabled:
+        for file in cov.get_data().measured_files():
+            lines = coverage_lines(cov, file)
+            if not lines:
+                continue
+            if file not in covInfo:
+                covInfo[file] = static_coverage(cov, file)
+            coverageData[file] = lines
+            coverageArcs[file] = coverage_arcs(cov, file)
 
     if skip is not None:
         return RunnerSkipResult(
@@ -500,7 +514,7 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: 
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo
+            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     if error is not None:
@@ -509,12 +523,11 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: 
             name="PythonPutError",
             message=str(error),
             source="put",
-            stack="".join(traceback.format_exception(
-                type(error), error, error.__traceback__)),
+            stack="".join(traceback.format_exception(error)),
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo
+            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     return RunnerValueResult(
@@ -523,7 +536,7 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: 
         seq=input["seq"],
         coverageData=coverageData,
         coverageArcs=coverageArcs,
-        staticCoverage=covInfo
+        staticCoverage=covInfo if coverage_enabled else {}
     )
 
 
@@ -533,7 +546,7 @@ def put_result(result: RunnerResult) -> None:
     logging.debug(f"[{pid}]  - Result returned")
 
 
-def send_msg(data: RunnerResult):
+def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
     msg = json5.dumps(data, default=json5_default).encode('utf-8')
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes: {msg}")
     sys.stdout.buffer.write(struct.pack(
@@ -601,16 +614,19 @@ if __name__ == "__main__":
     logging.debug(f"[{pid}] Pre-warmed coverage tracer")
 
     # Ready for inputs
-    msg = "READY".encode('utf-8')
-    sys.stdout.buffer.write(msg)
-    sys.stdout.buffer.flush()
-    logging.debug(f"[{pid}] Sent READY message (length {len(msg)})")
+    send_msg("READY")
+    logging.debug(f"[{pid}] Sent READY message")
+
+    # Send the static coverage info once
+    send_msg(coverageInfo)
+    logging.debug(
+        f"[{pid}] Sent coverageInfo for {len(coverageInfo)} file(s)")
 
     # Start the run loop
     while True:
         logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
-            put_result(run_put(get_inputs(), filename,
+            put_result(run_put(get_inputs(), filename, fnname, fn,
                        cov, coverageInfo))  # Call the put
         else:
             get_inputs()

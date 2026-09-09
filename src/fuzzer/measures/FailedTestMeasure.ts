@@ -1,6 +1,7 @@
 import { FuzzTestResult, InputAndSource } from "../Types";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 import { AbstractCoverageMeasure } from "./AbstractCoverageMeasure";
+import { AbstractRunner } from "../runners/AbstractRunner";
 
 /**
  * Measures the number of newly-failing tests. Because there is no ground truth for bugs,
@@ -20,6 +21,19 @@ export class FailedTestMeasure extends AbstractMeasure {
     super();
     this._covMeasure = covMeasure;
   } // fn: constructor
+
+  /**
+   * Called at the start of a test run.
+   *
+   * @param runner the test runner instance
+   */
+  public override onRunStart(
+    runners: AbstractRunner[] | AbstractRunner
+  ): void {
+    super.onRunStart(runners);
+    this._pseudoBugsData = {};
+    this._pseudoBugsFound = 0;
+  } // fn: onRunStart
 
   /**
    * Measure the test failures of the most recent test execution.
@@ -44,11 +58,9 @@ export class FailedTestMeasure extends AbstractMeasure {
     ];
 
     // Init bugs data
-    if (!Object.keys(this._pseudoBugsData).length) {
-      judgments.forEach((value, v) => {
-        this._pseudoBugsData[v] = {};
-      });
-    }
+    judgments.forEach((_, v) => {
+      this._pseudoBugsData[v] = this._pseudoBugsData[v] ?? {};
+    });
 
     // Get the coverage map for this tick
     const coverageMapData =
@@ -62,6 +74,7 @@ export class FailedTestMeasure extends AbstractMeasure {
     // Find new validator failures and coverage combinations exhibiting failures
     judgments.forEach((j, i) => {
       if (j === "fail") {
+        this._pseudoBugsData[i] = this._pseudoBugsData[i] ?? {};
         if (!(coverageMapData in this._pseudoBugsData[i])) {
           this._pseudoBugsData[i][coverageMapData] = 1;
           newlyFailingValidators.push(Number(i));

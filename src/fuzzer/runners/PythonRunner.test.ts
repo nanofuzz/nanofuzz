@@ -1,4 +1,4 @@
-import { PythonRunner } from "./PythonRunner";
+import { PythonRunner } from "./python/PythonRunner";
 import { FuzzEnv } from "../Fuzzer";
 import { ArgDef } from "../analysis/ArgDef";
 import * as ProgramFactory from "../analysis/ProgramFactory";
@@ -357,7 +357,10 @@ def process_data(t: tuple[int, str], d: dict[int, str]):
       const runner = new PythonRunner(pyPath, "process_data", env, 2000);
       await runner.onRunStart();
 
-      const res = await runner.run([[10, "foo"], { "1": "one", "2": "two" }], 2000);
+      const res = await runner.run(
+        [[10, "foo"], { "1": "one", "2": "two" }],
+        2000
+      );
 
       await runner.onRunEnd();
 
@@ -466,6 +469,67 @@ def process_floats(nan_val: float, inf_val: float):
         });
       } catch {
         // Ignore residual file lock cleanup errors on Windows
+      }
+    }
+  });
+
+  it("skips coverage collection when coverage is disabled", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "nocov_test.py");
+    const pyCode = `
+def add_one(x: int) -> int:
+    return x + 1
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
+      const fnDef = program.functionsExported["add_one"];
+      const env: FuzzEnv = {
+        function: fnDef,
+        options: {
+          argDefaults: ArgDef.getDefaultOptions(),
+          maxTests: 1000,
+          maxDupeInputs: 1000,
+          maxFailures: 0,
+          fnTimeout: 100,
+          suiteTimeout: 0,
+          useImplicit: true,
+          useHuman: false,
+          useProperty: false,
+          useTransformer: false,
+          measures: {
+            CoverageMeasure: { enabled: false, weight: 1 },
+            FailedTestMeasure: { enabled: true, weight: 1 },
+          },
+          generators: {
+            RandomInputGenerator: { enabled: true },
+            MutationInputGenerator: { enabled: true },
+            AiInputGenerator: { enabled: false },
+          },
+        },
+        validators: [],
+        transformers: [],
+      };
+
+      const runner = new PythonRunner(pyPath, "add_one", env, 2000);
+      await runner.onRunStart();
+
+      const res = await runner.run([5], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      expect(runner.coverageInfo).toBeUndefined();
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
       }
     }
   });

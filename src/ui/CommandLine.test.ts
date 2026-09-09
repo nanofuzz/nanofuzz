@@ -12,11 +12,15 @@ import { prompt } from "../fuzzer/adapters/LlmAdapter";
 
 function runCli(args: string[]): ChildProcess.SpawnSyncReturns<string> {
   const cliScript = path.resolve(__dirname, "../../build/cli/cli.cjs");
-  return ChildProcess.spawnSync(process.execPath, [cliScript, ...args], {
+  const res = ChildProcess.spawnSync(process.execPath, [cliScript, ...args], {
     encoding: "utf8",
     cwd: path.resolve(__dirname, "../.."),
     shell: process.platform === "win32",
   });
+  if (res.stdout) {
+    process.stdout.write(res.stdout);
+  }
+  return res;
 }
 
 describe("cli:", () => {
@@ -434,6 +438,88 @@ def ${targetFn}(n: int) -> int:
       }
     }
   });
+
+  it("--output-file: includes coverage counters", () => {
+    const outputFile = path.join(tmpDir, "cov_counters_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "5",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const outputData = JSON5.parse<any>(fs.readFileSync(outputFile, "utf8"));
+
+    expect(outputData.stats.measures.CodeCoverageMeasure).toBeDefined();
+    const cov = outputData.stats.measures.CodeCoverageMeasure;
+    expect(cov.counters).toBeDefined();
+    expect(typeof cov.counters.statementsTotal).toBe("number");
+    expect(typeof cov.counters.statementsCovered).toBe("number");
+    expect(typeof cov.counters.functionsTotal).toBe("number");
+    expect(typeof cov.counters.functionsCovered).toBe("number");
+    expect(typeof cov.counters.branchesTotal).toBe("number");
+    expect(typeof cov.counters.branchesCovered).toBe("number");
+    expect(Array.isArray(cov.files)).toBeTrue();
+    expect(cov.files.length).toBeGreaterThan(0);
+
+    // Verify results[].coverageMeasure only retains `current` (accum/accumDelta/globalDelta omitted)
+    expect(outputData.results.length).toBeGreaterThan(0);
+    for (const r of outputData.results) {
+      if (r.coverageMeasure) {
+        expect(r.coverageMeasure.current).toBeDefined();
+        expect(r.coverageMeasure.accum).toBeUndefined();
+        expect(r.coverageMeasure.accumDelta).toBeUndefined();
+        expect(r.coverageMeasure.globalDelta).toBeUndefined();
+      }
+    }
+  });
+
+  /**
+   * Commented out so the cache clear does not step on other running tests
+   *
+  it("--clear-compile-cache: clears compiler cache prior to testing", () => {
+    const outputFile = path.join(tmpDir, "clear_cache_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    // First run to populate cache
+    const res1 = runCli([
+      targetFile,
+      targetFn,
+      "--max-tests",
+      "5",
+    ]);
+    expect(res1.status).toBe(0);
+
+    // Second run with --clear-compile-cache flag
+    const res2 = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--clear-compile-cache",
+      "--max-tests",
+      "5",
+    ]);
+
+    expect(res2.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+    expect(outputData.results.length).toBeGreaterThan(0);
+  });
+  */
 });
 
 function getFnNameAndModule(fnObj: unknown): {

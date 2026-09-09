@@ -15,7 +15,9 @@ import {
   FuzzTestResults,
 } from "../Fuzzer";
 import { normalizePathForKey } from "../Util";
+import { AbstractRunner } from "../runners/AbstractRunner";
 import * as fs from "fs";
+import * as path from "path";
 import {
   AbstractCoverageMeasure,
   CodeCoverageFileStats,
@@ -30,9 +32,81 @@ import {
 export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   protected _coverageData: CoverageMapData = emptyCoverageMapData([]); // coverage data maintained by instrumented code
   protected _globalCoverageMap = createCoverageMap({}); // global code coverage map
-  protected _history: CoverageMeasurementNode[] = []; // measurement history
+  protected _history = new Map<number, CoverageMeasurementNode>(); // measurement history
+  protected _lastNode: CoverageMeasurementNode | undefined = undefined;
   protected _sourceMapStore: MapStore = createSourceMapStore();
   protected _lineHitCounts: Map<string, Map<number, number>> = new Map(); // tracks per-line hit counts across test runs
+
+  public override onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
+    super.onRunStart(runners);
+    this._globalCoverageMap = createCoverageMap({});
+    this._history.clear();
+    this._lastNode = undefined;
+
+    const runnerList = Array.isArray(runners) ? runners : [runners];
+    const initialCov = runnerList[0]?.coverageInfo;
+    if (isCoverageMapData(initialCov)) {
+      this._coverageData = {};
+      for (const k of Object.keys(initialCov)) {
+        const normKey = normalizePathForKey(k);
+        this._coverageData[normKey] = {
+          ...structuredClone(initialCov[k]),
+          path: normKey,
+        };
+      }
+    } else {
+      this._coverageData = emptyCoverageMapData([]);
+    }
+
+    runnerList.forEach((r) => {
+      r.onCoverage((covData) => {
+        if (isRecordOfFileCoverageData(covData)) {
+          this.recordHits(covData);
+        }
+      });
+    });
+  } // fn: onRunStart
+
+  /**
+   * Records code coverage hits for the given coverage data.
+   *
+   * @param coverageData a record of file coverage data
+   * @returns void
+   */
+  public recordHits(coverageData: Record<string, FileCoverageData>): void {
+    if (!this._coverageData) return;
+    for (const fileKey of Object.keys(coverageData)) {
+      const normKey = normalizePathForKey(fileKey);
+      const fileHits = coverageData[fileKey];
+      const targetObj = this._coverageData[normKey];
+      if (targetObj && fileHits) {
+        if (fileHits.s && targetObj.s) {
+          for (const sKey of Object.keys(fileHits.s)) {
+            targetObj.s[sKey] =
+              (targetObj.s[sKey] ?? 0) + (fileHits.s[sKey] ?? 0);
+          }
+        }
+        if (fileHits.f && targetObj.f) {
+          for (const fKey of Object.keys(fileHits.f)) {
+            targetObj.f[fKey] =
+              (targetObj.f[fKey] ?? 0) + (fileHits.f[fKey] ?? 0);
+          }
+        }
+        if (fileHits.b && targetObj.b) {
+          for (const bKey of Object.keys(fileHits.b)) {
+            if (!targetObj.b[bKey]) {
+              targetObj.b[bKey] = [...(fileHits.b[bKey] ?? [])];
+            } else if (Array.isArray(fileHits.b[bKey])) {
+              for (let i = 0; i < fileHits.b[bKey].length; i++) {
+                targetObj.b[bKey][i] =
+                  (targetObj.b[bKey][i] ?? 0) + (fileHits.b[bKey][i] ?? 0);
+              }
+            }
+          }
+        }
+      }
+    }
+  } // fn: recordHits
 
   /**
    * Instruments the program under test to capture code coverage data.
@@ -43,11 +117,24 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @returns instrumented code
    */
   public onAfterCompile(jsSrc: string, jsFileName: string): string {
+    // Skip if code is already instrumented
+    if (jsSrc.includes("__coverage__") || jsSrc.includes("cov_")) {
+      return jsSrc;
+    }
+
     const mapPath = jsFileName + ".map";
     let sourceMap: RawSourceMap | undefined;
 
     if (fs.existsSync(mapPath)) {
       sourceMap = JSON.parse(fs.readFileSync(mapPath, "utf8"));
+      if (sourceMap && Array.isArray(sourceMap.sources)) {
+        const cleanDir = path.dirname(
+          jsFileName.replace(/([/\\])inst-[^/\\]+\1/, "$1")
+        );
+        sourceMap.sources = sourceMap.sources.map((s) =>
+          path.isAbsolute(s) ? s : path.resolve(cleanDir, s)
+        );
+      }
     }
 
     const instrumenter = createInstrumenter({
@@ -63,6 +150,15 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
 
     const combinedSourceMap = instrumenter.lastSourceMap();
     this._sourceMapStore.registerMap(jsFileName, combinedSourceMap);
+    try {
+      fs.writeFileSync(
+        jsFileName + ".map",
+        JSON.stringify(combinedSourceMap),
+        "utf8"
+      );
+    } catch {
+      // ignore
+    }
 
     return instrumented;
   } // fn: onAfterCompile
@@ -123,8 +219,12 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     // Merge the current coverage into root predecessor
     const pred =
       "tick" in input.source && input.source.tick !== undefined
-        ? this._history[input.source.tick]
+        ? this._history.get(input.source.tick)
         : undefined;
+    if (pred) {
+      pred.refCount++;
+    }
+
     let accumBefore = 0;
     let accumAfter = 0;
     let nextPred = pred;
@@ -153,22 +253,43 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
       name: this.name,
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
-        globalDelta: this._toNumber(this._globalCoverageMap) - globalBefore,
+        globalDelta: Math.max(
+          0,
+          this._toNumber(this._globalCoverageMap) - globalBefore
+        ),
         // Python version does not have _snapshot, so this is to keep consistency with Python
         accum: AbstractCoverageMeasure.better_merge(
           createCoverageMap({}),
           currentCoverageData
         ),
-        accumDelta: accumAfter - accumBefore,
+        accumDelta: Math.max(0, accumAfter - accumBefore),
       },
     };
 
     // Update measure history
-    this._history[input.tick] = {
+    const node: CoverageMeasurementNode = {
       input,
       pred,
       meas,
+      refCount: 0,
     };
+
+    // Prune previous node if it was unreferenced and produced no coverage progress
+    if (this._lastNode) {
+      if (
+        this._lastNode.refCount === 0 &&
+        this._lastNode.meas.coverageMeasure.globalDelta === 0 &&
+        this._lastNode.meas.coverageMeasure.accumDelta === 0
+      ) {
+        if (this._lastNode.pred) {
+          this._lastNode.pred.refCount--;
+        }
+        this._history.delete(this._lastNode.input.tick);
+      }
+    }
+
+    this._history.set(input.tick, node);
+    this._lastNode = node;
 
     return meas;
   } // fn: measure
@@ -180,7 +301,10 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @returns a numeric value representing the progress of the test execution
    */
   public delta(a: CoverageMeasurement): number {
-    return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
+    return Math.max(
+      0,
+      a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta
+    );
   } // fn: delta
 
   /**
@@ -220,6 +344,28 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   public onRunEnd(results: FuzzTestResults): void {
     results.stats.measures.CodeCoverageMeasure =
       async (): Promise<CodeCoverageMeasureStats> => {
+        // Register source maps from disk for any files in globalCoverageMap
+        // that aren't already registered (e.g. from cached instrumented runs)
+        for (const fileKey of this._globalCoverageMap.files()) {
+          const mapPath = fileKey + ".map";
+          if (fs.existsSync(mapPath)) {
+            try {
+              const mapData = JSON.parse(fs.readFileSync(mapPath, "utf8"));
+              if (mapData && Array.isArray(mapData.sources)) {
+                const cleanDir = path.dirname(
+                  fileKey.replace(/([/\\])inst-[^/\\]+\1/, "$1")
+                );
+                mapData.sources = mapData.sources.map((s: string) =>
+                  path.isAbsolute(s) ? s : path.resolve(cleanDir, s)
+                );
+              }
+              this._sourceMapStore.registerMap(fileKey, mapData);
+            } catch {
+              // ignore
+            }
+          }
+        }
+
         // We need to transform the global coverage map using the source maps
         // to get TypeScript locations (not the compiled JS locations).
         const tsCoverageMap = await this._sourceMapStore.transformCoverage(
@@ -330,7 +476,7 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @returns true if coverage data exists for `tick`, false otherwise
    */
   public hasCoverage(tick: number): boolean {
-    return !!this._history[tick];
+    return this._history.has(tick);
   } // fn: hasCoverage
 
   /**
@@ -340,8 +486,9 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @returns the coverage measure for `tick`
    */
   public getCoverage(tick: number): CoverageMeasurement {
-    if (this.hasCoverage(tick)) {
-      return this._history[tick].meas; // rep leak !!!!!!!
+    const node = this._history.get(tick);
+    if (node) {
+      return node.meas; // rep leak !!!!!!!
     }
     throw new Error(`No coverahe data for "${tick}"`);
   } // fn: getCoverage
@@ -388,4 +535,22 @@ export function emptyCoverageMapData(files: string[]): CoverageMapData {
     };
   });
   return cov;
-}
+} // fn: emptyCoverageMapData
+
+/**
+ * Type guard function that returns true if `val` is a record of file coverage data
+ *
+ * @param val the value to check
+ * @returns true if `val` is a record of file coverage data, false otherwise
+ */
+function isRecordOfFileCoverageData(
+  val: unknown
+): val is Record<string, FileCoverageData> {
+  return typeof val === "object" && val !== null;
+} // fn: isRecordOfFileCoverageData
+
+export type FileCoverageData = {
+  s?: Record<string, number>;
+  f?: Record<string, number>;
+  b?: Record<string, number[]>;
+};

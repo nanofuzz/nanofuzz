@@ -3,9 +3,11 @@ const path = require("path");
 const os = require("os");
 const { spawn } = require("child_process");
 
+const isVerbose = process.argv.includes("--verbose");
+
 // Determine test files to run
 function getTestFiles() {
-  const args = process.argv.slice(2);
+  const args = process.argv.slice(2).filter((arg) => arg !== "--verbose");
 
   // If specific files or filter keywords were passed via CLI args
   if (args.length > 0) {
@@ -113,16 +115,20 @@ async function main() {
   }
 
   const testFiles = sortTestFiles(rawFiles);
+  const totalFiles = testFiles.length;
 
   // Use OS available parallelism (number of CPU cores) or JOBS env var
-  const maxConcurrency = process.env.JOBS
-    ? parseInt(process.env.JOBS, 10)
-    : Math.max(
-        1,
-        os.availableParallelism ? os.availableParallelism() : os.cpus().length
-      );
+  // Do not exceed the number of test files to avoid idle workers
+  const maxConcurrency = Math.min(
+    process.env.JOBS
+      ? parseInt(process.env.JOBS, 10)
+      : Math.max(
+          1,
+          os.availableParallelism ? os.availableParallelism() : os.cpus().length
+        ),
+    totalFiles
+  );
 
-  const totalFiles = testFiles.length;
   console.log(
     `Running ${totalFiles} test file(s) in parallel using ${maxConcurrency} worker(s)...\n`
   );
@@ -149,10 +155,14 @@ async function main() {
         `${progress.padStart(7)} ${statusTag} ${res.file} (${res.durationSec}s)`
       );
 
+      if (isVerbose && res.stdout) {
+        process.stdout.write(res.stdout);
+      }
+
       // Print output inline if test failed
       if (res.code !== 0) {
         console.error(`\n--- FAILURE OUTPUT: ${res.file} ---`);
-        if (res.stdout) console.error(res.stdout);
+        if (res.stdout && !isVerbose) console.error(res.stdout);
         if (res.stderr) console.error(res.stderr);
         console.error(`--- END FAILURE OUTPUT ---\n`);
       }

@@ -85,6 +85,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         timers: {
           total: 0,
           compile: 0,
+          instrument: 0,
           put: 0,
           val: 0,
           gen: 0,
@@ -197,6 +198,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           timers: {
             total: 0,
             compile: 0,
+            instrument: 0,
             put: 0,
             val: 0,
             gen: 0,
@@ -326,6 +328,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           timers: {
             total: 0,
             compile: 0,
+            instrument: 0,
             put: 0,
             val: 0,
             gen: 0,

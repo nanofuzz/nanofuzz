@@ -1,9 +1,11 @@
 import * as fs from "fs";
 import * as JSONN from "../Jsonn";
+import { isKeyedObject } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as CompilerFactory from "./compilers/CompilerFactory";
+import { Instrumenter } from "./compilers/Instrumenter";
 import * as ProgramFactory from "./analysis/ProgramFactory";
 import * as ValueMapper from "./mappers/ValueMapper";
 import { FunctionDef } from "./analysis/FunctionDef";
@@ -13,7 +15,7 @@ import {
   FuzzTestResult,
   FuzzResultCategory,
   FuzzStopReason,
-  FuzzBusyStatusMessage,
+  FuzzStatusUpdater,
   BaseMeasureConfig,
 } from "./Types";
 import { InputAndSource, FuzzOptions } from "./Types";
@@ -29,7 +31,7 @@ import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
-import { RunnerResult } from "./runners/AbstractRunner";
+import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
 import { getToolVersion } from "../ToolVersion";
 
@@ -204,6 +206,7 @@ export class Tester {
           gen: 0, // updated later
           measure: 0, // updated later
           compile: 0, // updated later
+          instrument: 0, // updated later
           transform: 0, // updated later
         },
         counters: {
@@ -322,7 +325,7 @@ export class Tester {
   public async testSync(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: (payload: FuzzBusyStatusMessage) => void,
+    updateFn?: FuzzStatusUpdater,
     cancelFn?: () => boolean
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
@@ -354,7 +357,7 @@ export class Tester {
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     callbackFn: (result: FuzzTestResults | Error) => void,
-    statusFn?: (payload: FuzzBusyStatusMessage) => void,
+    statusFn?: FuzzStatusUpdater,
     cancelFn?: () => boolean
   ): Promise<void> {
     this._runBatchAsync(
@@ -413,7 +416,7 @@ export class Tester {
   protected async *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: (payload: FuzzBusyStatusMessage) => void,
+    updateFn?: FuzzStatusUpdater,
     cancelFn?: () => boolean
   ): AsyncGenerator<
     FuzzTestResults | undefined,
@@ -428,7 +431,7 @@ export class Tester {
     }
     this._results.stats.counters.testingRuns++;
 
-    const update = (payload: FuzzBusyStatusMessage): void => {
+    const update: FuzzStatusUpdater = (payload) => {
       if (updateFn) {
         updateFn({ ...payload });
       } else if (payload.channel !== "update") {
@@ -489,43 +492,62 @@ export class Tester {
     // Indicate the start of the run
     this._compositeInputGenerator.onRunStart(!!mode.gen);
 
-    // The target will be a TypeScript function, so we must compile
-    // it to JavaScript (and possibly instrument it) prior to execution.
+    // Compile the target, if required (currently only Typescript)
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
     this._lastCompiler = CompilerFactory.fromSourcefile(fqSrcFile);
     const mod = this._lastCompiler
-      ? this._lastCompiler.compileSync(this._measures, update) // native ts
+      ? this._lastCompiler.compileSync(update) // native ts
       : fqSrcFile; // something other than native ts
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
+    // Instrument the target, if required (currently only Typescript)
+    // Note: Python is currently instrumented in PythonRunnerHost
+    // Assumes: put, transformers, & validators are in the same module
+    const instrumentTime = performance.now(); // start time: instrument
+    const targetMod = this._lastCompiler
+      ? Instrumenter.prepareInstrumentedTree(
+          mod,
+          this._lastCompiler.getCompiledDependencies(),
+          this._measures,
+          this._lastCompiler.options.tmpDir,
+          updateFn
+        )
+      : mod;
+    this._results.stats.timers.instrument = performance.now() - instrumentTime;
+
     // Build a test runner for executing tests
-    const runner = RunnerFactory(this.env, mod, this._function.getName());
+    const runner = RunnerFactory(this.env, targetMod, this._function.getName());
     await runner.onRunStart();
 
     // Build a test runner for executing transformers, if any are present and enabled
+    // Assumed: transforers are in the same module
     let transformRunner: ReturnType<typeof RunnerFactory> | undefined;
     if (this.env.options.useTransformer && this.env.transformers.length) {
       transformRunner = RunnerFactory(
         this.env,
-        mod,
+        targetMod,
         this.env.transformers[0].name
       );
       await transformRunner.onRunStart();
     }
 
-    // Connect the measures to the runner. Measures that source their data
-    // from the runner (e.g., Python coverage) need it before the first test.
-    this._measures.forEach((m) => {
-      m.onRunStart(runner);
-    });
-
     // Build runners for the property validators
+    // Assumed: property validators are in the same module
     const propRunners = this._validators.map((vFnRef) =>
-      RunnerFactory(this.env, mod, vFnRef.name)
+      RunnerFactory(this.env, targetMod, vFnRef.name)
     );
-    propRunners.forEach(async (p) => await p.onRunStart());
+    await Promise.all(propRunners.map((p) => p.onRunStart()));
     const propertyOracle = new PropertyOracle(propRunners);
+
+    // Connect the measures to the runners. Measures that source their data
+    // from runners (e.g., Python or TypeScript coverage) need them before the first test.
+    const runners = [runner, transformRunner, ...propRunners].filter(
+      (r): r is AbstractRunner => r !== undefined
+    );
+    this._measures.forEach((m) => {
+      m.onRunStart(runners);
+    });
 
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
@@ -575,6 +597,11 @@ export class Tester {
           e.onRunEnd(this._results);
         });
         await this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
+
+        const covStats =
+          typeof this._results.stats.measures.CodeCoverageMeasure === "function"
+            ? await this._results.stats.measures.CodeCoverageMeasure()
+            : undefined;
 
         // Shut down runners
         await Promise.all(
@@ -645,7 +672,13 @@ export class Tester {
         if (this._options.outputFile) {
           fs.writeFileSync(
             this._options.outputFile,
-            JSONN.stringify(this._results)
+            JSONN.stringify(this._results, (k, v) =>
+              k === "CodeCoverageMeasure"
+                ? covStats
+                : k === "coverageMeasure" && isKeyedObject(v)
+                  ? { current: v.current }
+                  : v
+            )
           );
           update({
             msg: ` - Test results: ${this._options.outputFile}`,
@@ -693,6 +726,16 @@ export class Tester {
         category: "ok",
         interestingReasons: [],
       };
+
+      // Prepare measures for next test execution (before transformers & runners execute)
+      {
+        const startMeasTime = performance.now();
+        this._measures.forEach((m) => {
+          m.onBeforeNextTestExecution();
+        });
+        const measureTime = performance.now() - startMeasTime;
+        this._results.stats.timers.measure += measureTime;
+      }
 
       // Generate and store the inputs
       const startGenTime = performance.now(); // start time: input generation
@@ -823,19 +866,6 @@ export class Tester {
         }
         // Indicate that we are no longer injecting inputs
         stillInjecting = false;
-      }
-
-      // Prepare measures for next test execution
-      {
-        const startMeasTime = performance.now(); // start time: input generation
-        this._measures.forEach((m) => {
-          m.onBeforeNextTestExecution();
-        });
-        const measureTime = performance.now() - startMeasTime;
-        this._results.stats.timers.measure += measureTime;
-        if (genStats) {
-          genStats.timers.measure += measureTime;
-        }
       }
 
       // If the function accepts inputs, check if the input is a dupe
@@ -1339,6 +1369,7 @@ export type FuzzTestStats = {
   timers: {
     total: number; // elapsed time the fuzzer ran
     compile: number; // elapsed time to compile & instrument PUT
+    instrument: number; // elapsed time to instrument PUT
     put: number; // elapsed time the PUT ran
     val: number; // elapsed time to categorize outputs
     gen: number; // elapsed time to generate inputs

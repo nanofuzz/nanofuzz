@@ -1,4 +1,4 @@
-import { CoverageInfo } from "../../runners/PythonRunner";
+import { CoverageInfo } from "../../runners/python/PythonRunner";
 import { Arc } from "../../runners/AbstractRunner";
 
 /**
