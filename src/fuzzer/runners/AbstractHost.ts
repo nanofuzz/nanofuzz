@@ -33,6 +33,7 @@ export abstract class AbstractHost {
 
     this._proc = this._spawn();
 
+    this._proc.on("error", this._onError);
     this._proc.stdout.on("data", this._onStdout);
     this._proc.stdout.on("error", this._onError);
     this._proc.stderr.on("data", this._onStderr);
@@ -58,9 +59,11 @@ export abstract class AbstractHost {
 
   public async getResponse(timeout: number = Infinity): Promise<string> {
     return new Promise<string>((resolve, reject) => {
+      let timedOut = false;
       const timer =
-        timeout >= 0 && timeout !== Infinity
+        timeout > 0 && timeout !== Infinity
           ? setTimeout(() => {
+              timedOut = true;
               const exception = new Error(
                 `Host did not respond within ${timeout} ms timeout`
               );
@@ -72,20 +75,24 @@ export abstract class AbstractHost {
 
       this._readStdout(PayloadSizeBytes).then(
         (buffer) => {
+          if (timedOut) return;
           const length = buffer.readUInt32BE(0);
           this._readStdout(length).then(
             (payload) => {
+              if (timedOut) return;
+              if (timer) clearTimeout(timer);
               resolve(payload.toString());
-              if (timer) {
-                clearTimeout(timer);
-              }
             },
             (reason) => {
+              if (timedOut) return;
+              if (timer) clearTimeout(timer);
               reject(reason);
             }
           );
         },
         (reason) => {
+          if (timedOut) return;
+          if (timer) clearTimeout(timer);
           reject(reason);
         }
       );

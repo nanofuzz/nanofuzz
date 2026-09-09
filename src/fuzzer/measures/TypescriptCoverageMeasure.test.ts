@@ -1346,6 +1346,7 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
         timers: {
           total: 21,
           compile: 5,
+          instrument: 4,
           transform: 0,
           put: 10,
           val: 1,

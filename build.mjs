@@ -168,6 +168,33 @@ await esbuild.build({
   },
 });
 
+// JavascriptRunnerHost
+await esbuild.build({
+  entryPoints: ["./src/fuzzer/runners/javascript/JavascriptRunnerHost.ts"],
+  outfile: "./build/extension/JavascriptRunnerHost.js",
+  bundle: true,
+  platform: "node",
+  metafile: true,
+  minify: false,
+  format: "cjs",
+  sourcemap: "both",
+  tsconfig: "./tsconfig.json",
+  external: [
+    "path",
+    "fs",
+    "crypto",
+    "typescript",
+    "tree-sitter-python",
+    "tree-sitter-typescript",
+    "tree-sitter-javascript",
+    "web-tree-sitter",
+  ],
+  define: {
+    "process.env.BUILD_TARGET": JSON.stringify("vscode-exthost-spawn"),
+    "process.env.NANOFUZZ_VERSION": version,
+  },
+});
+
 /**
  * Returns the nearest item by searching recursively through descendant paths.
  * Returns `undefined` if not found.

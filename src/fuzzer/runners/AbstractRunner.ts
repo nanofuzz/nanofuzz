@@ -139,6 +139,9 @@ export type RunnerInput = {
   args: unknown[];
   seq: number;
   typeHints?: TypeHint[];
+  timeout?: number;
+  fnName?: string;
+  filename?: string;
 };
 
 /**

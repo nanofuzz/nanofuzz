@@ -3,7 +3,6 @@ import sys
 import os
 import io
 import json
-import uuid
 import struct
 import logging
 import tempfile
@@ -448,7 +447,7 @@ def json5_default(obj: Any) -> Any:
         f"Object of type {type(obj).__name__} is not JSON5 serializable")
 
 
-def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
+def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
     logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
 
     # cov.erase() is too expensive. Seems like only erasing the data works too
@@ -509,8 +508,7 @@ def run_put(input: RunnerInput, filename: str, cov: coverage.Coverage, covInfo: 
             name="PythonPutError",
             message=str(error),
             source="put",
-            stack="".join(traceback.format_exception(
-                type(error), error, error.__traceback__)),
+            stack="".join(traceback.format_exception(error)),
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
@@ -533,7 +531,7 @@ def put_result(result: RunnerResult) -> None:
     logging.debug(f"[{pid}]  - Result returned")
 
 
-def send_msg(data: RunnerResult):
+def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
     msg = json5.dumps(data, default=json5_default).encode('utf-8')
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes: {msg}")
     sys.stdout.buffer.write(struct.pack(
@@ -613,7 +611,7 @@ if __name__ == "__main__":
     while True:
         logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
-            put_result(run_put(get_inputs(), filename,
+            put_result(run_put(get_inputs(), filename, fnname, fn,
                        cov, coverageInfo))  # Call the put
         else:
             get_inputs()

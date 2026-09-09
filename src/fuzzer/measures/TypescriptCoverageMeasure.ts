@@ -41,6 +41,12 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     this._globalCoverageMap = createCoverageMap({});
     this._history.clear();
     this._lastNode = undefined;
+    const globalCov = Reflect.get(globalThis, "__coverage__");
+    if (isCoverageMapData(globalCov)) {
+      this._coverageData = globalCov;
+    } else {
+      this._coverageData = emptyCoverageMapData([]);
+    }
   }
 
   /**
@@ -52,6 +58,11 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @returns instrumented code
    */
   public onAfterCompile(jsSrc: string, jsFileName: string): string {
+    // Skip if code is already instrumented
+    if (jsSrc.includes("__coverage__") || jsSrc.includes("cov_")) {
+      return jsSrc;
+    }
+
     const mapPath = jsFileName + ".map";
     let sourceMap: RawSourceMap | undefined;
 
@@ -72,6 +83,14 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
 
     const combinedSourceMap = instrumenter.lastSourceMap();
     this._sourceMapStore.registerMap(jsFileName, combinedSourceMap);
+    try {
+      const realPath = fs.realpathSync(jsFileName);
+      if (realPath !== jsFileName) {
+        this._sourceMapStore.registerMap(realPath, combinedSourceMap);
+      }
+    } catch {
+      // ignore
+    }
 
     return instrumented;
   } // fn: onAfterCompile

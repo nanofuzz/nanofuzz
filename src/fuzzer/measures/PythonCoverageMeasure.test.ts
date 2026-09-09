@@ -1167,6 +1167,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
         timers: {
           total: 21,
           compile: 5,
+          instrument: 0,
           transform: 0,
           put: 10,
           val: 1,

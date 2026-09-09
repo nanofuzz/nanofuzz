@@ -5,6 +5,7 @@ import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as CompilerFactory from "./compilers/CompilerFactory";
+import { Instrumenter } from "./compilers/Instrumenter";
 import * as ProgramFactory from "./analysis/ProgramFactory";
 import * as ValueMapper from "./mappers/ValueMapper";
 import { FunctionDef } from "./analysis/FunctionDef";
@@ -205,6 +206,7 @@ export class Tester {
           gen: 0, // updated later
           measure: 0, // updated later
           compile: 0, // updated later
+          instrument: 0, // updated later
           transform: 0, // updated later
         },
         counters: {
@@ -490,26 +492,39 @@ export class Tester {
     // Indicate the start of the run
     this._compositeInputGenerator.onRunStart(!!mode.gen);
 
-    // The target will be a TypeScript function, so we must compile
-    // it to JavaScript (and possibly instrument it) prior to execution.
+    // Compile the target, if required (currently only Typescript)
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
     this._lastCompiler = CompilerFactory.fromSourcefile(fqSrcFile);
     const mod = this._lastCompiler
-      ? this._lastCompiler.compileSync(this._measures, update) // native ts
+      ? this._lastCompiler.compileSync(update) // native ts
       : fqSrcFile; // something other than native ts
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
+    // Instrument the target, if required (currently only Typescript)
+    // Note: Python is instrumented in PythonRunnerHost
+    const instrumentTime = performance.now(); // start time: instrument
+    const targetMod = this._lastCompiler
+      ? Instrumenter.prepareInstrumentedTree(
+          mod,
+          this._lastCompiler.getCompiledDependencies(),
+          this._measures,
+          this._lastCompiler.options.tmpDir
+        )
+      : mod;
+    this._results.stats.timers.instrument = performance.now() - instrumentTime;
+
     // Build a test runner for executing tests
-    const runner = RunnerFactory(this.env, mod, this._function.getName());
+    const runner = RunnerFactory(this.env, targetMod, this._function.getName());
     await runner.onRunStart();
 
     // Build a test runner for executing transformers, if any are present and enabled
+    // Assumed: transforers are in the same module
     let transformRunner: ReturnType<typeof RunnerFactory> | undefined;
     if (this.env.options.useTransformer && this.env.transformers.length) {
       transformRunner = RunnerFactory(
         this.env,
-        mod,
+        targetMod,
         this.env.transformers[0].name
       );
       await transformRunner.onRunStart();
@@ -522,8 +537,9 @@ export class Tester {
     });
 
     // Build runners for the property validators
+    // Assumed: property validators are in the same module
     const propRunners = this._validators.map((vFnRef) =>
-      RunnerFactory(this.env, mod, vFnRef.name)
+      RunnerFactory(this.env, targetMod, vFnRef.name)
     );
     await Promise.all(propRunners.map((p) => p.onRunStart()));
     const propertyOracle = new PropertyOracle(propRunners);
@@ -1351,6 +1367,7 @@ export type FuzzTestStats = {
   timers: {
     total: number; // elapsed time the fuzzer ran
     compile: number; // elapsed time to compile & instrument PUT
+    instrument: number; // elapsed time to instrument PUT
     put: number; // elapsed time the PUT ran
     val: number; // elapsed time to categorize outputs
     gen: number; // elapsed time to generate inputs
