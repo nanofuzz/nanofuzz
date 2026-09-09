@@ -181,3 +181,23 @@ export function targetTransformedTimeoutTransformer(
     /* noop */
   }
 }
+
+export function targetValidatorTimeout(n: number): number {
+  return n;
+}
+export function targetValidatorTimeoutValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  while (true) {
+    /* noop */
+  }
+}
+
+export function targetValidatorException(n: number): number {
+  return n;
+}
+export function targetValidatorExceptionValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  throw new Error("Validator error message");
+}

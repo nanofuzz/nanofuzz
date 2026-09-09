@@ -30,18 +30,30 @@ export class PropertyOracle {
       if (result.status === "fulfilled") {
         const vOut = result.value;
         switch (vOut.result.tag) {
-          case "error":
-            return { ...vOut.result };
-          case "timeout":
-            return {
-              name: `PropertyValidatorTimeout`,
-              message: `property validator "${runner.name} timed out`,
-            };
-          case "skip":
-            return {
-              name: `UnsatisfiedAssumption`,
-              message: `property validator "${runner.name} assumption unsatisfied`,
-            };
+          case "error": {
+            const err = new Error(
+              vOut.result.message ?? "Property validator error"
+            );
+            err.name = vOut.result.name ?? "PropertyValidatorError";
+            if (vOut.result.stack) {
+              err.stack = vOut.result.stack;
+            }
+            return err;
+          }
+          case "timeout": {
+            const err = new Error(
+              `property validator "${runner.name}" timed out`
+            );
+            err.name = "PropertyValidatorTimeout";
+            return err;
+          }
+          case "skip": {
+            const err = new Error(
+              `property validator "${runner.name}" assumption unsatisfied`
+            );
+            err.name = "UnsatisfiedAssumption";
+            return err;
+          }
           case "value":
             switch (vOut.result.value) {
               case true: // v0.3
@@ -53,10 +65,13 @@ export class PropertyOracle {
               case undefined: // v0.3
               case "unknown": // v0.4
                 return "unknown";
-              default:
-                return new Error(
+              default: {
+                const err = new Error(
                   `Property validator did not return: "pass" | "fail" | "unknown"`
                 );
+                err.name = "PropertyValidatorReturnValueError";
+                return err;
+              }
             }
         }
       } else {

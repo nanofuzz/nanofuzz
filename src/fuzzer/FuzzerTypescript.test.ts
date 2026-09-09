@@ -373,4 +373,40 @@ describe("fuzzer: typescript targets", () => {
       expect(r.category).toBe("failure");
     });
   });
+
+  it("TypeScript validator exception", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetValidatorException",
+      { ...intOptions, useProperty: true, maxTests: 2 }
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionFunction).toBe(
+        "targetValidatorExceptionValidator"
+      );
+      expect(r.validatorExceptionMessage).toContain("Validator error message");
+      expect(r.category).toBe("failure");
+    });
+  });
+
+  it("TypeScript validator timeout", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetValidatorTimeout",
+      { ...intOptions, useProperty: true, maxTests: 2 }
+    ).testSync();
+
+    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.validatorException).toBeTrue();
+      expect(r.validatorExceptionFunction).toBe(
+        "targetValidatorTimeoutValidator"
+      );
+      expect(r.validatorExceptionMessage).toContain("timed out");
+      expect(r.category).toBe("failure");
+    });
+  });
 });

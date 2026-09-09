@@ -659,9 +659,11 @@ async function main() {
       });
       if (e.validatorException) {
         outputs[`output`] =
+          e.validatorExceptionDisplay ??
           `(${e.validatorExceptionFunction} exception) ${e.validatorExceptionMessage}`;
       } else if (e.exception) {
-        outputs[`output`] = "(exception) " + e.exceptionMessage;
+        outputs[`output`] =
+          e.exceptionDisplay ?? "(exception) " + e.exceptionMessage;
       }
       if (e.timeout) {
         outputs[`output`] = "(timeout)";

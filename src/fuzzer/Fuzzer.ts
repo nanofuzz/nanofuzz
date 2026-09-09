@@ -769,12 +769,14 @@ export class Tester {
             break;
           case "timeout":
             result.validatorException = true;
+            result.validatorExceptionDisplay = `(${transformRunner.name} timeout)`;
             result.validatorExceptionFunction = transformRunner.name;
             result.validatorExceptionMessage = `timeout`;
             break;
           case "error":
             // TODO: These need their own place in the results
             result.validatorException = true;
+            result.validatorExceptionDisplay = `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`;
             result.validatorExceptionFunction = transformRunner.name;
             result.validatorExceptionMessage = transformerResult.result.message;
             break;
@@ -960,6 +962,7 @@ export class Tester {
           case "error":
             result.exception = true;
             result.exceptionMessage = exeOutput.result.message;
+            result.exceptionDisplay = `(${exeOutput.result.name}) ${exeOutput.result.message}`;
             result.stack = exeOutput.result.stack;
             break;
           case "timeout":
@@ -1019,6 +1022,10 @@ export class Tester {
               if (isError(j)) {
                 result.passedValidators.push("unknown");
                 result.validatorException = true;
+                result.validatorExceptionDisplay =
+                  j.name === "PropertyValidatorTimeout"
+                    ? `(${this._validators[i].name} timeout)`
+                    : `(${this._validators[i].name} ${j.name}) ${j.message}`;
                 result.validatorExceptionMessage = j.message;
                 result.validatorExceptionFunction = this._validators[i].name;
                 result.validatorExceptionStack = j.stack;

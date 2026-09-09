@@ -15,6 +15,7 @@ export type FuzzTestResult = {
   output: FuzzIoElement[]; // function output
   exception: boolean; // true if an exception was thrown
   exceptionMessage?: string; // exception message if an exception was thrown
+  exceptionDisplay?: string; // exception display message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
   passedImplicit: Judgment; // "pass" if output passed implicit oracle
@@ -22,6 +23,7 @@ export type FuzzTestResult = {
   passedValidator: Judgment; // "pass" if passed all property oracles
   passedValidators: Judgment[]; // "pass" if passed all property oracles
   validatorException: boolean; // true if validator threw an exception
+  validatorExceptionDisplay?: string; // display message for validator exception display
   validatorExceptionMessage?: string; // validator exception message
   validatorExceptionFunction?: string; // name of validator throwing exception
   validatorExceptionStack?: string; // validator stack trace if exception was thrown
