@@ -27,6 +27,7 @@ import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMea
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";
+import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -2585,7 +2586,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               moreCalls -= pendingCalls;
               callCategories++;
               aiGeneratorText.push(
-                `${pendingCalls} ${pendingCalls === 1 ? "was" : "were"} awaiting a response when testing ended${moreCalls ? "," : "."}`
+                `${pendingCalls} ${pendingCalls === 1 ? "was" : "were"} still in-flight when testing ended, and their results will be used if you click the "continue" button${moreCalls ? "," : "."}`
               );
             }
             if (aiGenStats.gen.calls.valid) {
@@ -2633,7 +2634,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             // Tokens and estimated costs
             if (aiGenStats.gen.tokens.sent + aiGenStats.gen.tokens.received) {
               aiGeneratorText.push(
-                `All these interactions used ${aiGenStats.gen.tokens.sent} input tokens and ${aiGenStats.gen.tokens.received} output tokens.`
+                `These non in-flight interactions used ${aiGenStats.gen.tokens.sent} input tokens and ${aiGenStats.gen.tokens.received} output tokens.`
               );
               if (
                 !(
@@ -4198,6 +4199,13 @@ export const commands = {
   fuzzWithValidator: {
     name: "nanofuzz.FuzzWithValidator",
     fn: handleFuzzWithValidatorCommand,
+  },
+  clearCompileCache: {
+    name: "nanofuzz.ClearCompileCache",
+    fn: () => {
+      CompilerFactory.clean();
+      vscode.window.showInformationMessage(`Compile cache cleared`);
+    },
   },
 };
 

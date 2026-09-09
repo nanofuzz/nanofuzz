@@ -37,6 +37,11 @@
         "category": "NaNofuzz"
       },
       {
+        "command": "nanofuzz.ClearCompileCache",
+        "title": "Clear compile cache",
+        "category": "NaNofuzz"
+      },
+      {
         "command": "nanofuzz.telemetry.FlushLog",
         "title": "Flush Telemetry Log to storage",
         "category": "NaNofuzz"

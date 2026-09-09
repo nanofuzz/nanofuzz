@@ -17,7 +17,7 @@ import path from "node:path";
 import os from "node:os";
 import * as JSONN from "../../Jsonn";
 import {
-  FuzzBusyStatusMessage,
+  FuzzStatusUpdater,
   TypescriptCompilerError,
   TypescriptCompilerErrorDetails,
   VmGlobals,
@@ -158,7 +158,7 @@ export class TypescriptCompiler {
   /**
    * Compile the TypeScript file
    */
-  public compileSync(updateFn: (msg: FuzzBusyStatusMessage) => void): string {
+  public compileSync(updateFn: FuzzStatusUpdater): string {
     // Determine options using the module path
     this._options = structuredClone(defaultOptions);
     this._determineOptions();
@@ -368,10 +368,7 @@ export class TypescriptCompiler {
    * @param `module` node module
    * @param `updateFn` function for client status updates
    */
-  protected _tsc(
-    module: NodeJS.Module,
-    updateFn: (msg: FuzzBusyStatusMessage) => void
-  ): void {
+  protected _tsc(module: NodeJS.Module, updateFn: FuzzStatusUpdater): void {
     let exitCode = 0;
 
     // Determine the compiled name of the module
@@ -380,7 +377,7 @@ export class TypescriptCompiler {
 
     // Provide feedback that we are compiling
     updateFn({
-      msg: `Compiling: ${module.filename}`,
+      msg: ` - Compile...: ${module.filename}`,
       channel: "milestone",
     });
     updateFn({
@@ -917,7 +914,12 @@ const defaultOptions: CompilerOptions = {
   target: "ES2022", // default to ES2022
   moduleKind: "nodenext", // cjs is required for running inside express
   emitOnError: false, // fail compilation in case of errors
-  tmpDir: path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "tsc", String(process.pid)), // path for compiled files
+  tmpDir: path.join(
+    fs.realpathSync(os.tmpdir()),
+    "nanofuzz",
+    "tsc",
+    String(process.pid)
+  ), // path for compiled files
   lib: ["DOM", "ScriptHost", "ES2020", "ES2021.String", "ES2022"], // default to ES2020
   types: [""], // do not automatically import types
   typeRoots: [], // do not automatically import types
