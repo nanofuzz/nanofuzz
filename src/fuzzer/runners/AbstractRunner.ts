@@ -160,6 +160,7 @@ export type RunnerInput = {
   filename?: string;
   collect?: {
     coverageData?: true;
+    debugData?: true;
   };
 };
 

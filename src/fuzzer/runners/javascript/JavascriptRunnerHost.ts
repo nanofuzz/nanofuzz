@@ -132,9 +132,9 @@ async function main() {
       }
     }
 
-    const currentCoverage = extractDynamicCoverage(
-      getGlobalCoverageData() ?? {}
-    );
+    const currentCoverage = input.collect?.coverageData
+      ? extractDynamicCoverage(getGlobalCoverageData() ?? {})
+      : undefined;
 
     let resultMsg: Record<string, unknown>;
     if (resultTag === "timeout") {
