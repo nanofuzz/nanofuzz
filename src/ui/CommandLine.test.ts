@@ -12,11 +12,15 @@ import { prompt } from "../fuzzer/adapters/LlmAdapter";
 
 function runCli(args: string[]): ChildProcess.SpawnSyncReturns<string> {
   const cliScript = path.resolve(__dirname, "../../build/cli/cli.cjs");
-  return ChildProcess.spawnSync(process.execPath, [cliScript, ...args], {
+  const res = ChildProcess.spawnSync(process.execPath, [cliScript, ...args], {
     encoding: "utf8",
     cwd: path.resolve(__dirname, "../.."),
     shell: process.platform === "win32",
   });
+  if (res.stdout) {
+    process.stdout.write(res.stdout);
+  }
+  return res;
 }
 
 describe("cli:", () => {
@@ -478,6 +482,44 @@ def ${targetFn}(n: int) -> int:
       }
     }
   });
+
+  /**
+   * Commented out so the cache clear does not step on other running tests
+   *
+  it("--clear-compile-cache: clears compiler cache prior to testing", () => {
+    const outputFile = path.join(tmpDir, "clear_cache_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    // First run to populate cache
+    const res1 = runCli([
+      targetFile,
+      targetFn,
+      "--max-tests",
+      "5",
+    ]);
+    expect(res1.status).toBe(0);
+
+    // Second run with --clear-compile-cache flag
+    const res2 = runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--clear-compile-cache",
+      "--max-tests",
+      "5",
+    ]);
+
+    expect(res2.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+    expect(outputData.results.length).toBeGreaterThan(0);
+  });
+  */
 });
 
 function getFnNameAndModule(fnObj: unknown): {

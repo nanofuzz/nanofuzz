@@ -300,6 +300,11 @@ export type FuzzBusyStatusMessage =
     };
 
 /**
+ * Fuzzer status update callback
+ */
+export type FuzzStatusUpdater = (payload: FuzzBusyStatusMessage) => void;
+
+/**
  * Exception class for TypeScript compiler errors
  */
 export type TypescriptCompilerErrorDetails = {

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { AbstractMeasure } from "../measures/AbstractMeasure";
+import { FuzzStatusUpdater } from "../Types";
 
 /**
  * Instruments source files with a given set of measures.
@@ -41,7 +42,8 @@ export class Instrumenter {
     targetEntry: string,
     dependencyPaths: string[],
     measures: AbstractMeasure[],
-    tmpDir: string
+    tmpDir: string,
+    updateFn?: FuzzStatusUpdater
   ): string {
     const measureHash = Instrumenter.getMeasureHash(measures);
     if (measureHash === "uninstrumented" || measures.length === 0) {
@@ -65,6 +67,33 @@ export class Instrumenter {
         !fs.existsSync(instPath) || fs.statSync(instPath).mtimeMs < cleanMtime;
 
       if (isStale) {
+        // Compute clean user-facing path by stripping the temporary compilation directory prefix
+        let displayPath = path.relative(tmpDir, cleanPath);
+        displayPath = displayPath.replace(/^inst-[^/\\]+[/\\]?/, "");
+        if (process.platform === "win32") {
+          if (/^[a-zA-Z][/\\]/.test(displayPath)) {
+            displayPath =
+              displayPath.charAt(0) + ":" + displayPath.substring(1);
+          }
+        } else {
+          if (!displayPath.startsWith("/")) {
+            displayPath = "/" + displayPath;
+          }
+        }
+        displayPath = path.normalize(displayPath);
+
+        // Provide feedback that we are instrumenting
+        if (updateFn) {
+          updateFn({
+            msg: ` - Instrument: ${displayPath}`,
+            channel: "milestone",
+          });
+          updateFn({
+            msg: `Instrumenting: ${displayPath}`,
+            channel: "update",
+            pct: 0.1,
+          });
+        }
         fs.mkdirSync(path.dirname(instPath), { recursive: true });
 
         // Copy source map if present

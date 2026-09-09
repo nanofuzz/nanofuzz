@@ -15,7 +15,7 @@ import {
   FuzzTestResult,
   FuzzResultCategory,
   FuzzStopReason,
-  FuzzBusyStatusMessage,
+  FuzzStatusUpdater,
   BaseMeasureConfig,
 } from "./Types";
 import { InputAndSource, FuzzOptions } from "./Types";
@@ -325,7 +325,7 @@ export class Tester {
   public async testSync(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: (payload: FuzzBusyStatusMessage) => void,
+    updateFn?: FuzzStatusUpdater,
     cancelFn?: () => boolean
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
@@ -357,7 +357,7 @@ export class Tester {
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     callbackFn: (result: FuzzTestResults | Error) => void,
-    statusFn?: (payload: FuzzBusyStatusMessage) => void,
+    statusFn?: FuzzStatusUpdater,
     cancelFn?: () => boolean
   ): Promise<void> {
     this._runBatchAsync(
@@ -416,7 +416,7 @@ export class Tester {
   protected async *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
-    updateFn?: (payload: FuzzBusyStatusMessage) => void,
+    updateFn?: FuzzStatusUpdater,
     cancelFn?: () => boolean
   ): AsyncGenerator<
     FuzzTestResults | undefined,
@@ -431,7 +431,7 @@ export class Tester {
     }
     this._results.stats.counters.testingRuns++;
 
-    const update = (payload: FuzzBusyStatusMessage): void => {
+    const update: FuzzStatusUpdater = (payload) => {
       if (updateFn) {
         updateFn({ ...payload });
       } else if (payload.channel !== "update") {
@@ -502,14 +502,16 @@ export class Tester {
     this._results.stats.timers.compile = performance.now() - startCompTime;
 
     // Instrument the target, if required (currently only Typescript)
-    // Note: Python is instrumented in PythonRunnerHost
+    // Note: Python is currently instrumented in PythonRunnerHost
+    // Assumes: put, transformers, & validators are in the same module
     const instrumentTime = performance.now(); // start time: instrument
     const targetMod = this._lastCompiler
       ? Instrumenter.prepareInstrumentedTree(
           mod,
           this._lastCompiler.getCompiledDependencies(),
           this._measures,
-          this._lastCompiler.options.tmpDir
+          this._lastCompiler.options.tmpDir,
+          updateFn
         )
       : mod;
     this._results.stats.timers.instrument = performance.now() - instrumentTime;
