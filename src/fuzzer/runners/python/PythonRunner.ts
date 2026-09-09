@@ -102,12 +102,14 @@ export class PythonRunner extends AbstractRunner {
       const host = await this._getHost();
       const typeHints = this._env?.function.getArgDefs().map(getTypeHint) ?? [];
 
+      const debugEnabled = Config.get<boolean>("nanofuzz.debug.runners", false);
       const input: RunnerInput = {
         args: inputs,
         seq: thisSeq,
         typeHints,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
+          debugData: debugEnabled ? true : undefined,
         },
       };
 
@@ -214,7 +216,6 @@ export class PythonRunner extends AbstractRunner {
    */
   public override onCoverage(callback: (covData: unknown) => void): void {
     this._coverageCallback = callback;
-    this._coverageEnabled = true;
   } // fn: onCoverage
 
   /**

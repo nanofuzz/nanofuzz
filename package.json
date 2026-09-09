@@ -342,6 +342,12 @@
             "default": false,
             "minimum": 0,
             "description": "Activate telemetry?"
+          },
+          "nanofuzz.debug.runners": {
+            "title": "Debug logging for runner processes",
+            "type": "boolean",
+            "default": false,
+            "description": "Enable debug logging for runner host processes (e.g. PythonRunnerHost, JavascriptRunnerHost)."
           }
         }
       }

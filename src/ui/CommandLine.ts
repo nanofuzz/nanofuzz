@@ -146,6 +146,10 @@ Commander.program
   // ------------------------------ System Cleanup ----------------------------- //
 
   .option(
+    `--debug [scope]`,
+    `Enable debug logging (scopes: * (default), runners, ai)`
+  )
+  .option(
     `--clear-compile-cache`,
     `Force clearing the compile cache prior to testing`
   );
@@ -271,6 +275,22 @@ for (const key in options) {
     case "cigStatsCheckpoints":
       Config.override("nanofuzz.generators.compositeTrackCheckpoints", value);
       break;
+
+    // debug options
+    case "debug": {
+      if (value !== false && value !== undefined) {
+        const scope =
+          typeof value === "string" ? value.toLowerCase().trim() : "*";
+        const scopes = scope.split(",").map((s) => s.trim());
+        if (scopes.includes("*") || scopes.includes("runners")) {
+          Config.override("nanofuzz.debug.runners", true);
+        }
+        if (scopes.includes("*") || scopes.includes("ai")) {
+          Config.override("nanofuzz.ai.debug", true);
+        }
+      }
+      break;
+    }
   }
 }
 

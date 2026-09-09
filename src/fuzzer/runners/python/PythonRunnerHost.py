@@ -22,6 +22,7 @@ except ModuleNotFoundError as e:
 
 class CollectOptions(TypedDict):
     coverageData: NotRequired[Literal[True]]
+    debugData: NotRequired[Literal[True]]
 
 
 class RunnerInput(TypedDict):
@@ -453,13 +454,23 @@ def json5_default(obj: Any) -> Any:
 
 
 def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
-    logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
-
     collect_options = input.get("collect")
     if collect_options is None:
         coverage_enabled = True
+        debug_enabled = False
     else:
         coverage_enabled = bool(collect_options.get("coverageData"))
+        debug_enabled = bool(collect_options.get("debugData"))
+
+    if debug_enabled:
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                filename='nanofuzz_python_debug.log', level=logging.DEBUG)
+        else:
+            logging.getLogger().setLevel(logging.DEBUG)
+        logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
+    else:
+        logging.getLogger().setLevel(logging.CRITICAL + 1)
 
     if coverage_enabled:
         # cov.erase() is too expensive. Seems like only erasing the data works too
@@ -556,10 +567,6 @@ def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
 
 
 if __name__ == "__main__":
-    doLog = os.environ.get("NANOFUZZ_DEBUG", "true") == "true"
-    logging.basicConfig(filename='nanofuzz_python_debug.log' if doLog else None,
-                        level=logging.DEBUG if doLog else None)
-
     if len(sys.argv) != 4:
         print(
             "Usage: python PythonRunnerHost.py <filename.py> <module_name> <function_name>")

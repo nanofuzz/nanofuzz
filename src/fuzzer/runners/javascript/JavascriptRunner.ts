@@ -13,6 +13,7 @@ import { CoverageMapData } from "istanbul-lib-coverage";
 import { findInAncestor, isError } from "../../Util";
 import { PutTimeoutName } from "../AbstractHost";
 import * as CompilerFactory from "../../compilers/CompilerFactory";
+import * as Config from "../../../Config";
 import { serialize, deserialize } from "node:v8";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -27,6 +28,7 @@ export class JavascriptRunner extends AbstractRunner {
   protected _host: NodeHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo: CoverageMapData | undefined = undefined;
+  protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
 
   /**
@@ -67,6 +69,9 @@ export class JavascriptRunner extends AbstractRunner {
   public async onRunStart(): Promise<void> {
     await super.onRunStart();
     this._killHost();
+    if (this._env?.options?.measures?.CoverageMeasure?.enabled !== undefined) {
+      this._coverageEnabled = this._env.options.measures.CoverageMeasure.enabled;
+    }
     await this._getHost();
   } // fn: onRunStart
 
@@ -86,6 +91,7 @@ export class JavascriptRunner extends AbstractRunner {
       const host = await this._getHost();
       const typeHints = this._env?.function.getArgDefs().map(getTypeHint) ?? [];
 
+      const debugEnabled = Config.get<boolean>("nanofuzz.debug.runners", false);
       const input: RunnerInput = {
         args: inputs,
         seq: thisSeq,
@@ -93,6 +99,10 @@ export class JavascriptRunner extends AbstractRunner {
         timeout: timeout ?? 0,
         fnName: this._jsFn,
         filename: this._filename,
+        collect: {
+          coverageData: this._coverageEnabled ? true : undefined,
+          debugData: debugEnabled ? true : undefined,
+        },
       };
 
       const payload = serialize(input);

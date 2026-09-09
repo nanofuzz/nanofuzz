@@ -483,6 +483,43 @@ def ${targetFn}(n: int) -> int:
     }
   });
 
+  it("--debug flag enables debug scopes (*, runners, ai)", () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    // Test default --debug (which defaults scope to *)
+    const resDefault = runCli([
+      targetFile,
+      targetFn,
+      "--debug",
+      "--max-tests",
+      "2",
+    ]);
+    expect(resDefault.status).toBe(0);
+
+    // Test --debug runners
+    const resRunners = runCli([
+      targetFile,
+      targetFn,
+      "--debug",
+      "runners",
+      "--max-tests",
+      "2",
+    ]);
+    expect(resRunners.status).toBe(0);
+
+    // Test --debug ai
+    const resAi = runCli([
+      targetFile,
+      targetFn,
+      "--debug",
+      "ai",
+      "--max-tests",
+      "2",
+    ]);
+    expect(resAi.status).toBe(0);
+  });
+
   /**
    * Commented out so the cache clear does not step on other running tests
    *
