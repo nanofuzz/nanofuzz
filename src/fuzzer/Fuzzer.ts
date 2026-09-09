@@ -31,7 +31,7 @@ import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
-import { RunnerResult } from "./runners/AbstractRunner";
+import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
 import { getToolVersion } from "../ToolVersion";
 
@@ -530,12 +530,6 @@ export class Tester {
       await transformRunner.onRunStart();
     }
 
-    // Connect the measures to the runner. Measures that source their data
-    // from the runner (e.g., Python coverage) need it before the first test.
-    this._measures.forEach((m) => {
-      m.onRunStart(runner);
-    });
-
     // Build runners for the property validators
     // Assumed: property validators are in the same module
     const propRunners = this._validators.map((vFnRef) =>
@@ -543,6 +537,15 @@ export class Tester {
     );
     await Promise.all(propRunners.map((p) => p.onRunStart()));
     const propertyOracle = new PropertyOracle(propRunners);
+
+    // Connect the measures to the runners. Measures that source their data
+    // from runners (e.g., Python or TypeScript coverage) need them before the first test.
+    const runners = [runner, transformRunner, ...propRunners].filter(
+      (r): r is AbstractRunner => r !== undefined
+    );
+    this._measures.forEach((m) => {
+      m.onRunStart(runners);
+    });
 
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
@@ -722,6 +725,16 @@ export class Tester {
         interestingReasons: [],
       };
 
+      // Prepare measures for next test execution (before transformers & runners execute)
+      {
+        const startMeasTime = performance.now();
+        this._measures.forEach((m) => {
+          m.onBeforeNextTestExecution();
+        });
+        const measureTime = performance.now() - startMeasTime;
+        this._results.stats.timers.measure += measureTime;
+      }
+
       // Generate and store the inputs
       const startGenTime = performance.now(); // start time: input generation
       result.inputGenerated = this._compositeInputGenerator.next();
@@ -851,19 +864,6 @@ export class Tester {
         }
         // Indicate that we are no longer injecting inputs
         stillInjecting = false;
-      }
-
-      // Prepare measures for next test execution
-      {
-        const startMeasTime = performance.now(); // start time: input generation
-        this._measures.forEach((m) => {
-          m.onBeforeNextTestExecution();
-        });
-        const measureTime = performance.now() - startMeasTime;
-        this._results.stats.timers.measure += measureTime;
-        if (genStats) {
-          genStats.timers.measure += measureTime;
-        }
       }
 
       // If the function accepts inputs, check if the input is a dupe

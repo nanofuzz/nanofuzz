@@ -8,7 +8,9 @@ import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag } from "../../analysis/Types";
 import { NodeHost } from "./NodeHost";
 import { FuzzEnv } from "../../Fuzzer";
-import { findInAncestor, isError, normalizePathForKey } from "../../Util";
+import { isCoverageMapData } from "../../measures/TypescriptCoverageMeasure";
+import { CoverageMapData } from "istanbul-lib-coverage";
+import { findInAncestor, isError } from "../../Util";
 import { PutTimeoutName } from "../AbstractHost";
 import * as CompilerFactory from "../../compilers/CompilerFactory";
 import { serialize, deserialize } from "node:v8";
@@ -24,7 +26,8 @@ export class JavascriptRunner extends AbstractRunner {
   protected _env: FuzzEnv | undefined;
   protected _host: NodeHost | undefined = undefined;
   protected _seq = 0;
-  protected _coverageInfo: unknown = undefined;
+  protected _coverageInfo: CoverageMapData | undefined = undefined;
+  protected _coverageCallback?: (covData: unknown) => void;
 
   /**
    * Create a new Javascript function runner
@@ -100,44 +103,7 @@ export class JavascriptRunner extends AbstractRunner {
       const parsedRes = deserialize(rawResBuf);
 
       if (isParsedHostResponse(parsedRes) && parsedRes.coverageData) {
-        const globalCov = getGlobalCoverageMap();
-        for (const fileKey of Object.keys(parsedRes.coverageData)) {
-          const normKey = normalizeCoveragePath(fileKey);
-          const fileCov = parsedRes.coverageData[fileKey];
-          if (fileCov) {
-            const targetObj = globalCov[normKey];
-            if (!targetObj) {
-              const newCov: FileCoverageData = structuredClone(fileCov);
-              newCov.path = normKey;
-              globalCov[normKey] = newCov;
-            } else {
-              if (fileCov.s && targetObj.s) {
-                for (const sKey of Object.keys(fileCov.s)) {
-                  targetObj.s[sKey] =
-                    (targetObj.s[sKey] ?? 0) + (fileCov.s[sKey] ?? 0);
-                }
-              }
-              if (fileCov.f && targetObj.f) {
-                for (const fKey of Object.keys(fileCov.f)) {
-                  targetObj.f[fKey] =
-                    (targetObj.f[fKey] ?? 0) + (fileCov.f[fKey] ?? 0);
-                }
-              }
-              if (fileCov.b && targetObj.b) {
-                for (const bKey of Object.keys(fileCov.b)) {
-                  if (!targetObj.b[bKey]) {
-                    targetObj.b[bKey] = [...(fileCov.b[bKey] ?? [])];
-                  } else if (Array.isArray(fileCov.b[bKey])) {
-                    for (let i = 0; i < fileCov.b[bKey].length; i++) {
-                      targetObj.b[bKey][i] =
-                        (targetObj.b[bKey][i] ?? 0) + (fileCov.b[bKey][i] ?? 0);
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+        this._coverageCallback?.(parsedRes.coverageData);
       }
 
       let resultInner: RunnerResult["result"];
@@ -211,6 +177,24 @@ export class JavascriptRunner extends AbstractRunner {
   } // fn: run
 
   /**
+   * Gets the current code coverage information.
+   *
+   * @returns the current code coverage information, or `undefined` if not available
+   */
+  public override get coverageInfo(): CoverageMapData | undefined {
+    return this._coverageInfo;
+  } // property: get coverageInfo
+
+  /**
+   * Registers a callback to be invoked when coverage data is available.
+   *
+   * @param callback a function to be called with coverage data
+   */
+  public override onCoverage(callback: (covData: unknown) => void): void {
+    this._coverageCallback = callback;
+  } // fn: onCoverage
+
+  /**
    * Tears down the runner host at the end of the test run
    */
   public async onRunEnd(): Promise<void> {
@@ -253,20 +237,8 @@ export class JavascriptRunner extends AbstractRunner {
     if (okcode === "READY") {
       this._host = host;
       const initialCoverage = deserialize(await host.getResponseBuffer(10000));
-      this._coverageInfo = initialCoverage;
-
-      // Populate main process global.__coverage__ with static map structures
-      if (isCoverageMap(initialCoverage)) {
-        const globalCov = getGlobalCoverageMap();
-        for (const rawKey of Object.keys(initialCoverage)) {
-          const normKey = normalizeCoveragePath(rawKey);
-          const fileCov = initialCoverage[rawKey];
-          if (fileCov && !globalCov[normKey]) {
-            const newCov: FileCoverageData = structuredClone(fileCov);
-            newCov.path = normKey;
-            globalCov[normKey] = newCov;
-          }
-        }
+      if (isCoverageMapData(initialCoverage)) {
+        this._coverageInfo = initialCoverage;
       }
 
       return host;
@@ -307,25 +279,6 @@ type ParsedHostResponse = {
 
 function isParsedHostResponse(val: unknown): val is ParsedHostResponse {
   return typeof val === "object" && val !== null;
-}
-
-function isCoverageMap(
-  val: unknown
-): val is Record<string, FileCoverageData | undefined> {
-  return typeof val === "object" && val !== null;
-}
-
-function getGlobalCoverageMap(): Record<string, FileCoverageData | undefined> {
-  let cov = Reflect.get(globalThis, "__coverage__");
-  if (!isCoverageMap(cov)) {
-    cov = {};
-    Reflect.set(globalThis, "__coverage__", cov);
-  }
-  return cov;
-}
-
-function normalizeCoveragePath(p: string): string {
-  return normalizePathForKey(p);
 }
 
 function getModuleFilename(

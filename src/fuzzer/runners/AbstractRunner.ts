@@ -24,6 +24,22 @@ export abstract class AbstractRunner {
   } // property: get name
 
   /**
+   * Optional coverage info captured during test runner initialization or execution.
+   */
+  public get coverageInfo(): unknown {
+    return undefined;
+  }
+
+  /**
+   * Registers a callback to receive coverage hits after test execution.
+   *
+   * @param `callback` function called when coverage hits are produced
+   */
+  public onCoverage(_callback: (covData: unknown) => void): void {
+    // Default no-op
+  }
+
+  /**
    * Called prior to the start of the run
    */
   public onRunStart(): Promise<void> {

@@ -917,7 +917,7 @@ const defaultOptions: CompilerOptions = {
   target: "ES2022", // default to ES2022
   moduleKind: "nodenext", // cjs is required for running inside express
   emitOnError: false, // fail compilation in case of errors
-  tmpDir: path.join(os.tmpdir(), "nanofuzz", "tsc", String(process.pid)), // path for compiled files
+  tmpDir: path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "tsc", String(process.pid)), // path for compiled files
   lib: ["DOM", "ScriptHost", "ES2020", "ES2021.String", "ES2022"], // default to ES2020
   types: [""], // do not automatically import types
   typeRoots: [], // do not automatically import types

@@ -61,10 +61,11 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    *
    * @param `runner` the test runner for this run
    */
-  public onRunStart(runner: AbstractRunner): void {
+  public onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
+    const runner = Array.isArray(runners) ? runners[0] : runners;
     if (!(runner instanceof PythonRunner)) {
       throw new Error(
-        `${this.name} requires a PythonRunner, but received a ${runner.constructor.name}`
+        `${this.name} requires a PythonRunner, but received a ${runner?.constructor.name}`
       );
     }
     this._runner = runner;

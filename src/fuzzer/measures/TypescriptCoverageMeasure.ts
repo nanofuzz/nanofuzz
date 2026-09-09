@@ -17,6 +17,7 @@ import {
 import { normalizePathForKey } from "../Util";
 import { AbstractRunner } from "../runners/AbstractRunner";
 import * as fs from "fs";
+import * as path from "path";
 import {
   AbstractCoverageMeasure,
   CodeCoverageFileStats,
@@ -36,18 +37,69 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   protected _sourceMapStore: MapStore = createSourceMapStore();
   protected _lineHitCounts: Map<string, Map<number, number>> = new Map(); // tracks per-line hit counts across test runs
 
-  public override onRunStart(runner: AbstractRunner): void {
-    super.onRunStart(runner);
+  public override onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
+    super.onRunStart(runners);
     this._globalCoverageMap = createCoverageMap({});
     this._history.clear();
     this._lastNode = undefined;
-    const globalCov = Reflect.get(globalThis, "__coverage__");
-    if (isCoverageMapData(globalCov)) {
-      this._coverageData = globalCov;
+
+    const runnerList = Array.isArray(runners) ? runners : [runners];
+    const initialCov = runnerList[0]?.coverageInfo;
+    if (isCoverageMapData(initialCov)) {
+      this._coverageData = structuredClone(initialCov);
     } else {
       this._coverageData = emptyCoverageMapData([]);
     }
-  }
+
+    runnerList.forEach((r) => {
+      r.onCoverage((covData) => {
+        if (isRecordOfFileCoverageData(covData)) {
+          this.recordHits(covData);
+        }
+      });
+    });
+  } // fn: onRunStart
+
+  /**
+   * Records code coverage hits for the given coverage data.
+   *
+   * @param coverageData a record of file coverage data
+   * @returns void
+   */
+  public recordHits(coverageData: Record<string, FileCoverageData>): void {
+    if (!this._coverageData) return;
+    for (const fileKey of Object.keys(coverageData)) {
+      const normKey = normalizePathForKey(fileKey);
+      const fileHits = coverageData[fileKey];
+      const targetObj = this._coverageData[normKey];
+      if (targetObj && fileHits) {
+        if (fileHits.s && targetObj.s) {
+          for (const sKey of Object.keys(fileHits.s)) {
+            targetObj.s[sKey] =
+              (targetObj.s[sKey] ?? 0) + (fileHits.s[sKey] ?? 0);
+          }
+        }
+        if (fileHits.f && targetObj.f) {
+          for (const fKey of Object.keys(fileHits.f)) {
+            targetObj.f[fKey] =
+              (targetObj.f[fKey] ?? 0) + (fileHits.f[fKey] ?? 0);
+          }
+        }
+        if (fileHits.b && targetObj.b) {
+          for (const bKey of Object.keys(fileHits.b)) {
+            if (!targetObj.b[bKey]) {
+              targetObj.b[bKey] = [...(fileHits.b[bKey] ?? [])];
+            } else if (Array.isArray(fileHits.b[bKey])) {
+              for (let i = 0; i < fileHits.b[bKey].length; i++) {
+                targetObj.b[bKey][i] =
+                  (targetObj.b[bKey][i] ?? 0) + (fileHits.b[bKey][i] ?? 0);
+              }
+            }
+          }
+        }
+      }
+    }
+  } // fn: recordHits
 
   /**
    * Instruments the program under test to capture code coverage data.
@@ -68,6 +120,14 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
 
     if (fs.existsSync(mapPath)) {
       sourceMap = JSON.parse(fs.readFileSync(mapPath, "utf8"));
+      if (sourceMap && Array.isArray(sourceMap.sources)) {
+        const cleanDir = path.dirname(
+          jsFileName.replace(/([/\\])inst-[^/\\]+\1/, "$1")
+        );
+        sourceMap.sources = sourceMap.sources.map((s) =>
+          path.isAbsolute(s) ? s : path.resolve(cleanDir, s)
+        );
+      }
     }
 
     const instrumenter = createInstrumenter({
@@ -84,9 +144,19 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     const combinedSourceMap = instrumenter.lastSourceMap();
     this._sourceMapStore.registerMap(jsFileName, combinedSourceMap);
     try {
+      fs.writeFileSync(
+        jsFileName + ".map",
+        JSON.stringify(combinedSourceMap),
+        "utf8"
+      );
       const realPath = fs.realpathSync(jsFileName);
       if (realPath !== jsFileName) {
         this._sourceMapStore.registerMap(realPath, combinedSourceMap);
+        fs.writeFileSync(
+          realPath + ".map",
+          JSON.stringify(combinedSourceMap),
+          "utf8"
+        );
       }
     } catch {
       // ignore
@@ -276,6 +346,32 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   public onRunEnd(results: FuzzTestResults): void {
     results.stats.measures.CodeCoverageMeasure =
       async (): Promise<CodeCoverageMeasureStats> => {
+        // Register source maps from disk for any files in globalCoverageMap
+        // that aren't already registered (e.g. from cached instrumented runs)
+        for (const fileKey of this._globalCoverageMap.files()) {
+          const mapPath = fileKey + ".map";
+          if (fs.existsSync(mapPath)) {
+            try {
+              const mapData = JSON.parse(fs.readFileSync(mapPath, "utf8"));
+              if (mapData && Array.isArray(mapData.sources)) {
+                const cleanDir = path.dirname(
+                  fileKey.replace(/([/\\])inst-[^/\\]+\1/, "$1")
+                );
+                mapData.sources = mapData.sources.map((s: string) =>
+                  path.isAbsolute(s) ? s : path.resolve(cleanDir, s)
+                );
+              }
+              this._sourceMapStore.registerMap(fileKey, mapData);
+              const realPath = fs.realpathSync(fileKey);
+              if (realPath !== fileKey) {
+                this._sourceMapStore.registerMap(realPath, mapData);
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+
         // We need to transform the global coverage map using the source maps
         // to get TypeScript locations (not the compiled JS locations).
         const tsCoverageMap = await this._sourceMapStore.transformCoverage(
@@ -445,4 +541,22 @@ export function emptyCoverageMapData(files: string[]): CoverageMapData {
     };
   });
   return cov;
-}
+} // fn: emptyCoverageMapData
+
+/**
+ * Type guard function that returns true if `val` is a record of file coverage data
+ *
+ * @param val the value to check
+ * @returns true if `val` is a record of file coverage data, false otherwise
+ */
+function isRecordOfFileCoverageData(
+  val: unknown
+): val is Record<string, FileCoverageData> {
+  return typeof val === "object" && val !== null;
+} // fn: isRecordOfFileCoverageData
+
+export type FileCoverageData = {
+  s?: Record<string, number>;
+  f?: Record<string, number>;
+  b?: Record<string, number[]>;
+};
