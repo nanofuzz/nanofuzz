@@ -20,9 +20,14 @@ except ModuleNotFoundError as e:
     exit(3)
 
 
+class CollectOptions(TypedDict):
+    coverageData: NotRequired[Literal[True]]
+
+
 class RunnerInput(TypedDict):
     args: List[Any]
     seq: int
+    collect: NotRequired[CollectOptions]
 
 
 class RunnerValueResult(TypedDict):
@@ -450,9 +455,17 @@ def json5_default(obj: Any) -> Any:
 def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
     logging.debug(f"[{pid}] Running function '{fnname}' for {input}")
 
-    # cov.erase() is too expensive. Seems like only erasing the data works too
-    cov.get_data().erase()
-    cov.start()
+    collect_options = input.get("collect")
+    if collect_options is None:
+        coverage_enabled = True
+    else:
+        coverage_enabled = bool(collect_options.get("coverageData"))
+
+    if coverage_enabled:
+        # cov.erase() is too expensive. Seems like only erasing the data works too
+        cov.get_data().erase()
+        cov.start()
+
     error = None
     skip = None
     value = None
@@ -478,19 +491,21 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         else:
             error = e
     finally:
-        cov.stop()
+        if coverage_enabled:
+            cov.stop()
 
     # Read coverage after stopping: a failing input still covers lines
     coverageData = {}
     coverageArcs = {}
-    for file in cov.get_data().measured_files():
-        lines = coverage_lines(cov, file)
-        if not lines:
-            continue
-        if file not in covInfo:
-            covInfo[file] = static_coverage(cov, file)
-        coverageData[file] = lines
-        coverageArcs[file] = coverage_arcs(cov, file)
+    if coverage_enabled:
+        for file in cov.get_data().measured_files():
+            lines = coverage_lines(cov, file)
+            if not lines:
+                continue
+            if file not in covInfo:
+                covInfo[file] = static_coverage(cov, file)
+            coverageData[file] = lines
+            coverageArcs[file] = coverage_arcs(cov, file)
 
     if skip is not None:
         return RunnerSkipResult(
@@ -499,7 +514,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo
+            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     if error is not None:
@@ -512,7 +527,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo
+            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     return RunnerValueResult(
@@ -521,7 +536,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         seq=input["seq"],
         coverageData=coverageData,
         coverageArcs=coverageArcs,
-        staticCoverage=covInfo
+        staticCoverage=covInfo if coverage_enabled else {}
     )
 
 

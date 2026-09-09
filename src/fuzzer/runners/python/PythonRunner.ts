@@ -31,6 +31,8 @@ export class PythonRunner extends AbstractRunner {
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo?: FullCoverage = undefined;
+  protected _coverageEnabled = true;
+  protected _coverageCallback?: (covData: unknown) => void;
   protected _pythonEnv: PythonEnv | undefined;
   protected static _envs: {
     [file: string]: PythonEnv;
@@ -67,6 +69,10 @@ export class PythonRunner extends AbstractRunner {
   public async onRunStart(): Promise<void> {
     await super.onRunStart();
     this._killHost();
+    if (this._env?.options?.measures?.CoverageMeasure?.enabled !== undefined) {
+      this._coverageEnabled =
+        this._env.options.measures.CoverageMeasure.enabled;
+    }
     this._pythonEnv = PythonRunner.envFor(this._filename);
     await this._getHost();
   } // fn: onRunStart
@@ -100,6 +106,9 @@ export class PythonRunner extends AbstractRunner {
         args: inputs,
         seq: thisSeq,
         typeHints,
+        collect: {
+          coverageData: this._coverageEnabled ? true : undefined,
+        },
       };
 
       const payload = JSON5.stringify(input, (_key, val) => {
@@ -126,7 +135,12 @@ export class PythonRunner extends AbstractRunner {
 
       // Refresh the dynamic coverage with what this call executed. A timeout
       // is killed mid-run, so the host never reports coverage for it.
-      if (result.result.tag === "timeout") {
+      if (
+        result.result.tag === "timeout" ||
+        !this._coverageEnabled ||
+        !result.result.coverageData ||
+        Object.keys(result.result.coverageData).length === 0
+      ) {
         this._coverageInfo = undefined;
       } else {
         this._coverageInfo = result.result.staticCoverage;
@@ -143,6 +157,7 @@ export class PythonRunner extends AbstractRunner {
                 ? coverageArcs[filename]
                 : undefined;
           }
+          this._coverageCallback?.(this._coverageInfo);
         }
       }
 
@@ -172,7 +187,7 @@ export class PythonRunner extends AbstractRunner {
     } finally {
       this._runDepth--;
     }
-  }
+  } // fn: run
 
   /**
    * Tears down the runner host at the end of the test run
@@ -183,7 +198,24 @@ export class PythonRunner extends AbstractRunner {
     await super.onRunEnd();
     this._killHost();
     this._pythonEnv = undefined;
-  }
+  } // fn: onRunEnd
+
+  /**
+   * Returns the current coverage information, if any
+   */
+  public override get coverageInfo(): FullCoverage | undefined {
+    return this._coverageInfo;
+  } // fn: coverageInfo
+
+  /**
+   * Registers a callback to be invoked with coverage data
+   *
+   * @param callback the callback to register
+   */
+  public override onCoverage(callback: (covData: unknown) => void): void {
+    this._coverageCallback = callback;
+    this._coverageEnabled = true;
+  } // fn: onCoverage
 
   /**
    * Returns the python environment for a file
@@ -279,7 +311,7 @@ export class PythonRunner extends AbstractRunner {
     }, 10000);
 
     return pythonEnv;
-  }
+  } // fn: envFor
 
   /**
    * Returns the syspaths used by the interpreter
@@ -352,7 +384,7 @@ export class PythonRunner extends AbstractRunner {
     }
 
     return candidate || "python3";
-  }
+  } // fn: resolveInterpreter
 
   /**
    * Probes whether a python executable candidate can be spawned successfully.
@@ -370,7 +402,7 @@ export class PythonRunner extends AbstractRunner {
     } catch {
       return false;
     }
-  }
+  } // fn: canExecute
 
   /**
    * Get the current Python host process (creates a new one if needed)
@@ -449,13 +481,16 @@ export class PythonRunner extends AbstractRunner {
       this._host.kill();
       this._host = undefined;
     }
-  }
-
-  public get coverageInfo(): FullCoverage | undefined {
-    return this._coverageInfo;
-  }
+  } // fn: _killHost
 } // class: PythonRunner
 
+/**
+ * Finds the Python library directory
+ *
+ * @param dir the starting directory
+ * @param item the item to look for
+ * @returns the Python library directory, or null if not found
+ */
 function findPythonLibDir(dir: string, item: string): string | null {
   // Co-located with this module (e.g., as built)
   if (fs.existsSync(path.resolve(path.join(dir, item)))) {
@@ -469,12 +504,24 @@ function findPythonLibDir(dir: string, item: string): string | null {
   }
 
   return null;
-}
+} // fn: findPythonLibDir
 
+/**
+ * Checks if the argument is a UUID string
+ *
+ * @param arg the argument definition
+ * @returns true if the argument is a UUID string, false otherwise
+ */
 function isUuidArg(arg: ArgDef): boolean {
   return arg.getTypeRef() === "UUID" && arg.getType() === ArgTag.STRING;
-}
+} // fn: isUuidArg
 
+/**
+ * Gets the base type hint for the argument
+ *
+ * @param arg the argument definition
+ * @returns the base type hint
+ */
 function getBaseTypeHint(arg: ArgDef): TypeHint {
   if (isUuidArg(arg)) {
     return "uuid";
@@ -534,8 +581,14 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
     default:
       return "default";
   }
-}
+} // fn: getBaseTypeHint
 
+/**
+ * Gets the type hint for the argument, including array dimensions
+ *
+ * @param arg the argument definition
+ * @returns the type hint
+ */
 function getTypeHint(arg: ArgDef): TypeHint {
   const dims = arg.getDim();
   let hint: TypeHint = getBaseTypeHint(arg);
@@ -543,7 +596,7 @@ function getTypeHint(arg: ArgDef): TypeHint {
     hint = { kind: "array", element: hint };
   }
   return hint;
-}
+} // fn: getTypeHint
 
 /**
  * Coverage for the entire program under test.

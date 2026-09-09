@@ -158,6 +158,9 @@ export type RunnerInput = {
   timeout?: number;
   fnName?: string;
   filename?: string;
+  collect?: {
+    coverageData?: true;
+  };
 };
 
 /**
