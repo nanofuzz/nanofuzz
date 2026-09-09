@@ -39,6 +39,22 @@ describe("fuzzer: python targets", () => {
       expect(r.validatorException).toBeFalse();
       expect(r.passedValidator).toBe("pass");
     });
+
+    // Check code coverage includes both PUT and validator functions
+    const covStats = await fuzzResult.stats.measures.CodeCoverageMeasure?.();
+    expect(covStats).toBeDefined();
+    if (covStats && covStats.files.length) {
+      const fileStats = covStats.files[0];
+      const coveredFnNames = Object.keys(fileStats.fileMap.f).map(
+        (idx) => fileStats.fileMap.fnMap[idx]?.name
+      );
+      expect(coveredFnNames).toContain("greeting");
+      expect(
+        coveredFnNames.some(
+          (name) => name && name.includes("greetingValidator")
+        )
+      ).toBeTrue();
+    }
   });
 
   it("Python timeouts", async () => {
@@ -169,6 +185,18 @@ describe("fuzzer: python targets", () => {
         }
       }
     });
+
+    // Check code coverage includes both PUT and transformer functions
+    const covStats = await fuzzResult.stats.measures.CodeCoverageMeasure?.();
+    expect(covStats).toBeDefined();
+    if (covStats && covStats.files.length) {
+      const fileStats = covStats.files[0];
+      const coveredFnNames = Object.keys(fileStats.fileMap.f).map(
+        (idx) => fileStats.fileMap.fnMap[idx]?.name
+      );
+      expect(coveredFnNames).toContain("py_transformed");
+      expect(coveredFnNames).toContain("py_transformedTransformer");
+    }
   });
 
   it("Python transformer exception", async () => {

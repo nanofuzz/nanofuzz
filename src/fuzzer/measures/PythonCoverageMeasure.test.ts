@@ -82,7 +82,7 @@ class TestPythonCoverageMeasure extends PythonCoverageMeasure {
     super();
     this._info = { ...staticInfo };
     this._coverage = { [file]: this._info };
-    this._runner = new StubPythonRunner(this._coverage);
+    this._runners = [new StubPythonRunner(this._coverage)];
   }
 
   public record(run: PythonRun): void {
@@ -877,7 +877,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
         for (const [file, info] of Object.entries(statics)) {
           this._coverage[file] = { ...info };
         }
-        this._runner = new StubPythonRunner(this._coverage);
+        this._runners = [new StubPythonRunner(this._coverage)];
       }
 
       /**
