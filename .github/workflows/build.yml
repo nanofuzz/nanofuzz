@@ -44,7 +44,7 @@ jobs:
           yarn package
 
       # npm runtime package
-      - name: Typescript runtime package
+      - name: NaNofuzz runtime (typescript)
         working-directory: packages/runtime/typescript
         run: |
           yarn
@@ -53,7 +53,7 @@ jobs:
           yarn package
 
       # pip runtime package
-      - name: Python runtime package
+      - name: NaNofuzz runtime (python)
         working-directory: packages/runtime/python
         run: |
           python prebuild.py
