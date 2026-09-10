@@ -53,7 +53,7 @@ export function applyCoverageHeatmapToEditor(
     editor.document.fileName in rangeCache &&
     rangeCache[editor.document.fileName].fileMap === fileMap
       ? rangeCache[editor.document.fileName].ranges // cached ranges
-      : _calculateDecorationRanges(fileMap); // create new
+      : _calculateDecorationRanges(fileMap, editor.document); // create new
 
   // Apply the editor decorations to the hit elements
   // Note: skip coloring elements with no hits (i===0))
@@ -72,9 +72,13 @@ export function applyCoverageHeatmapToEditor(
  * Creates a set of bucketed ranges for the given file coverage map.
  *
  * @param `fileMap` file coverage map
+ * @param `doc` optional vscode text document for statement start column alignment
  * @returns `vscode.Range`s bucketed according to hit count
  */
-function _calculateDecorationRanges(fileMap: FileCoverage): vscode.Range[][] {
+function _calculateDecorationRanges(
+  fileMap: FileCoverage,
+  doc?: vscode.TextDocument
+): vscode.Range[][] {
   // We use a text span tree to represent the coverage map hierarchically,
   // which we may then flatten into a set of non-overlapping text editor
   // decorations where the hit count of child (e.g., leaf) nodes have
@@ -106,14 +110,14 @@ function _calculateDecorationRanges(fileMap: FileCoverage): vscode.Range[][] {
   // Function coverage
   for (const f of Object.keys(fileMap.f)) {
     const element = fileMap.fnMap[f]; // hit element
-    if (!element?.decl?.start || !element?.loc?.end) continue;
+    if (!element?.decl?.start || !element?.decl?.end) continue;
     spans.insert(
       {
         begin: {
           line: element.decl.start.line - 1,
           col: element.decl.start.column,
         },
-        end: { line: element.loc.end.line - 1, col: element.loc.end.column },
+        end: { line: element.decl.end.line - 1, col: element.decl.end.column },
       },
       fileMap.f[f]
     );
@@ -150,19 +154,98 @@ function _calculateDecorationRanges(fileMap: FileCoverage): vscode.Range[][] {
   }
 
   // Statement coverage
-  for (const s of Object.keys(fileMap.s)) {
+  const statementKeys = Object.keys(fileMap.s);
+  for (const s of statementKeys) {
     const element = fileMap.statementMap[s]; // hit element
     if (!element?.start || !element?.end) continue;
-    spans.insert(
-      {
-        begin: {
-          line: element.start.line - 1,
-          col: element.start.column,
-        },
-        end: { line: element.end.line - 1, col: element.end.column },
-      },
-      fileMap.s[s]
-    );
+
+    const begin = {
+      line: element.start.line - 1,
+      col: element.start.column,
+    };
+    let end = {
+      line: element.end.line - 1,
+      col: element.end.column,
+    };
+
+    // If source map points to an inner expression/rvalue on the line
+    // (e.g. initializers for const/let/var), expand begin.col leftwards
+    // to the start of the statement (line's first non-whitespace character)
+    if (doc && begin.line >= 0 && begin.line < doc.lineCount) {
+      const lineText = doc.lineAt(begin.line).text;
+      const firstNonWsCol = lineText.search(/\S/);
+      if (firstNonWsCol >= 0 && firstNonWsCol < begin.col) {
+        let minAllowedCol = firstNonWsCol;
+        for (const otherKey of statementKeys) {
+          if (otherKey === s) continue;
+          const other = fileMap.statementMap[otherKey];
+          if (
+            other?.end &&
+            other.end.line === element.start.line &&
+            other.end.column <= element.start.column
+          ) {
+            if (other.end.column > minAllowedCol) {
+              minAllowedCol = other.end.column;
+            }
+          }
+        }
+        if (minAllowedCol < begin.col) {
+          begin.col = minAllowedCol;
+        }
+      }
+
+      // If single-line statement ends near a trailing semicolon on lineText, include the semicolon
+      if (
+        begin.line === end.line &&
+        end.col < lineText.length &&
+        lineText[end.col] === ";"
+      ) {
+        end.col++;
+      }
+    }
+
+    // If this statement contains child statements, trim its end to the header line(s) before its earliest child
+    // so container headers (e.g. while/if/for/try) are highlighted without bleeding into children's line indentation
+    let earliestChildStart: { line: number; column: number } | undefined;
+    for (const childKey of statementKeys) {
+      if (childKey === s) continue;
+      const child = fileMap.statementMap[childKey];
+      if (!child?.start || !child?.end) continue;
+
+      if (
+        (child.start.line > element.start.line ||
+          (child.start.line === element.start.line &&
+            child.start.column > element.start.column)) &&
+        (child.end.line < element.end.line ||
+          (child.end.line === element.end.line &&
+            child.end.column <= element.end.column))
+      ) {
+        if (
+          !earliestChildStart ||
+          child.start.line < earliestChildStart.line ||
+          (child.start.line === earliestChildStart.line &&
+            child.start.column < earliestChildStart.column)
+        ) {
+          earliestChildStart = child.start;
+        }
+      }
+    }
+
+    if (earliestChildStart) {
+      if (earliestChildStart.line === element.start.line) {
+        end = {
+          line: earliestChildStart.line - 1,
+          col: earliestChildStart.column,
+        };
+      } else {
+        end = {
+          line: earliestChildStart.line - 2,
+          col: Number.MAX_SAFE_INTEGER,
+        };
+      }
+    }
+
+    spans.insert({ begin, end }, fileMap.s[s]);
   }
 
   // Flatten the spans & assign each to a decoration bucket
