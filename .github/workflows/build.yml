@@ -11,7 +11,7 @@ jobs:
         runner: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.runner }}
     steps:
-      # Visual Studio Code Extension
+      # Infrastructure setup
       - name: Checkout
         uses: actions/checkout@v7
       - name: Install Python
@@ -34,33 +34,29 @@ jobs:
         with:
           node-version: 22
           cache: yarn
-      - name: Install yarn packages
-        run: yarn
-      - name: Run all builds
-        run: yarn build
-      - name: Run Typescript tests
-        run: yarn test
-      - name: Build vsix package
-        run: yarn package
+
+      # Visual Studio Code Extension
+      - name: NaNofuzz vscode extension
+        run: |
+          yarn
+          yarn build
+          yarn test
+          yarn package
 
       # npm runtime package
-      - name: Install Yarn packages
+      - name: Typescript runtime packages
         working-directory: packages/runtime/typescript
-        run: yarn
-      - name: Check for matching version numbers
-        working-directory: packages/runtime/typescript
-        run: yarn run checkver
-      - name: Build npm package
-        working-directory: packages/runtime/typescript
-        run: yarn build
+        run: |
+          yarn
+          yarn build
+          yarn test
+          yarn package
 
       # pip runtime package
-      - name: Build Python package
+      - name: Python runtime package
         working-directory: packages/runtime/python
         run: |
           python prebuild.py
           python -m build
-
-      # test runtime packages
-      - name: Run Runtime tests
-        run: yarn test:runtime
+          pytest
+          twine check dist/*
