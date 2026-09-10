@@ -15,12 +15,27 @@
   "author": "The NaNofuzz Team @ Carnegie Mellon University",
   "license": "MIT",
   "scripts": {
-    "checkver": "node checkVer.js",
-    "prebuild": "node checkVer.js && node prebuild.js",
+    "checkver": "node checkVer.cjs",
+    "prebuild": "node checkVer.cjs && node prebuild.cjs",
     "build": "npx tsc --project tsconfig.cjs.json && npx tsc --project tsconfig.esm.json",
     "package": "npm publish --dry-run --access public",
     "publish": "npm publish --access public",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "npx eslint src",
+    "pretest": "yarn lint && yarn build",
+    "test": "node --no-experimental-strip-types ../../../node_modules/jasmine/bin/jasmine.js --config=jasmine.json"
+  },
+  "babel": {
+    "presets": [
+      "@babel/preset-typescript"
+    ],
+    "plugins": [
+      [
+        "@babel/plugin-transform-modules-commonjs",
+        {
+          "importInterop": "node"
+        }
+      ]
+    ]
   },
   "files": [
     "build"
