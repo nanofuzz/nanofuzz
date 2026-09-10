@@ -41,16 +41,6 @@ jobs:
         run: yarn build
       - name: Run Typescript tests
         run: yarn test
-      - name: Run Python tests (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          .venv\Scripts\activate
-          pytest
-      - name: Run Python tests (Linux, MacOS)
-        if: runner.os != 'Windows'
-        run: |
-          source .venv/bin/activate
-          pytest
       - name: Build vsix package
         run: yarn package
 
@@ -80,3 +70,15 @@ jobs:
           cd packages\runtime\python
           python prebuild.py
           python -m build
+
+      # test runtime packages
+      - name: Run Runtime tests (Linux, MacOS)
+        if: runner.os != 'Windows'
+        run: |
+          source .venv/bin/activate
+          yarn test:runtime
+      - name: Run Runtime tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .venv\Scripts\activate
+          yarn test:runtime
