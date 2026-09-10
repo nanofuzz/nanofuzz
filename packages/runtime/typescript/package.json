@@ -18,7 +18,7 @@
     "checkver": "node checkVer.cjs",
     "prebuild": "node checkVer.cjs && node prebuild.cjs",
     "build": "npx tsc --project tsconfig.cjs.json && npx tsc --project tsconfig.esm.json",
-    "package": "npm publish --dry-run --access public",
+    "package": "npm pack --dry-run",
     "publish": "npm publish --access public",
     "lint": "npx eslint src",
     "pretest": "yarn lint && yarn build",

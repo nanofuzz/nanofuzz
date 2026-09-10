@@ -44,7 +44,7 @@ jobs:
           yarn package
 
       # npm runtime package
-      - name: Typescript runtime packages
+      - name: Typescript runtime package
         working-directory: packages/runtime/typescript
         run: |
           yarn
