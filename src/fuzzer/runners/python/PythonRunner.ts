@@ -107,6 +107,7 @@ export class PythonRunner extends AbstractRunner {
         args: inputs,
         seq: thisSeq,
         typeHints,
+        timeout: timeout ?? 0,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
@@ -124,8 +125,9 @@ export class PythonRunner extends AbstractRunner {
       });
 
       host.sendMessage(payload);
+      const hostTimeout = timeout && timeout > 0 ? timeout + 500 : Infinity;
       const result: RunnerResult = {
-        result: JSON5.parse(await host.getResponse(timeout)),
+        result: JSON5.parse(await host.getResponse(hostTimeout)),
         env: {},
       };
 
@@ -135,10 +137,8 @@ export class PythonRunner extends AbstractRunner {
         );
       }
 
-      // Refresh the dynamic coverage with what this call executed. A timeout
-      // is killed mid-run, so the host never reports coverage for it.
+      // Refresh the dynamic coverage with what this call executed.
       if (
-        result.result.tag === "timeout" ||
         !this._coverageEnabled ||
         !result.result.coverageData ||
         Object.keys(result.result.coverageData).length === 0

@@ -9,6 +9,8 @@ import tempfile
 import traceback
 import re
 import uuid
+import ctypes
+import threading
 from contextlib import redirect_stdout
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired
 
@@ -28,6 +30,7 @@ class CollectOptions(TypedDict):
 class RunnerInput(TypedDict):
     args: List[Any]
     seq: int
+    timeout: NotRequired[int]
     collect: NotRequired[CollectOptions]
 
 
@@ -70,11 +73,57 @@ class RunnerSkipResult(TypedDict):
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
 
 
+class RunnerTimeoutResult(TypedDict):
+    tag: Literal["timeout"]
+    seq: int
+    # lines executed by this call
+    coverageData: NotRequired[dict[str, List[int]]]
+    # arcs taken by this call
+    coverageArcs: NotRequired[dict[str, List[List[int]]]]
+    # static coverage data
+    staticCoverage: NotRequired[dict[str, dict[str, List]]]
+
+
 type RunnerResult = Union[RunnerValueResult,
-                          RunnerErrorResult, RunnerSkipResult]
+                          RunnerErrorResult, RunnerSkipResult, RunnerTimeoutResult]
 
 
 pid = os.getpid()
+
+
+class PutTimeoutException(Exception):
+    """Raised in the main thread when a test execution times out."""
+    pass
+
+
+def _raise_async_exception(target_thread_id: int, exception_cls: type) -> None:
+    """Injects an exception asynchronously into a CPython thread."""
+    ret = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_ulong(target_thread_id),
+        ctypes.py_object(exception_cls)
+    )
+    if ret > 1:
+        # Revert if more than one thread was affected
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(target_thread_id), None)
+
+
+def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
+    """Executes fn(*args) with an in-process timeout across Mac, Linux, and Windows."""
+    if not timeout_ms or timeout_ms <= 0:
+        return fn(*args)
+
+    main_thread_id = threading.get_ident()
+    timer = threading.Timer(
+        timeout_ms / 1000.0,
+        _raise_async_exception,
+        args=(main_thread_id, PutTimeoutException)
+    )
+    timer.start()
+    try:
+        return fn(*args)
+    finally:
+        timer.cancel()
 
 
 def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
@@ -472,6 +521,8 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     else:
         logging.getLogger().setLevel(logging.CRITICAL + 1)
 
+    timeout_ms = input.get("timeout", 0)
+
     if coverage_enabled:
         # cov.erase() is too expensive. Seems like only erasing the data works too
         cov.get_data().erase()
@@ -479,6 +530,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
 
     error = None
     skip = None
+    is_timeout = False
     value = None
 
     args = list(input["args"])
@@ -492,10 +544,12 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             # and call the original underlying function
             if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
                 # Unwrap Hypothesis test function
-                value = fn.hypothesis.inner_test(*args)
+                value = call_with_timeout(fn.hypothesis.inner_test, args, timeout_ms)
             else:
                 # Not Hypothesis; call directly
-                value = fn(*args)
+                value = call_with_timeout(fn, args, timeout_ms)
+    except PutTimeoutException:
+        is_timeout = True
     except Exception as e:
         if e.__class__.__name__ == "UnsatisfiedAssumption":
             skip = e
@@ -505,7 +559,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         if coverage_enabled:
             cov.stop()
 
-    # Read coverage after stopping: a failing input still covers lines
+    # Read coverage after stopping: a failing or timing out input still covers lines
     coverageData = {}
     coverageArcs = {}
     if coverage_enabled:
@@ -517,6 +571,15 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
                 covInfo[file] = static_coverage(cov, file)
             coverageData[file] = lines
             coverageArcs[file] = coverage_arcs(cov, file)
+
+    if is_timeout:
+        return RunnerTimeoutResult(
+            tag="timeout",
+            seq=input["seq"],
+            coverageData=coverageData,
+            coverageArcs=coverageArcs,
+            staticCoverage=covInfo if coverage_enabled else {}
+        )
 
     if skip is not None:
         return RunnerSkipResult(

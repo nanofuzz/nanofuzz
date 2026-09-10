@@ -138,7 +138,11 @@ async function main() {
 
     let resultMsg: Record<string, unknown>;
     if (resultTag === "timeout") {
-      resultMsg = { tag: "timeout", seq: input.seq };
+      resultMsg = {
+        tag: "timeout",
+        seq: input.seq,
+        coverageData: currentCoverage,
+      };
     } else if (resultTag === "skip") {
       resultMsg = {
         tag: "skip",
