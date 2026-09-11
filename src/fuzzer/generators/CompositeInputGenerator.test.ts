@@ -85,6 +85,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         timers: {
           total: 0,
           compile: 0,
+          instrument: 0,
           put: 0,
           val: 0,
           gen: 0,
@@ -197,6 +198,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           timers: {
             total: 0,
             compile: 0,
+            instrument: 0,
             put: 0,
             val: 0,
             gen: 0,
@@ -326,6 +328,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
           timers: {
             total: 0,
             compile: 0,
+            instrument: 0,
             put: 0,
             val: 0,
             gen: 0,
@@ -355,6 +358,73 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(cigStats?.checkpoints[1].tick).toBe(chunkSize + 1);
     } finally {
       Config.override("nanofuzz.generators.compositeTrackCheckpoints", false);
+    }
+  });
+
+  it("rnd-only fastpath: compositeExplorationChance >= 1.0 and toggling between runs", async () => {
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const options = {
+      RandomInputGenerator: { enabled: true },
+      MutationInputGenerator: { enabled: true },
+      AiInputGenerator: { enabled: false },
+    };
+
+    const leaderboard = new Leaderboard<InputAndSource>();
+    const allInputs = new Map<string, unknown>();
+
+    const cig = new CompositeInputGenerator(
+      options,
+      fnDef,
+      "test-seed",
+      [],
+      leaderboard,
+      genStats,
+      allInputs
+    );
+
+    try {
+      // Run 1: compositeExplorationChance = 1.0 (fastpath active)
+      Config.override("nanofuzz.generators.compositeExplorationChance", 1.0);
+      cig.onRunStart(true);
+      expect(cig.nextable()).toBeTrue();
+      const inputRun1 = cig.next();
+      expect(inputRun1).toBeDefined();
+
+      // Run 2: compositeExplorationChance = 0.1 (productivity calculation active)
+      Config.override("nanofuzz.generators.compositeExplorationChance", 0.1);
+      cig.onRunStart(true);
+      expect(cig.nextable()).toBeTrue();
+      const inputRun2 = cig.next();
+      expect(inputRun2).toBeDefined();
+
+      // Run 3: compositeExplorationChance = 1.0 again (fastpath active again)
+      Config.override("nanofuzz.generators.compositeExplorationChance", 1.0);
+      cig.onRunStart(true);
+      expect(cig.nextable()).toBeTrue();
+      const inputRun3 = cig.next();
+      expect(inputRun3).toBeDefined();
+    } finally {
+      Config.override("nanofuzz.generators.compositeExplorationChance", 0.1);
     }
   });
 });

@@ -2,7 +2,7 @@
   "name": "nanofuzz",
   "displayName": "NaNofuzz",
   "publisher": "penrose",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "description": "NaNofuzz is a fast and easy-to-use automatic test suite generator for TypeScript and Python that runs inside VS Code",
   "repository": "https://github.com/nanofuzz/nanofuzz.git",
   "author": "The NaNofuzz Team @ Carnegie Mellon University",
@@ -34,6 +34,11 @@
       {
         "command": "nanofuzz.Fuzz",
         "title": "NaNofuzz",
+        "category": "NaNofuzz"
+      },
+      {
+        "command": "nanofuzz.ClearCompileCache",
+        "title": "Clear compile cache",
         "category": "NaNofuzz"
       },
       {
@@ -91,6 +96,13 @@
             "default": 200,
             "minimum": 0,
             "description": "Default maximum time (in ms) to allow a test function to run before making it as a timeout."
+          },
+          "nanofuzz.fuzzer.hostStartupTimeout": {
+            "title": "Timeout runner host startup after (ms)",
+            "type": "integer",
+            "default": 10000,
+            "minimum": 1000,
+            "description": "Maximum time (in ms) allowed for the runner host process to startup."
           }
         }
       },
@@ -292,23 +304,25 @@
             "description": "Composite generator lookback window size for history"
           },
           "nanofuzz.generators.compositeChunkSize": {
-            "title": "Re-evaluate the composite generator's subgens after _chunkSize inputs generated",
+            "title": "Re-evaluate which input generator to use after every `chunkSize` inputs generated",
             "type": "integer",
             "default": 20,
             "minimum": 1,
-            "description": "Re-evaluate the composite generator's subgens after _chunkSize inputs generated"
+            "description": "Re-evaluate which input generator to use after every `chunkSize` inputs generated"
           },
           "nanofuzz.generators.compositeExplorationChance": {
             "title": "Composite generator additional chance of subgen exploration",
             "type": "number",
             "default": 0.1,
             "minimum": 0,
+            "maximum": 1,
             "description": "Composite generator additional chance of subgen exploration"
           },
           "nanofuzz.generators.leaderboardMinScore": {
             "title": "Leaderboard initial minimum score",
             "type": "number",
             "default": 0.9999,
+            "minimum": 0,
             "description": "Leaderboard initial minimum score"
           },
           "nanofuzz.generators.leaderboardInitialFocus": {
@@ -337,6 +351,12 @@
             "default": false,
             "minimum": 0,
             "description": "Activate telemetry?"
+          },
+          "nanofuzz.debug.runners": {
+            "title": "Debug logging for runner processes",
+            "type": "boolean",
+            "default": false,
+            "description": "Enable debug logging for runner host processes (e.g. PythonRunnerHost, JavascriptRunnerHost)."
           }
         }
       }
@@ -344,7 +364,8 @@
   },
   "scripts": {
     "build": "npx tsc -noEmit && node build.mjs",
-    "test": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
+    "test": "node test.cjs && pytest src/",
+    "test:runtime": "pytest packages/runtime/python/tests && yarn --cwd packages/runtime/typescript test",
     "lint": "eslint src",
     "lint:errors": "eslint --quiet src",
     "vscode:prepublish": "yarn build",

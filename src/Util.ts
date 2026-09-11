@@ -1,4 +1,19 @@
 import { FuzzValueOrigin } from "./fuzzer/Types";
+import * as JSONN from "./Jsonn";
+
+/**
+ * Constructs a new JavaScript Set whose elements are sorted in canonical
+ * order based on their stringified JSONN representation.
+ */
+export function makeCanonicalSet<T>(elements: Iterable<T>): Set<T> {
+  const items = Array.from(elements);
+  items.sort((a, b) => {
+    const strA = JSONN.stringify(a);
+    const strB = JSONN.stringify(b);
+    return strA < strB ? -1 : strA > strB ? 1 : 0;
+  });
+  return new Set(items);
+}
 
 /**
  * Type guard function that returns true if `obj` has keys
@@ -45,6 +60,107 @@ export function removeTickFromOrigin(origin: FuzzValueOrigin): void {
   } else if (origin.type === "transformer") {
     removeTickFromOrigin(origin.basis.source);
   }
+}
+
+/**
+ * Encodes control characters and backslashes in a string to printable escape sequences
+ * (e.g. newline -> \n, tab -> \t, backslash -> \\).
+ */
+export function encodeEscapeSequences(str: string): string {
+  let result = "";
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+    switch (char) {
+      case "\\":
+        result += "\\\\";
+        break;
+      case "\n":
+        result += "\\n";
+        break;
+      case "\r":
+        result += "\\r";
+        break;
+      case "\t":
+        result += "\\t";
+        break;
+      case "\0":
+        result += "\\0";
+        break;
+      default:
+        result += char;
+        break;
+    }
+  }
+  return result;
+}
+
+/**
+ * Decodes printable escape sequences in a string back to their raw character equivalents
+ * (e.g. \n -> newline, \t -> tab, \\ -> backslash, \u{1F600} -> 😀, \x41 -> A).
+ */
+export function decodeEscapeSequences(str: string): string {
+  let result = "";
+  let i = 0;
+  while (i < str.length) {
+    if (str[i] === "\\" && i + 1 < str.length) {
+      const rest = str.slice(i + 1);
+
+      // 1. Unicode code point escape \u{HEX}
+      const unicodeHexMatch = rest.match(/^u\{([0-9a-fA-F]+)\}/);
+      if (unicodeHexMatch) {
+        const cp = parseInt(unicodeHexMatch[1], 16);
+        if (!isNaN(cp)) {
+          result += String.fromCodePoint(cp);
+          i += 1 + unicodeHexMatch[0].length;
+          continue;
+        }
+      }
+
+      // 2. Unicode 4-hex escape \uXXXX or 2-hex escape \xXX
+      const hexMatch = rest.match(/^(?:u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2}))/);
+      if (hexMatch) {
+        const hex = hexMatch[1] ?? hexMatch[2];
+        const cp = parseInt(hex, 16);
+        if (!isNaN(cp)) {
+          result += String.fromCodePoint(cp);
+          i += 1 + hexMatch[0].length;
+          continue;
+        }
+      }
+
+      // 3. Single-character escape sequences (\n, \r, \t, \0, \\)
+      const next = str[i + 1];
+      switch (next) {
+        case "\\":
+          result += "\\";
+          i += 2;
+          break;
+        case "n":
+          result += "\n";
+          i += 2;
+          break;
+        case "r":
+          result += "\r";
+          i += 2;
+          break;
+        case "t":
+          result += "\t";
+          i += 2;
+          break;
+        case "0":
+          result += "\0";
+          i += 2;
+          break;
+        default:
+          result += "\\" + next;
+          i += 2;
+          break;
+      }
+    } else {
+      result += str[i++];
+    }
+  }
+  return result;
 }
 
 /**
@@ -101,4 +217,3 @@ export function bytesToBase64(bytes: Uint8Array): string {
   }
   return btoa(binary);
 }
-

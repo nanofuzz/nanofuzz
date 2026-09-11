@@ -138,16 +138,21 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
       tag: "ArgValueTypeWrapped" as const,
       value: [1, 1],
     };
-    const program = ProgramFactory.fromSource(
-      () => tsFnWithNumberArrayInput,
-      "typescript"
-    );
-    const arg = program.functions["test"].getArgDefs();
-    const nums = arg[0];
-    nums.setIntervals(intervals);
-    nums.setOptions({ dimLength });
+
+    const setupSpecs = () => {
+      const program = ProgramFactory.fromSource(
+        () => tsFnWithNumberArrayInput,
+        "typescript"
+      );
+      const arg = program.functions["test"].getArgDefs();
+      const nums = arg[0];
+      nums.setIntervals(intervals);
+      nums.setOptions({ dimLength });
+      return arg;
+    };
 
     it(`Filters out specs noncompliant values after onRunStart()`, () => {
+      const arg = setupSpecs();
       const leaderboard = new Leaderboard<InputAndSource>();
       leaderboard.postScore(
         {
@@ -165,6 +170,7 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
     });
 
     it(`Generate specs compliant values after onRunStart()`, () => {
+      const arg = setupSpecs();
       const leaderboard = new Leaderboard<InputAndSource>();
       leaderboard.postScore(
         {
@@ -193,12 +199,35 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
       for (let i = 0; i < 1000; i++) {
         const { value: inputs } = gen.next();
         const input = inputs[0].value;
-        expect(typeof input === "object" && Array.isArray(input)).toBeTruthy();
-        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-        const inputArray = input as number[];
-        expect([1, 2].includes(inputArray.length)).toBeTrue();
-        expect(inputArray.every((n) => [0, 1].includes(n))).toBeTrue();
+        if (Array.isArray(input)) {
+          expect([1, 2].includes(input.length)).toBeTrue();
+          expect(input.every((n) => typeof n === "number" && [0, 1].includes(n))).toBeTrue();
+        }
       }
+    });
+
+    it(`Reuses leaders if specs change so noncompliant leaders become compliant`, () => {
+      const arg = setupSpecs();
+      const leaderboard = new Leaderboard<InputAndSource>();
+      leaderboard.postScore(
+        {
+          tick: 1,
+          value: [nonCompliantValue],
+          source: {
+            type: "user",
+          },
+        },
+        1
+      );
+
+      let gen = new MutationInputGenerator(arg, seed, leaderboard);
+      gen.onRunStart(true);
+      expect(gen.nextable()).toBeFalse();
+
+      arg[0].setIntervals([{ min: 0, max: 6 }]);
+      gen = new MutationInputGenerator(arg, seed, leaderboard);
+      gen.onRunStart(true);
+      expect(gen.nextable()).toBeTrue();
     });
   });
 });

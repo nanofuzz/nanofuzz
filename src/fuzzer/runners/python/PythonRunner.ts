@@ -1,21 +1,23 @@
 import {
   AbstractRunner,
-  Arc,
+  CoverageInfo,
   RunnerInput,
   RunnerResult,
   TypeHint,
-} from "./AbstractRunner";
-import { ArgDef } from "../analysis/ArgDef";
-import { ArgTag } from "../analysis/Types";
-import { FuzzEnv } from "../Fuzzer";
+} from "../AbstractRunner";
+import { ArgDef } from "../../analysis/ArgDef";
+import { ArgTag } from "../../analysis/Types";
+import { FuzzEnv } from "../../Fuzzer";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
-import * as Config from "../../Config";
-import * as ChildProcess from "node:child_process";
+import * as Config from "../../../Config";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { findInAncestor, isError } from "../Util";
+import { findInAncestor, isError } from "../../Util";
+import { PutTimeoutName } from "../AbstractHost";
+import { PythonHost, PythonEnv } from "./PythonHost";
+import * as ChildProcess from "node:child_process";
 
 /**
  * Python runner
@@ -28,7 +30,9 @@ export class PythonRunner extends AbstractRunner {
   protected _env: FuzzEnv | undefined;
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
-  protected _coverageInfo?: CoverageInfo = undefined;
+  protected _coverageInfo?: FullCoverage = undefined;
+  protected _coverageEnabled = true;
+  protected _coverageCallback?: (covData: unknown) => void;
   protected _pythonEnv: PythonEnv | undefined;
   protected static _envs: {
     [file: string]: PythonEnv;
@@ -65,6 +69,10 @@ export class PythonRunner extends AbstractRunner {
   public async onRunStart(): Promise<void> {
     await super.onRunStart();
     this._killHost();
+    if (this._env?.options?.measures?.CoverageMeasure?.enabled !== undefined) {
+      this._coverageEnabled =
+        this._env.options.measures.CoverageMeasure.enabled;
+    }
     this._pythonEnv = PythonRunner.envFor(this._filename);
     await this._getHost();
   } // fn: onRunStart
@@ -92,31 +100,34 @@ export class PythonRunner extends AbstractRunner {
 
     try {
       const host = await this._getHost();
-      const typeHints =
-        this._env?.function.getArgDefs().map(getTypeHint) ?? [];
+      const typeHints = this._env?.function.getArgDefs().map(getTypeHint) ?? [];
 
+      const debugEnabled = Config.get<boolean>("nanofuzz.debug.runners", false);
       const input: RunnerInput = {
         args: inputs,
         seq: thisSeq,
         typeHints,
+        timeout: timeout ?? 0,
+        collect: {
+          coverageData: this._coverageEnabled ? true : undefined,
+          debugData: debugEnabled ? true : undefined,
+        },
       };
 
-      const payload = JSON5.stringify(input, (_key, val) =>
-        val instanceof Uint8Array ? Array.from(val) : val
-      );
-      const lengthBuffer = Buffer.alloc(4);
-      lengthBuffer.writeUInt32BE(Buffer.byteLength(payload), 0);
+      const payload = JSON5.stringify(input, (_key, val) => {
+        if (val instanceof Uint8Array || val instanceof Set) {
+          return Array.from(val);
+        }
+        if (val instanceof Map) {
+          return Object.fromEntries(val);
+        }
+        return val;
+      });
 
-      // Send length + payload
-      host.write(lengthBuffer);
-      host.write(payload);
-
-      // Get response length + payload
-      const length = (await host.readStdout(4, timeout)).readUInt32BE(0);
+      host.sendMessage(payload);
+      const hostTimeout = timeout && timeout > 0 ? timeout + 500 : Infinity;
       const result: RunnerResult = {
-        result: JSON5.parse(
-          (await host.readStdout(length, timeout)).toString()
-        ),
+        result: JSON5.parse(await host.getResponse(hostTimeout)),
         env: {},
       };
 
@@ -126,24 +137,42 @@ export class PythonRunner extends AbstractRunner {
         );
       }
 
-      // Refresh the dynamic coverage with what this call executed. A timeout
-      // is killed mid-run, so the host never reports coverage for it.
-      if (this._coverageInfo) {
-        if (result.result.tag === "timeout") {
-          this._coverageInfo.lines = undefined;
-          this._coverageInfo.arcs = undefined;
-        } else {
-          this._coverageInfo.lines = result.result.coverageData;
-          this._coverageInfo.arcs = result.result.coverageArcs;
+      // Refresh the dynamic coverage with what this call executed.
+      if (
+        !this._coverageEnabled ||
+        !result.result.coverageData ||
+        Object.keys(result.result.coverageData).length === 0
+      ) {
+        this._coverageInfo = undefined;
+      } else {
+        this._coverageInfo = result.result.staticCoverage;
+        if (this._coverageInfo) {
+          for (const filename in this._coverageInfo) {
+            const coverageData = result.result.coverageData;
+            const coverageArcs = result.result.coverageArcs;
+            this._coverageInfo[filename].lines =
+              coverageData && !Array.isArray(coverageData)
+                ? coverageData[filename]
+                : undefined;
+            this._coverageInfo[filename].arcs =
+              coverageArcs && !Array.isArray(coverageArcs)
+                ? coverageArcs[filename]
+                : undefined;
+          }
+          this._coverageCallback?.(this._coverageInfo);
         }
       }
+
       return result;
     } catch (e: unknown) {
       this._killHost();
       if (!isError(e)) {
         throw e;
       }
-      if (e.name === putTimeoutName) {
+      if (this._coverageInfo) {
+        this._coverageInfo = undefined;
+      }
+      if (e.name === PutTimeoutName) {
         return { result: { tag: "timeout", seq: thisSeq }, env: {} };
       } else {
         return {
@@ -160,7 +189,7 @@ export class PythonRunner extends AbstractRunner {
     } finally {
       this._runDepth--;
     }
-  }
+  } // fn: run
 
   /**
    * Tears down the runner host at the end of the test run
@@ -171,7 +200,23 @@ export class PythonRunner extends AbstractRunner {
     await super.onRunEnd();
     this._killHost();
     this._pythonEnv = undefined;
-  }
+  } // fn: onRunEnd
+
+  /**
+   * Returns the current coverage information, if any
+   */
+  public override get coverageInfo(): FullCoverage | undefined {
+    return this._coverageInfo;
+  } // fn: coverageInfo
+
+  /**
+   * Registers a callback to be invoked with coverage data
+   *
+   * @param callback the callback to register
+   */
+  public override onCoverage(callback: (covData: unknown) => void): void {
+    this._coverageCallback = callback;
+  } // fn: onCoverage
 
   /**
    * Returns the python environment for a file
@@ -267,7 +312,7 @@ export class PythonRunner extends AbstractRunner {
     }, 10000);
 
     return pythonEnv;
-  }
+  } // fn: envFor
 
   /**
    * Returns the syspaths used by the interpreter
@@ -340,7 +385,7 @@ export class PythonRunner extends AbstractRunner {
     }
 
     return candidate || "python3";
-  }
+  } // fn: resolveInterpreter
 
   /**
    * Probes whether a python executable candidate can be spawned successfully.
@@ -358,7 +403,7 @@ export class PythonRunner extends AbstractRunner {
     } catch {
       return false;
     }
-  }
+  } // fn: canExecute
 
   /**
    * Get the current Python host process (creates a new one if needed)
@@ -411,30 +456,26 @@ export class PythonRunner extends AbstractRunner {
       path.dirname(module.filename),
       this._pythonEnv
     );
-    const okcode = await host.readStdout(5, 30000); // a longer timeout tolerance for the host to pre-warm the coverage
 
-    if (okcode.toString() === "READY") {
+    const hostStartupTimeout = Config.get<number>(
+      "nanofuzz.fuzzer.hostStartupTimeout",
+      10000
+    );
+
+    // a longer timeout tolerance for the host to pre-warm the coverage
+    const okcode = await host.getResponse(hostStartupTimeout);
+    if (okcode === `"READY"`) {
       this._host = host;
 
       // Get the static coverage structure, which the host sends once. The
       // dynamic `lines`/`arcs` are filled in by each `run`.
-      const length = (await host.readStdout(4, 30000)).readUInt32BE(0);
-      const data = JSON5.parse<CoverageInfo>(
-        (await host.readStdout(length, 30000)).toString()
+      this._coverageInfo = JSON5.parse<FullCoverage>(
+        await host.getResponse(hostStartupTimeout)
       );
-      this._coverageInfo = {
-        file: data.file,
-        executable: data.executable ?? [],
-        functions: data.functions ?? [],
-        branches: data.branches ?? [],
-      };
       return host;
     } else {
-      const stdout = await host.readStdout();
       host.kill();
-      throw new Error(
-        `PythonHost not ready (okcode: ${okcode}, stdout: ${stdout})`
-      );
+      throw new Error(`PythonHost not ready (okcode: ${okcode})`);
     }
   } // get: host
 
@@ -446,186 +487,16 @@ export class PythonRunner extends AbstractRunner {
       this._host.kill();
       this._host = undefined;
     }
-  }
-
-  /**
-   * Get coverage info
-   * Needs to be a shallow copy since the covered lines changes every run
-   */
-  public get coverageInfo(): CoverageInfo | undefined {
-    return this._coverageInfo ? { ...this._coverageInfo } : undefined;
-  }
+  } // fn: _killHost
 } // class: PythonRunner
 
 /**
- * Wrapper for running and interacting with running Python programs
+ * Finds the Python library directory
+ *
+ * @param dir the starting directory
+ * @param item the item to look for
+ * @returns the Python library directory, or null if not found
  */
-class PythonHost {
-  protected _proc: ChildProcess.ChildProcessWithoutNullStreams;
-  protected _isActive: boolean = true;
-  protected _stdout: Buffer<ArrayBuffer>;
-  protected _stderr: Buffer<ArrayBuffer>;
-  protected _errors: Error[];
-  protected _cli: string;
-  protected _cwd: string | undefined;
-
-  constructor(args: string[], cwd: string | undefined, pythonEnv: PythonEnv) {
-    this._stdout = Buffer.alloc(0);
-    this._stderr = Buffer.alloc(0);
-    this._errors = [];
-    this._cwd = cwd;
-    this._cli = [pythonEnv.interpreter, ...args].join(" ");
-
-    // Spawn the host
-    this._proc = ChildProcess.spawn(pythonEnv.interpreter, args, {
-      cwd,
-      env: pythonEnv.env,
-      windowsHide: true,
-    });
-
-    this._proc.stdout.on("data", this._onStdout);
-    this._proc.stdout.on("error", this._onError);
-    this._proc.stderr.on("data", this._onStderr);
-    this._proc.stderr.on("error", this._onError);
-    this._proc.once("close", this._onClose);
-
-    this._isActive = true;
-  }
-
-  public get isActive(): boolean {
-    return this._isActive;
-  }
-
-  protected _onStdout = (chunk: Buffer): void => {
-    this._stdout = Buffer.concat([this._stdout, chunk]);
-  };
-
-  protected _onStderr = (chunk: Buffer): void => {
-    this._stderr = Buffer.concat([this._stderr, chunk]);
-  };
-
-  protected _onError = (err: Error): void => {
-    this._errors.push(new Error(`PythonHost pipe error: ${err.message}`));
-    this.kill();
-  };
-
-  protected _onClose = (): void => {
-    this._errors.push(
-      new Error(
-        `PythonHost exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._stderr.toString("utf8")}, stdout: ${this._stdout.toString("utf8")}, cli: ${this._cli}, cwd: ${this._cwd})`
-      )
-    );
-    this.kill();
-  };
-
-  public kill(): void {
-    this._isActive = false;
-
-    this._proc.stdout.removeListener("data", this._onStdout);
-    this._proc.stdout.removeListener("error", this._onError);
-    this._proc.stderr.removeListener("data", this._onStderr);
-    this._proc.stderr.removeListener("error", this._onError);
-    this._proc.removeListener("close", this._onClose);
-
-    this._proc.kill();
-  }
-
-  public write(chunk: Parameters<typeof this._proc.stdin.write>[0]): void {
-    if (!this._isActive) {
-      throw new Error("Internal error: Cannot write to an inactive host");
-    }
-    this._proc.stdin.write(chunk);
-  }
-
-  /**
-   * Reads bytes from the stdout buffer. If the bytes have not arrived yet,
-   * then wait `timeout` ms.
-   *
-   * @param `n` number of bytes to read ("all"=return the entire current buffer)
-   * @param `timeout` number of ms before giving up (0=don't wait, Infinity=no timeout)
-   * @returns `n` bytes, or the entire buffer if n is 0
-   */
-  public async readStdout(
-    n: number | "all" = "all",
-    timeout: number = 0
-  ): Promise<Buffer> {
-    return new Promise<Buffer>((resolve, reject) => {
-      if (!this._isActive) {
-        reject(new Error("Internal error: Cannot read from an inactive host"));
-        return;
-      }
-      const bytes = n === "all" ? this._stdout.length : n;
-
-      if (this._stdout.length >= bytes) {
-        // Return the data if it's already in the buffer
-        const result = this._stdout!.subarray(0, bytes);
-        this._stdout = this._stdout!.subarray(bytes);
-        resolve(result);
-        return;
-      }
-
-      if (timeout === 0) {
-        reject(new Error(`Read past buffer end`));
-        return;
-      }
-
-      const onData = (_chunk: Buffer) => {
-        // Another listener writes to the buffer
-        if (this._stdout.length >= bytes) {
-          cleanup();
-          try {
-            resolve(this.readStdout(n, 0));
-          } catch (e: unknown) {
-            reject(e);
-          }
-        }
-      };
-
-      const onError = (err: Error) => {
-        reject(err);
-        cleanup();
-      };
-
-      const onClose = () => {
-        const exitCode = this._proc.exitCode;
-        reject(
-          this._errors.at(-1) ??
-            new Error(`Host exited unexpectedly with exit code: ${exitCode}`)
-        );
-        cleanup();
-      };
-
-      const timer =
-        timeout > 0 && timeout !== Infinity
-          ? setTimeout(() => {
-              cleanup();
-              const exception = new Error(
-                `PythonRunnerHost did not return expected data within ${timeout} ms timeout`
-              );
-              exception.name = putTimeoutName;
-              this.kill();
-              reject(exception);
-            }, timeout)
-          : undefined;
-
-      const cleanup = () => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-        this._proc.stdout.removeListener("data", onData);
-        this._proc.stdout.removeListener("error", onError);
-        this._proc.removeListener("close", onClose);
-      };
-
-      this._proc.stdout.on("data", onData);
-      this._proc.stdout.on("error", onError);
-      this._proc.once("close", onClose);
-    });
-  } // fn: _readBytes
-} // class: PythonHost
-
-const putTimeoutName = "PythonRunnerPutTimeout";
-
 function findPythonLibDir(dir: string, item: string): string | null {
   // Co-located with this module (e.g., as built)
   if (fs.existsSync(path.resolve(path.join(dir, item)))) {
@@ -639,12 +510,24 @@ function findPythonLibDir(dir: string, item: string): string | null {
   }
 
   return null;
-}
+} // fn: findPythonLibDir
 
+/**
+ * Checks if the argument is a UUID string
+ *
+ * @param arg the argument definition
+ * @returns true if the argument is a UUID string, false otherwise
+ */
 function isUuidArg(arg: ArgDef): boolean {
   return arg.getTypeRef() === "UUID" && arg.getType() === ArgTag.STRING;
-}
+} // fn: isUuidArg
 
+/**
+ * Gets the base type hint for the argument
+ *
+ * @param arg the argument definition
+ * @returns the base type hint
+ */
 function getBaseTypeHint(arg: ArgDef): TypeHint {
   if (isUuidArg(arg)) {
     return "uuid";
@@ -658,6 +541,18 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
   }
 
   switch (arg.getType()) {
+    case ArgTag.SET: {
+      const [elemChild] = arg.getChildren();
+      const elemHint = elemChild ? getTypeHint(elemChild) : "default";
+      const typeRef = arg.getTypeRef();
+      const baseTypeRef = arg.getBaseTypeRef();
+      const isFrozen =
+        typeRef === "frozenset" ||
+        typeRef === "FrozenSet" ||
+        baseTypeRef === "frozenset" ||
+        baseTypeRef === "FrozenSet";
+      return { kind: "set", element: elemHint, frozenset: isFrozen };
+    }
     case ArgTag.TUPLE:
       return {
         kind: "tuple",
@@ -683,6 +578,13 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
       throw new Error(`Internal error: Python doesn't have bigint`);
 
     case ArgTag.NUMBER:
+      return "number";
+    case ArgTag.DICTIONARY: {
+      const children = arg.getChildren();
+      const keyHint = children[0] ? getTypeHint(children[0]) : "default";
+      const valHint = children[1] ? getTypeHint(children[1]) : "default";
+      return { kind: "dictionary", key: keyHint, value: valHint };
+    }
     case ArgTag.STRING:
     case ArgTag.BOOLEAN:
     case ArgTag.LITERAL:
@@ -690,8 +592,14 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
     default:
       return "default";
   }
-}
+} // fn: getBaseTypeHint
 
+/**
+ * Gets the type hint for the argument, including array dimensions
+ *
+ * @param arg the argument definition
+ * @returns the type hint
+ */
 function getTypeHint(arg: ArgDef): TypeHint {
   const dims = arg.getDim();
   let hint: TypeHint = getBaseTypeHint(arg);
@@ -699,36 +607,12 @@ function getTypeHint(arg: ArgDef): TypeHint {
     hint = { kind: "array", element: hint };
   }
   return hint;
-}
+} // fn: getTypeHint
 
 /**
- * Coverage reported by the Python host for the program under test.
- *
- * The static fields describe what the program *can* execute and are sent once
- * at startup; the dynamic fields describe what a single call *did* execute and
- * are refreshed on every `run`.
+ * Coverage for the entire program under test.
  */
-export type CoverageInfo = {
-  file: string;
-  executable: number[]; // static: all executable lines
-  functions: FunctionInfo[]; // static: all functions
-  branches: BranchInfo[]; // static: all branch points
-  lines?: number[]; // dynamic: lines executed by this one call
-  arcs?: Arc[]; // dynamic: arcs taken by this one call
-};
-
-/**
- * A function in the program under test. `lines` holds only the function's own
- * executable lines: coverage.py attributes lines per function, so lines inside
- * a nested function are not charged to its parent.
- */
-export type FunctionInfo = {
-  name: string; // e.g. "fn" or "Class.method"
-  declLine: number; // the `def` line
-  startLine: number; // first executable line of the body
-  endLine: number; // last executable line of the body
-  lines: number[]; // the function's own executable lines
-};
+export type FullCoverage = Record<string, CoverageInfo>;
 
 /**
  * A branch point: a line with more than one possible exit.
@@ -749,16 +633,5 @@ export type BranchExit = {
   line: number; // where to display this exit
 };
 
-export { Arc } from "./AbstractRunner";
-
-export type PythonEnv = {
-  env: { [k: string]: string | undefined };
-  libs: string | undefined | null;
-  interpreter: string;
-  paths: readonly string[];
-  venv?: {
-    activateCmd: string;
-    path: string;
-    interpreter: string;
-  };
-};
+export { Arc, CoverageInfo } from "../AbstractRunner";
+export type { PythonEnv } from "./PythonHost";

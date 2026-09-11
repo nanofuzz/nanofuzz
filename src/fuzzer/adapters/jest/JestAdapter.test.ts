@@ -6,6 +6,8 @@ const argDefaults: ArgOptions = {
   strCharset: "abc",
   strLength: { min: 0, max: 3 },
   byteLength: { min: 0, max: 3 },
+  dictLength: { min: 0, max: 3 },
+  setLength: { min: 0, max: 3 },
   strRegex: undefined,
   numInteger: true,
   anyType: ArgTag.NUMBER,

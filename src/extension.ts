@@ -63,10 +63,10 @@ export async function activate(
    * Push event listeners to VS Code
    */
   tm.listeners.forEach((listener) => {
-    context.subscriptions.push(listener.event(listener.fn));
+    context.subscriptions.push(listener.register());
   });
   fp.listeners.forEach((listener) => {
-    context.subscriptions.push(listener.event(listener.fn));
+    context.subscriptions.push(listener.register());
   });
 } // fn: activate()
 
@@ -82,7 +82,13 @@ export function deactivate(): void {
 /**
  * Associates a callback function with an vscode event.
  */
-export type Listener<T> = {
-  event: vscode.Event<T>;
-  fn: (e: T) => void;
+export type Listener = {
+  register: () => vscode.Disposable;
 };
+
+export function createListener<T>(
+  event: vscode.Event<T>,
+  fn: (e: T) => void
+): Listener {
+  return { register: () => event(fn) };
+}

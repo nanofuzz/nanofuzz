@@ -14,13 +14,14 @@ import {
   ProgramLanguage,
 } from "../Types";
 import { getErrorMessageOrJson } from "../../Util";
+import { decodeEscapeSequences } from "../../../Util";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as ProgramFactory from "../ProgramFactory";
 import * as JSONN from "../../../Jsonn";
 import * as Parser from "../../adapters/ParserAdapter";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { PythonRunner } from "../../runners/PythonRunner";
+import { PythonRunner } from "../../runners/python/PythonRunner";
 import { ArgDef } from "../ArgDef";
 import { isArgType } from "../Util";
 import { FuzzOptions } from "../../Types";
@@ -613,11 +614,7 @@ export class PythonProgram extends AbstractProgram {
           case "Sequence":
           case "MutableSequence":
           case "Iterable":
-          case "Collection":
-          case "set":
-          case "Set":
-          case "frozenset":
-          case "FrozenSet": {
+          case "Collection": {
             // sets use JSON-array inputs
             const arg = args[0];
             if (!arg) throw new Error(`Missing element type in '${node.text}'`);
@@ -626,7 +623,24 @@ export class PythonProgram extends AbstractProgram {
               this._getTypeFromAstNode(arg, options);
             return [type, dims + 1, typeName, literalValue, typeOptions];
           }
-
+          case "set":
+          case "Set":
+          case "frozenset":
+          case "FrozenSet": {
+            const arg = args[0];
+            if (!arg) throw new Error(`Missing element type in '${node.text}'`);
+            return [ArgTag.SET, 0, base];
+          }
+          case "dict":
+          case "Dict":
+          case "Mapping":
+          case "MutableMapping":
+            if (args.length !== 2) {
+              throw new Error(
+                `Dictionary type requires key and value types: ${node.text}`
+              );
+            }
+            return [ArgTag.DICTIONARY, 0];
           case "tuple":
           case "Tuple":
             return [ArgTag.TUPLE, 0];
@@ -778,15 +792,36 @@ export class PythonProgram extends AbstractProgram {
           case "MutableSequence":
           case "Iterable":
           case "Collection":
+            return this._getChildrenFromNode(args[0]);
           case "set":
           case "Set":
           case "frozenset":
-          case "FrozenSet":
-            // Sets are modeled as arrays because fuzzer inputs are JSON.
-            // The Python runner can reconstruct a set at its boundary later.
-            return this._getChildrenFromNode(args[0]);
+          case "FrozenSet": {
+            const elemTypeRef = this._getTypeRefFromAstNode(args[0]);
+            elemTypeRef.name = "values";
+            return [elemTypeRef];
+          }
           // Composites: each argument (`type` node) is a child.
           case "Union":
+          case "dict":
+          case "Dict":
+          case "Mapping":
+          case "MutableMapping":
+            return args.map((c, index) => {
+              const child = this._getTypeRefFromAstNode(c);
+              // A dictionary has no fixed property names. Preserve its two
+              // type parameters explicitly so generators and validators can
+              // apply the key and value constraints to every entry.
+              if (
+                base === "dict" ||
+                base === "Dict" ||
+                base === "Mapping" ||
+                base === "MutableMapping"
+              ) {
+                child.name = index === 0 ? "keys" : "values";
+              }
+              return child;
+            });
           case "Optional":
             return args.map((c) => this._getTypeRefFromAstNode(c));
           case "tuple":
@@ -873,6 +908,19 @@ export class PythonProgram extends AbstractProgram {
 
     if (typeRefNode) {
       thisType.typeRefName = typeRefNode;
+      const pyContainers = [
+        "dict",
+        "Dict",
+        "Mapping",
+        "MutableMapping",
+        "set",
+        "Set",
+        "frozenset",
+        "FrozenSet",
+      ];
+      if (pyContainers.includes(typeRefNode)) {
+        thisType.baseTypeRef = typeRefNode;
+      }
     }
 
     // Create the TypeRef data structure
@@ -887,6 +935,9 @@ export class PythonProgram extends AbstractProgram {
           children: [],
           ...(typeOptions ? { options: typeOptions } : {}),
           resolved: true,
+          ...(thisType.baseTypeRef
+            ? { baseTypeRef: thisType.baseTypeRef }
+            : {}),
         };
         break;
       }
@@ -897,6 +948,21 @@ export class PythonProgram extends AbstractProgram {
           children: [],
           value: literalValue,
           resolved: true,
+          ...(thisType.baseTypeRef
+            ? { baseTypeRef: thisType.baseTypeRef }
+            : {}),
+        };
+        break;
+      }
+      case ArgTag.SET:
+      case ArgTag.DICTIONARY: {
+        thisType.type = {
+          dims: dims,
+          type: type,
+          children: this._getChildrenFromNode(typeNode),
+          ...(thisType.baseTypeRef
+            ? { baseTypeRef: thisType.baseTypeRef }
+            : {}),
         };
         break;
       }
@@ -1368,11 +1434,342 @@ export class PythonProgram extends AbstractProgram {
     if (valNode.type === "true") return true;
     if (valNode.type === "false") return false;
     if (valNode.type === "string") {
-      const content = valNode.namedChildren.find(
-        (c) => c.type === "string_content"
-      );
-      return content?.text ?? valNode.text.replace(/^['"]|['"]$/g, "");
+      const isRaw = /^[rR]/.test(valNode.text);
+      const parts: string[] = [];
+      const children = valNode.namedChildren;
+      if (children.length > 0) {
+        for (const child of children) {
+          if (child.type === "string_content") {
+            parts.push(isRaw ? child.text : decodeEscapeSequences(child.text));
+          } else if (child.type === "escape_sequence") {
+            parts.push(isRaw ? child.text : decodeEscapeSequences(child.text));
+          }
+        }
+        return parts.join("");
+      }
+      const rawBody = valNode.text.replace(/^[rRfFbBuU]*['"]+|['"]+$/g, "");
+      return isRaw ? rawBody : decodeEscapeSequences(rawBody);
     }
+    return undefined;
+  }
+
+  /**
+   * Helper to parse string literals or lists/tuples/sets of string literals into string arrays.
+   */
+  protected _parseStringOrStringList(
+    node: Parser.Node | undefined
+  ): string[] | undefined {
+    if (!node) return undefined;
+    const resolved = this._resolveReference(node);
+    if (!resolved) return undefined;
+
+    if (resolved.type === "string") {
+      const lit = this._parseLiteral(resolved);
+      return typeof lit === "string" ? [lit] : undefined;
+    }
+
+    if (
+      resolved.type === "tuple" ||
+      resolved.type === "list" ||
+      resolved.type === "set"
+    ) {
+      const results: string[] = [];
+      for (const child of resolved.namedChildren) {
+        const val = this._parseLiteral(this._resolveReference(child));
+        if (typeof val === "string") {
+          results.push(val);
+        }
+      }
+      return results.length > 0 ? results : undefined;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Helper to parse integer / codepoint literals (decimal or hex like 0x1F600).
+   */
+  protected _parseCodepoint(node: Parser.Node | undefined): number | undefined {
+    if (!node) return undefined;
+    const resolved = this._resolveReference(node);
+    if (!resolved) return undefined;
+
+    if (resolved.type === "integer") {
+      const raw = resolved.text.replace(/_/g, "");
+      if (raw.toLowerCase().startsWith("0x")) {
+        const val = parseInt(raw, 16);
+        return isNaN(val) ? undefined : val;
+      }
+      const val = Number(raw);
+      return isNaN(val) ? undefined : val;
+    }
+
+    const lit = this._parseLiteral(resolved);
+    return typeof lit === "number" ? lit : undefined;
+  }
+
+  /**
+   * Parses an st.characters(...) Hypothesis call node into strCharset and/or strRegex options.
+   */
+  protected _parseCharactersStrategy(
+    node: Parser.Node
+  ): { strCharset?: string; strRegex?: string } | undefined {
+    const wlCatList = this._parseStringOrStringList(
+      this._getKwdArg(node, "whitelist_categories", 0)
+    );
+    const blCatList = this._parseStringOrStringList(
+      this._getKwdArg(node, "blacklist_categories", 1)
+    );
+    const wlCharsList = this._parseStringOrStringList(
+      this._getKwdArg(node, "whitelist_characters", 2)
+    );
+    const blCharsList = this._parseStringOrStringList(
+      this._getKwdArg(node, "blacklist_characters", 3)
+    );
+    const minCp = this._parseCodepoint(
+      this._getKwdArg(node, "min_codepoint", 4)
+    );
+    const maxCp = this._parseCodepoint(
+      this._getKwdArg(node, "max_codepoint", 5)
+    );
+
+    const wlChars = wlCharsList ? wlCharsList.join("") : undefined;
+    const blChars = blCharsList ? blCharsList.join("") : undefined;
+
+    const CATEGORY_MAP: Record<string, string> = {
+      Ll: "abcdefghijklmnopqrstuvwxyz",
+      Lu: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      Lt: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      Nd: "0123456789",
+      L: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      N: "0123456789",
+      P: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+      S: "+$<=>^`~|",
+      Z: " ",
+      Zs: " ",
+    };
+
+    let chars: string[] = [];
+
+    // Codepoint range handling
+    if (minCp !== undefined && maxCp !== undefined && maxCp >= minCp) {
+      const rangeSize = maxCp - minCp + 1;
+      if (rangeSize <= 0x10000) {
+        for (let cp = minCp; cp <= maxCp; cp++) {
+          chars.push(String.fromCodePoint(cp));
+        }
+      }
+    } else if (wlCatList && wlCatList.length > 0) {
+      for (const cat of wlCatList) {
+        if (CATEGORY_MAP[cat]) {
+          chars.push(...CATEGORY_MAP[cat].split(""));
+        }
+      }
+    }
+
+    // Whitelisted characters
+    if (wlChars) {
+      chars.push(...wlChars.split(""));
+    }
+
+    // Blacklisted categories (e.g. Cc)
+    if (blCatList && blCatList.length > 0 && chars.length > 0) {
+      for (const cat of blCatList) {
+        if (cat === "Cc") {
+          chars = chars.filter((c) => c.charCodeAt(0) >= 32);
+        }
+      }
+    }
+
+    // Blacklisted characters
+    if (blChars && chars.length > 0) {
+      const blSet = new Set(blChars.split(""));
+      chars = chars.filter((c) => !blSet.has(c));
+    }
+
+    const strCharset =
+      chars.length > 0 ? Array.from(new Set(chars)).join("") : undefined;
+
+    // Build strRegex
+    const classParts: string[] = [];
+    if (wlCatList) {
+      for (const cat of wlCatList) {
+        classParts.push(`\\p{${cat}}`);
+      }
+    }
+    if (minCp !== undefined && maxCp !== undefined) {
+      const minHex = minCp.toString(16).toUpperCase();
+      const maxHex = maxCp.toString(16).toUpperCase();
+      classParts.push(`\\u{${minHex}}-\\u{${maxHex}}`);
+    }
+    if (wlChars) {
+      for (const c of Array.from(wlChars)) {
+        const escaped = "\\\\]-^".includes(c) ? `\\${c}` : c;
+        classParts.push(escaped);
+      }
+    }
+
+    const classBody = classParts.join("");
+    let charMatcher = classBody.length > 0 ? `[${classBody}]` : ".";
+
+    let lookaheads = "";
+    if (blCatList && blCatList.length > 0) {
+      for (const cat of blCatList) {
+        lookaheads += `(?!\\p{${cat}})`;
+      }
+    }
+    if (blChars && blChars.length > 0) {
+      const escapedBl = Array.from(blChars)
+        .map((c) => ("\\\\]-^".includes(c) ? `\\${c}` : c))
+        .join("");
+      lookaheads += `(?![${escapedBl}])`;
+    }
+
+    if (lookaheads.length > 0) {
+      charMatcher = `${lookaheads}${charMatcher}`;
+    }
+
+    const strRegex = `\\A(?:${charMatcher})*\\Z`;
+
+    return {
+      ...(strCharset !== undefined ? { strCharset } : {}),
+      ...(strRegex !== undefined ? { strRegex } : {}),
+    };
+  }
+
+  /**
+   * Parses an AST node representing an alphabet parameter for st.text or st.from_regex.
+   * Handles string literals, Python string.* module constants, st.sampled_from,
+   * st.characters, binary + concatenation, tuple/list of strings, and references.
+   */
+  protected _parseAlphabet(
+    node: Parser.Node | undefined
+  ): { strCharset?: string; strRegex?: string } | undefined {
+    if (!node) return undefined;
+    const resolved = this._resolveReference(node);
+    if (!resolved) return undefined;
+
+    // Handle string literal
+    if (resolved.type === "string") {
+      const val = this._parseLiteral(resolved);
+      if (typeof val === "string") {
+        return { strCharset: val };
+      }
+    }
+
+    // Handle tuples/lists/sets of strings (e.g. ['a', 'b', 'c'])
+    if (
+      resolved.type === "tuple" ||
+      resolved.type === "list" ||
+      resolved.type === "set"
+    ) {
+      const strList = this._parseStringOrStringList(resolved);
+      if (strList) {
+        const chars = strList.flatMap((s) => Array.from(s));
+        return { strCharset: Array.from(new Set(chars)).join("") };
+      }
+    }
+
+    // Handle Python string.* module constants
+    if (resolved.type === "attribute") {
+      const objText = resolved.childForFieldName("object")?.text ?? "";
+      const attrText = resolved.childForFieldName("attribute")?.text ?? "";
+      if (
+        objText === "string" ||
+        objText === "std_string" ||
+        objText.endsWith(".string")
+      ) {
+        switch (attrText) {
+          case "ascii_lowercase":
+            return { strCharset: "abcdefghijklmnopqrstuvwxyz" };
+          case "ascii_uppercase":
+            return { strCharset: "ABCDEFGHIJKLMNOPQRSTUVWXYZ" };
+          case "ascii_letters":
+            return {
+              strCharset:
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            };
+          case "digits":
+            return { strCharset: "0123456789" };
+          case "hexdigits":
+            return { strCharset: "0123456789abcdefABCDEF" };
+          case "octdigits":
+            return { strCharset: "01234567" };
+          case "punctuation":
+            return { strCharset: "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~" };
+          case "whitespace":
+            return { strCharset: " \t\n\r\x0b\x0c" };
+          case "printable":
+            return {
+              strCharset:
+                "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r\x0b\x0c",
+            };
+        }
+      }
+    }
+
+    // Handle binary operator + (e.g. string.ascii_letters + string.digits)
+    if (resolved.type === "binary_operator") {
+      const op = resolved.children.find(
+        (c) => c.type === "+" || c.text === "+"
+      );
+      if (op) {
+        const left = this._parseAlphabet(
+          resolved.childForFieldName("left") ?? undefined
+        );
+        const right = this._parseAlphabet(
+          resolved.childForFieldName("right") ?? undefined
+        );
+        if (left || right) {
+          const charset =
+            left?.strCharset || right?.strCharset
+              ? Array.from(
+                  new Set(
+                    (
+                      (left?.strCharset ?? "") + (right?.strCharset ?? "")
+                    ).split("")
+                  )
+                ).join("")
+              : undefined;
+          const regex =
+            left?.strRegex && right?.strRegex
+              ? `(?:${left.strRegex}|${right.strRegex})`
+              : (left?.strRegex ?? right?.strRegex);
+          return {
+            ...(charset !== undefined ? { strCharset: charset } : {}),
+            ...(regex !== undefined ? { strRegex: regex } : {}),
+          };
+        }
+      }
+    }
+
+    // Handle function call (st.sampled_from, st.characters, st.from_regex, etc.)
+    if (resolved.type === "call") {
+      const funcNode = resolved.childForFieldName("function");
+      const funcName = funcNode?.text.split(".").pop() ?? "";
+
+      if (funcName === "sampled_from") {
+        const argsNode = resolved.childForFieldName("arguments");
+        const listArg =
+          this._getKwdArg(resolved, "elements", 0) ??
+          argsNode?.namedChildren[0];
+        return this._parseAlphabet(listArg);
+      }
+
+      if (funcName === "characters") {
+        return this._parseCharactersStrategy(resolved);
+      }
+
+      if (funcName === "from_regex") {
+        const parsedRegex = this._parseLiteral(
+          this._getKwdArg(resolved, "regex", 0)
+        );
+        if (typeof parsedRegex === "string") {
+          return { strRegex: parsedRegex };
+        }
+      }
+    }
+
     return undefined;
   }
 
@@ -1622,7 +2019,8 @@ export class PythonProgram extends AbstractProgram {
       }
 
       case "text": {
-        const alphabet = parseLiteral(getKwdArg(node, "alphabet", 0));
+        const alphabetNode = getKwdArg(node, "alphabet", 0);
+        const parsedAlphabet = this._parseAlphabet(alphabetNode);
         const minSize = parseLiteral(getKwdArg(node, "min_size", 1));
         const maxSize = parseLiteral(getKwdArg(node, "max_size", 2));
 
@@ -1637,8 +2035,34 @@ export class PythonProgram extends AbstractProgram {
             max: Number(maxSize ?? dftInterval[0].max),
           };
         }
-        if (alphabet !== undefined) options.strCharset = String(alphabet);
+        if (parsedAlphabet?.strCharset !== undefined) {
+          options.strCharset = parsedAlphabet.strCharset;
+        }
+        if (parsedAlphabet?.strRegex !== undefined) {
+          options.strRegex = parsedAlphabet.strRegex;
+        }
 
+        thisType.type = {
+          type: ArgTag.STRING,
+          dims: 0,
+          children: [],
+          options,
+          resolved: true,
+        };
+        break;
+      }
+
+      case "characters": {
+        const parsedChar = this._parseCharactersStrategy(node);
+        const options: ArgOptionOverride = {
+          strLength: { min: 1, max: 1 },
+          ...(parsedChar?.strCharset !== undefined
+            ? { strCharset: parsedChar.strCharset }
+            : {}),
+          ...(parsedChar?.strRegex !== undefined
+            ? { strRegex: parsedChar.strRegex }
+            : {}),
+        };
         thisType.type = {
           type: ArgTag.STRING,
           dims: 0,
@@ -1651,7 +2075,8 @@ export class PythonProgram extends AbstractProgram {
 
       case "from_regex": {
         const parsedRegex = parseLiteral(getKwdArg(node, "regex", 0));
-        const alphabet = parseLiteral(getKwdArg(node, "alphabet", 2));
+        const alphabetNode = getKwdArg(node, "alphabet", 2);
+        const parsedAlphabet = this._parseAlphabet(alphabetNode);
         const fullmatch = parseLiteral(getKwdArg(node, "fullmatch", 1));
         if (typeof parsedRegex !== "string") {
           console.warn(
@@ -1671,7 +2096,9 @@ export class PythonProgram extends AbstractProgram {
           children: [],
           options: {
             strRegex: regex,
-            ...(alphabet === undefined ? {} : { strCharset: String(alphabet) }),
+            ...(parsedAlphabet?.strCharset === undefined
+              ? {}
+              : { strCharset: parsedAlphabet.strCharset }),
           },
           resolved: true,
         };
@@ -1879,6 +2306,28 @@ export class PythonProgram extends AbstractProgram {
           max: Number(maxSize ?? dftInterval.max),
         });
 
+        if (funcName === "sets") {
+          const dftSetInterval = ArgDef.getDefaultOptions().setLength;
+          innerTypeRef.name = "values";
+          thisType.typeRefName = "set";
+          thisType.baseTypeRef = "set";
+          thisType.type = {
+            type: ArgTag.SET,
+            dims: 0,
+            children: [innerTypeRef],
+            options: {
+              dimsUnique: true,
+              setLength: {
+                min: Number(minSize ?? dftSetInterval.min),
+                max: Number(maxSize ?? dftSetInterval.max),
+              },
+            },
+            resolved: true,
+            baseTypeRef: "set",
+          };
+          break;
+        }
+
         if (innerTypeRef.typeRefName) {
           thisType.typeRefName = innerTypeRef.typeRefName;
         }
@@ -2080,6 +2529,82 @@ export class PythonProgram extends AbstractProgram {
           dims: 0,
           children,
           resolved: true,
+        };
+        break;
+      }
+
+      case "dictionaries": {
+        const keysArg = getKwdArg(node, "keys", 0);
+        const valuesArg = getKwdArg(node, "values", 1);
+
+        let keyTypeRef: TypeRef | undefined;
+        if (
+          keysArg &&
+          (keysArg.type === "call" || keysArg.type === "identifier")
+        ) {
+          keyTypeRef = this._getTypeRefFromStrategy(keysArg);
+        }
+        if (keyTypeRef === undefined) {
+          keyTypeRef = {
+            module: this._filename,
+            dims: 0,
+            optional: false,
+            isExported: false,
+            type: {
+              type: ArgTag.UNRESOLVED,
+              dims: 0,
+              children: [],
+              resolved: false,
+            },
+            typeRefName: keysArg?.text ?? "Any",
+          };
+        }
+        keyTypeRef.name = "keys";
+
+        let valueTypeRef: TypeRef | undefined;
+        if (
+          valuesArg &&
+          (valuesArg.type === "call" || valuesArg.type === "identifier")
+        ) {
+          valueTypeRef = this._getTypeRefFromStrategy(valuesArg);
+        }
+        if (valueTypeRef === undefined) {
+          valueTypeRef = {
+            module: this._filename,
+            dims: 0,
+            optional: false,
+            isExported: false,
+            type: {
+              type: ArgTag.UNRESOLVED,
+              dims: 0,
+              children: [],
+              resolved: false,
+            },
+            typeRefName: valuesArg?.text ?? "Any",
+          };
+        }
+        valueTypeRef.name = "values";
+
+        const minSize = parseLiteral(getKwdArg(node, "min_size", -1));
+        const maxSize = parseLiteral(getKwdArg(node, "max_size", -1));
+        const dftInterval = ArgDef.getDefaultOptions().dictLength;
+
+        const options: ArgOptionOverride = {};
+        if (minSize !== undefined || maxSize !== undefined) {
+          options.dictLength = {
+            min: Number(minSize ?? dftInterval.min),
+            max: Number(maxSize ?? dftInterval.max),
+          };
+        }
+
+        thisType.baseTypeRef = "dict";
+        thisType.type = {
+          type: ArgTag.DICTIONARY,
+          dims: 0,
+          children: [keyTypeRef, valueTypeRef],
+          ...(Object.keys(options).length > 0 ? { options } : {}),
+          resolved: true,
+          baseTypeRef: "dict",
         };
         break;
       }
@@ -2293,6 +2818,16 @@ export class PythonProgram extends AbstractProgram {
 
       if (typeRef.type) {
         typeRef.type.dims += resolvedType.dims;
+      }
+      const baseTypeRef =
+        resolvedType.baseTypeRef ??
+        resolvedType.type?.baseTypeRef ??
+        resolvedType.typeRefName;
+      if (baseTypeRef !== undefined) {
+        typeRef.baseTypeRef = baseTypeRef;
+      }
+      if (typeRef.type && typeRef.baseTypeRef) {
+        typeRef.type.baseTypeRef = typeRef.baseTypeRef;
       }
       typeRef.optional = typeRef.optional || resolvedType.optional;
 
@@ -2548,6 +3083,18 @@ export class PythonProgram extends AbstractProgram {
     }
 
     switch (arg.getType()) {
+      case ArgTag.SET: {
+        const [elemChild] = arg.getChildren();
+        const elemType = elemChild
+          ? PythonProgram.getTypeAnnotation(elemChild, options)
+          : "Any";
+        const container =
+          typeRef === "frozenset" || typeRef === "FrozenSet"
+            ? "frozenset"
+            : "set";
+        return `${container}[${elemType}]`;
+      }
+
       case ArgTag.OBJECT: {
         // Literal object, no type. Recursively walk the children to build the type.
         const childTypeAnnotations = arg.getChildren().map((child) => {
@@ -2558,6 +3105,13 @@ export class PythonProgram extends AbstractProgram {
           return `'${child.getName()}': ${type}`;
         });
         return `TypedDict('${arg.getName()}',{${childTypeAnnotations.join(", ")} }`;
+      }
+
+      case ArgTag.DICTIONARY: {
+        const [key, value] = arg.getChildren();
+        return `Record<${PythonProgram.getTypeAnnotation(key, options) ?? "string"}, ${
+          PythonProgram.getTypeAnnotation(value, options) ?? "unknown"
+        }>`;
       }
 
       case ArgTag.UNION: {

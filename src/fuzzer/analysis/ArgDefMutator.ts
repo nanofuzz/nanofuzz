@@ -4,7 +4,7 @@ import { ArgDefValidator } from "./ArgDefValidator";
 import * as RegexStringBuilder from "./RegexStringBuilder";
 import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
 import * as JSONN from "../../Jsonn";
-import { isBufferOrUint8Array } from "../../Util";
+import { isBufferOrUint8Array, makeCanonicalSet } from "../../Util";
 
 /**
  * Utilities for mutating values described by an ArgDef spec
@@ -104,11 +104,21 @@ export class ArgDefMutator {
       if (!context) return true;
 
       if (context.requiresUniqueElements) {
-        if (!Array.isArray(mutation.value)) return false;
-        const serializedValues = mutation.value.map((element) =>
-          JSONN.stringify(element)
-        );
-        if (new Set(serializedValues).size !== serializedValues.length) {
+        if (mutation.value instanceof Set) {
+          const serializedValues = Array.from(mutation.value.values()).map(
+            (element) => JSONN.stringify(element)
+          );
+          if (new Set(serializedValues).size !== serializedValues.length) {
+            return false;
+          }
+        } else if (Array.isArray(mutation.value)) {
+          const serializedValues = mutation.value.map((element) =>
+            JSONN.stringify(element)
+          );
+          if (new Set(serializedValues).size !== serializedValues.length) {
+            return false;
+          }
+        } else {
           return false;
         }
       }
@@ -221,6 +231,25 @@ export class ArgDefMutator {
               options.dimLength[level - 1].min <= e.value.length
           )
         );
+
+        if (level === spec.getDim()) {
+          const replacedArray = [...a];
+          replacedArray[index] = ArgDefGenerator.gen(spec, prng, false);
+          addMutations(
+            [
+              {
+                name: `array-replaceElement${i}`,
+                value: replacedArray,
+                path: [...path],
+              },
+            ].filter(
+              (e) =>
+                JSONN.stringify(e.value) !== JSONN.stringify(a) &&
+                options.dimLength[level - 1].max >= e.value.length &&
+                options.dimLength[level - 1].min <= e.value.length
+            )
+          );
+        }
 
         if (Array.isArray(a[i]) && level < spec.getDim()) {
           mutateArray(
@@ -563,6 +592,7 @@ export class ArgDefMutator {
               typeof value === "object" &&
               !Array.isArray(value) &&
               !(value instanceof Uint8Array) &&
+              !(value instanceof Set) &&
               value !== null
             ) {
               const children = spec.getChildren().filter((c) => !c.isNoInput());
@@ -619,6 +649,160 @@ export class ArgDefMutator {
                   inArray: false,
                   uniqueContexts: childUniqueContexts,
                 });
+              }
+            }
+            break;
+          }
+          case ArgTag.DICTIONARY: {
+            const value = subInput.subElement;
+            if (
+              typeof value === "object" &&
+              value !== null &&
+              !Array.isArray(value)
+            ) {
+              const [, valueSpec] = spec.getChildren();
+              // Mapping keys are dynamic, unlike object-property names.  Walk
+              // each existing value with the shared value specification; key
+              // renames are intentionally left to dictionary regeneration.
+              if (valueSpec) {
+                for (const [key, entry] of Object.entries(value)) {
+                  subInputs.push({
+                    subPath: [...subInput.subPath, key],
+                    subElement: entry,
+                    subSpec: valueSpec,
+                    inArray: false,
+                    uniqueContexts: subInput.uniqueContexts,
+                  });
+                }
+              }
+            }
+            break;
+          }
+          case ArgTag.SET: {
+            const value = subInput.subElement;
+            if (value instanceof Set) {
+              const items = Array.from(value.values());
+              const [elemSpec] = spec.getChildren();
+              const setLen = options.setLength;
+
+              mutationContexts.set(JSONN.stringify(subInput.subPath), {
+                uniqueContexts: subInput.uniqueContexts,
+                requiresUniqueElements: true,
+              });
+
+              // 1. Add new unique element (if set.size < setLen.max)
+              if (items.length < setLen.max && elemSpec) {
+                let attempts = 0;
+                while (attempts++ < 20) {
+                  const candidate = ArgDefGenerator.gen(elemSpec, prng, true, false);
+                  const serializedCandidate = JSONN.stringify(candidate);
+                  const existingSerialized = items.map((v) =>
+                    JSONN.stringify(v)
+                  );
+                  if (!existingSerialized.includes(serializedCandidate)) {
+                    const newSet = makeCanonicalSet([...items, candidate]);
+                    addMutations([
+                      {
+                        name: "set-addUniqueElement",
+                        value: newSet,
+                        path: [...subInput.subPath],
+                      },
+                    ]);
+                    break;
+                  }
+                }
+              }
+
+              // 2. Delete element (if set.size > setLen.min)
+              if (items.length > setLen.min) {
+                for (let i = 0; i < items.length; i++) {
+                  const newSet = makeCanonicalSet(items.filter((_, j) => j !== i));
+                  addMutations([
+                    {
+                      name: `set-deleteElement${i}`,
+                      value: newSet,
+                      path: [...subInput.subPath],
+                    },
+                  ]);
+                }
+              }
+
+              // 3. Replace element (swaps an existing element for a fresh unique element)
+              if (elemSpec && items.length > 0) {
+                for (let i = 0; i < items.length; i++) {
+                  let attempts = 0;
+                  while (attempts++ < 20) {
+                    const candidate = ArgDefGenerator.gen(
+                      elemSpec,
+                      prng,
+                      true,
+                      false
+                    );
+                    const serializedCandidate = JSONN.stringify(candidate);
+                    const existingOtherSerialized = items
+                      .filter((_, j) => j !== i)
+                      .map((v) => JSONN.stringify(v));
+                    if (!existingOtherSerialized.includes(serializedCandidate)) {
+                      const newItems = [...items];
+                      newItems[i] = candidate;
+                      const newSet = makeCanonicalSet(newItems);
+                      if (newSet.size === items.length) {
+                        addMutations([
+                          {
+                            name: `set-replaceElement${i}`,
+                            value: newSet,
+                            path: [...subInput.subPath],
+                          },
+                        ]);
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+
+              // 4. Mutate child elements inside set
+              if (elemSpec) {
+                for (let i = 0; i < items.length; i++) {
+                  const childMuts = ArgDefMutator.getMutators(
+                    [elemSpec],
+                    [{ tag: "ArgValueTypeWrapped", value: items[i] }],
+                    prng
+                  );
+                  for (const cm of childMuts) {
+                    const newItems = [...items];
+                    const childInput: ArgValueTypeWrapped[] = [
+                      {
+                        tag: "ArgValueTypeWrapped",
+                        value: JSONN.parse<ArgValueType>(
+                          JSONN.stringify(items[i])
+                        ),
+                      },
+                    ];
+                    const singleChildMuts = ArgDefMutator.getMutators(
+                      [elemSpec],
+                      childInput,
+                      prng
+                    );
+                    const matchingMut = singleChildMuts.find(
+                      (m) => m.name === cm.name
+                    );
+                    if (matchingMut) {
+                      matchingMut.fn();
+                      newItems[i] = childInput[0].value;
+                      const newSet = makeCanonicalSet(newItems);
+                      if (newSet.size === items.length) {
+                        addMutations([
+                          {
+                            name: cm.name,
+                            value: newSet,
+                            path: [...subInput.subPath],
+                          },
+                        ]);
+                      }
+                    }
+                  }
+                }
               }
             }
             break;
@@ -793,45 +977,48 @@ export class ArgDefMutator {
     // Follow the path to the value
     for (const step in path) {
       const key = path[step];
+      if (element === null || element === undefined) {
+        return value;
+      }
       if (Number(step) < path.length - 1) {
         // Walk the path
         if (Array.isArray(element)) {
           element = element[Number(key)];
+        } else if (element instanceof Set) {
+          element = Array.from(element.values())[Number(key)];
+        } else if (element instanceof Map) {
+          element = element.get(key) ?? undefined;
         } else if (
           typeof element === "object" &&
           !Array.isArray(element) &&
-          !(element instanceof Uint8Array) &&
-          element !== null
+          !(element instanceof Uint8Array)
         ) {
           element = element[String(key)];
         } else {
-          throw new Error(
-            `Cannot follow path through non-array / non-object. Input: ${JSONN.stringify(
-              value
-            )}, Element: ${JSONN.stringify(element)}, path: ${JSONN.stringify(
-              path
-            )} at step: ${step}`
-          );
+          return value;
         }
       } else {
         // Mutate the input
         if (Array.isArray(element)) {
           element[Number(key)] = newValue;
+        } else if (element instanceof Set) {
+          const items = Array.from(element.values());
+          items[Number(key)] = newValue;
+          const canonicalSet = makeCanonicalSet(items);
+          element.clear();
+          for (const item of canonicalSet) {
+            element.add(item);
+          }
+        } else if (element instanceof Map) {
+          element.set(key, newValue);
         } else if (
           typeof element === "object" &&
           !Array.isArray(element) &&
-          !(element instanceof Uint8Array) &&
-          element !== null
+          !(element instanceof Uint8Array)
         ) {
           element[String(key)] = newValue;
         } else {
-          throw new Error(
-            `Cannot mutate value through non-array / non-object. Input: ${JSONN.stringify(
-              value
-            )}, Element: ${JSONN.stringify(element)}, Path: ${JSONN.stringify(
-              path
-            )} at step: ${step}`
-          );
+          return value;
         }
       }
     }
@@ -856,6 +1043,10 @@ export class ArgDefMutator {
       if (Number(step) < path.length - 1) {
         if (Array.isArray(element)) {
           element = element[Number(key)];
+        } else if (element instanceof Set) {
+          element = Array.from(element.values())[Number(key)];
+        } else if (element instanceof Map) {
+          element = element.get(key) ?? undefined;
         } else if (
           element !== null &&
           typeof element === "object" &&
@@ -868,6 +1059,15 @@ export class ArgDefMutator {
             `Cannot follow path through non-array / non-object: ${JSONN.stringify(path)}`
           );
         }
+      } else if (element instanceof Set) {
+        const items = Array.from(element.values());
+        items.splice(Number(key), 1);
+        element.clear();
+        for (const item of items) {
+          element.add(item);
+        }
+      } else if (element instanceof Map) {
+        element.delete(key);
       } else if (
         element !== null &&
         typeof element === "object" &&
@@ -895,6 +1095,10 @@ export class ArgDefMutator {
       const key = path[Number(step)];
       if (Array.isArray(parent)) {
         parent = parent[Number(key)];
+      } else if (parent instanceof Set) {
+        parent = Array.from(parent.values())[Number(key)];
+      } else if (parent instanceof Map) {
+        parent = parent.get(key) ?? undefined;
       } else if (
         parent !== null &&
         typeof parent === "object" &&
@@ -912,7 +1116,9 @@ export class ArgDefMutator {
       parent === null ||
       typeof parent !== "object" ||
       Array.isArray(parent) ||
-      parent instanceof Uint8Array
+      parent instanceof Uint8Array ||
+      parent instanceof Set ||
+      parent instanceof Map
     ) {
       throw new Error(
         `Cannot order non-object properties: ${JSONN.stringify(path)}`

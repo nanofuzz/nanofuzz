@@ -59,6 +59,7 @@ export type TypeRef = {
   module: ProgramPath; // Module where the type resides
   name?: IdentifierName; // Name of the type
   typeRefName?: IdentifierName; // Name of the type reference (if any)
+  baseTypeRef?: IdentifierName; // Terminal type reference name (e.g. "Map", "Set")
   optional: boolean; // True if the type is optional; false, otherwise
   dims: number; // Number of dimensions for the type (0 for non-array types)
   type?: {
@@ -68,6 +69,7 @@ export type TypeRef = {
     value?: ArgType; // Value if a literal type
     options?: ArgOptionOverride; // Type-specific input-generation options
     resolved?: boolean; // True if the type's children have been resolved; false, otherwise
+    baseTypeRef?: IdentifierName; // Terminal type reference name on concrete type
   };
   isExported: boolean; // True if the type is exported; false, otherwise
 };
@@ -81,6 +83,8 @@ export enum ArgTag {
   STRING = "string",
   BOOLEAN = "boolean",
   OBJECT = "object",
+  DICTIONARY = "dictionary",
+  SET = "set",
   LITERAL = "literal",
   UNION = "union",
   TUPLE = "tuple",
@@ -94,6 +98,7 @@ export type ArgType =
   | boolean
   | null
   | Uint8Array
+  | Set<ArgType>
   | {
       [key: string]: ArgType;
     };
@@ -109,6 +114,8 @@ export type TagToType = {
   [ArgTag.STRING]: string;
   [ArgTag.BOOLEAN]: boolean;
   [ArgTag.OBJECT]: { [key: string]: ArgType };
+  [ArgTag.DICTIONARY]: { [key: string]: ArgType };
+  [ArgTag.SET]: Set<ArgType>;
   [ArgTag.LITERAL]: ArgType;
   [ArgTag.UNION]: ArgType;
   [ArgTag.TUPLE]: [ArgType];
@@ -121,6 +128,7 @@ export type ArgValueType =
   | string
   | boolean
   | Uint8Array
+  | Set<ArgValueType>
   | {
       [key: string]: ArgValueType;
     }
@@ -145,6 +153,12 @@ export type ArgOptions = {
 
   // For type bytes
   byteLength: Interval<number>; // length of byte array allowed in the input
+
+  // For dictionaries
+  dictLength: Interval<number>; // length of dictionary allowed in the input
+
+  // For sets
+  setLength: Interval<number>; // length of set allowed in the input
 
   // For type number
   numInteger: boolean; // true if the numeric argument input is an integer
@@ -174,18 +188,10 @@ export type ArgOptionOverrides = {
 /**
  * Argument option overrides
  */
-export type ArgOptionOverride = {
+export type ArgOptionOverride = Partial<ArgOptions> & {
   bigintIntervals?: Interval<bigint>[];
-  numInteger?: boolean;
   numIntervals?: Interval<number>[];
-  dimLength?: Interval<number>[];
-  dimsUnique?: boolean;
-  strLength?: Interval<number>;
-  byteLength?: Interval<number>;
-  strCharset?: string;
-  strRegex?: string;
   children?: ArgOptionOverrides;
-  isNoInput?: boolean;
 };
 
 /** Options for generating type annotations */

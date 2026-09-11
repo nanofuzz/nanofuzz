@@ -17,6 +17,11 @@ export function toPython(jsValue: unknown): string {
   return toPythonFormat(toPythonValues(jsValue));
 }
 
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+}
+
 /**
  * Converts a snippet of Python code containing a value into
  * a corresponding Javascript representation.
@@ -25,7 +30,7 @@ export function toPython(jsValue: unknown): string {
  * @returns Javascript value corresponding to `text`
  */
 export function fromPython<T>(text: string): T {
-  return toJavascriptValues(text) as T;
+  return cast<T>(toJavascriptValues(text));
 }
 
 // --------------- From Javascript value to Python string --------------- //
@@ -44,6 +49,18 @@ function toPythonValues(val: unknown): unknown {
 
   if (isBufferOrUint8Array(val)) {
     return val;
+  }
+
+  if (val instanceof Set) {
+    return new Set(Array.from(val.values()).map(toPythonValues));
+  }
+
+  if (val instanceof Map) {
+    const result = new Map();
+    for (const [k, v] of val.entries()) {
+      result.set(toPythonValues(k), toPythonValues(v));
+    }
+    return result;
   }
 
   if (Array.isArray(val)) {
@@ -219,6 +236,17 @@ function toPythonFormat(val: unknown): string {
   if (isBufferOrUint8Array(val)) {
     return bytesToPythonLiteral(val);
   }
+  if (val instanceof Set) {
+    const items = Array.from(val.values()).map(toPythonFormat);
+    return items.length > 0 ? `{${items.join(", ")}}` : "set()";
+  }
+  if (val instanceof Map) {
+    const entries: string[] = [];
+    for (const [k, v] of val.entries()) {
+      entries.push(`${toPythonFormat(k)}: ${toPythonFormat(v)}`);
+    }
+    return `{${entries.join(", ")}}`;
+  }
   if (typeof val === "boolean") {
     return val ? "True" : "False";
   }
@@ -311,9 +339,48 @@ function toJavascriptValues(text: string): unknown {
           });
         }
         break;
+      case "set": {
+        for (const child of node.children) {
+          collectReplacements(child);
+        }
+        replacements.push({
+          start: node.startIndex,
+          end: node.startIndex + 1,
+          text: `{${JSONN.PlaceHolderSetKey}:[`,
+        });
+        replacements.push({
+          start: node.endIndex - 1,
+          end: node.endIndex,
+          text: `]}`,
+        });
+        break;
+      }
       case "call": {
         const fnNode = node.childForFieldName("function");
-        if (fnNode?.text === "bytes") {
+        const fnName = fnNode?.text;
+        if (fnName === "set" || fnName === "frozenset" || fnName === "FrozenSet") {
+          const argsNode = node.childForFieldName("arguments");
+          if (argsNode) {
+            for (const child of argsNode.children) {
+              collectReplacements(child);
+            }
+          }
+          const listNode = argsNode?.namedChildren.find(
+            (c) => c.type === "list" || c.type === "tuple" || c.type === "set"
+          );
+          if (listNode) {
+            replacements.push({
+              start: node.startIndex,
+              end: listNode.startIndex + 1,
+              text: `{${JSONN.PlaceHolderSetKey}:[`,
+            });
+            replacements.push({
+              start: listNode.endIndex - 1,
+              end: node.endIndex,
+              text: `]}`,
+            });
+          }
+        } else if (fnNode?.text === "bytes") {
           const argsNode = node.childForFieldName("arguments");
           const listNode = argsNode?.namedChildren.find(
             (c) => c.type === "list" || c.type === "tuple"

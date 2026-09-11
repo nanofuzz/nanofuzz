@@ -30,13 +30,13 @@ export abstract class AbstractMeasure {
   } // property: set weight
 
   /**
-   * Hook for setting up the measure at the start of the run, once the test
-   * runner exists. Useful for measures that source their data from the runner
+   * Hook for setting up the measure at the start of the run, once test
+   * runners exist. Useful for measures that source their data from runners
    * rather than from instrumented code.
    *
-   * @param `runner` the test runner for this run
+   * @param `runners` test runners for this run
    */
-  public onRunStart(_runner: AbstractRunner): void {
+  public onRunStart(_runners: AbstractRunner[] | AbstractRunner): void {
     return;
   }
 

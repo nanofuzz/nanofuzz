@@ -74,6 +74,12 @@ Commander.program
     parseIntArgGeZero,
     200
   )
+  .option(
+    `--host-startup-timeout <integer>`,
+    `Maximum time in ms allowed for test runner host startup`,
+    parseIntArgGeOne,
+    10000
+  )
   .option(`--seed <string>`, `Seed for pseudo-random number generator`, "")
 
   // ------------------------------- Transformers ------------------------------ //
@@ -145,6 +151,10 @@ Commander.program
 
   // ------------------------------ System Cleanup ----------------------------- //
 
+  .option(
+    `--debug [scope]`,
+    `Enable debug logging (scopes: * (default), runners, ai)`
+  )
   .option(
     `--clear-compile-cache`,
     `Force clearing the compile cache prior to testing`
@@ -235,6 +245,11 @@ const updateFn = (payload: FuzzBusyStatusMessage) => {
 for (const key in options) {
   const value = options[key];
   switch (key) {
+    // infrastructure options
+    case "hostStartupTimeout":
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", value);
+      break;
+
     // ai config options
     case "modelProvider":
       Config.override("nanofuzz.ai.provider", value);
@@ -271,6 +286,22 @@ for (const key in options) {
     case "cigStatsCheckpoints":
       Config.override("nanofuzz.generators.compositeTrackCheckpoints", value);
       break;
+
+    // debug options
+    case "debug": {
+      if (value !== false && value !== undefined) {
+        const scope =
+          typeof value === "string" ? value.toLowerCase().trim() : "*";
+        const scopes = scope.split(",").map((s) => s.trim());
+        if (scopes.includes("*") || scopes.includes("runners")) {
+          Config.override("nanofuzz.debug.runners", true);
+        }
+        if (scopes.includes("*") || scopes.includes("ai")) {
+          Config.override("nanofuzz.ai.debug", true);
+        }
+      }
+      break;
+    }
   }
 }
 

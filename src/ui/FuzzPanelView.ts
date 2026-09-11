@@ -101,8 +101,16 @@ let resultsData: FuzzTestResults;
 let lang: ProgramLanguage;
 // PUT input column names (filled by main during load event)
 let putInputCols: string[] = [];
+export type FuzzPanelViewRow = {
+  id?: number;
+  src?: string;
+  pinned?: boolean;
+  expectedOutput?: FuzzIoElement[];
+  [key: string]: unknown;
+};
+
 // Results grouped by type (filled by main during load event)
-const data: Record<FuzzResultCategory, any[]> = {
+const data: Record<FuzzResultCategory, FuzzPanelViewRow[]> = {
   ok: [],
   badValue: [],
   timeout: [],
@@ -651,9 +659,11 @@ async function main() {
       });
       if (e.validatorException) {
         outputs[`output`] =
+          e.validatorExceptionDisplay ??
           `(${e.validatorExceptionFunction} exception) ${e.validatorExceptionMessage}`;
       } else if (e.exception) {
-        outputs[`output`] = "(exception) " + e.exceptionMessage;
+        outputs[`output`] =
+          e.exceptionDisplay ?? "(exception) " + e.exceptionMessage;
       }
       if (e.timeout) {
         outputs[`output`] = "(timeout)";
@@ -1180,10 +1190,10 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   const testCase: FuzzPinnedTest = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
-    pinned: data[type][index][pinnedLabel],
+    pinned: Boolean(data[type][index].pinned),
   };
-  if (data[type][index][expectedLabel]) {
-    testCase.expectedOutput = data[type][index][expectedLabel];
+  if (data[type][index].expectedOutput) {
+    testCase.expectedOutput = data[type][index].expectedOutput;
   }
 
   // Send the request to the extension
@@ -1264,12 +1274,24 @@ function handleCorrectToggle(
     cell2.setAttribute("onOff", "false");
     //save expected output value
     if (resultsData.results[id].timeout) {
-      data[type][index][expectedLabel] = [
-        { name: "0", offset: 0, isTimeout: true },
+      data[type][index].expectedOutput = [
+        {
+          name: "0",
+          offset: 0,
+          isTimeout: true,
+          value: undefined,
+          origin: { type: "user" },
+        },
       ];
     } else if (resultsData.results[id].exception) {
-      data[type][index][expectedLabel] = [
-        { name: "0", offset: 0, isException: true },
+      data[type][index].expectedOutput = [
+        {
+          name: "0",
+          offset: 0,
+          isException: true,
+          value: undefined,
+          origin: { type: "user" },
+        },
       ];
     } else {
       data[type][index][expectedLabel] = resultsData.results[id].output;
@@ -1302,7 +1324,7 @@ function handleCorrectToggle(
       input: resultsData.results[id].input,
       output: resultsData.results[id].output,
       pinned: isPinned,
-      expectedOutput: data[type][index][expectedLabel],
+      expectedOutput: data[type][index].expectedOutput,
     },
   };
 
@@ -1443,25 +1465,37 @@ function handleColumnSort(
 
   // Define sorting function:
   // Sort current column value based on sort order
-  const sortFn = (a: any, b: any, thisCol: string) => {
+  const sortFn = (
+    rowA: Record<string, unknown>,
+    rowB: Record<string, unknown>,
+    thisCol: string
+  ) => {
+    let first = rowA;
+    let second = rowB;
     const sortOrder = columnSortOrders[type][thisCol];
     if (sortOrder !== FuzzSortOrder.desc && sortOrder !== FuzzSortOrder.asc) {
       return 0; // no need to sort
     } else if (sortOrder === FuzzSortOrder.desc) {
-      const temp = a;
-      a = b;
-      b = temp; // swap a and b
+      first = rowB;
+      second = rowA;
     }
+
+    const valA = first[thisCol];
+    const valB = second[thisCol];
+
     // Determine type of object
-    let aType;
+    let aType: string;
     try {
-      aType = typeof JSON.parse(a[thisCol]);
+      aType = typeof JSON.parse(String(valA));
     } catch (_error) {
       aType = "string";
     }
     // Save original strings (to break ties alphabetically)
-    let aVal = (a[thisCol] ?? "undefined") + "";
-    let bVal = (b[thisCol] ?? "undefined") + "";
+    let aValStr = String(valA ?? "undefined");
+    let bValStr = String(valB ?? "undefined");
+
+    let compA: number;
+    let compB: number;
 
     // How are we sorting?
     if (
@@ -1470,50 +1504,55 @@ function handleColumnSort(
       )
     ) {
       // Special sort order for judgments
-      [a, b] = [a[thisCol], b[thisCol]].map((j) =>
-        j === "pass" ? 2 : j === "fail" ? 1 : 0
-      );
+      compA = valA === "pass" ? 2 : valA === "fail" ? 1 : 0;
+      compB = valB === "pass" ? 2 : valB === "fail" ? 1 : 0;
     } else {
       switch (aType) {
         case "number":
           // Sort numerically
-          a = Number(a[thisCol]);
-          b = Number(b[thisCol]);
+          compA = Number(valA);
+          compB = Number(valB);
           break;
         case "object":
           // Sort by length
-          if (a[thisCol].length) {
-            a = a[thisCol].length;
-            b = b[thisCol].length;
+          if (Array.isArray(valA)) {
+            compA = valA.length;
+            compB = Array.isArray(valB) ? valB.length : 0;
             // If numerical values, break ties based on number
             try {
-              aVal = JSON.parse(a[thisCol]);
-              bVal = JSON.parse(b[thisCol]);
+              aValStr = String(JSON.parse(String(valA)));
+              bValStr = String(JSON.parse(String(valB)));
             } catch (_error) {
               // noop; if not numerical, break ties alphabetically
             }
+          } else if (valA !== null && typeof valA === "object") {
+            compA = Object.keys(valA).length;
+            compB =
+              valB !== null && typeof valB === "object"
+                ? Object.keys(valB).length
+                : 0;
           } else {
-            a = Object.keys(a[thisCol]).length;
-            b = Object.keys(b[thisCol]).length;
+            compA = 0;
+            compB = 0;
           }
           break;
         default:
           // Sort as string by length, break ties alphabetically
-          a = (a[thisCol] ?? "").length;
-          b = (b[thisCol] ?? "").length;
+          compA = String(valA ?? "").length;
+          compB = String(valB ?? "").length;
           break;
       } // switch
     }
     // Compare values and sort
-    if (a === b) {
-      if (aVal === bVal) {
+    if (compA === compB) {
+      if (aValStr === bValStr) {
         return 0; // a = b
-      } else if (aVal > bVal) {
+      } else if (aValStr > bValStr) {
         return 2; // break tie
       } else {
         return -2; // break tie
       }
-    } else if (a > b) {
+    } else if (compA > compB) {
       return 2; // a > b
     } else {
       return -2; // a < b
@@ -1636,7 +1675,7 @@ function drawTableBody({
     const row = tbody.appendChild(document.createElement("tr"));
     Object.keys(e).forEach((k) => {
       if (k === idLabel) {
-        id = parseInt(e[k]);
+        id = parseInt(String(e[k] ?? 0));
         row.setAttribute("id", `${id}`);
       } else if (hiddenColumns.indexOf(k) !== -1) {
         // noop (hidden)
@@ -1816,7 +1855,7 @@ function drawTableBody({
         }
 
         const span = cell.appendChild(document.createElement("span"));
-        span.textContent = e[k];
+        span.textContent = String(e[k] ?? "");
 
         if (k.startsWith("input: ") && id >= 0 && resultsData.results[id]) {
           const res = resultsData.results[id];
@@ -2159,7 +2198,7 @@ function buildExpectedTestCase(
   return {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
-    pinned: data[type][index][pinnedLabel],
+    pinned: Boolean(data[type][index].pinned),
     expectedOutput: [expectedOutput],
   };
 } // fn: buildExpectedTestCase()
@@ -2374,6 +2413,10 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
     const minByteLen = document.getElementById(idBase + "-minByteLen");
     const maxByteLen = document.getElementById(idBase + "-maxByteLen");
+    const minDictLen = document.getElementById(idBase + "-minDictLen");
+    const maxDictLen = document.getElementById(idBase + "-maxDictLen");
+    const minSetLen = document.getElementById(idBase + "-minSetLen");
+    const maxSetLen = document.getElementById(idBase + "-maxSetLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
     const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
@@ -2442,6 +2485,38 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
             Math.min(Number(minByteLenVal), Number(maxByteLenVal))
           ),
           maxByteLen: Math.max(Number(minByteLenVal), Number(maxByteLenVal), 0),
+        };
+      }
+    }
+
+    // Process dictionary overrides
+    if (minDictLen && maxDictLen) {
+      disableArr.push(minDictLen, maxDictLen);
+      const minDictLenVal = minDictLen.getAttribute("current-value");
+      const maxDictLenVal = maxDictLen.getAttribute("current-value");
+      if (minDictLenVal !== null && maxDictLenVal !== null) {
+        thisOverride.dictionary = {
+          minDictLen: Math.max(
+            0,
+            Math.min(Number(minDictLenVal), Number(maxDictLenVal))
+          ),
+          maxDictLen: Math.max(Number(minDictLenVal), Number(maxDictLenVal), 0),
+        };
+      }
+    }
+
+    // Process set overrides
+    if (minSetLen && maxSetLen) {
+      disableArr.push(minSetLen, maxSetLen);
+      const minSetLenVal = minSetLen.getAttribute("current-value");
+      const maxSetLenVal = maxSetLen.getAttribute("current-value");
+      if (minSetLenVal !== null && maxSetLenVal !== null) {
+        thisOverride.set = {
+          minSetLen: Math.max(
+            0,
+            Math.min(Number(minSetLenVal), Number(maxSetLenVal))
+          ),
+          maxSetLen: Math.max(Number(minSetLenVal), Number(maxSetLenVal), 0),
         };
       }
     }

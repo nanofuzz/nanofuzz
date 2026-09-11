@@ -7,7 +7,7 @@ import {
   Range,
 } from "istanbul-lib-coverage";
 import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
-import { CoverageInfo, PythonRunner } from "../runners/PythonRunner";
+import { FullCoverage, PythonRunner } from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import * as JSONN from "../../Jsonn";
 import { normalizePathForKey } from "../Util";
@@ -20,55 +20,87 @@ import {
 } from "./AbstractCoverageMeasure";
 
 /**
- * End column for a synthesized statement location. coverage.py reports
- * coverage by line, not by column, so each executable line is treated as a
- * statement spanning the entire line. Consumers (e.g., the coverage heatmap)
- * clamp this to the line's actual end; a zero-width span would render nothing.
+ * A coverage measure implementation that collects and
+ * processes coverage.py code coverage for Python
+ * and translates it into istanbul format for NaNofuzz.
  */
-const END_OF_LINE_COLUMN = Number.MAX_SAFE_INTEGER;
-
-/**
- * Returns the range covering all of `line`. coverage.py reports coverage by
- * line, so every synthesized location spans a whole line.
- */
-function wholeLine(line: number): Range {
-  return {
-    start: { line, column: 0 },
-    end: { line, column: END_OF_LINE_COLUMN },
-  };
-} // fn: wholeLine
-
-/**
- * Returns a lookup key for `arc`, so that arcs can be compared by value.
- */
-function arcKey(arc: Arc): string {
-  return `${arc[0]},${arc[1]}`;
-} // fn: arcKey
-
 export class PythonCoverageMeasure extends AbstractCoverageMeasure {
-  protected _runner?: PythonRunner;
+  protected _runners: PythonRunner[] = [];
+  protected _coverageData: CoverageMap = createCoverageMap({});
   protected _globalCoverageMap = createCoverageMap({});
-  protected _history: CoverageMeasurementNode[] = []; // measurement history
+  protected _history = new Map<number, CoverageMeasurementNode>(); // measurement history
+  protected _lastNode: CoverageMeasurementNode | undefined = undefined;
 
   /**
-   * Connects this measure to the run's Python runner, which is the source of
-   * the coverage data reported by the host process.
+   * Connects this measure to the run's Python runners, which are the source of
+   * the coverage data reported by the host processes.
    *
-   * @param `runner` the test runner for this run
+   * @param `runners` test runners for this run
    */
-  public onRunStart(runner: AbstractRunner): void {
-    if (!(runner instanceof PythonRunner)) {
-      throw new Error(
-        `${this.name} requires a PythonRunner, but received a ${runner.constructor.name}`
-      );
-    }
-    this._runner = runner;
+  public override onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
+    const runnerList = Array.isArray(runners) ? runners : [runners];
+    this._runners = [];
+    this._coverageData = createCoverageMap({});
+
+    runnerList.forEach((r) => {
+      if (r instanceof PythonRunner) {
+        this._runners.push(r);
+        if (r.coverageInfo) {
+          this.recordHits(r.coverageInfo);
+        }
+        r.onCoverage((covInfo) => {
+          if (isFullCoverage(covInfo)) {
+            this.recordHits(covInfo);
+          }
+        });
+      }
+    });
 
     // Reset per-run state so a re-run does not accumulate coverage from the
     // previous run.
     this._globalCoverageMap = createCoverageMap({});
-    this._history = [];
+    this._history.clear();
+    this._lastNode = undefined;
   } // fn: onRunStart
+
+  /**
+   * Records code coverage hits for the given Python coverage information.
+   *
+   * @param covinfo Python coverage info
+   */
+  public recordHits(covinfo: FullCoverage): void {
+    const mapData = this._toCoverageMapData(covinfo);
+    AbstractCoverageMeasure.better_merge(this._coverageData, mapData);
+  } // fn: recordHits
+
+  /**
+   * Zeroes out the code coverage data prior to each test execution so that
+   * we record incremental code coverage for each test execution.
+   */
+  public override onBeforeNextTestExecution(): void {
+    if (this._coverageData) {
+      for (const fileKey of this._coverageData.files()) {
+        const fileCoverage = this._coverageData.fileCoverageFor(fileKey);
+        if (fileCoverage.b) {
+          Object.keys(fileCoverage.b).forEach((bKey) => {
+            fileCoverage.b[bKey] = Array<number>(
+              fileCoverage.b[bKey].length
+            ).fill(0);
+          });
+        }
+        if (fileCoverage.s) {
+          Object.keys(fileCoverage.s).forEach((sKey) => {
+            fileCoverage.s[sKey] = 0;
+          });
+        }
+        if (fileCoverage.f) {
+          Object.keys(fileCoverage.f).forEach((fKey) => {
+            fileCoverage.f[fKey] = 0;
+          });
+        }
+      }
+    }
+  } // fn: onBeforeNextTestExecution
 
   /**
    * Measure the code coverage of the most recent test execution.
@@ -84,16 +116,22 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     const measure = super.measure(input, result);
 
     // Sanity check that we have the runner and its coverage info
-    if (this._runner === undefined || !this._runner.coverageInfo) {
+    if (this._runners.length === 0) {
       throw new Error("Coverage measure not connected to runner");
     }
 
     // Translate the runner's line/arc coverage into an istanbul
     // CoverageMapData so we can reuse istanbul's merge and summary machinery
     // and stay compatible with the CoverageMeasurement shape.
-    const currentCoverageData = this._toCoverageMapData(
-      this._runner.coverageInfo
-    );
+    if (this._coverageData.files().length === 0) {
+      for (const r of this._runners) {
+        if (r.coverageInfo) {
+          const mapData = this._toCoverageMapData(r.coverageInfo);
+          AbstractCoverageMeasure.better_merge(this._coverageData, mapData);
+        }
+      }
+    }
+    const currentCoverageData = this._snapshot();
 
     // Total coverage in a map, summing statements, branches, and functions --
     // matching CoverageMeasure, so that newly-covered branches and functions
@@ -110,15 +148,22 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     // Merge the current coverage into root predecessor
     const pred =
       "tick" in input.source && input.source.tick !== undefined
-        ? this._history[input.source.tick]
+        ? this._history.get(input.source.tick)
         : undefined;
+    if (pred) {
+      pred.refCount++;
+    }
+
     let accumBefore = 0;
     let accumAfter = 0;
     let nextPred = pred;
     while (nextPred) {
       if (!nextPred.pred) {
         accumBefore = covered(nextPred.meas.coverageMeasure.accum);
-        nextPred.meas.coverageMeasure.accum.merge(currentCoverageData);
+        AbstractCoverageMeasure.better_merge(
+          nextPred.meas.coverageMeasure.accum,
+          currentCoverageData
+        );
         accumAfter = covered(nextPred.meas.coverageMeasure.accum);
       }
       nextPred = nextPred.pred;
@@ -126,7 +171,10 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
 
     // Merge the current coverage into the global coverage map
     const globalBefore = covered(this._globalCoverageMap);
-    this._globalCoverageMap.merge(currentCoverageData);
+    AbstractCoverageMeasure.better_merge(
+      this._globalCoverageMap,
+      currentCoverageData
+    );
 
     // Build the measurement object
     const meas = {
@@ -134,18 +182,42 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       name: this.name,
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
-        globalDelta: covered(this._globalCoverageMap) - globalBefore,
-        accum: createCoverageMap(currentCoverageData),
-        accumDelta: accumAfter - accumBefore,
+        globalDelta: Math.max(
+          0,
+          covered(this._globalCoverageMap) - globalBefore
+        ),
+        accum: AbstractCoverageMeasure.better_merge(
+          createCoverageMap({}),
+          currentCoverageData
+        ),
+        accumDelta: Math.max(0, accumAfter - accumBefore),
       },
     };
 
     // Update measure history
-    this._history[input.tick] = {
+    const node: CoverageMeasurementNode = {
       input,
       pred,
       meas,
+      refCount: 0,
     };
+
+    // Prune previous node if it was unreferenced and produced no coverage progress
+    if (this._lastNode) {
+      if (
+        this._lastNode.refCount === 0 &&
+        this._lastNode.meas.coverageMeasure.globalDelta === 0 &&
+        this._lastNode.meas.coverageMeasure.accumDelta === 0
+      ) {
+        if (this._lastNode.pred) {
+          this._lastNode.pred.refCount--;
+        }
+        this._history.delete(this._lastNode.input.tick);
+      }
+    }
+
+    this._history.set(input.tick, node);
+    this._lastNode = node;
 
     return meas;
   } // fn: measure
@@ -162,66 +234,73 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    * @param `info` coverage reported by the runner
    * @returns equivalent istanbul coverage data
    */
-  protected _toCoverageMapData(info: CoverageInfo): CoverageMapData {
-    const coveredLines = new Set(info.lines ?? []);
-    // Arcs are matched by value, so key them for lookup
-    const takenArcs = new Set((info.arcs ?? []).map(arcKey));
+  protected _toCoverageMapData(covinfo: FullCoverage): CoverageMapData {
+    const ret: CoverageMapData = {};
+    for (const [filename, fileCov] of Object.entries(covinfo)) {
+      const coveredLines = new Set(fileCov.lines ?? []);
+      // Arcs are matched by value, so key them for lookup
+      const takenArcs = new Set((fileCov.arcs ?? []).map(arcKey));
 
-    // Statements: one per executable line
-    const statementMap: FileCoverageData["statementMap"] = {};
-    const s: FileCoverageData["s"] = {};
-    info.executable.forEach((line, i) => {
-      statementMap[i] = wholeLine(line);
-      s[i] = coveredLines.has(line) ? 1 : 0;
-    });
+      // Statements: one per executable line
+      const statementMap: FileCoverageData["statementMap"] = {};
+      const s: FileCoverageData["s"] = {};
+      fileCov.executable.forEach((line, i) => {
+        statementMap[i] = wholeLine(line);
+        s[i] = coveredLines.has(line) ? 1 : 0;
+      });
 
-    // Functions: covered when any of their own lines executed
-    const fnMap: FileCoverageData["fnMap"] = {};
-    const f: FileCoverageData["f"] = {};
-    info.functions.forEach((fn, i) => {
-      fnMap[i] = {
-        name: fn.name,
-        decl: wholeLine(fn.declLine),
-        loc: {
-          start: { line: fn.startLine, column: 0 },
-          end: { line: fn.endLine, column: END_OF_LINE_COLUMN },
-        },
-        line: fn.declLine,
-      };
-      f[i] = fn.lines.some((line) => coveredLines.has(line)) ? 1 : 0;
-    });
+      // Functions: covered when any of their own lines executed
+      const fnMap: FileCoverageData["fnMap"] = {};
+      const f: FileCoverageData["f"] = {};
+      fileCov.functions.forEach((fn, i) => {
+        fnMap[i] = {
+          name: fn.name,
+          decl: wholeLine(fn.declLine),
+          loc: {
+            start: { line: fn.startLine, column: 0 },
+            end: { line: fn.endLine, column: END_OF_LINE_COLUMN },
+          },
+          line: fn.declLine,
+        };
+        f[i] = fn.lines.some((line) => coveredLines.has(line)) ? 1 : 0;
+      });
 
-    // Branches: one hit counter per exit, set when that exit's arc was taken
-    const branchMap: FileCoverageData["branchMap"] = {};
-    const b: FileCoverageData["b"] = {};
-    info.branches.forEach((branch, i) => {
-      branchMap[i] = {
-        loc: wholeLine(branch.line),
-        // Deliberately not "if": the coverage heatmap skips branches of that
-        // type to work around a bug in istanbul's if-branch locations, which
-        // does not apply to locations we compute ourselves from arcs.
-        type: "branch",
-        locations: branch.exits.map((exit) => wholeLine(exit.line)),
-        line: branch.line,
-      };
-      b[i] = branch.exits.map((exit) =>
-        takenArcs.has(arcKey([branch.line, exit.dest])) ? 1 : 0
-      );
-    });
+      // Branches: one hit counter per exit, set when that exit's arc was taken
+      const branchMap: FileCoverageData["branchMap"] = {};
+      const b: FileCoverageData["b"] = {};
+      fileCov.branches.forEach((branch, i) => {
+        branchMap[i] = {
+          loc: wholeLine(branch.line),
+          // Deliberately not "if": the coverage heatmap skips branches of that
+          // type to work around a bug in istanbul's if-branch locations, which
+          // does not apply to locations we compute ourselves from arcs.
+          type: "branch",
+          locations: branch.exits.map((exit) => wholeLine(exit.line)),
+          line: branch.line,
+        };
+        b[i] = branch.exits.map((exit) =>
+          takenArcs.has(arcKey([branch.line, exit.dest])) ? 1 : 0
+        );
+      });
 
-    return {
-      [info.file]: {
-        path: info.file,
+      ret[filename] = {
+        path: filename,
         statementMap,
         fnMap,
         branchMap,
         s,
         f,
         b,
-      },
-    };
+      };
+    }
+    return ret;
   } // fn: _toCoverageMapData
 
+  /**
+   * Called when the test run ends.
+   *
+   * @param results The results of the test run.
+   */
   public onRunEnd(results: FuzzTestResults): void {
     results.stats.measures.CodeCoverageMeasure =
       async (): Promise<CodeCoverageMeasureStats> => {
@@ -266,7 +345,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
               fileMap,
             };
           });
-    
         return {
           counters: {
             functionsTotal: coverageSummary.functions.total,
@@ -279,7 +357,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
           files,
         };
       };
-  }
+  } // fn: onRunEnd
 
   /**
    * Calculates a numeric value representing the test execution's progress
@@ -288,17 +366,82 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    * @returns a numeric value representing the progress of the test execution
    */
   public delta(a: CoverageMeasurement): number {
-    return a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta; // !!!!!!!
+    return Math.max(
+      0,
+      a.coverageMeasure.globalDelta * 100 + a.coverageMeasure.accumDelta
+    );
   } // fn: delta
 
-
+  /**
+   * Checks if coverage data exists for the given tick.
+   *
+   * @param tick The tick to check for coverage data.
+   * @returns True if coverage data exists for the specified tick, false otherwise.
+   */
   public hasCoverage(tick: number): boolean {
-    return !!this._history[tick];
-  }
+    return this._history.has(tick);
+  } // fn: hasCoverage
+
+  /**
+   * Retrieves the coverage measurement for the given tick.
+   *
+   * @param tick The tick for which to retrieve coverage data.
+   * @returns The coverage measurement for the specified tick.
+   */
   public getCoverage(tick: number): CoverageMeasurement {
-    if (this.hasCoverage(tick)) {
-      return this._history[tick].meas; // rep leak !!!!!!!
+    const node = this._history.get(tick);
+    if (node) {
+      return node.meas; // rep leak !!!!!!!
     }
     throw new Error(`No coverahe data for "${tick}"`);
-  }
-}
+  } // fn: getCoverage
+
+  /**
+   * Returns a private copy of the current coverage data.
+   */
+  protected _snapshot(): CoverageMapData {
+    const snapshot: CoverageMapData = {};
+    for (const fileKey of this._coverageData.files()) {
+      snapshot[fileKey] = AbstractCoverageMeasure.file_snapshot(
+        this._coverageData.fileCoverageFor(fileKey)
+      );
+    }
+    return snapshot;
+  } // fn: _snapshot
+} // class: PythonCoverageMeasure
+
+/**
+ * Checks if the given value is a FullCoverage object.
+ *
+ * @param val The value to check.
+ * @returns True if the value is a FullCoverage object, false otherwise.
+ */
+function isFullCoverage(val: unknown): val is FullCoverage {
+  return typeof val === "object" && val !== null;
+} // fn: isFullCoverage
+
+/**
+ * End column for a synthesized statement location. coverage.py reports
+ * coverage by line, not by column, so each executable line is treated as a
+ * statement spanning the entire line. Consumers (e.g., the coverage heatmap)
+ * clamp this to the line's actual end; a zero-width span would render nothing.
+ */
+const END_OF_LINE_COLUMN = Number.MAX_SAFE_INTEGER;
+
+/**
+ * Returns the range covering all of `line`. coverage.py reports coverage by
+ * line, so every synthesized location spans a whole line.
+ */
+function wholeLine(line: number): Range {
+  return {
+    start: { line, column: 0 },
+    end: { line, column: END_OF_LINE_COLUMN },
+  };
+} // fn: wholeLine
+
+/**
+ * Returns a lookup key for `arc`, so that arcs can be compared by value.
+ */
+function arcKey(arc: Arc): string {
+  return `${arc[0]},${arc[1]}`;
+} // fn: arcKey

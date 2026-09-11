@@ -1,4 +1,15 @@
 import * as vscode from "vscode";
+
+export type Listener = {
+  register: () => vscode.Disposable;
+};
+
+function createListener<T>(
+  event: vscode.Event<T>,
+  fn: (e: T) => void
+): Listener {
+  return { register: () => event(fn) };
+}
 import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
@@ -12,8 +23,11 @@ import {
   getErrorMessageOrJson,
   normalizePathForKey,
 } from "../fuzzer/Util";
-import { removeTickFromOrigin } from "../Util";
-import { Listener } from "../extension";
+import {
+  removeTickFromOrigin,
+  encodeEscapeSequences,
+  decodeEscapeSequences,
+} from "../Util";
 import { Tester } from "../fuzzer/Fuzzer";
 import {
   applyCoverageHeatmapToEditor,
@@ -23,6 +37,7 @@ import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMea
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";
+import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 
 // Consts for validator result arg name generation
 const resultArgCandidateNames = ["r", "result", "_r", "_result"];
@@ -132,7 +147,9 @@ export class FuzzPanel {
       return new FuzzPanel(
         panel,
         extensionUri,
-        new Tester(moduleFile, fnName, options, { precompile: true })
+        new Tester(moduleFile, fnName, normalizeFuzzOptions(options), {
+          precompile: true,
+        })
       );
     }
   } // fn: render()
@@ -153,6 +170,9 @@ export class FuzzPanel {
   ): void {
     let fuzzPanel: FuzzPanel | undefined;
 
+    // Apply webview options to the panel (probably unnecessary)
+    panel.webview.options = FuzzPanel.getWebviewOptions(extensionUri);
+
     // Update the icon on the panel
     panel.iconPath = vscode.Uri.joinPath(
       extensionUri,
@@ -167,6 +187,20 @@ export class FuzzPanel {
       "tag" in state &&
       state.tag === fuzzPanelStateVer
     ) {
+      const fnRefKey = JSONN.stringify({
+        module: state.fnRef.module,
+        fnName: state.fnRef.name,
+      });
+
+      // If an active panel for this function already exists in currentPanels
+      // (e.g. created by render() before this background tab was revived),
+      // dispose of this redundant revived panel and reveal the active one.
+      if (fnRefKey in FuzzPanel.currentPanels) {
+        panel.dispose();
+        FuzzPanel.currentPanels[fnRefKey]._panel.reveal();
+        return;
+      }
+
       // Create a new fuzzer environment
       try {
         // Create the new FuzzPanel
@@ -176,11 +210,16 @@ export class FuzzPanel {
           new fuzzer.Tester(
             state.fnRef.module,
             state.fnRef.name,
-            state.options,
+            normalizeFuzzOptions(state.options),
             { precompile: true }
           )
         );
         fuzzPanel = localFuzzPanel;
+
+        // Redraw the HTML content when the tab is revived to hopefully
+        // workaround problems where vscode revives the tab but does not
+        // successfully load the CSS and JS components.
+        localFuzzPanel._updateHtml();
 
         // Attach a telemetry event handler to the panel
         panel.onDidChangeViewState((e) => {
@@ -279,7 +318,7 @@ export class FuzzPanel {
 
     // Load & apply any fuzz settings previously persisted
     const testSet = this._getFuzzTestsForThisFn();
-    this._fuzzEnv.options = testSet.options;
+    this._fuzzEnv.options = normalizeFuzzOptions(testSet.options);
     this._argOverrides = testSet.argOverrides ?? [];
     this._sortColumns = testSet.sortColumns;
 
@@ -637,10 +676,11 @@ export class FuzzPanel {
             inputTests = testSet;
             break;
           }
-          case "0.3.6": {
-            // v0.3.9 format -- add configuration for measures and generators,
+          case "0.3.6":
+          case "0.3.9": {
+            // v0.3.6 format -- add configuration for measures and generators,
             //        re-key and add origin info to saved test inputs
-            testSet = { ...inputTests, version: "0.3.9" }; // !!!!!!!!
+            testSet = { ...inputTests, version: "0.4.0" }; // !!!!!!!!
             for (const fn in testSet.functions) {
               const thisFn = testSet.functions[fn];
               thisFn.options.measures = getDefaultFuzzOptions().measures;
@@ -749,6 +789,10 @@ export class FuzzPanel {
       fnName in moduleSet.functions
         ? moduleSet.functions[fnName]
         : this._initFuzzTestsForThisFn().functions[fnName];
+
+    if (fnSet.options) {
+      fnSet.options = normalizeFuzzOptions(fnSet.options);
+    }
 
     return fnSet;
   } // fn: _getFuzzTestsForThisFn()
@@ -1768,7 +1812,34 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     const files = panel._coverageStats.files;
     for (const editor of vscode.window.visibleTextEditors) {
       const fsPath = normalizePathForKey(editor.document.uri.fsPath);
-      const fileMap = files.find((f) => f.path === fsPath)?.fileMap;
+      let fileMap = files.find((f) => f.path === fsPath)?.fileMap;
+
+      // Fall back to canonical realpath matching if direct path equality fails.
+      // On macOS, system symlinks (e.g. /var -> /private/var or /tmp -> /private/tmp)
+      // can cause source maps to resolve paths like /private/Users/... while VS Code
+      // editor document URIs report /Users/...
+      // On Windows, drive letter casing or NTFS junction points / short 8.3 paths
+      // can cause identical path string mismatches. Comparing realpaths ensures
+      // editor documents correctly match coverage stats on macOS, Windows, and Linux.
+      if (!fileMap) {
+        try {
+          const realFsPath = fs.existsSync(fsPath)
+            ? normalizePathForKey(fs.realpathSync(fsPath))
+            : fsPath;
+          fileMap = files.find((f) => {
+            try {
+              return (
+                fs.existsSync(f.path) &&
+                normalizePathForKey(fs.realpathSync(f.path)) === realFsPath
+              );
+            } catch {
+              return false;
+            }
+          })?.fileMap;
+        } catch {
+          // ignore
+        }
+      }
 
       if (fileMap) {
         applyCoverageHeatmapToEditor(editor, fileMap);
@@ -2548,7 +2619,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               moreCalls -= pendingCalls;
               callCategories++;
               aiGeneratorText.push(
-                `${pendingCalls} ${pendingCalls === 1 ? "was" : "were"} awaiting a response when testing ended${moreCalls ? "," : "."}`
+                `${pendingCalls} ${pendingCalls === 1 ? "was" : "were"} still in-flight when testing ended, and their results will be used if you click the "continue" button${moreCalls ? "," : "."}`
               );
             }
             if (aiGenStats.gen.calls.valid) {
@@ -2596,7 +2667,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             // Tokens and estimated costs
             if (aiGenStats.gen.tokens.sent + aiGenStats.gen.tokens.received) {
               aiGeneratorText.push(
-                `All these interactions used ${aiGenStats.gen.tokens.sent} input tokens and ${aiGenStats.gen.tokens.received} output tokens.`
+                `These non in-flight interactions used ${aiGenStats.gen.tokens.sent} input tokens and ${aiGenStats.gen.tokens.received} output tokens.`
               );
               if (
                 !(
@@ -2806,7 +2877,8 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             <div class="fuzzResultHeading">Where did ${toolName} spend its time?</div>
             <p>
               Compiling and instrumenting the program used ${Math.round(
-                this._results.stats.timers.compile
+                this._results.stats.timers.compile +
+                  this._results.stats.timers.instrument
               )} ms, generating inputs used ${Math.round(
                 this._results.stats.timers.gen
               )} ms, executing the program used ${Math.round(
@@ -2901,7 +2973,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
             html += /*html*/ `
                   <div class="fuzzGridPanel${showThisGrid ? `` : ` hidden`}" id="view-${e.id}">
-                    <div class="fuzzPanelDescription">${e.description}</div>`;
+                    <div class="fuzzPanelDescription">${
+                      e.id === "runInfo"
+                        ? e.description
+                        : htmlEscape(e.description)
+                    }</div>`;
             if (e.hasGrid) {
               html += /*html*/ `
                     <div id="fuzzResultsGrid-${e.id}">
@@ -3118,6 +3194,12 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         case fuzzer.ArgTag.OBJECT:
           typeString = "Object";
           break;
+        case fuzzer.ArgTag.DICTIONARY:
+          typeString = "Dict";
+          break;
+        case fuzzer.ArgTag.SET:
+          typeString = "Set";
+          break;
         case fuzzer.ArgTag.LITERAL:
           if (arg.isConstant()) {
             const constantValue = arg.getConstantValue();
@@ -3150,7 +3232,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       case fuzzer.ArgTag.UNION:
         sep = ":";
         break;
+      case fuzzer.ArgTag.SET:
       case fuzzer.ArgTag.OBJECT:
+      case fuzzer.ArgTag.DICTIONARY:
         sep = ` = {` + htmlEllipsis;
         break;
       case fuzzer.ArgTag.TUPLE:
@@ -3253,7 +3337,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         )}">Max length</vscode-text-field>`;
         html += " ";
         html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strCharset" name="${idBase}-strCharset" value="${htmlEscape(
-          arg.getOptions().strCharset
+          encodeEscapeSequences(arg.getOptions().strCharset)
         )}">Character set</vscode-text-field>`;
         html += " ";
         html += /*html*/ `<vscode-text-field size="10" ${disabledFlag} id="${idBase}-strRegex" placeholder="(none)" name="${idBase}-strRegex" value="${htmlEscape(
@@ -3271,6 +3355,65 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxByteLen" name="${idBase}-max" value="${htmlEscape(
           arg.getOptions().byteLength.max.toString()
         )}">Max length</vscode-text-field>`;
+        break;
+      }
+
+      // Dictionary-specific Options
+      case fuzzer.ArgTag.DICTIONARY: {
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minDictLen" name="${idBase}-min" value="${htmlEscape(
+          arg.getOptions().dictLength.min.toString()
+        )}">Min entries</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxDictLen" name="${idBase}-max" value="${htmlEscape(
+          arg.getOptions().dictLength.max.toString()
+        )}">Max entries</vscode-text-field>`;
+
+        html += `<div>`;
+        const children = arg.getChildren();
+        if (children.length === 2) {
+          html += this._argDefToHtmlForm(
+            children[0],
+            counter,
+            "",
+            "",
+            arg.getType()
+          );
+          html += this._argDefToHtmlForm(
+            children[1],
+            counter,
+            "",
+            "",
+            arg.getType()
+          );
+        }
+        html += `</div>`;
+        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
+        break;
+      }
+
+      // Set-specific Options
+      case fuzzer.ArgTag.SET: {
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minSetLen" name="${idBase}-min" value="${htmlEscape(
+          arg.getOptions().setLength.min.toString()
+        )}">Min entries</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-maxSetLen" name="${idBase}-max" value="${htmlEscape(
+          arg.getOptions().setLength.max.toString()
+        )}">Max entries</vscode-text-field>`;
+
+        html += `<div>`;
+        const children = arg.getChildren();
+        if (children.length >= 1) {
+          html += this._argDefToHtmlForm(
+            children[0],
+            counter,
+            "",
+            "",
+            arg.getType()
+          );
+        }
+        html += `</div>`;
+        html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
         break;
       }
 
@@ -3372,15 +3515,27 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         );
     }
 
-    // For objects & unions: output the array settings
-    if (argType !== fuzzer.ArgTag.OBJECT && argType !== fuzzer.ArgTag.UNION) {
+    // For composite types: array settings were already output prior to children
+    if (
+      argType !== fuzzer.ArgTag.OBJECT &&
+      argType !== fuzzer.ArgTag.UNION &&
+      argType !== fuzzer.ArgTag.TUPLE &&
+      argType !== fuzzer.ArgTag.DICTIONARY &&
+      argType !== fuzzer.ArgTag.SET
+    ) {
       html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
     }
 
     html += `</div>`;
-    // For objects: output the end of object character ("}") here
-    if (argType === fuzzer.ArgTag.OBJECT || argType === fuzzer.ArgTag.TUPLE) {
-      html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close">${argType === fuzzer.ArgTag.OBJECT ? "}" : "]"}${endSep}</div>`;
+    // For container types: output end character ("}" or "]") here
+    if (
+      argType === fuzzer.ArgTag.OBJECT ||
+      argType === fuzzer.ArgTag.TUPLE ||
+      argType === fuzzer.ArgTag.DICTIONARY ||
+      argType === fuzzer.ArgTag.SET
+    ) {
+      const closeChar = argType === fuzzer.ArgTag.TUPLE ? "]" : "}";
+      html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close">${closeChar}${endSep}</div>`;
     }
     html += `</div>`;
 
@@ -3861,7 +4016,7 @@ function _applyArgOverrides(
             strCharset:
               thisOverride.string.strCharset === ""
                 ? argDefaults.strCharset
-                : thisOverride.string.strCharset,
+                : decodeEscapeSequences(thisOverride.string.strCharset),
             strRegex: thisOverride.string.strRegex,
           });
         }
@@ -3872,6 +4027,26 @@ function _applyArgOverrides(
             byteLength: {
               min: Number(thisOverride.bytes.minByteLen),
               max: Number(thisOverride.bytes.maxByteLen),
+            },
+          });
+        }
+        break;
+      case fuzzer.ArgTag.DICTIONARY:
+        if (thisOverride.dictionary) {
+          thisArg.setOptions({
+            dictLength: {
+              min: Number(thisOverride.dictionary.minDictLen),
+              max: Number(thisOverride.dictionary.maxDictLen),
+            },
+          });
+        }
+        break;
+      case fuzzer.ArgTag.SET:
+        if (thisOverride.set) {
+          thisArg.setOptions({
+            setLength: {
+              min: Number(thisOverride.set.minSetLen),
+              max: Number(thisOverride.set.maxSetLen),
             },
           });
         }
@@ -3940,6 +4115,30 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     },
   };
 }; // fn: getDefaultFuzzOptions()
+
+/**
+ * Normalizes a FuzzOptions object by deeply populating missing fields with default options.
+ *
+ * @param options partial fuzzer options
+ * @returns a complete, normalized FuzzOptions object
+ */
+export const normalizeFuzzOptions = (
+  options?: Partial<fuzzer.FuzzOptions>
+): fuzzer.FuzzOptions => {
+  const dft = getDefaultFuzzOptions();
+  if (!options) return dft;
+  return {
+    ...dft,
+    ...options,
+    argDefaults: fuzzer.ArgDef.normalizeOptions(options.argDefaults),
+    generators: options.generators
+      ? { ...dft.generators, ...options.generators }
+      : dft.generators,
+    measures: options.measures
+      ? { ...dft.measures, ...options.measures }
+      : dft.measures,
+  };
+}; // fn: normalizeFuzzOptions()
 
 /**
  * Accepts an array of strings and returns a prettier list including
@@ -4046,16 +4245,13 @@ export function deinit(): void {
 /**
  * Export this module's listeners to the extension.
  */
-export const listeners: Listener<unknown>[] = [
-  {
-    event: vscode.workspace.onDidChangeConfiguration,
-    fn: (): void => {
-      // Notify the open webviews about configuration changes
-      Object.values(FuzzPanel.currentPanels).forEach((panel) => {
-        panel.onDidChangeConfiguration();
-      });
-    },
-  },
+export const listeners: Listener[] = [
+  createListener(vscode.workspace.onDidChangeConfiguration, (): void => {
+    // Notify the open webviews about configuration changes
+    Object.values(FuzzPanel.currentPanels).forEach((panel) => {
+      panel.onDidChangeConfiguration();
+    });
+  }),
 ];
 
 // --------------------------- Constants --------------------------- //
@@ -4070,6 +4266,13 @@ export const commands = {
   fuzzWithValidator: {
     name: "nanofuzz.FuzzWithValidator",
     fn: handleFuzzWithValidatorCommand,
+  },
+  clearCompileCache: {
+    name: "nanofuzz.ClearCompileCache",
+    fn: () => {
+      CompilerFactory.clean();
+      vscode.window.showInformationMessage(`Compile cache cleared`);
+    },
   },
 };
 
@@ -4086,12 +4289,12 @@ export const languages = ["typescript", "typescriptreact", "python"];
 /**
  * The Fuzzer State Version we currently support.
  */
-const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.9"; // !!!!!!! Increment if fmt changes
+const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.4.0"; // !!!!!!! Increment if fmt changes
 
 /**
  * Current file format version for persisting test sets / pinned test cases
  */
-const CURR_FILE_FMT_VER = "0.3.9"; // !!!!!!! Increment if fmt changes
+const CURR_FILE_FMT_VER = "0.4.0"; // !!!!!!! Increment if fmt changes
 
 // ----------------------------- Types ----------------------------- //
 

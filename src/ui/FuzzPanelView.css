@@ -617,18 +617,24 @@ p span.codicon {
 #fuzzBusyStatusBar {
   background-color: var(--button-primary-background);
   color: var(--button-primary-foreground);
-  content: "";
-  display: table;
-  clear: both;
+  display: block;
   text-align: center;
   padding: 0.02em 0em;
   margin-top: 1.5em;
   margin-bottom: 1.25em;
+  transition: width 0.1s ease-in-out;
 }
 #fuzzBusyMessageNonMilestone {
+  font-family:
+    var(--vscode-editor-font-family), var(--vscode-font-family), monospace;
+  line-height: 1.4;
   margin-top: 0.75em;
   margin-bottom: 0.5em;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #fuzzBusyMessage {
   font-size: 0.9em;
+  min-height: 5.6em;
 }

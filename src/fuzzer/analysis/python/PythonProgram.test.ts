@@ -220,6 +220,43 @@ type MixedColumn = list[int | str]`,
     ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
   });
 
+  it("extracts built-in and typing dictionary/container annotations", () => {
+    // Covers PEP 585 built-ins, `typing`-qualified generics, and composition
+    // with a union-like wrapper. These are parser-level tests, so no typing
+    // package import is needed at runtime.
+    const types = ProgramFactory.fromSource(
+      () => `type Scores = dict[str, list[int]]
+type Lookup = typing.Dict[str, float]
+type Labels = set[str]
+type TaggedScores = dict[str, int | str]
+type MaybeScores = Optional[dict[str, int]]`,
+      "python"
+    ).types;
+
+    expect(types["Scores"].type?.type).toEqual(ArgTag.DICTIONARY);
+    expect(types["Scores"].type?.children.map((child) => child.name)).toEqual([
+      "keys",
+      "values",
+    ]);
+    expect(types["Scores"].type?.children[1].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.NUMBER, dims: 1 })
+    );
+    expect(types["Lookup"].type?.type).toEqual(ArgTag.DICTIONARY);
+    expect(types["Labels"].type?.type).toEqual(ArgTag.SET);
+    expect(types["Labels"].type?.children[0].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.STRING, dims: 0 })
+    );
+    expect(types["TaggedScores"].type?.children[1].type).toEqual(
+      jasmine.objectContaining({ type: ArgTag.UNION })
+    );
+    expect(
+      types["TaggedScores"].type?.children[1].type?.children.map(
+        (child) => child.type?.type
+      )
+    ).toEqual([ArgTag.NUMBER, ArgTag.STRING]);
+    expect(types["MaybeScores"].type?.type).toEqual(ArgTag.DICTIONARY);
+  });
+
   it("collapses singleton annotation unions", () => {
     const types = ProgramFactory.fromSource(
       () => "type MaybeCount = Optional[int]",
@@ -309,16 +346,6 @@ class Admin(User):
     ).types;
 
     expect(types["Player"]).toBeUndefined();
-  });
-
-  it("does not model ordinary dictionaries as fixed objects", () => {
-    const types = ProgramFactory.fromSource(
-      () => "type DynamicConfig = dict[str, int]",
-      "python"
-    ).types;
-
-    expect(types["DynamicConfig"].type).toBeUndefined();
-    expect(types["DynamicConfig"].typeRefName).toEqual("dict");
   });
 
   it("handles Python numeric literal spellings", () => {
@@ -899,6 +926,90 @@ def test_example(trigger, dep, trigger_val):
     expect(args[2].getIntervals()).toEqual([{ min: 0, max: 100 }]);
   });
 
+  it("hypothesis @given st.text alphabet strategy expressions", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+import string
+from hypothesis import strategies as st
+
+@given(
+  a1=st.text(alphabet=st.characters(whitelist_categories=("L", "N"))),
+  a2=st.text(alphabet=string.ascii_lowercase),
+  a3=st.text(alphabet=st.characters(whitelist_categories=("L", "N", "P", "S", "Z"), blacklist_characters="'\\\\")),
+  a4=st.text(alphabet=st.characters(whitelist_categories=("L", "N"), blacklist_characters='"\\\\')),
+  a5=st.text(alphabet=st.characters(whitelist_categories=('L', 'N', 'Zs'), whitelist_characters=' ')),
+  a6=st.text(alphabet=st.sampled_from("aäöüéèêëàâîïôûçñ")),
+  a7=st.text(alphabet=st.characters(min_codepoint=0x1F600, max_codepoint=0x1F64F)),
+  a8=st.text(alphabet=string.ascii_letters + string.digits),
+  a9=st.text(alphabet=st.characters(min_codepoint=32, max_codepoint=126))
+)
+def test_alphabets(a1, a2, a3, a4, a5, a6, a7, a8, a9):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_alphabets"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    );
+    expect(args[0].getOptions().strRegex).toEqual("\\A(?:[\\p{L}\\p{N}])*\\Z");
+
+    expect(args[1].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyz"
+    );
+
+    expect(args[2].getOptions().strRegex).toEqual(
+      "\\A(?:(?!['\\\\])[\\p{L}\\p{N}\\p{P}\\p{S}\\p{Z}])*\\Z"
+    );
+
+    expect(args[3].getOptions().strRegex).toEqual(
+      '\\A(?:(?!["\\\\])[\\p{L}\\p{N}])*\\Z'
+    );
+
+    expect(args[4].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
+    );
+    expect(args[4].getOptions().strRegex).toEqual(
+      "\\A(?:[\\p{L}\\p{N}\\p{Zs} ])*\\Z"
+    );
+
+    expect(args[5].getOptions().strCharset).toEqual("aäöüéèêëàâîïôûçñ");
+
+    expect(args[6].getOptions().strRegex).toEqual(
+      "\\A(?:[\\u{1F600}-\\u{1F64F}])*\\Z"
+    );
+    expect(Array.from(args[6].getOptions().strCharset ?? "").length).toEqual(
+      80
+    );
+
+    expect(args[7].getOptions().strCharset).toEqual(
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    );
+
+    expect(args[8].getOptions().strRegex).toEqual(
+      "\\A(?:[\\u{20}-\\u{7E}])*\\Z"
+    );
+    expect(args[8].getOptions().strCharset?.length).toEqual(95);
+  });
+
+  it("hypothesis @given st.text alphabet with special escape sequences like \\n and \\t", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+import string
+from hypothesis import strategies as st
+
+@given(s=st.text(alphabet=st.sampled_from("abcdefghijklmnop \\n\\t")))
+def test_special_chars(s: str):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_special_chars"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().strCharset).toEqual("abcdefghijklmnop \n\t");
+  });
+
   it("hypothesis @settings `max_examples`", () => {
     const program = ProgramFactory.fromSource(
       () => `
@@ -1324,6 +1435,40 @@ def test_optional_dict(payload):
 
     expect(reqField?.isOptional()).toBeFalse();
     expect(optField?.isOptional()).toBeTrue();
+  });
+
+  it("hypothesis @given `dictionaries` strategy", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@settings(max_examples=500, deadline=None)
+@given(
+    pairs=st.dictionaries(
+        st.integers(min_value=0, max_value=200),
+        st.integers(min_value=0, max_value=200),
+        min_size=3, max_size=20,
+    ),
+)
+def test_popitem_returns_key_value_pair(pairs):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_popitem_returns_key_value_pair"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getName()).toEqual("pairs");
+    expect(arg.getType()).toEqual(ArgTag.DICTIONARY);
+    const children = arg.getChildren();
+    expect(children.length).toEqual(2);
+
+    expect(children[0].getName()).toEqual("keys");
+    expect(children[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(children[0].getIntervals()).toEqual([{ min: 0, max: 200 }]);
+
+    expect(children[1].getName()).toEqual("values");
+    expect(children[1].getType()).toEqual(ArgTag.NUMBER);
+    expect(children[1].getIntervals()).toEqual([{ min: 0, max: 200 }]);
+
+    expect(arg.getOptions().dictLength).toEqual({ min: 3, max: 20 });
   });
 
   it("hypothesis @given takes precedence over native type annotations", () => {

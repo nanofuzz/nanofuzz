@@ -9,7 +9,7 @@ import { UnsatisfiedAssumption } from "../Types";
  * that recorded fuzzer input is not altered by the target
  */
 export function testChangeInput(obj: { a: number }) {
-  (obj as any).b = 1;
+  Reflect.set(obj, "b", 1);
 }
 
 /**
@@ -26,12 +26,12 @@ export const testArrowVoidReturnUndefined = (_x: number): void => {
  * Fuzz targets with return type `void` that returns number
  */
 export function testStandardVoidReturnNumber(x: number): void {
-  const y: unknown = x;
-  return y as void;
+  // @ts-expect-error - testing runtime return from void function
+  return x;
 }
 export const testArrowVoidReturnNumber = (x: number): void => {
-  const y: unknown = x;
-  return y as void;
+  // @ts-expect-error - testing runtime return from void function
+  return x;
 };
 
 /**
@@ -100,8 +100,8 @@ export function testCoverageOneFile(s: string): boolean {
 export function testCoverageOneFileValidator(
   r: FuzzTestResult
 ): boolean | undefined {
-  const s: string = r.in[0]; // the PUT's input
-  const out: boolean = r.out; // the PUT's output
+  const s = String(r.in[0]); // the PUT's input
+  const out = Boolean(r.out); // the PUT's output
 
   if (s[0] === "z" || s === "bug!" || s === "moth") {
     if (!out) console.debug(` - Property test failed input: ${s}`);
@@ -138,8 +138,8 @@ type literalDim2Type = literalDim1Type[];
 type literalDim1Type = "hello"[];
 
 export type FuzzTestResult = {
-  in: any[];
-  out: any;
+  in: (number | string | boolean)[];
+  out: number | string | boolean | null | undefined;
   exception: boolean;
   timeout: boolean;
 };
@@ -180,4 +180,24 @@ export function targetTransformedTimeoutTransformer(
   while (true) {
     /* noop */
   }
+}
+
+export function targetValidatorTimeout(n: number): number {
+  return n;
+}
+export function targetValidatorTimeoutValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  while (true) {
+    /* noop */
+  }
+}
+
+export function targetValidatorException(n: number): number {
+  return n;
+}
+export function targetValidatorExceptionValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  throw new Error("Validator error message");
 }

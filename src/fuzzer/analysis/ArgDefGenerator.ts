@@ -2,6 +2,7 @@ import seedrandom from "seedrandom";
 import { ArgDef } from "./ArgDef";
 import * as RegexStringBuilder from "./RegexStringBuilder";
 import * as JSONN from "../../Jsonn";
+import { makeCanonicalSet } from "../../Util";
 import {
   ArgTag,
   ArgValueType,
@@ -165,6 +166,96 @@ function generateRandomInputFn(
       };
       break;
 
+    case ArgTag.DICTIONARY:
+      randFn = (
+        prng: seedrandom.prng,
+        min: ArgValueType,
+        max: ArgValueType
+      ): ArgValueType => {
+        if (typeof min !== "object" || typeof max !== "object")
+          throw new Error("Min and max must be objects");
+        const [keySpec, valueSpec] = arg.getChildren();
+        if (!keySpec || !valueSpec) {
+          throw new Error("Dictionary arguments require key and value types");
+        }
+        // The number of key-value entries is sampled dictLength times.
+        const dictLen = arg.getOptions().dictLength;
+        const count = getRandomNumber(
+          prng,
+          dictLen.min,
+          dictLen.max,
+          ArgDef.getDefaultOptions()
+        );
+        const out: { [key: string]: ArgValueType } = {};
+        const keyGen = generateRandomInputFn(keySpec, prng);
+        const valGen = generateRandomInputFn(valueSpec, prng);
+
+        entryLoop: for (let i = 0; i < count; i++) {
+          let attempts = 0;
+          while (true) {
+            const keyStr = String(keyGen());
+            if (!Object.prototype.hasOwnProperty.call(out, keyStr)) {
+              out[keyStr] = valGen();
+              continue entryLoop;
+            }
+            if (++attempts > 50) {
+              if (Object.keys(out).length >= dictLen.min) {
+                break entryLoop;
+              }
+              throw new Error(
+                "Unable to generate enough unique dictionary keys. Are constraints possible to meet?"
+              );
+            }
+          }
+        }
+        return out;
+      };
+      break;
+
+    case ArgTag.SET:
+      randFn = (
+        prng: seedrandom.prng,
+        min: ArgValueType,
+        max: ArgValueType
+      ): ArgValueType => {
+        if (typeof min !== "object" || typeof max !== "object")
+          throw new Error("Min and max must be objects");
+        const [elemSpec] = arg.getChildren();
+        if (!elemSpec) {
+          throw new Error("Set arguments require an element type specification");
+        }
+        const setLen = arg.getOptions().setLength;
+        const count = getRandomNumber(
+          prng,
+          setLen.min,
+          setLen.max,
+          ArgDef.getDefaultOptions()
+        );
+        const rawItems: ArgValueType[] = [];
+        const seen = new Set<string>();
+        const elemGen = generateRandomInputFn(elemSpec, prng);
+
+        let attempts = 0;
+        while (rawItems.length < count) {
+          const elem = elemGen();
+          const serialized = JSONN.stringify(elem);
+          if (!seen.has(serialized)) {
+            seen.add(serialized);
+            rawItems.push(elem);
+          }
+          if (++attempts > 50) {
+            if (rawItems.length >= setLen.min) {
+              break;
+            }
+            throw new Error(
+              "Unable to generate enough unique Set elements. Are constraints possible to meet?"
+            );
+          }
+        }
+        return makeCanonicalSet(rawItems);
+      };
+      break;
+
     case ArgTag.TUPLE:
       randFn = (
         prng: seedrandom.prng,
@@ -199,7 +290,12 @@ function generateRandomInputFn(
   // Callback fn to generate value
   const randFnWrapper: PublicRandFn = () => {
     if (arg.isNoInput()) return undefined;
-    if (type === ArgTag.OBJECT || type === ArgTag.TUPLE) {
+    if (
+      type === ArgTag.OBJECT ||
+      type === ArgTag.DICTIONARY ||
+      type === ArgTag.SET ||
+      type === ArgTag.TUPLE
+    ) {
       return randFn(prng, {}, {}, options);
     }
     if (type === ArgTag.UNION) {
@@ -416,7 +512,7 @@ const getRandomString: PrivateRandFn = (
   if (typeof min !== "string" || typeof max !== "string")
     throw new Error("Min and max must be strings");
 
-  const charSet = options.strCharset;
+  const charSet = Array.from(options.strCharset);
   const intOptions = ArgDef.getDefaultOptions(); // use default for integer selection
 
   // This generator does not currently support min and max, but we don't make
@@ -433,12 +529,12 @@ const getRandomString: PrivateRandFn = (
   // Note: This provides a uniform distribution at each position, but
   //       the distribution of output is not uniform.
   const charSetLen = charSet.length - 1;
-  let outStr = "";
+  const outChars: string[] = [];
   for (let i = 0; i < strLen; i++) {
-    outStr += charSet[getRandomNumber(prng, 0, charSetLen, intOptions)];
+    outChars.push(charSet[getRandomNumber(prng, 0, charSetLen, intOptions)]);
   }
 
-  return outStr;
+  return outChars.join("");
 }; // fn: getRandomString
 
 const getRandomBytes: PrivateRandFn = (

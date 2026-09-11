@@ -1,7 +1,7 @@
 import * as z from "zod/v4";
 
 // Gets a value from an object, deletes the key, and returns the value (or undefined if not found)
-const pop = <T extends Record<string, any>, K extends string>(
+const pop = <T extends Record<string, unknown>, K extends string>(
   obj: T,
   key: K
 ): T[K] => {
@@ -24,7 +24,11 @@ const SUPPORTED_STRING_FORMATS = new Set([
   "uuid",
 ]);
 
-type JSONSchema = Record<string, any>;
+type JSONSchema = Record<string, unknown>;
+
+function isJSONSchema(val: unknown): val is JSONSchema {
+  return typeof val === "object" && val !== null;
+}
 
 function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
@@ -45,11 +49,13 @@ function _transformJSONSchema(jsonSchema: JSONSchema): JSONSchema {
   }
 
   const defs = pop(jsonSchema, "$defs");
-  if (defs !== undefined) {
-    const strictDefs: Record<string, any> = {};
+  if (defs !== undefined && typeof defs === "object" && defs !== null) {
+    const strictDefs: Record<string, unknown> = {};
     strictSchema["$defs"] = strictDefs;
     for (const [name, defSchema] of Object.entries(defs)) {
-      strictDefs[name] = _transformJSONSchema(defSchema as JSONSchema);
+      if (isJSONSchema(defSchema)) {
+        strictDefs[name] = _transformJSONSchema(defSchema);
+      }
     }
   }
 
@@ -59,17 +65,17 @@ function _transformJSONSchema(jsonSchema: JSONSchema): JSONSchema {
   const allOf = pop(jsonSchema, "allOf");
 
   if (Array.isArray(anyOf)) {
-    strictSchema["anyOf"] = anyOf.map((variant) =>
-      _transformJSONSchema(variant as JSONSchema)
-    );
+    strictSchema["anyOf"] = anyOf
+      .filter(isJSONSchema)
+      .map((variant) => _transformJSONSchema(variant));
   } else if (Array.isArray(oneOf)) {
-    strictSchema["anyOf"] = oneOf.map((variant) =>
-      _transformJSONSchema(variant as JSONSchema)
-    );
+    strictSchema["anyOf"] = oneOf
+      .filter(isJSONSchema)
+      .map((variant) => _transformJSONSchema(variant));
   } else if (Array.isArray(allOf)) {
-    strictSchema["allOf"] = allOf.map((entry) =>
-      _transformJSONSchema(entry as JSONSchema)
-    );
+    strictSchema["allOf"] = allOf
+      .filter(isJSONSchema)
+      .map((entry) => _transformJSONSchema(entry));
   } else {
     if (type === undefined) {
       throw new Error(
@@ -91,12 +97,15 @@ function _transformJSONSchema(jsonSchema: JSONSchema): JSONSchema {
 
   if (type === "object") {
     const properties = pop(jsonSchema, "properties") || {};
+    const propEntries =
+      typeof properties === "object" && properties !== null
+        ? Object.entries(properties)
+        : [];
 
     strictSchema["properties"] = Object.fromEntries(
-      Object.entries(properties).map(([key, propSchema]) => [
-        key,
-        _transformJSONSchema(propSchema as JSONSchema),
-      ])
+      propEntries
+        .filter((entry): entry is [string, JSONSchema] => isJSONSchema(entry[1]))
+        .map(([key, propSchema]) => [key, _transformJSONSchema(propSchema)])
     );
 
     pop(jsonSchema, "additionalProperties");
@@ -108,15 +117,18 @@ function _transformJSONSchema(jsonSchema: JSONSchema): JSONSchema {
     }
   } else if (type === "string") {
     const format = pop(jsonSchema, "format");
-    if (format !== undefined && SUPPORTED_STRING_FORMATS.has(format)) {
+    if (
+      typeof format === "string" &&
+      SUPPORTED_STRING_FORMATS.has(format)
+    ) {
       strictSchema["format"] = format;
     } else if (format !== undefined) {
       jsonSchema["format"] = format;
     }
   } else if (type === "array") {
     const items = pop(jsonSchema, "items");
-    if (items !== undefined) {
-      strictSchema["items"] = _transformJSONSchema(items as JSONSchema);
+    if (isJSONSchema(items)) {
+      strictSchema["items"] = _transformJSONSchema(items);
     }
 
     const minItems = pop(jsonSchema, "minItems");

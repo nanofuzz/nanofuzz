@@ -1,8 +1,9 @@
-import { PythonRunner } from "./PythonRunner";
-import { FuzzEnv } from "../Fuzzer";
+import { PythonRunner } from "./python/PythonRunner";
+import { FunctionDef, FuzzEnv } from "../Fuzzer";
 import { ArgDef } from "../analysis/ArgDef";
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import * as Parser from "../adapters/ParserAdapter";
+import * as Config from "../../Config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -57,32 +58,7 @@ def process_bytes(data: bytes) -> bytes:
         pyPath
       );
       const fnDef = program.functionsExported["process_bytes"];
-      const env: FuzzEnv = {
-        function: fnDef,
-        options: {
-          argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: 1000,
-          maxDupeInputs: 1000,
-          maxFailures: 0,
-          fnTimeout: 100,
-          suiteTimeout: 0,
-          useImplicit: true,
-          useHuman: false,
-          useProperty: false,
-          useTransformer: false,
-          measures: {
-            CoverageMeasure: { enabled: true, weight: 1 },
-            FailedTestMeasure: { enabled: true, weight: 1 },
-          },
-          generators: {
-            RandomInputGenerator: { enabled: true },
-            MutationInputGenerator: { enabled: true },
-            AiInputGenerator: { enabled: false },
-          },
-        },
-        validators: [],
-        transformers: [],
-      };
+      const env = createFuzzEnv(fnDef);
 
       const runner = new PythonRunner(pyPath, "process_bytes", env, 2000);
       await runner.onRunStart();
@@ -144,32 +120,7 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
         pyPath
       );
       const fnDef = program.functionsExported["process_nested"];
-      const env: FuzzEnv = {
-        function: fnDef,
-        options: {
-          argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: 1000,
-          maxDupeInputs: 1000,
-          maxFailures: 0,
-          fnTimeout: 100,
-          suiteTimeout: 0,
-          useImplicit: true,
-          useHuman: false,
-          useProperty: false,
-          useTransformer: false,
-          measures: {
-            CoverageMeasure: { enabled: true, weight: 1 },
-            FailedTestMeasure: { enabled: true, weight: 1 },
-          },
-          generators: {
-            RandomInputGenerator: { enabled: true },
-            MutationInputGenerator: { enabled: true },
-            AiInputGenerator: { enabled: false },
-          },
-        },
-        validators: [],
-        transformers: [],
-      };
+      const env = createFuzzEnv(fnDef);
 
       const runner = new PythonRunner(pyPath, "process_nested", env, 2000);
       await runner.onRunStart();
@@ -206,4 +157,376 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
       }
     }
   });
+
+  it("set & frozenset inputs and outputs", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "set_test.py");
+    const pyCode = `from typing import FrozenSet
+
+def process_sets(s_data: set[int], f_data: FrozenSet[str]):
+    assert isinstance(s_data, set), "s_data must be a python set"
+    assert isinstance(f_data, frozenset), "f_data must be a python frozenset"
+    return {
+        "set_res": {x * 2 for x in s_data},
+        "frozenset_res": frozenset(x.upper() for x in f_data)
+    }
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `from typing import FrozenSet
+
+def process_sets(s_data: set[int], f_data: FrozenSet[str]):
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["process_sets"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "process_sets", env, 2000);
+      await runner.onRunStart();
+
+      const inputSet = new Set([1, 2, 3]);
+      const inputFrozenSet = new Set(["a", "b"]);
+
+      const res = await runner.run([inputSet, inputFrozenSet], 2000);
+
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        const val = res.result.value;
+        if (
+          val !== null &&
+          typeof val === "object" &&
+          "set_res" in val &&
+          "frozenset_res" in val &&
+          Array.isArray(val.set_res) &&
+          Array.isArray(val.frozenset_res)
+        ) {
+          expect(new Set(val.set_res)).toEqual(new Set([2, 4, 6]));
+          expect(new Set(val.frozenset_res)).toEqual(new Set(["A", "B"]));
+        } else {
+          fail("Expected object with set_res and frozenset_res arrays");
+        }
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
+    }
+  });
+
+  it("handles tuple arguments, dict with numeric keys, and non-string dict return keys", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "tuple_dict_test.py");
+    const pyCode = `
+def process_data(t: tuple[int, str], d: dict[int, str]):
+    assert isinstance(t, tuple), "t must be a tuple"
+    assert all(isinstance(k, int) for k in d.keys()), "d keys must be int"
+    return {
+        10: "ten",
+        20: "twenty"
+    }
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def process_data(t: tuple[int, str], d: dict[int, str]):
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["process_data"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "process_data", env, 2000);
+      await runner.onRunStart();
+
+      const res = await runner.run(
+        [[10, "foo"], { "1": "one", "2": "two" }],
+        2000
+      );
+
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toEqual({
+          "10": "ten",
+          "20": "twenty",
+        });
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
+    }
+  });
+
+  it("handles NaN and Infinity float numbers passed as strings", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "float_test.py");
+    const pyCode = `import math
+
+def process_floats(nan_val: float, inf_val: float) -> dict:
+    assert isinstance(nan_val, float), "nan_val must be float"
+    assert math.isnan(nan_val), "nan_val must be NaN"
+    assert isinstance(inf_val, float), "inf_val must be float"
+    assert math.isinf(inf_val), "inf_val must be Infinity"
+    return {"nan": nan_val, "inf": inf_val}
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def process_floats(nan_val: float, inf_val: float):
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["process_floats"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "process_floats", env, 2000);
+      await runner.onRunStart();
+
+      const res = await runner.run(["NaN", "Infinity"], 2000);
+
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        const val = res.result.value;
+        if (
+          val !== null &&
+          typeof val === "object" &&
+          "nan" in val &&
+          "inf" in val
+        ) {
+          expect(Number.isNaN(val.nan)).toBeTrue();
+          expect(val.inf).toBe(Infinity);
+        } else {
+          fail("Expected object with nan and inf properties");
+        }
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
+    }
+  });
+
+  it("skips coverage collection when coverage is disabled", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "nocov_test.py");
+    const pyCode = `
+def add_one(x: int) -> int:
+    return x + 1
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
+      const fnDef = program.functionsExported["add_one"];
+      const env = createFuzzEnv(fnDef);
+      env.options.measures.CoverageMeasure.enabled = false;
+
+      const runner = new PythonRunner(pyPath, "add_one", env, 2000);
+      await runner.onRunStart();
+
+      const res = await runner.run([5], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      expect(runner.coverageInfo).toBeUndefined();
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("timeouts with partial coverage", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "timeout_test.py");
+    const pyCode = `
+def loop_timeout(n: int) -> int:
+    a = 1
+    if n > 0:
+        while True:
+            pass
+    b = 2
+    return a + b
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def loop_timeout(n: int) -> int:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["loop_timeout"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "loop_timeout", env, 100);
+      await runner.onRunStart();
+
+      // First run times out in-host
+      const timeoutRes = await runner.run([5], 100);
+      console.log("TIMEOUT RES:", JSON.stringify(timeoutRes.result, null, 2));
+      expect(timeoutRes.result.tag).toBe("timeout");
+      expect(runner.coverageInfo).toBeDefined();
+
+      // Second run after timeout reuses same host and succeeds
+      const fastRes = await runner.run([0], 0);
+      expect(fastRes.result.tag).toBe("value");
+
+      await runner.onRunEnd();
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("heartbeat: keep long-running startups alive", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "slow_import_hb.py");
+    const pyCode = `import time
+time.sleep(1.5)
+
+def slow_fn(x: int) -> int:
+    return x * 2
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
+      const fnDef = program.functionsExported["slow_fn"];
+      const env = createFuzzEnv(fnDef, {
+        maxTests: 10,
+        maxDupeInputs: 10,
+      });
+
+      // Set hostStartupTimeout to 500ms. Without heartbeats (sent every 250ms),
+      // a 1.5s import would time out at t=500ms. Heartbeats reset the 500ms clock,
+      // allowing the 1.5s import to succeed cleanly.
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 500);
+
+      const runner = new PythonRunner(pyPath, "slow_fn", env, 2000);
+      const start = performance.now();
+      await runner.onRunStart();
+      const elapsed = performance.now() - start;
+      expect(elapsed).toBeGreaterThanOrEqual(1400);
+
+      const res = await runner.run([10], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(20);
+      }
+    } finally {
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 10000);
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 10000);
 });
+
+/**
+ * Generates a default FuzzEnv for testing.
+ * Placed at the bottom of the module.
+ */
+function createFuzzEnv(
+  fnDef: FunctionDef,
+  optionsOverrides?: Partial<FuzzEnv["options"]>
+): FuzzEnv {
+  return {
+    function: fnDef,
+    options: {
+      argDefaults: ArgDef.getDefaultOptions(),
+      maxTests: 1000,
+      maxDupeInputs: 1000,
+      maxFailures: 0,
+      fnTimeout: 100,
+      suiteTimeout: 0,
+      useImplicit: true,
+      useHuman: false,
+      useProperty: false,
+      useTransformer: false,
+      measures: {
+        CoverageMeasure: { enabled: true, weight: 1 },
+        FailedTestMeasure: { enabled: true, weight: 1 },
+      },
+      generators: {
+        RandomInputGenerator: { enabled: true },
+        MutationInputGenerator: { enabled: true },
+        AiInputGenerator: { enabled: false },
+      },
+      ...optionsOverrides,
+    },
+    validators: [],
+    transformers: [],
+  };
+} // fn: createFuzzEnv
