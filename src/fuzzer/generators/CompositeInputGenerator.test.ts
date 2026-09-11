@@ -361,7 +361,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     }
   });
 
-  it("fastpath when compositeExplorationChance >= 1.0 and toggling between runs", async () => {
+  it("rnd-only fastpath: compositeExplorationChance >= 1.0 and toggling between runs", async () => {
     const program = ProgramFactory.fromSource(
       () => `export function dummyFn(x: number) {}`,
       "typescript"
