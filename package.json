@@ -362,8 +362,8 @@
   },
   "scripts": {
     "build": "npx tsc -noEmit && node build.mjs",
-    "test": "node test.cjs",
-    "test:seq": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
+    "test": "node test.cjs && pytest src/",
+    "test:runtime": "pytest packages/runtime/python/tests && yarn --cwd packages/runtime/typescript test",
     "lint": "eslint src",
     "lint:errors": "eslint --quiet src",
     "vscode:prepublish": "yarn build",

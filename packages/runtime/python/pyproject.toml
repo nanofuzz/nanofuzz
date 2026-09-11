@@ -31,3 +31,6 @@ Repository = "https://github.com/nanofuzz/nanofuzz"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nanofuzz_runtime"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

@@ -33,7 +33,10 @@ export default defineConfig(
   {
     languageOptions: {
       parserOptions: {
-        project: "./tsconfig.json",
+        project: [
+          "./tsconfig.json",
+          "./packages/runtime/typescript/tsconfig.json",
+        ],
       },
     },
   },
