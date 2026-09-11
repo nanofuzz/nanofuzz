@@ -327,6 +327,24 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       );
     }
 
+    // Fastpath: if compositeExplorationChance >= 1.0, randomly select from nextable subgens
+    // and skip calculations of cost, progress, and productivity.
+    if (this._P >= 1.0) {
+      const activeSubgenIndices = this._subgens
+        .map((_g, i) => i)
+        .filter((i) => this._activeSubgens[i] && this._subgens[i].nextable());
+      const candidateIndices =
+        activeSubgenIndices.length > 0
+          ? activeSubgenIndices
+          : this._subgens
+              .map((_g, i) => i)
+              .filter((i) => this._subgens[i].nextable());
+
+      return candidateIndices[
+        Math.floor(this._prng() * candidateIndices.length)
+      ];
+    }
+
     // Calculate cost and progress for each subgen's prior L generations
     const cost: number[] = []; // cost of subgen for L generations
     const progress: number[] = []; // progress of subgen for L generations

@@ -676,7 +676,8 @@ export class FuzzPanel {
             inputTests = testSet;
             break;
           }
-          case "0.3.6": {
+          case "0.3.6":
+          case "0.3.9": {
             // v0.3.6 format -- add configuration for measures and generators,
             //        re-key and add origin info to saved test inputs
             testSet = { ...inputTests, version: "0.4.0" }; // !!!!!!!!
