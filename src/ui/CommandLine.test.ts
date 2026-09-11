@@ -2,7 +2,7 @@ import * as ChildProcess from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import JSON5 from "json5";
+import * as JSONN from "../Jsonn";
 import * as zod from "zod/v4";
 import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Fuzzer";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
@@ -66,7 +66,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -111,7 +111,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const pyOutputData = JSON5.parse<FuzzTestResults>(
+    const pyOutputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -151,7 +151,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -200,7 +200,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -235,7 +235,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -279,7 +279,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -330,7 +330,7 @@ describe("cli:", () => {
     fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
     fs.writeFileSync(
       cacheFile,
-      JSON5.stringify([seededEntry], null, 2),
+      JSONN.stringify([seededEntry], null, 2),
       "utf8"
     );
 
@@ -361,7 +361,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -395,7 +395,7 @@ describe("cli:", () => {
     expect(res.status).toBe(1);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -457,7 +457,7 @@ def ${targetFn}(n: int) -> int:
     expect(fs.existsSync(outputFile)).toBeTrue();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const outputData = JSON5.parse<any>(fs.readFileSync(outputFile, "utf8"));
+    const outputData = JSONN.parse<any>(fs.readFileSync(outputFile, "utf8"));
 
     expect(outputData.stats.measures.CodeCoverageMeasure).toBeDefined();
     const cov = outputData.stats.measures.CodeCoverageMeasure;
@@ -551,7 +551,7 @@ def ${targetFn}(n: int) -> int:
     expect(res2.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
     expect(outputData.results.length).toBeGreaterThan(0);

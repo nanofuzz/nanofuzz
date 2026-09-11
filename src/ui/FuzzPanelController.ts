@@ -34,6 +34,9 @@ import {
   clearCoverageHeatmapFromEditor,
 } from "./CoverageHeatmap";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
+import { IdeasPanelController } from "./IdeasPanelController";
+import seedrandom from "seedrandom";
+import { IdeaData } from "../fuzzer/ideas/Types";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";
@@ -101,6 +104,7 @@ export class FuzzPanel {
   private _retestingReason: ReturnType<typeof this.resultsAreStale> | "user" =
     false; // retesting reason
   private _pauseTesting = false; // indicates that testing should stop
+  private _ideasPanel: IdeasPanelController | undefined; // controller for ideas panel
 
   // ------------------------ Static Methods ------------------------ //
 
@@ -471,7 +475,7 @@ export class FuzzPanel {
             this._saveColumnSortOrders(message.json);
             break;
           case "validator.add":
-            await this._doAddValidatorCmd();
+            await this._doAddValidatorCmd(message.prop);
             this._doGetValidatorsAndTransformers();
             break;
           case "transformer.add":
@@ -493,6 +497,24 @@ export class FuzzPanel {
               "workbench.action.openSettings",
               "nanofuzz.ai"
             );
+            break;
+          }
+          case "idea.accept": {
+            if (this._ideasPanel) {
+              const idea: Required<typeof message>["idea"] = JSONN.parse(
+                message.ideaSerialized
+              );
+              this._ideasPanel.accept(idea);
+            }
+            break;
+          }
+          case "idea.reject": {
+            if (this._ideasPanel) {
+              const idea: Required<typeof message>["idea"] = JSONN.parse(
+                message.ideaSerialized
+              );
+              this._ideasPanel.reject(idea);
+            }
             break;
           }
         }
@@ -984,7 +1006,7 @@ export class FuzzPanel {
   /**
    * Add code skeleton for a property validator to the program source code.
    */
-  private async _doAddValidatorCmd() {
+  public async _doAddValidatorCmd(prop?: { src: string; name: string }) {
     const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
     const validatorPrefix = fn.getName() + "Validator";
@@ -998,12 +1020,6 @@ export class FuzzPanel {
       );
       return;
     }
-
-    // Determine the next available validator name
-    const fnCounter = getNextAvailableFnNumber(
-      Object.keys(program.functions),
-      validatorPrefix
-    );
 
     const inArgs = fn.getArgDefs();
     const validatorArgs = this._getValidatorArgs(inArgs);
@@ -1039,13 +1055,13 @@ export class FuzzPanel {
           },
         ],
         skelMapper: (
-          validatorName: string,
-          validatorArgs: ReturnType<typeof this._getValidatorArgs>,
+          vName: string,
+          vArgs: ReturnType<typeof this._getValidatorArgs>,
           inArgConsts: string,
           outArgConst: string
         ) => `
 
-export function ${validatorName}${validatorArgs.str}: "pass" | "fail" | "unknown" {
+export function ${vName}${vArgs.str}: "pass" | "fail" | "unknown" {
 ${inArgConsts}
   ${outArgConst}
 
@@ -1087,13 +1103,13 @@ ${inArgConsts}
           },
         ],
         skelMapper: (
-          validatorName: string,
-          validatorArgs: ReturnType<typeof this._getValidatorArgs>,
+          vName: string,
+          vArgs: ReturnType<typeof this._getValidatorArgs>,
           inArgConsts: string,
           outArgConst: string
         ) => `
 
-def ${validatorName}${validatorArgs.str} -> Literal["pass", "fail", "unknown"]:
+def ${vName}${vArgs.str} -> Literal["pass", "fail", "unknown"]:
 ${inArgConsts}
   ${outArgConst}
 
@@ -1107,30 +1123,43 @@ ${inArgConsts}
     if (program.lang === "*") {
       throw new Error("Internal error: program is of invalid language: *");
     }
-    const inArgConsts = inArgs
-      .map(skelGenerators[program.lang].inputMapper)
-      .join("\n");
 
-    const outTypeAsArg = fn.getReturnArg();
-    const outArgConst = skelGenerators[program.lang].outputMapper(
-      inArgs,
-      validatorArgs.resultArgName,
-      outTypeAsArg
-        ? skelGenerators[program.lang].getTypeAnnotation(outTypeAsArg)
-        : undefined
-    );
+    let validatorName: string;
+    let skeleton: string;
 
-    // Name of the validator generated
-    const validatorName = `${validatorPrefix}${
-      fnCounter === 0 ? "" : fnCounter
-    }`;
+    if (prop) {
+      validatorName = prop.name;
+      skeleton = prop.src.startsWith("\n") ? prop.src : `\n\n${prop.src}`;
+    } else {
+      // Determine the next available validator name
+      const fnCounter = getNextAvailableFnNumber(
+        Object.keys(program.functions),
+        validatorPrefix
+      );
 
-    const skeleton = skelGenerators[program.lang].skelMapper(
-      validatorName,
-      validatorArgs,
-      inArgConsts,
-      outArgConst
-    );
+      const inArgConsts = inArgs
+        .map(skelGenerators[program.lang].inputMapper)
+        .join("\n");
+
+      const outTypeAsArg = fn.getReturnArg();
+      const outArgConst = skelGenerators[program.lang].outputMapper(
+        inArgs,
+        validatorArgs.resultArgName,
+        outTypeAsArg
+          ? skelGenerators[program.lang].getTypeAnnotation(outTypeAsArg)
+          : undefined
+      );
+
+      // Name of the validator generated
+      validatorName = `${validatorPrefix}${fnCounter === 0 ? "" : fnCounter}`;
+
+      skeleton = skelGenerators[program.lang].skelMapper(
+        validatorName,
+        validatorArgs,
+        inArgConsts,
+        outArgConst
+      );
+    }
 
     // Save the editor if dirty
     for (const editor of vscode.window.visibleTextEditors) {
@@ -1185,7 +1214,7 @@ ${inArgConsts}
       }
     } catch {
       vscode.window.showErrorMessage(
-        `Unable to write property validator code skeleton to source file`
+        `Unable to write property validator code to source file`
       );
     }
   }
@@ -1398,7 +1427,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
    * of validators and transformers from the program source code and sends
    * it back to the front-end.
    */
-  private _doGetValidatorsAndTransformers() {
+  public _doGetValidatorsAndTransformers() {
     let program: AbstractProgram;
     try {
       program = ProgramFactory.fromFile(this._fuzzEnv.function.getModule());
@@ -1525,7 +1554,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               } else {
                 return {
                   input: i.input.map((e) => {
-                    const e2 = { ...e };
+                    const e2 = structuredClone(e);
                     // ticks are tester-specific
                     removeTickFromOrigin(e2.origin);
                     return e2;
@@ -1666,6 +1695,21 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               this._panel.webview.postMessage(message);
               this._updateHtml();
               this._focusInput = undefined;
+
+              setTimeout(() => {
+                if (!this._ideasPanel) {
+                  this._ideasPanel = new IdeasPanelController({
+                    webview: this._panel.webview,
+                    module: this._tester.getModule(),
+                    fn: this._fuzzEnv.function,
+                    results: result,
+                    prng: seedrandom(),
+                    panel: this,
+                  });
+                } else {
+                  this._ideasPanel.refresh(); // !!!!!!!!!!
+                }
+              }, 0);
             }
           },
           // Fn that provides test status feedback to the panel => {
@@ -1735,6 +1779,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     this._errorStack = undefined;
     this._focusInput = undefined;
     this._coverageStats = undefined;
+    this._ideasPanel = undefined;
     this._updateHtml();
 
     // Save the argument overrides
@@ -1978,6 +2023,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 				    <meta http-equiv="Content-Security-Policy" content="${csp}">
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <!-- VS Code UI Toolkit -->
             <script type="module" src="${getUri(webview, extensionUri, [
               "node_modules",
               "@vscode",
@@ -1998,7 +2044,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             <link rel="stylesheet" type="text/css" href="${getUri(
               webview,
               extensionUri,
-              ["node_modules", "@vscode", "codicons", "dist", "codicon.css"]
+              ["build", "ui", "IdeasPanelView.css"]
             )}">
             <title>${toolName} Panel</title>
           </head>
@@ -2466,38 +2512,47 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               id: fuzzer.FuzzResultCategory;
               name: string;
               description: string;
-              hasGrid: boolean;
+              payload: "fuzzGrid";
+              icon?: string;
             }
           | {
               id: "runInfo";
               name: string;
               description: string;
-              hasGrid: false;
+              payload: "html";
+              icon?: string;
+            }
+          | {
+              id: "ideas";
+              name: string;
+              description: string;
+              payload: "ideasGrid";
+              icon?: string;
             }
         )[] = [
           {
             id: "failure",
             name: "Testing Error",
             description: `A property validator or input transformer threw an exception for these inputs. Fix the bug in the testing code and retest.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "disagree",
             name: "Disagree",
             description: `The property and human validators disagreed about how to categorize these outputs. Usually this indicates the property validator has a bug.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "timeout",
             name: "Timeouts",
             description: `These inputs did not terminate within ${this._fuzzEnv.options.fnTimeout}ms, and no validator categorized them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "exception",
             name: "Exceptions",
             description: `These inputs resulted in a runtime exception, and no validator categorized them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "badValue",
@@ -2510,7 +2565,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                   : `The human validator categorized these examples as failed.`
             }`,
             // description: `A validator categorized these outputs as failed. The heuristic validator by default fails outputs that contain null, NaN, Infinity, or undefined if no other validator categorizes them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "ok",
@@ -2518,13 +2573,13 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             description: `A validator with precedence categorized these examples as passed, or no validator categorized them as failed.`,
             // description: `Passed. No validator categorized these outputs as failed.`,
             // description: `No validator categorized these outputs as failed, or a validator categorized them as passed.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
           {
             id: "skip",
             name: "Skipped",
             description: `These inputs were generated but skipped due to a user defined filter or assume statement.`,
-            hasGrid: true,
+            payload: "fuzzGrid",
           },
         ];
         if (this._results) {
@@ -2762,6 +2817,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
           tabs.push({
             id: "runInfo",
             name: `Run info`,
+            icon: "codicon-info",
             description: /*html*/ `
 
             <div class="fuzzResultHeading">What did ${toolName} do?</div>
@@ -2912,16 +2968,27 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                 : ``
             }
             `,
-            hasGrid: false,
+            payload: "html",
           });
         }
+
+        // Add the ideas grid tab to the panel
+        tabs.push({
+          id: "ideas",
+          name: "ideas",
+          icon: "codicon-lightbulb",
+          payload: "ideasGrid",
+          description:
+            "The ideas below are based on the prior test run and might help you improve the test suite.",
+        });
 
         // If the prior tab no longer exists in the display set, don't use it
         if (
           this._lastTab &&
           !tabs.filter(
             (t) =>
-              t.id === this._lastTab && (!t.hasGrid || resultSummary[t.id] > 0)
+              t.id === this._lastTab &&
+              (t.payload !== "fuzzGrid" || resultSummary[t.id] > 0)
           ).length
         ) {
           this._lastTab = undefined;
@@ -2941,18 +3008,20 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               }>`;
 
         tabs.forEach((e) => {
-          if (!e.hasGrid || resultSummary[e.id] > 0) {
+          if (e.payload !== "fuzzGrid" || resultSummary[e.id] > 0) {
             html += /*html*/ `
                 <vscode-panel-tab id="tab-${e.id}">
                   ${
-                    e.id === "runInfo"
-                      ? `<div class="codicon codicon-info"></div>`
+                    e.icon
+                      ? `<div class="codicon ${e.icon}"></div>`
                       : `<span class="FuzzResultTabLabel">${e.name}</span>`
                   }`;
-            if (e.hasGrid) {
+            if (e.payload === "fuzzGrid" || e.payload === "ideasGrid") {
               html += /*html*/ `
-                  <vscode-badge appearance="secondary">${
-                    resultSummary[e.id]
+                  <vscode-badge ${e.payload === "ideasGrid" ? `id="ideasPanelCountBadge" class="hidden"` : ""} appearance="secondary">${
+                    e.payload === "fuzzGrid"
+                      ? resultSummary[e.id]
+                      : /*html */ `<span id="ideasPanelCount">0</span>`
                   }</vscode-badge>`;
             }
             html += /*html*/ `
@@ -2967,7 +3036,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
         let i = 0;
         tabs.forEach((e) => {
-          if (!e.hasGrid || resultSummary[e.id] > 0) {
+          if (e.payload !== "fuzzGrid" || resultSummary[e.id] > 0) {
             const showThisGrid = this._focusInput
               ? this._focusInput[0] === e.id
               : this._lastTab
@@ -2982,15 +3051,16 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                         ? e.description
                         : htmlEscape(e.description)
                     }</div>`;
-            if (e.hasGrid) {
+            if (e.payload === "fuzzGrid" || e.payload === "ideasGrid") {
               html += /*html*/ `
                     <div id="fuzzResultsGrid-${e.id}">
-                      <table class="fuzzGrid">
+                      <table class="fuzzGrid${e.payload === "ideasGrid" ? ` ideasGrid` : ``}">
                         <thead class="columnSortOrder sticky" id="fuzzResultsGrid-${e.id}-thead" /> 
                         <tbody id="fuzzResultsGrid-${e.id}-tbody" />
                       </table>
                     </div>`;
             }
+
             html += /*html*/ `
                   </div> <!-- fuzzGridPanel -->`;
           }
@@ -3105,6 +3175,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             <!-- Fuzzer Hide Columns: for the client script to process -->
             <div id="fuzzHideColumns" class="hidden">
               ${htmlEscape(JSONN.stringify(hiddenColumns))}
+            </div>
+
+            <!-- Function Input Names -->
+            <div id="fuzzFnInputNames" class="hidden">
+              ${htmlEscape(JSONN.stringify(this._fuzzEnv.function.getArgDefs().map((a) => a.getName())))}
             </div>
 
             <!-- Validator Functions: for the client script to process -->
@@ -4286,11 +4361,16 @@ export type FuzzPanelMessageFromWebView =
         | "fuzz.coverage.show"
         | "fuzz.coverage.hide"
         | "fuzz.pause"
-        | "validator.add"
         | "validator.getList"
         | "transformer.add"
         | "open.source"
         | "open.settings.ai";
+    }
+  | { command: "validator.add"; prop?: { src: string; name: string } }
+  | {
+      command: "idea.accept" | "idea.reject";
+      ideaSerialized: string;
+      idea?: IdeaData;
     };
 
 /**
@@ -4371,4 +4451,9 @@ export type FuzzPanelMessageToWebView =
       };
     }
   | { command: "coverage.hidden" }
-  | { command: "coverage.stale" };
+  | { command: "coverage.stale" }
+  | {
+      command: "ideas.updated";
+      ideasSerialized: string; // IdeaData[]
+      ideas?: IdeaData[];
+    };

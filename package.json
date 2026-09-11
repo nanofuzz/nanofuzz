@@ -168,6 +168,13 @@
             "default": false,
             "description": "Write AI debug information to the console"
           },
+          "nanofuzz.ai.properties.generate": {
+            "title": "(experimental) Generate property candidates with the AI model?",
+            "order": 70,
+            "type": "boolean",
+            "default": false,
+            "description": "Generate property candidates with the AI model (experimental) "
+          },
           "nanofuzz.ai.cacheMode": {
             "title": "LLM response cache mode",
             "order": 70,
@@ -409,6 +416,7 @@
     "@types/istanbul-lib-source-maps": "^4.0.4",
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
+    "@types/require-from-string": "^1.2.3",
     "@types/seedrandom": "^2.4.28",
     "@types/vscode": "^1.75.0",
     "@types/vscode-webview": "^1.57.5",

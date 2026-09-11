@@ -4,7 +4,7 @@ import {
   TypeScriptCompilerMessageToWorker,
   TypescriptCompilerMessageFromWorker,
 } from "./TypescriptCompiler";
-import { isError } from "../Util";
+import { isError } from "../../Util";
 import { TypescriptCompilerError } from "../Types";
 
 console.debug("CompilerWorker started");

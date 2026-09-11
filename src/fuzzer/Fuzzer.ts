@@ -16,6 +16,7 @@ import {
   FuzzResultCategory,
   FuzzStopReason,
   FuzzStatusUpdater,
+  FuzzBusyStatusMessage,
   BaseMeasureConfig,
 } from "./Types";
 import { InputAndSource, FuzzOptions } from "./Types";
@@ -23,13 +24,14 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
-import { isError } from "./Util";
+import { isError } from "../Util";
 import { isArgValueType } from "./analysis/Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
+import { NamedJudgment } from "./oracles/Types";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
@@ -55,6 +57,7 @@ export class Tester {
   >; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
+  protected _testId = 0; // next test id
 
   constructor(
     module: string,
@@ -190,6 +193,7 @@ export class Tester {
    */
   protected _getInitializedResults(): FuzzTestResults {
     return {
+      runId: crypto.randomUUID(),
       toolVersion: getToolVersion(),
       env: {
         options: structuredClone(this._options),
@@ -314,6 +318,20 @@ export class Tester {
   public get state(): typeof this._state {
     return this._state;
   } // property: get state
+
+  /**
+   * Returns the current module and compiles it if necessary
+   */
+  public getModule(
+    update: (payload: FuzzBusyStatusMessage) => void = () => {}
+  ): string {
+    const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
+    this._lastCompiler = CompilerFactory.fromSourcefile(fqSrcFile);
+    if (!this._lastCompiler) {
+      throw new Error(`Unable to create compiler for ${fqSrcFile}`);
+    }
+    return this._lastCompiler.compileSync(update);
+  } // property: get module
 
   /**
    * Runs the tester and returns its results.
@@ -702,6 +720,7 @@ export class Tester {
 
       // Initialized test result - overwritten below
       const result: FuzzTestResult = {
+        testId: -1,
         pinned: false,
         inputGenerated: {
           tick: 0,
@@ -1072,6 +1091,7 @@ export class Tester {
       }
 
       // Store the result for this iteration
+      result.testId = this._testId++;
       this._results.results.push(result);
 
       // Take measurements for this test run
@@ -1279,19 +1299,31 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
     }
   };
 
-  // Use the Composite Oracle to render a single judgment from among
-  // the various oracles. We describe this in the TerzoN paper:
-  //
-  // TerzoN: Human-in-the-Loop Software Testing with a Composite Oracle
-  // https://doi.org/10.1145/3580446
-  //
-  // Subsequently, map the judgment to a FuzzResultCategory
-  switch (
-    CompositeOracle.judge([
-      [result.passedValidator, result.passedHuman],
-      [result.passedImplicit],
-    ])
-  ) {
+  const namedValidator: NamedJudgment = {
+    name: "PropertyOracle",
+    judgment: result.passedValidator,
+    trace: [],
+    deciders: [],
+  };
+  const namedHuman: NamedJudgment = {
+    name: "ExampleOracle",
+    judgment: result.passedHuman,
+    trace: [],
+    deciders: [],
+  };
+  const namedImplicit: NamedJudgment = {
+    name: "ImplicitOracle",
+    judgment: result.passedImplicit,
+    trace: [],
+    deciders: [],
+  };
+
+  const compositeJudgment = CompositeOracle.judge([
+    [namedValidator, namedHuman],
+    [namedImplicit],
+  ]);
+
+  switch (compositeJudgment.judgment) {
     case "pass":
       return "ok";
     case "fail":
@@ -1346,6 +1378,7 @@ export type FuzzEnv = {
  * Fuzzer Test Result
  */
 export type FuzzTestResults = {
+  runId: string; // fuzzer run id
   toolVersion: string; // NaNofuzz name and version that generated the results
   env: FuzzEnv; // fuzzer environment
   stopReason: FuzzStopReason; // why the fuzzer stopped

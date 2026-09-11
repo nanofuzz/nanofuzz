@@ -8,7 +8,7 @@ import {
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag } from "../../analysis/Types";
 import { FuzzEnv } from "../../Fuzzer";
-import JSON5 from "json5";
+import * as JSON5 from "json5";
 import DotEnv from "dotenv";
 import vscode from "vscode";
 import * as Config from "../../../Config";

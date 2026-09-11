@@ -133,6 +133,7 @@ function mutantAt(tick: number, from?: number): InputAndSource {
  * passes this same passing-and-uninteresting result.
  */
 const anyResult: FuzzTestResult = {
+  testId: 0,
   pinned: false,
   inputGenerated: {
     tick: 0,
@@ -1327,6 +1328,7 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
      * is arbitrary, and the specs assert that `onRunEnd` leaves them alone.
      */
     const resultsStub = (): FuzzTestResults => ({
+      runId: "test-run-id",
       toolVersion: "0.0.0",
       env: anyEnv,
       stopReason: FuzzStopReason.MAXTESTS,
