@@ -74,7 +74,7 @@ export abstract class AbstractHost {
    * @returns A promise that resolves with the response buffer.
    */
   public async getResponseBuffer(timeout: number = Infinity): Promise<Buffer> {
-    const MAX_HEARTBEATS = 60;
+    const MAX_HEARTBEATS = 240;
     let heartbeats = 0;
 
     return new Promise<Buffer>((resolve, reject) => {

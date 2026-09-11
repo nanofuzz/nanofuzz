@@ -1,8 +1,9 @@
 import { PythonRunner } from "./python/PythonRunner";
-import { FuzzEnv } from "../Fuzzer";
+import { FunctionDef, FuzzEnv } from "../Fuzzer";
 import { ArgDef } from "../analysis/ArgDef";
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import * as Parser from "../adapters/ParserAdapter";
+import * as Config from "../../Config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -57,32 +58,7 @@ def process_bytes(data: bytes) -> bytes:
         pyPath
       );
       const fnDef = program.functionsExported["process_bytes"];
-      const env: FuzzEnv = {
-        function: fnDef,
-        options: {
-          argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: 1000,
-          maxDupeInputs: 1000,
-          maxFailures: 0,
-          fnTimeout: 100,
-          suiteTimeout: 0,
-          useImplicit: true,
-          useHuman: false,
-          useProperty: false,
-          useTransformer: false,
-          measures: {
-            CoverageMeasure: { enabled: true, weight: 1 },
-            FailedTestMeasure: { enabled: true, weight: 1 },
-          },
-          generators: {
-            RandomInputGenerator: { enabled: true },
-            MutationInputGenerator: { enabled: true },
-            AiInputGenerator: { enabled: false },
-          },
-        },
-        validators: [],
-        transformers: [],
-      };
+      const env = createFuzzEnv(fnDef);
 
       const runner = new PythonRunner(pyPath, "process_bytes", env, 2000);
       await runner.onRunStart();
@@ -144,32 +120,7 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
         pyPath
       );
       const fnDef = program.functionsExported["process_nested"];
-      const env: FuzzEnv = {
-        function: fnDef,
-        options: {
-          argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: 1000,
-          maxDupeInputs: 1000,
-          maxFailures: 0,
-          fnTimeout: 100,
-          suiteTimeout: 0,
-          useImplicit: true,
-          useHuman: false,
-          useProperty: false,
-          useTransformer: false,
-          measures: {
-            CoverageMeasure: { enabled: true, weight: 1 },
-            FailedTestMeasure: { enabled: true, weight: 1 },
-          },
-          generators: {
-            RandomInputGenerator: { enabled: true },
-            MutationInputGenerator: { enabled: true },
-            AiInputGenerator: { enabled: false },
-          },
-        },
-        validators: [],
-        transformers: [],
-      };
+      const env = createFuzzEnv(fnDef);
 
       const runner = new PythonRunner(pyPath, "process_nested", env, 2000);
       await runner.onRunStart();
@@ -234,32 +185,7 @@ def process_sets(s_data: set[int], f_data: FrozenSet[str]):
         pyPath
       );
       const fnDef = program.functionsExported["process_sets"];
-      const env: FuzzEnv = {
-        function: fnDef,
-        options: {
-          argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: 1000,
-          maxDupeInputs: 1000,
-          maxFailures: 0,
-          fnTimeout: 100,
-          suiteTimeout: 0,
-          useImplicit: true,
-          useHuman: false,
-          useProperty: false,
-          useTransformer: false,
-          measures: {
-            CoverageMeasure: { enabled: true, weight: 1 },
-            FailedTestMeasure: { enabled: true, weight: 1 },
-          },
-          generators: {
-            RandomInputGenerator: { enabled: true },
-            MutationInputGenerator: { enabled: true },
-            AiInputGenerator: { enabled: false },
-          },
-        },
-        validators: [],
-        transformers: [],
-      };
+      const env = createFuzzEnv(fnDef);
 
       const runner = new PythonRunner(pyPath, "process_sets", env, 2000);
       await runner.onRunStart();
@@ -327,32 +253,7 @@ def process_data(t: tuple[int, str], d: dict[int, str]):
         pyPath
       );
       const fnDef = program.functionsExported["process_data"];
-      const env: FuzzEnv = {
-        function: fnDef,
-        options: {
-          argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: 1000,
-          maxDupeInputs: 1000,
-          maxFailures: 0,
-          fnTimeout: 100,
-          suiteTimeout: 0,
-          useImplicit: true,
-          useHuman: false,
-          useProperty: false,
-          useTransformer: false,
-          measures: {
-            CoverageMeasure: { enabled: true, weight: 1 },
-            FailedTestMeasure: { enabled: true, weight: 1 },
-          },
-          generators: {
-            RandomInputGenerator: { enabled: true },
-            MutationInputGenerator: { enabled: true },
-            AiInputGenerator: { enabled: false },
-          },
-        },
-        validators: [],
-        transformers: [],
-      };
+      const env = createFuzzEnv(fnDef);
 
       const runner = new PythonRunner(pyPath, "process_data", env, 2000);
       await runner.onRunStart();
@@ -410,32 +311,7 @@ def process_floats(nan_val: float, inf_val: float):
         pyPath
       );
       const fnDef = program.functionsExported["process_floats"];
-      const env: FuzzEnv = {
-        function: fnDef,
-        options: {
-          argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: 1000,
-          maxDupeInputs: 1000,
-          maxFailures: 0,
-          fnTimeout: 100,
-          suiteTimeout: 0,
-          useImplicit: true,
-          useHuman: false,
-          useProperty: false,
-          useTransformer: false,
-          measures: {
-            CoverageMeasure: { enabled: true, weight: 1 },
-            FailedTestMeasure: { enabled: true, weight: 1 },
-          },
-          generators: {
-            RandomInputGenerator: { enabled: true },
-            MutationInputGenerator: { enabled: true },
-            AiInputGenerator: { enabled: false },
-          },
-        },
-        validators: [],
-        transformers: [],
-      };
+      const env = createFuzzEnv(fnDef);
 
       const runner = new PythonRunner(pyPath, "process_floats", env, 2000);
       await runner.onRunStart();
@@ -485,32 +361,8 @@ def add_one(x: int) -> int:
     try {
       const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
       const fnDef = program.functionsExported["add_one"];
-      const env: FuzzEnv = {
-        function: fnDef,
-        options: {
-          argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: 1000,
-          maxDupeInputs: 1000,
-          maxFailures: 0,
-          fnTimeout: 100,
-          suiteTimeout: 0,
-          useImplicit: true,
-          useHuman: false,
-          useProperty: false,
-          useTransformer: false,
-          measures: {
-            CoverageMeasure: { enabled: false, weight: 1 },
-            FailedTestMeasure: { enabled: true, weight: 1 },
-          },
-          generators: {
-            RandomInputGenerator: { enabled: true },
-            MutationInputGenerator: { enabled: true },
-            AiInputGenerator: { enabled: false },
-          },
-        },
-        validators: [],
-        transformers: [],
-      };
+      const env = createFuzzEnv(fnDef);
+      env.options.measures.CoverageMeasure.enabled = false;
 
       const runner = new PythonRunner(pyPath, "add_one", env, 2000);
       await runner.onRunStart();
@@ -559,32 +411,7 @@ def loop_timeout(n: int) -> int:
         pyPath
       );
       const fnDef = program.functionsExported["loop_timeout"];
-      const env: FuzzEnv = {
-        function: fnDef,
-        options: {
-          argDefaults: ArgDef.getDefaultOptions(),
-          maxTests: 1000,
-          maxDupeInputs: 1000,
-          maxFailures: 0,
-          fnTimeout: 100,
-          suiteTimeout: 0,
-          useImplicit: true,
-          useHuman: false,
-          useProperty: false,
-          useTransformer: false,
-          measures: {
-            CoverageMeasure: { enabled: true, weight: 1 },
-            FailedTestMeasure: { enabled: true, weight: 1 },
-          },
-          generators: {
-            RandomInputGenerator: { enabled: true },
-            MutationInputGenerator: { enabled: true },
-            AiInputGenerator: { enabled: false },
-          },
-        },
-        validators: [],
-        transformers: [],
-      };
+      const env = createFuzzEnv(fnDef);
 
       const runner = new PythonRunner(pyPath, "loop_timeout", env, 100);
       await runner.onRunStart();
@@ -613,4 +440,93 @@ def loop_timeout(n: int) -> int:
       }
     }
   });
+
+  it("heartbeat: keep long-running startups alive", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const pyPath = path.join(tmpDir, "slow_import_hb.py");
+    const pyCode = `import time
+time.sleep(1.5)
+
+def slow_fn(x: int) -> int:
+    return x * 2
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
+      const fnDef = program.functionsExported["slow_fn"];
+      const env = createFuzzEnv(fnDef, {
+        maxTests: 10,
+        maxDupeInputs: 10,
+      });
+
+      // Set hostStartupTimeout to 500ms. Without heartbeats (sent every 250ms),
+      // a 1.5s import would time out at t=500ms. Heartbeats reset the 500ms clock,
+      // allowing the 1.5s import to succeed cleanly.
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 500);
+
+      const runner = new PythonRunner(pyPath, "slow_fn", env, 2000);
+      const start = performance.now();
+      await runner.onRunStart();
+      const elapsed = performance.now() - start;
+      expect(elapsed).toBeGreaterThanOrEqual(1400);
+
+      const res = await runner.run([10], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(20);
+      }
+    } finally {
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 10000);
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  }, 10000);
 });
+
+/**
+ * Generates a default FuzzEnv for testing.
+ * Placed at the bottom of the module.
+ */
+function createFuzzEnv(
+  fnDef: FunctionDef,
+  optionsOverrides?: Partial<FuzzEnv["options"]>
+): FuzzEnv {
+  return {
+    function: fnDef,
+    options: {
+      argDefaults: ArgDef.getDefaultOptions(),
+      maxTests: 1000,
+      maxDupeInputs: 1000,
+      maxFailures: 0,
+      fnTimeout: 100,
+      suiteTimeout: 0,
+      useImplicit: true,
+      useHuman: false,
+      useProperty: false,
+      useTransformer: false,
+      measures: {
+        CoverageMeasure: { enabled: true, weight: 1 },
+        FailedTestMeasure: { enabled: true, weight: 1 },
+      },
+      generators: {
+        RandomInputGenerator: { enabled: true },
+        MutationInputGenerator: { enabled: true },
+        AiInputGenerator: { enabled: false },
+      },
+      ...optionsOverrides,
+    },
+    validators: [],
+    transformers: [],
+  };
+} // fn: createFuzzEnv

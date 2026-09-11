@@ -89,15 +89,20 @@ type RunnerResult = Union[RunnerValueResult,
 
 
 pid = os.getpid()
+real_stdout = (
+    sys.__stdout__.buffer
+    if sys.__stdout__ is not None
+    else sys.stdout.buffer
+)
 
 
 class HostHeartbeat:
     """Sends periodic startup heartbeat messages to the parent process.
-    Capped at max_heartbeats (default 60 = 1 minute total allowance).
+    Capped at max_heartbeats (default 240 = 1 minute total allowance).
     Runs as a daemon thread and stops when stop() is called.
     """
 
-    def __init__(self, interval_sec: float = 1.0, max_heartbeats: int = 60):
+    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = 240):
         self.interval = interval_sec
         self.max_heartbeats = max_heartbeats
         self.heartbeat_count = 0
@@ -114,7 +119,8 @@ class HostHeartbeat:
                 self.heartbeat_count += 1
                 try:
                     send_msg("HEART")
-                except (BrokenPipeError, OSError):
+                except Exception as e:
+                    logging.debug(f"[{pid}] Heartbeat send error: {e}")
                     break
 
         self.thread = threading.Thread(target=_worker, daemon=True)
@@ -657,10 +663,9 @@ def put_result(result: RunnerResult) -> None:
 def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
     msg = json5.dumps(data, default=json5_default).encode('utf-8')
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes: {msg}")
-    sys.stdout.buffer.write(struct.pack(
-        '>I', len(msg)))  # payload size
-    sys.stdout.buffer.write(msg)  # payload
-    sys.stdout.buffer.flush()
+    real_stdout.write(struct.pack('>I', len(msg)))  # payload size
+    real_stdout.write(msg)  # payload
+    real_stdout.flush()
 
 
 if __name__ == "__main__":
@@ -679,7 +684,7 @@ if __name__ == "__main__":
     filename = os.path.realpath(filename)
 
     # Start heartbeat thread during coverage initialization, module import, and static analysis
-    hb = HostHeartbeat(interval_sec=1.0, max_heartbeats=60)
+    hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=240)
     hb.start()
 
     try:

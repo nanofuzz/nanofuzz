@@ -2,6 +2,7 @@ import * as JSONN from "../../../Jsonn";
 import * as path from "node:path";
 import * as moduleApi from "node:module";
 import vm from "node:vm";
+import { Worker } from "node:worker_threads";
 import { serialize, deserialize } from "node:v8";
 import { RunnerInput, TypeHint } from "../AbstractRunner";
 import { isError } from "../../Util";
@@ -54,7 +55,7 @@ async function main() {
     return (...args: unknown[]) => fn(...args);
   };
 
-  startHeartbeat(1000);
+  startHeartbeat(250);
   try {
     if (initialFilename && initialFnName) {
       try {
@@ -222,41 +223,63 @@ function setup() {
   });
 } // fn: setup
 
-let heartbeatTimer: NodeJS.Timeout | undefined;
-let heartbeatCount = 0;
-const MAX_HEARTBEATS = 60;
+let heartbeatWorker: Worker | undefined;
+const MAX_HEARTBEATS = 240;
 
 /**
- * Start the heartbeat timer, sending heartbeat messages at the specified interval.
+ * Start the heartbeat worker thread, sending heartbeat messages at the specified interval.
  *
  * @param intervalMs The interval in milliseconds between heartbeat messages.
  */
-function startHeartbeat(intervalMs = 1000): void {
-  heartbeatCount = 0;
-  heartbeatTimer = setInterval(() => {
-    heartbeatCount++;
-    if (heartbeatCount > MAX_HEARTBEATS) {
-      stopHeartbeat();
-      return;
+function startHeartbeat(intervalMs = 250): void {
+  stopHeartbeat();
+  try {
+    const workerCode = `
+      const fs = require("node:fs");
+      const v8 = require("node:v8");
+
+      let count = 0;
+      const maxCount = ${MAX_HEARTBEATS};
+      const interval = ${intervalMs};
+
+      const timer = setInterval(() => {
+        count++;
+        if (count > maxCount) {
+          clearInterval(timer);
+          return;
+        }
+        try {
+          const payload = v8.serialize("HEART");
+          const msg = Buffer.alloc(4 + payload.length);
+          msg.writeUInt32BE(payload.length, 0);
+          payload.copy(msg, 4);
+          fs.writeSync(1, msg);
+        } catch {
+          clearInterval(timer);
+        }
+      }, interval);
+    `;
+
+    heartbeatWorker = new Worker(workerCode, { eval: true });
+    if (heartbeatWorker.unref) {
+      heartbeatWorker.unref();
     }
-    try {
-      sendMsg("HEART");
-    } catch {
-      stopHeartbeat();
-    }
-  }, intervalMs);
-  if (heartbeatTimer.unref) {
-    heartbeatTimer.unref();
+  } catch {
+    // Ignore worker creation errors if worker_threads unavailable
   }
 } // fn: startHeartbeat
 
 /**
- * Stops the heartbeat timer, if it is running.
+ * Stops the heartbeat worker thread, if it is running.
  */
 function stopHeartbeat(): void {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = undefined;
+  if (heartbeatWorker) {
+    try {
+      heartbeatWorker.terminate();
+    } catch {
+      // Ignore
+    }
+    heartbeatWorker = undefined;
   }
 } // fn: stopHeartbeat
 

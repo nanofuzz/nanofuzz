@@ -3,6 +3,7 @@ import { FuzzEnv } from "../Fuzzer";
 import { ArgDef } from "../analysis/ArgDef";
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import * as Parser from "../adapters/ParserAdapter";
+import * as Config from "../../Config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -244,4 +245,47 @@ module.exports = { loopTimeout };
       }
     }
   });
+
+  it("heartbeat: keep long-running startups alive", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-jsrunner-"));
+    const jsPath = path.join(tmpDir, "slowModule.js");
+    const jsCode = `
+const start = Date.now();
+while (Date.now() - start < 1500) {} // busy wait 1.5s during require()
+
+function slowAdd(a, b) {
+  return a + b;
+}
+module.exports = { slowAdd };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      // Set hostStartupTimeout to 500ms. Without heartbeats (sent every 250ms),
+      // a 1.5s require() would time out at t=500ms. Heartbeats reset the 500ms clock,
+      // allowing the 1.5s import to succeed cleanly.
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 500);
+
+      const runner = new JavascriptRunner(jsPath, "slowAdd");
+      const start = performance.now();
+      await runner.onRunStart();
+      const elapsed = performance.now() - start;
+      expect(elapsed).toBeGreaterThanOrEqual(1400);
+
+      const res = await runner.run([3, 4], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(7);
+      }
+    } finally {
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 10000);
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+    }
+  }, 10000);
 });
