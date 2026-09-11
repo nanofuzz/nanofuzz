@@ -655,9 +655,9 @@ export class FuzzPanel {
             break;
           }
           case "0.3.6": {
-            // v0.3.9 format -- add configuration for measures and generators,
+            // v0.3.6 format -- add configuration for measures and generators,
             //        re-key and add origin info to saved test inputs
-            testSet = { ...inputTests, version: "0.3.9" }; // !!!!!!!!
+            testSet = { ...inputTests, version: "0.4.0" }; // !!!!!!!!
             for (const fn in testSet.functions) {
               const thisFn = testSet.functions[fn];
               thisFn.options.measures = getDefaultFuzzOptions().measures;
@@ -4186,15 +4186,12 @@ export function deinit(): void {
  * Export this module's listeners to the extension.
  */
 export const listeners: Listener[] = [
-  createListener(
-    vscode.workspace.onDidChangeConfiguration,
-    (): void => {
-      // Notify the open webviews about configuration changes
-      Object.values(FuzzPanel.currentPanels).forEach((panel) => {
-        panel.onDidChangeConfiguration();
-      });
-    }
-  ),
+  createListener(vscode.workspace.onDidChangeConfiguration, (): void => {
+    // Notify the open webviews about configuration changes
+    Object.values(FuzzPanel.currentPanels).forEach((panel) => {
+      panel.onDidChangeConfiguration();
+    });
+  }),
 ];
 
 // --------------------------- Constants --------------------------- //
@@ -4232,12 +4229,12 @@ export const languages = ["typescript", "typescriptreact", "python"];
 /**
  * The Fuzzer State Version we currently support.
  */
-const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.3.9"; // !!!!!!! Increment if fmt changes
+const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.4.0"; // !!!!!!! Increment if fmt changes
 
 /**
  * Current file format version for persisting test sets / pinned test cases
  */
-const CURR_FILE_FMT_VER = "0.3.9"; // !!!!!!! Increment if fmt changes
+const CURR_FILE_FMT_VER = "0.4.0"; // !!!!!!! Increment if fmt changes
 
 // ----------------------------- Types ----------------------------- //
 

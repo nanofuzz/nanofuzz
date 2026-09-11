@@ -1003,4 +1003,4 @@ export type TypescriptCompilerMessageFromWorker = {
 );
 
 // Version of the compilation record file
-const CURR_COMPILATION_FILE_VER = "0.3.9"; // !!!
+const CURR_COMPILATION_FILE_VER = "0.4.0"; // !!!
