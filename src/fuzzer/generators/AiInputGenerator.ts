@@ -313,6 +313,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
             .max(Number(argIntervals[0].max))
             .describe(desc);
         }
+        case ArgTag.BIGINT: {
+          const min = BigInt(argIntervals[0].min as string | number | bigint | boolean);
+          const max = BigInt(argIntervals[0].max as string | number | bigint | boolean);
+          const desc = `value must be >= ${min} && <= ${max}`;
+          directives.push(`${path}: ${desc}`);
+          return zod.bigint().min(min).max(max).describe(desc);
+        }
         case ArgTag.BOOLEAN: {
           if (!!argIntervals[0].min !== !!argIntervals[0].max) {
             return zod.boolean();

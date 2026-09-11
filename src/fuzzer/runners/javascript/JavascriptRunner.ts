@@ -375,6 +375,7 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
       const valHint = children[1] ? getTypeHint(children[1]) : "default";
       return { kind: "dictionary", key: keyHint, value: valHint };
     }
+    case ArgTag.BIGINT:
     case ArgTag.STRING:
     case ArgTag.BOOLEAN:
     case ArgTag.LITERAL:

@@ -701,7 +701,8 @@ export class TypescriptProgram extends AbstractProgram {
         case ArgTag.BYTES:
         case ArgTag.STRING:
         case ArgTag.BOOLEAN:
-        case ArgTag.NUMBER: {
+        case ArgTag.NUMBER:
+        case ArgTag.BIGINT: {
           thisType.type = {
             dims: dims,
             type: type,
@@ -773,6 +774,8 @@ export class TypescriptProgram extends AbstractProgram {
         return [ArgTag.BOOLEAN, 0];
       case "TSNumberKeyword":
         return [ArgTag.NUMBER, 0];
+      case "TSBigIntKeyword":
+        return [ArgTag.BIGINT, 0];
       case "TSTypeAnnotation":
         return this._getTypeFromAstNode(node.typeAnnotation, options);
       case "TSUnionType":

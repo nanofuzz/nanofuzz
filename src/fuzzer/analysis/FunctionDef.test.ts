@@ -24,7 +24,7 @@ const dummyRef: FunctionRef = {
  */
 describe("fuzzer/analysis/typescript/FunctionDef:", () => {
   it("arrowFunction", () => {
-    const src = `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], lit: 5, obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[], lit:6, litA:6[]}):void => {
+    const src = `const $_f = (name: string, offset: number, happy: boolean, nums: number[][], lit: 5, obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[], lit:6, litA:6[], bigInt: bigint, bigIntA: bigint[]}, bigInt: bigint):void => {
       const whatever:string = name + offset + happy + JSON5.stringify(nums);}`;
     const thisProgram = ProgramFactory.fromSource(
       () => src,
@@ -85,13 +85,16 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
             undefined,
             6
           ),
+          makeTypeRef(dummyRef.module, "bigInt", ArgTag.BIGINT, 0),
+          makeTypeRef(dummyRef.module, "bigIntA", ArgTag.BIGINT, 1),
         ]
       ),
+      makeArgDef(dummyRef.module, "bigInt", 6, ArgTag.BIGINT, argOptions, 0),
     ]);
   });
 
   it("standardFunction", () => {
-    const src = `function $_f(name: string, offset: number, happy: boolean, nums: number[][], lit: 5, obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[], lit: 6, litA: 6[]}):void {
+    const src = `function $_f(name: string, offset: number, happy: boolean, nums: number[][], lit: 5, obj: {num: number, numA: number[], str:string, strA: string[], bool: boolean, boolA: boolean[], lit: 6, litA: 6[], bigInt: bigint, bigIntA: bigint[]}, bigInt: bigint):void {
       const whatever:string = name + offset + happy + JSON5.stringify(nums);}`;
     const thisProgram = ProgramFactory.fromSource(
       () => src,
@@ -152,8 +155,11 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
             undefined,
             6
           ),
+          makeTypeRef(dummyRef.module, "bigInt", ArgTag.BIGINT, 0),
+          makeTypeRef(dummyRef.module, "bigIntA", ArgTag.BIGINT, 1),
         ]
       ),
+      makeArgDef(dummyRef.module, "bigInt", 6, ArgTag.BIGINT, argOptions, 0),
     ]);
   });
 
