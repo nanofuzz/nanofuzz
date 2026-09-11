@@ -1,5 +1,5 @@
-import * as JSON5 from "json5";
-import hljs from "highlight.js";
+import * as JSONN from "../Jsonn";
+import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import {
   getElementByIdOrThrow,
   getElementByIdWithTypeOrThrow,
@@ -19,12 +19,23 @@ import {
   FuzzSortOrder,
   FuzzValueOrigin,
   isFuzzResultTab,
-  NamedJudgment,
-} from "../../src/fuzzer/Types";
+  Judgment,
+} from "../fuzzer/Types";
+import { getBaseOrigin } from "../Util";
+import * as Parser from "../fuzzer/adapters/ParserAdapter";
+
+declare global {
+  interface Window {
+    hljs?: {
+      highlightAll: () => void;
+    };
+  }
+}
 import {
   ArgValueType,
   ArgValueTypeWrapped,
   FuzzTestResults,
+  ProgramLanguage,
 } from "../fuzzer/Fuzzer";
 import {
   FuzzPanelFuzzRunMessage,
@@ -47,6 +58,7 @@ const gridTypes = [
   "timeout",
   "badValue",
   "ok",
+  "skip",
 ] as const;
 
 // Column name labels
@@ -96,20 +108,40 @@ const defaultColumnSortOrders: FuzzSortColumns = {
   badValue: getDefaultColumnSortOrder(),
   ok: getDefaultColumnSortOrder(),
   disagree: getDefaultColumnSortOrder(),
+  skip: {}, // no pinned column
 };
 
 // Column sort orders (filled by main or handleColumnSort())
 let columnSortOrders: FuzzSortColumns;
 // Fuzzer Results (filled by main during load event)
 let resultsData: FuzzTestResults;
+// Fuzzer Language (filled by main during load event)
+let lang: ProgramLanguage;
+// PUT input column names (filled by main during load event)
+let putInputCols: string[] = [];
+export type FuzzPanelViewRow = {
+  id?: number;
+  src?: string;
+  pinned?: boolean;
+  expectedOutput?: FuzzIoElement[];
+  [key: string]:
+    | FuzzIoElement[]
+    | Judgment
+    | boolean
+    | number
+    | string
+    | undefined;
+};
+
 // Results grouped by type (filled by main during load event)
-const data: Record<FuzzResultCategory, any[]> = {
+const data: Record<FuzzResultCategory, FuzzPanelViewRow[]> = {
   ok: [],
   badValue: [],
   timeout: [],
   exception: [],
   disagree: [],
   failure: [],
+  skip: [],
 };
 // Validator functions (filled by main during load event)
 let validators: string[];
@@ -131,10 +163,20 @@ let ideasGrid: IdeasPanelView | undefined;
  * Sets up the UI when the page is loaded, including setting up
  * event handlers and filling the output grids if data is available.
  */
-function main() {
+async function main() {
+  // Initialize the parser
+  const parserPromise = Parser.init();
+
+  // --------------------- Event Handlers --------------------- //
+
   // Add event listener for the fuzz.run button
   getElementByIdOrThrow("fuzz.run").addEventListener("click", () => {
     handleFuzzRun();
+  });
+
+  // Add event listener for the fuzz.continue button
+  getElementByIdOrThrow("fuzz.continue").addEventListener("click", () => {
+    handleFuzzContinue();
   });
 
   // Add event listener for the fuzz.retest button
@@ -250,11 +292,6 @@ function main() {
     getElementByIdOrThrow("fuzz-gen-AiInputGenerator-enabled").click();
   });
 
-  // Load the fuzzer results data from the HTML
-  resultsData = JSON5.parse(
-    htmlUnescape(getElementByIdOrThrow("fuzzResultsData").innerHTML)
-  );
-
   // Add event listener for the validator buttons
   getElementByIdOrThrow("validator.add").addEventListener(
     "click",
@@ -263,6 +300,12 @@ function main() {
   getElementByIdOrThrow(`validator.getList`).addEventListener(
     "click",
     handleGetListOfValidators
+  );
+
+  // Add event listener for the transformer button
+  getElementByIdOrThrow("transformer.add").addEventListener(
+    "click",
+    handleAddTransformer
   );
 
   // Add event listeners for the pause button
@@ -396,19 +439,41 @@ function main() {
     }); // onScroll event handler
   } // if: tabstrip found
 
+  // ----------------------- Data Loads ----------------------- //
+
+  // Load the fuzzer results data from the HTML
+  resultsData = JSONN.parse(
+    htmlUnescape(getElementByIdOrThrow("fuzzResultsData").innerHTML)
+  );
+
   // Load & display the validator functions from the HTML
-  validators = JSON5.parse(
+  validators = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("validators").innerHTML)
   );
   refreshValidators(validators);
 
+  // Load & display the transformer state from the HTML
+  const transformersElem = document.getElementById("transformers");
+  if (transformersElem) {
+    const transformersList: string[] = JSONN.parse(
+      htmlUnescape(transformersElem.innerHTML)
+    );
+    refreshTransformers(transformersList);
+  }
+
   // Load column sort orders from the HTML
-  columnSortOrders = JSON5.parse(
+  columnSortOrders = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
   );
   if (Object.keys(columnSortOrders).length === 0) {
     columnSortOrders = defaultColumnSortOrders;
   }
+  // Ensure all grid types are present in columnSortOrders to prevent runtime exceptions on new categories
+  gridTypes.forEach((type) => {
+    if (columnSortOrders[type] === undefined) {
+      columnSortOrders[type] = { ...defaultColumnSortOrders[type] };
+    }
+  });
 
   // Load the coverage heatmap state from the HTML
   if (getElementByIdOrThrow("fuzzShowCoverageHeatmap").innerText === "true") {
@@ -421,6 +486,9 @@ function main() {
     switch (data.command) {
       case "validator.list":
         refreshValidators(data.validators);
+        break;
+      case "transformer.list":
+        refreshTransformers(data.transformers);
         break;
       case "config.updated": {
         getElementByIdOrThrow("llm-model").innerText =
@@ -435,8 +503,8 @@ function main() {
           "fuzzBusyMessageNonMilestone"
         );
         nonMilestone.innerHTML = htmlEscape(data.message.msg);
-        if (data.message.pct) {
-          const pct = Math.min(data.message.pct, 100);
+        if (data.message.channel === "update") {
+          const pct = Math.max(0.1, Math.min(data.message.pct, 100));
           const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
           progressBar.style.width = pct + "%";
           if (pct > 0) {
@@ -462,7 +530,7 @@ function main() {
         }
         break;
       case "ideas.updated": {
-        const ideas: Required<typeof data>["ideas"] = JSON5.parse(
+        const ideas: Required<typeof data>["ideas"] = JSONN.parse(
           data.ideasSerialized
         );
         if (ideasGrid) {
@@ -472,7 +540,7 @@ function main() {
             `No IdeasGrid present for ${data.command}; discarding ${ideas.length} ideas.`
           );
         }
-        hljs.highlightAll(); // !!!!!!!!!!
+        window.hljs?.highlightAll(); // !!!!!!!!!!
         break;
       }
     }
@@ -482,22 +550,54 @@ function main() {
   // an 'official' way to directly persist state within the extension itself,
   // at least as of vscode 1.69.2.  Hence, the roundtrip.
   vscode.setState(
-    JSON5.parse(htmlUnescape(getElementByIdOrThrow("fuzzPanelState").innerHTML))
+    JSONN.parse(htmlUnescape(getElementByIdOrThrow("fuzzPanelState").innerHTML))
   );
 
   // Update the list of hidden columns
-  const addlHiddenColumns = JSON5.parse(
+  const addlHiddenColumns = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzHideColumns").innerHTML)
   );
   if (Array.isArray(addlHiddenColumns)) {
     hiddenColumns.push(...addlHiddenColumns);
   }
 
+  // Get the fuzzer language
+  lang = JSONN.parse<ProgramLanguage>(
+    htmlUnescape(getElementByIdOrThrow("fuzzLang").innerHTML)
+  );
+
+  // Get the PUT's current input argument names
+  putInputCols = JSONN.parse<string[]>(
+    htmlUnescape(getElementByIdOrThrow("fuzzInputCols").innerHTML)
+  );
+
+  // ----------------------- Fill Grids ----------------------- //
+
+  // Await parser init
+  await parserPromise;
+
   // Fill the result grids
   if (Object.keys(resultsData).length) {
     gridTypes.forEach((type) => {
       data[type] = [];
     });
+
+    // Calculate maximum number of arguments present in the data
+    let dataInputColCount = 0;
+    for (const e of resultsData.results) {
+      if (e.input.length > dataInputColCount) {
+        dataInputColCount = e.input.length;
+      }
+    }
+
+    // An empty input set containing the maximum number
+    // of arguments present in the data.
+    const emptyInputs: Record<string, string> = {};
+    for (let i = 0; i < dataInputColCount; i++) {
+      emptyInputs[
+        `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`
+      ] = "(no input)";
+    }
 
     // Loop over each result
     for (const e of resultsData.results) {
@@ -506,9 +606,8 @@ function main() {
       const id = { [idLabel]: e.testId };
 
       // Input Source
-      const inputSrc: FuzzValueOrigin = e.input.length
-        ? e.input[0].origin
-        : { type: "unknown" };
+      const inputSrc: Exclude<FuzzValueOrigin, { type: "transformer" }> =
+        getBaseOrigin(e.input.length ? e.input[0].origin : { type: "unknown" });
       let src: { [srcLabel]: string };
       switch (inputSrc.type) {
         case "unknown":
@@ -536,7 +635,7 @@ function main() {
               break;
             default:
               throw new Error(
-                `Unexpected FuzzValueOrigin generator at input# ${id}: ${JSON5.stringify(
+                `Unexpected FuzzValueOrigin generator at input# ${e.testId}: ${JSONN.stringify(
                   inputSrc
                 )}`
               );
@@ -544,48 +643,46 @@ function main() {
           break;
         default:
           throw new Error(
-            `Unexpected FuzzValueOrigin at input# ${id}: ${JSON5.stringify(
+            `Unexpected FuzzValueOrigin at input# ${e.testId}: ${JSONN.stringify(
               inputSrc
             )}`
           );
       }
 
       // Implicit validation result
-      const implicitOracle = resultsData.env.options.useImplicit
-        ? { [implicitLabel]: e.oracles.implicit }
+      const passedImplicit = resultsData.env.options.useImplicit
+        ? { [implicitLabel]: e.passedImplicit }
         : {};
 
       // Human validation expectation and result
       const exampleOracle = resultsData.env.options.useHuman
-        ? { [correctLabel]: e.oracles.example }
+        ? { [correctLabel]: e.passedHuman }
         : {};
       const expectedOutput = resultsData.env.options.useHuman
         ? { [expectedLabel]: e.expectedOutput }
         : {};
 
       // Property validator summary ("pass" if passed all validator functions)
-      const propertyOracle = resultsData.env.options.useProperty
-        ? { [validatorLabel]: e.oracles.property }
+      const passedValidator = resultsData.env.options.useProperty
+        ? { [validatorLabel]: e.passedValidator }
         : {};
 
-      // Array of all property validator results (array of bools, each is true if passed)
-      // const allValidators = resultsData.env.options.useProperty
-      //   ? { [allValidatorsLabel]: e.oracles.properties }
-      //   : {};
-
-      // Result for each property validator ("pass"" if passed)
-      const validatorFns: Record<string, NamedJudgment> = {};
-      e.oracles.propertyDetail.forEach((j, i) => {
+      // Result for each property validator ("pass" if passed)
+      const validatorFns: Record<string, Judgment> = {};
+      e.passedValidators.forEach((j, i) => {
         validatorFns[validators[i]] = j;
       });
 
       // Name each input argument and make it clear which inputs were not provided
-      // (i.e., the argument was optional).  Otherwise, stringify the value for
-      // display.
-      const inputs: Record<string, string> = {};
-      e.input.forEach((i) => {
-        inputs[`input: ${i.name}`] =
-          i.value === undefined ? "(no input)" : JSON5.stringify(i.value);
+      // (i.e., it was optional). Otherwise, translate & display the value.
+      const inputs: Record<string, string> = { ...emptyInputs };
+      e.input.forEach((input, i) => {
+        inputs[
+          `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`
+        ] =
+          input.value === undefined
+            ? "(no input)"
+            : ValueMapper.toLang(lang, input.value);
       });
 
       // There are 0-1 outputs: if an output is present, just name it `output`
@@ -594,25 +691,32 @@ function main() {
       const outputs: Record<string, string> = {};
       e.output.forEach((o) => {
         outputs[`output`] =
-          o.value === undefined ? "undefined" : JSON5.stringify(o.value);
+          o.value === undefined
+            ? "undefined"
+            : ValueMapper.toLang(lang, o.value);
       });
-      if (e.oracles.property.error) {
+      if (e.validatorException) {
         outputs[`output`] =
-          `(${e.oracles.property.deciders[0]?.name ?? "Validator"} exception) ${e.oracles.property.error.message}`;
+          e.validatorExceptionDisplay ??
+          `(${e.validatorExceptionFunction} exception) ${e.validatorExceptionMessage}`;
       } else if (e.exception) {
-        outputs[`output`] = "(exception) " + e.exceptionMessage;
+        outputs[`output`] =
+          e.exceptionDisplay ?? "(exception) " + e.exceptionMessage;
       }
       if (e.timeout) {
         outputs[`output`] = "(timeout)";
       }
+      if (e.skipped) {
+        outputs[`output`] = e.skipReason ?? "(none provided)";
+      }
 
       // Toss each result into the appropriate grid
-      if (e.category === "failure") {
+      if (e.category === "failure" || e.category === "skip") {
         data[e.category].push({
           ...id,
           ...src,
           ...inputs,
-          ...outputs, // Exception message contained in outputs
+          ...outputs, // message contained in outputs
         });
       } else {
         data[e.category].push({
@@ -620,8 +724,8 @@ function main() {
           ...src,
           ...inputs,
           ...outputs,
-          ...implicitOracle,
-          ...propertyOracle,
+          ...passedImplicit,
+          ...passedValidator,
           ...validatorFns,
           ...exampleOracle,
           ...pinned,
@@ -786,7 +890,11 @@ function main() {
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             const label =
-              type === "failure" && k === "output" ? "exception" : k;
+              type === "failure" && k === "output"
+                ? "exception"
+                : type === "skip" && k === "output"
+                  ? "reason"
+                  : k;
             cell.id = type + "-" + k;
             cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
             cell.innerHTML = `<strong>${htmlEscape(label)}</strong>`;
@@ -824,7 +932,7 @@ function main() {
     // If we need to toast a result, do that now
     const toastResultElement = document.getElementById("fuzzFocusInput");
     if (toastResultElement) {
-      const toastResult: unknown = JSON5.parse(
+      const toastResult: unknown = JSONN.parse(
         htmlUnescape(toastResultElement.innerHTML)
       );
       if (
@@ -840,7 +948,7 @@ function main() {
         );
       } else {
         throw new Error(
-          `Command to toast result ${JSON5.stringify(toastResult)} is invalid.`
+          `Command to toast result ${JSONN.stringify(toastResult)} is invalid.`
         );
       }
     }
@@ -850,7 +958,7 @@ function main() {
   try {
     ideasGrid = new IdeasPanelView(
       vscode,
-      JSON5.parse<string[]>(
+      JSONN.parse<string[]>(
         getElementByIdOrThrow("fuzzFnInputNames").innerText
       ),
       getElementByIdOrThrow("tab-ideas"),
@@ -906,14 +1014,14 @@ function handleAddTestInput() {
   // Only call the fuzzer if the input is not already in the grid
   const tick = resultsData.results.findIndex(
     (r) =>
-      JSON5.stringify(r.input.map((i) => i.value)) ===
-      JSON5.stringify(overrides.input?.map((i) => i.value))
+      JSONN.stringify(r.input.map((i) => i.value)) ===
+      JSONN.stringify(overrides.input?.map((i) => i.value))
   );
   if (tick === -1) {
     // Call the extension to test this one input
     const message: FuzzPanelMessageFromWebView = {
       command: "fuzz.addTestInput",
-      json: JSON5.stringify(overrides),
+      json: JSONN.stringify(overrides),
     };
     vscode.postMessage(message);
   } else {
@@ -973,10 +1081,10 @@ function getInputValues(): ArgValueTypeWrapped[] | undefined {
         tag: "ArgValueTypeWrapped",
         value:
           unparsedValue === null ||
-          unparsedValue === "undefined" ||
+          //unparsedValue === "undefined" ||
           unparsedValue === ""
             ? undefined
-            : JSON5.parse(unparsedValue),
+            : ValueMapper.fromLang(lang, unparsedValue),
       });
     } catch (_err) {
       // Error feedback
@@ -1134,10 +1242,10 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   const testCase: FuzzPinnedTest = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
-    pinned: data[type][index][pinnedLabel],
+    pinned: Boolean(data[type][index].pinned),
   };
-  if (data[type][index][expectedLabel]) {
-    testCase.expectedOutput = data[type][index][expectedLabel];
+  if (data[type][index].expectedOutput) {
+    testCase.expectedOutput = data[type][index].expectedOutput;
   }
 
   // Send the request to the extension
@@ -1148,7 +1256,7 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   window.setTimeout(() => {
     const message: FuzzPanelMessageFromWebView = {
       command: pinning ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(msg),
+      json: JSONN.stringify(msg),
     };
     vscode.postMessage(message);
 
@@ -1198,32 +1306,44 @@ function handleCorrectToggle(
     // clicking check off
     button.className = correctState.classCheckOff;
     button.setAttribute("onOff", "false");
-    data[type][index][correctLabel].judgment = "unknown";
+    data[type][index][correctLabel] = "unknown";
     // delete saved expected value
     delete data[type][index][expectedLabel];
   } else if (button.classList.contains(correctState.classErrorOn)) {
     // clicking error off
     button.className = correctState.classErrorOff;
     button.setAttribute("onOff", "false");
-    data[type][index][correctLabel].judgment = "unknown";
+    data[type][index][correctLabel] = "unknown";
     // delete saved expected value
     delete data[type][index][expectedLabel];
   } else if (button.classList.contains(correctState.classCheckOff)) {
     // clicking check on
     button.className = correctState.classCheckOn;
     button.setAttribute("onOff", "true");
-    data[type][index][correctLabel].judgment = "pass";
+    data[type][index][correctLabel] = "pass";
     // turn others off
     cell2.className = correctState.classErrorOff;
     cell2.setAttribute("onOff", "false");
     //save expected output value
     if (resultsData.results[id].timeout) {
-      data[type][index][expectedLabel] = [
-        { name: "0", offset: 0, isTimeout: true },
+      data[type][index].expectedOutput = [
+        {
+          name: "0",
+          offset: 0,
+          isTimeout: true,
+          value: undefined,
+          origin: { type: "user" },
+        },
       ];
     } else if (resultsData.results[id].exception) {
-      data[type][index][expectedLabel] = [
-        { name: "0", offset: 0, isException: true },
+      data[type][index].expectedOutput = [
+        {
+          name: "0",
+          offset: 0,
+          isException: true,
+          value: undefined,
+          origin: { type: "user" },
+        },
       ];
     } else {
       data[type][index][expectedLabel] = resultsData.results[id].output;
@@ -1232,7 +1352,7 @@ function handleCorrectToggle(
     // clicking error on
     button.className = correctState.classErrorOn;
     button.setAttribute("onOff", "true");
-    data[type][index][correctLabel].judgment = "fail";
+    data[type][index][correctLabel] = "fail";
     // turn others off
     cell1.className = correctState.classCheckOff;
     cell1.setAttribute("onOff", "false");
@@ -1256,7 +1376,7 @@ function handleCorrectToggle(
       input: resultsData.results[id].input,
       output: resultsData.results[id].output,
       pinned: isPinned,
-      expectedOutput: data[type][index][expectedLabel],
+      expectedOutput: data[type][index].expectedOutput,
     },
   };
 
@@ -1264,7 +1384,7 @@ function handleCorrectToggle(
   window.setTimeout(() => {
     const message: FuzzPanelMessageFromWebView = {
       command: isPinned ? "test.pin" : "test.unpin",
-      json: JSON5.stringify(msg),
+      json: JSONN.stringify(msg),
     };
     vscode.postMessage(message);
   });
@@ -1312,7 +1432,7 @@ function toggleExpandColumn(type: FuzzResultCategory) {
       : FuzzSortOrder.desc;
   const message: FuzzPanelMessageFromWebView = {
     command: "columns.sorted",
-    json: JSON5.stringify(columnSortOrders),
+    json: JSONN.stringify(columnSortOrders),
   };
   vscode.postMessage(message);
 } // fn: toggleExpandColumn
@@ -1397,7 +1517,13 @@ function handleColumnSort(
 
   // Define sorting function:
   // Sort current column value based on sort order
-  const sortFn = (a: any, b: any, thisCol: string) => {
+  const sortFn = (
+    rowA: Record<string, unknown>,
+    rowB: Record<string, unknown>,
+    thisCol: string
+  ) => {
+    let first = rowA;
+    let second = rowB;
     const sortOrder = columnSortOrders[type][thisCol];
     if (
       (sortOrder !== FuzzSortOrder.desc && sortOrder !== FuzzSortOrder.asc) ||
@@ -1405,20 +1531,26 @@ function handleColumnSort(
     ) {
       return 0; // no need to sort
     } else if (sortOrder === FuzzSortOrder.desc) {
-      const temp = a;
-      a = b;
-      b = temp; // swap a and b
+      first = rowB;
+      second = rowA;
     }
+
+    const valA = first[thisCol];
+    const valB = second[thisCol];
+
     // Determine type of object
-    let aType;
+    let aType: string;
     try {
-      aType = typeof JSON.parse(a[thisCol]);
+      aType = typeof JSON.parse(String(valA));
     } catch (_error) {
       aType = "string";
     }
     // Save original strings (to break ties alphabetically)
-    let aVal = (a[thisCol] ?? "undefined") + "";
-    let bVal = (b[thisCol] ?? "undefined") + "";
+    let aValStr = String(valA ?? "undefined");
+    let bValStr = String(valB ?? "undefined");
+
+    let compA: number;
+    let compB: number;
 
     // How are we sorting?
     if (
@@ -1427,50 +1559,55 @@ function handleColumnSort(
       )
     ) {
       // Special sort order for judgments
-      [a, b] = [a[thisCol].judgment, b[thisCol].judgment].map((j) =>
-        j === "pass" ? 2 : j === "fail" ? 1 : 0
-      );
+      compA = valA === "pass" ? 2 : valA === "fail" ? 1 : 0;
+      compB = valB === "pass" ? 2 : valB === "fail" ? 1 : 0;
     } else {
       switch (aType) {
         case "number":
           // Sort numerically
-          a = Number(a[thisCol]);
-          b = Number(b[thisCol]);
+          compA = Number(valA);
+          compB = Number(valB);
           break;
         case "object":
           // Sort by length
-          if (a[thisCol].length) {
-            a = a[thisCol].length;
-            b = b[thisCol].length;
+          if (Array.isArray(valA)) {
+            compA = valA.length;
+            compB = Array.isArray(valB) ? valB.length : 0;
             // If numerical values, break ties based on number
             try {
-              aVal = JSON.parse(a[thisCol]);
-              bVal = JSON.parse(b[thisCol]);
+              aValStr = String(JSON.parse(String(valA)));
+              bValStr = String(JSON.parse(String(valB)));
             } catch (_error) {
               // noop; if not numerical, break ties alphabetically
             }
+          } else if (valA !== null && typeof valA === "object") {
+            compA = Object.keys(valA).length;
+            compB =
+              valB !== null && typeof valB === "object"
+                ? Object.keys(valB).length
+                : 0;
           } else {
-            a = Object.keys(a[thisCol]).length;
-            b = Object.keys(b[thisCol]).length;
+            compA = 0;
+            compB = 0;
           }
           break;
         default:
           // Sort as string by length, break ties alphabetically
-          a = (a[thisCol] ?? "").length;
-          b = (b[thisCol] ?? "").length;
+          compA = String(valA ?? "").length;
+          compB = String(valB ?? "").length;
           break;
       } // switch
     }
     // Compare values and sort
-    if (a === b) {
-      if (aVal === bVal) {
+    if (compA === compB) {
+      if (aValStr === bValStr) {
         return 0; // a = b
-      } else if (aVal > bVal) {
+      } else if (aValStr > bValStr) {
         return 2; // break tie
       } else {
         return -2; // break tie
       }
-    } else if (a > b) {
+    } else if (compA > compB) {
       return 2; // a > b
     } else {
       return -2; // a < b
@@ -1494,7 +1631,7 @@ function handleColumnSort(
 
     const message: FuzzPanelMessageFromWebView = {
       command: "columns.sorted",
-      json: JSON5.stringify(columnSortOrders),
+      json: JSONN.stringify(columnSortOrders),
     };
     vscode.postMessage(message);
   }
@@ -1594,7 +1731,7 @@ function drawTableBody({
     row.classList.add("lineAbove");
     Object.keys(e).forEach((k) => {
       if (k === idLabel) {
-        id = parseInt(e[k]);
+        id = parseInt(String(e[k] ?? 0));
         row.setAttribute("id", `${id}`);
       } else if (hiddenColumns.indexOf(k) !== -1) {
         // noop (hidden)
@@ -1628,16 +1765,16 @@ function drawTableBody({
           const span = cell.appendChild(document.createElement("span"));
           // Fade the indicator if overridden by another validator
           if (
-            (e[correctLabel].judgment ?? "unknown") !== "unknown" ||
-            (e[validatorLabel]?.judgment ?? "unknown") !== "unknown"
+            (e[correctLabel] ?? "unknown") !== "unknown" ||
+            (e[validatorLabel] ?? "unknown") !== "unknown"
           ) {
             span.classList.add("overridden");
           }
-          if (e[k].judgment === "unknown") {
+          if (e[k] === "unknown") {
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-circle-large");
             span.setAttribute("title", "undecided");
-          } else if (e[k].judgment === "pass") {
+          } else if (e[k] === "pass") {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-pass");
             span.setAttribute("title", "passed");
@@ -1654,12 +1791,12 @@ function drawTableBody({
           if (validators.length > 1) {
             cell.style.paddingRight = "0px"; // close to twistie column if multiple validators
           }
-          if (e[k].judgment === "unknown") {
+          if (e[k] === "unknown") {
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-circle-large");
             span.setAttribute("title", "undecided");
-          } else if (e[k].judgment === "pass") {
+          } else if (e[k] === "pass") {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             const span = cell.appendChild(document.createElement("span"));
             span.classList.add("codicon", "codicon-pass");
@@ -1686,11 +1823,11 @@ function drawTableBody({
           const cell = row.appendChild(document.createElement("td"));
           const span = cell.appendChild(document.createElement("span"));
           cell.style.textAlign = "right";
-          if (e[k].judgment === "unknown") {
+          if (e[k] === "unknown") {
             cell.classList.add("classUnknown", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-circle-large");
             span.setAttribute("title", "undecided");
-          } else if (e[k].judgment === "pass") {
+          } else if (e[k] === "pass") {
             cell.classList.add("classCheckOn", "colGroupStart", "colGroupEnd");
             span.classList.add("codicon", "codicon-pass", "overridden"); // Fade check mark for passed tests
             span.setAttribute("title", "passed");
@@ -1736,7 +1873,12 @@ function drawTableBody({
         });
 
         // Update the front-end buttons to match the back-end state
-        switch (e[k].judgment ?? "unknown") {
+        const val = e[k];
+        const judgmentVal: Judgment =
+          val === "pass" || val === "fail" || val === "unknown"
+            ? val
+            : "unknown";
+        switch (judgmentVal) {
           case "unknown":
             break;
           case "pass":
@@ -1764,7 +1906,6 @@ function drawTableBody({
         cell2.classList.add("colGroupEnd", "clickable");
       } else {
         const cell = row.appendChild(document.createElement("td"));
-        const span = cell.appendChild(document.createElement("span"));
         cell.classList.add(
           `tableCol-${k.replace(" ", "")}`,
           `editorFont`,
@@ -1773,7 +1914,52 @@ function drawTableBody({
         if (e[k] === "(no input)") {
           cell.classList.add("noInput");
         }
-        span.textContent = e[k];
+
+        const span = cell.appendChild(document.createElement("span"));
+        span.textContent = String(e[k] ?? "");
+
+        if (k.startsWith("input: ") && id >= 0 && resultsData.results[id]) {
+          const res = resultsData.results[id];
+          const inputIndex = res.input.findIndex((_inp, i) => {
+            const colKey = `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`;
+            return colKey === k;
+          });
+          if (inputIndex !== -1) {
+            const inputEl = res.input[inputIndex];
+            if (
+              inputEl &&
+              inputEl.origin &&
+              inputEl.origin.type === "transformer"
+            ) {
+              const basis = inputEl.origin.basis;
+              const originalWrapped = basis.value[inputIndex];
+              const originalVal = originalWrapped
+                ? originalWrapped.value
+                : undefined;
+              const origValueStr =
+                originalVal === undefined
+                  ? "(no input)"
+                  : ValueMapper.toLang(lang, originalVal);
+
+              const tooltipSpan = cell.appendChild(
+                document.createElement("span")
+              );
+              tooltipSpan.classList.add("tooltipped", "tooltipped-s");
+              const tooltipText = `Pre-transformed input: ${origValueStr}`;
+              tooltipSpan.setAttribute("aria-label", tooltipText);
+              tooltipSpan.style.marginLeft = "0.3em";
+
+              const iconSpan = tooltipSpan.appendChild(
+                document.createElement("span")
+              );
+              iconSpan.classList.add(
+                "codicon",
+                "codicon-replace",
+                "editorFont"
+              );
+            }
+          }
+        }
       }
     });
   });
@@ -1829,7 +2015,7 @@ function handleExpectedOutput({
   const correctType = data[type][index][correctLabel];
 
   // If actual output does not match expected output, show expected/actual output
-  if (correctType.judgment === "fail") {
+  if (correctType === "fail") {
     const expectedRow = row.insertAdjacentElement(
       "afterend",
       document.createElement("tr")
@@ -1895,7 +2081,7 @@ function handleExpectedOutput({
           window.setTimeout(() => {
             const message: FuzzPanelMessageFromWebView = {
               command: "test.pin",
-              json: JSON5.stringify(msg),
+              json: JSONN.stringify(msg),
             };
             vscode.postMessage(message);
           });
@@ -1928,8 +2114,7 @@ function handleExpectedOutput({
         } else if (expectedOutput[0].isException) {
           expectedText = "exception";
         } else {
-          // expectedText = `output value: ${JSON5.stringify(expectedOutput[0].value)}`;
-          expectedText = `output: ${JSON5.stringify(expectedOutput[0].value)}`;
+          expectedText = `output: ${ValueMapper.toLang(lang, expectedOutput[0].value)}`;
         }
       } else {
         expectedText = "value: undefined";
@@ -2000,7 +2185,7 @@ function expectedOutputHtml(
       <vscode-radio id="fuzz-radioValue${id}" ${isValueAnnotation ? " checked " : ""}>Value:</vscode-radio>
     </vscode-radio-group> 
     <div>
-      <vscode-text-field id="fuzz-expectedOutput${id}" class="${isValueAnnotation ? "" : "hidden"}" placeholder="Literal value (JSON)" value=${JSON5.stringify(defaultOutput.value)}></vscode-text-field>
+      <vscode-text-field id="fuzz-expectedOutput${id}" class="${isValueAnnotation ? "" : "hidden"}" placeholder="Literal value (${lang})" value="${htmlEscape(ValueMapper.toLang(lang,defaultOutput.value))}"></vscode-text-field>
       <span><vscode-button id="fuzz-expectedOutputOk${id}" aria-label="ok" style="display: table-cell; vertical-align: top;">ok</vscode-button></span>
       <span id="fuzz-expectedOutputMessage${id}"></span>
     </div>
@@ -2029,17 +2214,17 @@ function buildExpectedTestCase(
   const errorMessage = getElementByIdOrThrow(`fuzz-expectedOutputMessage${id}`);
   const okButton = getElementByIdOrThrow(`fuzz-expectedOutputOk${id}`);
 
-  // Check if the expected value is valid JSON
+  // Check if the expected value is valid
   const expectedValue = textField.getAttribute("current-value");
   let parsedExpectedValue: ArgValueType;
   try {
     // Attempt to parse the expected value
     parsedExpectedValue =
       expectedValue === null ||
-      expectedValue === "undefined" ||
+      // expectedValue === "undefined" ||
       expectedValue === ""
         ? undefined
-        : JSON5.parse(expectedValue);
+        : ValueMapper.fromLang(lang, expectedValue);
   } catch (_e) {
     // Only validate the value if we are doing a value check
     if ("checked" in radioValue && radioValue.checked) {
@@ -2074,7 +2259,7 @@ function buildExpectedTestCase(
   return {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
-    pinned: data[type][index][pinnedLabel],
+    pinned: Boolean(data[type][index].pinned),
     expectedOutput: [expectedOutput],
   };
 } // fn: buildExpectedTestCase()
@@ -2086,7 +2271,19 @@ function buildExpectedTestCase(
 function handleFuzzRun() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.run",
-    json: JSON5.stringify(getConfigFromUi()),
+    json: JSONN.stringify(getConfigFromUi()),
+  };
+  vscode.postMessage(message);
+} // fn: handleFuzzRun
+
+/**
+ * Handles the fuzz.continue button onClick() event: retrieves the fuzzer options
+ * from the UI and sends them to the extension to start the fuzzer.
+ */
+function handleFuzzContinue() {
+  const message: FuzzPanelMessageFromWebView = {
+    command: "fuzz.continue",
+    json: JSONN.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
 } // fn: handleFuzzRun
@@ -2098,7 +2295,7 @@ function handleFuzzRun() {
 function handleFuzzRetest() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.retest",
-    json: JSON5.stringify(getConfigFromUi()),
+    json: JSONN.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
 } // fn: handleFuzzRetest
@@ -2110,7 +2307,7 @@ function handleFuzzRetest() {
 function handleFuzzClear() {
   const message: FuzzPanelMessageFromWebView = {
     command: "fuzz.clear",
-    json: JSON5.stringify(getConfigFromUi()),
+    json: JSONN.stringify(getConfigFromUi()),
   };
   vscode.postMessage(message);
 } // fn: handleFuzzClear
@@ -2213,6 +2410,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
       useImplicit: getBooleanValue("useImplicit"),
       useHuman: true, // always active
       useProperty: getBooleanValue("useProperty"),
+      useTransformer: getBooleanValue("useTransformer"),
       measures: {
         CoverageMeasure: {
           enabled:
@@ -2274,7 +2472,14 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const falseOnly = document.getElementById(idBase + "-falseOnly");
     const minStrLen = document.getElementById(idBase + "-minStrLen");
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
+    const minByteLen = document.getElementById(idBase + "-minByteLen");
+    const maxByteLen = document.getElementById(idBase + "-maxByteLen");
+    const minDictLen = document.getElementById(idBase + "-minDictLen");
+    const maxDictLen = document.getElementById(idBase + "-maxDictLen");
+    const minSetLen = document.getElementById(idBase + "-minSetLen");
+    const maxSetLen = document.getElementById(idBase + "-maxSetLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
+    const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
 
     // Process numeric overrides
@@ -2302,10 +2507,16 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
 
     // Process string overrides
     if (minStrLen && maxStrLen && strCharset) {
-      disableArr.push(minStrLen, maxStrLen);
+      disableArr.push(
+        minStrLen,
+        maxStrLen,
+        strCharset,
+        ...(strRegex ? [strRegex] : [])
+      );
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
       const strCharsetVal = strCharset.getAttribute("current-value");
+      const strRegexVal = strRegex?.getAttribute("current-value");
       if (
         minStrLenVal !== null &&
         maxStrLenVal !== null &&
@@ -2318,9 +2529,58 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           ),
           maxStrLen: Math.max(Number(minStrLenVal), Number(maxStrLenVal), 0),
           strCharset: strCharsetVal,
+          strRegex: strRegexVal === "" ? undefined : (strRegexVal ?? undefined),
         };
       }
     } // TODO: Validation !!!
+
+    // Process bytes overrides
+    if (minByteLen && maxByteLen) {
+      disableArr.push(minByteLen, maxByteLen);
+      const minByteLenVal = minByteLen.getAttribute("current-value");
+      const maxByteLenVal = maxByteLen.getAttribute("current-value");
+      if (minByteLenVal !== null && maxByteLenVal !== null) {
+        thisOverride.bytes = {
+          minByteLen: Math.max(
+            0,
+            Math.min(Number(minByteLenVal), Number(maxByteLenVal))
+          ),
+          maxByteLen: Math.max(Number(minByteLenVal), Number(maxByteLenVal), 0),
+        };
+      }
+    }
+
+    // Process dictionary overrides
+    if (minDictLen && maxDictLen) {
+      disableArr.push(minDictLen, maxDictLen);
+      const minDictLenVal = minDictLen.getAttribute("current-value");
+      const maxDictLenVal = maxDictLen.getAttribute("current-value");
+      if (minDictLenVal !== null && maxDictLenVal !== null) {
+        thisOverride.dictionary = {
+          minDictLen: Math.max(
+            0,
+            Math.min(Number(minDictLenVal), Number(maxDictLenVal))
+          ),
+          maxDictLen: Math.max(Number(minDictLenVal), Number(maxDictLenVal), 0),
+        };
+      }
+    }
+
+    // Process set overrides
+    if (minSetLen && maxSetLen) {
+      disableArr.push(minSetLen, maxSetLen);
+      const minSetLenVal = minSetLen.getAttribute("current-value");
+      const maxSetLenVal = maxSetLen.getAttribute("current-value");
+      if (minSetLenVal !== null && maxSetLenVal !== null) {
+        thisOverride.set = {
+          minSetLen: Math.max(
+            0,
+            Math.min(Number(minSetLenVal), Number(maxSetLenVal))
+          ),
+          maxSetLen: Math.max(Number(minSetLenVal), Number(maxSetLenVal), 0),
+        };
+      }
+    }
 
     // Process isNoInput overrides
     if (isNoInput !== null) {
@@ -2332,13 +2592,15 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
 
     // Process array dimension overrides
     const dimLength = [];
+    let dimsUnique = false;
     let dim = 0;
     let arrayBase = `${idBase}-array-${dim}`;
     while (document.getElementById(`${arrayBase}-min`) !== null) {
       const min = document.getElementById(`${arrayBase}-min`);
       const max = document.getElementById(`${arrayBase}-max`);
+      const unique = document.getElementById(`${arrayBase}-unique`);
       if (min !== null && max !== null) {
-        disableArr.push(min, max);
+        disableArr.push(min, max, ...(unique ? [unique] : []));
         const minVal = min.getAttribute("current-value");
         const maxVal = max.getAttribute("current-value");
         if (minVal !== null && maxVal !== null) {
@@ -2348,11 +2610,17 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           });
         }
       }
+      if (dim === 0 && unique !== null) {
+        dimsUnique =
+          unique.getAttribute("current-checked") === "true" ||
+          ("checked" in unique && unique.checked === true);
+      }
       arrayBase = `${idBase}-array-${++dim}`;
     }
     if (dimLength.length > 0) {
       thisOverride.array = {
         dimLength: dimLength,
+        dimsUnique: dimsUnique,
       };
     }
   }
@@ -2382,6 +2650,22 @@ function refreshValidators(validatorList: string[]) {
 } // fn: refreshValidators
 
 /**
+ * Refreshes the displayed state for input transformers based on a list of
+ * transformer names provided from the back-end.
+ *
+ * @param transformerList list of available input transformer names
+ */
+function refreshTransformers(transformerList: string[]) {
+  const btn = document.getElementById("transformer.add");
+  if (btn) {
+    btn.innerText =
+      transformerList.length > 0
+        ? "Show Input Transformer"
+        : "Create Input Transformer";
+  }
+} // fn: refreshTransformers
+
+/**
  * Send message to back-end to add code skeleton to source code (because the
  * user clicked the customValidator button)
  */
@@ -2391,6 +2675,16 @@ function handleAddValidator() {
   };
   vscode.postMessage(message);
 } // fn: handleAddValidator()
+
+/**
+ * Send message to back-end to add input transformer code skeleton
+ */
+function handleAddTransformer() {
+  vscode.postMessage({
+    command: "transformer.add",
+    json: JSONN.stringify(""),
+  });
+} // fn: handleAddTransformer()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the

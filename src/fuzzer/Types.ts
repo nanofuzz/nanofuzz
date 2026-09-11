@@ -3,7 +3,6 @@ import {
   ArgValueType,
   ArgValueTypeWrapped,
 } from "./analysis/Types";
-import { NamedJudgment as _NamedJudgment } from "./oracles/Types";
 
 /**
  * Single Fuzzer Test Result
@@ -11,26 +10,33 @@ import { NamedJudgment as _NamedJudgment } from "./oracles/Types";
 export type FuzzTestResult = {
   testId: number; // id of test (unique within a runId)
   pinned: boolean; // true if the test was pinned (not randomly generated)
-  input: FuzzIoElement[]; // function input
+  inputGenerated: InputAndSource; // Raw generated input
+  input: FuzzIoElement[]; // function input (may be transformed from inputGenerated)
   output: FuzzIoElement[]; // function output
   exception: boolean; // true if an exception was thrown
   exceptionMessage?: string; // exception message if an exception was thrown
+  exceptionDisplay?: string; // exception display message if an exception was thrown
   stack?: string; // stack trace if an exception was thrown
   timeout: boolean; // true if the fn call timed out
-  oracles: {
-    composite: NamedJudgment;
-    implicit: NamedJudgment;
-    example: NamedJudgment;
-    property: NamedJudgment;
-    propertyDetail: NamedJudgment[];
-  };
+  passedImplicit: Judgment; // "pass" if output passed implicit oracle
+  passedHuman: Judgment; // "pass" if actual output matches human-expected output
+  passedValidator: Judgment; // "pass" if passed all property oracles
+  passedValidators: Judgment[]; // "pass" if passed all property oracles
+  validatorException: boolean; // true if validator threw an exception
+  validatorExceptionDisplay?: string; // display message for validator exception display
+  validatorExceptionMessage?: string; // validator exception message
+  validatorExceptionFunction?: string; // name of validator throwing exception
+  validatorExceptionStack?: string; // validator stack trace if exception was thrown
   timers: {
     gen: number; // time to generate the input in ms
+    transform: number; // time to transform the input in ms
     run: number; // elapsed time of test in ms
   };
   expectedOutput?: FuzzIoElement[]; // the expected output, if any
   category: FuzzResultCategory; // the ResultCategory of the test result
   interestingReasons: string[]; // reasons (measures) this input may be "interesting"
+  skipped?: boolean; // true if the test was skipped
+  skipReason?: string; // skip reason message
 };
 
 /**
@@ -139,6 +145,14 @@ export type FuzzValueOrigin =
       type: "generator";
       generator: "AiInputGenerator";
       model: string;
+    }
+  | {
+      type: "transformer";
+      transformer: string;
+      basis: {
+        value: ArgValueTypeWrapped[];
+        source: FuzzValueOrigin;
+      };
     };
 
 /**
@@ -149,6 +163,7 @@ export const FuzzResultCategoryValues = [
   "badValue", // Judgment: failed (not timeout or exception)
   "timeout", // Judgment: failed (timeout)
   "exception", // Judgment: failed (exception)
+  "skip", // Judgment: skipped due to filter / assume
   "disagree", // Judgment: unknown
   "failure", // Validator failure (e.g., threw an exception)
 ] as const;
@@ -201,6 +216,7 @@ export type FuzzOptions = {
   useImplicit: boolean; // use implicit oracle
   useHuman: boolean; // use human oracle
   useProperty: boolean; // use property validator oracle
+  useTransformer: boolean; // use input transformer
   measures: { [k in SupportedMeasures]: BaseMeasureConfig }; // measure config
   generators: { [k in SupportedInputGenerators]: BaseGeneratorConfig }; // generator config
 };
@@ -246,9 +262,23 @@ export type FuzzArgOverride = {
     minStrLen: number;
     maxStrLen: number;
     strCharset: string;
+    strRegex?: string;
+  };
+  bytes?: {
+    minByteLen: number;
+    maxByteLen: number;
+  };
+  dictionary?: {
+    minDictLen: number;
+    maxDictLen: number;
+  };
+  set?: {
+    minSetLen: number;
+    maxSetLen: number;
   };
   array?: {
     dimLength: { min: number; max: number }[];
+    dimsUnique: boolean;
   };
   isNoInput?: boolean;
 };
@@ -287,11 +317,21 @@ export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
 /**
  * Message about how busy the fuzzer is
  */
-export type FuzzBusyStatusMessage = {
-  msg: string;
-  milestone?: boolean;
-  pct?: number;
-};
+export type FuzzBusyStatusMessage =
+  | {
+      msg: string;
+      channel: "milestone" | "summary";
+    }
+  | {
+      msg: string;
+      channel: "update";
+      pct: number;
+    };
+
+/**
+ * Fuzzer status update callback
+ */
+export type FuzzStatusUpdater = (payload: FuzzBusyStatusMessage) => void;
 
 /**
  * Exception class for TypeScript compiler errors
@@ -311,4 +351,14 @@ export class TypescriptCompilerError extends Error {
   }
 }
 
-export type NamedJudgment = _NamedJudgment;
+/**
+ * Throw to skip a test input due to an unsatisfied assumption.
+ */
+export class UnsatisfiedAssumption extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsatisfiedAssumption";
+  }
+}
+
+export type Judgment = "pass" | "fail" | "unknown";

@@ -1,4 +1,4 @@
-import { NamedJudgment } from "./Types";
+import { Judgment, NamedJudgment } from "./Types";
 import { Result } from "../Types";
 import { isError } from "../../Util";
 import { AbstractRunner } from "../runners/AbstractRunner";
@@ -14,64 +14,75 @@ export class PropertyOracle {
    * Judge an execution result of a program using property validators
    *
    * @param `result` result of executing the program
+   * @param `timeout` time in ms before cancelling a property validator
    * @returns one judgment or one exception for each property validator
    */
-  public judge(result: Result): NamedJudgment[] {
-    const jj: NamedJudgment[] = [];
-    for (const r of this._propRunners) {
-      const j = {
-        name: r.name,
-        trace: [],
-        deciders: [],
-      };
-      try {
-        const validatorOut = r.run([result])[0];
-        switch (validatorOut) {
-          case true: // v0.3
-          case "pass": // v0.4
-            jj.push({ ...j, judgment: "pass" });
-            break;
-          case false: // v0.3
-          case "fail": // v0.4
-            jj.push({ ...j, judgment: "fail" });
-            break;
-          case undefined: // v0.3
-          case "unknown": // v0.4
-            jj.push({ ...j, judgment: "unknown" });
-            break;
-          default:
-            jj.push({
-              ...j,
-              judgment: "unknown",
-              error: {
-                name: `InvalidJudgmentException`,
-                message: `Property validator did not return: "pass" | "fail" | "unknown"`,
-              },
-            });
+  public async judge(
+    result: Result,
+    timeout: number | undefined = 0
+  ): Promise<(Judgment | Error)[]> {
+    return (
+      await Promise.allSettled(
+        this._propRunners.map((r) => r.run([result], timeout))
+      )
+    ).map((result, runnerId) => {
+      const runner = this._propRunners[runnerId];
+      if (result.status === "fulfilled") {
+        const vOut = result.value;
+        switch (vOut.result.tag) {
+          case "error": {
+            const err = new Error(
+              vOut.result.message ?? "Property validator error"
+            );
+            err.name = vOut.result.name ?? "PropertyValidatorError";
+            if (vOut.result.stack) {
+              err.stack = vOut.result.stack;
+            }
+            return err;
+          }
+          case "timeout": {
+            const err = new Error(
+              `property validator "${runner.name}" timed out`
+            );
+            err.name = "PropertyValidatorTimeout";
+            return err;
+          }
+          case "skip": {
+            const err = new Error(
+              `property validator "${runner.name}" assumption unsatisfied`
+            );
+            err.name = "UnsatisfiedAssumption";
+            return err;
+          }
+          case "value":
+            switch (vOut.result.value) {
+              case true: // v0.3
+              case "pass": // v0.4
+                return "pass";
+              case false: // v0.3
+              case "fail": // v0.4
+                return "fail";
+              case undefined: // v0.3
+              case "unknown": // v0.4
+                return "unknown";
+              default: {
+                const err = new Error(
+                  `Property validator did not return: "pass" | "fail" | "unknown"`
+                );
+                err.name = "PropertyValidatorReturnValueError";
+                return err;
+              }
+            }
         }
-      } catch (e: unknown) {
-        jj.push({
-          ...j,
-          judgment: "unknown",
-          error: JSON.parse(
-            JSON.stringify(
-              isError(e)
-                ? {
-                    name: e.name,
-                    message: e.message,
-                    stack: e.stack,
-                  }
-                : {
-                    name: `UnknownException`,
-                    message: `Property validator threw exception that is not an Error`,
-                    cause: e,
-                  }
-            )
-          ),
-        });
+      } else {
+        return isError(result.reason)
+          ? result.reason
+          : new Error(
+              `Property validator threw exception that is not an Error`,
+              { cause: result.reason }
+            );
       }
-    }
-    return jj;
+    });
   } // fn: judge
 
   /**
@@ -85,40 +96,28 @@ export class PropertyOracle {
    * @param `judgments` array of individual property-based judgments
    * @returns summarized judgment
    */
-  public static summarize(judgments: NamedJudgment[]): NamedJudgment {
-    const summary: NamedJudgment = {
-      name: "PropertyOracle",
-      judgment: "unknown",
-      trace: [...judgments],
-      deciders: [],
-    };
+  public static summarize(
+    judgments: (Judgment | NamedJudgment | Error)[]
+  ): Judgment {
+    let hasPass = false;
     for (const j of judgments) {
-      if (j.error) {
-        return {
-          ...summary,
-          error: { ...j.error },
-          judgment: "unknown",
-          deciders: [j],
-        };
-      } else if (j.judgment === "pass") {
-        summary.judgment = "pass";
-        summary.deciders.push(j);
-      } else if (j.judgment === "fail") {
-        return { ...summary, judgment: "fail", deciders: [j] };
+      if (isError(j)) {
+        continue;
+      }
+      const val = typeof j === "string" ? j : j.judgment;
+      if (val === "pass") {
+        hasPass = true;
+      } else if (val === "fail") {
+        return "fail";
       }
     }
-    return summary;
+    return hasPass ? "pass" : "unknown";
   } // fn: summarize
 
   /**
    * Getter for default unknown judgment
    */
-  public static get unknown(): NamedJudgment {
-    return {
-      name: "PropertyOracle",
-      judgment: "unknown",
-      trace: [],
-      deciders: [],
-    };
+  public static get unknown(): Judgment {
+    return "unknown";
   } // property: get unknown
 } // class: PropertyOracle

@@ -1,4 +1,4 @@
-import * as JSON5 from "json5";
+import * as JSONN from "../Jsonn";
 import { getElementByIdOrThrow, hide, show } from "./Util";
 import { FuzzPanelMessageFromWebView } from "./FuzzPanelController";
 import { WebviewApi } from "vscode-webview";
@@ -92,7 +92,7 @@ export class IdeasPanelView {
     if (!idea) return;
     const message: FuzzPanelMessageFromWebView = {
       command: "idea.accept",
-      ideaSerialized: JSON5.stringify(idea.data),
+      ideaSerialized: JSONN.stringify(idea.data),
       idea: idea.data,
     };
     this._vscode.postMessage(message);
@@ -106,7 +106,7 @@ export class IdeasPanelView {
     if (!idea) return;
     const message: FuzzPanelMessageFromWebView = {
       command: "idea.reject",
-      ideaSerialized: JSON5.stringify(idea.data),
+      ideaSerialized: JSONN.stringify(idea.data),
       idea: idea.data,
     };
     this._vscode.postMessage(message);

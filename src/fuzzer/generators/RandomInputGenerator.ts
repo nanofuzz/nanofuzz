@@ -1,5 +1,4 @@
 import { ArgDef } from "../analysis/ArgDef";
-import { ArgType } from "../analysis/Types";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { InputAndSource } from "../Types";
@@ -16,7 +15,7 @@ export class RandomInputGenerator extends AbstractInputGenerator {
    * @param `specs` ArgDef specs that describe the input to generate
    * @param `rngSeed` seed for pseudo random number generator
    */
-  public constructor(specs: ArgDef<ArgType>[], rngSeed: string | undefined) {
+  public constructor(specs: ArgDef[], rngSeed: string | undefined) {
     super(specs, rngSeed);
   } // fn: constructor
 
@@ -40,7 +39,7 @@ export class RandomInputGenerator extends AbstractInputGenerator {
    * Don't re-use generators across runs because the ranges may
    * have changed.
    */
-  public onRunEnd(): void {
+  public override async onRunEnd(): Promise<void> {
     this._gen = undefined;
   } // fn: onRunEnd
 } // class: RandomInputGenerator

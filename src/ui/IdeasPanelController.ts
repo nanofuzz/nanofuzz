@@ -1,11 +1,11 @@
-import * as JSON5 from "json5";
+import * as JSONN from "../Jsonn";
 import {
   AbstractIdeaModel,
   IdeaBasis,
 } from "../fuzzer/ideas/AbstractIdeaModel";
 import { PropertyIdeaModel } from "../fuzzer/ideas/PropertyIdeaModel";
 import { IdeaData } from "../fuzzer/ideas/Types";
-import { FuzzPanelMessageToWebView } from "./FuzzPanel";
+import { FuzzPanelMessageToWebView } from "./FuzzPanelController";
 
 export class IdeasPanelController {
   protected _ideas: AbstractIdeaModel[] = [];
@@ -24,7 +24,7 @@ export class IdeasPanelController {
     this._ideas.push(i);
     const message: FuzzPanelMessageToWebView = {
       command: "ideas.updated",
-      ideasSerialized: JSON5.stringify([i.data]),
+      ideasSerialized: JSONN.stringify([i.data]),
       ideas: [i.data],
     };
     this._basis.webview.postMessage(message);
@@ -38,7 +38,7 @@ export class IdeasPanelController {
     const ideasAccepted = ideasToAccept.map((i) => i.data);
     const message: FuzzPanelMessageToWebView = {
       command: "ideas.updated",
-      ideasSerialized: JSON5.stringify(ideasAccepted),
+      ideasSerialized: JSONN.stringify(ideasAccepted),
       ideas: ideasAccepted,
     };
     this._basis.webview.postMessage(message);
@@ -52,7 +52,7 @@ export class IdeasPanelController {
     const ideasRejected = ideasToReject.map((i) => i.data);
     const message: FuzzPanelMessageToWebView = {
       command: "ideas.updated",
-      ideasSerialized: JSON5.stringify(ideasRejected),
+      ideasSerialized: JSONN.stringify(ideasRejected),
       ideas: ideasRejected,
     };
     this._basis.webview.postMessage(message);
@@ -67,7 +67,7 @@ export class IdeasPanelController {
     console.debug(`Sending refresh/update message to front-end`); // !!!!!!!!!!
     const message: FuzzPanelMessageToWebView = {
       command: "ideas.updated",
-      ideasSerialized: JSON5.stringify(ideasRefreshed),
+      ideasSerialized: JSONN.stringify(ideasRefreshed),
       ideas: ideasRefreshed,
     };
     this._basis.webview.postMessage(message);

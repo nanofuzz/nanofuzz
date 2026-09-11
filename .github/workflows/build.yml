@@ -11,27 +11,52 @@ jobs:
         runner: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.runner }}
     steps:
-      # Visual Studio Code Extension
+      # Infrastructure setup
       - name: Checkout
-        uses: actions/checkout@v2
-      - uses: actions/setup-node@v4
+        uses: actions/checkout@v7
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.13
+      - name: Create Python virtual env
+        run: python -m venv .venv
+      - name: Add venv to GITHUB_PATH
+        run: |
+          import os
+          venv_bin = os.path.join(os.getcwd(), ".venv", "Scripts" if os.name == "nt" else "bin")
+          with open(os.environ["GITHUB_PATH"], "a") as f:
+              f.write(f"{venv_bin}\n")
+        shell: python
+      - name: Install Python packages
+        run: pip install -r requirements.txt
+      - name: Install Node
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: yarn
-      - name: Install packages
-        run: yarn
-      - name: Run all builds
-        run: yarn build
-      - name: Run all tests
-        run: yarn test
+
+      # Visual Studio Code Extension
+      - name: NaNofuzz vscode extension
+        run: |
+          yarn
+          yarn build
+          yarn test
+          yarn package
 
       # npm runtime package
-      - name: Install packages
-        working-directory: packages/runtime
-        run: yarn
-      - name: Check for matching version numbers
-        working-directory: packages/runtime
-        run: yarn run checkver
-      - name: Build npm package
-        working-directory: packages/runtime
-        run: yarn build
+      - name: NaNofuzz runtime (typescript)
+        working-directory: packages/runtime/typescript
+        run: |
+          yarn
+          yarn build
+          yarn test
+          yarn package
+
+      # pip runtime package
+      - name: NaNofuzz runtime (python)
+        working-directory: packages/runtime/python
+        run: |
+          python prebuild.py
+          python -m build
+          pytest
+          twine check dist/*

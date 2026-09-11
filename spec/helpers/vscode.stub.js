@@ -1,4 +1,5 @@
 module.exports = {
+  isShim: true,
   workspace: {
     getConfiguration: function () {
       return {
@@ -10,8 +11,16 @@ module.exports = {
     onDidChangeConfiguration: {},
     onDidChangeTextDocument: {},
     onDidChangeActiveTextEditor: {},
+    getWorkspaceFolder: function () {
+      return {
+        uri: {
+          fsPath: () => process.cwd(),
+        },
+      };
+    },
   },
   window: {
+    createTextEditorDecorationType: () => ({}),
     onDidChangeActiveTextEditor: {},
     onDidChangeTextEditorSelection: {},
     onDidChangeTextEditorVisibleRanges: {},
@@ -26,4 +35,23 @@ module.exports = {
   TextEditorSelectionChangeEvent: {},
   TextEditorVisibleRangesChangeEvent: {},
   Terminal: {},
+  Range: class Range {
+    constructor(start, end) {
+      this.start = start;
+      this.end = end;
+    }
+  },
+  Position: class Position {
+    constructor(line, character) {
+      this.line = line;
+      this.character = character;
+    }
+  },
+  Uri: {
+    file: (k) => {
+      return {
+        fsPath: k,
+      };
+    },
+  },
 };

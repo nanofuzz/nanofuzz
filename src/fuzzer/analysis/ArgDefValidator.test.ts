@@ -1,7 +1,7 @@
 import { ArgDef } from "./ArgDef";
 import { ArgDefValidator } from "./ArgDefValidator";
 import { makeArgDef, makeTypeRef } from "./TestUtils";
-import { ArgTag } from "./Types";
+import { ArgTag, ArgValueType } from "./Types";
 
 const argOptions = ArgDef.getDefaultOptions();
 const dummyModule = "dummy.ts";
@@ -46,7 +46,7 @@ describe("fuzzer/analysis/typescript/ArgDefValidator:", () => {
   });
 
   it("Validates valid arbitrary dimensional array", () => {
-    let arr: any = 1;
+    let arr: ArgValueType = 1;
     for (let dim = 1; dim < 5; dim++) {
       arr = [arr];
       const arrayDef = makeArgDef(
@@ -59,5 +59,122 @@ describe("fuzzer/analysis/typescript/ArgDefValidator:", () => {
       );
       expect(ArgDefValidator.validate(arr, arrayDef)).toBe(true);
     }
+  });
+
+  it("Validates strings against strRegex", () => {
+    const regexString = makeArgDef(
+      dummyModule,
+      "identifier",
+      0,
+      ArgTag.STRING,
+      { ...argOptions, strRegex: "\\A[a-z]{2}\\Z" },
+      0
+    );
+
+    expect(ArgDefValidator.validate("ab", regexString)).toBe(true);
+    expect(ArgDefValidator.validate("a", regexString)).toBe(false);
+    expect(ArgDefValidator.validate("a1", regexString)).toBe(false);
+  });
+
+  it("Validates outer dimension uniqueness when dimsUnique===true", () => {
+    const uniqueArrayDef = makeArgDef(
+      dummyModule,
+      "test",
+      0,
+      ArgTag.NUMBER,
+      { ...argOptions, dimsUnique: true },
+      1
+    );
+
+    expect(ArgDefValidator.validate([1, 2], uniqueArrayDef)).toBe(true);
+    expect(ArgDefValidator.validate([1, 1], uniqueArrayDef)).toBe(false);
+  });
+
+  it("Does not validate inner dimension uniqueness when dimsUnique===true", () => {
+    const uniqueMatrixDef = makeArgDef(
+      dummyModule,
+      "test",
+      0,
+      ArgTag.NUMBER,
+      { ...argOptions, dimsUnique: true },
+      2
+    );
+
+    expect(
+      ArgDefValidator.validate(
+        [
+          [1, 1],
+          [2, 2],
+        ],
+        uniqueMatrixDef
+      )
+    ).toBe(true);
+    expect(ArgDefValidator.validate([[1], [1]], uniqueMatrixDef)).toBe(false);
+  });
+
+  it("rejects duplicate object array elements when dimsUnique is enabled", () => {
+    const uniqueObjects = makeArgDef(
+      dummyModule,
+      "objects",
+      0,
+      ArgTag.OBJECT,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      1,
+      false,
+      [makeTypeRef(dummyModule, "a", ArgTag.LITERAL, 0, true, [], undefined, 1)]
+    );
+
+    expect(ArgDefValidator.validate([{ a: 1 }, { a: 1 }], uniqueObjects)).toBe(
+      false
+    );
+  });
+
+  it("rejects present but undefined optional object members", () => {
+    const uniqueObjects = makeArgDef(
+      dummyModule,
+      "objects",
+      0,
+      ArgTag.OBJECT,
+      {
+        ...argOptions,
+        dimsUnique: true,
+        dimLength: [{ min: 2, max: 2 }],
+      },
+      1,
+      false,
+      [makeTypeRef(dummyModule, "a", ArgTag.LITERAL, 0, true, [], undefined, 1)]
+    );
+
+    expect(
+      ArgDefValidator.validate([{ a: undefined }, {}], uniqueObjects)
+    ).toBe(false);
+  });
+
+  it("validates that Set is in canonical order and rejects non-canonical or duplicate sets", () => {
+    const setDef = makeArgDef(
+      dummyModule,
+      "setArg",
+      0,
+      ArgTag.SET,
+      { ...argOptions, setLength: { min: 0, max: 5 } },
+      0,
+      false,
+      [makeTypeRef(dummyModule, "values", ArgTag.NUMBER, 0)]
+    );
+
+    // Canonical Set: items 1, 2, 3 sorted by JSONN string representation
+    const canonicalSet = new Set([1, 2, 3]);
+    expect(ArgDefValidator.validate(canonicalSet, setDef)).toBe(true);
+
+    // Non-canonical Set (insertion order 3, 1, 2)
+    const nonCanonicalSet = new Set([3, 1, 2]);
+    expect(ArgDefValidator.validate(nonCanonicalSet, setDef)).toBe(false);
+
+    // Array with duplicates (non-canonical)
+    expect(ArgDefValidator.validate([1, 1, 2], setDef)).toBe(false);
   });
 });

@@ -1,9 +1,0 @@
-# Build artifacts
-build/
-
-# License file is included in the build
-LICENSE
-
-# Pre-build artifacts
-src/fuzzer/*
-src/build.json

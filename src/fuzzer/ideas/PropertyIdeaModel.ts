@@ -1,8 +1,8 @@
-import JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 import * as vscode from "vscode";
 import * as zod from "zod";
 import { LlmAdapter } from "../adapters/LlmAdapter";
-import { FuzzIoElement, ResultWrapped, unwrapResult } from "../Fuzzer";
+import { FuzzIoElement, ResultWrapped } from "../Fuzzer";
 import {
   JudgmentDiffer,
   JudgedExample,
@@ -15,7 +15,6 @@ import { NamedJudgment } from "../oracles/Types";
 import { ImplicitOracle } from "../oracles/ImplicitOracle";
 import { ExampleOracle } from "../oracles/ExampleOracle";
 import { PropertyOracle } from "../oracles/PropertyOracle";
-import { propertyOracleFromNodeModule } from "../oracles/Util";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
 import {
@@ -68,7 +67,7 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
       src: this._src.join("\n"),
       name: this._name,
     });
-    this._basis.panel._doGetValidators();
+    this._basis.panel._doGetValidatorsAndTransformers();
   }
 
   public reject(): void {
@@ -89,10 +88,6 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
     const outputGenerator = outputSpec
       ? new ArgDefGenerator([outputSpec], this._basis.prng)
       : undefined;
-    const propertyOracle: PropertyOracle = propertyOracleFromNodeModule(
-      this._basis.module,
-      this._basis.results.env.validators.map((f) => f.name)
-    );
 
     // Concrete examples actually tested
     const concreteExamples: JudgedExample[] = this._basis.results.results.map(
@@ -116,14 +111,59 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
             testId: r.testId,
           }),
           judgments: deepFreeze({
-            implicit: r.oracles.implicit,
-            example: r.oracles.example,
-            composite: CompositeOracle.judge([
-              [r.oracles.example, r.oracles.property],
-              [r.oracles.implicit],
-            ]),
-            property: r.oracles.property,
-            propertyDetail: r.oracles.propertyDetail,
+            implicit: {
+              name: "ImplicitOracle",
+              judgment: r.passedImplicit,
+              trace: [],
+              deciders: [],
+            },
+            example: {
+              name: "ExampleOracle",
+              judgment: r.passedHuman,
+              trace: [],
+              deciders: [],
+            },
+            composite: {
+              name: "CompositeOracle",
+              judgment: CompositeOracle.judge([
+                [
+                  {
+                    name: "ExampleOracle",
+                    judgment: r.passedHuman,
+                    trace: [],
+                    deciders: [],
+                  },
+                  {
+                    name: "PropertyOracle",
+                    judgment: r.passedValidator,
+                    trace: [],
+                    deciders: [],
+                  },
+                ],
+                [
+                  {
+                    name: "ImplicitOracle",
+                    judgment: r.passedImplicit,
+                    trace: [],
+                    deciders: [],
+                  },
+                ],
+              ]).judgment,
+              trace: [],
+              deciders: [],
+            },
+            property: {
+              name: "PropertyOracle",
+              judgment: r.passedValidator,
+              trace: [],
+              deciders: [],
+            },
+            propertyDetail: r.passedValidators.map((j) => ({
+              name: "PropertyOracle",
+              judgment: j,
+              trace: [],
+              deciders: [],
+            })),
           }),
           addlJudgments: {},
         };
@@ -133,9 +173,7 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
     // Mutate outputs of examples with a ground truth example assertion
     const mutatedExamples: JudgedExample[] = outputSpec
       ? this._basis.results.results
-          .filter(
-            (r) => r.expectedOutput && r.oracles.example.judgment !== "unknown"
-          )
+          .filter((r) => r.expectedOutput && r.passedHuman !== "unknown")
           .map((r) => {
             const mutants: ResultWrapped[] = [];
 
@@ -220,8 +258,7 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
                   value: m.outWrapped.value,
                 },
               ];
-              const implicitJudgment: NamedJudgment = this._basis.results.env
-                .options.useImplicit
+              const implicitJ = this._basis.results.env.options.useImplicit
                 ? ImplicitOracle.judge(
                     m.timeout,
                     m.exception,
@@ -229,7 +266,7 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
                     mutatedOutput
                   )
                 : ImplicitOracle.unknown;
-              const exampleJudgment: NamedJudgment =
+              const exampleJ =
                 this._basis.results.env.options.useHuman && r.expectedOutput
                   ? ExampleOracle.judge(
                       m.timeout,
@@ -238,14 +275,40 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
                       mutatedOutput
                     )
                   : ExampleOracle.unknown;
-              const propertyJudgmentDetail = propertyOracle.judge(
-                unwrapResult(m)
-              );
-              const propertyJudgment = PropertyOracle.summarize(
-                propertyJudgmentDetail
-              );
-              const compositeJudgment = CompositeOracle.judge([
-                [exampleJudgment, propertyJudgment],
+              const propertyJDetail = this._basis.results.env.options
+                .useProperty
+                ? r.passedValidators
+                : [];
+              const propertyJSummary =
+                PropertyOracle.summarize(propertyJDetail);
+
+              const implicitJudgment: NamedJudgment = {
+                name: "ImplicitOracle",
+                judgment: implicitJ,
+                trace: [],
+                deciders: [],
+              };
+              const exampleJudgment: NamedJudgment = {
+                name: "ExampleOracle",
+                judgment: exampleJ,
+                trace: [],
+                deciders: [],
+              };
+              const propertyJudgment: NamedJudgment = {
+                name: "PropertyOracle",
+                judgment: propertyJSummary,
+                trace: [],
+                deciders: [],
+              };
+              const propertyJudgmentDetail: NamedJudgment[] =
+                propertyJDetail.map((j) => ({
+                  name: "PropertyOracle",
+                  judgment: j,
+                  trace: [],
+                  deciders: [],
+                }));
+              const compositeJudgment: NamedJudgment = CompositeOracle.judge([
+                [propertyJudgment, exampleJudgment],
                 [implicitJudgment],
               ]);
               const mutatedExample: JudgedExample = {
@@ -274,21 +337,20 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
     try {
       propRunners.push({
         name: this._name,
-        runner: RunnerFactory({
-          type: "typescript.src",
-          src: this._src.join("\n"),
-          fnName: this._name,
-          fileName: path.resolve(
+        runner: RunnerFactory(
+          this._basis.results.env,
+          path.resolve(
             `${this._basis.fn.getModule()}.prospective.${this._name}.ts`
           ),
-        }),
+          this._name
+        ),
       });
       console.debug(
         `created jsrunner for ${this._name} in module ${this._basis.fn.getModule()}`
       ); // !!!!!!!!!!!
     } catch (e: unknown) {
       console.debug(
-        `Exception building a runner for generated validator: ${this._name}. Src: ${JSON5.stringify(this._src)}. Exception: ${isError(e) ? `${e.name}: ${e.message}` : `<unknown>`}`
+        `Exception building a runner for generated validator: ${this._name}. Src: ${JSONN.stringify(this._src)}. Exception: ${isError(e) ? `${e.name}: ${e.message}` : `<unknown>`}`
       );
     }
 
@@ -300,7 +362,7 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
     console.debug(`---------------------`); // !!!!!!!!!!
     const diff = differ.diffFor([this._name]);
     console.debug(
-      `diff for "${this._name}": ${JSON5.stringify(
+      `diff for "${this._name}": ${JSONN.stringify(
         {
           ...diff,
           detail: {
@@ -337,7 +399,7 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
     // Generate candidate property assertions
     this._model.genProps(basis.fn, schema).then((props) => {
       console.debug(
-        `In the post-llm handler w/these props:: ${JSON5.stringify(props, null, 2)}`
+        `In the post-llm handler w/these props:: ${JSONN.stringify(props, null, 2)}`
       ); // !!!!!!!!!!
       props.forEach((p) => {
         callbackFn(

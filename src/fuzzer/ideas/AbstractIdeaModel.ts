@@ -2,7 +2,7 @@ import seedrandom from "seedrandom";
 import * as vscode from "vscode";
 import { FunctionDef, FuzzTestResults } from "../Fuzzer";
 import { IdeaData, IdeaStatus } from "./Types";
-import { FuzzPanel } from "../../ui/FuzzPanel";
+import { FuzzPanel } from "../../ui/FuzzPanelController";
 
 export abstract class AbstractIdeaModel {
   protected readonly _id: string;
@@ -53,7 +53,7 @@ export abstract class AbstractIdeaModel {
 
 export type IdeaBasis = {
   webview: vscode.Webview;
-  module: NodeJS.Module;
+  module: string;
   fn: FunctionDef;
   results: FuzzTestResults;
   prng: seedrandom.prng;

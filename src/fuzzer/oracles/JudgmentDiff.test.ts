@@ -1,5 +1,14 @@
-import { RunnerFactory } from "../runners/RunnerFactory";
 import { JudgmentDiffer, JudgedExample } from "./JudgmentDiff";
+import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
+
+class MockRunner extends AbstractRunner {
+  public async run(): Promise<RunnerResult> {
+    return {
+      result: { seq: 0, tag: "value", value: "pass" },
+      env: {},
+    };
+  }
+}
 
 describe("fuzzer.oracles.CompositeJudgmentDiff", () => {
   it("CompositeJudgmentDiff - base", () => {
@@ -35,16 +44,7 @@ describe("fuzzer.oracles.CompositeJudgmentDiff", () => {
     const props = [
       {
         name: validatorName,
-        runner: RunnerFactory({
-          type: "typescript.src",
-          fnName: validatorName,
-          src: `import { FuzzTestResult } from "@nanofuzz/runtime";
-export function ${validatorName}(r: FuzzTestResult): "pass" | "fail" | "unknown" {
-  const input: boolean = r.in[0];
-  const output: boolean = r.out;
-  return input===output ? "pass" : "fail";
-}`,
-        }),
+        runner: new MockRunner(validatorName),
       },
     ];
     const diff = new JudgmentDiffer("dummy-uuid", examples, props).diffFor([

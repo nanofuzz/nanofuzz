@@ -1,9 +1,13 @@
+# What to package into NaNofuzz VSIX
 **
 !build/
 !LICENSE
 !node_modules/@vscode/webview-ui-toolkit/
 !node_modules/@vscode/codicons/
-!node_modules/json5/
+!node_modules/web-tree-sitter/
+!node_modules/tree-sitter-python/
+!node_modules/tree-sitter-typescript/
 !node_modules/typescript/
 !package.json
 !README.md
+!logo.png

@@ -1,13 +1,14 @@
 import { FuzzTestResult, InputAndSource } from "../Types";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
-import { CoverageMeasure } from "./CoverageMeasure";
+import { AbstractCoverageMeasure } from "./AbstractCoverageMeasure";
+import { AbstractRunner } from "../runners/AbstractRunner";
 
 /**
  * Measures the number of newly-failing tests. Because there is no ground truth for bugs,
  * we use code coverage, if available, to approximate distinct bugs.
  */
 export class FailedTestMeasure extends AbstractMeasure {
-  protected _covMeasure?: CoverageMeasure; // Code Coverage Measure
+  protected _covMeasure?: AbstractCoverageMeasure; // Code Coverage Measure
   protected _pseudoBugsData: Record<number, Record<string, number>> = {}; // Number of pseudo bugs by validator# and coverage map
   protected _pseudoBugsFound = 0; // total number of pseudo bugs found
 
@@ -16,10 +17,23 @@ export class FailedTestMeasure extends AbstractMeasure {
    *
    * @param `covMeasure` optional code coverage measurement object
    */
-  constructor(covMeasure?: CoverageMeasure) {
+  constructor(covMeasure?: AbstractCoverageMeasure) {
     super();
     this._covMeasure = covMeasure;
   } // fn: constructor
+
+  /**
+   * Called at the start of a test run.
+   *
+   * @param runner the test runner instance
+   */
+  public override onRunStart(
+    runners: AbstractRunner[] | AbstractRunner
+  ): void {
+    super.onRunStart(runners);
+    this._pseudoBugsData = {};
+    this._pseudoBugsFound = 0;
+  } // fn: onRunStart
 
   /**
    * Measure the test failures of the most recent test execution.
@@ -38,17 +52,15 @@ export class FailedTestMeasure extends AbstractMeasure {
 
     // Make an array of all judgments
     const judgments = [
-      result.oracles.implicit,
-      result.oracles.example,
-      ...result.oracles.propertyDetail,
+      result.passedImplicit,
+      result.passedHuman,
+      ...result.passedValidators,
     ];
 
     // Init bugs data
-    if (!Object.keys(this._pseudoBugsData).length) {
-      judgments.forEach((value, v) => {
-        this._pseudoBugsData[v] = {};
-      });
-    }
+    judgments.forEach((_, v) => {
+      this._pseudoBugsData[v] = this._pseudoBugsData[v] ?? {};
+    });
 
     // Get the coverage map for this tick
     const coverageMapData =
@@ -62,6 +74,7 @@ export class FailedTestMeasure extends AbstractMeasure {
     // Find new validator failures and coverage combinations exhibiting failures
     judgments.forEach((j, i) => {
       if (j === "fail") {
+        this._pseudoBugsData[i] = this._pseudoBugsData[i] ?? {};
         if (!(coverageMapData in this._pseudoBugsData[i])) {
           this._pseudoBugsData[i][coverageMapData] = 1;
           newlyFailingValidators.push(Number(i));

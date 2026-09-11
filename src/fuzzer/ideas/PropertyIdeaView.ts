@@ -1,4 +1,4 @@
-import * as JSON5 from "json5";
+import * as JSONN from "../../Jsonn";
 import { AbstractIdeaView } from "./AbstractIdeaView";
 import { PropertyIdeaData } from "./PropertyIdeaModel";
 import { ColorSquareNames } from "../oracles/JudgmentDiff";
@@ -79,7 +79,7 @@ export class PropertyIdeaView extends AbstractIdeaView {
       that of the filter controls and that of the summary form.
     */
     const getExceptionMsg = (e: unknown) =>
-      isError(e) ? `${e.name}: ${e.message}` : JSON5.stringify(e);
+      isError(e) ? `${e.name}: ${e.message}` : JSONN.stringify(e);
     const exceptions = this._rep.diff.detail.exceptions.map((e) => ({
       ...e,
       color: "red",
@@ -129,7 +129,7 @@ export class PropertyIdeaView extends AbstractIdeaView {
                   .map((_name, i) =>
                     e.example.inWrapped[i].value === undefined
                       ? /*html*/ `<td class="editorFont noInput"><span>(no input)</span></td>`
-                      : /*html*/ `<td class="editorFont"><span>${htmlEscape(JSON5.stringify(e.example.inWrapped[i].value))}</span></td>`
+                      : /*html*/ `<td class="editorFont"><span>${htmlEscape(JSONN.stringify(e.example.inWrapped[i].value))}</span></td>`
                   )
                   .join("\n")}
                 <td class="editorFont"><span>${e.source.type === "mutation" ? /*html*/ `<span class="codicon codicon-bug inline" title="Mutated/buggy program test output">` : /*html*/ `<span class="codicon codicon-beaker inline" title="Actual program test output">`}</span></span><span> ${
@@ -137,7 +137,7 @@ export class PropertyIdeaView extends AbstractIdeaView {
                     ? "(timeout)"
                     : e.example.exception
                       ? "(exception)"
-                      : htmlEscape(JSON5.stringify(e.example.outWrapped.value))
+                      : htmlEscape(JSONN.stringify(e.example.outWrapped.value))
                 }</span></td>
                 <td class="editorFont">${htmlEscape(
                   getExceptionMsg(e.addlJudgments[this._rep.name].error)
@@ -185,7 +185,7 @@ export class PropertyIdeaView extends AbstractIdeaView {
                 .map((_name, i) =>
                   j.example.inWrapped[i].value === undefined
                     ? /*html*/ `<td class="editorFont noInput"><span>(no input)</span></td>`
-                    : /*html*/ `<td class="editorFont"><span>${htmlEscape(JSON5.stringify(j.example.inWrapped[i].value))}</span></td>`
+                    : /*html*/ `<td class="editorFont"><span>${htmlEscape(JSONN.stringify(j.example.inWrapped[i].value))}</span></td>`
                 )
                 .join("\n")}
               <td class="editorFont"><span>${j.source.type === "mutation" ? /*html*/ `<span class="codicon codicon-bug inline" title="Mutated/buggy program test output">` : /*html*/ `<span class="codicon codicon-beaker inline" title="Actual program test output">`}</span></span><span> ${
@@ -193,7 +193,7 @@ export class PropertyIdeaView extends AbstractIdeaView {
                   ? "(timeout)"
                   : j.example.exception
                     ? "(exception)"
-                    : htmlEscape(JSON5.stringify(j.example.outWrapped.value))
+                    : htmlEscape(JSONN.stringify(j.example.outWrapped.value))
               }</td>
               <td class="editorFont removedLine">${judgmentToIcon(j.judgments.composite.judgment)} ${j.judgments.composite.judgment}</td>
               <td class="editorFont addedLine">${judgmentToIcon(j.rejudgment.judgment)} ${j.rejudgment.judgment}</td>

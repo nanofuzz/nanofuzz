@@ -2,6 +2,70 @@ import { BaseMeasurement } from "../measures/AbstractMeasure";
 import { InputAndSource } from "../Types";
 
 /**
+ * LLM Cache Modes
+ */
+export type LlmCacheMode =
+  | "passthrough"
+  | "record"
+  | "replay-record"
+  | "replay-error"
+  | "replay-passthrough";
+
+/**
+ * LLM Cache Entry
+ */
+export type LlmCacheEntry = {
+  key: string;
+  request: {
+    provider: string;
+    modelName: string;
+    prompt: string[];
+    schemaJson?: string;
+  };
+  response: LlmQueryResult;
+  delayMs: number;
+  recordedAt: string;
+};
+
+/**
+ * LLM Cache Statistics
+ */
+export type LlmCacheStats = {
+  mode: LlmCacheMode;
+  calls: number;
+  hits: number;
+  misses: number;
+  recorded: number;
+  passedThroughUnrecorded: number;
+  failures: number;
+  live: {
+    calls: number;
+    tokensSent: number;
+    tokensReceived: number;
+    costUsd: number;
+  };
+  replayed: {
+    calls: number;
+    tokensSent: number;
+    tokensReceived: number;
+    costUsd: number;
+  };
+};
+
+/**
+ * LLM Query Result
+ */
+export type LlmQueryResult = {
+  text: string;
+  stats: {
+    tokensSent: number;
+    tokensSentCost: { amt: number; unit: string };
+    tokensReceived: number;
+    tokensReceivedCost: { amt: number; unit: string };
+  };
+};
+
+/**
  * A scored input with its measurements
  */
 export type ScoredInput = {
@@ -40,6 +104,7 @@ export interface InputGeneratorStatsAi extends InputGeneratorStats {
     sentCost?: { amt: number; unit: string };
     receivedCost?: { amt: number; unit: string };
   };
+  cache?: LlmCacheStats;
 }
 
 /**

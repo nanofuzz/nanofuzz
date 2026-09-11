@@ -1,8 +1,10 @@
-import * as JSON5 from "json5";
-import { NamedJudgment, ResultWrapped, unwrapResult } from "../Types";
+import * as JSONN from "../../Jsonn";
+import { ResultWrapped, unwrapResult } from "../Types";
+import { NamedJudgment, Judgment } from "./Types";
 import { CompositeOracle } from "./CompositeOracle";
 import { PropertyOracle } from "./PropertyOracle";
 import { AbstractRunner } from "../runners/AbstractRunner";
+import { isError } from "../../Util";
 
 /**
  * Generates diffs that show how adding particular property
@@ -25,7 +27,7 @@ export class JudgmentDiffer {
     for (const e of examples) {
       if (e.source.runId !== runId) {
         throw new Error(
-          `Not all examples are from run ${runId}. E.g., ${JSON5.stringify(e, null, 2)}`
+          `Not all examples are from run ${runId}. E.g., ${JSONN.stringify(e, null, 2)}`
         );
       }
     }
@@ -50,7 +52,17 @@ export class JudgmentDiffer {
     // Evaluate the property across the set of examples
     const propOracle = new PropertyOracle([runner]);
     for (const e of this._examples) {
-      e.addlJudgments[name] = propOracle.judge(unwrapResult(e.example))[0];
+      propOracle.judge(unwrapResult(e.example)).then((judgments) => {
+        const j = judgments[0];
+        const val: Judgment = isError(j) ? "fail" : j;
+        e.addlJudgments[name] = {
+          name,
+          judgment: val,
+          error: isError(j) ? j : undefined,
+          trace: [],
+          deciders: [],
+        };
+      });
     }
 
     this._props.set(name, true);
@@ -91,16 +103,26 @@ export class JudgmentDiffer {
       const newJudgment = CompositeOracle.judge([
         [
           e.judgments.example,
-          PropertyOracle.summarize([
-            ...e.judgments.propertyDetail,
-            ...props.map((p) => {
-              const j = e.addlJudgments[p];
-              if (j.error) {
-                exceptions = true;
-              }
-              return j;
-            }),
-          ]),
+          {
+            name: "PropertyOracle",
+            judgment: PropertyOracle.summarize([
+              ...e.judgments.propertyDetail,
+              ...props.map((p) => {
+                const j = e.addlJudgments[p] ?? {
+                  name: p,
+                  judgment: "unknown",
+                  trace: [],
+                  deciders: [],
+                };
+                if (j.error) {
+                  exceptions = true;
+                }
+                return j;
+              }),
+            ]),
+            trace: [],
+            deciders: [],
+          },
         ],
         [e.judgments.implicit],
       ]);

@@ -1,8 +1,7 @@
-import { NodePath } from "@babel/traverse";
-import { TSEntityName, Node } from "@babel/types";
 import { FunctionDef } from "./FunctionDef";
 import { ArgDef } from "./ArgDef";
-import { ArgType } from "./Types";
+import { ArgTag, ArgType, ArgValueType } from "./Types";
+import { TypescriptProgram } from "./typescript/TypescriptProgram";
 
 /**
  * Replacer function for JSON.stringify that removes the parent property
@@ -20,40 +19,49 @@ export function removeParents(key: string, value: unknown): unknown {
 } // fn: removeParents()
 
 /**
- * Gets a qualified identifier name for a given entity node
+ * Type guard function that returns true if `obj` is an ArgType
  *
- * @param node The node to get the identifier name for
- * @returns Qualified name as a string
+ * @param `obj` the object to check
+ * @returns true if `obj` is an ArgType, false otherwise
  */
-export function getIdentifierName(node: TSEntityName): string {
-  switch (node.type) {
-    case "Identifier": {
-      return node.name;
-    }
-    case "TSQualifiedName": {
-      return getIdentifierName(node.left) + "." + node.right.name;
-    }
-  }
-} // fn: getIdentifierName()
+export function isArgType(obj: unknown): obj is ArgType {
+  return (
+    typeof obj === "string" ||
+    typeof obj === "number" ||
+    typeof obj === "boolean" ||
+    (obj !== null &&
+      typeof obj === "object" &&
+      !Array.isArray(obj) &&
+      Object.keys(obj).length > 0 &&
+      Object.values(obj).every((i) => isArgType(i)))
+  );
+} // fn: isArgType
 
 /**
- * Determines whether an AST node is block scoped
- * Note: Requires that nodes have the parent property set
+ * Type guard function that returns true if `obj` is an ArgValueType
  *
- * @param `node` The node to check
- * @returns `true` if the node is block scoped, `false` otherwise
+ * @param `obj` the object to check
+ * @returns true if `obj` is an ArgValueType, false otherwise
  */
-export function isBlockScoped(node: NodePath<Node>): boolean {
-  let thisNode = node;
-  while (thisNode.parentPath) {
-    if (thisNode.parentPath.node.type === "BlockStatement") {
-      return true; // block scoped
-    } else {
-      thisNode = thisNode.parentPath; // move up the tree
-    }
+export function isArgValueType(obj: unknown): obj is ArgValueType {
+  if (
+    obj === undefined ||
+    obj === null ||
+    typeof obj === "string" ||
+    typeof obj === "number" ||
+    typeof obj === "boolean" ||
+    typeof obj === "bigint"
+  ) {
+    return true;
   }
-  return false; // at root; block not encountered
-} // fn: isBlockScoped()
+  if (Array.isArray(obj)) {
+    return obj.every(isArgValueType);
+  }
+  if (typeof obj === "object") {
+    return Object.values(obj).every(isArgValueType);
+  }
+  return false;
+} // fn: isArgValueType
 
 /**
  * Genertes a property test skeleton for a given function and name suffix
@@ -71,15 +79,15 @@ export function getPropertyTestSkeleton(
   const inArgConsts = inArgs
     .map(
       (argDef, i) =>
-        `const ${argDef.getName()}: ${argDef.getTypeAnnotation()} = ${
-          validatorArgs.resultArgName
-        }.in[${i}];`
+        `const ${argDef.getName()}: ${TypescriptProgram.getTypeAnnotation(
+          argDef
+        )} = ${validatorArgs.resultArgName}.in[${i}];`
     )
     .join("\n  ");
 
   const outTypeAsArg = fn.getReturnArg();
   const outTypeAsString = outTypeAsArg
-    ? outTypeAsArg.getTypeAnnotation()
+    ? TypescriptProgram.getTypeAnnotation(outTypeAsArg)
     : undefined;
 
   const outArgConst = _getOutArgConst(
@@ -110,7 +118,7 @@ export function getPropertyTestSkeleton(
  */
 function _getIdentifierNameAvoidingConflicts(
   // The input arguments
-  inArgs: ArgDef<ArgType>[],
+  inArgs: ArgDef<ArgTag>[],
   // The candidate names to choose from
   candidateNames: string[],
   // The maximum suffix to use when generating a new name
@@ -153,7 +161,7 @@ function _getIdentifierNameAvoidingConflicts(
  * @param inArgs The input arguments
  * @returns An object containing the above information
  */
-function _getValidatorArgs(inArgs: ArgDef<ArgType>[]): {
+function _getValidatorArgs(inArgs: ArgDef<ArgTag>[]): {
   str: string;
   resultArgName: string;
 } {
@@ -184,7 +192,7 @@ function _getValidatorArgs(inArgs: ArgDef<ArgType>[]): {
  * @returns The string for the declaration of the out variable
  */
 function _getOutArgConst(
-  inArgs: ArgDef<ArgType>[],
+  inArgs: ArgDef<ArgTag>[],
   resultArgName: string,
   returnType?: string
 ): string {

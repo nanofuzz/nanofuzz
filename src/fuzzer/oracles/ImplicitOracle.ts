@@ -1,11 +1,11 @@
 import { FuzzIoElement } from "../Types";
-import { NamedJudgment } from "./Types";
+import { Judgment } from "./Types";
 
 /**
  * The implicit oracle only passes when:
  *  - the value contains no nulls, undefineds, NaNs, or Infinity values
  *  - the function did not throw an exception or timeout
- *  - if a void return function, output is `undefined`
+ *  - if a void return function, output is `undefined` or `null`
  */
 export class ImplicitOracle {
   public static judge(
@@ -13,45 +13,29 @@ export class ImplicitOracle {
     exception: boolean,
     isVoidFn: boolean,
     outputValue: FuzzIoElement[]
-  ): NamedJudgment {
-    const j = {
-      name: "HeuristicOracle",
-      trace: [],
-      deciders: [],
-    };
+  ): Judgment {
     if (exception || timeout) {
       // Exceptions and timeouts fail the implicit oracle
-      return { ...j, judgment: "fail" };
+      return "fail";
     } else if (isVoidFn) {
-      // Functions with a void return type should only return undefined
-      return {
-        ...j,
-        judgment: outputValue.some((e) => e.value !== undefined)
-          ? "fail"
-          : "pass",
-      };
+      // Functions with a void return type may return undefined or null
+      return outputValue.some((e) => e.value !== undefined && e.value !== null)
+        ? "fail"
+        : "pass";
     } else {
       // Non-void functions should not output disallowed values
-      return {
-        ...j,
-        judgment: outputValue.some((e) => !implicitOracle(e.value))
-          ? "fail"
-          : "pass",
-      };
+      return outputValue.some((e) => !implicitOracle(e.value))
+        ? "fail"
+        : "pass";
     }
   } // fn: judge
 
   /**
    * Getter for default unknown judgment
    */
-  public static get unknown(): NamedJudgment {
-    return {
-      name: "HeuristicOracle",
-      judgment: "unknown",
-      trace: [],
-      deciders: [],
-    };
-  } // property: get unknown
+  public static get unknown(): Judgment {
+    return "unknown";
+  }
 } // class: ImplicitOracle
 
 /**

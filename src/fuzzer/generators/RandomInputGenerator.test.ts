@@ -1,6 +1,6 @@
 import { ArgDef } from "../analysis/ArgDef";
 import { RandomInputGenerator } from "./RandomInputGenerator";
-import { TypescriptProgram } from "../analysis/typescript/TypescriptProgram";
+import * as ProgramFactory from "../analysis/ProgramFactory";
 import { ArgOptions, ArgValueType } from "../analysis/Types";
 
 /**
@@ -113,8 +113,11 @@ describe("fuzzer/generator/GeneratorFactory:", () => {
  * @param intMax Maximim integer value
  */
 const testRandomInt = (intMin: number, intMax: number): void => {
-  const program = TypescriptProgram.fromSource(() => tsFnWithNumberInput);
-  const arg = program.getFunctions()["test"].getArgDefs();
+  const program = ProgramFactory.fromSource(
+    () => tsFnWithNumberInput,
+    "typescript"
+  );
+  const arg = program.functions["test"].getArgDefs();
   arg[0].setIntervals([{ min: intMin, max: intMax }]);
   const gen = new RandomInputGenerator(arg, seed);
   for (let i = 0; i < 1000; i++) {
@@ -145,8 +148,11 @@ const testRandomIntException = (intMin: number, intMax: number): void => {
  * @param floatMax Maximim float value
  */
 const testRandomFloat = (floatMin: number, floatMax: number): void => {
-  const program = TypescriptProgram.fromSource(() => tsFnWithNumberInput);
-  const arg = program.getFunctions()["test"].getArgDefs();
+  const program = ProgramFactory.fromSource(
+    () => tsFnWithNumberInput,
+    "typescript"
+  );
+  const arg = program.functions["test"].getArgDefs();
   arg[0].setIntervals([{ min: floatMin, max: floatMax }]);
   const gen = new RandomInputGenerator(arg, seed);
   for (let i = 0; i < 1000; i++) {
@@ -178,8 +184,11 @@ const testRandomFloatException = (floatMin: number, floatMax: number): void => {
  * @param boolMax Maximum boolean value
  */
 const testRandomBool = (boolMin: boolean, boolMax: boolean): void => {
-  const program = TypescriptProgram.fromSource(() => tsFnWithBoolInput);
-  const arg = program.getFunctions()["test"].getArgDefs();
+  const program = ProgramFactory.fromSource(
+    () => tsFnWithBoolInput,
+    "typescript"
+  );
+  const arg = program.functions["test"].getArgDefs();
   arg[0].setIntervals([{ min: boolMin, max: boolMax }]);
   const gen = new RandomInputGenerator(arg, seed);
 
@@ -217,11 +226,13 @@ const testRandomString = (
   strMin = strMin.padEnd(strLenMin, options.strCharset[0]);
   strMax = strMax.padEnd(strLenMin, options.strCharset[0]);
 
-  const program = TypescriptProgram.fromSource(
+  const program = ProgramFactory.fromSource(
     () => tsFnWithStringInput,
+    "typescript",
+    undefined,
     options
   );
-  const arg = program.getFunctions()["test"].getArgDefs();
+  const arg = program.functions["test"].getArgDefs();
   arg[0].setIntervals([{ min: strMin, max: strMax }]);
   const gen = new RandomInputGenerator(arg, seed);
 

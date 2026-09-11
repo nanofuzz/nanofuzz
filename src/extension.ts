@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fp from "./ui/FuzzPanelController";
 import * as tm from "./telemetry/Telemetry";
+import * as Parser from "./fuzzer/adapters/ParserAdapter";
 
 const disposables: vscode.Disposable[] = []; // Keep track of disposables
 
@@ -9,9 +10,12 @@ const disposables: vscode.Disposable[] = []; // Keep track of disposables
  *
  * @param context extension context provided by the VS Code extension host
  */
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(
+  context: vscode.ExtensionContext
+): Promise<void> {
   tm.init(context);
   fp.init(context);
+  await Parser.init();
 
   // --------------------------- Commands --------------------------- //
 
@@ -59,10 +63,10 @@ export function activate(context: vscode.ExtensionContext): void {
    * Push event listeners to VS Code
    */
   tm.listeners.forEach((listener) => {
-    context.subscriptions.push(listener.event(listener.fn));
+    context.subscriptions.push(listener.register());
   });
   fp.listeners.forEach((listener) => {
-    context.subscriptions.push(listener.event(listener.fn));
+    context.subscriptions.push(listener.register());
   });
 } // fn: activate()
 
@@ -78,7 +82,13 @@ export function deactivate(): void {
 /**
  * Associates a callback function with an vscode event.
  */
-export type Listener<T> = {
-  event: vscode.Event<T>;
-  fn: (e: T) => void;
+export type Listener = {
+  register: () => vscode.Disposable;
 };
+
+export function createListener<T>(
+  event: vscode.Event<T>,
+  fn: (e: T) => void
+): Listener {
+  return { register: () => event(fn) };
+}

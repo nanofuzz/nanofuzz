@@ -10,20 +10,21 @@
  *
  * Note: Because it hooks require, this module is not compatible with Jest.
  */
-import vm from "vm";
-import fs from "fs";
+import vm from "node:vm";
+import fs from "node:fs";
 import { Worker } from "worker_threads";
-import path from "path";
-import os from "os";
-import JSON5 from "json5";
-import { AbstractMeasure } from "../measures/AbstractMeasure";
+import path from "node:path";
+import os from "node:os";
+import * as JSONN from "../../Jsonn";
 import {
-  FuzzBusyStatusMessage,
+  FuzzStatusUpdater,
   TypescriptCompilerError,
   TypescriptCompilerErrorDetails,
   VmGlobals,
 } from "../Types";
 import * as ts from "typescript";
+import { findInAncestor } from "../Util";
+import { CompilerStaleness } from "./Types";
 
 // Global list of compilations by entrypoint module
 const _compilationsByModule: {
@@ -140,20 +141,30 @@ export class TypescriptCompiler {
         reject();
       }
     });
+  }
+  public async compileAsync(fqModulePath: string): Promise<void> {
+    return TypescriptCompiler.compileAsync(fqModulePath);
   } // fn: compileAsync
+
+  /**
+   * Returns clean compiled JS paths for all dependencies required during compilation
+   */
+  public getCompiledDependencies(): string[] {
+    const tsFiles = _compilationsByModule[this._moduleFile] ?? [
+      this._moduleFile,
+    ];
+    return tsFiles.map((tsFile) => this._getJsFilename(tsFile));
+  }
 
   /**
    * Compile the TypeScript file
    */
-  public compileSync(
-    measures: AbstractMeasure[],
-    updateFn: (msg: FuzzBusyStatusMessage) => void
-  ): ReturnType<NodeJS.Require> {
+  public compileSync(updateFn: FuzzStatusUpdater): string {
     // Determine options using the module path
-    this._options = JSON5.parse<typeof defaultOptions>(
-      JSON5.stringify(defaultOptions)
-    );
+    this._options = structuredClone(defaultOptions);
     this._determineOptions();
+    this._tscPath = this._findTsc();
+    this._tscVersion = this._findTscVersion(this._tscPath) ?? "unknown";
 
     // Track local compilations
     const localCompilations: string[] = [];
@@ -201,7 +212,7 @@ export class TypescriptCompiler {
     let hookException: unknown | undefined = undefined;
 
     // Hook require to compile ts files
-    require.extensions[hookType] = async (module) => {
+    require.extensions[hookType] = (module) => {
       const jsname = this._getJsFilename(module.filename);
 
       // Log the compile attempt
@@ -218,22 +229,10 @@ export class TypescriptCompiler {
             this._tsc(module, updateFn);
           }
 
-          // Apply measurement instrumentation
-          let src = fs.readFileSync(jsname, "utf8"); // TODO: encoding
-          for (const measure of measures) {
-            src = measure.onAfterCompile(src, jsname);
-          }
+          const src = fs.readFileSync(jsname, "utf8");
 
-          // Load the module & collect measurements from the initial load
-          const context: VmGlobals = this.run(
-            jsname,
-            module,
-            src,
-            moduleVmGlobals
-          );
-          for (const measure of measures) {
-            measure.onAfterLoad(context);
-          }
+          // Load the module
+          this._run(jsname, module, src, moduleVmGlobals);
         } catch (e: unknown) {
           // Save the exception and throw it outside the hook
           hookException = e;
@@ -243,7 +242,7 @@ export class TypescriptCompiler {
 
     // Require the modules requested
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require(this._moduleFile);
+    require(this._moduleFile);
 
     // Unhook require
     require.extensions[hookType] =
@@ -263,7 +262,7 @@ export class TypescriptCompiler {
       _compilationsByModule[this._moduleFile] = localCompilations;
     }
 
-    return mod;
+    return this.getJsFilename(this._moduleFile);
   } // fn: compileSync
 
   /**
@@ -299,14 +298,7 @@ export class TypescriptCompiler {
    *
    * @returns a reason code if re-compilation is needed and `false` otherwise.
    */
-  public isStale(
-    inSrcFile?: string
-  ):
-    | false
-    | "notcompiled"
-    | "sourcechanged"
-    | "compilerchanged"
-    | "configchanged" {
+  public isStale(inSrcFile?: string): CompilerStaleness {
     // Stale: no compilations for this module have yet taken place
     if (
       !fs.existsSync(this._getJsFilename(this._moduleFile)) ||
@@ -377,10 +369,7 @@ export class TypescriptCompiler {
    * @param `module` node module
    * @param `updateFn` function for client status updates
    */
-  protected _tsc(
-    module: NodeJS.Module,
-    updateFn: (msg: FuzzBusyStatusMessage) => void
-  ): void {
+  protected _tsc(module: NodeJS.Module, updateFn: FuzzStatusUpdater): void {
     let exitCode = 0;
 
     // Determine the compiled name of the module
@@ -389,9 +378,13 @@ export class TypescriptCompiler {
 
     // Provide feedback that we are compiling
     updateFn({
+      msg: ` - Compile...: ${module.filename}`,
+      channel: "milestone",
+    });
+    updateFn({
       msg: `Compiling: ${module.filename}`,
-      milestone: true,
-      pct: 0.01,
+      channel: "update",
+      pct: 0.1,
     });
 
     // Construct tsc args
@@ -401,17 +394,17 @@ export class TypescriptCompiler {
 
       options.emitOnError ? "" : "--noEmitOnError",
 
-      //"--rootDir",
-      //process.cwd(),
+      "--rootDir",
+      path.parse(module.filename).root,
 
       "--target",
-      options.target ? options.target : "ES2020",
+      options.target ? options.target : "ES2022",
 
       options.moduleKind ? "--module" : "",
       options.moduleKind ? options.moduleKind : "",
 
       "--outDir",
-      path.dirname(jsname),
+      options.tmpDir,
 
       "--baseUrl",
       options.baseUrl,
@@ -470,17 +463,19 @@ export class TypescriptCompiler {
       // Wrap stdout.write() for this context
       stdout: {
         ...process.stdout,
-        write: function () {
-          logData.push(String(arguments[0]));
-          process.stdout.write.apply(process.stdout, arguments as any);
+        write: function (...args: Parameters<typeof process.stdout.write>) {
+          logData.push(String(args[0]));
+          Reflect.apply(process.stdout.write, process.stdout, args);
+          return true;
         },
       },
       // Wrap stderr.write() for this context
       stderr: {
         ...process.stderr,
-        write: function () {
-          logData.push(String(arguments[0]));
-          process.stderr.write.apply(process.stderr, arguments as any);
+        write: function (...args: Parameters<typeof process.stderr.write>) {
+          logData.push(String(args[0]));
+          Reflect.apply(process.stderr.write, process.stderr, args);
+          return true;
         },
       },
     });
@@ -528,6 +523,17 @@ export class TypescriptCompiler {
    * @param `moduleFile` module to compile
    * @returns filename of the compiled output file
    */
+  public getJsFilename(moduleFile: string = this._moduleFile): string {
+    this._determineOptions();
+    return this._getJsFilename(moduleFile);
+  }
+
+  /**
+   * Returns the name of the compiled output file
+   *
+   * @param `moduleFile` module to compile
+   * @returns filename of the compiled output file
+   */
   protected _getJsFilename(moduleFile: string): string {
     const moduleDirName = path.dirname(moduleFile);
     const relativeFolder =
@@ -551,7 +557,7 @@ export class TypescriptCompiler {
    * @returns filename of compilation details
    */
   protected _getCompilationRecordFilename(moduleFile: string): string {
-    return `${this._getJsFilename(moduleFile)}.comp.json`;
+    return `${this._getJsFilename(moduleFile)}.comp.json5`;
   } // fn: _getCompilationRecordFilename
 
   /**
@@ -564,36 +570,8 @@ export class TypescriptCompiler {
   ): CompilationRecord | undefined {
     const compRecFile = this._getCompilationRecordFilename(moduleFile);
     try {
-      const compRecRaw = JSON5.parse(fs.readFileSync(compRecFile).toString());
-      if (
-        typeof compRecRaw === "object" &&
-        !Array.isArray(compRecRaw) &&
-        compRecRaw !== null &&
-        "fileVersion" in compRecRaw &&
-        compRecRaw.fileVersion === CURR_COMPILATION_FILE_VER &&
-        "details" in compRecRaw &&
-        typeof compRecRaw.details === "object" &&
-        !Array.isArray(compRecRaw.details) &&
-        compRecRaw.details !== null &&
-        "srcFile" in compRecRaw.details &&
-        typeof compRecRaw.details.srcFile === "string" &&
-        "srcDatetime" in compRecRaw.details &&
-        typeof compRecRaw.details.srcDatetime === "string" &&
-        "jsFile" in compRecRaw.details &&
-        typeof compRecRaw.details.jsFile === "string" &&
-        "jsDatetime" in compRecRaw.details &&
-        typeof compRecRaw.details.jsDatetime === "string" &&
-        "tscFile" in compRecRaw.details &&
-        typeof compRecRaw.details.tscFile === "string" &&
-        "tscVersion" in compRecRaw.details &&
-        typeof compRecRaw.details.tscVersion === "string" &&
-        "tscDatetime" in compRecRaw.details &&
-        typeof compRecRaw.details.tscDatetime === "string" &&
-        (!("tsconfigFile" in compRecRaw.details) ||
-          typeof compRecRaw.details.tsconfigFile === "string") &&
-        (!("tsconfigDatetime" in compRecRaw.details) ||
-          typeof compRecRaw.details.tsconfigDatetime === "string")
-      ) {
+      const compRecRaw = JSONN.parse(fs.readFileSync(compRecFile).toString());
+      if (isCompilationRecord(compRecRaw)) {
         return compRecRaw;
       }
     } catch (_e: unknown) {
@@ -609,7 +587,7 @@ export class TypescriptCompiler {
    * @param module Javqscript module
    * @returns The script result, if any
    */
-  protected run(
+  protected _run(
     jsname: string,
     module: NodeJS.Module,
     src: string,
@@ -672,7 +650,7 @@ export class TypescriptCompiler {
     }
 
     throw new Error(
-      `No copy of tsc found. Checked: ${JSON5.stringify(tscPriority, null, 2)}`
+      `No copy of tsc found. Checked: ${JSONN.stringify(tscPriority, null, 2)}`
     );
   } // fn: _findTsc
 
@@ -686,7 +664,7 @@ export class TypescriptCompiler {
     const packageJson = findInAncestor(path.dirname(tscPath), "package.json");
     if (packageJson) {
       try {
-        const packageJsonData: unknown = JSON5.parse<unknown>(
+        const packageJsonData: unknown = JSONN.parse<unknown>(
           fs.readFileSync(packageJson).toString()
         );
         return packageJsonData !== null &&
@@ -744,7 +722,7 @@ export class TypescriptCompiler {
     }
 
     try {
-      const tsConfig: unknown = JSON5.parse(tsConfigData);
+      const tsConfig: unknown = JSONN.parse(tsConfigData);
       this._options.tscConfigFilename = tsConfigFilename;
       try {
         const projectDir = path.dirname(tsConfigFilename);
@@ -839,9 +817,19 @@ export class TypescriptCompiler {
    * Clears compilation temp files
    */
   public clean(): void {
-    if (fs.existsSync(this.options.tmpDir)) {
-      console.info(`Removing temp files: ${this.options.tmpDir}`);
-      fs.rmSync(this.options.tmpDir, { recursive: true });
+    TypescriptCompiler.clean(this.options.tmpDir);
+  } // fn: clean
+
+  /**
+   * Clears compilation temp files
+   */
+  public static clean(tmpDir: string = defaultOptions.tmpDir): void {
+    if (fs.existsSync(tmpDir)) {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        // ignore parallel worker cleanup collisions
+      }
     }
   } // fn: clean
 
@@ -875,7 +863,7 @@ export class TypescriptCompiler {
     const result = ts.transpileModule(tsSrc, opts);
     if (result.diagnostics && result.diagnostics.length) {
       throw new Error(
-        `Compilation failed for ts source. Diagnostics: ${JSON5.stringify(result.diagnostics, null, 2)}`
+        `Compilation failed for ts source. Diagnostics: ${JSONN.stringify(result.diagnostics, null, 2)}`
       );
     }
     return result.outputText;
@@ -885,10 +873,12 @@ export class TypescriptCompiler {
 /**
  * Merge two objects
  */
-function merge(a: any, b: any) {
+function merge<T extends Record<string, unknown>>(a: T, b: Partial<T>): T {
   if (a && b) {
     for (const key in b) {
-      a[key] = b[key];
+      if (Object.hasOwn(b, key)) {
+        a[key] = b[key]!;
+      }
     }
   }
   return a;
@@ -909,23 +899,43 @@ function compact<T>(arr: T[]) {
 } // fn: compact
 
 /**
- * Returns `dir`'s nearest item by traversing ancestor paths or `undefined` if not found.
+ * Type guard function that returns true if the input object
+ * is a Compilation Record.
  *
- * Adapted from: https://github.com/joshrtay/find-mod/blob/master/lib/index.js
- *
- * @param dir path
- * @param item file to find
- * @returns path to closest item (or exception if not found)
+ * @param obj the object to check
+ * @returns true if `obj` is a CompilationRecord
  */
-function findInAncestor(dir: string, item: string): string | undefined {
-  while (!fs.existsSync(path.resolve(path.join(dir, item)))) {
-    dir = path.resolve(path.join(dir, "..")); // ascend to parent
-    if (dir === path.dirname(dir)) {
-      return undefined;
-    }
-  }
-  return path.resolve(path.join(dir, item));
-} // fn: findInAncestor
+export function isCompilationRecord(obj: unknown): obj is CompilationRecord {
+  return (
+    typeof obj === "object" &&
+    !Array.isArray(obj) &&
+    obj !== null &&
+    "fileVersion" in obj &&
+    obj.fileVersion === CURR_COMPILATION_FILE_VER &&
+    "details" in obj &&
+    typeof obj.details === "object" &&
+    !Array.isArray(obj.details) &&
+    obj.details !== null &&
+    "srcFile" in obj.details &&
+    typeof obj.details.srcFile === "string" &&
+    "srcDatetime" in obj.details &&
+    typeof obj.details.srcDatetime === "string" &&
+    "jsFile" in obj.details &&
+    typeof obj.details.jsFile === "string" &&
+    "jsDatetime" in obj.details &&
+    typeof obj.details.jsDatetime === "string" &&
+    "tscFile" in obj.details &&
+    typeof obj.details.tscFile === "string" &&
+    "tscVersion" in obj.details &&
+    typeof obj.details.tscVersion === "string" &&
+    "tscDatetime" in obj.details &&
+    typeof obj.details.tscDatetime === "string" &&
+    (!("tsconfigFile" in obj.details) ||
+      typeof obj.details.tsconfigFile === "string") &&
+    (!("tsconfigDatetime" in obj.details) ||
+      typeof obj.details.tsconfigDatetime === "string")
+  );
+} // fn: isError
 
 /**
  * Type of modulles to hook for compilation
@@ -942,11 +952,16 @@ const tsconfigFilename = "tsconfig.json";
  */
 const defaultOptions: CompilerOptions = {
   nodeLib: false,
-  target: "ES2020", // default to ES2020
+  target: "ES2022", // default to ES2022
   moduleKind: "nodenext", // cjs is required for running inside express
   emitOnError: false, // fail compilation in case of errors
-  tmpDir: path.join(os.tmpdir(), "nanofuzz", "tsc"), // path for compiled files
-  lib: ["DOM", "ScriptHost", "ES2020"], // default to ES2020
+  tmpDir: path.join(
+    fs.realpathSync(os.tmpdir()),
+    "nanofuzz",
+    "tsc",
+    String(process.pid)
+  ), // path for compiled files
+  lib: ["DOM", "ScriptHost", "ES2020", "ES2021.String", "ES2022"], // default to ES2020
   types: [""], // do not automatically import types
   typeRoots: [], // do not automatically import types
   baseUrl: "./",
@@ -1025,4 +1040,4 @@ export type TypescriptCompilerMessageFromWorker = {
 );
 
 // Version of the compilation record file
-const CURR_COMPILATION_FILE_VER = "0.3.9"; // !!!
+const CURR_COMPILATION_FILE_VER = "0.4.0"; // !!!

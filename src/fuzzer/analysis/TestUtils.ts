@@ -15,7 +15,7 @@ export function makeArgDef(
   children: TypeRef[] = [],
   typeRefName?: string,
   literalValue?: ArgType
-): ArgDef<ArgType> {
+): ArgDef {
   return ArgDef.fromTypeRef(
     makeTypeRef(
       module,

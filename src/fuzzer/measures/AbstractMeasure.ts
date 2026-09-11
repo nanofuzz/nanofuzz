@@ -1,4 +1,5 @@
 import { FuzzTestResults } from "../Fuzzer";
+import { AbstractRunner } from "../runners/AbstractRunner";
 import { FuzzTestResult, VmGlobals, InputAndSource } from "../Types";
 
 /**
@@ -27,6 +28,17 @@ export abstract class AbstractMeasure {
   public set weight(inWeight: number) {
     this._weight = inWeight;
   } // property: set weight
+
+  /**
+   * Hook for setting up the measure at the start of the run, once test
+   * runners exist. Useful for measures that source their data from runners
+   * rather than from instrumented code.
+   *
+   * @param `runners` test runners for this run
+   */
+  public onRunStart(_runners: AbstractRunner[] | AbstractRunner): void {
+    return;
+  }
 
   /**
    * Hook for instrumenting code after compilation but prior to load.
