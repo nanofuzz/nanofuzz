@@ -249,11 +249,17 @@ export class JavascriptRunner extends AbstractRunner {
     const args = [runnerHost, this._filename, this._jsFn];
     const host = new NodeHost(args, path.dirname(this._filename));
 
-    const okcodeBuf = await host.getResponseBuffer(10000);
+    const hostStartupTimeout = Config.get<number>(
+      "nanofuzz.fuzzer.hostStartupTimeout",
+      10000
+    );
+    const okcodeBuf = await host.getResponseBuffer(hostStartupTimeout);
     const okcode = deserialize(okcodeBuf);
     if (okcode === "READY") {
       this._host = host;
-      const initialCoverage = deserialize(await host.getResponseBuffer(10000));
+      const initialCoverage = deserialize(
+        await host.getResponseBuffer(hostStartupTimeout)
+      );
       if (isCoverageMapData(initialCoverage)) {
         this._coverageInfo = initialCoverage;
       }

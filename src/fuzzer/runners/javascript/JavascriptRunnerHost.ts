@@ -54,12 +54,17 @@ async function main() {
     return (...args: unknown[]) => fn(...args);
   };
 
-  if (initialFilename && initialFnName) {
-    try {
-      getTargetFunction(initialFilename, initialFnName);
-    } catch {
-      // Ignore if initial load fails; loop will handle per-request errors
+  startHeartbeat(1000);
+  try {
+    if (initialFilename && initialFnName) {
+      try {
+        getTargetFunction(initialFilename, initialFnName);
+      } catch {
+        // Ignore if initial load fails; loop will handle per-request errors
+      }
     }
+  } finally {
+    stopHeartbeat();
   }
 
   // Send READY message
@@ -217,6 +222,50 @@ function setup() {
   });
 } // fn: setup
 
+let heartbeatTimer: NodeJS.Timeout | undefined;
+let heartbeatCount = 0;
+const MAX_HEARTBEATS = 60;
+
+/**
+ * Start the heartbeat timer, sending heartbeat messages at the specified interval.
+ *
+ * @param intervalMs The interval in milliseconds between heartbeat messages.
+ */
+function startHeartbeat(intervalMs = 1000): void {
+  heartbeatCount = 0;
+  heartbeatTimer = setInterval(() => {
+    heartbeatCount++;
+    if (heartbeatCount > MAX_HEARTBEATS) {
+      stopHeartbeat();
+      return;
+    }
+    try {
+      sendMsg("HEART");
+    } catch {
+      stopHeartbeat();
+    }
+  }, intervalMs);
+  if (heartbeatTimer.unref) {
+    heartbeatTimer.unref();
+  }
+} // fn: startHeartbeat
+
+/**
+ * Stops the heartbeat timer, if it is running.
+ */
+function stopHeartbeat(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = undefined;
+  }
+} // fn: stopHeartbeat
+
+/**
+ * Wraps a function with a timeout.
+ *
+ * @param fnToCall The function to wrap.
+ * @returns A new function that accepts a timeout and the original function's arguments.
+ */
 function functionTimeout(
   fnToCall: (...args: unknown[]) => unknown
 ): (timeout: number | undefined, ...args: unknown[]) => unknown {
@@ -231,7 +280,7 @@ function functionTimeout(
     script.runInNewContext(context, timeout ? { timeout } : {});
     return context.returnValue;
   };
-}
+} // fn: functionTimeout
 
 /**
  * Transforms an argument based on the provided type hint.

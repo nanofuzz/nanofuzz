@@ -63,7 +63,8 @@ export const create = (
       case "S":
         return Array.from(options.strCharset).filter((c) => !/\s/.test(c));
       default:
-        if ("\\.^$|?*+()[]{}-'\"/".includes(escape) || /[^\w\s]/.test(escape)) return [escape];
+        if ("\\.^$|?*+()[]{}-'\"/".includes(escape) || /[^\w\s]/.test(escape))
+          return [escape];
         return fail(`escape \\${escape}`);
     }
   };
@@ -348,33 +349,106 @@ export const create = (
     matcher = new RegExp(source);
   }
 
-  const generate = (node: RegexNode): string => {
+  const generate = (node: RegexNode, target: LengthBounds): string => {
     switch (node.type) {
       case "chars":
         return node.chars[Math.floor(prng() * node.chars.length)];
-      case "sequence":
-        return node.nodes.map(generate).join("");
+      case "sequence": {
+        const currentTarget = { ...target };
+        const parts: string[] = [];
+        for (let i = 0; i < node.nodes.length; i++) {
+          const child = node.nodes[i];
+          const remBounds = node.nodes.slice(i + 1).reduce(
+            (acc, nextChild) => {
+              const b = boundsFor(nextChild);
+              return {
+                min: acc.min + b.min,
+                max: acc.max + b.max,
+              };
+            },
+            { min: 0, max: 0 }
+          );
+
+          const childTarget = {
+            min: Math.max(0, currentTarget.min - remBounds.max),
+            max: Math.max(0, currentTarget.max - remBounds.min),
+          };
+
+          const part = generate(child, childTarget);
+          parts.push(part);
+
+          currentTarget.min = Math.max(0, currentTarget.min - part.length);
+          currentTarget.max = Math.max(0, currentTarget.max - part.length);
+        }
+        return parts.join("");
+      }
       case "choice": {
-        return generate(node.nodes[Math.floor(prng() * node.nodes.length)]);
+        const validChoices = node.nodes.filter((child) => {
+          const b = boundsFor(child);
+          return b.max >= target.min && b.min <= target.max;
+        });
+        const choicePool = validChoices.length > 0 ? validChoices : node.nodes;
+        const chosen = choicePool[Math.floor(prng() * choicePool.length)];
+        return generate(chosen, target);
       }
       case "assertion":
       case "lookahead":
         return "";
       case "repeat": {
-        const range = node.max - node.min + 1;
+        const childBounds = boundsFor(node.node);
+        let effMin = node.min;
+        let effMax = node.max;
+
+        if (childBounds.max > 0) {
+          const minNeeded =
+            childBounds.max > 0
+              ? Math.ceil(target.min / childBounds.max)
+              : node.min;
+          const maxAllowed =
+            childBounds.min > 0
+              ? Math.floor(target.max / childBounds.min)
+              : node.max;
+
+          const candidateMin = Math.max(node.min, minNeeded);
+          const candidateMax = Math.min(node.max, maxAllowed);
+
+          if (candidateMin <= candidateMax) {
+            effMin = candidateMin;
+            effMax = candidateMax;
+          }
+        }
+
+        const range = effMax - effMin + 1;
         // Favor shorter expansions so several unbounded repetitions can still
         // fit within the effective string-length range.
-        const count = node.min + Math.floor(prng() * prng() * range);
-        return Array.from({ length: count }, () => generate(node.node)).join(
-          ""
-        );
+        const count = effMin + Math.floor(prng() * prng() * range);
+
+        const currentTarget = { ...target };
+        const parts: string[] = [];
+        for (let i = 0; i < count; i++) {
+          const remCount = count - 1 - i;
+          const remMin = remCount * childBounds.min;
+          const remMax = remCount * childBounds.max;
+
+          const itemTarget = {
+            min: Math.max(0, currentTarget.min - remMax),
+            max: Math.max(0, currentTarget.max - remMin),
+          };
+
+          const part = generate(node.node, itemTarget);
+          parts.push(part);
+
+          currentTarget.min = Math.max(0, currentTarget.min - part.length);
+          currentTarget.max = Math.max(0, currentTarget.max - part.length);
+        }
+        return parts.join("");
       }
     }
   };
 
   return () => {
     for (let attempt = 0; attempt < 100; attempt++) {
-      const value = generate(root);
+      const value = generate(root, effectiveBounds);
       if (
         value.length >= effectiveBounds.min &&
         value.length <= effectiveBounds.max &&

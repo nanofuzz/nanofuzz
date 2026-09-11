@@ -74,6 +74,12 @@ Commander.program
     parseIntArgGeZero,
     200
   )
+  .option(
+    `--host-startup-timeout <integer>`,
+    `Maximum time in ms allowed for test runner host startup`,
+    parseIntArgGeOne,
+    10000
+  )
   .option(`--seed <string>`, `Seed for pseudo-random number generator`, "")
 
   // ------------------------------- Transformers ------------------------------ //
@@ -239,6 +245,11 @@ const updateFn = (payload: FuzzBusyStatusMessage) => {
 for (const key in options) {
   const value = options[key];
   switch (key) {
+    // infrastructure options
+    case "hostStartupTimeout":
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", value);
+      break;
+
     // ai config options
     case "modelProvider":
       Config.override("nanofuzz.ai.provider", value);

@@ -111,6 +111,39 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
     }
   });
 
+  it("fixed string length range with star repetition (MSGP-001 bug_2)", () => {
+    const exactOptions = {
+      ...options,
+      strLength: { min: 32, max: 32 },
+    };
+    const builder = create(
+      "\\A(?:[\\u{20}-\\u{7E}]) *\\Z",
+      seedrandom("msgp-001"),
+      exactOptions
+    );
+    for (let index = 0; index < 20; index++) {
+      const value = builder();
+      expect(value.length).toBe(32);
+    }
+  });
+
+  it("multi-node sequences with length constraints", () => {
+    const sequenceOptions = {
+      ...options,
+      strLength: { min: 10, max: 10 },
+    };
+    const builder = create(
+      "\\Aabc[0-9]*\\Z",
+      seedrandom("seq-test"),
+      sequenceOptions
+    );
+    for (let index = 0; index < 20; index++) {
+      const value = builder();
+      expect(value.length).toBe(10);
+      expect(value.startsWith("abc")).toBeTrue();
+    }
+  });
+
   it("fails fast for incompatible regex and strLength bounds", () => {
     expect(() =>
       create("\\A[a-z]{6}\\Z", seedrandom("impossible-lengths"), {

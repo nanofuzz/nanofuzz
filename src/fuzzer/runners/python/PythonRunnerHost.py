@@ -91,6 +91,39 @@ type RunnerResult = Union[RunnerValueResult,
 pid = os.getpid()
 
 
+class HostHeartbeat:
+    """Sends periodic startup heartbeat messages to the parent process.
+    Capped at max_heartbeats (default 60 = 1 minute total allowance).
+    Runs as a daemon thread and stops when stop() is called.
+    """
+
+    def __init__(self, interval_sec: float = 1.0, max_heartbeats: int = 60):
+        self.interval = interval_sec
+        self.max_heartbeats = max_heartbeats
+        self.heartbeat_count = 0
+        self.stop_event = threading.Event()
+        self.thread = None
+
+    def start(self):
+        def _worker():
+            while not self.stop_event.wait(timeout=self.interval):
+                if self.heartbeat_count >= self.max_heartbeats:
+                    logging.debug(
+                        f"[{pid}] Max heartbeats ({self.max_heartbeats}) reached during startup")
+                    break
+                self.heartbeat_count += 1
+                try:
+                    send_msg("HEART")
+                except (BrokenPipeError, OSError):
+                    break
+
+        self.thread = threading.Thread(target=_worker, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+
+
 class PutTimeoutException(Exception):
     """Raised in the main thread when a test execution times out."""
     pass
@@ -544,7 +577,8 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             # and call the original underlying function
             if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
                 # Unwrap Hypothesis test function
-                value = call_with_timeout(fn.hypothesis.inner_test, args, timeout_ms)
+                value = call_with_timeout(
+                    fn.hypothesis.inner_test, args, timeout_ms)
             else:
                 # Not Hypothesis; call directly
                 value = call_with_timeout(fn, args, timeout_ms)
@@ -644,44 +678,51 @@ if __name__ == "__main__":
     # and `include` patterns must match it.
     filename = os.path.realpath(filename)
 
-    # One in-memory coverage instance for the whole run
-    cov = coverage.Coverage(
-        include=[os.path.join(os.path.dirname(filename), "**", "*.py")], branch=True, data_file=None)
+    # Start heartbeat thread during coverage initialization, module import, and static analysis
+    hb = HostHeartbeat(interval_sec=1.0, max_heartbeats=60)
+    hb.start()
 
-    # Try to load the function: either results in a RunnerErrorResult
-    # or a callable function
-    logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
-    [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-    if (loadError is not None):
-        logging.debug(f"[{pid}]  - Unable to load")
-    else:
-        logging.debug(f"[{pid}]  - Loaded function")
+    try:
+        # One in-memory coverage instance for the whole run
+        cov = coverage.Coverage(
+            include=[os.path.join(os.path.dirname(filename), "**", "*.py")], branch=True, data_file=None)
 
-    # Static analysis of the program: the executable lines, functions, and
-    # branches of every file it is made of.
-    coverageInfo = {file: static_coverage(cov, file)
-                    for file in program_files(filename)}
-    logging.debug(
-        f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
+        # Try to load the function: either results in a RunnerErrorResult
+        # or a callable function
+        logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
+        [loadError, fn] = loadPythonFn(filename, modulename, fnname)
+        if (loadError is not None):
+            logging.debug(f"[{pid}]  - Unable to load")
+        else:
+            logging.debug(f"[{pid}]  - Loaded function")
 
-    # Change cwd from the extension to that of the Python script
-    os.chdir(os.path.dirname(filename))
+        # Static analysis of the program: the executable lines, functions, and
+        # branches of every file it is made of.
+        coverageInfo = {file: static_coverage(cov, file)
+                        for file in program_files(filename)}
+        logging.debug(
+            f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
 
-    # Pre-warm the coverage machinery. The first `cov.start()` installs the
-    # tracer, which costs far more than a steady-state call and can push the
-    # first test over `fnTimeout` on its own -- and because a timeout kills
-    # the host, the respawned host pays it again, cascading into a run where
-    # every test times out.
-    #
-    # This must happen *before* the handshake below, so the cost is charged to
-    # the caller's startup budget (seconds) rather than its per-test budget
-    # (~100ms). Nothing runs between start and stop, so no coverage is
-    # recorded, and the final erase leaves the data empty for the first test.
-    cov.get_data().erase()
-    cov.start()
-    cov.stop()
-    cov.get_data().erase()
-    logging.debug(f"[{pid}] Pre-warmed coverage tracer")
+        # Change cwd from the extension to that of the Python script
+        os.chdir(os.path.dirname(filename))
+
+        # Pre-warm the coverage machinery. The first `cov.start()` installs the
+        # tracer, which costs far more than a steady-state call and can push the
+        # first test over `fnTimeout` on its own -- and because a timeout kills
+        # the host, the respawned host pays it again, cascading into a run where
+        # every test times out.
+        #
+        # This must happen *before* the handshake below, so the cost is charged to
+        # the caller's startup budget (seconds) rather than its per-test budget
+        # (~100ms). Nothing runs between start and stop, so no coverage is
+        # recorded, and the final erase leaves the data empty for the first test.
+        cov.get_data().erase()
+        cov.start()
+        cov.stop()
+        cov.get_data().erase()
+        logging.debug(f"[{pid}] Pre-warmed coverage tracer")
+    finally:
+        hb.stop()
 
     # Ready for inputs
     send_msg("READY")
