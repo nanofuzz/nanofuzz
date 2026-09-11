@@ -9,7 +9,7 @@ import * as path from "path";
 import * as Parser from "../../adapters/ParserAdapter";
 
 class InspectablePythonProgram extends PythonProgram {
-  public get unsupportedFunctions() {
+  public get functionsNotSupported() {
     return this._functions.unsupported;
   }
 }
@@ -664,7 +664,7 @@ from .schemas import *`,
       // Pydantic request objects are not a supported fuzz-input shape yet;
       // the analyzer must report this endpoint as unsupported, not crash.
       expect(program.functionsExported["create_prediction"]).toBeUndefined();
-      expect(program.unsupportedFunctions["create_prediction"]).toEqual(
+      expect(program.functionsNotSupported["create_prediction"]).toEqual(
         jasmine.objectContaining({ argument: "payload" })
       );
       expect(console.debug).toHaveBeenCalled();
@@ -713,7 +713,7 @@ from .schemas import *`,
     );
 
     expect(program.functionsExported["x"]).toBeUndefined();
-    expect(program.unsupportedFunctions["x"]).toEqual(
+    expect(program.functionsNotSupported["x"]).toEqual(
       jasmine.objectContaining({
         reason: jasmine.stringMatching("Missing type annotation"),
       })
@@ -796,7 +796,7 @@ def create_item(item_id: int, db: Session = Depends(get_db)) -> str:
     );
 
     expect(program.functions["create_item"]).toBeUndefined();
-    expect(program.unsupportedFunctions["create_item"]).toEqual(
+    expect(program.functionsNotSupported["create_item"]).toEqual(
       jasmine.objectContaining({ argument: "db" })
     );
   });
@@ -1160,6 +1160,28 @@ def test_dates(year, month):
     const args = fn.getArgDefs();
     expect(args[0].getIntervals()).toEqual([{ min: 2000, max: 2030 }]);
     expect(args[1].getIntervals()).toEqual([{ min: 1, max: 12 }]);
+  });
+
+  it("hypothesis @given positional arguments (comments)", () => {
+    const pgm = ProgramFactory.fromSource(
+      () => `
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+@settings(max_examples=500, deadline=None)
+@given(
+    st.integers(min_value=2, max_value=5),  # number of lines where name appears
+    st.text(alphabet=st.characters(whitelist_categories=['Ll']), min_size=1, max_size=8),
+)
+def test_bug2_used_names_occurrence_order(n_lines, name_base):
+    pass
+`,
+      "python"
+    );
+    const fn = pgm.functionsExported["test_bug2_used_names_occurrence_order"];
+    expect(fn).toBeDefined();
+    const args = fn.getArgDefs();
+    expect(args.length).toBe(2);
   });
 
   it("hypothesis @given negative numeric values", () => {

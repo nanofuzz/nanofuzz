@@ -1080,6 +1080,12 @@ export class PythonProgram extends AbstractProgram {
             const argsNode = callNode.childForFieldName("arguments");
             if (argsNode) {
               for (const argChild of argsNode.namedChildren) {
+                if (
+                  argChild.type === "comment" ||
+                  argChild.type === "line_comment"
+                ) {
+                  continue;
+                }
                 if (argChild.type === "keyword_argument") {
                   const paramName = argChild.childForFieldName("name")?.text;
                   const strategyValue = argChild.childForFieldName("value");
