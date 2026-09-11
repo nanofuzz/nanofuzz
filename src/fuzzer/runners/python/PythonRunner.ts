@@ -457,15 +457,20 @@ export class PythonRunner extends AbstractRunner {
       this._pythonEnv
     );
 
+    const hostStartupTimeout = Config.get<number>(
+      "nanofuzz.fuzzer.hostStartupTimeout",
+      10000
+    );
+
     // a longer timeout tolerance for the host to pre-warm the coverage
-    const okcode = await host.getResponse(10000);
+    const okcode = await host.getResponse(hostStartupTimeout);
     if (okcode === `"READY"`) {
       this._host = host;
 
       // Get the static coverage structure, which the host sends once. The
       // dynamic `lines`/`arcs` are filled in by each `run`.
       this._coverageInfo = JSON5.parse<FullCoverage>(
-        await host.getResponse(10000)
+        await host.getResponse(hostStartupTimeout)
       );
       return host;
     } else {
