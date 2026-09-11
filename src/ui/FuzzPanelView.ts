@@ -12,6 +12,7 @@ import {
   isFuzzResultTab,
   Judgment,
 } from "../fuzzer/Types";
+import { getBaseOrigin } from "../Util";
 import * as Parser from "../fuzzer/adapters/ParserAdapter";
 import {
   ArgValueType,
@@ -39,6 +40,7 @@ const gridTypes = [
   "timeout",
   "badValue",
   "ok",
+  "skip",
 ] as const;
 
 // Column name labels
@@ -88,6 +90,7 @@ const defaultColumnSortOrders: FuzzSortColumns = {
   badValue: getDefaultColumnSortOrder(),
   ok: getDefaultColumnSortOrder(),
   disagree: getDefaultColumnSortOrder(),
+  skip: {}, // no pinned column
 };
 
 // Column sort orders (filled by main or handleColumnSort())
@@ -96,14 +99,25 @@ let columnSortOrders: FuzzSortColumns;
 let resultsData: FuzzTestResults;
 // Fuzzer Language (filled by main during load event)
 let lang: ProgramLanguage;
+// PUT input column names (filled by main during load event)
+let putInputCols: string[] = [];
+export type FuzzPanelViewRow = {
+  id?: number;
+  src?: string;
+  pinned?: boolean;
+  expectedOutput?: FuzzIoElement[];
+  [key: string]: unknown;
+};
+
 // Results grouped by type (filled by main during load event)
-const data: Record<FuzzResultCategory, any[]> = {
+const data: Record<FuzzResultCategory, FuzzPanelViewRow[]> = {
   ok: [],
   badValue: [],
   timeout: [],
   exception: [],
   disagree: [],
   failure: [],
+  skip: [],
 };
 // Validator functions (filled by main during load event)
 let validators: string[];
@@ -261,6 +275,12 @@ async function main() {
     handleGetListOfValidators
   );
 
+  // Add event listener for the transformer button
+  getElementByIdOrThrow("transformer.add").addEventListener(
+    "click",
+    handleAddTransformer
+  );
+
   // Add event listeners for the pause button
   getElementByIdOrThrow("fuzz.pause").addEventListener("click", () => {
     const message: FuzzPanelMessageFromWebView = { command: "fuzz.pause" };
@@ -405,6 +425,15 @@ async function main() {
   );
   refreshValidators(validators);
 
+  // Load & display the transformer state from the HTML
+  const transformersElem = document.getElementById("transformers");
+  if (transformersElem) {
+    const transformersList: string[] = JSONN.parse(
+      htmlUnescape(transformersElem.innerHTML)
+    );
+    refreshTransformers(transformersList);
+  }
+
   // Load column sort orders from the HTML
   columnSortOrders = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
@@ -412,6 +441,12 @@ async function main() {
   if (Object.keys(columnSortOrders).length === 0) {
     columnSortOrders = defaultColumnSortOrders;
   }
+  // Ensure all grid types are present in columnSortOrders to prevent runtime exceptions on new categories
+  gridTypes.forEach((type) => {
+    if (columnSortOrders[type] === undefined) {
+      columnSortOrders[type] = { ...defaultColumnSortOrders[type] };
+    }
+  });
 
   // Load the coverage heatmap state from the HTML
   if (getElementByIdOrThrow("fuzzShowCoverageHeatmap").innerText === "true") {
@@ -424,6 +459,9 @@ async function main() {
     switch (data.command) {
       case "validator.list":
         refreshValidators(data.validators);
+        break;
+      case "transformer.list":
+        refreshTransformers(data.transformers);
         break;
       case "config.updated": {
         getElementByIdOrThrow("llm-model").innerText =
@@ -488,7 +526,7 @@ async function main() {
   );
 
   // Get the PUT's current input argument names
-  const putInputCols = JSONN.parse<string[]>(
+  putInputCols = JSONN.parse<string[]>(
     htmlUnescape(getElementByIdOrThrow("fuzzInputCols").innerHTML)
   );
 
@@ -528,9 +566,8 @@ async function main() {
       const id = { [idLabel]: idx++ };
 
       // Input Source
-      const inputSrc: FuzzValueOrigin = e.input.length
-        ? e.input[0].origin
-        : { type: "unknown" };
+      const inputSrc: Exclude<FuzzValueOrigin, { type: "transformer" }> =
+        getBaseOrigin(e.input.length ? e.input[0].origin : { type: "unknown" });
       let src: { [srcLabel]: string };
       switch (inputSrc.type) {
         case "unknown":
@@ -622,21 +659,26 @@ async function main() {
       });
       if (e.validatorException) {
         outputs[`output`] =
+          e.validatorExceptionDisplay ??
           `(${e.validatorExceptionFunction} exception) ${e.validatorExceptionMessage}`;
       } else if (e.exception) {
-        outputs[`output`] = "(exception) " + e.exceptionMessage;
+        outputs[`output`] =
+          e.exceptionDisplay ?? "(exception) " + e.exceptionMessage;
       }
       if (e.timeout) {
         outputs[`output`] = "(timeout)";
       }
+      if (e.skipped) {
+        outputs[`output`] = e.skipReason ?? "(none provided)";
+      }
 
       // Toss each result into the appropriate grid
-      if (e.category === "failure") {
+      if (e.category === "failure" || e.category === "skip") {
         data[e.category].push({
           ...id,
           ...src,
           ...inputs,
-          ...outputs, // Exception message contained in outputs
+          ...outputs, // message contained in outputs
         });
       } else {
         data[e.category].push({
@@ -644,10 +686,8 @@ async function main() {
           ...src,
           ...inputs,
           ...outputs,
-          //...elapsedTimes,
           ...passedImplicit,
           ...passedValidator,
-          // ...allValidators,
           ...validatorFns,
           ...passedHuman,
           ...pinned,
@@ -812,7 +852,11 @@ async function main() {
           } else {
             const cell = hRow.appendChild(document.createElement("th"));
             const label =
-              type === "failure" && k === "output" ? "exception" : k;
+              type === "failure" && k === "output"
+                ? "exception"
+                : type === "skip" && k === "output"
+                  ? "reason"
+                  : k;
             cell.id = type + "-" + k;
             cell.classList.add("clickable", `tableCol-${k.replace(" ", "")}`);
             cell.innerHTML = `<strong>${htmlEscape(label)}</strong>`;
@@ -1146,10 +1190,10 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
   const testCase: FuzzPinnedTest = {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
-    pinned: data[type][index][pinnedLabel],
+    pinned: Boolean(data[type][index].pinned),
   };
-  if (data[type][index][expectedLabel]) {
-    testCase.expectedOutput = data[type][index][expectedLabel];
+  if (data[type][index].expectedOutput) {
+    testCase.expectedOutput = data[type][index].expectedOutput;
   }
 
   // Send the request to the extension
@@ -1230,12 +1274,24 @@ function handleCorrectToggle(
     cell2.setAttribute("onOff", "false");
     //save expected output value
     if (resultsData.results[id].timeout) {
-      data[type][index][expectedLabel] = [
-        { name: "0", offset: 0, isTimeout: true },
+      data[type][index].expectedOutput = [
+        {
+          name: "0",
+          offset: 0,
+          isTimeout: true,
+          value: undefined,
+          origin: { type: "user" },
+        },
       ];
     } else if (resultsData.results[id].exception) {
-      data[type][index][expectedLabel] = [
-        { name: "0", offset: 0, isException: true },
+      data[type][index].expectedOutput = [
+        {
+          name: "0",
+          offset: 0,
+          isException: true,
+          value: undefined,
+          origin: { type: "user" },
+        },
       ];
     } else {
       data[type][index][expectedLabel] = resultsData.results[id].output;
@@ -1268,7 +1324,7 @@ function handleCorrectToggle(
       input: resultsData.results[id].input,
       output: resultsData.results[id].output,
       pinned: isPinned,
-      expectedOutput: data[type][index][expectedLabel],
+      expectedOutput: data[type][index].expectedOutput,
     },
   };
 
@@ -1409,25 +1465,37 @@ function handleColumnSort(
 
   // Define sorting function:
   // Sort current column value based on sort order
-  const sortFn = (a: any, b: any, thisCol: string) => {
+  const sortFn = (
+    rowA: Record<string, unknown>,
+    rowB: Record<string, unknown>,
+    thisCol: string
+  ) => {
+    let first = rowA;
+    let second = rowB;
     const sortOrder = columnSortOrders[type][thisCol];
     if (sortOrder !== FuzzSortOrder.desc && sortOrder !== FuzzSortOrder.asc) {
       return 0; // no need to sort
     } else if (sortOrder === FuzzSortOrder.desc) {
-      const temp = a;
-      a = b;
-      b = temp; // swap a and b
+      first = rowB;
+      second = rowA;
     }
+
+    const valA = first[thisCol];
+    const valB = second[thisCol];
+
     // Determine type of object
-    let aType;
+    let aType: string;
     try {
-      aType = typeof JSON.parse(a[thisCol]);
+      aType = typeof JSON.parse(String(valA));
     } catch (_error) {
       aType = "string";
     }
     // Save original strings (to break ties alphabetically)
-    let aVal = (a[thisCol] ?? "undefined") + "";
-    let bVal = (b[thisCol] ?? "undefined") + "";
+    let aValStr = String(valA ?? "undefined");
+    let bValStr = String(valB ?? "undefined");
+
+    let compA: number;
+    let compB: number;
 
     // How are we sorting?
     if (
@@ -1436,50 +1504,55 @@ function handleColumnSort(
       )
     ) {
       // Special sort order for judgments
-      [a, b] = [a[thisCol], b[thisCol]].map((j) =>
-        j === "pass" ? 2 : j === "fail" ? 1 : 0
-      );
+      compA = valA === "pass" ? 2 : valA === "fail" ? 1 : 0;
+      compB = valB === "pass" ? 2 : valB === "fail" ? 1 : 0;
     } else {
       switch (aType) {
         case "number":
           // Sort numerically
-          a = Number(a[thisCol]);
-          b = Number(b[thisCol]);
+          compA = Number(valA);
+          compB = Number(valB);
           break;
         case "object":
           // Sort by length
-          if (a[thisCol].length) {
-            a = a[thisCol].length;
-            b = b[thisCol].length;
+          if (Array.isArray(valA)) {
+            compA = valA.length;
+            compB = Array.isArray(valB) ? valB.length : 0;
             // If numerical values, break ties based on number
             try {
-              aVal = JSON.parse(a[thisCol]);
-              bVal = JSON.parse(b[thisCol]);
+              aValStr = String(JSON.parse(String(valA)));
+              bValStr = String(JSON.parse(String(valB)));
             } catch (_error) {
               // noop; if not numerical, break ties alphabetically
             }
+          } else if (valA !== null && typeof valA === "object") {
+            compA = Object.keys(valA).length;
+            compB =
+              valB !== null && typeof valB === "object"
+                ? Object.keys(valB).length
+                : 0;
           } else {
-            a = Object.keys(a[thisCol]).length;
-            b = Object.keys(b[thisCol]).length;
+            compA = 0;
+            compB = 0;
           }
           break;
         default:
           // Sort as string by length, break ties alphabetically
-          a = (a[thisCol] ?? "").length;
-          b = (b[thisCol] ?? "").length;
+          compA = String(valA ?? "").length;
+          compB = String(valB ?? "").length;
           break;
       } // switch
     }
     // Compare values and sort
-    if (a === b) {
-      if (aVal === bVal) {
+    if (compA === compB) {
+      if (aValStr === bValStr) {
         return 0; // a = b
-      } else if (aVal > bVal) {
+      } else if (aValStr > bValStr) {
         return 2; // break tie
       } else {
         return -2; // break tie
       }
-    } else if (a > b) {
+    } else if (compA > compB) {
       return 2; // a > b
     } else {
       return -2; // a < b
@@ -1602,7 +1675,7 @@ function drawTableBody({
     const row = tbody.appendChild(document.createElement("tr"));
     Object.keys(e).forEach((k) => {
       if (k === idLabel) {
-        id = parseInt(e[k]);
+        id = parseInt(String(e[k] ?? 0));
         row.setAttribute("id", `${id}`);
       } else if (hiddenColumns.indexOf(k) !== -1) {
         // noop (hidden)
@@ -1772,7 +1845,6 @@ function drawTableBody({
         cell2.classList.add("colGroupEnd", "clickable");
       } else {
         const cell = row.appendChild(document.createElement("td"));
-        const span = cell.appendChild(document.createElement("span"));
         cell.classList.add(
           `tableCol-${k.replace(" ", "")}`,
           `editorFont`,
@@ -1781,7 +1853,52 @@ function drawTableBody({
         if (e[k] === "(no input)") {
           cell.classList.add("noInput");
         }
-        span.textContent = e[k];
+
+        const span = cell.appendChild(document.createElement("span"));
+        span.textContent = String(e[k] ?? "");
+
+        if (k.startsWith("input: ") && id >= 0 && resultsData.results[id]) {
+          const res = resultsData.results[id];
+          const inputIndex = res.input.findIndex((_inp, i) => {
+            const colKey = `input: ${putInputCols[i] ?? "?".repeat(i - putInputCols.length + 1)}`;
+            return colKey === k;
+          });
+          if (inputIndex !== -1) {
+            const inputEl = res.input[inputIndex];
+            if (
+              inputEl &&
+              inputEl.origin &&
+              inputEl.origin.type === "transformer"
+            ) {
+              const basis = inputEl.origin.basis;
+              const originalWrapped = basis.value[inputIndex];
+              const originalVal = originalWrapped
+                ? originalWrapped.value
+                : undefined;
+              const origValueStr =
+                originalVal === undefined
+                  ? "(no input)"
+                  : ValueMapper.toLang(lang, originalVal);
+
+              const tooltipSpan = cell.appendChild(
+                document.createElement("span")
+              );
+              tooltipSpan.classList.add("tooltipped", "tooltipped-s");
+              const tooltipText = `Pre-transformed input: ${origValueStr}`;
+              tooltipSpan.setAttribute("aria-label", tooltipText);
+              tooltipSpan.style.marginLeft = "0.3em";
+
+              const iconSpan = tooltipSpan.appendChild(
+                document.createElement("span")
+              );
+              iconSpan.classList.add(
+                "codicon",
+                "codicon-replace",
+                "editorFont"
+              );
+            }
+          }
+        }
       }
     });
   });
@@ -2081,7 +2198,7 @@ function buildExpectedTestCase(
   return {
     input: resultsData.results[id].input,
     output: resultsData.results[id].output,
-    pinned: data[type][index][pinnedLabel],
+    pinned: Boolean(data[type][index].pinned),
     expectedOutput: [expectedOutput],
   };
 } // fn: buildExpectedTestCase()
@@ -2232,6 +2349,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
       useImplicit: getBooleanValue("useImplicit"),
       useHuman: true, // always active
       useProperty: getBooleanValue("useProperty"),
+      useTransformer: getBooleanValue("useTransformer"),
       measures: {
         CoverageMeasure: {
           enabled:
@@ -2293,7 +2411,14 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const falseOnly = document.getElementById(idBase + "-falseOnly");
     const minStrLen = document.getElementById(idBase + "-minStrLen");
     const maxStrLen = document.getElementById(idBase + "-maxStrLen");
+    const minByteLen = document.getElementById(idBase + "-minByteLen");
+    const maxByteLen = document.getElementById(idBase + "-maxByteLen");
+    const minDictLen = document.getElementById(idBase + "-minDictLen");
+    const maxDictLen = document.getElementById(idBase + "-maxDictLen");
+    const minSetLen = document.getElementById(idBase + "-minSetLen");
+    const maxSetLen = document.getElementById(idBase + "-maxSetLen");
     const strCharset = document.getElementById(idBase + "-strCharset");
+    const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
 
     // Process numeric overrides
@@ -2321,10 +2446,16 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
 
     // Process string overrides
     if (minStrLen && maxStrLen && strCharset) {
-      disableArr.push(minStrLen, maxStrLen);
+      disableArr.push(
+        minStrLen,
+        maxStrLen,
+        strCharset,
+        ...(strRegex ? [strRegex] : [])
+      );
       const minStrLenVal = minStrLen.getAttribute("current-value");
       const maxStrLenVal = maxStrLen.getAttribute("current-value");
       const strCharsetVal = strCharset.getAttribute("current-value");
+      const strRegexVal = strRegex?.getAttribute("current-value");
       if (
         minStrLenVal !== null &&
         maxStrLenVal !== null &&
@@ -2337,9 +2468,58 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           ),
           maxStrLen: Math.max(Number(minStrLenVal), Number(maxStrLenVal), 0),
           strCharset: strCharsetVal,
+          strRegex: strRegexVal === "" ? undefined : (strRegexVal ?? undefined),
         };
       }
     } // TODO: Validation !!!
+
+    // Process bytes overrides
+    if (minByteLen && maxByteLen) {
+      disableArr.push(minByteLen, maxByteLen);
+      const minByteLenVal = minByteLen.getAttribute("current-value");
+      const maxByteLenVal = maxByteLen.getAttribute("current-value");
+      if (minByteLenVal !== null && maxByteLenVal !== null) {
+        thisOverride.bytes = {
+          minByteLen: Math.max(
+            0,
+            Math.min(Number(minByteLenVal), Number(maxByteLenVal))
+          ),
+          maxByteLen: Math.max(Number(minByteLenVal), Number(maxByteLenVal), 0),
+        };
+      }
+    }
+
+    // Process dictionary overrides
+    if (minDictLen && maxDictLen) {
+      disableArr.push(minDictLen, maxDictLen);
+      const minDictLenVal = minDictLen.getAttribute("current-value");
+      const maxDictLenVal = maxDictLen.getAttribute("current-value");
+      if (minDictLenVal !== null && maxDictLenVal !== null) {
+        thisOverride.dictionary = {
+          minDictLen: Math.max(
+            0,
+            Math.min(Number(minDictLenVal), Number(maxDictLenVal))
+          ),
+          maxDictLen: Math.max(Number(minDictLenVal), Number(maxDictLenVal), 0),
+        };
+      }
+    }
+
+    // Process set overrides
+    if (minSetLen && maxSetLen) {
+      disableArr.push(minSetLen, maxSetLen);
+      const minSetLenVal = minSetLen.getAttribute("current-value");
+      const maxSetLenVal = maxSetLen.getAttribute("current-value");
+      if (minSetLenVal !== null && maxSetLenVal !== null) {
+        thisOverride.set = {
+          minSetLen: Math.max(
+            0,
+            Math.min(Number(minSetLenVal), Number(maxSetLenVal))
+          ),
+          maxSetLen: Math.max(Number(minSetLenVal), Number(maxSetLenVal), 0),
+        };
+      }
+    }
 
     // Process isNoInput overrides
     if (isNoInput !== null) {
@@ -2351,13 +2531,15 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
 
     // Process array dimension overrides
     const dimLength = [];
+    let dimsUnique = false;
     let dim = 0;
     let arrayBase = `${idBase}-array-${dim}`;
     while (document.getElementById(`${arrayBase}-min`) !== null) {
       const min = document.getElementById(`${arrayBase}-min`);
       const max = document.getElementById(`${arrayBase}-max`);
+      const unique = document.getElementById(`${arrayBase}-unique`);
       if (min !== null && max !== null) {
-        disableArr.push(min, max);
+        disableArr.push(min, max, ...(unique ? [unique] : []));
         const minVal = min.getAttribute("current-value");
         const maxVal = max.getAttribute("current-value");
         if (minVal !== null && maxVal !== null) {
@@ -2367,11 +2549,17 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           });
         }
       }
+      if (dim === 0 && unique !== null) {
+        dimsUnique =
+          unique.getAttribute("current-checked") === "true" ||
+          ("checked" in unique && unique.checked === true);
+      }
       arrayBase = `${idBase}-array-${++dim}`;
     }
     if (dimLength.length > 0) {
       thisOverride.array = {
         dimLength: dimLength,
+        dimsUnique: dimsUnique,
       };
     }
   }
@@ -2401,6 +2589,22 @@ function refreshValidators(validatorList: string[]) {
 } // fn: refreshValidators
 
 /**
+ * Refreshes the displayed state for input transformers based on a list of
+ * transformer names provided from the back-end.
+ *
+ * @param transformerList list of available input transformer names
+ */
+function refreshTransformers(transformerList: string[]) {
+  const btn = document.getElementById("transformer.add");
+  if (btn) {
+    btn.innerText =
+      transformerList.length > 0
+        ? "Show Input Transformer"
+        : "Create Input Transformer";
+  }
+} // fn: refreshTransformers
+
+/**
  * Send message to back-end to add code skeleton to source code (because the
  * user clicked the customValidator button)
  */
@@ -2410,6 +2614,16 @@ function handleAddValidator() {
   };
   vscode.postMessage(message);
 } // fn: handleAddValidator()
+
+/**
+ * Send message to back-end to add input transformer code skeleton
+ */
+function handleAddTransformer() {
+  vscode.postMessage({
+    command: "transformer.add",
+    json: JSONN.stringify(""),
+  });
+} // fn: handleAddTransformer()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the

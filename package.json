@@ -37,6 +37,11 @@
         "category": "NaNofuzz"
       },
       {
+        "command": "nanofuzz.ClearCompileCache",
+        "title": "Clear compile cache",
+        "category": "NaNofuzz"
+      },
+      {
         "command": "nanofuzz.telemetry.FlushLog",
         "title": "Flush Telemetry Log to storage",
         "category": "NaNofuzz"
@@ -88,9 +93,16 @@
           "nanofuzz.fuzzer.fnTimeout": {
             "title": "Timeout test after (ms)",
             "type": "integer",
-            "default": 100,
+            "default": 200,
             "minimum": 0,
             "description": "Default maximum time (in ms) to allow a test function to run before making it as a timeout."
+          },
+          "nanofuzz.fuzzer.hostStartupTimeout": {
+            "title": "Timeout runner host startup after (ms)",
+            "type": "integer",
+            "default": 10000,
+            "minimum": 1000,
+            "description": "Maximum time (in ms) allowed for the runner host process to startup."
           }
         }
       },
@@ -155,6 +167,27 @@
             "type": "boolean",
             "default": false,
             "description": "Write AI debug information to the console"
+          },
+          "nanofuzz.ai.cacheMode": {
+            "title": "LLM response cache mode",
+            "order": 70,
+            "type": "string",
+            "enum": [
+              "passthrough",
+              "record",
+              "replay-record",
+              "replay-error",
+              "replay-passthrough"
+            ],
+            "default": "passthrough",
+            "description": "Mode for caching and replaying LLM query responses"
+          },
+          "nanofuzz.ai.cacheFile": {
+            "title": "LLM response cache file path",
+            "order": 80,
+            "type": "string",
+            "default": ".nanofuzz-llm-cache.json",
+            "description": "File path where recorded LLM query responses and latencies are saved"
           }
         }
       },
@@ -251,6 +284,12 @@
             "default": true,
             "description": "Show two buttons for validator functions, one to test the associated function with property validators enabled, and one to test the validator itself."
           },
+          "nanofuzz.ui.codeLens.includeTransformers": {
+            "title": "Show 'NaNofuzz' button for input transformer functions?",
+            "default": true,
+            "type": "boolean",
+            "description": "Show 'NaNofuzz' button for input transformer functions?"
+          },
           "nanofuzz.ui.codeLens.ignoreFilePattern": {
             "title": "Regex of files for NaNofuzz to ignore",
             "type": "string",
@@ -298,12 +337,24 @@
             "minimum": 0,
             "description": "Amount of focus to decrement on each random leader selection"
           },
+          "nanofuzz.generators.compositeTrackCheckpoints": {
+            "title": "Track composite generator checkpoints statistics",
+            "type": "boolean",
+            "default": false,
+            "description": "Track composite generator checkpoints statistics"
+          },
           "telemetry.active": {
             "title": "Activate telemetry? (requires restart)",
             "type": "boolean",
             "default": false,
             "minimum": 0,
             "description": "Activate telemetry?"
+          },
+          "nanofuzz.debug.runners": {
+            "title": "Debug logging for runner processes",
+            "type": "boolean",
+            "default": false,
+            "description": "Enable debug logging for runner host processes (e.g. PythonRunnerHost, JavascriptRunnerHost)."
           }
         }
       }
@@ -311,7 +362,8 @@
   },
   "scripts": {
     "build": "npx tsc -noEmit && node build.mjs",
-    "test": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
+    "test": "node test.cjs",
+    "test:seq": "node --no-experimental-strip-types ./node_modules/jasmine/bin/jasmine.js",
     "lint": "eslint src",
     "lint:errors": "eslint --quiet src",
     "vscode:prepublish": "yarn build",
@@ -334,7 +386,7 @@
     ]
   },
   "dependencies": {
-    "@vscode/codicons": "^0.0.45",
+    "@vscode/codicons": "^0.0.46-37",
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "tree-sitter-python": "^0.25.0",
     "tree-sitter-typescript": "^0.23.2",

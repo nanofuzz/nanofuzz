@@ -1,16 +1,16 @@
 import * as JSON5 from "json5";
-import { isKeyedObject } from "./Util";
+import { isBufferOrUint8Array, isKeyedObject, makeCanonicalSet } from "./Util";
 
 /**
  * JSONN: JavaScript Object Notation for NaNofuzz
  *
  * Mostly a drop-in replacement for JSON5. Adds support for serializing
- * and unserializing `undefined` and `bigint`, including in arrays and
- * object members.
+ * and unserializing `undefined`, `bigint`, and `Uint8Array`, including
+ * within arrays and object members.
  *
- * While JSONN is valid JSON5 and might be parsed ok by JSON5, `undefined`
- * and `bigint` values will be parsed inaccurately by the standard JSON5
- * library.
+ * While JSONN is valid JSON5 and might be parsed without error by JSON5,
+ * the special types (`undefined`, `bigint`, and `Uint8Array`) will be
+ * parsed inaccurately by the standard JSON5 library.
  */
 
 /**
@@ -56,6 +56,11 @@ export function stringify(
   return text;
 }
 
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+}
+
 /**
  * Parses a JSONN string and constructing a JavaScript value or object
  * described by the string.
@@ -79,7 +84,7 @@ export function parse<T>(
     // Parse the data while keeping a list of any values we need to replace.
     // We do this in two steps because JSON5 strips `undefined` AFTER revive.
     const valuesToRevive: ReviveTarget[] = [];
-    result = JSON5.parse<T>(
+    result = JSON5.parse(
       text,
       reviver
         ? function (this: unknown, key: string, value: unknown): unknown {
@@ -104,7 +109,7 @@ export function parse<T>(
     });
   }
 
-  return result as T;
+  return cast<T>(result);
 }
 
 /**
@@ -127,6 +132,24 @@ export function getPlaceholder(_key: "undefined"): string {
  * @returns the replacement value
  */
 function jsonnReplacer(this: unknown, key: string, value: unknown): unknown {
+  if (isBufferOrUint8Array(value)) {
+    return {
+      [PlaceHolderUint8ArrayKey]: Array.from(value),
+    };
+  }
+
+  if (value instanceof Map) {
+    return {
+      [PlaceHolderMapKey]: Array.from(value.entries()),
+    };
+  }
+
+  if (value instanceof Set) {
+    return {
+      [PlaceHolderSetKey]: Array.from(value.values()),
+    };
+  }
+
   // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
   switch (typeof value) {
     case "undefined":
@@ -172,16 +195,27 @@ function jsonnReviver(
       }
     }
     if (typeof value[PlaceHolderBigIntKey] === "string") {
-      const newValue = BigInt(String(value[PlaceHolderBigIntKey]));
-      if (key === "") {
-        return newValue;
-      } else {
-        if (Array.isArray(this)) {
-          targets.push({ arr: this, key, value: newValue });
-        } else if (isKeyedObject(this)) {
-          targets.push({ obj: this, key, value: newValue });
+      return BigInt(String(value[PlaceHolderBigIntKey]));
+    }
+    if (Array.isArray(value[PlaceHolderUint8ArrayKey])) {
+      const arr = value[PlaceHolderUint8ArrayKey];
+      return new Uint8Array(
+        arr.filter((e): e is number => typeof e === "number")
+      );
+    }
+    if (Array.isArray(value[PlaceHolderMapKey])) {
+      const rawEntries = value[PlaceHolderMapKey];
+      const entries: Array<[unknown, unknown]> = [];
+      for (const entry of rawEntries) {
+        if (Array.isArray(entry) && entry.length === 2) {
+          entries.push([entry[0], entry[1]]);
         }
       }
+      return new Map(entries);
+    }
+    if (Array.isArray(value[PlaceHolderSetKey])) {
+      const rawValues = value[PlaceHolderSetKey];
+      return makeCanonicalSet(rawValues);
     }
   }
   return value;
@@ -192,6 +226,10 @@ type ReviveTarget = {
   value: unknown;
 } & ({ obj: Record<string, unknown> } | { arr: unknown[] });
 
-const PlaceHolderValueKey = "____JSONN____61581952310____VALUE____";
-const PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____";
-const UndefinedValue = "__undefined__";
+export const PlaceHolderValueKey = "____JSONN____61581952310____VALUE____";
+export const PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____";
+export const PlaceHolderUint8ArrayKey =
+  "____JSONN____61581952310____UINT8ARRAY____";
+export const PlaceHolderMapKey = "____JSONN____61581952310____MAP____";
+export const PlaceHolderSetKey = "____JSONN____61581952310____SET____";
+export const UndefinedValue = "__undefined__";

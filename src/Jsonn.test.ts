@@ -1,5 +1,5 @@
 import * as JSONN from "./Jsonn";
-import { isKeyedObject } from "./Util";
+import { isKeyedObject, makeCanonicalSet } from "./Util";
 
 describe("JSONN: ", () => {
   it("round-trip values", () => {
@@ -17,6 +17,7 @@ describe("JSONN: ", () => {
       false,
       BigInt(100),
       100n,
+      new Uint8Array([187, 123, 1, 237, 243, 43]),
       {
         trueValue: true,
         noValue: undefined,
@@ -24,6 +25,7 @@ describe("JSONN: ", () => {
         nanValue: NaN,
         bigintValue1: BigInt(100),
         bigintValue2: 100n,
+        bytesValue: new Uint8Array([187, 123, 1, 237, 243, 43]),
         arrayValue: [
           null,
           NaN,
@@ -38,6 +40,7 @@ describe("JSONN: ", () => {
           false,
           BigInt(100),
           100n,
+          new Uint8Array([187, 123, 1, 237, 243, 43]),
         ],
       },
       [
@@ -54,6 +57,7 @@ describe("JSONN: ", () => {
         false,
         BigInt(100),
         100n,
+        new Uint8Array([187, 123, 1, 237, 243, 43]),
         {
           trueValue: true,
           noValue: undefined,
@@ -61,6 +65,7 @@ describe("JSONN: ", () => {
           nullValue: null,
           bigintValue1: BigInt(100),
           bigintValue2: 100n,
+          bytesValue: new Uint8Array([187, 123, 1, 237, 243, 43]),
         },
       ],
     ].forEach((value) => {
@@ -79,5 +84,32 @@ describe("JSONN: ", () => {
         }
       }
     });
+  });
+
+  it("serializes and parses Uint8Array", () => {
+    const bytesVal = new Uint8Array([187, 123, 1, 237, 243, 43]);
+    const jsonnStr = JSONN.stringify(bytesVal);
+    expect(jsonnStr).toEqual(
+      "{____JSONN____61581952310____UINT8ARRAY____:[187,123,1,237,243,43]}"
+    );
+
+    const parsedVal = JSONN.parse<Uint8Array>(jsonnStr);
+    expect(parsedVal instanceof Uint8Array).toBeTrue();
+    expect(parsedVal).toEqual(bytesVal);
+  });
+
+  it("canonicalizes Set iteration order during serialization and revival", () => {
+    const set1 = makeCanonicalSet([3, 1, 2]);
+    const set2 = makeCanonicalSet([1, 2, 3]);
+
+    const jsonn1 = JSONN.stringify(set1);
+    const jsonn2 = JSONN.stringify(set2);
+
+    expect(jsonn1).toEqual(jsonn2);
+    expect(jsonn1).toEqual("{____JSONN____61581952310____SET____:[1,2,3]}");
+
+    const revived = JSONN.parse<Set<number>>(jsonn1);
+    expect(revived instanceof Set).toBeTrue();
+    expect(Array.from(revived.values())).toEqual([1, 2, 3]);
   });
 });

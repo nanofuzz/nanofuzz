@@ -28,15 +28,13 @@ export function isError(obj: unknown): obj is Error {
 
 /**
  * Normalizes a file path string for use as a key (in maps) to avoid cross-platform issues.
- *
- * !!!!!!!! move this dependency on vscode into part of the UI codebase
  */
 export function normalizePathForKey(rawPath: string): string {
   let p = rawPath.trim();
   p = path.normalize(p);
 
-  // On Windows, treat paths case-insensitively, but on POSIX, keep case,
-  // since it usually matters.
+  // On Windows, treat paths case-insensitively, but on POSIX, paths
+  // are (usually) case sensitive.
   if (process.platform === "win32") {
     p = p.toLowerCase();
   }

@@ -5,11 +5,16 @@ import { ArgOptions, ArgTag } from "../../analysis/Types";
 const argDefaults: ArgOptions = {
   strCharset: "abc",
   strLength: { min: 0, max: 3 },
+  byteLength: { min: 0, max: 3 },
+  dictLength: { min: 0, max: 3 },
+  setLength: { min: 0, max: 3 },
+  strRegex: undefined,
   numInteger: true,
   anyType: ArgTag.NUMBER,
   anyDims: 0,
   dftDimLength: { min: 0, max: 1 },
   dimLength: [],
+  dimsUnique: false,
 };
 
 const baseOptions: Omit<
@@ -22,6 +27,7 @@ const baseOptions: Omit<
   seed: "seed",
   maxDupeInputs: 1,
   maxFailures: 1,
+  useTransformer: true,
   useImplicit: false,
   useHuman: false,
   useProperty: false,

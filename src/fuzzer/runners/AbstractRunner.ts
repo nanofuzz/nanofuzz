@@ -24,6 +24,22 @@ export abstract class AbstractRunner {
   } // property: get name
 
   /**
+   * Optional coverage info captured during test runner initialization or execution.
+   */
+  public get coverageInfo(): unknown {
+    return undefined;
+  }
+
+  /**
+   * Registers a callback to receive coverage hits after test execution.
+   *
+   * @param `callback` function called when coverage hits are produced
+   */
+  public onCoverage(_callback: (covData: unknown) => void): void {
+    // Default no-op
+  }
+
+  /**
    * Called prior to the start of the run
    */
   public onRunStart(): Promise<void> {
@@ -49,9 +65,57 @@ export abstract class AbstractRunner {
   }
 }
 
+/**
+ * Coverage reported for one file. Used in Python
+ */
+export type CoverageInfo = {
+  executable: number[]; // static: all executable lines
+  functions: FunctionInfo[]; // static: all functions
+  branches: BranchInfo[]; // static: all branch points
+  lines?: number[]; // dynamic: lines executed by this one call
+  arcs?: Arc[]; // dynamic: arcs taken by this one call
+};
+
+/**
+ * A function in the program under test. `lines` holds only the function's own
+ * executable lines: coverage.py attributes lines per function, so lines inside
+ * a nested function are not charged to its parent.
+ */
+export type FunctionInfo = {
+  name: string; // e.g. "fn" or "Class.method"
+  declLine: number; // the `def` line
+  startLine: number; // first executable line of the body
+  endLine: number; // last executable line of the body
+  lines: number[]; // the function's own executable lines
+};
+
+/**
+ * A branch point: a line with more than one possible exit.
+ */
+export type BranchInfo = {
+  line: number; // the branching line
+  exits: BranchExit[]; // every destination it can reach
+};
+
+/**
+ * One possible exit from a branch. `dest` is the raw arc target, used to match
+ * against the arcs actually taken. coverage.py uses non-positive `dest` values
+ * to mean "left the enclosing scope"; those have no line of their own, so
+ * `line` reports where to display them (the branch line itself).
+ */
+export type BranchExit = {
+  dest: number; // arc target, for matching against `Arc`s
+  line: number; // where to display this exit
+};
+
 export type RunnerResult = {
   result: (
-    | { tag: "timeout" }
+    | {
+        tag: "timeout";
+        coverageData?: number[];
+        coverageArcs?: Arc[];
+        staticCoverage?: Record<string, CoverageInfo>;
+      }
     | {
         tag: "error";
         name: string;
@@ -60,20 +124,49 @@ export type RunnerResult = {
         source?: "put" | "host"; // if the error originated within the put
         coverageData?: number[]; // lines executed by this call
         coverageArcs?: Arc[]; // arcs taken by this call
+        staticCoverage?: Record<string, CoverageInfo>;
+      }
+    | {
+        tag: "skip";
+        message: string;
+        coverageData?: number[]; // lines executed by this call
+        coverageArcs?: Arc[]; // arcs taken by this call
+        staticCoverage?: Record<string, CoverageInfo>;
       }
     | {
         tag: "value";
         value: unknown;
         coverageData?: number[]; // lines executed by this call
         coverageArcs?: Arc[]; // arcs taken by this call
+        staticCoverage?: Record<string, CoverageInfo>;
       }
   ) & { seq: number };
   env: VmGlobals;
 };
 
+export type TypeHint =
+  | "uuid"
+  | "bytes"
+  | "number"
+  | "default"
+  | { kind: "array"; element: TypeHint }
+  | { kind: "set"; element: TypeHint; frozenset?: boolean }
+  | { kind: "tuple"; elements: TypeHint[] }
+  | { kind: "dictionary"; key: TypeHint; value: TypeHint }
+  | { kind: "object"; fields: Record<string, TypeHint> }
+  | { kind: "union"; arms: TypeHint[] };
+
 export type RunnerInput = {
   args: unknown[];
   seq: number;
+  typeHints?: TypeHint[];
+  timeout?: number;
+  fnName?: string;
+  filename?: string;
+  collect?: {
+    coverageData?: true;
+    debugData?: true;
+  };
 };
 
 /**

@@ -2,13 +2,14 @@ import {
   importedLiteralDim2Type,
   testCoverageMultiFile2,
 } from "./Fuzzer.textfixturees2";
+import { UnsatisfiedAssumption } from "../Types";
 
 /**
  * Fuzz target that alters its input - used to verify
  * that recorded fuzzer input is not altered by the target
  */
 export function testChangeInput(obj: { a: number }) {
-  (obj as any).b = 1;
+  Reflect.set(obj, "b", 1);
 }
 
 /**
@@ -25,12 +26,12 @@ export const testArrowVoidReturnUndefined = (_x: number): void => {
  * Fuzz targets with return type `void` that returns number
  */
 export function testStandardVoidReturnNumber(x: number): void {
-  const y: unknown = x;
-  return y as void;
+  // @ts-expect-error - testing runtime return from void function
+  return x;
 }
 export const testArrowVoidReturnNumber = (x: number): void => {
-  const y: unknown = x;
-  return y as void;
+  // @ts-expect-error - testing runtime return from void function
+  return x;
 };
 
 /**
@@ -99,8 +100,8 @@ export function testCoverageOneFile(s: string): boolean {
 export function testCoverageOneFileValidator(
   r: FuzzTestResult
 ): boolean | undefined {
-  const s: string = r.in[0]; // the PUT's input
-  const out: boolean = r.out; // the PUT's output
+  const s = String(r.in[0]); // the PUT's input
+  const out = Boolean(r.out); // the PUT's output
 
   if (s[0] === "z" || s === "bug!" || s === "moth") {
     if (!out) console.debug(` - Property test failed input: ${s}`);
@@ -137,8 +138,8 @@ type literalDim2Type = literalDim1Type[];
 type literalDim1Type = "hello"[];
 
 export type FuzzTestResult = {
-  in: any[];
-  out: any;
+  in: (number | string | boolean)[];
+  out: number | string | boolean | null | undefined;
   exception: boolean;
   timeout: boolean;
 };
@@ -148,4 +149,55 @@ export function issue301(r: number): { a: number | undefined } {
     return { a: undefined };
   }
   return { a: r };
+}
+
+/**
+ * Transformer target and transformer functions for testing transformer features
+ */
+export function targetTransformed(n: number): number {
+  return n + 1;
+}
+export function targetTransformedTransformer(n: number): [number] {
+  if (n < 50) throw new UnsatisfiedAssumption("skip negative inputs");
+  return [n * 2]; // Transform n to n * 2
+}
+
+export function targetTransformedException(n: number): number {
+  return n;
+}
+export function targetTransformedExceptionTransformer(
+  _n: number
+): [number] | null {
+  throw new Error("Transformer error message");
+}
+
+export function targetTransformedTimeout(n: number): number {
+  return n;
+}
+export function targetTransformedTimeoutTransformer(
+  _n: number
+): [number] | null {
+  while (true) {
+    /* noop */
+  }
+}
+
+export function targetValidatorTimeout(n: number): number {
+  return n;
+}
+export function targetValidatorTimeoutValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  while (true) {
+    /* noop */
+  }
+}
+
+export function targetValidatorException(n: number): number {
+  return n;
+}
+export function targetValidatorExceptionValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  throw new Error("Validator error message");
 }
