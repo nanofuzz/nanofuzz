@@ -352,6 +352,18 @@ export abstract class AbstractProgram {
   } // fn: get functionsExported()
 
   /**
+   * Returns unsupported functions defined in the program
+   *
+   * @returns map of function names to unsupported details
+   */
+  public get functionsNotSupported(): Record<
+    IdentifierName,
+    { reason: string; node?: string; argument?: string }
+  > {
+    return structuredClone(this._functions.unsupported);
+  } // fn: get functionsNotSupported()
+
+  /**
    * Returns the types defined in the program
    *
    * @returns the types defined in the program
