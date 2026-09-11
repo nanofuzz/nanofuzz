@@ -495,10 +495,8 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
     }
 
     if (this.type === ArgTag.BIGINT) {
-      if ("bigIntIntervals" in options && options.bigIntIntervals !== undefined)
-        this.setIntervals(
-          options.bigIntIntervals as Interval<TagToType[Tag]>[]
-        );
+      if ("bigintIntervals" in options && options.bigintIntervals !== undefined)
+        this.setIntervals(options.bigintIntervals);
     }
 
     // Handle numMin and numMax overrides
