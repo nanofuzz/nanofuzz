@@ -216,6 +216,11 @@ export class FuzzPanel {
         );
         fuzzPanel = localFuzzPanel;
 
+        // Redraw the HTML content when the tab is revived to hopefully
+        // workaround problems where vscode revives the tab but does not
+        // successfully load the CSS and JS components.
+        localFuzzPanel._updateHtml();
+
         // Attach a telemetry event handler to the panel
         panel.onDidChangeViewState((e) => {
           vscode.commands.executeCommand(
