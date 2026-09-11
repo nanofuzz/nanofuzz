@@ -170,6 +170,9 @@ export class FuzzPanel {
   ): void {
     let fuzzPanel: FuzzPanel | undefined;
 
+    // Apply webview options to the panel (probably unnecessary)
+    panel.webview.options = FuzzPanel.getWebviewOptions(extensionUri);
+
     // Update the icon on the panel
     panel.iconPath = vscode.Uri.joinPath(
       extensionUri,
@@ -184,6 +187,20 @@ export class FuzzPanel {
       "tag" in state &&
       state.tag === fuzzPanelStateVer
     ) {
+      const fnRefKey = JSONN.stringify({
+        module: state.fnRef.module,
+        fnName: state.fnRef.name,
+      });
+
+      // If an active panel for this function already exists in currentPanels
+      // (e.g. created by render() before this background tab was revived),
+      // dispose of this redundant revived panel and reveal the active one.
+      if (fnRefKey in FuzzPanel.currentPanels) {
+        panel.dispose();
+        FuzzPanel.currentPanels[fnRefKey]._panel.reveal();
+        return;
+      }
+
       // Create a new fuzzer environment
       try {
         // Create the new FuzzPanel
@@ -198,6 +215,11 @@ export class FuzzPanel {
           )
         );
         fuzzPanel = localFuzzPanel;
+
+        // Redraw the HTML content when the tab is revived to hopefully
+        // workaround problems where vscode revives the tab but does not
+        // successfully load the CSS and JS components.
+        localFuzzPanel._updateHtml();
 
         // Attach a telemetry event handler to the panel
         panel.onDidChangeViewState((e) => {
@@ -654,7 +676,8 @@ export class FuzzPanel {
             inputTests = testSet;
             break;
           }
-          case "0.3.6": {
+          case "0.3.6":
+          case "0.3.9": {
             // v0.3.6 format -- add configuration for measures and generators,
             //        re-key and add origin info to saved test inputs
             testSet = { ...inputTests, version: "0.4.0" }; // !!!!!!!!
