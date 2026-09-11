@@ -304,23 +304,25 @@
             "description": "Composite generator lookback window size for history"
           },
           "nanofuzz.generators.compositeChunkSize": {
-            "title": "Re-evaluate the composite generator's subgens after _chunkSize inputs generated",
+            "title": "Re-evaluate which input generator to use after every `chunkSize` inputs generated",
             "type": "integer",
             "default": 20,
             "minimum": 1,
-            "description": "Re-evaluate the composite generator's subgens after _chunkSize inputs generated"
+            "description": "Re-evaluate which input generator to use after every `chunkSize` inputs generated"
           },
           "nanofuzz.generators.compositeExplorationChance": {
             "title": "Composite generator additional chance of subgen exploration",
             "type": "number",
             "default": 0.1,
             "minimum": 0,
+            "maximum": 1,
             "description": "Composite generator additional chance of subgen exploration"
           },
           "nanofuzz.generators.leaderboardMinScore": {
             "title": "Leaderboard initial minimum score",
             "type": "number",
             "default": 0.9999,
+            "minimum": 0,
             "description": "Leaderboard initial minimum score"
           },
           "nanofuzz.generators.leaderboardInitialFocus": {
