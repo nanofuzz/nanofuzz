@@ -96,6 +96,13 @@
             "default": 200,
             "minimum": 0,
             "description": "Default maximum time (in ms) to allow a test function to run before making it as a timeout."
+          },
+          "nanofuzz.fuzzer.hostStartupTimeout": {
+            "title": "Timeout runner host startup after (ms)",
+            "type": "integer",
+            "default": 10000,
+            "minimum": 1000,
+            "description": "Maximum time (in ms) allowed for the runner host process to startup."
           }
         }
       },

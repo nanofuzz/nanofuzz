@@ -1,5 +1,8 @@
 import * as ChildProcess from "node:child_process";
 
+/**
+ * Abstract representation of a host process
+ */
 export abstract class AbstractHost {
   protected readonly _proc;
   protected _isActive: boolean = false;
@@ -41,10 +44,15 @@ export abstract class AbstractHost {
     this._proc.once("close", this._onClose);
 
     this._isActive = true;
-  }
+  } // constructor
 
   protected abstract _spawn(): ChildProcess.ChildProcessWithoutNullStreams;
 
+  /**
+   * Sends a message to the host process.
+   *
+   * @param payload The message payload, either a string or a Buffer.
+   */
   public sendMessage(payload: string | Buffer): void {
     if (!this._isActive) {
       throw new Error("Internal error: Cannot write to an inactive host");
@@ -57,48 +65,86 @@ export abstract class AbstractHost {
 
     this._proc.stdin.write(lengthBuffer);
     this._proc.stdin.write(payloadBuffer);
-  }
+  } // fn: sendMessage
 
+  /**
+   * Gets the response from the host as a buffer.
+   *
+   * @param timeout The maximum time to wait for a response, in milliseconds.
+   * @returns A promise that resolves with the response buffer.
+   */
   public async getResponseBuffer(timeout: number = Infinity): Promise<Buffer> {
+    const MAX_HEARTBEATS = 60;
+    let heartbeats = 0;
+
     return new Promise<Buffer>((resolve, reject) => {
-      let timedOut = false;
-      const timer =
-        timeout > 0 && timeout !== Infinity
-          ? setTimeout(() => {
-              timedOut = true;
+      let isDone = false;
+      let timer: NodeJS.Timeout | undefined;
+
+      const resetTimer = () => {
+        if (timer) clearTimeout(timer);
+        if (timeout > 0 && timeout !== Infinity) {
+          timer = setTimeout(() => {
+            if (isDone) return;
+            isDone = true;
+            const exception = new Error(
+              `Host did not respond within ${timeout} ms timeout`
+            );
+            exception.name = PutTimeoutName;
+            reject(exception);
+            this.kill();
+          }, timeout);
+        }
+      };
+
+      const cleanup = () => {
+        isDone = true;
+        if (timer) clearTimeout(timer);
+      };
+
+      resetTimer();
+
+      const readNext = async (): Promise<void> => {
+        try {
+          const header = await this._readStdout(PayloadSizeBytes);
+          if (isDone) return;
+          const length = header.readUInt32BE(0);
+          const payload = await this._readStdout(length);
+          if (isDone) return;
+
+          if (this._isHeartbeatPayload(payload)) {
+            heartbeats++;
+            if (heartbeats > MAX_HEARTBEATS) {
+              cleanup();
               const exception = new Error(
-                `Host did not respond within ${timeout} ms timeout`
+                `Host exceeded maximum allowed startup heartbeats limit (${MAX_HEARTBEATS} heartbeats / 1 minute)`
               );
               exception.name = PutTimeoutName;
               reject(exception);
               this.kill();
-            }, timeout)
-          : undefined;
-
-      this._readStdout(PayloadSizeBytes).then(
-        (buffer) => {
-          if (timedOut) return;
-          const length = buffer.readUInt32BE(0);
-          this._readStdout(length).then(
-            (payload) => {
-              if (timedOut) return;
-              if (timer) clearTimeout(timer);
-              resolve(payload);
-            },
-            (reason) => {
-              if (timedOut) return;
-              if (timer) clearTimeout(timer);
-              reject(reason);
+              return;
             }
-          );
-        },
-        (reason) => {
-          if (timedOut) return;
-          if (timer) clearTimeout(timer);
-          reject(reason);
+            resetTimer();
+            readNext();
+            return;
+          }
+
+          cleanup();
+          resolve(payload);
+        } catch (reason) {
+          if (!isDone) {
+            cleanup();
+            reject(reason);
+          }
         }
-      );
+      };
+
+      readNext();
     });
+  } // fn: getResponseBuffer
+
+  protected _isHeartbeatPayload(buf: Buffer): boolean {
+    return !!buf && buf.includes("HEART");
   }
 
   public async getResponse(timeout: number = Infinity): Promise<string> {
@@ -132,6 +178,10 @@ export abstract class AbstractHost {
     this.kill();
   };
 
+  /**
+   * Kills the host process and cleans up resources. If the
+   * host has already exited, this is a no-op.
+   */
   public kill(): void {
     this._isActive = false;
 
@@ -148,7 +198,7 @@ export abstract class AbstractHost {
         this._onExitSent = true;
       }
     }
-  }
+  } // fn: kill
 
   /**
    * Reads bytes from the stdout buffer. If the bytes have not arrived yet,
