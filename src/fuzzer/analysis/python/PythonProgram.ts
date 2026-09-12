@@ -969,14 +969,18 @@ export class PythonProgram extends AbstractProgram {
       case ArgTag.UNION:
       case ArgTag.TUPLE: {
         const children = this._getChildrenFromNode(typeNode);
-        // Collapse unions of a single value
-        if (type === ArgTag.UNION && children.length === 1) {
-          const child = children[0];
-          thisType.dims = child.dims;
-          thisType.optional = child.optional;
-          thisType.type = child.type;
-          thisType.typeRefName = child.typeRefName;
-          break;
+        if (type === ArgTag.UNION) {
+          if (children.length === 0) {
+            throw new Error(`Union type has zero members: ${typeNode.text}`);
+          }
+          if (children.length === 1) {
+            const child = children[0];
+            thisType.dims = child.dims;
+            thisType.optional = child.optional;
+            thisType.type = child.type;
+            thisType.typeRefName = child.typeRefName;
+            break;
+          }
         }
         thisType.type = {
           dims: dims,
@@ -2381,6 +2385,12 @@ export class PythonProgram extends AbstractProgram {
           getKwdArg(node, "elements", 0) ?? argsNode?.namedChildren[0];
         const sampledTypes = getSequenceElementTypes(listArg);
 
+        if (sampledTypes.length === 0) {
+          throw new Error(
+            `Unable to determine element types for 'sampled_from': '${listArg?.text ?? ""}'.`
+          );
+        }
+
         if (sampledTypes.length === 1) {
           return sampledTypes[0];
         }
@@ -2627,9 +2637,17 @@ export class PythonProgram extends AbstractProgram {
             ) {
               children.push(child);
             } else {
-              return undefined;
+              throw new Error(
+                `Unsupported strategy arm in 'one_of': '${argNode.text}'.`
+              );
             }
           }
+        }
+
+        if (children.length === 0) {
+          throw new Error(
+            `The 'one_of' strategy requires at least one valid strategy arm.`
+          );
         }
 
         if (children.length === 1) {
@@ -2646,10 +2664,9 @@ export class PythonProgram extends AbstractProgram {
       }
 
       default:
-        console.warn(
+        throw new Error(
           `Unsupported or unrecognized Hypothesis strategy: '${funcName}'.`
         );
-        return undefined;
     }
 
     return thisType;

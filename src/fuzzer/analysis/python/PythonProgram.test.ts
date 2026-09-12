@@ -1288,6 +1288,23 @@ def test_sampled(status):
     ).toBeTrue();
   });
 
+  it("never creates a union with zero members for unresolved `sampled_from` sequences", () => {
+    const pgm = ProgramFactory.fromSource(
+      () => `
+UNKNOWN_SEQ = some_func()
+@given(
+    status=st.sampled_from(UNKNOWN_SEQ)
+)
+def test_sampled_unresolved(status):
+    pass
+        `,
+      "python"
+    );
+
+    expect(pgm.functionsExported["test_sampled_unresolved"]).toBeUndefined();
+    expect(pgm.functionsNotSupported["test_sampled_unresolved"]).toBeDefined();
+  });
+
   it("hypothesis @given `sampled_from` module-level constants", () => {
     const fn = ProgramFactory.fromSource(
       () => `
