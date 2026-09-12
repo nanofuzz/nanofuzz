@@ -7,10 +7,10 @@ import struct
 import logging
 import tempfile
 import traceback
-import re
 import uuid
 import ctypes
 import threading
+import sysconfig
 from contextlib import redirect_stdout
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired
 
@@ -96,13 +96,16 @@ real_stdout = (
 )
 
 
+MAX_HEARTBEATS = 1000
+
+
 class HostHeartbeat:
     """Sends periodic startup heartbeat messages to the parent process.
-    Capped at max_heartbeats (default 240 = 1 minute total allowance).
+    Capped at max_heartbeats (default MAX_HEARTBEATS).
     Runs as a daemon thread and stops when stop() is called.
     """
 
-    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = 240):
+    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = MAX_HEARTBEATS):
         self.interval = interval_sec
         self.max_heartbeats = max_heartbeats
         self.heartbeat_count = 0
@@ -403,20 +406,32 @@ def is_under(root: str, path: str) -> bool:
 
 def program_files(filename: str) -> List[str]:
     """
-    Returns the files the program under test is made of: `filename`, plus every
-    module imported from `filename`'s own directory tree.
+    Returns the files the program under test is made of:
+    - `filename`, plus every local module imported from `filename`'s directory tree.
+    - 3rd-party packages imported by `filename`.
+    Excludes Python standard library (`stdlib`) modules.
 
     Must be called after the PUT is loaded, so that its imports have run.
     """
     root = os.path.dirname(filename)
+    stdlib_path = os.path.realpath(sysconfig.get_path("stdlib"))
+
     files = {filename}
     for module in list(sys.modules.values()):
         modfile = getattr(module, "__file__", None)
         if not modfile or os.path.splitext(modfile)[1] != ".py":
             continue
         modfile = os.path.realpath(modfile)
-        if is_under(root, modfile):
+        parts = modfile.split(os.sep)
+
+        # Exclude Python Standard Library and virtualenv internals
+        if any(p in (".venv", "venv", "env", "__pycache__") for p in parts) or modfile.startswith(stdlib_path):
+            continue
+
+        # Include user project and third party packages
+        if is_under(root, modfile) or "site-packages" in parts or "dist-packages" in parts:
             files.add(modfile)
+
     return sorted(files)
 
 
@@ -684,14 +699,10 @@ if __name__ == "__main__":
     filename = os.path.realpath(filename)
 
     # Start heartbeat thread during coverage initialization, module import, and static analysis
-    hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=240)
+    hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=MAX_HEARTBEATS)
     hb.start()
 
     try:
-        # One in-memory coverage instance for the whole run
-        cov = coverage.Coverage(
-            include=[os.path.join(os.path.dirname(filename), "**", "*.py")], branch=True, data_file=None)
-
         # Try to load the function: either results in a RunnerErrorResult
         # or a callable function
         logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
@@ -701,10 +712,15 @@ if __name__ == "__main__":
         else:
             logging.debug(f"[{pid}]  - Loaded function")
 
+        pgm_files = program_files(filename)
+
+        # One in-memory coverage instance for the whole run
+        cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
+
         # Static analysis of the program: the executable lines, functions, and
         # branches of every file it is made of.
         coverageInfo = {file: static_coverage(cov, file)
-                        for file in program_files(filename)}
+                        for file in pgm_files}
         logging.debug(
             f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
 
