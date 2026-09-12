@@ -428,8 +428,9 @@ def program_files(filename: str) -> List[str]:
         if any(p in (".venv", "venv", "env", "__pycache__") for p in parts) or modfile.startswith(stdlib_path):
             continue
 
-        # Include user project third-party packages
-        files.add(modfile)
+        # Include user project and third party packages
+        if is_under(root, modfile) or "site-packages" in parts or "dist-packages" in parts:
+            files.add(modfile)
 
     return sorted(files)
 
