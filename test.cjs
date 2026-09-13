@@ -22,11 +22,20 @@ function getTestFiles() {
 
 // Find all test/spec files under a directory
 function findTestFiles(dir) {
-  const testPattern = /\.(test|spec)\.[tm]?[js]$/;
+  const jsTestPattern = /\.(test|spec)\.[tm]?[js]$/;
   const relativeFiles = fs.readdirSync(dir, { recursive: true });
   return relativeFiles
-    .filter((f) => testPattern.test(f))
-    .map((f) => path.join(dir, f));
+    .filter((f) => {
+      const relPath = f.replace(/\\/g, "/");
+      const base = path.basename(relPath);
+      const isJsTest = jsTestPattern.test(base);
+      const isPyTest =
+        !relPath.includes("test_fixtures/") &&
+        (base.endsWith("_test.py") || base.startsWith("test_")) &&
+        base.endsWith(".py");
+      return isJsTest || isPyTest;
+    })
+    .map((f) => path.join(dir, f).replace(/\\/g, "/"));
 }
 
 // Prioritize known longer running test files to run early in the queue
@@ -53,21 +62,23 @@ function sortTestFiles(files) {
   });
 }
 
-// Run a single test file in a spawned Node process
+// Run a single test file in a spawned Node or pytest process
 function runTestFile(file) {
   return new Promise((resolve) => {
     const startTime = Date.now();
+    const isPython = file.endsWith(".py");
     const jasmineBin = path.resolve("./node_modules/jasmine/bin/jasmine.js");
 
-    const child = spawn(
-      process.execPath,
-      ["--no-experimental-strip-types", jasmineBin, file],
-      {
-        cwd: process.cwd(),
-        env: { ...process.env, FORCE_COLOR: "1" },
-        stdio: ["ignore", "pipe", "pipe"],
-      }
-    );
+    const cmd = isPython ? "pytest" : process.execPath;
+    const args = isPython
+      ? [file]
+      : ["--no-experimental-strip-types", jasmineBin, file];
+
+    const child = spawn(cmd, args, {
+      cwd: process.cwd(),
+      env: { ...process.env, FORCE_COLOR: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     let stdout = "";
     let stderr = "";
@@ -93,14 +104,32 @@ function runTestFile(file) {
         code = code ?? 1;
       }
 
-      // Parse spec count if present in Jasmine output
-      const specsMatch = stdout.match(/(\d+)\s+specs?,\s+(\d+)\s+failures?/i);
-      const specs = specsMatch ? parseInt(specsMatch[1], 10) : 0;
-      const failures = specsMatch
-        ? parseInt(specsMatch[2], 10)
-        : (code ?? 1) !== 0
-          ? 1
-          : 0;
+      let specs = 0;
+      let failures = 0;
+
+      if (isPython) {
+        const passedMatch = stdout.match(/(\d+)\s+passed/i);
+        const failedMatch = stdout.match(/(\d+)\s+failed/i);
+        const passed = passedMatch ? parseInt(passedMatch[1], 10) : 0;
+        const failed = failedMatch ? parseInt(failedMatch[1], 10) : 0;
+        specs = passed + failed;
+        failures = failed;
+        if (specs === 0 && (code ?? 1) !== 0) {
+          failures = 1;
+          specs = 1;
+        } else if (specs === 0 && (code ?? 0) === 0) {
+          specs = 1;
+        }
+      } else {
+        // Parse spec count if present in Jasmine output
+        const specsMatch = stdout.match(/(\d+)\s+specs?,\s+(\d+)\s+failures?/i);
+        specs = specsMatch ? parseInt(specsMatch[1], 10) : 0;
+        failures = specsMatch
+          ? parseInt(specsMatch[2], 10)
+          : (code ?? 1) !== 0
+            ? 1
+            : 0;
+      }
 
       resolve({
         file,
@@ -207,13 +236,13 @@ async function main() {
       `❌ TEST RUN FAILED: ${failedResults.length}/${totalFiles} file(s) failed.`
     );
     console.error(
-      `Summary: ${totalSpecsRun} specs total, ${totalFailures} failed across ${totalFiles} files in ${totalTimeSec}s.\n`
+      `Summary: ${totalSpecsRun} specs total, ${totalFailures} failed across ${totalFiles} file(s) in ${totalTimeSec}s.\n`
     );
     process.exit(1);
   } else {
     console.log(`✅ ALL TESTS PASSED!`);
     console.log(
-      `Summary: ${totalSpecsRun} specs total across ${totalFiles} files in ${totalTimeSec}s.\n`
+      `Summary: ${totalSpecsRun} specs total across ${totalFiles} file(s) in ${totalTimeSec}s.\n`
     );
     process.exit(0);
   }
