@@ -47,6 +47,7 @@ export class PythonRunner extends AbstractRunner {
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
    * @param `env` optional fuzzer environment
+   * @param `timeout` optional timeout for each run
    */
   constructor(
     filename: string,
