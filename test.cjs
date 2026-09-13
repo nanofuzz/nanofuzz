@@ -71,6 +71,7 @@ function runTestFile(file) {
 
     let stdout = "";
     let stderr = "";
+    let hasResolved = false;
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -80,22 +81,30 @@ function runTestFile(file) {
       stderr += chunk.toString();
     });
 
-    child.on("close", (code) => {
+    function finish(code, err) {
+      if (hasResolved) return;
+      hasResolved = true;
+
       const durationMs = Date.now() - startTime;
       const durationSec = (durationMs / 1000).toFixed(2);
+
+      if (err) {
+        stderr += `\nProcess execution error: ${err.message}\n`;
+        code = code ?? 1;
+      }
 
       // Parse spec count if present in Jasmine output
       const specsMatch = stdout.match(/(\d+)\s+specs?,\s+(\d+)\s+failures?/i);
       const specs = specsMatch ? parseInt(specsMatch[1], 10) : 0;
       const failures = specsMatch
         ? parseInt(specsMatch[2], 10)
-        : code !== 0
+        : (code ?? 1) !== 0
           ? 1
           : 0;
 
       resolve({
         file,
-        code,
+        code: code ?? 1,
         durationMs,
         durationSec,
         specs,
@@ -103,6 +112,18 @@ function runTestFile(file) {
         stdout,
         stderr,
       });
+    }
+
+    child.on("error", (err) => {
+      finish(1, err);
+    });
+
+    child.on("exit", (code) => {
+      finish(code);
+    });
+
+    child.on("close", (code) => {
+      finish(code);
     });
   });
 }
