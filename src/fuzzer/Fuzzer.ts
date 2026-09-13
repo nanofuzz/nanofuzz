@@ -87,6 +87,12 @@ export class Tester {
     }
     const fnList = this._program.functionsExported;
     if (!(this._fnName in fnList)) {
+      if (this._fnName in this._program.functionsNotSupported) {
+        const reason = this._program.functionsNotSupported[this._fnName].reason;
+        throw new Error(
+          `Function ${this._fnName} in ${this._module} is not supported for reason: ${reason}`
+        );
+      }
       throw new Error(
         `Could not find exported function ${this._fnName} in: ${this._module}`
       );
