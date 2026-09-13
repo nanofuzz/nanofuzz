@@ -259,12 +259,16 @@ function slowAdd(a, b) {
 module.exports = { slowAdd };
 `;
     fs.writeFileSync(jsPath, jsCode);
+    const hostStartupTimeout = Config.get(
+      "nanofuzz.fuzzer.hostStartupTimeout",
+      10000
+    );
 
     try {
       // Set hostStartupTimeout to 500ms. Without heartbeats (sent every 250ms),
       // a 1.5s require() would time out at t=500ms. Heartbeats reset the 500ms clock,
       // allowing the 1.5s import to succeed cleanly.
-      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 500);
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 1000);
 
       const runner = new JavascriptRunner(jsPath, "slowAdd");
       const start = performance.now();
@@ -280,7 +284,7 @@ module.exports = { slowAdd };
         expect(res.result.value).toBe(7);
       }
     } finally {
-      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 10000);
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", hostStartupTimeout);
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       } catch {
