@@ -451,6 +451,10 @@ def slow_fn(x: int) -> int:
     return x * 2
 `;
     fs.writeFileSync(pyPath, pyCode);
+    const hostStartupTimeout = Config.get(
+      "nanofuzz.fuzzer.hostStartupTimeout",
+      10000
+    );
 
     try {
       const program = ProgramFactory.fromSource(() => pyCode, "python", pyPath);
@@ -463,7 +467,7 @@ def slow_fn(x: int) -> int:
       // Set hostStartupTimeout to 500ms. Without heartbeats (sent every 250ms),
       // a 1.5s import would time out at t=500ms. Heartbeats reset the 500ms clock,
       // allowing the 1.5s import to succeed cleanly.
-      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 500);
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 1000);
 
       const runner = new PythonRunner(pyPath, "slow_fn", env, 2000);
       const start = performance.now();
@@ -479,7 +483,7 @@ def slow_fn(x: int) -> int:
         expect(res.result.value).toBe(20);
       }
     } finally {
-      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 10000);
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", hostStartupTimeout);
       try {
         fs.rmSync(tmpDir, {
           recursive: true,

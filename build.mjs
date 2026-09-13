@@ -49,7 +49,7 @@ if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
     interpreter = path.resolve(path.join(venvBin, "python"));
   }
 }
-[{ name: "json5" }, { name: "coverage" }].forEach((pkg) => {
+[{ name: "coverage" }, { name: "msgpack" }].forEach((pkg) => {
   const libdir = resolvePythonModule(pkg.name, interpreter);
   if (libdir === undefined) {
     throw new Error(

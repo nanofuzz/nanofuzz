@@ -7,7 +7,6 @@ import struct
 import logging
 import tempfile
 import traceback
-import re
 import uuid
 import ctypes
 import threading
@@ -16,7 +15,7 @@ from contextlib import redirect_stdout
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional
 
 try:
-    import json5
+    import msgpack
     import coverage
 except ModuleNotFoundError as e:
     print(f"ERROR {e}")
@@ -97,13 +96,16 @@ real_stdout = (
 )
 
 
+MAX_HEARTBEATS = 1000
+
+
 class HostHeartbeat:
     """Sends periodic startup heartbeat messages to the parent process.
-    Capped at max_heartbeats (default 240 = 1 minute total allowance).
+    Capped at max_heartbeats (default MAX_HEARTBEATS).
     Runs as a daemon thread and stops when stop() is called.
     """
 
-    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = 240):
+    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = MAX_HEARTBEATS):
         self.interval = interval_sec
         self.max_heartbeats = max_heartbeats
         self.heartbeat_count = 0
@@ -206,6 +208,42 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
         ), None)
 
 
+def unwrap_jsonn(val: Any) -> Any:
+    PlaceHolderValueKey = "____JSONN____61581952310____VALUE____"
+    PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____"
+    PlaceHolderUint8ArrayKey = "____JSONN____61581952310____UINT8ARRAY____"
+    PlaceHolderMapKey = "____JSONN____61581952310____MAP____"
+    PlaceHolderSetKey = "____JSONN____61581952310____SET____"
+    UndefinedValue = "__undefined__"
+
+    if isinstance(val, dict):
+        if val.get(PlaceHolderValueKey) == UndefinedValue:
+            return None
+        if PlaceHolderBigIntKey in val:
+            return int(val[PlaceHolderBigIntKey])
+        if PlaceHolderUint8ArrayKey in val:
+            return bytes(val[PlaceHolderUint8ArrayKey])
+        if PlaceHolderMapKey in val:
+            raw_entries = val[PlaceHolderMapKey]
+            if isinstance(raw_entries, list):
+                return {
+                    unwrap_jsonn(k): unwrap_jsonn(v)
+                    for entry in raw_entries
+                    if isinstance(entry, list) and len(entry) == 2
+                    for k, v in [entry]
+                }
+            return {}
+        if PlaceHolderSetKey in val:
+            raw_values = val[PlaceHolderSetKey]
+            if isinstance(raw_values, list):
+                return [unwrap_jsonn(x) for x in raw_values]
+            return []
+        return {k: unwrap_jsonn(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [unwrap_jsonn(x) for x in val]
+    return val
+
+
 def get_inputs() -> RunnerInput:
     logging.debug(f"[{pid}] Waiting for input")
     while True:
@@ -217,14 +255,15 @@ def get_inputs() -> RunnerInput:
         logging.debug(f"[{pid}]  - Incoming input of length {length}")
 
         # Read exactly that many bytes
-        payload = sys.stdin.buffer.read(length).decode('utf-8')
-        logging.debug(f"[{pid}]  - With value {payload}")
+        payload = sys.stdin.buffer.read(length)
+        logging.debug(f"[{pid}]  - Read {len(payload)} bytes")
 
         # De-serialize arguments for calling the function
-        input: RunnerInput = json5.loads(payload)
+        raw_input: RunnerInput = msgpack.unpackb(payload, raw=False)
+        input_data = unwrap_jsonn(raw_input)
         logging.debug(f"[{pid}]  - Parsed ok")
 
-        return input
+        return input_data
     raise Exception("Unreachable path")
 
 
@@ -568,7 +607,7 @@ def sanitize_output(obj: Any) -> Any:
     return obj
 
 
-def json5_default(obj: Any) -> Any:
+def default_serializer(obj: Any) -> Any:
     if isinstance(obj, (bytes, bytearray)):
         return list(obj)
     if isinstance(obj, (set, frozenset)):
@@ -576,7 +615,7 @@ def json5_default(obj: Any) -> Any:
     if isinstance(obj, uuid.UUID):
         return str(obj)
     raise TypeError(
-        f"Object of type {type(obj).__name__} is not JSON5 serializable")
+        f"Object of type {type(obj).__name__} is not serializable")
 
 
 def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
@@ -699,8 +738,9 @@ def put_result(result: RunnerResult) -> None:
 
 
 def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
-    msg = json5.dumps(data, default=json5_default).encode('utf-8')
-    logging.debug(f"[{pid}]  - Writing {len(msg)} bytes: {msg}")
+    msg = msgpack.packb(
+        data, default=default_serializer, use_bin_type=True)
+    logging.debug(f"[{pid}]  - Writing {len(msg)} bytes")
     real_stdout.write(struct.pack('>I', len(msg)))  # payload size
     real_stdout.write(msg)  # payload
     real_stdout.flush()
@@ -725,7 +765,7 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(filename))
 
     # Start heartbeat thread during coverage initialization, module import, and static analysis
-    hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=240)
+    hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=MAX_HEARTBEATS)
     hb.start()
 
     try:

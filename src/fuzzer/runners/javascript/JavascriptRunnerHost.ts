@@ -5,6 +5,7 @@ import vm from "node:vm";
 import { Worker } from "node:worker_threads";
 import { serialize, deserialize } from "node:v8";
 import { RunnerInput, TypeHint } from "../AbstractRunner";
+import { MAX_HEARTBEATS } from "../AbstractHost";
 import { isError } from "../../Util";
 
 const realStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -224,7 +225,6 @@ function setup() {
 } // fn: setup
 
 let heartbeatWorker: Worker | undefined;
-const MAX_HEARTBEATS = 240;
 
 /**
  * Start the heartbeat worker thread, sending heartbeat messages at the specified interval.

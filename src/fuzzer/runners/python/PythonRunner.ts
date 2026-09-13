@@ -10,7 +10,7 @@ import { ArgTag, ProgramImport } from "../../analysis/Types";
 import { CoverageScope, isCoverageScope } from "../../Types";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import { FuzzEnv } from "../../Fuzzer";
-import JSON5 from "json5";
+import * as JSONN from "../../../Jsonn";
 import DotEnv from "dotenv";
 import vscode from "vscode";
 import * as Config from "../../../Config";
@@ -49,6 +49,7 @@ export class PythonRunner extends AbstractRunner {
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
    * @param `env` optional fuzzer environment
+   * @param `timeout` optional timeout for each run
    */
   constructor(
     filename: string,
@@ -116,20 +117,15 @@ export class PythonRunner extends AbstractRunner {
         },
       };
 
-      const payload = JSON5.stringify(input, (_key, val) => {
-        if (val instanceof Uint8Array || val instanceof Set) {
-          return Array.from(val);
-        }
-        if (val instanceof Map) {
-          return Object.fromEntries(val);
-        }
-        return val;
-      });
+      const encoded = JSONN.pack(input);
+      host.sendMessage(
+        Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength)
+      );
 
-      host.sendMessage(payload);
       const hostTimeout = timeout && timeout > 0 ? timeout + 500 : Infinity;
+      const rawResBuf = await host.getResponseBuffer(hostTimeout);
       const result: RunnerResult = {
-        result: JSON5.parse(await host.getResponse(hostTimeout)),
+        result: JSONN.unpack<RunnerResult["result"]>(rawResBuf),
         env: {},
       };
 
@@ -233,7 +229,7 @@ export class PythonRunner extends AbstractRunner {
 
     const pythonEnv: PythonEnv = {
       env: { ...process.env },
-      libs: findPythonLibDir(path.dirname(module.filename), "json5"),
+      libs: findPythonLibDir(path.dirname(module.filename), "msgpack"),
       paths: [],
       interpreter: Config.get("python.defaultInterpreterPath", "python3"),
     };
@@ -494,19 +490,19 @@ export class PythonRunner extends AbstractRunner {
     );
 
     // a longer timeout tolerance for the host to pre-warm the coverage
-    const okcode = await host.getResponse(hostStartupTimeout);
-    if (okcode === `"READY"`) {
+    const rawOkBuf = await host.getResponseBuffer(hostStartupTimeout);
+    const okcode = JSONN.unpack<string>(rawOkBuf);
+    if (okcode === "READY") {
       this._host = host;
 
       // Get the static coverage structure, which the host sends once. The
       // dynamic `lines`/`arcs` are filled in by each `run`.
-      this._coverageInfo = JSON5.parse<FullCoverage>(
-        await host.getResponse(hostStartupTimeout)
-      );
+      const rawCovBuf = await host.getResponseBuffer(hostStartupTimeout);
+      this._coverageInfo = JSONN.unpack<FullCoverage>(rawCovBuf);
       return host;
     } else {
       host.kill();
-      throw new Error(`PythonHost not ready (okcode: ${okcode})`);
+      throw new Error(`PythonHost not ready (okcode: ${String(okcode)})`);
     }
   } // get: host
 
