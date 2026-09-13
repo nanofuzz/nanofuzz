@@ -227,7 +227,7 @@ export class PythonRunner extends AbstractRunner {
 
     const pythonEnv: PythonEnv = {
       env: { ...process.env },
-      libs: findPythonLibDir(path.dirname(module.filename), "json5"),
+      libs: findPythonLibDir(path.dirname(module.filename), "msgpack"),
       paths: [],
       interpreter: Config.get("python.defaultInterpreterPath", "python3"),
     };
