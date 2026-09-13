@@ -11,8 +11,9 @@ import re
 import uuid
 import ctypes
 import threading
+import sysconfig
 from contextlib import redirect_stdout
-from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired
+from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional
 
 try:
     import json5
@@ -392,6 +393,9 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     }
 
 
+VALID_COVERAGE_SCOPES = ("project", "project+direct-imports")
+
+
 def is_under(root: str, path: str) -> bool:
     """
     Returns whether `path` is `root` or sits beneath it.
@@ -401,22 +405,56 @@ def is_under(root: str, path: str) -> bool:
     return path == root or path.startswith(root + os.sep)
 
 
-def program_files(filename: str) -> List[str]:
+def program_files(
+    filename: str,
+    coverage_scope: str = "project",
+    direct_packages: Optional[List[str]] = None
+) -> List[str]:
     """
-    Returns the files the program under test is made of: `filename`, plus every
-    module imported from `filename`'s own directory tree.
+    Returns the files the program under test is made of:
+    - "project" (default): Group A (local project directory tree only).
+    - "project+direct-imports": Group A + Group B.1 (3rd-party packages directly imported by PUT).
+    Excludes Group C (Python standard library & virtualenv internals).
 
     Must be called after the PUT is loaded, so that its imports have run.
     """
+    if coverage_scope not in VALID_COVERAGE_SCOPES:
+        raise ValueError(
+            f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
+        )
     root = os.path.dirname(filename)
+    stdlib_path = os.path.realpath(sysconfig.get_path("stdlib"))
+
+    direct_pkg_set = set(direct_packages) if direct_packages else set()
+
     files = {filename}
     for module in list(sys.modules.values()):
         modfile = getattr(module, "__file__", None)
         if not modfile or os.path.splitext(modfile)[1] != ".py":
             continue
+        if not os.path.isabs(modfile):
+            modfile = os.path.join(root, modfile)
         modfile = os.path.realpath(modfile)
+        parts = modfile.split(os.sep)
+
+        # 1. Check 3rd-party packages (site-packages / dist-packages) FIRST
+        if "site-packages" in parts or "dist-packages" in parts:
+            if coverage_scope == "project+direct-imports":
+                idx = parts.index(
+                    "site-packages") if "site-packages" in parts else parts.index("dist-packages")
+                pkg_name = parts[idx + 1] if idx + 1 < len(parts) else ""
+                if pkg_name in direct_pkg_set:
+                    files.add(modfile)
+            continue
+
+        # 2. Exclude Group C: Python Standard Library and virtualenv internals
+        if any(p in (".venv", "venv", "env", "__pycache__") for p in parts) or modfile.startswith(stdlib_path):
+            continue
+
+        # 3. Group A: Local project files
         if is_under(root, modfile):
             files.add(modfile)
+
     return sorted(files)
 
 
@@ -669,9 +707,9 @@ def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    if len(sys.argv) < 4:
         print(
-            "Usage: python PythonRunnerHost.py <filename.py> <module_name> <function_name>")
+            "Usage: python PythonRunnerHost.py <filename.py> <module_name> <function_name> [coverage_scope] [direct_packages]")
         sys.exit(2)
 
     # Arguments for loading the function
@@ -683,15 +721,14 @@ if __name__ == "__main__":
     # and `include` patterns must match it.
     filename = os.path.realpath(filename)
 
+    # Change cwd from the extension to that of the Python script
+    os.chdir(os.path.dirname(filename))
+
     # Start heartbeat thread during coverage initialization, module import, and static analysis
     hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=240)
     hb.start()
 
     try:
-        # One in-memory coverage instance for the whole run
-        cov = coverage.Coverage(
-            include=[os.path.join(os.path.dirname(filename), "**", "*.py")], branch=True, data_file=None)
-
         # Try to load the function: either results in a RunnerErrorResult
         # or a callable function
         logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
@@ -701,15 +738,28 @@ if __name__ == "__main__":
         else:
             logging.debug(f"[{pid}]  - Loaded function")
 
+        coverage_scope = sys.argv[4] if len(sys.argv) > 4 else "project"
+        if coverage_scope not in VALID_COVERAGE_SCOPES:
+            raise ValueError(
+                f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
+            )
+        direct_packages_raw = sys.argv[5] if len(sys.argv) > 5 else "[]"
+        try:
+            direct_packages = json.loads(direct_packages_raw)
+        except Exception:
+            direct_packages = []
+
+        pgm_files = program_files(filename, coverage_scope, direct_packages)
+
+        # One in-memory coverage instance for the whole run
+        cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
+
         # Static analysis of the program: the executable lines, functions, and
         # branches of every file it is made of.
         coverageInfo = {file: static_coverage(cov, file)
-                        for file in program_files(filename)}
+                        for file in pgm_files}
         logging.debug(
             f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
-
-        # Change cwd from the extension to that of the Python script
-        os.chdir(os.path.dirname(filename))
 
         # Pre-warm the coverage machinery. The first `cov.start()` installs the
         # tracer, which costs far more than a steady-state call and can push the

@@ -6,7 +6,9 @@ import {
   TypeHint,
 } from "../AbstractRunner";
 import { ArgDef } from "../../analysis/ArgDef";
-import { ArgTag } from "../../analysis/Types";
+import { ArgTag, ProgramImport } from "../../analysis/Types";
+import { CoverageScope, isCoverageScope } from "../../Types";
+import * as ProgramFactory from "../../analysis/ProgramFactory";
 import { FuzzEnv } from "../../Fuzzer";
 import JSON5 from "json5";
 import DotEnv from "dotenv";
@@ -441,6 +443,33 @@ export class PythonRunner extends AbstractRunner {
     );
 
     const filenameBase = path.basename(this._filename);
+    const coverageScopeRaw = Config.get<unknown>(
+      "nanofuzz.fuzzer.coverageScope",
+      "project"
+    );
+
+    if (!isCoverageScope(coverageScopeRaw)) {
+      throw new Error(
+        `Invalid coverageScope configuration '${String(
+          coverageScopeRaw
+        )}'. Allowed values: 'project', 'project+direct-imports'`
+      );
+    }
+    const coverageScope: CoverageScope = coverageScopeRaw;
+
+    let directPkgs: string[] = [];
+    if (
+      coverageScope === "project+direct-imports" &&
+      fs.existsSync(this._filename)
+    ) {
+      try {
+        const program = ProgramFactory.fromFile(this._filename);
+        directPkgs = extractDirectPackages(program.imports);
+      } catch {
+        // Fall back gracefully if file resolution or parsing fails
+      }
+    }
+
     const args = [
       runnerHost,
       this._filename,
@@ -449,6 +478,8 @@ export class PythonRunner extends AbstractRunner {
         filenameBase.length - path.extname(filenameBase).length
       ),
       this._fn,
+      coverageScope,
+      JSON.stringify(directPkgs),
     ];
 
     const host = new PythonHost(
@@ -511,6 +542,40 @@ function findPythonLibDir(dir: string, item: string): string | null {
 
   return null;
 } // fn: findPythonLibDir
+
+/**
+ * Extracts top-level 3rd-party package names directly imported by the program
+ * using `program.imports`.
+ */
+function extractDirectPackages(
+  imports: Record<string, ProgramImport>
+): string[] {
+  const packages = new Set<string>();
+
+  for (const imp of Object.values(imports)) {
+    const pPath = imp.programPath;
+    if (!pPath) continue;
+
+    const normalized = pPath.replace(/\\/g, "/");
+    const parts = normalized.split("/");
+
+    if (parts.includes("site-packages") || parts.includes("dist-packages")) {
+      const idx = parts.includes("site-packages")
+        ? parts.indexOf("site-packages")
+        : parts.indexOf("dist-packages");
+      if (idx + 1 < parts.length) {
+        packages.add(parts[idx + 1]);
+      }
+    } else if (!pPath.startsWith("/") && !pPath.startsWith(".")) {
+      const rootPkg = pPath.split(".")[0];
+      if (rootPkg) {
+        packages.add(rootPkg);
+      }
+    }
+  }
+
+  return Array.from(packages);
+}
 
 /**
  * Checks if the argument is a UUID string

@@ -6,7 +6,7 @@ import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
-import { FuzzOptions } from "../fuzzer/Types";
+import { CoverageScope, FuzzOptions, isCoverageScope } from "../fuzzer/Types";
 import path from "node:path";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
@@ -95,6 +95,12 @@ Commander.program
   // --------------------------------- Measures -------------------------------- //
 
   .option(`--no-coverage-measure`, `Disable code coverage measure`)
+  .option(
+    `--coverage-scope <scope>`,
+    `Code coverage scope: project (default) or project+direct-imports`,
+    parseCoverageScope,
+    "project"
+  )
   .option(`--no-failed-test-measure`, `Disable failed test measure`)
 
   // ----------------------------- Input Generators ---------------------------- //
@@ -248,6 +254,9 @@ for (const key in options) {
     // infrastructure options
     case "hostStartupTimeout":
       Config.override("nanofuzz.fuzzer.hostStartupTimeout", value);
+      break;
+    case "coverageScope":
+      Config.override("nanofuzz.fuzzer.coverageScope", value);
       break;
 
     // ai config options
@@ -450,6 +459,16 @@ function parseAiCacheMode(value: string, _previous: string): string {
   }
   return value;
 } // fn: parseAiCacheMode
+
+function parseCoverageScope(value: string, _previous: string): CoverageScope {
+  const norm = value.toLowerCase().trim();
+  if (isCoverageScope(norm)) {
+    return norm;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid coverage scope '${value}'. Allowed: 'project', 'project+direct-imports'`
+  );
+} // fn: parseCoverageScope
 
 function parseFloatArgZeroToOne(value: string, _previous: number): number {
   const parsedValue = parseFloatArgGeZero(value, _previous);
