@@ -498,6 +498,24 @@ def slow_fn(x: int) -> int:
   }, 10000);
 
   it("coverage scope: 'project' vs 'project+directimports'", async () => {
+    const isPathInsideDir = (filePath: string, dirPath: string): boolean => {
+      try {
+        const realFile = (
+          fs.existsSync(filePath) ? fs.realpathSync(filePath) : filePath
+        )
+          .replace(/\\/g, "/")
+          .toLowerCase();
+        const realDir = (
+          fs.existsSync(dirPath) ? fs.realpathSync(dirPath) : dirPath
+        )
+          .replace(/\\/g, "/")
+          .toLowerCase();
+        return realFile.startsWith(realDir) || realFile.includes(realDir);
+      } catch {
+        return false;
+      }
+    };
+
     const pkgs = ["msgpack", "pytest"];
     for (const pkg of pkgs) {
       const tmpDir = fs.mkdtempSync(
@@ -558,12 +576,7 @@ def calculate(x: int) -> int:
           ).toBeTrue();
 
           // Strict negative check: EVERY file covered MUST be a local project file
-          const normTmpDir = fs.realpathSync(tmpDir).replace(/\\/g, "/");
-          expect(
-            fileKeys.every(
-              (f) => f.startsWith(normTmpDir) || f.includes(normTmpDir)
-            )
-          ).toBeTrue();
+          expect(fileKeys.every((f) => isPathInsideDir(f, tmpDir))).toBeTrue();
         }
 
         // Case 2: 'project+directimports' scope
@@ -593,13 +606,11 @@ def calculate(x: int) -> int:
           expect(fileKeys.some((f) => f.includes(pkg))).toBeTrue();
 
           // Strict negative check: EVERY file covered MUST be either a local project file OR a non-system package
-          const normTmpDir = fs.realpathSync(tmpDir).replace(/\\/g, "/");
           expect(
             fileKeys.every(
               (f) =>
-                f.startsWith(normTmpDir) ||
-                f.includes(normTmpDir) ||
-                f.includes(pkg)
+                isPathInsideDir(f, tmpDir) ||
+                f.toLowerCase().includes(pkg.toLowerCase())
             )
           ).toBeTrue();
         }

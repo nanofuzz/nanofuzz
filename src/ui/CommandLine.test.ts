@@ -466,7 +466,15 @@ def ${targetFn}(n: int) -> int:
       expect(res.stdout).toContain("Stopped for reason: maxFailures.");
     } finally {
       if (fs.existsSync(pyFile)) {
-        fs.rmSync(pyFile, { force: true });
+        try {
+          fs.rmSync(pyFile, {
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore
+        }
       }
     }
   });
