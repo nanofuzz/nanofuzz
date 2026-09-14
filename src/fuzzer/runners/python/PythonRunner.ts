@@ -285,7 +285,37 @@ export class PythonRunner extends AbstractRunner {
         pythonEnv.venv = {
           path: venvPath,
           activateCmd: venvActivateCmd,
-          interpreter: path.resolve(path.join(venvBins, "python3")),
+          interpreter: path.resolve(
+            path.join(
+              venvBins,
+              process.platform === "win32" ? "python" : "python3"
+            )
+          ),
+        };
+        pythonEnv.interpreter = pythonEnv.venv.interpreter;
+      }
+    }
+
+    if (!pythonEnv.venv && process.env.VIRTUAL_ENV) {
+      const venvPath = path.resolve(process.env.VIRTUAL_ENV);
+      const venvBins =
+        process.platform === "win32"
+          ? path.resolve(path.join(venvPath, "Scripts"))
+          : path.resolve(path.join(venvPath, "bin"));
+      const venvInterpreter = path.resolve(
+        path.join(
+          venvBins,
+          process.platform === "win32" ? "python" : "python3"
+        )
+      );
+      if (
+        fs.existsSync(venvInterpreter) ||
+        fs.existsSync(venvInterpreter + ".exe")
+      ) {
+        pythonEnv.venv = {
+          path: venvPath,
+          activateCmd: "",
+          interpreter: venvInterpreter,
         };
         pythonEnv.interpreter = pythonEnv.venv.interpreter;
       }
@@ -361,20 +391,33 @@ export class PythonRunner extends AbstractRunner {
     if (candidate) {
       if (candidate.endsWith("python") || candidate.endsWith("python.exe")) {
         const python3Alt = candidate.replace(/python(\.exe)?$/, "python3$1");
-        candidates.push(python3Alt, candidate);
+        if (process.platform === "win32") {
+          candidates.push(candidate, python3Alt);
+        } else {
+          candidates.push(python3Alt, candidate);
+        }
       } else if (
         candidate.endsWith("python3") ||
         candidate.endsWith("python3.exe")
       ) {
         const pythonAlt = candidate.replace(/python3(\.exe)?$/, "python$1");
-        candidates.push(candidate, pythonAlt);
+        if (process.platform === "win32") {
+          candidates.push(pythonAlt, candidate);
+        } else {
+          candidates.push(candidate, pythonAlt);
+        }
       } else {
         candidates.push(candidate);
       }
     }
 
-    if (!candidates.includes("python3")) candidates.push("python3");
-    if (!candidates.includes("python")) candidates.push("python");
+    if (process.platform === "win32") {
+      if (!candidates.includes("python")) candidates.push("python");
+      if (!candidates.includes("python3")) candidates.push("python3");
+    } else {
+      if (!candidates.includes("python3")) candidates.push("python3");
+      if (!candidates.includes("python")) candidates.push("python");
+    }
 
     for (const bin of candidates) {
       if (PythonRunner.canExecute(bin, env)) {
