@@ -573,6 +573,21 @@ def calculate(x: int) -> int:
             fileKeys.some((f) => f.includes("local_helper.py"))
           ).toBeTrue();
 
+          // !!!!!!!!!!
+          const failingFiles: string[] = [];
+          const okFiles: string[] = [];
+          fileKeys.forEach((f) => {
+            (isPathInsideDir(f, tmpDir) ? okFiles : failingFiles).push(f);
+          });
+          console.info(
+            `Unexpected coverage files for package '${pkg}':`,
+            JSON.stringify(failingFiles, null, 2)
+          );
+          console.info(
+            `These are ok for '${pkg}':`,
+            JSON.stringify(okFiles, null, 2)
+          );
+
           // Strict negative check: EVERY file covered MUST be a local project file
           expect(fileKeys.every((f) => isPathInsideDir(f, tmpDir))).toBeTrue();
         }
@@ -616,7 +631,7 @@ def calculate(x: int) -> int:
             ).push(f);
           });
           console.info(
-            `Unexpected coverage files for package '${pkg}':`,
+            `Unexpected coverage files for package+directimports '${pkg}':`,
             JSON.stringify(failingFiles, null, 2)
           );
           console.info(
