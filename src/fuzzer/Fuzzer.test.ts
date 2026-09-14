@@ -28,7 +28,16 @@ describe("fuzzer: general", () => {
         jasmine.objectContaining({ toolVersion: getToolVersion() })
       );
     } finally {
-      fs.rmSync(tmpdir, { recursive: true });
+      try {
+        fs.rmSync(tmpdir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual Windows file lock cleanup errors
+      }
     }
   });
 });
