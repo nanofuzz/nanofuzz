@@ -48,9 +48,6 @@ describe("cli:", () => {
 
   beforeAll(() => {
     jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
-  });
-
-  beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-cli-test-"));
   });
 

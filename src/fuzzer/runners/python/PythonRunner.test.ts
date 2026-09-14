@@ -497,22 +497,21 @@ def slow_fn(x: int) -> int:
   }, 10000);
 
   it("coverage scope: 'project' vs 'project+directimports'", async () => {
-    const isPathInsideDir = (filePath: string, dirPath: string): boolean => {
+    const normalizePath = (p: string): string => {
       try {
-        const realFile = (
-          fs.existsSync(filePath) ? fs.realpathSync(filePath) : filePath
-        )
-          .replace(/\\/g, "/")
-          .toLowerCase();
-        const realDir = (
-          fs.existsSync(dirPath) ? fs.realpathSync(dirPath) : dirPath
-        )
-          .replace(/\\/g, "/")
-          .toLowerCase();
-        return realFile.startsWith(realDir) || realFile.includes(realDir);
+        if (fs.existsSync(p)) {
+          return fs.realpathSync(p).replace(/\\/g, "/").toLowerCase();
+        }
       } catch {
-        return false;
+        // Fall back if realpathSync throws on Windows file lock
       }
+      return path.resolve(p).replace(/\\/g, "/").toLowerCase();
+    };
+
+    const isPathInsideDir = (filePath: string, dirPath: string): boolean => {
+      const realFile = normalizePath(filePath);
+      const realDir = normalizePath(dirPath);
+      return realFile.startsWith(realDir) || realFile.includes(realDir);
     };
 
     const pkgs = ["msgpack", "pytest"];
