@@ -123,6 +123,11 @@ export class LlmAdapter {
     const cfg = LlmAdapter._getConfig();
     return this._backend.chat(cfg.modelName, {
       systemPrompt: prompt.system(),
+      params: {
+        generationConfig: {
+          maxOutputTokens: undefined, // Overrides default 4096 with undefined
+        },
+      },
     });
   } // fn: createChat
 
