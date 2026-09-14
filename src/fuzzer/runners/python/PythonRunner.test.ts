@@ -498,7 +498,7 @@ def slow_fn(x: int) -> int:
   }, 10000);
 
   it("coverage scope: 'project' vs 'project+directimports'", async () => {
-    const pkgs = ["msgpack", "sortedcontainers"];
+    const pkgs = ["msgpack", "pytest"];
     for (const pkg of pkgs) {
       const tmpDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "nanofuzz-covscope-")
@@ -520,8 +520,8 @@ def calculate(x: int) -> int:
     val = local_helper.add_one(x)
     if "${pkg}" == "msgpack":
         _ = msgpack.packb({"a": val})
-    elif "${pkg}" == "sortedcontainers":
-        _ = sortedcontainers.SortedList([val])
+    elif "${pkg}" == "pytest":
+        _ = pytest.Item
     return val * 2
 `;
       fs.writeFileSync(pyPath, pyCode);
