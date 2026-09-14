@@ -606,19 +606,23 @@ def calculate(x: int) -> int:
           ).toBeTrue();
 
           // !!!!!!!!!!
-          const failingFiles = fileKeys.filter(
-            (f) =>
-              !(
-                isPathInsideDir(f, tmpDir) ||
-                f.toLowerCase().includes(pkg.toLowerCase())
-              )
+          const failingFiles: string[] = [];
+          const okFiles: string[] = [];
+          fileKeys.forEach((f) => {
+            (isPathInsideDir(f, tmpDir) ||
+            f.toLowerCase().includes(pkg.toLowerCase())
+              ? okFiles
+              : failingFiles
+            ).push(f);
+          });
+          console.info(
+            `Unexpected coverage files for package '${pkg}':`,
+            JSON.stringify(failingFiles, null, 2)
           );
-          if (failingFiles.length > 0) {
-            console.error(
-              `Unexpected coverage files for package '${pkg}':`,
-              failingFiles
-            );
-          }
+          console.info(
+            `These are ok for '${pkg}':`,
+            JSON.stringify(okFiles, null, 2)
+          );
 
           // Strict negative check: EVERY file covered MUST be either a local project file OR a non-system package
           expect(
