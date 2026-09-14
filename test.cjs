@@ -74,9 +74,34 @@ function runTestFile(file) {
       ? [file]
       : ["--no-experimental-strip-types", jasmineBin, file];
 
+    // Resolve workspace .venv binary path if it exists
+    const venvDir = path.resolve(process.cwd(), ".venv");
+    const venvBin = path.join(
+      venvDir,
+      process.platform === "win32" ? "Scripts" : "bin"
+    );
+    const hasVenv = fs.existsSync(venvBin);
+
+    const pathEnvKey =
+      Object.keys(process.env).find((k) => k.toLowerCase() === "path") ||
+      "PATH";
+    const pathDelimiter = process.platform === "win32" ? ";" : ":";
+    const envPath = hasVenv
+      ? `${venvBin}${pathDelimiter}${process.env[pathEnvKey] || ""}`
+      : process.env[pathEnvKey] || "";
+
+    const testEnv = {
+      ...process.env,
+      FORCE_COLOR: "1",
+      [pathEnvKey]: envPath,
+    };
+    if (hasVenv) {
+      testEnv.VIRTUAL_ENV = venvDir;
+    }
+
     const child = spawn(cmd, args, {
       cwd: process.cwd(),
-      env: { ...process.env, FORCE_COLOR: "1" },
+      env: testEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
