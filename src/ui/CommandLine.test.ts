@@ -48,15 +48,17 @@ describe("cli:", () => {
 
   beforeAll(() => {
     jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
-  });
-
-  beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-cli-test-"));
   });
 
-  afterEach(() => {
+  afterAll(() => {
     if (fs.existsSync(tmpDir)) {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(tmpDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
     }
   });
 
@@ -461,7 +463,15 @@ def ${targetFn}(n: int) -> int:
       expect(res.stdout).toContain("Stopped for reason: maxFailures.");
     } finally {
       if (fs.existsSync(pyFile)) {
-        fs.rmSync(pyFile, { force: true });
+        try {
+          fs.rmSync(pyFile, {
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore
+        }
       }
     }
   });

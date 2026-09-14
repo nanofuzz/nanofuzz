@@ -16,7 +16,16 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
 
   afterEach(() => {
     if (fs.existsSync(tmpDir)) {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual Windows file lock cleanup errors
+      }
     }
   });
 

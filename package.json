@@ -103,6 +103,16 @@
             "default": 10000,
             "minimum": 1000,
             "description": "Maximum time (in ms) allowed for the runner host process to startup."
+          },
+          "nanofuzz.fuzzer.coverageScope": {
+            "title": "Code coverage scope",
+            "type": "string",
+            "enum": [
+              "project",
+              "project+directimports"
+            ],
+            "default": "project",
+            "description": "Code coverage scope: 'project' (local project code) or 'project+directimports' (project + directly imported packages)."
           }
         }
       },

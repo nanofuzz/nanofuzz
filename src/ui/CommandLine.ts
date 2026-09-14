@@ -6,7 +6,7 @@ import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
-import { FuzzOptions } from "../fuzzer/Types";
+import { CoverageScope, FuzzOptions, isCoverageScope } from "../fuzzer/Types";
 import path from "node:path";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
@@ -97,6 +97,12 @@ function createProgram(): Commander.Command {
     // --------------------------------- Measures -------------------------------- //
 
     .option(`--no-coverage-measure`, `Disable code coverage measure`)
+    .option(
+      `--coverage-scope <scope>`,
+      `Code coverage scope: project (default) or project+directimports`,
+      parseCoverageScope,
+      "project"
+    )
     .option(`--no-failed-test-measure`, `Disable failed test measure`)
 
     // ----------------------------- Input Generators ---------------------------- //
@@ -266,6 +272,11 @@ export async function runCliInProcess(
     "nanofuzz.fuzzer.hostStartupTimeout",
     options["hostStartupTimeout"]
   );
+
+  // measure options
+  if (options["coverageScope"] !== undefined) {
+    Config.override("nanofuzz.fuzzer.coverageScope", options["coverageScope"]);
+  }
 
   // ai config options
   if (options["modelProvider"] !== undefined) {
@@ -476,6 +487,16 @@ function parseAiCacheMode(value: string, _previous: string): string {
   }
   return value;
 } // fn: parseAiCacheMode
+
+function parseCoverageScope(value: string, _previous: string): CoverageScope {
+  const norm = value.toLowerCase().trim();
+  if (isCoverageScope(norm)) {
+    return norm;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid coverage scope '${value}'. Allowed: 'project', 'project+directimports'`
+  );
+} // fn: parseCoverageScope
 
 function parseFloatArgZeroToOne(value: string, _previous: number): number {
   const parsedValue = parseFloatArgGeZero(value, _previous);

@@ -1215,7 +1215,16 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
     });
 
     afterAll(() => {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual Windows file lock cleanup errors
+      }
     });
 
     /**

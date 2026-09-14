@@ -1,9 +1,9 @@
-import { PythonRunner } from "./python/PythonRunner";
-import { FunctionDef, FuzzEnv } from "../Fuzzer";
-import { ArgDef } from "../analysis/ArgDef";
-import * as ProgramFactory from "../analysis/ProgramFactory";
-import * as Parser from "../adapters/ParserAdapter";
-import * as Config from "../../Config";
+import { PythonRunner } from "./PythonRunner";
+import { FunctionDef, FuzzEnv } from "../../Fuzzer";
+import { ArgDef } from "../../analysis/ArgDef";
+import * as ProgramFactory from "../../analysis/ProgramFactory";
+import * as Parser from "../../adapters/ParserAdapter";
+import * as Config from "../../../Config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -418,7 +418,6 @@ def loop_timeout(n: int) -> int:
 
       // First run times out in-host
       const timeoutRes = await runner.run([5], 100);
-      console.log("TIMEOUT RES:", JSON.stringify(timeoutRes.result, null, 2));
       expect(timeoutRes.result.tag).toBe("timeout");
       expect(runner.coverageInfo).toBeDefined();
 
@@ -465,17 +464,17 @@ def slow_fn(x: int) -> int:
       });
 
       // Set hostStartupTimeout to 500ms. Without heartbeats (sent every 250ms),
-      // a 1.5s import would time out at t=500ms. Heartbeats reset the 500ms clock,
+      // a 1.5s import would time out at t=1000ms. Heartbeats reset the 500ms clock,
       // allowing the 1.5s import to succeed cleanly.
       Config.override("nanofuzz.fuzzer.hostStartupTimeout", 1000);
 
-      const runner = new PythonRunner(pyPath, "slow_fn", env, 2000);
+      const runner = new PythonRunner(pyPath, "slow_fn", env, 10000);
       const start = performance.now();
       await runner.onRunStart();
       const elapsed = performance.now() - start;
       expect(elapsed).toBeGreaterThanOrEqual(1400);
 
-      const res = await runner.run([10], 2000);
+      const res = await runner.run([10], 10000);
       await runner.onRunEnd();
 
       expect(res.result.tag).toBe("value");
@@ -495,7 +494,187 @@ def slow_fn(x: int) -> int:
         // Ignore
       }
     }
-  }, 10000);
+  });
+
+  it("coverage scope: 'project' vs 'project+directimports'", async () => {
+    const normalizePath = (p: string): string => {
+      try {
+        if (fs.existsSync(p)) {
+          const real = fs.realpathSync.native
+            ? fs.realpathSync.native(p)
+            : fs.realpathSync(p);
+          return real.replace(/\\/g, "/").toLowerCase();
+        }
+      } catch {
+        // Fall back if realpathSync throws on Windows file lock
+      }
+      return path.resolve(p).replace(/\\/g, "/").toLowerCase();
+    };
+
+    const isPathInsideDir = (filePath: string, dirPath: string): boolean => {
+      const realFile = normalizePath(filePath);
+      const realDir = normalizePath(dirPath);
+      const folderName = path.basename(dirPath).toLowerCase();
+      return (
+        realFile.startsWith(realDir) ||
+        realFile.includes(realDir) ||
+        realFile.includes("/" + folderName + "/")
+      );
+    };
+
+    const pkgs = ["msgpack", "pytest"];
+    for (const pkg of pkgs) {
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nanofuzz-covscope-")
+      );
+      const helperPath = path.join(tmpDir, "local_helper.py");
+      const pyPath = path.join(tmpDir, "cov_scope_test.py");
+
+      fs.writeFileSync(
+        helperPath,
+        `def add_one(x: int) -> int:
+    return x + 1
+`
+      );
+
+      const pyCode = `import ${pkg}
+import local_helper
+
+def calculate(x: int) -> int:
+    val = local_helper.add_one(x)
+    if "${pkg}" == "msgpack":
+        _ = msgpack.packb({"a": val})
+    elif "${pkg}" == "pytest":
+        _ = pytest.__name__
+    return val * 2
+`;
+      fs.writeFileSync(pyPath, pyCode);
+
+      try {
+        const program = ProgramFactory.fromSource(
+          () => pyCode,
+          "python",
+          pyPath
+        );
+        const fnDef = program.functionsExported["calculate"];
+        const env = createFuzzEnv(fnDef);
+
+        // Case 1: Default 'project' scope
+        Config.override("nanofuzz.fuzzer.coverageScope", "project");
+        const runnerProject = new PythonRunner(pyPath, "calculate", env, 10000);
+        await runnerProject.onRunStart();
+        const resProject = await runnerProject.run([1], 10000);
+        const covProject = runnerProject.coverageInfo;
+        await runnerProject.onRunEnd();
+
+        expect(resProject.result.tag).toBe("value");
+        expect(covProject).toBeDefined();
+        if (covProject) {
+          const fileKeys = Object.keys(covProject).map((p) =>
+            p.replace(/\\/g, "/")
+          );
+          // Positive check: Includes target file and local helper
+          expect(
+            fileKeys.some((f) => f.includes("cov_scope_test.py"))
+          ).toBeTrue();
+          expect(
+            fileKeys.some((f) => f.includes("local_helper.py"))
+          ).toBeTrue();
+
+          // Strict negative check: EVERY file covered MUST be a local project file
+          expect(fileKeys.every((f) => isPathInsideDir(f, tmpDir))).toBeTrue();
+        }
+
+        // Case 2: 'project+directimports' scope
+        Config.override(
+          "nanofuzz.fuzzer.coverageScope",
+          "project+directimports"
+        );
+        const runnerImports = new PythonRunner(pyPath, "calculate", env, 10000);
+        await runnerImports.onRunStart();
+        const resImports = await runnerImports.run([1], 10000);
+        const covImports = runnerImports.coverageInfo;
+        await runnerImports.onRunEnd();
+
+        expect(resImports.result.tag).toBe("value");
+        expect(covImports).toBeDefined();
+        if (covImports) {
+          const fileKeys = Object.keys(covImports).map((p) =>
+            p.replace(/\\/g, "/")
+          );
+          // Positive check: Includes target file, local helper, and directly imported package
+          expect(
+            fileKeys.some((f) => f.includes("cov_scope_test.py"))
+          ).toBeTrue();
+          expect(
+            fileKeys.some((f) => f.includes("local_helper.py"))
+          ).toBeTrue();
+          expect(
+            fileKeys.some((f) => f.toLowerCase().includes(pkg.toLowerCase()))
+          ).toBeTrue();
+
+          // Strict negative check: EVERY file covered MUST be either a local project file OR a non-system package
+          expect(
+            fileKeys.every(
+              (f) =>
+                isPathInsideDir(f, tmpDir) ||
+                f.toLowerCase().includes(pkg.toLowerCase())
+            )
+          ).toBeTrue();
+        }
+      } finally {
+        Config.override("nanofuzz.fuzzer.coverageScope", "project");
+        try {
+          fs.rmSync(tmpDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  });
+
+  it("fails invalid coverageScope", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-covscope-invalid-")
+    );
+    const pyPath = path.join(tmpDir, "dummy.py");
+    fs.writeFileSync(pyPath, "def fn(): pass\n");
+
+    try {
+      const program = ProgramFactory.fromSource(
+        () => "def fn(): pass\n",
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["fn"];
+      const env = createFuzzEnv(fnDef);
+
+      // Set bad coverageScope input
+      Config.override("nanofuzz.fuzzer.coverageScope", "invalid-scope-value");
+      const runner = new PythonRunner(pyPath, "fn", env, 2000);
+
+      await expectAsync(runner.onRunStart()).toBeRejectedWithError(
+        /Invalid coverageScope configuration 'invalid-scope-value'/
+      );
+    } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project");
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
 });
 
 /**

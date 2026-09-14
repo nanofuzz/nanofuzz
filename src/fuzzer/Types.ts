@@ -270,6 +270,18 @@ export enum FuzzStopReason {
 }
 
 /**
+ * Supported code coverage measurement scopes
+ */
+export type CoverageScope = "project" | "project+directimports";
+
+/**
+ * Type guard for CoverageScope
+ */
+export function isCoverageScope(val: unknown): val is CoverageScope {
+  return val === "project" || val === "project+directimports";
+}
+
+/**
  * Global execution environment
  */
 export type VmGlobals = Record<string, unknown>;

@@ -6,7 +6,9 @@ import {
   TypeHint,
 } from "../AbstractRunner";
 import { ArgDef } from "../../analysis/ArgDef";
-import { ArgTag } from "../../analysis/Types";
+import { ArgTag, ProgramImport } from "../../analysis/Types";
+import { CoverageScope, isCoverageScope } from "../../Types";
+import * as ProgramFactory from "../../analysis/ProgramFactory";
 import { FuzzEnv } from "../../Fuzzer";
 import * as JSONN from "../../../Jsonn";
 import DotEnv from "dotenv";
@@ -283,7 +285,37 @@ export class PythonRunner extends AbstractRunner {
         pythonEnv.venv = {
           path: venvPath,
           activateCmd: venvActivateCmd,
-          interpreter: path.resolve(path.join(venvBins, "python3")),
+          interpreter: path.resolve(
+            path.join(
+              venvBins,
+              process.platform === "win32" ? "python" : "python3"
+            )
+          ),
+        };
+        pythonEnv.interpreter = pythonEnv.venv.interpreter;
+      }
+    }
+
+    if (!pythonEnv.venv && process.env.VIRTUAL_ENV) {
+      const venvPath = path.resolve(process.env.VIRTUAL_ENV);
+      const venvBins =
+        process.platform === "win32"
+          ? path.resolve(path.join(venvPath, "Scripts"))
+          : path.resolve(path.join(venvPath, "bin"));
+      const venvInterpreter = path.resolve(
+        path.join(
+          venvBins,
+          process.platform === "win32" ? "python" : "python3"
+        )
+      );
+      if (
+        fs.existsSync(venvInterpreter) ||
+        fs.existsSync(venvInterpreter + ".exe")
+      ) {
+        pythonEnv.venv = {
+          path: venvPath,
+          activateCmd: "",
+          interpreter: venvInterpreter,
         };
         pythonEnv.interpreter = pythonEnv.venv.interpreter;
       }
@@ -359,20 +391,33 @@ export class PythonRunner extends AbstractRunner {
     if (candidate) {
       if (candidate.endsWith("python") || candidate.endsWith("python.exe")) {
         const python3Alt = candidate.replace(/python(\.exe)?$/, "python3$1");
-        candidates.push(python3Alt, candidate);
+        if (process.platform === "win32") {
+          candidates.push(candidate, python3Alt);
+        } else {
+          candidates.push(python3Alt, candidate);
+        }
       } else if (
         candidate.endsWith("python3") ||
         candidate.endsWith("python3.exe")
       ) {
         const pythonAlt = candidate.replace(/python3(\.exe)?$/, "python$1");
-        candidates.push(candidate, pythonAlt);
+        if (process.platform === "win32") {
+          candidates.push(pythonAlt, candidate);
+        } else {
+          candidates.push(candidate, pythonAlt);
+        }
       } else {
         candidates.push(candidate);
       }
     }
 
-    if (!candidates.includes("python3")) candidates.push("python3");
-    if (!candidates.includes("python")) candidates.push("python");
+    if (process.platform === "win32") {
+      if (!candidates.includes("python")) candidates.push("python");
+      if (!candidates.includes("python3")) candidates.push("python3");
+    } else {
+      if (!candidates.includes("python3")) candidates.push("python3");
+      if (!candidates.includes("python")) candidates.push("python");
+    }
 
     for (const bin of candidates) {
       if (PythonRunner.canExecute(bin, env)) {
@@ -437,6 +482,33 @@ export class PythonRunner extends AbstractRunner {
     );
 
     const filenameBase = path.basename(this._filename);
+    const coverageScopeRaw = Config.get<unknown>(
+      "nanofuzz.fuzzer.coverageScope",
+      "project"
+    );
+
+    if (!isCoverageScope(coverageScopeRaw)) {
+      throw new Error(
+        `Invalid coverageScope configuration '${String(
+          coverageScopeRaw
+        )}'. Allowed values: 'project', 'project+directimports'`
+      );
+    }
+    const coverageScope: CoverageScope = coverageScopeRaw;
+
+    let directPkgs: string[] = [];
+    if (
+      coverageScope === "project+directimports" &&
+      fs.existsSync(this._filename)
+    ) {
+      try {
+        const program = ProgramFactory.fromFile(this._filename);
+        directPkgs = extractDirectPackages(program.imports);
+      } catch {
+        // Fall back gracefully if file resolution or parsing fails
+      }
+    }
+
     const args = [
       runnerHost,
       this._filename,
@@ -445,6 +517,8 @@ export class PythonRunner extends AbstractRunner {
         filenameBase.length - path.extname(filenameBase).length
       ),
       this._fn,
+      coverageScope,
+      JSON.stringify(directPkgs),
     ];
 
     const host = new PythonHost(
@@ -507,6 +581,40 @@ function findPythonLibDir(dir: string, item: string): string | null {
 
   return null;
 } // fn: findPythonLibDir
+
+/**
+ * Extracts top-level 3rd-party package names directly imported by the program
+ * using `program.imports`.
+ */
+function extractDirectPackages(
+  imports: Record<string, ProgramImport>
+): string[] {
+  const packages = new Set<string>();
+
+  for (const [key, imp] of Object.entries(imports)) {
+    const pPath = imp.programPath;
+    if (pPath) {
+      const normalized = pPath.replace(/\\/g, "/");
+      const parts = normalized.split("/");
+
+      if (parts.includes("site-packages") || parts.includes("dist-packages")) {
+        const idx = parts.includes("site-packages")
+          ? parts.indexOf("site-packages")
+          : parts.indexOf("dist-packages");
+        if (idx + 1 < parts.length) {
+          packages.add(parts[idx + 1]);
+        }
+      }
+    }
+
+    const pkgName = key.replace(/^\*:/, "").split(".")[0];
+    if (pkgName && !pkgName.startsWith(".")) {
+      packages.add(pkgName);
+    }
+  }
+
+  return Array.from(packages);
+}
 
 /**
  * Checks if the argument is a UUID string

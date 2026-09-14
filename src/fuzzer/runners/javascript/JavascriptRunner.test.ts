@@ -1,9 +1,9 @@
-import { JavascriptRunner } from "./javascript/JavascriptRunner";
-import { FuzzEnv } from "../Fuzzer";
-import { ArgDef } from "../analysis/ArgDef";
-import * as ProgramFactory from "../analysis/ProgramFactory";
-import * as Parser from "../adapters/ParserAdapter";
-import * as Config from "../../Config";
+import { JavascriptRunner } from "./JavascriptRunner";
+import { FuzzEnv } from "../../Fuzzer";
+import { ArgDef } from "../../analysis/ArgDef";
+import * as ProgramFactory from "../../analysis/ProgramFactory";
+import * as Parser from "../../adapters/ParserAdapter";
+import * as Config from "../../../Config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -37,7 +37,12 @@ module.exports = { add };
       }
     } finally {
       try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
       } catch {
         // ignore
       }
@@ -120,7 +125,12 @@ export function processTypes(bytes: Uint8Array, mySet: Set<string>, myMap: Map<s
       }
     } finally {
       try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
       } catch {
         // ignore
       }
@@ -160,7 +170,12 @@ module.exports = { throwErr, infiniteLoop };
       expect(loopRes.result.tag).toBe("timeout");
     } finally {
       try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
       } catch {
         // ignore
       }
@@ -203,7 +218,12 @@ module.exports = { crash, ok };
       await recoveredRunner.onRunEnd();
     } finally {
       try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
       } catch {
         // ignore
       }
@@ -239,7 +259,12 @@ module.exports = { loopTimeout };
       await runner.onRunEnd();
     } finally {
       try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
       } catch {
         // ignore
       }
@@ -286,7 +311,12 @@ module.exports = { slowAdd };
     } finally {
       Config.override("nanofuzz.fuzzer.hostStartupTimeout", hostStartupTimeout);
       try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
       } catch {
         // ignore
       }
