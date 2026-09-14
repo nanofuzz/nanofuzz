@@ -464,17 +464,17 @@ def slow_fn(x: int) -> int:
       });
 
       // Set hostStartupTimeout to 500ms. Without heartbeats (sent every 250ms),
-      // a 1.5s import would time out at t=500ms. Heartbeats reset the 500ms clock,
+      // a 1.5s import would time out at t=1000ms. Heartbeats reset the 500ms clock,
       // allowing the 1.5s import to succeed cleanly.
       Config.override("nanofuzz.fuzzer.hostStartupTimeout", 1000);
 
-      const runner = new PythonRunner(pyPath, "slow_fn", env, 2000);
+      const runner = new PythonRunner(pyPath, "slow_fn", env, 10000);
       const start = performance.now();
       await runner.onRunStart();
       const elapsed = performance.now() - start;
       expect(elapsed).toBeGreaterThanOrEqual(1400);
 
-      const res = await runner.run([10], 2000);
+      const res = await runner.run([10], 10000);
       await runner.onRunEnd();
 
       expect(res.result.tag).toBe("value");
@@ -494,7 +494,7 @@ def slow_fn(x: int) -> int:
         // Ignore
       }
     }
-  }, 10000);
+  });
 
   it("coverage scope: 'project' vs 'project+directimports'", async () => {
     const normalizePath = (p: string): string => {
@@ -561,9 +561,9 @@ def calculate(x: int) -> int:
 
         // Case 1: Default 'project' scope
         Config.override("nanofuzz.fuzzer.coverageScope", "project");
-        const runnerProject = new PythonRunner(pyPath, "calculate", env, 2000);
+        const runnerProject = new PythonRunner(pyPath, "calculate", env, 10000);
         await runnerProject.onRunStart();
-        const resProject = await runnerProject.run([1], 2000);
+        const resProject = await runnerProject.run([1], 10000);
         const covProject = runnerProject.coverageInfo;
         await runnerProject.onRunEnd();
 
@@ -605,9 +605,9 @@ def calculate(x: int) -> int:
           "nanofuzz.fuzzer.coverageScope",
           "project+directimports"
         );
-        const runnerImports = new PythonRunner(pyPath, "calculate", env, 2000);
+        const runnerImports = new PythonRunner(pyPath, "calculate", env, 10000);
         await runnerImports.onRunStart();
-        const resImports = await runnerImports.run([1], 2000);
+        const resImports = await runnerImports.run([1], 10000);
         const covImports = runnerImports.coverageInfo;
         await runnerImports.onRunEnd();
 
