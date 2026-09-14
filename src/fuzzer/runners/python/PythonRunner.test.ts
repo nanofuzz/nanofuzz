@@ -545,7 +545,7 @@ def calculate(x: int) -> int:
     if "${pkg}" == "msgpack":
         _ = msgpack.packb({"a": val})
     elif "${pkg}" == "pytest":
-        _ = pytest.Item
+        _ = pytest.__name__
     return val * 2
 `;
       fs.writeFileSync(pyPath, pyCode);
