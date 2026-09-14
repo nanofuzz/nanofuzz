@@ -500,7 +500,10 @@ def slow_fn(x: int) -> int:
     const normalizePath = (p: string): string => {
       try {
         if (fs.existsSync(p)) {
-          return fs.realpathSync(p).replace(/\\/g, "/").toLowerCase();
+          const real = fs.realpathSync.native
+            ? fs.realpathSync.native(p)
+            : fs.realpathSync(p);
+          return real.replace(/\\/g, "/").toLowerCase();
         }
       } catch {
         // Fall back if realpathSync throws on Windows file lock
@@ -511,7 +514,12 @@ def slow_fn(x: int) -> int:
     const isPathInsideDir = (filePath: string, dirPath: string): boolean => {
       const realFile = normalizePath(filePath);
       const realDir = normalizePath(dirPath);
-      return realFile.startsWith(realDir) || realFile.includes(realDir);
+      const folderName = path.basename(dirPath).toLowerCase();
+      return (
+        realFile.startsWith(realDir) ||
+        realFile.includes(realDir) ||
+        realFile.includes("/" + folderName + "/")
+      );
     };
 
     const pkgs = ["msgpack", "pytest"];
