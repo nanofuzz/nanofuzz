@@ -41,6 +41,7 @@ function findTestFiles(dir) {
 // Prioritize known longer running test files to run early in the queue
 function sortTestFiles(files) {
   const priority = [
+    "PythonRunner.test.ts", // !!!!!!!!!!
     "FuzzerCoverageOneFile.test.ts",
     "FuzzerPython.test.ts",
     "FuzzerExamples1.test.ts",
