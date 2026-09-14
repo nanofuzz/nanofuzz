@@ -605,6 +605,21 @@ def calculate(x: int) -> int:
             fileKeys.some((f) => f.toLowerCase().includes(pkg.toLowerCase()))
           ).toBeTrue();
 
+          // !!!!!!!!!!
+          const failingFiles = fileKeys.filter(
+            (f) =>
+              !(
+                isPathInsideDir(f, tmpDir) ||
+                f.toLowerCase().includes(pkg.toLowerCase())
+              )
+          );
+          if (failingFiles.length > 0) {
+            console.error(
+              `Unexpected coverage files for package '${pkg}':`,
+              failingFiles
+            );
+          }
+
           // Strict negative check: EVERY file covered MUST be either a local project file OR a non-system package
           expect(
             fileKeys.every(
