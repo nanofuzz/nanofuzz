@@ -45,7 +45,8 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       [],
       leaderboard,
       genStats,
-      allInputs
+      allInputs,
+      program.src
     );
 
     cig.onRunStart(true);
@@ -154,7 +155,8 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         [],
         leaderboard,
         genStats,
-        allInputs
+        allInputs,
+        program.src
       );
 
       cig.onRunStart(true);
@@ -284,7 +286,8 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         [],
         leaderboard,
         genStats,
-        allInputs
+        allInputs,
+        program.src
       );
 
       cig.onRunStart(true);
@@ -399,7 +402,8 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       [],
       leaderboard,
       genStats,
-      allInputs
+      allInputs,
+      program.src
     );
 
     try {

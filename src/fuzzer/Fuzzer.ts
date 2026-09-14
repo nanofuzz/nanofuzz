@@ -135,7 +135,8 @@ export class Tester {
       this._measures, // active measures
       this._leaderboard, // leaderboard
       this._results.stats.generators, // generator stats
-      this._allInputs // running list of dupe-checked inputs
+      this._allInputs, // running list of dupe-checked inputs
+      this._program.src // enclosing module source code
     );
 
     // Start a background compilation if precompile mode is active
