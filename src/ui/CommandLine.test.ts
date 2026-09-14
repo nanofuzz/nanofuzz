@@ -54,7 +54,7 @@ describe("cli:", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-cli-test-"));
   });
 
-  afterEach(() => {
+  afterAll(() => {
     if (fs.existsSync(tmpDir)) {
       fs.rmSync(tmpDir, {
         recursive: true,
