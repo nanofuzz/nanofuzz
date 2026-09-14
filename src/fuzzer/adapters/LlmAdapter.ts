@@ -163,7 +163,8 @@ export class LlmAdapter {
     fn: FunctionDef,
     schema: zod.ZodType,
     directives: string[],
-    allInputs: Map<string, unknown>
+    allInputs: Map<string, unknown>,
+    moduleSrc: string
   ): Promise<{
     programInputs: { [k: string]: ArgValueType }[];
     stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
@@ -172,7 +173,7 @@ export class LlmAdapter {
     let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
     try {
       response = await this._query(
-        [prompt.genInputs(fn, directives, allInputs)],
+        [prompt.genInputs(fn, directives, allInputs, moduleSrc)],
         schema
       );
       const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
@@ -373,10 +374,14 @@ export const prompt = {
   genInputs: (
     fn: FunctionDef,
     directives: string[],
-    allInputs: Map<string, unknown>
+    allInputs: Map<string, unknown>,
+    moduleSrc: string
   ): string => {
     const fnRef = fn.getRef();
-    const spec = fn.getCmt() ?? "";
+    const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
+    const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
+    const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
+
     let inputs = Config.get<boolean>("nanofuzz.ai.backfeedPriorInputs", true)
       ? Array.from(allInputs.keys())
       : [];
@@ -384,6 +389,16 @@ export const prompt = {
     if (inputs.length > 10000) {
       inputs = inputs.slice(-10000);
     }
+
+    const moduleContext = escapedModuleSrc
+      ? `The full module source code containing "${fnRef.name}":
+\`\`\`${fnRef.lang}
+${escapedModuleSrc}
+\`\`\`
+
+`
+      : "";
+
     return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
 
 The specification for the "${fnRef.name}" program:
@@ -393,10 +408,10 @@ ${spec ? spec : `(no specification was found. try to infer the spec from the pro
 
 The "${fnRef.name}" program:
 \`\`\`${fnRef.lang}
-${fnRef.src}
+${fnSrc}
 \`\`\`
 
-${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
 
 ${inputs.length ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}` : ""}
 `;

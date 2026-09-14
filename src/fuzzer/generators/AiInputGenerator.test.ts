@@ -3,6 +3,7 @@ import { makeArgDef } from "../analysis/TestUtils";
 import { ArgDef } from "../analysis/ArgDef";
 import { ArgTag } from "../analysis/Types";
 import { FunctionDef } from "../analysis/FunctionDef";
+import { prompt } from "../adapters/LlmAdapter";
 
 describe("src/fuzzer/generators/AiInputGenerator: ", () => {
   it("dimsUnique schema directives", () => {
@@ -41,7 +42,7 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
         return this._argDefToSchema(arg, path, directivesList);
       }
     }
-    const gen = new TestAiGenerator(fnDef, "seed", new Map());
+    const gen = new TestAiGenerator(fnDef, "seed", new Map(), "");
     gen.testArgDefToSchema(argDef, "items", directives);
 
     expect(directives).toContain(
@@ -125,5 +126,50 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
 
     expect(decoded instanceof Uint8Array).toBeTrue();
     expect<unknown>(decoded).toEqual(new Uint8Array([104, 101, 108, 108, 111]));
+  });
+
+  it("prompt.genInputs includes module source code", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn() {}",
+      lang: "typescript",
+      startOffset: 25,
+      endOffset: 45,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const moduleSrc =
+      "// full module content\nconst X = 1;\nfunction testFn() {}";
+    const promptText = prompt.genInputs(fnDef, [], new Map(), moduleSrc);
+    expect(promptText).toContain(
+      'The full module source code containing "testFn":'
+    );
+    expect(promptText).toContain(
+      "// full module content\nconst X = 1;\nfunction testFn() {}"
+    );
+  });
+
+  it("escape triple backticks", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn() { /* ``` */ }",
+      cmt: "spec with ``` triple backticks",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const moduleSrc = "// module code\n/* ``` */";
+    const promptText = prompt.genInputs(fnDef, [], new Map(), moduleSrc);
+    expect(promptText).toContain("spec with \\`\\`\\` triple backticks");
+    expect(promptText).toContain("function testFn() { /* \\`\\`\\` */ }");
+    expect(promptText).toContain("// module code\n/* \\`\\`\\` */");
   });
 });

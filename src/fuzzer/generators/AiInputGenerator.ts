@@ -27,6 +27,7 @@ import * as Config from "../../Config";
 export class AiInputGenerator extends AbstractInputGenerator {
   protected _inputQueue: InputAndSource[] = []; // Cache of valid, generated inputs
   protected _fn: FunctionDef; // Function target for inputs
+  protected _moduleSrc: string; // Module source code
   protected _llm?: LlmAdapter; // Back-end AI model
   protected _callsPending = 0; // Number of calls to AI model pending
   protected _stats = _initStats(); // Stats about inputs generated
@@ -35,11 +36,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
   public constructor(
     fn: FunctionDef,
     rngSeed: string | undefined,
-    allInputs: Map<string, unknown>
+    allInputs: Map<string, unknown>,
+    moduleSrc: string
   ) {
     super(fn.getArgDefs(), rngSeed);
     this._fn = fn;
     this._allInputs = allInputs;
+    this._moduleSrc = moduleSrc;
   } // fn: constructor
 
   /**
@@ -130,7 +133,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
       // Fetch inputs from the llm
       this._llm
-        .genInputs(this._fn, schema, directives, this._allInputs)
+        .genInputs(
+          this._fn,
+          schema,
+          directives,
+          this._allInputs,
+          this._moduleSrc
+        )
         .then((inputs) => {
           // Update tokens received stats
           if (inputs.stats) {
