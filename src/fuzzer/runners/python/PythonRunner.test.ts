@@ -566,6 +566,7 @@ def calculate(x: int) -> int:
         const resProject = await runnerProject.run([1], 10000);
         const covProject = runnerProject.coverageInfo;
         await runnerProject.onRunEnd();
+        console.log(JSON.stringify(resProject.result, null, 2)); // !!!!!!!!!!
 
         expect(resProject.result.tag).toBe("value");
         expect(covProject).toBeDefined();
