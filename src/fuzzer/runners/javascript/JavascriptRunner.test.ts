@@ -1,9 +1,9 @@
-import { JavascriptRunner } from "./javascript/JavascriptRunner";
-import { FuzzEnv } from "../Fuzzer";
-import { ArgDef } from "../analysis/ArgDef";
-import * as ProgramFactory from "../analysis/ProgramFactory";
-import * as Parser from "../adapters/ParserAdapter";
-import * as Config from "../../Config";
+import { JavascriptRunner } from "./JavascriptRunner";
+import { FuzzEnv } from "../../Fuzzer";
+import { ArgDef } from "../../analysis/ArgDef";
+import * as ProgramFactory from "../../analysis/ProgramFactory";
+import * as Parser from "../../adapters/ParserAdapter";
+import * as Config from "../../../Config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";

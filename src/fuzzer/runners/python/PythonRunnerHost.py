@@ -12,7 +12,7 @@ import ctypes
 import threading
 import sysconfig
 from contextlib import redirect_stdout
-from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional
+from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
 
 try:
     import msgpack
@@ -432,7 +432,7 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     }
 
 
-VALID_COVERAGE_SCOPES = ("project", "project+direct-imports")
+VALID_COVERAGE_SCOPES = ("project", "project+directimports")
 
 
 def is_under(root: str, path: str) -> bool:
@@ -450,12 +450,14 @@ def program_files(
     direct_packages: Optional[List[str]] = None
 ) -> List[str]:
     """
-    Returns the files the program under test is made of:
-    - "project" (default): Group A (local project directory tree only).
-    - "project+direct-imports": Group A + Group B.1 (3rd-party packages directly imported by PUT).
-    Excludes Group C (Python standard library & virtualenv internals).
+    Returns the files the program under test is made of based on three groups:
+    - Group A: Local project directory tree (`is_under(root, modfile)`).
+    - Group C: Python standard library & virtualenv internals (`stdlib_path` or `.venv`/`venv`/`env`/`__pycache__`).
+    - Group B: 3rd-party packages (anything that is neither Group A nor Group C).
 
-    Must be called after the PUT is loaded, so that its imports have run.
+    Coverage Scopes:
+    - "project" (default): Group A only.
+    - "project+directimports": Group A + Group B packages whose top-level package name is in `direct_packages`.
     """
     if coverage_scope not in VALID_COVERAGE_SCOPES:
         raise ValueError(
@@ -476,23 +478,39 @@ def program_files(
         modfile = os.path.realpath(modfile)
         parts = modfile.split(os.sep)
 
-        # 1. Check 3rd-party packages (site-packages / dist-packages) FIRST
-        if "site-packages" in parts or "dist-packages" in parts:
-            if coverage_scope == "project+direct-imports":
-                idx = parts.index(
-                    "site-packages") if "site-packages" in parts else parts.index("dist-packages")
-                pkg_name = parts[idx + 1] if idx + 1 < len(parts) else ""
-                if pkg_name in direct_pkg_set:
-                    files.add(modfile)
+        # Always ignore bytecode cache
+        if "__pycache__" in parts:
             continue
 
-        # 2. Exclude Group C: Python Standard Library and virtualenv internals
-        if any(p in (".venv", "venv", "env", "__pycache__") for p in parts) or modfile.startswith(stdlib_path):
+        is_site_pkg = "site-packages" in parts or "dist-packages" in parts
+        is_venv_internal = any(p in (".venv", "venv", "env")
+                               for p in parts) and not is_site_pkg
+        is_stdlib = modfile.startswith(stdlib_path) and not is_site_pkg
+
+        # Group C: Exclude Python Standard Library and virtualenv internals
+        if is_venv_internal or is_stdlib:
             continue
 
-        # 3. Group A: Local project files
+        # Group A: Local project files
         if is_under(root, modfile):
             files.add(modfile)
+            continue
+
+        # Group B: 3rd-party packages (everything else: site-packages, dist-packages, build/extension, etc.)
+        if coverage_scope == "project+directimports":
+            mod_name = getattr(module, "__name__", "")
+            top_pkg = mod_name.split(".")[0] if mod_name else ""
+
+            pkg_from_path = ""
+            if "site-packages" in parts:
+                idx = parts.index("site-packages")
+                pkg_from_path = parts[idx + 1] if idx + 1 < len(parts) else ""
+            elif "dist-packages" in parts:
+                idx = parts.index("dist-packages")
+                pkg_from_path = parts[idx + 1] if idx + 1 < len(parts) else ""
+
+            if (top_pkg and top_pkg in direct_pkg_set) or (pkg_from_path and pkg_from_path in direct_pkg_set):
+                files.add(modfile)
 
     return sorted(files)
 
@@ -738,8 +756,8 @@ def put_result(result: RunnerResult) -> None:
 
 
 def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
-    msg = msgpack.packb(
-        data, default=default_serializer, use_bin_type=True)
+    msg = cast(bytes, msgpack.packb(
+        data, default=default_serializer, use_bin_type=True))
     logging.debug(f"[{pid}]  - Writing {len(msg)} bytes")
     real_stdout.write(struct.pack('>I', len(msg)))  # payload size
     real_stdout.write(msg)  # payload

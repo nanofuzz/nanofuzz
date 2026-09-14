@@ -448,14 +448,14 @@ export class PythonRunner extends AbstractRunner {
       throw new Error(
         `Invalid coverageScope configuration '${String(
           coverageScopeRaw
-        )}'. Allowed values: 'project', 'project+direct-imports'`
+        )}'. Allowed values: 'project', 'project+directimports'`
       );
     }
     const coverageScope: CoverageScope = coverageScopeRaw;
 
     let directPkgs: string[] = [];
     if (
-      coverageScope === "project+direct-imports" &&
+      coverageScope === "project+directimports" &&
       fs.existsSync(this._filename)
     ) {
       try {
@@ -548,25 +548,25 @@ function extractDirectPackages(
 ): string[] {
   const packages = new Set<string>();
 
-  for (const imp of Object.values(imports)) {
+  for (const [key, imp] of Object.entries(imports)) {
     const pPath = imp.programPath;
-    if (!pPath) continue;
+    if (pPath) {
+      const normalized = pPath.replace(/\\/g, "/");
+      const parts = normalized.split("/");
 
-    const normalized = pPath.replace(/\\/g, "/");
-    const parts = normalized.split("/");
+      if (parts.includes("site-packages") || parts.includes("dist-packages")) {
+        const idx = parts.includes("site-packages")
+          ? parts.indexOf("site-packages")
+          : parts.indexOf("dist-packages");
+        if (idx + 1 < parts.length) {
+          packages.add(parts[idx + 1]);
+        }
+      }
+    }
 
-    if (parts.includes("site-packages") || parts.includes("dist-packages")) {
-      const idx = parts.includes("site-packages")
-        ? parts.indexOf("site-packages")
-        : parts.indexOf("dist-packages");
-      if (idx + 1 < parts.length) {
-        packages.add(parts[idx + 1]);
-      }
-    } else if (!pPath.startsWith("/") && !pPath.startsWith(".")) {
-      const rootPkg = pPath.split(".")[0];
-      if (rootPkg) {
-        packages.add(rootPkg);
-      }
+    const pkgName = key.replace(/^\*:/, "").split(".")[0];
+    if (pkgName && !pkgName.startsWith(".")) {
+      packages.add(pkgName);
     }
   }
 

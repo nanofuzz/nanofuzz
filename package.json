@@ -109,10 +109,10 @@
             "type": "string",
             "enum": [
               "project",
-              "project+direct-imports"
+              "project+directimports"
             ],
             "default": "project",
-            "description": "Code coverage scope: 'project' (local project code) or 'project+direct-imports' (project + directly imported packages)."
+            "description": "Code coverage scope: 'project' (local project code) or 'project+directimports' (project + directly imported packages)."
           }
         }
       },

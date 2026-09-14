@@ -99,7 +99,7 @@ function createProgram(): Commander.Command {
     .option(`--no-coverage-measure`, `Disable code coverage measure`)
     .option(
       `--coverage-scope <scope>`,
-      `Code coverage scope: project (default) or project+direct-imports`,
+      `Code coverage scope: project (default) or project+directimports`,
       parseCoverageScope,
       "project"
     )
@@ -494,7 +494,7 @@ function parseCoverageScope(value: string, _previous: string): CoverageScope {
     return norm;
   }
   throw new Commander.InvalidArgumentError(
-    `Invalid coverage scope '${value}'. Allowed: 'project', 'project+direct-imports'`
+    `Invalid coverage scope '${value}'. Allowed: 'project', 'project+directimports'`
   );
 } // fn: parseCoverageScope
 
