@@ -53,12 +53,16 @@ describe("cli:", () => {
 
   afterAll(() => {
     if (fs.existsSync(tmpDir)) {
-      fs.rmSync(tmpDir, {
-        recursive: true,
-        force: true,
-        maxRetries: 10,
-        retryDelay: 100,
-      });
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual Windows file lock cleanup errors
+      }
     }
   });
 
