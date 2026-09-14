@@ -464,9 +464,11 @@ def program_files(
             f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
         )
     root = os.path.dirname(filename)
-    stdlib_path = os.path.realpath(sysconfig.get_path("stdlib"))
+    stdlib_path = os.path.normcase(
+        os.path.realpath(sysconfig.get_path("stdlib")))
 
     direct_pkg_set = set(direct_packages) if direct_packages else set()
+    direct_pkg_lower = {p.lower() for p in direct_pkg_set}
 
     files = {filename}
     for module in list(sys.modules.values()):
@@ -477,15 +479,17 @@ def program_files(
             modfile = os.path.join(root, modfile)
         modfile = os.path.realpath(modfile)
         parts = modfile.split(os.sep)
+        parts_lower = [p.lower() for p in parts]
 
         # Always ignore bytecode cache
-        if "__pycache__" in parts:
+        if "__pycache__" in parts_lower:
             continue
 
-        is_site_pkg = "site-packages" in parts or "dist-packages" in parts
+        is_site_pkg = "site-packages" in parts_lower or "dist-packages" in parts_lower
         is_venv_internal = any(p in (".venv", "venv", "env")
-                               for p in parts) and not is_site_pkg
-        is_stdlib = modfile.startswith(stdlib_path) and not is_site_pkg
+                               for p in parts_lower) and not is_site_pkg
+        is_stdlib = os.path.normcase(modfile).startswith(
+            stdlib_path) and not is_site_pkg
 
         # Group C: Exclude Python Standard Library and virtualenv internals
         if is_venv_internal or is_stdlib:
@@ -502,14 +506,14 @@ def program_files(
             top_pkg = mod_name.split(".")[0] if mod_name else ""
 
             pkg_from_path = ""
-            if "site-packages" in parts:
-                idx = parts.index("site-packages")
+            if "site-packages" in parts_lower:
+                idx = parts_lower.index("site-packages")
                 pkg_from_path = parts[idx + 1] if idx + 1 < len(parts) else ""
-            elif "dist-packages" in parts:
-                idx = parts.index("dist-packages")
+            elif "dist-packages" in parts_lower:
+                idx = parts_lower.index("dist-packages")
                 pkg_from_path = parts[idx + 1] if idx + 1 < len(parts) else ""
 
-            if (top_pkg and top_pkg in direct_pkg_set) or (pkg_from_path and pkg_from_path in direct_pkg_set):
+            if (top_pkg and top_pkg.lower() in direct_pkg_lower) or (pkg_from_path and pkg_from_path.lower() in direct_pkg_lower):
                 files.add(modfile)
 
     return sorted(files)

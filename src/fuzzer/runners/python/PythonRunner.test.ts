@@ -418,7 +418,6 @@ def loop_timeout(n: int) -> int:
 
       // First run times out in-host
       const timeoutRes = await runner.run([5], 100);
-      console.log("TIMEOUT RES:", JSON.stringify(timeoutRes.result, null, 2));
       expect(timeoutRes.result.tag).toBe("timeout");
       expect(runner.coverageInfo).toBeDefined();
 
@@ -603,7 +602,9 @@ def calculate(x: int) -> int:
           expect(
             fileKeys.some((f) => f.includes("local_helper.py"))
           ).toBeTrue();
-          expect(fileKeys.some((f) => f.includes(pkg))).toBeTrue();
+          expect(
+            fileKeys.some((f) => f.toLowerCase().includes(pkg.toLowerCase()))
+          ).toBeTrue();
 
           // Strict negative check: EVERY file covered MUST be either a local project file OR a non-system package
           expect(
