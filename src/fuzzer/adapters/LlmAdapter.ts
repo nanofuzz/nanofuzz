@@ -257,11 +257,13 @@ export class LlmAdapter {
         const schemaObj = jsonSchemaObj
           ? nodellm.Schema.fromJson("output", cleanJsonSchema(jsonSchemaObj))
           : undefined;
-        let chat = (
-          schemaObj ? baseChat.withSchema(schemaObj) : baseChat
-        ).withRequestOptions({
-          responseFormat: { type: "json_object" },
-        });
+        let chat = (schemaObj ? baseChat.withSchema(schemaObj) : baseChat)
+          .withRequestOptions({
+            responseFormat: { type: "json_object" },
+          })
+          .withParams({
+            max_tokens: undefined, // Overrides default 4096 with undefined
+          });
 
         // Provider specific settings
         if (provider === "anthropic") {
