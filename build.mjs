@@ -33,6 +33,34 @@ copyfiles(
   () => console.log("copied .py oracle")
 );
 
+// Copy Python runtime package (nanofuzz_runtime)
+const pyRuntimeSrc = path.resolve(
+  "./packages/runtime/python/src/nanofuzz_runtime"
+);
+if (fs.existsSync(pyRuntimeSrc)) {
+  const destPyRuntime = path.resolve("./build/extension/nanofuzz_runtime");
+  fs.mkdirSync(destPyRuntime, { recursive: true });
+  fs.cpSync(pyRuntimeSrc, destPyRuntime, { recursive: true });
+  console.log("copied nanofuzz_runtime");
+}
+
+// Build and copy TypeScript runtime package (@nanofuzz/runtime)
+const tsRuntimeDir = path.resolve("./packages/runtime/typescript");
+if (fs.existsSync(tsRuntimeDir)) {
+  if (!fs.existsSync(path.join(tsRuntimeDir, "build", "cjs"))) {
+    ChildProcess.execSync("yarn build", {
+      cwd: tsRuntimeDir,
+      stdio: "inherit",
+    });
+  }
+  const destTsRuntime = path.resolve(
+    "./build/extension/node_modules/@nanofuzz/runtime"
+  );
+  fs.mkdirSync(path.dirname(destTsRuntime), { recursive: true });
+  fs.cpSync(tsRuntimeDir, destTsRuntime, { recursive: true });
+  console.log("copied @nanofuzz/runtime");
+}
+
 // Copy Python imports
 let interpreter = "python";
 if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {

@@ -18,6 +18,15 @@ main().catch((err) => {
   process.exit(1);
 });
 
+function isStringArray(val: unknown): val is string[] {
+  return Array.isArray(val) && val.every((item) => typeof item === "string");
+}
+
+function getGlobalPaths(): string[] {
+  const paths = Reflect.get(moduleApi, "globalPaths");
+  return isStringArray(paths) ? paths : [];
+}
+
 /**
  * Main entry point for the JavascriptRunnerHost process.
  * This function reads RunnerInput messages from stdin, executes
@@ -28,12 +37,29 @@ async function main() {
   const initialFnName = process.argv[3];
 
   const loadedModules: Record<string, unknown> = {};
+  const globalPaths = getGlobalPaths();
 
   const getTargetFunction = (
     filenameToLoad: string,
     fnNameToLoad: string
   ): ((...args: unknown[]) => unknown) => {
     const resolvedPath = path.resolve(filenameToLoad);
+
+    // Ensure all ancestor node_modules of resolvedPath are in module.paths & globalPaths
+    let searchDir = path.dirname(resolvedPath);
+    while (searchDir) {
+      const nm = path.join(searchDir, "node_modules");
+      if (!globalPaths.includes(nm)) {
+        globalPaths.push(nm);
+      }
+      if (!module.paths.includes(nm)) {
+        module.paths.push(nm);
+      }
+      const parent = path.dirname(searchDir);
+      if (parent === searchDir) break;
+      searchDir = parent;
+    }
+
     if (!(resolvedPath in loadedModules) || !require.cache[resolvedPath]) {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       loadedModules[resolvedPath] = require(resolvedPath);
@@ -180,12 +206,27 @@ async function main() {
   }
 } // fn: main
 
+function setupNodePath() {
+  const globalPaths = getGlobalPaths();
+  const nodePath = process.env.NODE_PATH;
+  if (nodePath) {
+    const extraPaths = nodePath.split(path.delimiter).filter(Boolean);
+    for (const p of extraPaths) {
+      if (!globalPaths.includes(p)) {
+        globalPaths.push(p);
+      }
+    }
+  }
+}
+
 /**
  * Sets up the environment for the JavascriptRunnerHost process, including
  * redirecting console output to stderr and enabling Node.js compile cache,
  * if available.
  */
 function setup() {
+  setupNodePath();
+
   // Activate Node.js compile cache if available (Node 22+)
   if (
     "enableCompileCache" in moduleApi &&

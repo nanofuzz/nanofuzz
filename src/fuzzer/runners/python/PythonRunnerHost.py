@@ -170,8 +170,14 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
 
 def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
     rootDir = os.path.dirname(filename)
-    if rootDir not in sys.path:
-        sys.path.insert(0, rootDir)
+    curr = os.path.abspath(rootDir)
+    while curr:
+        if curr not in sys.path:
+            sys.path.insert(0, curr)
+        parent = os.path.dirname(curr)
+        if parent == curr:
+            break
+        curr = parent
 
     spec = importlib.util.spec_from_file_location(modulename, filename)
     if spec is None:
