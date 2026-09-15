@@ -14,6 +14,7 @@ import { findInAncestor, isError } from "../../Util";
 import { PutTimeoutName } from "../AbstractHost";
 import * as CompilerFactory from "../../compilers/CompilerFactory";
 import * as Config from "../../../Config";
+import vscode from "vscode";
 import { serialize, deserialize } from "node:v8";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -246,8 +247,13 @@ export class JavascriptRunner extends AbstractRunner {
       )
     );
 
+    const env = {
+      ...process.env,
+      NODE_PATH: JavascriptRunner.getNodePath(this._filename, projectRoot),
+    };
+
     const args = [runnerHost, this._filename, this._jsFn];
-    const host = new NodeHost(args, path.dirname(this._filename));
+    const host = new NodeHost(args, path.dirname(this._filename), env);
 
     const hostStartupTimeout = Config.get<number>(
       "nanofuzz.fuzzer.hostStartupTimeout",
@@ -280,6 +286,57 @@ export class JavascriptRunner extends AbstractRunner {
       this._host = undefined;
     }
   } // fn: _killHost
+
+  /**
+   * Constructs NODE_PATH for NodeHost to resolve dependencies of target files
+   * and extension runtime packages even when no workspace folder is open.
+   */
+  public static getNodePath(filename: string, projectRoot?: string): string {
+    const searchPaths: string[] = [];
+
+    // Add target file's ancestor node_modules directories
+    let currDir = path.resolve(path.dirname(filename));
+    while (currDir) {
+      searchPaths.push(path.join(currDir, "node_modules"));
+      const parent = path.dirname(currDir);
+      if (parent === currDir) break;
+      currDir = parent;
+    }
+
+    // Add open workspace folders' node_modules directories
+    try {
+      const workspaceFolders = vscode.workspace?.workspaceFolders ?? [];
+      for (const folder of workspaceFolders) {
+        let wsDir = path.resolve(folder.uri.fsPath);
+        while (wsDir) {
+          searchPaths.push(path.join(wsDir, "node_modules"));
+          const parent = path.dirname(wsDir);
+          if (parent === wsDir) break;
+          wsDir = parent;
+        }
+      }
+    } catch {
+      // vscode.workspace may not be available in non-vscode execution contexts
+    }
+
+    // Add extension's built node_modules & runtime packages
+    if (projectRoot) {
+      const extDir = path.dirname(projectRoot);
+      searchPaths.push(path.join(extDir, "build", "extension", "node_modules"));
+      searchPaths.push(path.join(extDir, "node_modules"));
+      searchPaths.push(
+        path.join(extDir, "packages", "runtime", "typescript")
+      );
+    }
+
+    if (process.env.NODE_PATH) {
+      searchPaths.push(...process.env.NODE_PATH.split(path.delimiter));
+    }
+
+    return Array.from(new Set(searchPaths.filter(Boolean))).join(
+      path.delimiter
+    );
+  }
 } // class: JavascriptRunner
 
 type FileCoverageData = {
