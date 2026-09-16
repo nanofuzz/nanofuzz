@@ -83,7 +83,7 @@ function createProgram(): Commander.Command {
       parseIntArgGeOne,
       10000
     )
-    .option(`--seed <string>`, `Seed for pseudo-random number generator`, "")
+    .option(`--seed <string>`, `Seed for pseudo-random number generator`)
 
     // ------------------------------- Transformers ------------------------------ //
 
