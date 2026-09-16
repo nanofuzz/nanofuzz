@@ -246,7 +246,11 @@ export class JavascriptRunner extends AbstractRunner {
       )
     );
 
-    const args = [runnerHost, this._filename, this._jsFn];
+    const coverageScopeRaw = String(
+      Config.get<unknown>("nanofuzz.fuzzer.coverageScope", "project static")
+    );
+
+    const args = [runnerHost, this._filename, this._jsFn, coverageScopeRaw];
     const host = new NodeHost(args, path.dirname(this._filename));
 
     const hostStartupTimeout = Config.get<number>(

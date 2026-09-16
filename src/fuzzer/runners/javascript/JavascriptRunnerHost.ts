@@ -7,6 +7,7 @@ import { serialize, deserialize } from "node:v8";
 import { RunnerInput, TypeHint } from "../AbstractRunner";
 import { MAX_HEARTBEATS } from "../AbstractHost";
 import { isError } from "../../Util";
+import { parseCoverageScope } from "../../measures/Util";
 
 const realStdoutWrite = process.stdout.write.bind(process.stdout);
 let stdinBuffer = Buffer.alloc(0);
@@ -26,6 +27,15 @@ main().catch((err) => {
 async function main() {
   const initialFilename = process.argv[2];
   const initialFnName = process.argv[3];
+  const rawCoverageScope = process.argv[4] ?? "project static";
+
+  const collectStaticCoverage = (() => {
+    try {
+      return parseCoverageScope(rawCoverageScope).collectStaticCoverage;
+    } catch {
+      return true;
+    }
+  })();
 
   const loadedModules: Record<string, unknown> = {};
 
@@ -73,7 +83,10 @@ async function main() {
   sendMsg("READY");
 
   // Send initial coverage info
-  const initialCoverage = getGlobalCoverageData() ?? {};
+  const rawGlobalCov = getGlobalCoverageData() ?? {};
+  const initialCoverage = collectStaticCoverage
+    ? rawGlobalCov
+    : getEmptyStaticCoverageData(rawGlobalCov);
   sendMsg(initialCoverage);
 
   // Main loop
@@ -562,6 +575,29 @@ function isCoverageMap(
 
 function getGlobalCoverageData(): unknown {
   return Reflect.get(globalThis, "__coverage__");
+}
+
+function getEmptyStaticCoverageData(
+  covData: unknown
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (isCoverageMap(covData)) {
+    for (const fileKey of Object.keys(covData)) {
+      const fileCoverage = covData[fileKey];
+      if (fileCoverage) {
+        result[fileKey] = {
+          path: fileKey,
+          statementMap: {},
+          fnMap: {},
+          branchMap: {},
+          s: {},
+          f: {},
+          b: {},
+        };
+      }
+    }
+  }
+  return result;
 }
 
 type FileCoverageData = {

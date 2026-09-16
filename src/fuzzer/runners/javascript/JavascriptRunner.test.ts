@@ -322,4 +322,53 @@ module.exports = { slowAdd };
       }
     }
   }, 10000);
+
+  it("option: coverageScope='project' w/o static", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-jsrunner-"));
+    const jsPath = path.join(tmpDir, "staticCovModule.js");
+    const jsCode = `
+function add(a, b) {
+  return a + b;
+}
+module.exports = { add };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project");
+      const runner = new JavascriptRunner(jsPath, "add");
+      await runner.onRunStart();
+
+      const res = await runner.run([3, 4], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(7);
+      }
+
+      const covInfo = runner.coverageInfo;
+      expect(covInfo).toBeDefined();
+      if (covInfo) {
+        for (const fileKey of Object.keys(covInfo)) {
+          const entry = covInfo[fileKey];
+          expect(Object.keys(entry.statementMap)).toEqual([]);
+          expect(Object.keys(entry.fnMap)).toEqual([]);
+          expect(Object.keys(entry.branchMap)).toEqual([]);
+        }
+      }
+    } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
 });
