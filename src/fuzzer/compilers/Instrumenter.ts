@@ -88,11 +88,13 @@ export class Instrumenter {
             msg: ` - Instrument: ${displayPath}`,
             channel: "milestone",
           });
-          updateFn({
-            msg: `Instrumenting: ${displayPath}`,
-            channel: "update",
-            pct: 0.1,
-          });
+          if (process.env.BUILD_TARGET !== "node-cli") {
+            updateFn({
+              msg: `Instrumenting: ${displayPath}`,
+              channel: "update",
+              pct: 0.1,
+            });
+          }
         }
         fs.mkdirSync(path.dirname(instPath), { recursive: true });
 
