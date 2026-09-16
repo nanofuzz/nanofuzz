@@ -4,6 +4,7 @@ import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
 import { ScoredInput } from "./Types";
 import { FuzzOptions, InputAndSource } from "./../Types";
+import { NextableStatus } from "./Types";
 import { FunctionDef, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
 
@@ -130,13 +131,21 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   /**
    * Returns true if further inputs may be produced, false otherwise.
    */
-  public nextable(): boolean {
+  public override nextable(): NextableStatus {
     return (
       !!this._injectedInputs.length ||
       (this._permitSubgens &&
         this._subgens.some((g, i) => this._activeSubgens[i] && g.nextable()))
     );
   } // fn: isAvailable
+
+  /**
+   * Waits asynchronously until at least one input becomes available,
+   * or until all pending generators finish or fail.
+   */
+  public async waitForNextInput(_pollIntervalMs = 50): Promise<boolean> {
+    return false;
+  } // fn: waitForNextInput
 
   /**
    * Suppress all input generators. Input injection

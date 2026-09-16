@@ -14,6 +14,7 @@ import {
   FuzzTestResults,
   InputAndSource,
 } from "../Fuzzer";
+import { NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import * as zod from "zod/v4";
 import { InputGeneratorStatsAi } from "./Types";
@@ -48,10 +49,16 @@ export class AiInputGenerator extends AbstractInputGenerator {
   /**
    * Are inputs available?
    *
-   * @returns true if generator inputs are available, false otherwise
+   * @returns 'now' if generator inputs are available, 'soon' if pending, false otherwise
    */
-  public nextable(): boolean {
-    return !!this._inputQueue.length;
+  public override nextable(): NextableStatus {
+    if (this._inputQueue.length) {
+      return "now";
+    } else if (this._callsPending) {
+      return "soon";
+    } else {
+      return false;
+    }
   } // fn: isAvailable
 
   /**

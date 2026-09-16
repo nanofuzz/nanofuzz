@@ -256,6 +256,43 @@ describe("cli:", () => {
     expect(outputData.results.length).toBeGreaterThan(0);
   });
 
+  it("--no-random-input-generator", async () => {
+    const outputFile = path.join(tmpDir, "no_rnd_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-random-input-generator",
+      "--no-ai-input-generator",
+      "--no-mutation-input-generator",
+      "--max-tests",
+      "10",
+      "--seed",
+      "cli_seed_no_rnd",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const outputData = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outputFile, "utf8")
+    );
+
+    expect(
+      outputData.env.options.generators.RandomInputGenerator.enabled
+    ).toBeFalse();
+    expect(
+      outputData.env.options.generators.AiInputGenerator.enabled
+    ).toBeFalse();
+    expect(
+      outputData.env.options.generators.MutationInputGenerator.enabled
+    ).toBeFalse();
+  });
+
   it("--cig-* flags: composite input generator parameters", async () => {
     const outputFile = path.join(tmpDir, "cig_flags_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";

@@ -40,4 +40,24 @@ describe("fuzzer: general", () => {
       }
     }
   });
+
+  it("CIG: NOMOREINPUTS if no rnd ig & no other ig provides inputs", async () => {
+    const options = {
+      ...intOptions,
+      maxTests: 100,
+      generators: {
+        RandomInputGenerator: { enabled: false },
+        MutationInputGenerator: { enabled: false },
+        AiInputGenerator: { enabled: false },
+      },
+    };
+
+    const results = await new Tester(
+      "nanofuzz-study/examples/1.ts",
+      "minValue",
+      options
+    ).testSync();
+
+    expect(results.stopReason).toBe("noMoreInputs");
+  });
 });

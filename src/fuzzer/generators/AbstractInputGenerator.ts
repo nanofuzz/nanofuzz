@@ -2,7 +2,7 @@ import seedrandom from "seedrandom";
 import { ArgDef } from "../analysis/ArgDef";
 import { InputAndSource } from "./../Types";
 import { FuzzTestResults } from "../Fuzzer";
-import { InputGeneratorStats } from "./Types";
+import { InputGeneratorStats, NextableStatus } from "./Types";
 
 /**
  * Abstract class of an input generator
@@ -43,17 +43,13 @@ export abstract class AbstractInputGenerator {
   public abstract next(): InputAndSource;
 
   /**
-   * Returns true If the generator has inputs available for use
-   * and false otherwise. If it returns true, the next `next()` call
-   * should not fail.
-   *
-   * Note: since generators can have asynchronous behavior, `next()` could
-   * still succeed even when `nextable()` is false. E.g., AiInputGenerator
-   * could receive a response between `nextable()` and `next()`.
+   * Returns `now` if the generator has inputs available for use,
+   * `soon` if input generation is pending asynchronously,
+   * and `false` otherwise.
    */
-  public nextable(): boolean {
-    return true;
-  } // fn: isAvailable
+  public nextable(): NextableStatus {
+    return false; // child will override
+  } // fn: nextable
 
   /**
    * Executes any tasks when the test run begins
