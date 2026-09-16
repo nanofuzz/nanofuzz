@@ -1230,6 +1230,28 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       expect(results.stats.timers).toEqual(before.timers);
     });
 
+    it("static coverage: reports total static statements, functions, and branches before and after test executions", async () => {
+      // multiFunctionStatic has 2 functions (called_fn, uncalled_fn) and 5 executable lines
+      const measure = new TestPythonCoverageMeasure(multiFunctionStatic);
+
+      // 1. Before any test runs (0 test executions), stats thunk reports full static totals
+      let stats = await statsOf(measure);
+      expect(stats.counters.functionsTotal).toEqual(2);
+      expect(stats.counters.statementsTotal).toEqual(5);
+      expect(stats.counters.functionsCovered).toEqual(0);
+      expect(stats.counters.statementsCovered).toEqual(0);
+
+      // 2. Execute a single test input covering called_fn
+      runTest(measure, multiFunctionRun, inputAt(0));
+
+      // 3. After test execution, totals remain equal to static totals and covered counts update
+      stats = await statsOf(measure);
+      expect(stats.counters.functionsTotal).toEqual(2);
+      expect(stats.counters.statementsTotal).toEqual(5);
+      expect(stats.counters.functionsCovered).toEqual(1);
+      expect(stats.counters.statementsCovered).toEqual(3);
+    });
+
     // the stats should be the union of what the run's inputs covered
     it("the stats report exactly the coverage the run's inputs were credited with", async () => {
       const measure = new TestPythonCoverageMeasure(threePathStatic);

@@ -1417,6 +1417,35 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       expect(results.stats.timers).toEqual(before.timers);
     });
 
+    it("static coverage: reports total static statements, functions, and branches before and after test executions", async () => {
+      const measure = new TestCoverageMeasure();
+      const [exports] = loadTs(measure, [
+        compileTs(tsSrcTwoFns, "staticCoverageTest"),
+      ]);
+      const absValue = fnOf(exports, "absValue");
+
+      // 1. Before any test runs (0 test executions), stats thunk reports full static totals
+      let stats = await statsOf(measure);
+      expect(stats.counters.functionsTotal).toEqual(3); // absValue, helper, neverCalled
+      expect(stats.counters.statementsTotal).toEqual(6);
+      expect(stats.counters.branchesTotal).toEqual(2);
+      expect(stats.counters.functionsCovered).toEqual(0);
+      expect(stats.counters.statementsCovered).toEqual(0);
+      expect(stats.counters.branchesCovered).toEqual(0);
+
+      // 2. Execute a single test input covering part of the code
+      runTest(measure, absValue, -4, inputAt(0));
+
+      // 3. After test execution, totals remain equal to static totals and covered counts update
+      stats = await statsOf(measure);
+      expect(stats.counters.functionsTotal).toEqual(3);
+      expect(stats.counters.statementsTotal).toEqual(6);
+      expect(stats.counters.branchesTotal).toEqual(2);
+      expect(stats.counters.functionsCovered).toEqual(2);
+      expect(stats.counters.statementsCovered).toEqual(2);
+      expect(stats.counters.branchesCovered).toEqual(1);
+    });
+
     // the stats should be the union of what the run's inputs covered
     it("the stats report exactly the coverage the run's inputs were credited with", async () => {
       const measure = new TestCoverageMeasure();

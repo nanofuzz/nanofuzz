@@ -675,6 +675,100 @@ def calculate(x: int) -> int:
       }
     }
   });
+
+  it("static coverage: retains static coverage structure across test runs, timeouts, and errors", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-static-py-")
+    );
+    const pyPath = path.join(tmpDir, "static_test.py");
+    const pyCode = `
+def process_val(x: int) -> int:
+    a = 1
+    if x > 0:
+        return x + a
+    else:
+        return -x
+
+def uncalled_func(y: int) -> int:
+    return y * 2
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+def process_val(x: int) -> int:
+    pass
+def uncalled_func(y: int) -> int:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["process_val"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "process_val", env, 2000);
+      await runner.onRunStart();
+
+      // 1. Check runner.coverageInfo immediately after onRunStart before running any test inputs.
+      // Expect initial static analysis (executable, functions, branches) for the file.
+      expect(runner.coverageInfo).toBeDefined();
+      const initialCov = runner.coverageInfo?.[pyPath];
+      expect(initialCov).toBeDefined();
+      expect(initialCov?.executable).toBeDefined();
+      expect(initialCov?.executable?.length).toBeGreaterThan(0);
+      expect(initialCov?.functions).toBeDefined();
+      expect(initialCov?.functions?.length).toBeGreaterThanOrEqual(2);
+      expect(initialCov?.branches).toBeDefined();
+
+      // 2. Execute a normal test run.
+      // Expect runner.coverageInfo to retain static fields (executable, functions, branches) plus dynamic fields (lines, arcs).
+      const valRes = await runner.run([5], 2000);
+      expect(valRes.result.tag).toBe("value");
+      expect(runner.coverageInfo).toBeDefined();
+      const runCov = runner.coverageInfo?.[pyPath];
+      expect(runCov).toBeDefined();
+      expect(runCov?.executable).toBeDefined();
+      expect(runCov?.executable?.length).toBeGreaterThan(0);
+      expect(runCov?.functions).toBeDefined();
+      expect(runCov?.lines).toBeDefined();
+
+      // 3. Execute a test run that times out.
+      // Expect runner.coverageInfo to RETAIN the static structure (executable, functions, branches)
+      // rather than being wiped to undefined.
+      const pyTimeoutCode = `
+def process_val(x: int) -> int:
+    while True:
+        pass
+`;
+      fs.writeFileSync(pyPath, pyTimeoutCode);
+      const timeoutRes = await runner.run([1], 100);
+      expect(timeoutRes.result.tag).toBe("timeout");
+
+      // Critical check: static coverage structure must NOT be lost on timeout!
+      expect(runner.coverageInfo).toBeDefined();
+      const timeoutCov = runner.coverageInfo?.[pyPath];
+      expect(timeoutCov).toBeDefined();
+      expect(timeoutCov?.executable).toBeDefined();
+      expect(timeoutCov?.executable?.length).toBeGreaterThan(0);
+      expect(timeoutCov?.functions).toBeDefined();
+
+      await runner.onRunEnd();
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
 });
 
 /**
