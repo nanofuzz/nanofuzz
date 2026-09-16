@@ -449,6 +449,7 @@ def ${targetFn}(n: int) -> int:
       targetFn,
       "--output-file",
       outputFile,
+      "--no-property-oracle",
       "--max-tests",
       "5",
     ]);
