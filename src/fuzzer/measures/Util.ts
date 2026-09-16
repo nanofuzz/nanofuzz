@@ -40,10 +40,10 @@ export function parseCoverageScope(raw: unknown): CoverageScopeConfig {
     }
   }
 
+  const hasDirectImports = tokens.includes("directimports");
+
   return {
-    target: tokens.includes("directimports")
-      ? "project directimports"
-      : "project",
+    target: hasDirectImports ? "project directimports" : "project",
     collectStaticCoverage: tokens.includes("static"),
   };
 }

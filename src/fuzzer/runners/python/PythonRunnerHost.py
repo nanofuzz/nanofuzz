@@ -432,8 +432,7 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     }
 
 
-VALID_COVERAGE_SCOPES = (
-    "project", "project+directimports", "project directimports")
+VALID_COVERAGE_SCOPES = ("project", "project directimports")
 
 
 def is_under(root: str, path: str) -> bool:
@@ -458,7 +457,7 @@ def program_files(
 
     Coverage Scopes:
     - "project" (default): Group A only.
-    - "project+directimports": Group A + Group B packages whose top-level package name is in `direct_packages`.
+    - "project directimports": Group A + Group B packages whose top-level package name is in `direct_packages`.
     """
     if coverage_scope not in VALID_COVERAGE_SCOPES:
         raise ValueError(
@@ -502,7 +501,7 @@ def program_files(
             continue
 
         # Group B: 3rd-party packages (everything else: site-packages, dist-packages, build/extension, etc.)
-        if coverage_scope in ("project+directimports", "project directimports"):
+        if "directimports" in coverage_scope:
             mod_name = getattr(module, "__name__", "")
             top_pkg = mod_name.split(".")[0] if mod_name else ""
 
@@ -641,7 +640,7 @@ def default_serializer(obj: Any) -> Any:
         f"Object of type {type(obj).__name__} is not serializable")
 
 
-def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]], collect_static_coverage: bool = True) -> RunnerResult:
+def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
     collect_options = input.get("collect")
     if collect_options is None:
         coverage_enabled = True
@@ -708,11 +707,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             if not lines:
                 continue
             if file not in covInfo:
-                if collect_static_coverage:
-                    covInfo[file] = static_coverage(cov, file)
-                else:
-                    covInfo[file] = {"executable": [],
-                                     "functions": [], "branches": []}
+                covInfo[file] = static_coverage(cov, file)
             coverageData[file] = lines
             coverageArcs[file] = coverage_arcs(cov, file)
 
@@ -816,11 +811,6 @@ if __name__ == "__main__":
         except Exception:
             direct_packages = []
 
-        collect_static_coverage_raw = sys.argv[6] if len(
-            sys.argv) > 6 else "true"
-        collect_static_coverage = collect_static_coverage_raw.lower() in ("true",
-                                                                          "1", "yes")
-
         pgm_files = program_files(filename, coverage_scope, direct_packages)
 
         # One in-memory coverage instance for the whole run
@@ -828,16 +818,10 @@ if __name__ == "__main__":
 
         # Static analysis of the program: the executable lines, functions, and
         # branches of every file it is made of.
-        if collect_static_coverage:
-            coverageInfo = {file: static_coverage(cov, file)
-                            for file in pgm_files}
-            logging.debug(
-                f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
-        else:
-            coverageInfo = {file: {"executable": [], "functions": [], "branches": []}
-                            for file in pgm_files}
-            logging.debug(
-                f"[{pid}] Skipped static coverage analysis for {len(coverageInfo)} file(s)")
+        coverageInfo = {file: static_coverage(cov, file)
+                        for file in pgm_files}
+        logging.debug(
+            f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
 
         # Pre-warm the coverage machinery. The first `cov.start()` installs the
         # tracer, which costs far more than a steady-state call and can push the
@@ -871,7 +855,7 @@ if __name__ == "__main__":
         logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
             put_result(run_put(get_inputs(), filename, fnname, fn,
-                       cov, coverageInfo, collect_static_coverage))  # Call the put
+                       cov, coverageInfo))  # Call the put
         else:
             get_inputs()
             put_result(loadError)  # Return the load error

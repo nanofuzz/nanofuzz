@@ -488,7 +488,7 @@ export class PythonRunner extends AbstractRunner {
 
     let directPkgs: string[] = [];
     if (
-      scopeConfig.target === "project directimports" &&
+      scopeConfig.target.includes("directimports") &&
       fs.existsSync(this._filename)
     ) {
       try {
@@ -509,7 +509,6 @@ export class PythonRunner extends AbstractRunner {
       this._fn,
       scopeConfig.target,
       JSON.stringify(directPkgs),
-      String(scopeConfig.collectStaticCoverage),
     ];
 
     const host = new PythonHost(

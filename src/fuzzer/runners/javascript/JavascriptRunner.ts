@@ -50,7 +50,7 @@ export class JavascriptRunner extends AbstractRunner {
 
     let targetPath = getModuleFilename(module, env);
 
-    if (targetPath && !targetPath.endsWith(".js")) {
+    if (targetPath) {
       const compiler = CompilerFactory.fromSourcefile(targetPath);
       if (compiler) {
         const compiledJs = compiler.getJsFilename(targetPath);
@@ -246,11 +246,7 @@ export class JavascriptRunner extends AbstractRunner {
       )
     );
 
-    const coverageScopeRaw = String(
-      Config.get<unknown>("nanofuzz.fuzzer.coverageScope", "project static")
-    );
-
-    const args = [runnerHost, this._filename, this._jsFn, coverageScopeRaw];
+    const args = [runnerHost, this._filename, this._jsFn];
     const host = new NodeHost(args, path.dirname(this._filename));
 
     const hostStartupTimeout = Config.get<number>(

@@ -11,8 +11,6 @@ import { FullCoverage, PythonRunner } from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import * as JSONN from "../../Jsonn";
 import { normalizePathForKey } from "../Util";
-import { parseCoverageScope } from "./Util";
-import * as Config from "../../Config";
 import {
   AbstractCoverageMeasure,
   CodeCoverageFileStats,
@@ -246,12 +244,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       // Statements: one per executable line
       const statementMap: FileCoverageData["statementMap"] = {};
       const s: FileCoverageData["s"] = {};
-      const executableLines =
-        fileCov.executable.length > 0
-          ? fileCov.executable
-          : Array.from(coveredLines).sort((a, b) => a - b);
-
-      executableLines.forEach((line, i) => {
+      fileCov.executable.forEach((line, i) => {
         statementMap[i] = wholeLine(line);
         s[i] = coveredLines.has(line) ? 1 : 0;
       });
@@ -316,9 +309,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
         // it cannot be used here.
         const pyCoverageMap = this._globalCoverageMap;
         const coverageSummary = pyCoverageMap.getCoverageSummary();
-        const scopeConfig = parseCoverageScope(
-          Config.get("nanofuzz.fuzzer.coverageScope", "project static")
-        );
         const files: CodeCoverageFileStats[] = pyCoverageMap
           .files()
           .map((filePath) => {
@@ -345,17 +335,11 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
             return {
               path: normalizePathForKey(filePath),
               counters: {
-                functionsTotal: scopeConfig.collectStaticCoverage
-                  ? fileSummary.functions.total
-                  : 0,
+                functionsTotal: fileSummary.functions.total,
                 functionsCovered: fileSummary.functions.covered,
-                statementsTotal: scopeConfig.collectStaticCoverage
-                  ? fileSummary.statements.total
-                  : 0,
+                statementsTotal: fileSummary.statements.total,
                 statementsCovered: fileSummary.statements.covered,
-                branchesTotal: scopeConfig.collectStaticCoverage
-                  ? fileSummary.branches.total
-                  : 0,
+                branchesTotal: fileSummary.branches.total,
                 branchesCovered: fileSummary.branches.covered,
               },
               fileMap,
@@ -363,17 +347,11 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
           });
         return {
           counters: {
-            functionsTotal: scopeConfig.collectStaticCoverage
-              ? coverageSummary.functions.total
-              : 0,
+            functionsTotal: coverageSummary.functions.total,
             functionsCovered: coverageSummary.functions.covered,
-            statementsTotal: scopeConfig.collectStaticCoverage
-              ? coverageSummary.statements.total
-              : 0,
+            statementsTotal: coverageSummary.statements.total,
             statementsCovered: coverageSummary.statements.covered,
-            branchesTotal: scopeConfig.collectStaticCoverage
-              ? coverageSummary.branches.total
-              : 0,
+            branchesTotal: coverageSummary.branches.total,
             branchesCovered: coverageSummary.branches.covered,
           },
           files,

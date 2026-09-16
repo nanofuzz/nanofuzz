@@ -15,8 +15,6 @@ import {
   FuzzTestResults,
 } from "../Fuzzer";
 import { normalizePathForKey } from "../Util";
-import { parseCoverageScope } from "./Util";
-import * as Config from "../../Config";
 import { AbstractRunner } from "../runners/AbstractRunner";
 import * as fs from "fs";
 import * as path from "path";
@@ -374,9 +372,6 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
           this._globalCoverageMap
         );
         const coverageSummary = tsCoverageMap.getCoverageSummary();
-        const scopeConfig = parseCoverageScope(
-          Config.get("nanofuzz.fuzzer.coverageScope", "project static")
-        );
         const files: CodeCoverageFileStats[] = tsCoverageMap
           .files()
           .map((filePath) => {
@@ -403,17 +398,11 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
             return {
               path: normalizePathForKey(filePath),
               counters: {
-                functionsTotal: scopeConfig.collectStaticCoverage
-                  ? fileSummary.functions.total
-                  : 0,
+                functionsTotal: fileSummary.functions.total,
                 functionsCovered: fileSummary.functions.covered,
-                statementsTotal: scopeConfig.collectStaticCoverage
-                  ? fileSummary.statements.total
-                  : 0,
+                statementsTotal: fileSummary.statements.total,
                 statementsCovered: fileSummary.statements.covered,
-                branchesTotal: scopeConfig.collectStaticCoverage
-                  ? fileSummary.branches.total
-                  : 0,
+                branchesTotal: fileSummary.branches.total,
                 branchesCovered: fileSummary.branches.covered,
               },
               fileMap,
@@ -422,17 +411,11 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
 
         return {
           counters: {
-            functionsTotal: scopeConfig.collectStaticCoverage
-              ? coverageSummary.functions.total
-              : 0,
+            functionsTotal: coverageSummary.functions.total,
             functionsCovered: coverageSummary.functions.covered,
-            statementsTotal: scopeConfig.collectStaticCoverage
-              ? coverageSummary.statements.total
-              : 0,
+            statementsTotal: coverageSummary.statements.total,
             statementsCovered: coverageSummary.statements.covered,
-            branchesTotal: scopeConfig.collectStaticCoverage
-              ? coverageSummary.branches.total
-              : 0,
+            branchesTotal: coverageSummary.branches.total,
             branchesCovered: coverageSummary.branches.covered,
           },
           files,
