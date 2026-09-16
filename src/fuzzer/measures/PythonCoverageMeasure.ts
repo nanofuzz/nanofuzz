@@ -244,7 +244,12 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       // Statements: one per executable line
       const statementMap: FileCoverageData["statementMap"] = {};
       const s: FileCoverageData["s"] = {};
-      fileCov.executable.forEach((line, i) => {
+      const executableLines =
+        fileCov.executable.length > 0
+          ? fileCov.executable
+          : Array.from(coveredLines).sort((a, b) => a - b);
+
+      executableLines.forEach((line, i) => {
         statementMap[i] = wholeLine(line);
         s[i] = coveredLines.has(line) ? 1 : 0;
       });

@@ -577,9 +577,7 @@ function getGlobalCoverageData(): unknown {
   return Reflect.get(globalThis, "__coverage__");
 }
 
-function getEmptyStaticCoverageData(
-  covData: unknown
-): Record<string, unknown> {
+function getEmptyStaticCoverageData(covData: unknown): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   if (isCoverageMap(covData)) {
     for (const fileKey of Object.keys(covData)) {
@@ -587,9 +585,9 @@ function getEmptyStaticCoverageData(
       if (fileCoverage) {
         result[fileKey] = {
           path: fileKey,
-          statementMap: {},
-          fnMap: {},
-          branchMap: {},
+          statementMap: fileCoverage.statementMap ?? {},
+          fnMap: fileCoverage.fnMap ?? {},
+          branchMap: fileCoverage.branchMap ?? {},
           s: {},
           f: {},
           b: {},
@@ -601,6 +599,10 @@ function getEmptyStaticCoverageData(
 }
 
 type FileCoverageData = {
+  path?: string;
+  statementMap?: Record<string, unknown>;
+  fnMap?: Record<string, unknown>;
+  branchMap?: Record<string, unknown>;
   s?: Record<string, number>;
   f?: Record<string, number>;
   b?: Record<string, number[]>;
