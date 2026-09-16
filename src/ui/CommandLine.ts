@@ -102,7 +102,7 @@ function createProgram(): Commander.Command {
       `--coverage-scope <scope>`,
       `Code coverage scope: 'project static' (default), 'project directimports static', etc.`,
       parseCoverageScopeOption,
-      "project, static"
+      "project static"
     )
     .option(`--no-failed-test-measure`, `Disable failed test measure`)
 

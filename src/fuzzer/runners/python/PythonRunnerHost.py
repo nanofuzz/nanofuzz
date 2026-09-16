@@ -437,7 +437,7 @@ VALID_COVERAGE_SCOPES = ("project", "project directimports")
 
 
 def parse_coverage_scope(raw_scope: str) -> tuple[str, bool]:
-    tokens = [t.lower() for t in raw_scope.split()]
+    tokens = [t.strip().lower() for t in re.split(r'[,\s]+', raw_scope) if t.strip()]
     valid_tokens = {"project", "directimports", "static"}
     for t in tokens:
         if t not in valid_tokens:
