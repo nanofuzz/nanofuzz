@@ -53,12 +53,16 @@ describe("cli:", () => {
 
   afterAll(() => {
     if (fs.existsSync(tmpDir)) {
-      fs.rmSync(tmpDir, {
-        recursive: true,
-        force: true,
-        maxRetries: 10,
-        retryDelay: 100,
-      });
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual Windows file lock cleanup errors
+      }
     }
   });
 
@@ -331,9 +335,9 @@ describe("cli:", () => {
     // Pre-seed cache entry for testCoverageOneFile
     const program = ProgramFactory.fromFile(targetFile);
     const fn = program.functionsExported[targetFn];
-    const aiGen = new AiInputGenerator(fn, "seed", new Map());
+    const aiGen = new AiInputGenerator(fn, "seed", new Map(), program.src);
     const [schema, directives] = aiGen["_getInputsSchema"](fn.getLang());
-    const promptText = prompt.genInputs(fn, directives, new Map());
+    const promptText = prompt.genInputs(fn, directives, new Map(), program.src);
     const schemaJson = JSON.stringify(zod.toJSONSchema(schema));
     const key = createCacheKey(provider, modelName, [promptText], schemaJson);
 

@@ -303,10 +303,7 @@ export class PythonRunner extends AbstractRunner {
           ? path.resolve(path.join(venvPath, "Scripts"))
           : path.resolve(path.join(venvPath, "bin"));
       const venvInterpreter = path.resolve(
-        path.join(
-          venvBins,
-          process.platform === "win32" ? "python" : "python3"
-        )
+        path.join(venvBins, process.platform === "win32" ? "python" : "python3")
       );
       if (
         fs.existsSync(venvInterpreter) ||

@@ -497,7 +497,6 @@ def slow_fn(x: int) -> int:
   });
 
   it("coverage scope: 'project' vs 'project+directimports'", async () => {
-    jasmine.DEFAULT_TIMEOUT_INTERVAL = 30000;
     const normalizePath = (p: string): string => {
       try {
         if (fs.existsSync(p)) {

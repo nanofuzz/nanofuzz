@@ -354,4 +354,17 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
     );
     expect(content.length).toBe(1);
   });
+
+  it("handle rejected in-flights queries w/o throwing", async () => {
+    const manager = new LlmCacheManager("passthrough", cacheFile);
+
+    const failingQuery = manager
+      .query("p", "m", ["prompt-timeout"], undefined, async () => {
+        throw new Error("Request timeout after 30000ms");
+      })
+      .catch(() => {});
+
+    await expectAsync(manager.flush(1000)).toBeResolved();
+    await failingQuery;
+  });
 });
