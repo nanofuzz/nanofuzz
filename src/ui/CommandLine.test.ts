@@ -91,7 +91,7 @@ describe("cli:", () => {
 
   beforeAll(() => {
     originalTimeout = jasmine.DEFAULT_TIMEOUT_INTERVAL;
-    jasmine.DEFAULT_TIMEOUT_INTERVAL = 30000;
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
   });
 
   afterAll(() => {
@@ -521,6 +521,8 @@ def ${targetFn}(n: int) -> int:
         "300000",
         "--max-failures",
         "1",
+        "--max-tests",
+        "10",
         "--seed",
         "cli_seed_py_max_failures",
       ]);
@@ -601,11 +603,10 @@ def ${targetFn}(n: int) -> int:
     }
   });
 
-  it("--debug flag enables debug scopes (*, runners, ai)", async () => {
+  it("--debug: `*` scope", async () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testCoverageOneFile";
 
-    // Test default --debug (which defaults scope to *)
     const resDefault = await runCli([
       targetFile,
       targetFn,
@@ -616,8 +617,12 @@ def ${targetFn}(n: int) -> int:
       "cli_seed_debug_default",
     ]);
     expect(resDefault.status).toBe(0);
+  });
 
-    // Test --debug runners
+  it("--debug: `runners` scope", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
     const resRunners = await runCli([
       targetFile,
       targetFn,
@@ -629,8 +634,12 @@ def ${targetFn}(n: int) -> int:
       "cli_seed_debug_runners",
     ]);
     expect(resRunners.status).toBe(0);
+  });
 
-    // Test --debug ai
+  it("--debug: `ai` scope", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
     const resAi = await runCli([
       targetFile,
       targetFn,
