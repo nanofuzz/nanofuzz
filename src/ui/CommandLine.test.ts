@@ -146,6 +146,8 @@ describe("cli:", () => {
       "--no-mutation-input-generator",
       "--max-tests",
       "10",
+      "--seed",
+      "cli_seed_no_flags",
     ]);
 
     expect(res.status).toBe(0);
@@ -195,6 +197,8 @@ describe("cli:", () => {
       "2",
       "--max-tests",
       "10",
+      "--seed",
+      "cli_seed_cig_flags",
     ]);
 
     expect(res.status).toBe(0);
@@ -230,6 +234,8 @@ describe("cli:", () => {
       "--cig-stats-checkpoints",
       "--max-tests",
       "10",
+      "--seed",
+      "cli_seed_cig_checkpoints",
     ]);
 
     expect(res.status).toBe(0);
@@ -269,6 +275,8 @@ describe("cli:", () => {
       cacheFile,
       "--max-tests",
       "5",
+      "--seed",
+      "cli_seed_ai_cache_miss",
     ]);
 
     if (res.status !== 0) {
@@ -301,11 +309,12 @@ describe("cli:", () => {
     const targetFn = "testCoverageOneFile";
     const provider = "gemini";
     const modelName = "gemini-flash";
+    const seed = "cli_seed_ai_cache_hit";
 
     // Pre-seed cache entry for testCoverageOneFile
     const program = ProgramFactory.fromFile(targetFile);
     const fn = program.functionsExported[targetFn];
-    const aiGen = new AiInputGenerator(fn, "seed", new Map(), program.src);
+    const aiGen = new AiInputGenerator(fn, seed, new Map(), program.src);
     const [schema, directives] = aiGen["_getInputsSchema"](fn.getLang());
     const promptText = prompt.genInputs(fn, directives, new Map(), program.src);
     const schemaJson = JSON.stringify(zod.toJSONSchema(schema));
@@ -315,7 +324,15 @@ describe("cli:", () => {
       key,
       request: { provider, modelName, prompt: [promptText], schemaJson },
       response: {
-        text: JSON.stringify({ programInputs: [{ s: "replay-cached-input" }] }),
+        text: JSON.stringify({
+          programInputs: [
+            { s: "replay-cached-input-1" },
+            { s: "replay-cached-input-2" },
+            { s: "replay-cached-input-3" },
+            { s: "replay-cached-input-4" },
+            { s: "replay-cached-input-5" },
+          ],
+        }),
         stats: {
           tokensSent: 100,
           tokensSentCost: { amt: 0.001, unit: "USD" },
@@ -350,7 +367,9 @@ describe("cli:", () => {
       "--ai-cache-file",
       cacheFile,
       "--max-tests",
-      "5",
+      "1",
+      "--seed",
+      seed,
     ]);
 
     if (res.status !== 0) {
@@ -390,6 +409,8 @@ describe("cli:", () => {
       maxFailures.toString(),
       "--max-tests",
       "100",
+      "--seed",
+      "cli_seed_max_failures",
     ]);
 
     expect(res.status).toBe(1);
@@ -428,6 +449,8 @@ def ${targetFn}(n: int) -> int:
         "300000",
         "--max-failures",
         "1",
+        "--seed",
+        "cli_seed_py_max_failures",
       ]);
 
       expect(res.status).toBe(1);
@@ -452,6 +475,8 @@ def ${targetFn}(n: int) -> int:
       "--no-property-oracle",
       "--max-tests",
       "5",
+      "--seed",
+      "cli_seed_cov_counters",
     ]);
 
     expect(res.status).toBe(0);
@@ -495,6 +520,8 @@ def ${targetFn}(n: int) -> int:
       "--debug",
       "--max-tests",
       "2",
+      "--seed",
+      "cli_seed_debug_default",
     ]);
     expect(resDefault.status).toBe(0);
 
@@ -506,6 +533,8 @@ def ${targetFn}(n: int) -> int:
       "runners",
       "--max-tests",
       "2",
+      "--seed",
+      "cli_seed_debug_runners",
     ]);
     expect(resRunners.status).toBe(0);
 
@@ -517,6 +546,8 @@ def ${targetFn}(n: int) -> int:
       "ai",
       "--max-tests",
       "2",
+      "--seed",
+      "cli_seed_debug_ai",
     ]);
     expect(resAi.status).toBe(0);
   });
