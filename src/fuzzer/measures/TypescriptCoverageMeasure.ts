@@ -7,6 +7,7 @@ import {
   CoverageMapData,
   createCoverageMap,
   FileCoverage,
+  FileCoverageData,
 } from "istanbul-lib-coverage";
 import {
   VmGlobals,
@@ -73,13 +74,44 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @param coverageData a record of file coverage data
    * @returns void
    */
-  public recordHits(coverageData: Record<string, FileCoverageData>): void {
+  public recordHits(
+    coverageData: Record<string, Partial<FileCoverageData>>
+  ): void {
     if (!this._coverageData) return;
     for (const fileKey of Object.keys(coverageData)) {
       const normKey = normalizePathForKey(fileKey);
       const fileHits = coverageData[fileKey];
-      const targetObj = this._coverageData[normKey];
+      let targetObj = this._coverageData[normKey];
+      if (!targetObj && fileHits) {
+        targetObj = {
+          path: normKey,
+          statementMap: fileHits.statementMap
+            ? { ...fileHits.statementMap }
+            : {},
+          fnMap: fileHits.fnMap ? { ...fileHits.fnMap } : {},
+          branchMap: fileHits.branchMap ? { ...fileHits.branchMap } : {},
+          s: {},
+          f: {},
+          b: {},
+        };
+        this._coverageData[normKey] = targetObj;
+      }
       if (targetObj && fileHits) {
+        if (
+          fileHits.statementMap &&
+          Object.keys(targetObj.statementMap).length === 0
+        ) {
+          targetObj.statementMap = { ...fileHits.statementMap };
+        }
+        if (fileHits.fnMap && Object.keys(targetObj.fnMap).length === 0) {
+          targetObj.fnMap = { ...fileHits.fnMap };
+        }
+        if (
+          fileHits.branchMap &&
+          Object.keys(targetObj.branchMap).length === 0
+        ) {
+          targetObj.branchMap = { ...fileHits.branchMap };
+        }
         if (fileHits.s && targetObj.s) {
           for (const sKey of Object.keys(fileHits.s)) {
             targetObj.s[sKey] =
@@ -545,12 +577,6 @@ export function emptyCoverageMapData(files: string[]): CoverageMapData {
  */
 function isRecordOfFileCoverageData(
   val: unknown
-): val is Record<string, FileCoverageData> {
+): val is Record<string, Partial<FileCoverageData>> {
   return typeof val === "object" && val !== null;
 } // fn: isRecordOfFileCoverageData
-
-export type FileCoverageData = {
-  s?: Record<string, number>;
-  f?: Record<string, number>;
-  b?: Record<string, number[]>;
-};

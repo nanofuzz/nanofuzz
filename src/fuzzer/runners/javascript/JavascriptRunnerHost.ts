@@ -153,7 +153,10 @@ async function main() {
     }
 
     const currentCoverage = input.collect?.coverageData
-      ? extractDynamicCoverage(getGlobalCoverageData() ?? {})
+      ? extractDynamicCoverage(
+          getGlobalCoverageData() ?? {},
+          !collectStaticCoverage
+        )
       : undefined;
 
     let resultMsg: Record<string, unknown>;
@@ -535,7 +538,8 @@ function resetCoverageCounters(covData: unknown): void {
  * @returns A record mapping file paths to their coverage data.
  */
 function extractDynamicCoverage(
-  covData: unknown
+  covData: unknown,
+  includeMaps = false
 ): Record<string, FileCoverageData> {
   const result: Record<string, FileCoverageData> = {};
 
@@ -547,6 +551,13 @@ function extractDynamicCoverage(
           s: fileCoverage.s,
           f: fileCoverage.f,
           b: fileCoverage.b,
+          ...(includeMaps
+            ? {
+                statementMap: fileCoverage.statementMap,
+                fnMap: fileCoverage.fnMap,
+                branchMap: fileCoverage.branchMap,
+              }
+            : {}),
         };
       }
     }
@@ -583,14 +594,35 @@ function getEmptyStaticCoverageData(covData: unknown): Record<string, unknown> {
     for (const fileKey of Object.keys(covData)) {
       const fileCoverage = covData[fileKey];
       if (fileCoverage) {
+        const b: Record<string, number[]> = {};
+        if (fileCoverage.b) {
+          for (const bKey of Object.keys(fileCoverage.b)) {
+            const arr = fileCoverage.b[bKey];
+            b[bKey] = Array.isArray(arr)
+              ? Array<number>(arr.length).fill(0)
+              : [0, 0];
+          }
+        }
+        const s: Record<string, number> = {};
+        if (fileCoverage.s) {
+          for (const sKey of Object.keys(fileCoverage.s)) {
+            s[sKey] = 0;
+          }
+        }
+        const f: Record<string, number> = {};
+        if (fileCoverage.f) {
+          for (const fKey of Object.keys(fileCoverage.f)) {
+            f[fKey] = 0;
+          }
+        }
         result[fileKey] = {
           path: fileKey,
           statementMap: fileCoverage.statementMap ?? {},
           fnMap: fileCoverage.fnMap ?? {},
           branchMap: fileCoverage.branchMap ?? {},
-          s: {},
-          f: {},
-          b: {},
+          s,
+          f,
+          b,
         };
       }
     }
