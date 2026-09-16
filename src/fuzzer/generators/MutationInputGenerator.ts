@@ -4,6 +4,7 @@ import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
+import { NextableStatus } from "./Types";
 
 /**
  * Generates new inputs by mutating prior "interesting" inputs
@@ -34,9 +35,9 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    *
    * @returns true if generator is available, false otherwise
    */
-  public nextable(): boolean {
-    return !!this._leaderboard.length;
-  } // fn: isAvailable
+  public nextable(): NextableStatus {
+    return this._leaderboard.length ? "now" : false;
+  } // fn: nextable
 
   /**
    * Returns the next input using a mutation strategy.

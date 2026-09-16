@@ -43,13 +43,18 @@ export abstract class AbstractInputGenerator {
   public abstract next(): InputAndSource;
 
   /**
+   * Asynchronously produce the next test-case inputs when `nextable()` returns "soon".
+   */
+  public async nextSoon(): Promise<InputAndSource> {
+    throw new Error("not yet implemented");
+  } // fn: nextSoon
+
+  /**
    * Returns `now` if the generator has inputs available for use,
    * `soon` if input generation is pending asynchronously,
    * and `false` otherwise.
    */
-  public nextable(): NextableStatus {
-    return false; // child will override
-  } // fn: nextable
+  public abstract nextable(): NextableStatus;
 
   /**
    * Executes any tasks when the test run begins

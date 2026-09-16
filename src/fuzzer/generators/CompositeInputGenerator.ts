@@ -129,22 +129,42 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // fn: _loadConfig
 
   /**
-   * Returns true if further inputs may be produced, false otherwise.
+   * Returns `now` or `soon` if further inputs may be produced, `false` otherwise.
    */
   public override nextable(): NextableStatus {
-    return (
-      !!this._injectedInputs.length ||
-      (this._permitSubgens &&
-        this._subgens.some((g, i) => this._activeSubgens[i] && g.nextable()))
-    );
+    if (this._injectedInputs.length > 0) {
+      return "now";
+    }
+
+    if (!this._permitSubgens) {
+      return false;
+    }
+
+    let hasSoon = false;
+    for (let i = 0; i < this._subgens.length; i++) {
+      if (this._activeSubgens[i]) {
+        const status = this._subgens[i].nextable();
+        if (status === "now") {
+          return "now";
+        }
+        if (status === "soon") {
+          hasSoon = true;
+        }
+      }
+    }
+
+    return hasSoon ? "soon" : false;
   } // fn: isAvailable
 
   /**
    * Waits asynchronously until at least one input becomes available,
    * or until all pending generators finish or fail.
    */
-  public async waitForNextInput(_pollIntervalMs = 50): Promise<boolean> {
-    return false;
+  public async waitForNextInput(pollIntervalMs = 50): Promise<boolean> {
+    while (this.nextable() === "soon") {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+    return this.nextable() === "now";
   } // fn: waitForNextInput
 
   /**
@@ -218,7 +238,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // the subgen for that chunk
     if (
       this._ticksLeftInChunk-- <= 1 ||
-      !this._subgens[this._selectedSubgenIndex].nextable() ||
+      !this._subgens[this._selectedSubgenIndex] ||
+      this._subgens[this._selectedSubgenIndex].nextable() !== "now" ||
       !this._activeSubgens[this._selectedSubgenIndex]
     ) {
       this._ticksLeftInChunk = this._chunkSize;
@@ -332,7 +353,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    */
   protected _selectNextSubGen(): number {
     // At least one subgen needs to be available
-    if (!this._subgens.some((g) => g.nextable())) {
+    if (!this._subgens.some((g) => g.nextable() === "now")) {
       throw new Error(
         `Cannot generate the next input: no subgens are available (out of ${this._subgens.length} subgens configured)`
       );
@@ -343,13 +364,16 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     if (this._P >= 1.0) {
       const activeSubgenIndices = this._subgens
         .map((_g, i) => i)
-        .filter((i) => this._activeSubgens[i] && this._subgens[i].nextable());
+        .filter(
+          (i) =>
+            this._activeSubgens[i] && this._subgens[i].nextable() === "now"
+        );
       const candidateIndices =
         activeSubgenIndices.length > 0
           ? activeSubgenIndices
           : this._subgens
               .map((_g, i) => i)
-              .filter((i) => this._subgens[i].nextable());
+              .filter((i) => this._subgens[i].nextable() === "now");
 
       return candidateIndices[
         Math.floor(this._prng() * candidateIndices.length)
@@ -378,14 +402,15 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         });
       });
       productivity[g] = Math.max(0, cost[g] ? progress[g] / cost[g] : 0);
-      if (e.nextable()) {
+      const isAvailableNow = e.nextable() === "now";
+      if (isAvailableNow) {
         totalProductivity += productivity[g];
       }
 
       if (this._trackCheckpoints) {
         checkpointGens[e.name] = {
           active: !!this._activeSubgens[g],
-          nextable: !!(this._activeSubgens[g] && e.nextable()),
+          nextable: !!(this._activeSubgens[g] && isAvailableNow),
           productivity: productivity[g],
           cost: cost[g],
         };
@@ -402,7 +427,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // All active subgens have a minimum chance of being selected,
     // which is determined by _P
     const activeSubgens = this._subgens.filter(
-      (e, i) => this._activeSubgens[i] && e.nextable()
+      (e, i) => this._activeSubgens[i] && e.nextable() === "now"
     );
     const addlChanceSpace =
       totalProductivity > 0 ? totalProductivity * this._P : 1;
@@ -413,7 +438,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     const rnd = this._prng() * (totalProductivity + addlChanceSpace);
     let lbound = 0;
     for (const g in this._subgens) {
-      if (this._subgens[g].nextable()) {
+      if (this._subgens[g].nextable() === "now") {
         lbound += productivity[g] + addlChance;
         if (lbound >= rnd) {
           return Number(g);

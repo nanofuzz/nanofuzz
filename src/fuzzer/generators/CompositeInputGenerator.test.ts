@@ -162,7 +162,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       cig.onRunStart(true);
 
       // Generating inputs triggers _selectNextSubGen
-      expect(cig.nextable()).toBeTrue();
+      expect(cig.nextable()).toBeTruthy();
       const input1 = cig.next();
       expect(input1).toBeDefined();
 
@@ -410,21 +410,21 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       // Run 1: compositeExplorationChance = 1.0 (fastpath active)
       Config.override("nanofuzz.generators.compositeExplorationChance", 1.0);
       cig.onRunStart(true);
-      expect(cig.nextable()).toBeTrue();
+      expect(cig.nextable()).toBeTruthy();
       const inputRun1 = cig.next();
       expect(inputRun1).toBeDefined();
 
       // Run 2: compositeExplorationChance = 0.1 (productivity calculation active)
       Config.override("nanofuzz.generators.compositeExplorationChance", 0.1);
       cig.onRunStart(true);
-      expect(cig.nextable()).toBeTrue();
+      expect(cig.nextable()).toBeTruthy();
       const inputRun2 = cig.next();
       expect(inputRun2).toBeDefined();
 
       // Run 3: compositeExplorationChance = 1.0 again (fastpath active again)
       Config.override("nanofuzz.generators.compositeExplorationChance", 1.0);
       cig.onRunStart(true);
-      expect(cig.nextable()).toBeTrue();
+      expect(cig.nextable()).toBeTruthy();
       const inputRun3 = cig.next();
       expect(inputRun3).toBeDefined();
     } finally {
