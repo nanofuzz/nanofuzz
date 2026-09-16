@@ -58,13 +58,22 @@ if (!fs.existsSync(path.resolve(path.join(".", ".venv")))) {
   }
   fs.cpSync(
     path.resolve(path.join(libdir, "..")),
-    path.resolve(path.join(".", "build", "extension", pkg.name)),
+    path.resolve(
+      path.join(".", "build", "extension", "_nanofuzz_python", pkg.name)
+    ),
     {
       recursive: true,
     }
   );
   const pycacheDir = path.resolve(
-    path.join(".", "build", "extension", pkg.name, "__pycache__")
+    path.join(
+      ".",
+      "build",
+      "extension",
+      "_nanofuzz_python",
+      pkg.name,
+      "__pycache__"
+    )
   );
   if (fs.existsSync(pycacheDir)) {
     rimraf.sync(pycacheDir);
