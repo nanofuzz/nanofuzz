@@ -441,7 +441,8 @@ def parse_coverage_scope(raw_scope: str) -> tuple[str, bool]:
     valid_tokens = {"project", "directimports", "static"}
     for t in tokens:
         if t not in valid_tokens:
-            raise ValueError(f"Invalid coverage_scope '{raw_scope}'. Allowed tokens: {valid_tokens}")
+            raise ValueError(
+                f"Invalid coverage_scope '{raw_scope}'. Allowed tokens: {valid_tokens}")
 
     has_static = "static" in tokens
     has_direct_imports = "directimports" in tokens
@@ -724,7 +725,8 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
                 if collect_static_coverage:
                     covInfo[file] = static_coverage(cov, file)
                 else:
-                    covInfo[file] = {"executable": [], "functions": [], "branches": []}
+                    covInfo[file] = {"executable": [],
+                                     "functions": [], "branches": []}
             coverageData[file] = lines
             coverageArcs[file] = coverage_arcs(cov, file)
 
@@ -819,7 +821,8 @@ if __name__ == "__main__":
 
         raw_scope = sys.argv[4] if len(sys.argv) > 4 else "project static"
         try:
-            coverage_scope, collect_static_from_scope = parse_coverage_scope(raw_scope)
+            coverage_scope, collect_static_from_scope = parse_coverage_scope(
+                raw_scope)
         except ValueError:
             coverage_scope = raw_scope if raw_scope in VALID_COVERAGE_SCOPES else "project"
             collect_static_from_scope = True
@@ -832,7 +835,8 @@ if __name__ == "__main__":
 
         if len(sys.argv) > 6:
             collect_static_coverage_raw = sys.argv[6]
-            collect_static_coverage = collect_static_coverage_raw.lower() in ("true", "1", "yes")
+            collect_static_coverage = collect_static_coverage_raw.lower() in ("true",
+                                                                              "1", "yes")
         else:
             collect_static_coverage = collect_static_from_scope
 
