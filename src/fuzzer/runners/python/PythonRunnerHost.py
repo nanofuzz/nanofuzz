@@ -3,7 +3,6 @@ import sys
 import os
 import io
 import json
-import re
 import struct
 import logging
 import tempfile
@@ -433,21 +432,8 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     }
 
 
-VALID_COVERAGE_SCOPES = ("project", "project directimports")
-
-
-def parse_coverage_scope(raw_scope: str) -> tuple[str, bool]:
-    tokens = [t.strip().lower() for t in re.split(r'[,\s]+', raw_scope) if t.strip()]
-    valid_tokens = {"project", "directimports", "static"}
-    for t in tokens:
-        if t not in valid_tokens:
-            raise ValueError(
-                f"Invalid coverage_scope '{raw_scope}'. Allowed tokens: {valid_tokens}")
-
-    has_static = "static" in tokens
-    has_direct_imports = "directimports" in tokens
-    target = "project directimports" if has_direct_imports else "project"
-    return target, has_static
+VALID_COVERAGE_SCOPES = (
+    "project", "project+directimports", "project directimports")
 
 
 def is_under(root: str, path: str) -> bool:
@@ -516,7 +502,7 @@ def program_files(
             continue
 
         # Group B: 3rd-party packages (everything else: site-packages, dist-packages, build/extension, etc.)
-        if coverage_scope == "project directimports":
+        if coverage_scope in ("project+directimports", "project directimports"):
             mod_name = getattr(module, "__name__", "")
             top_pkg = mod_name.split(".")[0] if mod_name else ""
 
@@ -819,26 +805,21 @@ if __name__ == "__main__":
         else:
             logging.debug(f"[{pid}]  - Loaded function")
 
-        raw_scope = sys.argv[4] if len(sys.argv) > 4 else "project static"
-        try:
-            coverage_scope, collect_static_from_scope = parse_coverage_scope(
-                raw_scope)
-        except ValueError:
-            coverage_scope = raw_scope if raw_scope in VALID_COVERAGE_SCOPES else "project"
-            collect_static_from_scope = True
-
+        coverage_scope = sys.argv[4] if len(sys.argv) > 4 else "project"
+        if coverage_scope not in VALID_COVERAGE_SCOPES:
+            raise ValueError(
+                f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
+            )
         direct_packages_raw = sys.argv[5] if len(sys.argv) > 5 else "[]"
         try:
             direct_packages = json.loads(direct_packages_raw)
         except Exception:
             direct_packages = []
 
-        if len(sys.argv) > 6:
-            collect_static_coverage_raw = sys.argv[6]
-            collect_static_coverage = collect_static_coverage_raw.lower() in ("true",
-                                                                              "1", "yes")
-        else:
-            collect_static_coverage = collect_static_from_scope
+        collect_static_coverage_raw = sys.argv[6] if len(
+            sys.argv) > 6 else "true"
+        collect_static_coverage = collect_static_coverage_raw.lower() in ("true",
+                                                                          "1", "yes")
 
         pgm_files = program_files(filename, coverage_scope, direct_packages)
 

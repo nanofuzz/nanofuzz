@@ -7,7 +7,6 @@ import {
   CoverageMapData,
   createCoverageMap,
   FileCoverage,
-  FileCoverageData,
 } from "istanbul-lib-coverage";
 import {
   VmGlobals,
@@ -16,6 +15,8 @@ import {
   FuzzTestResults,
 } from "../Fuzzer";
 import { normalizePathForKey } from "../Util";
+import { parseCoverageScope } from "./Util";
+import * as Config from "../../Config";
 import { AbstractRunner } from "../runners/AbstractRunner";
 import * as fs from "fs";
 import * as path from "path";
@@ -74,44 +75,13 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @param coverageData a record of file coverage data
    * @returns void
    */
-  public recordHits(
-    coverageData: Record<string, Partial<FileCoverageData>>
-  ): void {
+  public recordHits(coverageData: Record<string, FileCoverageData>): void {
     if (!this._coverageData) return;
     for (const fileKey of Object.keys(coverageData)) {
       const normKey = normalizePathForKey(fileKey);
       const fileHits = coverageData[fileKey];
-      let targetObj = this._coverageData[normKey];
-      if (!targetObj && fileHits) {
-        targetObj = {
-          path: normKey,
-          statementMap: fileHits.statementMap
-            ? { ...fileHits.statementMap }
-            : {},
-          fnMap: fileHits.fnMap ? { ...fileHits.fnMap } : {},
-          branchMap: fileHits.branchMap ? { ...fileHits.branchMap } : {},
-          s: {},
-          f: {},
-          b: {},
-        };
-        this._coverageData[normKey] = targetObj;
-      }
+      const targetObj = this._coverageData[normKey];
       if (targetObj && fileHits) {
-        if (
-          fileHits.statementMap &&
-          Object.keys(targetObj.statementMap).length === 0
-        ) {
-          targetObj.statementMap = { ...fileHits.statementMap };
-        }
-        if (fileHits.fnMap && Object.keys(targetObj.fnMap).length === 0) {
-          targetObj.fnMap = { ...fileHits.fnMap };
-        }
-        if (
-          fileHits.branchMap &&
-          Object.keys(targetObj.branchMap).length === 0
-        ) {
-          targetObj.branchMap = { ...fileHits.branchMap };
-        }
         if (fileHits.s && targetObj.s) {
           for (const sKey of Object.keys(fileHits.s)) {
             targetObj.s[sKey] =
@@ -404,6 +374,9 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
           this._globalCoverageMap
         );
         const coverageSummary = tsCoverageMap.getCoverageSummary();
+        const scopeConfig = parseCoverageScope(
+          Config.get("nanofuzz.fuzzer.coverageScope", "project static")
+        );
         const files: CodeCoverageFileStats[] = tsCoverageMap
           .files()
           .map((filePath) => {
@@ -430,11 +403,17 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
             return {
               path: normalizePathForKey(filePath),
               counters: {
-                functionsTotal: fileSummary.functions.total,
+                functionsTotal: scopeConfig.collectStaticCoverage
+                  ? fileSummary.functions.total
+                  : 0,
                 functionsCovered: fileSummary.functions.covered,
-                statementsTotal: fileSummary.statements.total,
+                statementsTotal: scopeConfig.collectStaticCoverage
+                  ? fileSummary.statements.total
+                  : 0,
                 statementsCovered: fileSummary.statements.covered,
-                branchesTotal: fileSummary.branches.total,
+                branchesTotal: scopeConfig.collectStaticCoverage
+                  ? fileSummary.branches.total
+                  : 0,
                 branchesCovered: fileSummary.branches.covered,
               },
               fileMap,
@@ -443,11 +422,17 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
 
         return {
           counters: {
-            functionsTotal: coverageSummary.functions.total,
+            functionsTotal: scopeConfig.collectStaticCoverage
+              ? coverageSummary.functions.total
+              : 0,
             functionsCovered: coverageSummary.functions.covered,
-            statementsTotal: coverageSummary.statements.total,
+            statementsTotal: scopeConfig.collectStaticCoverage
+              ? coverageSummary.statements.total
+              : 0,
             statementsCovered: coverageSummary.statements.covered,
-            branchesTotal: coverageSummary.branches.total,
+            branchesTotal: scopeConfig.collectStaticCoverage
+              ? coverageSummary.branches.total
+              : 0,
             branchesCovered: coverageSummary.branches.covered,
           },
           files,
@@ -577,6 +562,12 @@ export function emptyCoverageMapData(files: string[]): CoverageMapData {
  */
 function isRecordOfFileCoverageData(
   val: unknown
-): val is Record<string, Partial<FileCoverageData>> {
+): val is Record<string, FileCoverageData> {
   return typeof val === "object" && val !== null;
 } // fn: isRecordOfFileCoverageData
+
+export type FileCoverageData = {
+  s?: Record<string, number>;
+  f?: Record<string, number>;
+  b?: Record<string, number[]>;
+};

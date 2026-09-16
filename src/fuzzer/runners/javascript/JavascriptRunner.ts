@@ -50,7 +50,7 @@ export class JavascriptRunner extends AbstractRunner {
 
     let targetPath = getModuleFilename(module, env);
 
-    if (targetPath) {
+    if (targetPath && !targetPath.endsWith(".js")) {
       const compiler = CompilerFactory.fromSourcefile(targetPath);
       if (compiler) {
         const compiledJs = compiler.getJsFilename(targetPath);

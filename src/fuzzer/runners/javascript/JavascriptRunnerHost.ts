@@ -7,7 +7,6 @@ import { serialize, deserialize } from "node:v8";
 import { RunnerInput, TypeHint } from "../AbstractRunner";
 import { MAX_HEARTBEATS } from "../AbstractHost";
 import { isError } from "../../Util";
-import { parseCoverageScope } from "../../measures/Util";
 
 const realStdoutWrite = process.stdout.write.bind(process.stdout);
 let stdinBuffer = Buffer.alloc(0);
@@ -27,15 +26,6 @@ main().catch((err) => {
 async function main() {
   const initialFilename = process.argv[2];
   const initialFnName = process.argv[3];
-  const rawCoverageScope = process.argv[4] ?? "project static";
-
-  const collectStaticCoverage = (() => {
-    try {
-      return parseCoverageScope(rawCoverageScope).collectStaticCoverage;
-    } catch {
-      return true;
-    }
-  })();
 
   const loadedModules: Record<string, unknown> = {};
 
@@ -83,10 +73,7 @@ async function main() {
   sendMsg("READY");
 
   // Send initial coverage info
-  const rawGlobalCov = getGlobalCoverageData() ?? {};
-  const initialCoverage = collectStaticCoverage
-    ? rawGlobalCov
-    : getEmptyStaticCoverageData(rawGlobalCov);
+  const initialCoverage = getGlobalCoverageData() ?? {};
   sendMsg(initialCoverage);
 
   // Main loop
@@ -153,10 +140,7 @@ async function main() {
     }
 
     const currentCoverage = input.collect?.coverageData
-      ? extractDynamicCoverage(
-          getGlobalCoverageData() ?? {},
-          !collectStaticCoverage
-        )
+      ? extractDynamicCoverage(getGlobalCoverageData() ?? {})
       : undefined;
 
     let resultMsg: Record<string, unknown>;
@@ -538,8 +522,7 @@ function resetCoverageCounters(covData: unknown): void {
  * @returns A record mapping file paths to their coverage data.
  */
 function extractDynamicCoverage(
-  covData: unknown,
-  includeMaps = false
+  covData: unknown
 ): Record<string, FileCoverageData> {
   const result: Record<string, FileCoverageData> = {};
 
@@ -551,13 +534,6 @@ function extractDynamicCoverage(
           s: fileCoverage.s,
           f: fileCoverage.f,
           b: fileCoverage.b,
-          ...(includeMaps
-            ? {
-                statementMap: fileCoverage.statementMap,
-                fnMap: fileCoverage.fnMap,
-                branchMap: fileCoverage.branchMap,
-              }
-            : {}),
         };
       }
     }
@@ -588,53 +564,7 @@ function getGlobalCoverageData(): unknown {
   return Reflect.get(globalThis, "__coverage__");
 }
 
-function getEmptyStaticCoverageData(covData: unknown): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  if (isCoverageMap(covData)) {
-    for (const fileKey of Object.keys(covData)) {
-      const fileCoverage = covData[fileKey];
-      if (fileCoverage) {
-        const b: Record<string, number[]> = {};
-        if (fileCoverage.b) {
-          for (const bKey of Object.keys(fileCoverage.b)) {
-            const arr = fileCoverage.b[bKey];
-            b[bKey] = Array.isArray(arr)
-              ? Array<number>(arr.length).fill(0)
-              : [0, 0];
-          }
-        }
-        const s: Record<string, number> = {};
-        if (fileCoverage.s) {
-          for (const sKey of Object.keys(fileCoverage.s)) {
-            s[sKey] = 0;
-          }
-        }
-        const f: Record<string, number> = {};
-        if (fileCoverage.f) {
-          for (const fKey of Object.keys(fileCoverage.f)) {
-            f[fKey] = 0;
-          }
-        }
-        result[fileKey] = {
-          path: fileKey,
-          statementMap: fileCoverage.statementMap ?? {},
-          fnMap: fileCoverage.fnMap ?? {},
-          branchMap: fileCoverage.branchMap ?? {},
-          s,
-          f,
-          b,
-        };
-      }
-    }
-  }
-  return result;
-}
-
 type FileCoverageData = {
-  path?: string;
-  statementMap?: Record<string, unknown>;
-  fnMap?: Record<string, unknown>;
-  branchMap?: Record<string, unknown>;
   s?: Record<string, number>;
   f?: Record<string, number>;
   b?: Record<string, number[]>;

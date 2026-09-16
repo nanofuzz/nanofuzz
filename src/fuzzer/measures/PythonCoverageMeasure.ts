@@ -11,6 +11,8 @@ import { FullCoverage, PythonRunner } from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import * as JSONN from "../../Jsonn";
 import { normalizePathForKey } from "../Util";
+import { parseCoverageScope } from "./Util";
+import * as Config from "../../Config";
 import {
   AbstractCoverageMeasure,
   CodeCoverageFileStats,
@@ -314,6 +316,9 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
         // it cannot be used here.
         const pyCoverageMap = this._globalCoverageMap;
         const coverageSummary = pyCoverageMap.getCoverageSummary();
+        const scopeConfig = parseCoverageScope(
+          Config.get("nanofuzz.fuzzer.coverageScope", "project static")
+        );
         const files: CodeCoverageFileStats[] = pyCoverageMap
           .files()
           .map((filePath) => {
@@ -340,11 +345,17 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
             return {
               path: normalizePathForKey(filePath),
               counters: {
-                functionsTotal: fileSummary.functions.total,
+                functionsTotal: scopeConfig.collectStaticCoverage
+                  ? fileSummary.functions.total
+                  : 0,
                 functionsCovered: fileSummary.functions.covered,
-                statementsTotal: fileSummary.statements.total,
+                statementsTotal: scopeConfig.collectStaticCoverage
+                  ? fileSummary.statements.total
+                  : 0,
                 statementsCovered: fileSummary.statements.covered,
-                branchesTotal: fileSummary.branches.total,
+                branchesTotal: scopeConfig.collectStaticCoverage
+                  ? fileSummary.branches.total
+                  : 0,
                 branchesCovered: fileSummary.branches.covered,
               },
               fileMap,
@@ -352,11 +363,17 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
           });
         return {
           counters: {
-            functionsTotal: coverageSummary.functions.total,
+            functionsTotal: scopeConfig.collectStaticCoverage
+              ? coverageSummary.functions.total
+              : 0,
             functionsCovered: coverageSummary.functions.covered,
-            statementsTotal: coverageSummary.statements.total,
+            statementsTotal: scopeConfig.collectStaticCoverage
+              ? coverageSummary.statements.total
+              : 0,
             statementsCovered: coverageSummary.statements.covered,
-            branchesTotal: coverageSummary.branches.total,
+            branchesTotal: scopeConfig.collectStaticCoverage
+              ? coverageSummary.branches.total
+              : 0,
             branchesCovered: coverageSummary.branches.covered,
           },
           files,

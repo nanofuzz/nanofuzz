@@ -1,6 +1,7 @@
 import { Tester } from "./Fuzzer";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import * as ValueMapper from "./mappers/ValueMapper";
+import * as Config from "../Config";
 
 describe("fuzzer: python targets", () => {
   beforeAll(async () => {
@@ -230,5 +231,43 @@ describe("fuzzer: python targets", () => {
       expect(r.validatorExceptionMessage).toBe("timeout");
       expect(r.category).toBe("failure");
     });
+  });
+
+  it("Python coverageScope='project' vs 'project static'", async () => {
+    try {
+      // 1. Without static
+      Config.override("nanofuzz.fuzzer.coverageScope", "project");
+      const testerNoStatic = new Tester(
+        "./test_fixtures/Fuzzer.testfixtures.py",
+        "greeting",
+        intOptions
+      );
+      const resNoStatic = await testerNoStatic.testSync();
+      const covNoStatic =
+        await resNoStatic.stats.measures.CodeCoverageMeasure?.();
+      expect(covNoStatic).toBeDefined();
+      if (covNoStatic) {
+        expect(covNoStatic.counters.statementsCovered).toBeGreaterThan(0);
+        expect(covNoStatic.counters.statementsTotal).toBe(0);
+      }
+
+      // 2. With static
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      const testerWithStatic = new Tester(
+        "./test_fixtures/Fuzzer.testfixtures.py",
+        "greeting",
+        intOptions
+      );
+      const resWithStatic = await testerWithStatic.testSync();
+      const covWithStatic =
+        await resWithStatic.stats.measures.CodeCoverageMeasure?.();
+      expect(covWithStatic).toBeDefined();
+      if (covWithStatic) {
+        expect(covWithStatic.counters.statementsTotal).toBeGreaterThan(0);
+        expect(covWithStatic.counters.statementsCovered).toBeGreaterThan(0);
+      }
+    } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+    }
   });
 });
