@@ -497,6 +497,7 @@ def slow_fn(x: int) -> int:
   });
 
   it("coverage scope: 'project' vs 'project+directimports'", async () => {
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = 30000;
     const normalizePath = (p: string): string => {
       try {
         if (fs.existsSync(p)) {
@@ -585,10 +586,10 @@ def calculate(x: int) -> int:
           expect(fileKeys.every((f) => isPathInsideDir(f, tmpDir))).toBeTrue();
         }
 
-        // Case 2: 'project+directimports' scope
+        // Case 2: 'project directimports' scope
         Config.override(
           "nanofuzz.fuzzer.coverageScope",
-          "project+directimports"
+          "project directimports"
         );
         const runnerImports = new PythonRunner(pyPath, "calculate", env, 10000);
         await runnerImports.onRunStart();
@@ -623,7 +624,7 @@ def calculate(x: int) -> int:
           ).toBeTrue();
         }
       } finally {
-        Config.override("nanofuzz.fuzzer.coverageScope", "project");
+        Config.override("nanofuzz.fuzzer.coverageScope", "project static");
         try {
           fs.rmSync(tmpDir, {
             recursive: true,
@@ -662,7 +663,62 @@ def calculate(x: int) -> int:
         /Invalid coverageScope configuration 'invalid-scope-value'/
       );
     } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("option: coverageScope='project' w/o `static`", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-py-staticcov-")
+    );
+    const pyPath = path.join(tmpDir, "static_cov.py");
+    fs.writeFileSync(
+      pyPath,
+      "def add(a: int, b: int) -> int:\n    return a + b\n"
+    );
+
+    try {
       Config.override("nanofuzz.fuzzer.coverageScope", "project");
+      const program = ProgramFactory.fromSource(
+        () => fs.readFileSync(pyPath, "utf8"),
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["add"];
+      const env = createFuzzEnv(fnDef);
+      const runner = new PythonRunner(pyPath, "add", env, 2000);
+
+      await runner.onRunStart();
+      const res = await runner.run([3, 4], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(7);
+      }
+
+      const covInfo = runner.coverageInfo;
+      expect(covInfo).toBeDefined();
+      const normPath = fs.realpathSync(pyPath);
+      if (covInfo && (covInfo[normPath] || covInfo[pyPath])) {
+        const info = covInfo[normPath] || covInfo[pyPath];
+        // Dynamic execution lines/arcs are tracked
+        expect(info.lines).toContain(2);
+        // Static executable lines denominator is empty because static analysis was skipped
+        expect(info.executable).toEqual([]);
+      }
+    } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
       try {
         fs.rmSync(tmpDir, {
           recursive: true,

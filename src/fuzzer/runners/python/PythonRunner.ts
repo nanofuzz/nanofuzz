@@ -7,7 +7,7 @@ import {
 } from "../AbstractRunner";
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag, ProgramImport } from "../../analysis/Types";
-import { CoverageScope, isCoverageScope } from "../../Types";
+import { parseCoverageScope } from "../../measures/Util";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import { FuzzEnv } from "../../Fuzzer";
 import * as JSONN from "../../../Jsonn";
@@ -484,21 +484,14 @@ export class PythonRunner extends AbstractRunner {
     const filenameBase = path.basename(this._filename);
     const coverageScopeRaw = Config.get<unknown>(
       "nanofuzz.fuzzer.coverageScope",
-      "project"
+      "project static"
     );
 
-    if (!isCoverageScope(coverageScopeRaw)) {
-      throw new Error(
-        `Invalid coverageScope configuration '${String(
-          coverageScopeRaw
-        )}'. Allowed values: 'project', 'project+directimports'`
-      );
-    }
-    const coverageScope: CoverageScope = coverageScopeRaw;
+    const scopeConfig = parseCoverageScope(coverageScopeRaw);
 
     let directPkgs: string[] = [];
     if (
-      coverageScope === "project+directimports" &&
+      scopeConfig.target === "project directimports" &&
       fs.existsSync(this._filename)
     ) {
       try {
@@ -517,8 +510,9 @@ export class PythonRunner extends AbstractRunner {
         filenameBase.length - path.extname(filenameBase).length
       ),
       this._fn,
-      coverageScope,
+      scopeConfig.target,
       JSON.stringify(directPkgs),
+      String(scopeConfig.collectStaticCoverage),
     ];
 
     const host = new PythonHost(
