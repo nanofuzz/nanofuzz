@@ -160,9 +160,18 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * Waits asynchronously until at least one input becomes available,
    * or until all pending generators finish or fail.
    */
-  public async waitForNextInput(pollIntervalMs = 50): Promise<boolean> {
+  public async waitForNextInput(): Promise<boolean> {
     while (this.nextable() === "soon") {
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      const pendingSubgens = this._subgens.filter(
+        (g, i) => this._activeSubgens[i] && g.nextable() === "soon"
+      );
+      if (pendingSubgens.length > 0) {
+        await Promise.race(
+          pendingSubgens.map((g) => g.nextSoon().catch(() => {}))
+        );
+      } else {
+        break;
+      }
     }
     return this.nextable() === "now";
   } // fn: waitForNextInput
@@ -365,8 +374,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       const activeSubgenIndices = this._subgens
         .map((_g, i) => i)
         .filter(
-          (i) =>
-            this._activeSubgens[i] && this._subgens[i].nextable() === "now"
+          (i) => this._activeSubgens[i] && this._subgens[i].nextable() === "now"
         );
       const candidateIndices =
         activeSubgenIndices.length > 0

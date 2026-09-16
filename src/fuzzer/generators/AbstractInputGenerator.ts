@@ -10,6 +10,7 @@ import { InputGeneratorStats, NextableStatus } from "./Types";
 export abstract class AbstractInputGenerator {
   protected _specs; // ArgDef specs that describe inputs.
   protected _prng; // pseudo random number generator
+  protected _pendingPromise?: Promise<boolean>; // Pending promise for async input generation
 
   /**
    * Create a new input generator
@@ -44,9 +45,21 @@ export abstract class AbstractInputGenerator {
 
   /**
    * Asynchronously produce the next test-case inputs when `nextable()` returns "soon".
+   * Awaits the pending promise managed by asynchronous generation tasks, then returns `next()`.
    */
   public async nextSoon(): Promise<InputAndSource> {
-    throw new Error("not yet implemented");
+    if (this.nextable() === "now") {
+      return this.next();
+    }
+    if (this._pendingPromise) {
+      await this._pendingPromise;
+    }
+    if (this.nextable() === "now") {
+      return this.next();
+    }
+    throw new Error(
+      `nextSoon() failed: generator '${this.name}' is no longer pending and produced no inputs.`
+    );
   } // fn: nextSoon
 
   /**

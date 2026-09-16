@@ -109,6 +109,7 @@ function createProgram(): Commander.Command {
 
     .option(`--no-ai-input-generator`, `Disable AI input generator`)
     .option(`--no-mutation-input-generator`, `Disable mutation input generator`)
+    .option(`--no-random-input-generator`, `Disable random input generator`)
 
     .option(`--model-provider <string>`, `AI model provider`)
     .option(`--model-name <string>`, `AI model name`)
@@ -415,7 +416,7 @@ export async function runCliInProcess(
           enabled: options["mutationInputGenerator"],
         },
         RandomInputGenerator: {
-          enabled: true, // always enabled
+          enabled: options["randomInputGenerator"],
         },
       },
     }).testSync(undefined, undefined, updateFn, () => isCancelled);

@@ -33,9 +33,9 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    * This generator requires a leaderboard with at least one
    * "interesting" input to mutate.
    *
-   * @returns true if generator is available, false otherwise
+   * @returns "now" if generator is available, false otherwise
    */
-  public nextable(): NextableStatus {
+  public override nextable(): NextableStatus {
     return this._leaderboard.length ? "now" : false;
   } // fn: nextable
 

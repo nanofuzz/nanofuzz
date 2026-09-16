@@ -568,7 +568,7 @@ export class Tester {
       // End the testing run when we encounter a stop condition
       const stopCondition = _checkStopCondition(
         this._options,
-        this._compositeInputGenerator.nextable(),
+        this._compositeInputGenerator.nextable() !== false,
         stillInjecting,
         injectTests.length,
         !!cancelFn && cancelFn(),
@@ -746,6 +746,22 @@ export class Tester {
 
       // Generate and store the inputs
       const startGenTime = performance.now(); // start time: input generation
+      if (this._compositeInputGenerator.nextable() === "soon") {
+        update({
+          msg: "Waiting for input generation...",
+          channel: "update",
+          pct: 0,
+        });
+        await this._compositeInputGenerator.waitForNextInput();
+      }
+
+      if (
+        this._compositeInputGenerator.nextable() !== "now" &&
+        !stillInjecting
+      ) {
+        continue;
+      }
+
       result.inputGenerated = this._compositeInputGenerator.next();
       result.timers.gen = performance.now() - startGenTime; // total time: input generation
 

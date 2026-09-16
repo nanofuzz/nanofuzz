@@ -275,7 +275,7 @@ describe("cli:", () => {
       "cli_seed_no_rnd",
     ]);
 
-    expect(res.status).toBe(0);
+    expect(res.status).toBe(3); // Exit code 3 when 0 tests run
     expect(fs.existsSync(outputFile)).toBeTrue();
 
     const outputData = JSON5.parse<FuzzTestResults>(

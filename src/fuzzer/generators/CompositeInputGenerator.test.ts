@@ -4,6 +4,7 @@ import { FuzzStopReason, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import { ArgDef } from "../analysis/ArgDef";
 import { FuzzOptions, InputAndSource } from "../Types";
+import { NextableStatus } from "./Types";
 import * as Config from "../../Config";
 
 describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
@@ -476,6 +477,12 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
   });
 
   it("nextable: 'soon' when no input is ready now, but async input generation is pending", () => {
+    class SoonCompositeInputGenerator extends CompositeInputGenerator {
+      public setSubgenSoon(index: number): void {
+        this._subgens[index].nextable = () => "soon";
+      }
+    }
+
     const program = ProgramFactory.fromSource(
       () => `export function dummyFn(x: number) {}`,
       "typescript"
@@ -503,7 +510,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       AiInputGenerator: { enabled: true },
     };
 
-    const cig = new CompositeInputGenerator(
+    const cig = new SoonCompositeInputGenerator(
       options,
       fnDef,
       "seed",
@@ -515,7 +522,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     cig.onRunStart(true);
-    // When AI generator is fetching in background, status is 'soon'
+    cig.setSubgenSoon(2); // Set AI generator (index 2) to 'soon'
     expect(cig.nextable()).toBe("soon");
   });
 
@@ -563,6 +570,25 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
   });
 
   it("nextable: waits asynch while status is 'soon'", async () => {
+    class SoonCompositeInputGenerator extends CompositeInputGenerator {
+      public setSubgenSoonThenNow(index: number): void {
+        let status: NextableStatus = "soon";
+        this._subgens[index].nextable = () => status;
+        this._subgens[index].nextSoon = async () => {
+          status = "now";
+          return {
+            tick: 1,
+            value: [],
+            source: {
+              type: "generator",
+              generator: "AiInputGenerator",
+              model: "test",
+            },
+          };
+        };
+      }
+    }
+
     const program = ProgramFactory.fromSource(
       () => `export function dummyFn(x: number) {}`,
       "typescript"
@@ -589,7 +615,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       AiInputGenerator: { enabled: true },
     };
 
-    const cig = new CompositeInputGenerator(
+    const cig = new SoonCompositeInputGenerator(
       options,
       fnDef,
       "seed",
@@ -601,8 +627,9 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     cig.onRunStart(true);
-    // waitForNextInput is a method on CIG that polls/awaits until nextable() === 'now' or false
-    const result = await cig.waitForNextInput(100);
-    expect(result).toBeDefined();
+    cig.setSubgenSoonThenNow(2);
+
+    const result = await cig.waitForNextInput();
+    expect(result).toBeTrue();
   });
 });

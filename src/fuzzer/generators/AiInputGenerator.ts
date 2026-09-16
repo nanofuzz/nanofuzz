@@ -129,6 +129,11 @@ export class AiInputGenerator extends AbstractInputGenerator {
     }
 
     if (this._llm) {
+      let resolvePending: (hasInputs: boolean) => void = () => {};
+      this._pendingPromise = new Promise<boolean>((resolve) => {
+        resolvePending = resolve;
+      });
+
       this._callsPending++;
       const modelId = this._llm.id;
       const validInputs: { [k: string]: ArgValueType }[] = [];
@@ -261,6 +266,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
         })
         .finally(() => {
           this._callsPending--;
+          resolvePending(this._inputQueue.length > 0);
+          this._pendingPromise = undefined;
         });
     }
   } // fn: _getMoreInputs
