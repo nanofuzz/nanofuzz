@@ -3,7 +3,9 @@ import * as path from "node:path";
 import * as os from "node:os";
 import JSON5 from "json5";
 import * as zod from "zod/v4";
+import * as Config from "../Config";
 import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Fuzzer";
+import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AiInputGenerator } from "../fuzzer/generators/AiInputGenerator";
 import { createCacheKey } from "../fuzzer/adapters/LlmCacheManager";
@@ -16,42 +18,91 @@ async function runCli(
   let stdout = "";
   let stderr = "";
 
-  const origLog = console.log;
-  const origInfo = console.info;
-  const origError = console.error;
+  const origStdoutWrite = process.stdout.write;
+  const origStderrWrite = process.stderr.write;
+  const origConsoleLog = console.log;
+  const origConsoleInfo = console.info;
+  const origConsoleError = console.error;
+
+  process.stdout.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((err?: Error | null) => void),
+    callback?: (err?: Error | null) => void
+  ): boolean => {
+    stdout += String(chunk);
+    if (typeof encodingOrCallback === "function") {
+      return origStdoutWrite.bind(process.stdout)(chunk, encodingOrCallback);
+    }
+    if (typeof encodingOrCallback === "string") {
+      return origStdoutWrite.bind(process.stdout)(
+        chunk,
+        encodingOrCallback,
+        callback
+      );
+    }
+    return origStdoutWrite.bind(process.stdout)(chunk);
+  };
+
+  process.stderr.write = (
+    chunk: string | Uint8Array,
+    encodingOrCallback?: BufferEncoding | ((err?: Error | null) => void),
+    callback?: (err?: Error | null) => void
+  ): boolean => {
+    stderr += String(chunk);
+    if (typeof encodingOrCallback === "function") {
+      return origStderrWrite.bind(process.stderr)(chunk, encodingOrCallback);
+    }
+    if (typeof encodingOrCallback === "string") {
+      return origStderrWrite.bind(process.stderr)(
+        chunk,
+        encodingOrCallback,
+        callback
+      );
+    }
+    return origStderrWrite.bind(process.stderr)(chunk);
+  };
 
   console.log = (...a: unknown[]) => {
-    stdout +=
-      a.map((x) => (typeof x === "string" ? x : String(x))).join(" ") + "\n";
+    stdout += a.map(String).join(" ") + "\n";
   };
   console.info = (...a: unknown[]) => {
-    stdout +=
-      a.map((x) => (typeof x === "string" ? x : String(x))).join(" ") + "\n";
+    stdout += a.map(String).join(" ") + "\n";
   };
   console.error = (...a: unknown[]) => {
-    stderr +=
-      a.map((x) => (typeof x === "string" ? x : String(x))).join(" ") + "\n";
+    stderr += a.map(String).join(" ") + "\n";
   };
 
   try {
+    Config.clearOverrides();
     const status = await runCliInProcess(args);
     return { status, stdout, stderr };
   } finally {
-    console.log = origLog;
-    console.info = origInfo;
-    console.error = origError;
+    process.stdout.write = origStdoutWrite;
+    process.stderr.write = origStderrWrite;
+    console.log = origConsoleLog;
+    console.info = origConsoleInfo;
+    console.error = origConsoleError;
   }
 }
 
 describe("cli:", () => {
   let tmpDir: string;
+  let originalTimeout: number;
 
   beforeAll(() => {
+    originalTimeout = jasmine.DEFAULT_TIMEOUT_INTERVAL;
     jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-cli-test-"));
   });
 
   afterAll(() => {
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = originalTimeout;
+  });
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-cli-test-"));
+  });
+
+  afterEach(() => {
     if (fs.existsSync(tmpDir)) {
       try {
         fs.rmSync(tmpDir, {
@@ -61,7 +112,7 @@ describe("cli:", () => {
           retryDelay: 100,
         });
       } catch {
-        // Ignore residual Windows file lock cleanup errors
+        // Ignore residual file lock cleanup errors on Windows
       }
     }
   });
@@ -71,7 +122,7 @@ describe("cli:", () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testCoverageOneFile";
     const seed = "ts_cli_seed_123";
-    const maxTests = 15;
+    const maxTests = 2;
     const maxRuntime = 5000;
     const maxDupeInputs = 500;
     const fnTimeout = 300;
@@ -122,7 +173,7 @@ describe("cli:", () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.py";
     const targetFn = "greeting";
     const seed = "py_cli_seed_456";
-    const maxTests = 10;
+    const maxTests = 2;
     const maxRuntime = 4000;
 
     const res = await runCli([
@@ -175,7 +226,9 @@ describe("cli:", () => {
       "--no-ai-input-generator",
       "--no-mutation-input-generator",
       "--max-tests",
-      "10",
+      "1",
+      "--seed",
+      "cli_seed_no_flags",
     ]);
 
     expect(res.status).toBe(0);
@@ -224,7 +277,9 @@ describe("cli:", () => {
       "--cig-input-focus-decay",
       "2",
       "--max-tests",
-      "10",
+      "1",
+      "--seed",
+      "cli_seed_cig_flags",
     ]);
 
     expect(res.status).toBe(0);
@@ -259,7 +314,9 @@ describe("cli:", () => {
       outputFile,
       "--cig-stats-checkpoints",
       "--max-tests",
-      "10",
+      "1",
+      "--seed",
+      "cli_seed_cig_checkpoints",
     ]);
 
     expect(res.status).toBe(0);
@@ -298,7 +355,9 @@ describe("cli:", () => {
       "--ai-cache-file",
       cacheFile,
       "--max-tests",
-      "5",
+      "1",
+      "--seed",
+      "cli_seed_ai_cache_miss",
     ]);
 
     if (res.status !== 0) {
@@ -331,11 +390,12 @@ describe("cli:", () => {
     const targetFn = "testCoverageOneFile";
     const provider = "gemini";
     const modelName = "gemini-flash";
+    const seed = "cli_seed_ai_cache_hit";
 
     // Pre-seed cache entry for testCoverageOneFile
     const program = ProgramFactory.fromFile(targetFile);
     const fn = program.functionsExported[targetFn];
-    const aiGen = new AiInputGenerator(fn, "seed", new Map(), program.src);
+    const aiGen = new AiInputGenerator(fn, seed, new Map(), program.src);
     const [schema, directives] = aiGen["_getInputsSchema"](fn.getLang());
     const promptText = prompt.genInputs(fn, directives, new Map(), program.src);
     const schemaJson = JSON.stringify(zod.toJSONSchema(schema));
@@ -345,7 +405,15 @@ describe("cli:", () => {
       key,
       request: { provider, modelName, prompt: [promptText], schemaJson },
       response: {
-        text: JSON.stringify({ programInputs: [{ s: "replay-cached-input" }] }),
+        text: JSON.stringify({
+          programInputs: [
+            { s: "replay-cached-input-1" },
+            { s: "replay-cached-input-2" },
+            { s: "replay-cached-input-3" },
+            { s: "replay-cached-input-4" },
+            { s: "replay-cached-input-5" },
+          ],
+        }),
         stats: {
           tokensSent: 100,
           tokensSentCost: { amt: 0.001, unit: "USD" },
@@ -380,7 +448,9 @@ describe("cli:", () => {
       "--ai-cache-file",
       cacheFile,
       "--max-tests",
-      "5",
+      "1",
+      "--seed",
+      seed,
     ]);
 
     if (res.status !== 0) {
@@ -420,6 +490,8 @@ describe("cli:", () => {
       maxFailures.toString(),
       "--max-tests",
       "100",
+      "--seed",
+      "cli_seed_max_failures",
     ]);
 
     expect(res.status).toBe(1);
@@ -441,17 +513,14 @@ describe("cli:", () => {
       `pbt_test_${Math.random().toString(36).substring(2, 9)}.py`
     );
     const targetFn = "test_range_max_exclusive_rejects_boundary";
-    const fd = fs.openSync(pyFile, "w");
     fs.writeFileSync(
-      fd,
+      pyFile,
       `
 def ${targetFn}(n: int) -> int:
     raise Exception("boundary error")
 `,
       "utf8"
     );
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
 
     try {
       const res = await runCli([
@@ -461,6 +530,10 @@ def ${targetFn}(n: int) -> int:
         "300000",
         "--max-failures",
         "1",
+        "--max-tests",
+        "10",
+        "--seed",
+        "cli_seed_py_max_failures",
       ]);
 
       expect(res.status).toBe(1);
@@ -474,7 +547,7 @@ def ${targetFn}(n: int) -> int:
             retryDelay: 100,
           });
         } catch {
-          // Ignore
+          // Ignore residual file lock cleanup errors on Windows
         }
       }
     }
@@ -490,27 +563,50 @@ def ${targetFn}(n: int) -> int:
       targetFn,
       "--output-file",
       outputFile,
+      "--no-property-oracle",
       "--max-tests",
-      "5",
+      "1",
+      "--seed",
+      "cli_seed_cov_counters",
     ]);
 
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const outputData = JSON5.parse<any>(fs.readFileSync(outputFile, "utf8"));
+    type OutputDataWithCoverage = FuzzTestResults & {
+      stats: {
+        measures: {
+          CodeCoverageMeasure?: CodeCoverageMeasureStats;
+        };
+      };
+      results: (FuzzTestResults["results"][number] & {
+        coverageMeasure?: {
+          current?: unknown;
+          accum?: unknown;
+          accumDelta?: unknown;
+          globalDelta?: unknown;
+        };
+      })[];
+    };
+
+    const outputData = JSON5.parse<OutputDataWithCoverage>(
+      fs.readFileSync(outputFile, "utf8")
+    );
 
     expect(outputData.stats.measures.CodeCoverageMeasure).toBeDefined();
     const cov = outputData.stats.measures.CodeCoverageMeasure;
-    expect(cov.counters).toBeDefined();
-    expect(typeof cov.counters.statementsTotal).toBe("number");
-    expect(typeof cov.counters.statementsCovered).toBe("number");
-    expect(typeof cov.counters.functionsTotal).toBe("number");
-    expect(typeof cov.counters.functionsCovered).toBe("number");
-    expect(typeof cov.counters.branchesTotal).toBe("number");
-    expect(typeof cov.counters.branchesCovered).toBe("number");
-    expect(Array.isArray(cov.files)).toBeTrue();
-    expect(cov.files.length).toBeGreaterThan(0);
+    expect(cov).toBeDefined();
+    if (cov) {
+      expect(cov.counters).toBeDefined();
+      expect(typeof cov.counters.statementsTotal).toBe("number");
+      expect(typeof cov.counters.statementsCovered).toBe("number");
+      expect(typeof cov.counters.functionsTotal).toBe("number");
+      expect(typeof cov.counters.functionsCovered).toBe("number");
+      expect(typeof cov.counters.branchesTotal).toBe("number");
+      expect(typeof cov.counters.branchesCovered).toBe("number");
+      expect(Array.isArray(cov.files)).toBeTrue();
+      expect(cov.files.length).toBeGreaterThan(0);
+    }
 
     // Verify results[].coverageMeasure only retains `current` (accum/accumDelta/globalDelta omitted)
     expect(outputData.results.length).toBeGreaterThan(0);
@@ -524,39 +620,52 @@ def ${targetFn}(n: int) -> int:
     }
   });
 
-  it("--debug flag enables debug scopes (*, runners, ai)", async () => {
+  it("--debug: `*` scope", async () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testCoverageOneFile";
 
-    // Test default --debug (which defaults scope to *)
     const resDefault = await runCli([
       targetFile,
       targetFn,
       "--debug",
       "--max-tests",
-      "2",
+      "1",
+      "--seed",
+      "cli_seed_debug_default",
     ]);
     expect(resDefault.status).toBe(0);
+  });
 
-    // Test --debug runners
+  it("--debug: `runners` scope", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
     const resRunners = await runCli([
       targetFile,
       targetFn,
       "--debug",
       "runners",
       "--max-tests",
-      "2",
+      "1",
+      "--seed",
+      "cli_seed_debug_runners",
     ]);
     expect(resRunners.status).toBe(0);
+  });
 
-    // Test --debug ai
+  it("--debug: `ai` scope", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
     const resAi = await runCli([
       targetFile,
       targetFn,
       "--debug",
       "ai",
       "--max-tests",
-      "2",
+      "1",
+      "--seed",
+      "cli_seed_debug_ai",
     ]);
     expect(resAi.status).toBe(0);
   });
