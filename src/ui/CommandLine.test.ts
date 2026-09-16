@@ -104,7 +104,16 @@ describe("cli:", () => {
 
   afterEach(() => {
     if (fs.existsSync(tmpDir)) {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual file lock cleanup errors on Windows
+      }
     }
   });
 
@@ -531,7 +540,15 @@ def ${targetFn}(n: int) -> int:
       expect(res.stdout).toContain("Stopped for reason: maxFailures.");
     } finally {
       if (fs.existsSync(pyFile)) {
-        fs.rmSync(pyFile, { force: true });
+        try {
+          fs.rmSync(pyFile, {
+            force: true,
+            maxRetries: 10,
+            retryDelay: 100,
+          });
+        } catch {
+          // Ignore residual file lock cleanup errors on Windows
+        }
       }
     }
   });
