@@ -229,7 +229,7 @@ export class PythonRunner extends AbstractRunner {
 
     const pythonEnv: PythonEnv = {
       env: { ...process.env },
-      libs: findPythonLibDir(path.dirname(module.filename), "msgpack"),
+      libs: findPythonLibDir(path.dirname(module.filename)),
       paths: [],
       interpreter: Config.get("python.defaultInterpreterPath", "python3"),
     };
@@ -564,19 +564,24 @@ export class PythonRunner extends AbstractRunner {
  * Finds the Python library directory
  *
  * @param dir the starting directory
- * @param item the item to look for
  * @returns the Python library directory, or null if not found
  */
-function findPythonLibDir(dir: string, item: string): string | null {
+function findPythonLibDir(dir: string): string | null {
   // Co-located with this module (e.g., as built)
-  if (fs.existsSync(path.resolve(path.join(dir, item)))) {
-    return dir;
+  const vendorDir = path.resolve(path.join(dir, "_nanofuzz_python"));
+  if (fs.existsSync(vendorDir)) {
+    return vendorDir;
   }
 
   // Find build folder (e.g., during development)
   const buildFolder = findInAncestor(module.filename, "build");
   if (buildFolder) {
-    return path.resolve(path.join(buildFolder, "extension"));
+    const buildVendor = path.resolve(
+      path.join(buildFolder, "extension", "_nanofuzz_python")
+    );
+    if (fs.existsSync(buildVendor)) {
+      return buildVendor;
+    }
   }
 
   return null;
