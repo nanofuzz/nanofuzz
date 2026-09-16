@@ -19,7 +19,8 @@ export abstract class AbstractInputGenerator {
    */
   protected constructor(specs: ArgDef[], rngSeed: string | undefined) {
     this._specs = specs;
-    this._prng = seedrandom(rngSeed);
+    this._prng =
+      rngSeed && rngSeed.length > 0 ? seedrandom(rngSeed) : seedrandom();
   } // fn: constructor
 
   /**
