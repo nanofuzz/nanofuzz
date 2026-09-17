@@ -33,6 +33,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _callsPending = 0; // Number of calls to AI model pending
   protected _stats = _initStats(); // Stats about inputs generated
   protected _allInputs; // Running list of all generated inputs
+  protected _exhausted = false; // Set to true when the model produces no new valid inputs or encounters an error
 
   public constructor(
     fn: FunctionDef,
@@ -56,10 +57,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
       return "now";
     } else if (this._callsPending) {
       return "soon";
+    } else if (this._llm && !this._exhausted) {
+      this._getMoreInputs();
+      return this._callsPending ? "soon" : false;
     } else {
       return false;
     }
-  } // fn: isAvailable
+  } // fn: nextable
 
   /**
    * Manage the life-cycle of the ProgramModel and clear
@@ -69,6 +73,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @param `active` indicates if inputs are expected this run
    */
   public onRunStart(active: boolean): void {
+    this._exhausted = false;
+
     // Abandon back-end if stale or no longer configured
     if (
       this._llm &&
@@ -124,7 +130,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   protected _getMoreInputs(): void {
     // Let any prior calls finish before making a new one
-    if (this._callsPending) {
+    if (this._callsPending || this._exhausted) {
       return;
     }
 
@@ -199,6 +205,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
                 failure: true,
                 message: inputs.error.message,
               });
+              this._exhausted = true;
               break;
           }
 
@@ -256,6 +263,10 @@ export class AiInputGenerator extends AbstractInputGenerator {
               };
             })
           );
+
+          if (this._inputQueue.length === 0) {
+            this._exhausted = true;
+          }
         })
         .catch((e: unknown) => {
           this._stats.calls.failed++;
@@ -263,6 +274,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
             failure: true,
             message: isError(e) ? e.message : "unknown error",
           });
+          this._exhausted = true;
         })
         .finally(() => {
           this._callsPending--;

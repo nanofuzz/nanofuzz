@@ -48,11 +48,12 @@ export abstract class AbstractInputGenerator {
    * Awaits the pending promise managed by asynchronous generation tasks, then returns `next()`.
    */
   public async nextSoon(): Promise<InputAndSource> {
-    if (this.nextable() === "now") {
-      return this.next();
-    }
-    if (this._pendingPromise) {
-      await this._pendingPromise;
+    while (this.nextable() === "soon") {
+      if (this._pendingPromise) {
+        await this._pendingPromise;
+      } else {
+        break;
+      }
     }
     if (this.nextable() === "now") {
       return this.next();

@@ -750,7 +750,7 @@ export class Tester {
         update({
           msg: "Waiting for input generation...",
           channel: "update",
-          pct: 0,
+          pct: typeof stopCondition === "number" ? stopCondition : 0,
         });
         await this._compositeInputGenerator.waitForNextInput();
       }
