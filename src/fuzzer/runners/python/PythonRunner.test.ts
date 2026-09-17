@@ -1,5 +1,13 @@
 import { PythonRunner } from "./PythonRunner";
-import { FunctionDef, FuzzEnv } from "../../Fuzzer";
+import {
+  FunctionDef,
+  FuzzEnv,
+  FuzzGeneratorStatsBase,
+  FuzzStopReason,
+  FuzzTestResult,
+  FuzzTestResults,
+} from "../../Fuzzer";
+import { PythonCoverageMeasure } from "../../measures/PythonCoverageMeasure";
 import { ArgDef } from "../../analysis/ArgDef";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";
@@ -636,7 +644,7 @@ def calculate(x: int) -> int:
         }
       }
     }
-  });
+  }, 30000);
 
   it("fails invalid coverageScope", async () => {
     const tmpDir = fs.mkdtempSync(
@@ -765,6 +773,228 @@ def process_val(x: int) -> int:
 
       await runner.onRunEnd();
       await runner2.onRunEnd();
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("static and dynamic coverage for user snippet with top-level statements and function x in Python", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-usersnippet-py-")
+    );
+    const pyPath = path.join(tmpDir, "user_snippet.py");
+    const pyCode = `z = 1
+z += 1
+q = z
+z = q
+
+def x(val: int) -> int:
+    return 1
+`;
+    fs.writeFileSync(pyPath, pyCode);
+    const realPyPath = fs.realpathSync(pyPath);
+
+    const program = ProgramFactory.fromSource(
+      () => pyCode,
+      "python",
+      realPyPath
+    );
+    const fnDef = program.functionsExported["x"];
+    const env = createFuzzEnv(fnDef);
+
+    const measure = new PythonCoverageMeasure();
+
+    try {
+      const runner = new PythonRunner(realPyPath, "x", env, 2000);
+      await runner.onRunStart();
+
+      // Attach PythonCoverageMeasure to runner
+      measure.onRunStart([runner]);
+
+      // 1. Initial static coverage on host connect before test execution
+      const initialCov = runner.coverageInfo;
+      expect(initialCov).toBeDefined();
+
+      // 2. Execute test run calling function x(0)
+      const res = await runner.run([0], 2000);
+      expect(res.result.tag).toBe("value");
+
+      if (res.result.tag === "value") {
+        const testResult: FuzzTestResult = {
+          pinned: false,
+          inputGenerated: {
+            tick: 0,
+            value: [],
+            source: {
+              type: "generator",
+              generator: "RandomInputGenerator",
+            },
+          },
+          input: [],
+          output: [],
+          exception: false,
+          skipped: false,
+          timeout: false,
+          passedImplicit: "pass",
+          passedHuman: "unknown",
+          passedValidator: "pass",
+          passedValidators: [],
+          validatorException: false,
+          timers: { gen: 0, transform: 0, run: 0 },
+          category: "ok",
+          interestingReasons: [],
+        };
+
+        measure.measure(
+          {
+            tick: 0,
+            value: [
+              {
+                tag: "ArgValueTypeWrapped",
+                value: [0],
+              },
+            ],
+            source: {
+              type: "generator",
+              generator: "RandomInputGenerator",
+            },
+          },
+          testResult
+        );
+      }
+
+      const dummyGenStats: FuzzGeneratorStatsBase = {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      };
+
+      const resultsStub: FuzzTestResults = {
+        toolVersion: "0.0.0",
+        env,
+        stopReason: FuzzStopReason.MAXTESTS,
+        interesting: { inputs: [] },
+        results: [],
+        stats: {
+          counters: {
+            testingRuns: 1,
+            inputsGenerated: 1,
+            dupesGenerated: 0,
+            inputsInjected: 0,
+            erroredTests: 0,
+            passedTests: 1,
+            inputsSkipped: 0,
+            failedTests: 0,
+          },
+          timers: {
+            total: 10,
+            compile: 0,
+            instrument: 0,
+            put: 10,
+            val: 0,
+            gen: 0,
+            transform: 0,
+            measure: 0,
+          },
+          generators: {
+            RandomInputGenerator: dummyGenStats,
+            MutationInputGenerator: dummyGenStats,
+            AiInputGenerator: dummyGenStats,
+          },
+          measures: {},
+        },
+      };
+
+      measure.onRunEnd(resultsStub);
+      const stats = await resultsStub.stats.measures.CodeCoverageMeasure!();
+      expect(stats.counters.statementsTotal).toBe(6);
+      expect(stats.counters.functionsTotal).toBe(1);
+      expect(stats.counters.statementsCovered).toBe(6);
+      expect(stats.counters.functionsCovered).toBe(1);
+
+      const fileMapNoPath = JSON.parse(JSON.stringify(stats.files[0].fileMap));
+      delete fileMapNoPath.path;
+
+      // Single run expectation: all 6 statements are covered (1 hit each)
+      expect(fileMapNoPath.s).toEqual({
+        "0": 1,
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+      });
+
+      // 3. Execute 2 more test runs (total 3 test runs)
+      for (let tick = 1; tick <= 2; tick++) {
+        measure.onBeforeNextTestExecution();
+        const r = await runner.run([0], 2000);
+        if (r.result.tag === "value") {
+          measure.measure(
+            {
+              tick,
+              value: [{ tag: "ArgValueTypeWrapped", value: [0] }],
+              source: {
+                type: "generator",
+                generator: "RandomInputGenerator",
+              },
+            },
+            {
+              pinned: false,
+              inputGenerated: {
+                tick,
+                value: [],
+                source: {
+                  type: "generator",
+                  generator: "RandomInputGenerator",
+                },
+              },
+              input: [],
+              output: [],
+              exception: false,
+              skipped: false,
+              timeout: false,
+              passedImplicit: "pass",
+              passedHuman: "unknown",
+              passedValidator: "pass",
+              passedValidators: [],
+              validatorException: false,
+              timers: { gen: 0, transform: 0, run: 0 },
+              category: "ok",
+              interestingReasons: [],
+            }
+          );
+        }
+      }
+
+      measure.onRunEnd(resultsStub);
+      const statsAfter3 =
+        await resultsStub.stats.measures.CodeCoverageMeasure!();
+      const fileMapAfter3 = JSON.parse(
+        JSON.stringify(statsAfter3.files[0].fileMap)
+      );
+      delete fileMapAfter3.path;
+
+      // Top-level statements MUST stay at 1 (from initial module load, not accumulating),
+      // while statement "5" inside x() MUST accumulate to 3 (1 hit per run * 3 runs).
+      expect(fileMapAfter3.s).toEqual({
+        "0": 1,
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 3,
+      });
+
+      await runner.onRunEnd();
     } finally {
       try {
         fs.rmSync(tmpDir, {
