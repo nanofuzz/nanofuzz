@@ -24,6 +24,10 @@ describe("fuzzer/runners/JavascriptRunner", () => {
     await Parser.init();
   });
 
+  afterEach(() => {
+    Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+  });
+
   it("subprocess run and return result", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-jsrunner-"));
     const jsPath = path.join(tmpDir, "testModule.js");
@@ -817,6 +821,181 @@ module.exports = { getVal };
     } finally {
       try {
         fs.rmSync(projectDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it("skips static coverage at init when 'static' is NOT in coverageScope", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-nostatic-js-")
+    );
+    const tsPath = path.join(tmpDir, "noStatic.ts");
+    const jsPath = path.join(tmpDir, "noStatic.js");
+    const tsCode = `let z = 1;
+export function x(): number {
+  return 1;
+}
+`;
+    fs.writeFileSync(tsPath, tsCode);
+    const out = ts.transpileModule(tsCode, {
+      fileName: tsPath,
+      compilerOptions: {
+        sourceMap: true,
+        inlineSources: true,
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2020,
+      },
+    });
+    fs.writeFileSync(jsPath, out.outputText);
+    fs.writeFileSync(jsPath + ".map", out.sourceMapText!);
+    const realJsPath = fs.realpathSync(jsPath);
+
+    Config.override("nanofuzz.fuzzer.coverageScope", "project");
+    const measure = new TypescriptCoverageMeasure();
+    const instJsCode = measure.onAfterCompile(out.outputText, realJsPath);
+    fs.writeFileSync(realJsPath, instJsCode);
+
+    try {
+      const runner = new JavascriptRunner(realJsPath, "x");
+      await runner.onRunStart();
+      measure.onRunStart([runner]);
+
+      // Initial coverage at startup has 0 covered statements when static is not in coverageScope
+      const initialCov = runner.coverageInfo;
+      expect(isCoverageMapData(initialCov)).toBeTrue();
+
+      // Dynamic coverage is still collected during test execution
+      const res = await runner.run([], 2000);
+      expect(res.result.tag).toBe("value");
+
+      if (res.result.tag === "value") {
+        const testResult: FuzzTestResult = {
+          pinned: false,
+          inputGenerated: {
+            tick: 0,
+            value: [],
+            source: {
+              type: "generator",
+              generator: "RandomInputGenerator",
+            },
+          },
+          input: [],
+          output: [],
+          exception: false,
+          skipped: false,
+          timeout: false,
+          passedImplicit: "pass",
+          passedHuman: "unknown",
+          passedValidator: "pass",
+          passedValidators: [],
+          validatorException: false,
+          timers: { gen: 0, transform: 0, run: 0 },
+          category: "ok",
+          interestingReasons: [],
+        };
+
+        measure.measure(
+          {
+            tick: 0,
+            value: [],
+            source: {
+              type: "generator",
+              generator: "RandomInputGenerator",
+            },
+          },
+          testResult
+        );
+      }
+
+      const dummyGenStats: FuzzGeneratorStatsBase = {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      };
+
+      const resultsStub: FuzzTestResults = {
+        toolVersion: "0.0.0",
+        env: {
+          options: {
+            argDefaults: ArgDef.getDefaultOptions(),
+            maxTests: 1,
+            maxDupeInputs: 1,
+            maxFailures: 0,
+            fnTimeout: 100,
+            suiteTimeout: 1000,
+            useImplicit: true,
+            useHuman: false,
+            useProperty: false,
+            useTransformer: false,
+            measures: {
+              FailedTestMeasure: { enabled: false, weight: 0 },
+              CoverageMeasure: { enabled: true, weight: 1 },
+            },
+            generators: {
+              RandomInputGenerator: { enabled: true },
+              MutationInputGenerator: { enabled: false },
+              AiInputGenerator: { enabled: false },
+            },
+          },
+          function: ProgramFactory.fromSource(
+            () => tsCode,
+            "typescript",
+            tsPath
+          ).functionsExported["x"],
+          validators: [],
+          transformers: [],
+        },
+        stopReason: FuzzStopReason.MAXTESTS,
+        interesting: { inputs: [] },
+        results: [],
+        stats: {
+          counters: {
+            testingRuns: 1,
+            inputsGenerated: 1,
+            dupesGenerated: 0,
+            inputsInjected: 0,
+            erroredTests: 0,
+            passedTests: 1,
+            inputsSkipped: 0,
+            failedTests: 0,
+          },
+          timers: {
+            total: 10,
+            compile: 0,
+            instrument: 0,
+            put: 10,
+            val: 0,
+            gen: 0,
+            transform: 0,
+            measure: 0,
+          },
+          generators: {
+            RandomInputGenerator: dummyGenStats,
+            MutationInputGenerator: dummyGenStats,
+            AiInputGenerator: dummyGenStats,
+          },
+          measures: {},
+        },
+      };
+
+      measure.onRunEnd(resultsStub);
+      const stats = await resultsStub.stats.measures.CodeCoverageMeasure!();
+      expect(stats.counters.statementsTotal).toBe(3);
+      expect(stats.counters.functionsTotal).toBe(1);
+      expect(stats.counters.statementsCovered).toBe(1);
+      expect(stats.counters.functionsCovered).toBe(1);
+
+      await runner.onRunEnd();
+    } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      try {
+        fs.rmSync(tmpDir, {
           recursive: true,
           force: true,
           maxRetries: 10,

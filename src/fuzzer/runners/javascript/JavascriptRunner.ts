@@ -11,6 +11,7 @@ import { FuzzEnv } from "../../Fuzzer";
 import { isCoverageMapData } from "../../measures/TypescriptCoverageMeasure";
 import { CoverageMapData } from "istanbul-lib-coverage";
 import { findInAncestor, isError, normalizePathForKey } from "../../Util";
+import { parseCoverageScope } from "../../measures/Util";
 import { PutTimeoutName } from "../AbstractHost";
 import * as CompilerFactory from "../../compilers/CompilerFactory";
 import * as Config from "../../../Config";
@@ -308,7 +309,19 @@ export class JavascriptRunner extends AbstractRunner {
       ),
     };
 
-    const args = [runnerHost, this._filename, this._jsFn];
+    const coverageScopeRaw = Config.get<unknown>(
+      "nanofuzz.fuzzer.coverageScope",
+      "project static"
+    );
+    const scopeConfig = parseCoverageScope(coverageScopeRaw);
+
+    const args = [
+      runnerHost,
+      this._filename,
+      this._jsFn,
+      scopeConfig.target,
+      String(scopeConfig.collectStaticCoverage),
+    ];
     const host = new NodeHost(args, path.dirname(this._filename), env);
 
     const hostStartupTimeout = Config.get<number>(
@@ -387,9 +400,7 @@ export class JavascriptRunner extends AbstractRunner {
       const extDir = path.dirname(projectRoot);
       searchPaths.push(path.join(extDir, "build", "extension", "node_modules"));
       searchPaths.push(path.join(extDir, "node_modules"));
-      searchPaths.push(
-        path.join(extDir, "packages", "runtime", "typescript")
-      );
+      searchPaths.push(path.join(extDir, "packages", "runtime", "typescript"));
     }
 
     if (process.env.NODE_PATH) {
