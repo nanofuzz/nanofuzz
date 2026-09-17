@@ -777,12 +777,10 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     coverageData = {}
     coverageArcs = {}
     if coverage_enabled:
-        for file in cov.get_data().measured_files():
+        for file in covInfo:
             lines = coverage_lines(cov, file)
             if not lines:
                 continue
-            if file not in covInfo:
-                covInfo[file] = static_coverage(cov, file)
             coverageData[file] = lines
             coverageArcs[file] = coverage_arcs(cov, file)
 
@@ -889,8 +887,9 @@ if __name__ == "__main__":
         cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
 
         if collect_static:
-            # Start coverage tracer before loading module so top-level execution is captured.
-            cov.start()
+            # Start temporary coverage tracer before loading module so static coverage is captured.
+            init_cov = coverage.Coverage(branch=True, data_file=None)
+            init_cov.start()
 
             # Try to load the function: either results in a RunnerErrorResult
             # or a callable function
@@ -901,11 +900,12 @@ if __name__ == "__main__":
             else:
                 logging.debug(f"[{pid}]  - Loaded function")
 
-            cov.stop()
+            init_cov.stop()
 
             pgm_files = program_files(
                 filename, coverage_scope, direct_packages)
-            cov.set_option("run:include", pgm_files)
+            cov = coverage.Coverage(
+                include=pgm_files, branch=True, data_file=None)
 
             # Static analysis of the program: the executable lines, functions, and
             # branches of every file it is made of.
@@ -915,8 +915,8 @@ if __name__ == "__main__":
             initialCoverage = {}
             for file in pgm_files:
                 info = dict(covInfo[file])
-                lines = coverage_lines(cov, file)
-                arcs = coverage_arcs(cov, file)
+                lines = coverage_lines(init_cov, file)
+                arcs = coverage_arcs(init_cov, file)
                 if lines:
                     info["lines"] = lines
                 if arcs:
@@ -931,7 +931,13 @@ if __name__ == "__main__":
             else:
                 logging.debug(f"[{pid}]  - Loaded function")
 
-            covInfo = {}
+            # Re-query program_files now that imports are loaded
+            pgm_files = program_files(
+                filename, coverage_scope, direct_packages)
+            cov = coverage.Coverage(
+                include=pgm_files, branch=True, data_file=None)
+
+            covInfo = {file: static_coverage(cov, file) for file in pgm_files}
             initialCoverage = {}
 
         logging.debug(
