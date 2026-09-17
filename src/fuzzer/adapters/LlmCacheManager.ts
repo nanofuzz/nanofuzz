@@ -191,10 +191,10 @@ export class LlmCacheManager {
     if (this._pendingQueries.size === 0) return;
 
     const timeoutPromise = new Promise((r) => setTimeout(r, timeoutMs));
-    await Promise.race([
-      Promise.all(Array.from(this._pendingQueries)),
-      timeoutPromise,
-    ]);
+    const safeQueries = Array.from(this._pendingQueries).map((p) =>
+      p.catch(() => {})
+    );
+    await Promise.race([Promise.all(safeQueries), timeoutPromise]);
     this.saveCache();
   }
 

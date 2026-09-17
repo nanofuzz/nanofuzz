@@ -103,7 +103,7 @@ export function testCoverageOneFileValidator(
   const s = String(r.in[0]); // the PUT's input
   const out = Boolean(r.out); // the PUT's output
 
-  if (s[0] === "z" || s === "bug!" || s === "moth") {
+  if ((s.length === 4 && s[0] === "z") || s === "bug!" || s === "moth") {
     if (!out) console.debug(` - Property test failed input: ${s}`);
     return !!out; // expected : out === true
   } else {

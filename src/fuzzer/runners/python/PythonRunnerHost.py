@@ -11,8 +11,19 @@ import uuid
 import ctypes
 import threading
 import sysconfig
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, contextmanager
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
+
+# ---------------------------------------------------------------------------
+# Bootstrap NaNofuzz Vendor Dependencies (_nanofuzz_python)
+# ---------------------------------------------------------------------------
+_VENDOR_DIR = os.path.join(os.path.dirname(
+    os.path.realpath(__file__)), "_nanofuzz_python")
+
+_sys_modules_before = set(sys.modules.keys())
+
+if os.path.exists(_VENDOR_DIR):
+    sys.path.insert(0, _VENDOR_DIR)
 
 try:
     import msgpack
@@ -20,6 +31,54 @@ try:
 except ModuleNotFoundError as e:
     print(f"ERROR {e}")
     exit(3)
+finally:
+    # Remove _VENDOR_DIR from sys.path so PUT (Program Under Test) cannot import from it
+    sys.path = [p for p in sys.path if os.path.realpath(
+        p) != os.path.realpath(_VENDOR_DIR)]
+
+_NANOFUZZ_VENDOR_MODULE_NAMES = set(sys.modules.keys()) - _sys_modules_before
+
+_nanofuzz_sys_modules = {
+    name: sys.modules[name]
+    for name in _NANOFUZZ_VENDOR_MODULE_NAMES
+}
+
+_put_sys_modules: dict[str, Any] = {}
+
+
+@contextmanager
+def isolate_put_environment():
+    """
+    Context manager that swaps sys.modules during PUT (Program Under Test)
+    execution so that PUT imports own copies of vendor dependencies (like msgpack/coverage).
+    Restores NaNofuzz host copies when host code runs.
+    """
+    global _put_sys_modules, _nanofuzz_sys_modules
+
+    # Entering PUT context: stash host modules and insert PUT modules if present
+    for name in _NANOFUZZ_VENDOR_MODULE_NAMES:
+        curr = sys.modules.get(name)
+        if curr is not None and curr is not _nanofuzz_sys_modules.get(name):
+            _put_sys_modules[name] = curr
+
+        if name in _put_sys_modules:
+            sys.modules[name] = _put_sys_modules[name]
+        else:
+            sys.modules.pop(name, None)
+
+    try:
+        yield
+    finally:
+        # Exiting PUT context: stash PUT modules and restore NaNofuzz host modules
+        for name in _NANOFUZZ_VENDOR_MODULE_NAMES:
+            curr = sys.modules.get(name)
+            if curr is not None and curr is not _nanofuzz_sys_modules.get(name):
+                _put_sys_modules[name] = curr
+
+            if name in _nanofuzz_sys_modules:
+                sys.modules[name] = _nanofuzz_sys_modules[name]
+            else:
+                sys.modules.pop(name, None)
 
 
 class CollectOptions(TypedDict):
@@ -97,6 +156,13 @@ real_stdout = (
 
 
 MAX_HEARTBEATS = 1000
+_HEARTBEAT_BYTES = struct.pack('>I', len(
+    cast(bytes, msgpack.packb("HEART")))) + cast(bytes, msgpack.packb("HEART"))
+
+
+def send_heartbeat() -> None:
+    real_stdout.write(_HEARTBEAT_BYTES)
+    real_stdout.flush()
 
 
 class HostHeartbeat:
@@ -121,7 +187,7 @@ class HostHeartbeat:
                     break
                 self.heartbeat_count += 1
                 try:
-                    send_msg("HEART")
+                    send_heartbeat()
                 except Exception as e:
                     logging.debug(f"[{pid}] Heartbeat send error: {e}")
                     break
@@ -201,7 +267,8 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
                     source="host",
                     seq=-1
                 ), None)
-            spec.loader.exec_module(module)
+            with isolate_put_environment():
+                spec.loader.exec_module(module)
         return (None, getattr(module, fn))
     except Exception as e:
         return (RunnerErrorResult(
@@ -477,7 +544,8 @@ def program_files(
     direct_pkg_lower = {p.lower() for p in direct_pkg_set}
 
     files = {filename}
-    for module in list(sys.modules.values()):
+    all_modules = list(sys.modules.values()) + list(_put_sys_modules.values())
+    for module in all_modules:
         modfile = getattr(module, "__file__", None)
         if not modfile or os.path.splitext(modfile)[1] != ".py":
             continue
@@ -487,8 +555,8 @@ def program_files(
         parts = modfile.split(os.sep)
         parts_lower = [p.lower() for p in parts]
 
-        # Always ignore bytecode cache
-        if "__pycache__" in parts_lower:
+        # Always ignore bytecode cache and nanofuzz vendor dir
+        if "__pycache__" in parts_lower or "_nanofuzz_python" in parts_lower:
             continue
 
         is_site_pkg = "site-packages" in parts_lower or "dist-packages" in parts_lower
@@ -684,15 +752,16 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
 
     try:
         with redirect_stdout(io.StringIO()) as f:
-            # If fn is a Hypothesis-wrapped test, bypass Hypothesis
-            # and call the original underlying function
-            if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
-                # Unwrap Hypothesis test function
-                value = call_with_timeout(
-                    fn.hypothesis.inner_test, args, timeout_ms)
-            else:
-                # Not Hypothesis; call directly
-                value = call_with_timeout(fn, args, timeout_ms)
+            with isolate_put_environment():
+                # If fn is a Hypothesis-wrapped test, bypass Hypothesis
+                # and call the original underlying function
+                if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
+                    # Unwrap Hypothesis test function
+                    value = call_with_timeout(
+                        fn.hypothesis.inner_test, args, timeout_ms)
+                else:
+                    # Not Hypothesis; call directly
+                    value = call_with_timeout(fn, args, timeout_ms)
     except PutTimeoutException:
         is_timeout = True
     except Exception as e:
