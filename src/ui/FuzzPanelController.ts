@@ -2181,9 +2181,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                     Generate inputs:
                   </p>
                   <div class="fuzzInputControlGroup">
-                    <vscode-checkbox disabled id="fuzz-gen-RandomInputGenerator-enabled" checked>
+                    <vscode-checkbox ${disabledFlag} id="fuzz-gen-RandomInputGenerator-enabled" ${this._fuzzEnv.options.generators.RandomInputGenerator.enabled ? "checked" : ""}>
                       <span> 
-                        Randomly (always enabled)
+                        Randomly
                       </span>
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-MutationInputGenerator-enabled" ${this._fuzzEnv.options.generators.MutationInputGenerator.enabled ? "checked" : ""}>
