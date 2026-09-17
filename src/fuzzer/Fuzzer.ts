@@ -1138,6 +1138,13 @@ export class Tester {
       yield undefined;
     } // for: Main test loop
   } // fn: _run
+
+  /**
+   * Returns diagnostic messages from the composite input generator.
+   */
+  public getInputGeneratorDiagnostics(): string[] {
+    return this._compositeInputGenerator.getDiagnostics();
+  }
 } // class: Tester
 
 /**

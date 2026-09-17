@@ -98,8 +98,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
           diagnostics.push(
             `All ${this._stats.inputs.invalid + this._stats.inputs.invalidLater} inputs returned by the model were invalid.`
           );
-        } else {
+        } else if (this._stats.calls.valid > 0) {
           diagnostics.push(`The model did not produce any valid inputs.`);
+        } else if (
+          this._stats.calls.failed === 0 &&
+          this._stats.calls.valid === 0
+        ) {
+          diagnostics.push(`Testing finished before the model could respond.`);
         }
       }
     }

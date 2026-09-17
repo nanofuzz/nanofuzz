@@ -47,7 +47,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
     const diagnostics: string[] = [];
     if (this._leaderboard.length === 0) {
       diagnostics.push(
-        "No interesting inputs found for me to mutate. Are the other input generators disabled?"
+        "No interesting inputs to mutate. Are other input generators enabled?"
       );
     }
     return diagnostics;
