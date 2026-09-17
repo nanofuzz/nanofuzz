@@ -21,6 +21,10 @@ describe("fuzzer/runners/PythonRunner", () => {
     await Parser.init();
   });
 
+  afterEach(() => {
+    Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+  });
+
   it("resolves python interpreter trying python3 first and python as fallback", () => {
     const spy = spyOn(PythonRunner, "canExecute");
 
@@ -670,7 +674,7 @@ def calculate(x: int) -> int:
         /Invalid coverageScope configuration 'invalid-scope-value'/
       );
     } finally {
-      Config.override("nanofuzz.fuzzer.coverageScope", "project");
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
       try {
         fs.rmSync(tmpDir, {
           recursive: true,
@@ -1037,8 +1041,13 @@ def x(val: int) -> int:
       const runner = new PythonRunner(realPyPath, "x", env, 2000);
       await runner.onRunStart();
 
-      // Initial coverage at startup is empty when static is not in coverageScope
+      // 1. Initial coverage at startup is empty when static is not in coverageScope
       expect(runner.coverageInfo).toEqual({});
+
+      // 2. Dynamic coverage is still collected during test execution
+      const res = await runner.run([0], 2000);
+      expect(res.result.tag).toBe("value");
+      expect(runner.coverageInfo?.[realPyPath]?.lines).toEqual([5]);
 
       await runner.onRunEnd();
     } finally {
