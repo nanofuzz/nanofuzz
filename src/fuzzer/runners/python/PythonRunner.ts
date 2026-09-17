@@ -136,29 +136,25 @@ export class PythonRunner extends AbstractRunner {
       }
 
       // Refresh the dynamic coverage with what this call executed.
-      if (
-        !this._coverageEnabled ||
-        !result.result.coverageData ||
-        Object.keys(result.result.coverageData).length === 0
-      ) {
+      if (!this._coverageEnabled) {
         this._coverageInfo = undefined;
-      } else {
+      } else if (result.result.staticCoverage) {
         this._coverageInfo = result.result.staticCoverage;
-        if (this._coverageInfo) {
-          for (const filename in this._coverageInfo) {
-            const coverageData = result.result.coverageData;
-            const coverageArcs = result.result.coverageArcs;
-            this._coverageInfo[filename].lines =
-              coverageData && !Array.isArray(coverageData)
-                ? coverageData[filename]
-                : undefined;
-            this._coverageInfo[filename].arcs =
-              coverageArcs && !Array.isArray(coverageArcs)
-                ? coverageArcs[filename]
-                : undefined;
-          }
-          this._coverageCallback?.(this._coverageInfo);
+        for (const filename in this._coverageInfo) {
+          const coverageData = result.result.coverageData;
+          const coverageArcs = result.result.coverageArcs;
+          this._coverageInfo[filename].lines =
+            coverageData && !Array.isArray(coverageData)
+              ? coverageData[filename]
+              : undefined;
+          this._coverageInfo[filename].arcs =
+            coverageArcs && !Array.isArray(coverageArcs)
+              ? coverageArcs[filename]
+              : undefined;
         }
+        this._coverageCallback?.(this._coverageInfo);
+      } else {
+        this._coverageInfo = undefined;
       }
 
       return result;
@@ -566,6 +562,7 @@ export class PythonRunner extends AbstractRunner {
       this._fn,
       scopeConfig.target,
       JSON.stringify(directPkgs),
+      String(scopeConfig.collectStaticCoverage),
     ];
 
     const host = new PythonHost(

@@ -877,42 +877,62 @@ if __name__ == "__main__":
         except Exception:
             direct_packages = []
 
+        collect_static = (
+            sys.argv[6].lower() == "true"
+            if len(sys.argv) > 6
+            else ("static" in coverage_scope)
+        )
+
         pgm_files = program_files(filename, coverage_scope, direct_packages)
 
         # One in-memory coverage instance for the whole run.
-        # Start coverage tracer before loading module so top-level execution is captured.
         cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
-        cov.start()
 
-        # Try to load the function: either results in a RunnerErrorResult
-        # or a callable function
-        logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
-        [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-        if (loadError is not None):
-            logging.debug(f"[{pid}]  - Unable to load")
+        if collect_static:
+            # Start coverage tracer before loading module so top-level execution is captured.
+            cov.start()
+
+            # Try to load the function: either results in a RunnerErrorResult
+            # or a callable function
+            logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
+            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
+            if (loadError is not None):
+                logging.debug(f"[{pid}]  - Unable to load")
+            else:
+                logging.debug(f"[{pid}]  - Loaded function")
+
+            cov.stop()
+
+            pgm_files = program_files(
+                filename, coverage_scope, direct_packages)
+            cov.set_option("run:include", pgm_files)
+
+            # Static analysis of the program: the executable lines, functions, and
+            # branches of every file it is made of.
+            covInfo = {file: static_coverage(cov, file) for file in pgm_files}
+
+            # Initial coverage structure sent at startup includes top-level lines executed at module load
+            initialCoverage = {}
+            for file in pgm_files:
+                info = dict(covInfo[file])
+                lines = coverage_lines(cov, file)
+                arcs = coverage_arcs(cov, file)
+                if lines:
+                    info["lines"] = lines
+                if arcs:
+                    info["arcs"] = arcs
+                initialCoverage[file] = info
         else:
-            logging.debug(f"[{pid}]  - Loaded function")
+            # Load function without enabling coverage tracer at startup
+            logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
+            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
+            if (loadError is not None):
+                logging.debug(f"[{pid}]  - Unable to load")
+            else:
+                logging.debug(f"[{pid}]  - Loaded function")
 
-        cov.stop()
-
-        pgm_files = program_files(filename, coverage_scope, direct_packages)
-        cov.set_option("run:include", pgm_files)
-
-        # Static analysis of the program: the executable lines, functions, and
-        # branches of every file it is made of.
-        covInfo = {file: static_coverage(cov, file) for file in pgm_files}
-
-        # Initial coverage structure sent at startup includes top-level lines executed at module load
-        initialCoverage = {}
-        for file in pgm_files:
-            info = dict(covInfo[file])
-            lines = coverage_lines(cov, file)
-            arcs = coverage_arcs(cov, file)
-            if lines:
-                info["lines"] = lines
-            if arcs:
-                info["arcs"] = arcs
-            initialCoverage[file] = info
+            covInfo = {}
+            initialCoverage = {}
 
         logging.debug(
             f"[{pid}] Analyzed {len(covInfo)} file(s) of the program under test")

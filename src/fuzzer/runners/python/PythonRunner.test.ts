@@ -567,8 +567,8 @@ def calculate(x: int) -> int:
         const fnDef = program.functionsExported["calculate"];
         const env = createFuzzEnv(fnDef);
 
-        // Case 1: Default 'project' scope
-        Config.override("nanofuzz.fuzzer.coverageScope", "project");
+        // Case 1: Default 'project static' scope
+        Config.override("nanofuzz.fuzzer.coverageScope", "project static");
         const runnerProject = new PythonRunner(pyPath, "calculate", env, 10000);
         await runnerProject.onRunStart();
         const resProject = await runnerProject.run([1], 10000);
@@ -593,10 +593,10 @@ def calculate(x: int) -> int:
           expect(fileKeys.every((f) => isPathInsideDir(f, tmpDir))).toBeTrue();
         }
 
-        // Case 2: 'project directimports' scope
+        // Case 2: 'project directimports static' scope
         Config.override(
           "nanofuzz.fuzzer.coverageScope",
-          "project directimports"
+          "project directimports static"
         );
         const runnerImports = new PythonRunner(pyPath, "calculate", env, 10000);
         await runnerImports.onRunStart();
@@ -631,7 +631,7 @@ def calculate(x: int) -> int:
           ).toBeTrue();
         }
       } finally {
-        Config.override("nanofuzz.fuzzer.coverageScope", "project");
+        Config.override("nanofuzz.fuzzer.coverageScope", "project static");
         try {
           fs.rmSync(tmpDir, {
             recursive: true,
@@ -996,6 +996,53 @@ def x(val: int) -> int:
 
       await runner.onRunEnd();
     } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("skips static coverage at init when 'static' is NOT in coverageScope", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-nostatic-py-")
+    );
+    const pyPath = path.join(tmpDir, "no_static_test.py");
+    const pyCode = `z = 1
+z += 1
+
+def x(val: int) -> int:
+    return 1
+`;
+    fs.writeFileSync(pyPath, pyCode);
+    const realPyPath = fs.realpathSync(pyPath);
+
+    const program = ProgramFactory.fromSource(
+      () => pyCode,
+      "python",
+      realPyPath
+    );
+    const fnDef = program.functionsExported["x"];
+    const env = createFuzzEnv(fnDef);
+
+    Config.override("nanofuzz.fuzzer.coverageScope", "project");
+
+    try {
+      const runner = new PythonRunner(realPyPath, "x", env, 2000);
+      await runner.onRunStart();
+
+      // Initial coverage at startup is empty when static is not in coverageScope
+      expect(runner.coverageInfo).toEqual({});
+
+      await runner.onRunEnd();
+    } finally {
+      Config.override("nanofuzz.fuzzer.coverageScope", "project static");
       try {
         fs.rmSync(tmpDir, {
           recursive: true,
