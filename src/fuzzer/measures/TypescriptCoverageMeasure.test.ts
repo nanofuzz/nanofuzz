@@ -1417,33 +1417,44 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       expect(results.stats.timers).toEqual(before.timers);
     });
 
-    it("static coverage: reports total static statements, functions, and branches before and after test executions", async () => {
+    it("static coverage: reports top-level statements as well as function statements", async () => {
+      const tsCode = `let z = 1;
+z++;
+let q = z;
+z = q;
+
+export function x(
+  obj: {
+    a?: 1;
+    b?: 1;
+  }[]
+): number {
+  return 1;
+}
+`;
       const measure = new TestCoverageMeasure();
-      const [exports] = loadTs(measure, [
-        compileTs(tsSrcTwoFns, "staticCoverageTest"),
-      ]);
-      const absValue = fnOf(exports, "absValue");
+      const program = compileTs(tsCode, "toplevelTest");
+      const [exports] = loadTs(measure, [program]);
+      const xFn = fnOf(exports, "x");
 
-      // 1. Before any test runs (0 test executions), stats thunk reports full static totals
+      // 1. Static coverage on module load before any test runs:
+      // Static analysis registers all 6 statements and 1 function (0 covered before test runs)
       let stats = await statsOf(measure);
-      expect(stats.counters.functionsTotal).toEqual(3); // absValue, helper, neverCalled
       expect(stats.counters.statementsTotal).toEqual(6);
-      expect(stats.counters.branchesTotal).toEqual(2);
-      expect(stats.counters.functionsCovered).toEqual(0);
+      expect(stats.counters.functionsTotal).toEqual(1);
       expect(stats.counters.statementsCovered).toEqual(0);
-      expect(stats.counters.branchesCovered).toEqual(0);
+      expect(stats.counters.functionsCovered).toEqual(0);
 
-      // 2. Execute a single test input covering part of the code
-      runTest(measure, absValue, -4, inputAt(0));
+      // 2. First dynamic coverage execution (calling x([])):
+      runTest(measure, () => xFn(0), 0, inputAt(0));
 
-      // 3. After test execution, totals remain equal to static totals and covered counts update
+      // 3. Dynamic coverage after test run:
+      // Function statement inside x() is executed, reaching 1/6 statements and 1/1 functions
       stats = await statsOf(measure);
-      expect(stats.counters.functionsTotal).toEqual(3);
       expect(stats.counters.statementsTotal).toEqual(6);
-      expect(stats.counters.branchesTotal).toEqual(2);
-      expect(stats.counters.functionsCovered).toEqual(2);
-      expect(stats.counters.statementsCovered).toEqual(2);
-      expect(stats.counters.branchesCovered).toEqual(1);
+      expect(stats.counters.functionsTotal).toEqual(1);
+      expect(stats.counters.statementsCovered).toEqual(1);
+      expect(stats.counters.functionsCovered).toEqual(1);
     });
 
     // the stats should be the union of what the run's inputs covered

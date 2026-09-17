@@ -59,6 +59,12 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     // Reset per-run state so a re-run does not accumulate coverage from the
     // previous run.
     this._globalCoverageMap = createCoverageMap({});
+    if (this._coverageData.files().length > 0) {
+      AbstractCoverageMeasure.better_merge(
+        this._globalCoverageMap,
+        this._coverageData
+      );
+    }
     this._history.clear();
     this._lastNode = undefined;
   } // fn: onRunStart

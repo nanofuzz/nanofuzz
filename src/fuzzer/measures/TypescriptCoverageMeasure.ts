@@ -7,6 +7,7 @@ import {
   CoverageMapData,
   createCoverageMap,
   FileCoverage,
+  FileCoverageData,
 } from "istanbul-lib-coverage";
 import {
   VmGlobals,
@@ -44,27 +45,32 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     this._lastNode = undefined;
 
     const runnerList = Array.isArray(runners) ? runners : [runners];
-    const initialCov = runnerList[0]?.coverageInfo;
-    if (isCoverageMapData(initialCov)) {
-      this._coverageData = {};
-      for (const k of Object.keys(initialCov)) {
-        const normKey = normalizePathForKey(k);
-        this._coverageData[normKey] = {
-          ...structuredClone(initialCov[k]),
-          path: normKey,
-        };
-      }
-    } else {
-      this._coverageData = emptyCoverageMapData([]);
-    }
-
+    this._coverageData = {};
     runnerList.forEach((r) => {
+      const initialCov = r.coverageInfo;
+      if (isCoverageMapData(initialCov)) {
+        for (const k of Object.keys(initialCov)) {
+          const normKey = normalizePathForKey(k);
+          this._coverageData[normKey] = {
+            ...structuredClone(initialCov[k]),
+            path: normKey,
+          };
+        }
+      }
       r.onCoverage((covData) => {
         if (isRecordOfFileCoverageData(covData)) {
           this.recordHits(covData);
         }
       });
     });
+
+    if (Object.keys(this._coverageData).length > 0) {
+      AbstractCoverageMeasure.better_merge(
+        this._globalCoverageMap,
+        this._snapshot()
+      );
+      this._coverageData = this._snapshotZero();
+    }
   } // fn: onRunStart
 
   /**
@@ -78,8 +84,37 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     for (const fileKey of Object.keys(coverageData)) {
       const normKey = normalizePathForKey(fileKey);
       const fileHits = coverageData[fileKey];
-      const targetObj = this._coverageData[normKey];
+      let targetObj = this._coverageData[normKey];
+      if (!targetObj && fileHits) {
+        targetObj = {
+          path: normKey,
+          statementMap: fileHits.statementMap
+            ? { ...fileHits.statementMap }
+            : {},
+          fnMap: fileHits.fnMap ? { ...fileHits.fnMap } : {},
+          branchMap: fileHits.branchMap ? { ...fileHits.branchMap } : {},
+          s: {},
+          f: {},
+          b: {},
+        };
+        this._coverageData[normKey] = targetObj;
+      }
       if (targetObj && fileHits) {
+        if (
+          fileHits.statementMap &&
+          Object.keys(targetObj.statementMap).length === 0
+        ) {
+          targetObj.statementMap = { ...fileHits.statementMap };
+        }
+        if (fileHits.fnMap && Object.keys(targetObj.fnMap).length === 0) {
+          targetObj.fnMap = { ...fileHits.fnMap };
+        }
+        if (
+          fileHits.branchMap &&
+          Object.keys(targetObj.branchMap).length === 0
+        ) {
+          targetObj.branchMap = { ...fileHits.branchMap };
+        }
         if (fileHits.s && targetObj.s) {
           for (const sKey of Object.keys(fileHits.s)) {
             targetObj.s[sKey] =
@@ -150,6 +185,10 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
 
     const combinedSourceMap = instrumenter.lastSourceMap();
     this._sourceMapStore.registerMap(jsFileName, combinedSourceMap);
+    const normJsFileName = normalizePathForKey(jsFileName);
+    if (normJsFileName !== jsFileName) {
+      this._sourceMapStore.registerMap(normJsFileName, combinedSourceMap);
+    }
     try {
       fs.writeFileSync(
         jsFileName + ".map",
@@ -180,6 +219,7 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
       isCoverageMapData(context.global.__coverage__)
     ) {
       this._coverageData = context.global.__coverage__;
+      this._globalCoverageMap = createCoverageMap(this._snapshotZero());
     } else {
       throw new Error(
         "global.__coverage__ does not contain a valid CoverageMapData object"
@@ -347,8 +387,12 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
         // Register source maps from disk for any files in globalCoverageMap
         // that aren't already registered (e.g. from cached instrumented runs)
         for (const fileKey of this._globalCoverageMap.files()) {
-          const mapPath = fileKey + ".map";
-          if (fs.existsSync(mapPath)) {
+          const normKey = normalizePathForKey(fileKey);
+          const mapPaths = Array.from(
+            new Set([fileKey + ".map", normKey + ".map"])
+          );
+          const mapPath = mapPaths.find((p) => fs.existsSync(p));
+          if (mapPath) {
             try {
               const mapData = JSON.parse(fs.readFileSync(mapPath, "utf8"));
               if (mapData && Array.isArray(mapData.sources)) {
@@ -360,6 +404,9 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
                 );
               }
               this._sourceMapStore.registerMap(fileKey, mapData);
+              if (normKey !== fileKey) {
+                this._sourceMapStore.registerMap(normKey, mapData);
+              }
             } catch {
               // ignore
             }
@@ -455,6 +502,44 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   } // fn: _snapshot
 
   /**
+   * Returns a copy of the current coverage data with all counters zeroed.
+   *
+   * @returns a zeroed copy of the current coverage structure
+   */
+  protected _snapshotZero(): CoverageMapData {
+    const snapshot: CoverageMapData = {};
+    for (const path of Object.keys(this._coverageData)) {
+      const fileCoverage = this._coverageData[path];
+      const s: Record<string, number> = {};
+      if (fileCoverage.s) {
+        for (const sKey of Object.keys(fileCoverage.s)) {
+          s[sKey] = 0;
+        }
+      }
+      const f: Record<string, number> = {};
+      if (fileCoverage.f) {
+        for (const fKey of Object.keys(fileCoverage.f)) {
+          f[fKey] = 0;
+        }
+      }
+      const b: Record<string, number[]> = {};
+      if (fileCoverage.b) {
+        for (const bKey of Object.keys(fileCoverage.b)) {
+          const arr = fileCoverage.b[bKey];
+          b[bKey] = Array.isArray(arr) ? Array(arr.length).fill(0) : [];
+        }
+      }
+      snapshot[path] = {
+        ...fileCoverage,
+        s,
+        f,
+        b,
+      };
+    }
+    return snapshot;
+  } // fn: _snapshotZero
+
+  /**
    * Returns a numeric value that is the sum of branches, statements, and
    * functions covered. This is useful when comparing two aggregate coverage
    * measures to detect increases in code coverage.
@@ -548,9 +633,3 @@ function isRecordOfFileCoverageData(
 ): val is Record<string, FileCoverageData> {
   return typeof val === "object" && val !== null;
 } // fn: isRecordOfFileCoverageData
-
-export type FileCoverageData = {
-  s?: Record<string, number>;
-  f?: Record<string, number>;
-  b?: Record<string, number[]>;
-};

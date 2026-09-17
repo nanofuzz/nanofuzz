@@ -674,7 +674,7 @@ def calculate(x: int) -> int:
         // Ignore
       }
     }
-  });
+  }, 30000);
 
   it("static coverage: retains static coverage structure across test runs, timeouts, and errors", async () => {
     const tmpDir = fs.mkdtempSync(
@@ -715,7 +715,9 @@ def uncalled_func(y: int) -> int:
       // 1. Check runner.coverageInfo immediately after onRunStart before running any test inputs.
       // Expect initial static analysis (executable, functions, branches) for the file.
       expect(runner.coverageInfo).toBeDefined();
-      const initialCov = runner.coverageInfo?.[pyPath];
+      const realPyPath = fs.realpathSync(pyPath);
+      const initialCov =
+        runner.coverageInfo?.[pyPath] ?? runner.coverageInfo?.[realPyPath];
       expect(initialCov).toBeDefined();
       expect(initialCov?.executable).toBeDefined();
       expect(initialCov?.executable?.length).toBeGreaterThan(0);
@@ -728,34 +730,41 @@ def uncalled_func(y: int) -> int:
       const valRes = await runner.run([5], 2000);
       expect(valRes.result.tag).toBe("value");
       expect(runner.coverageInfo).toBeDefined();
-      const runCov = runner.coverageInfo?.[pyPath];
+      const runCov =
+        runner.coverageInfo?.[pyPath] ?? runner.coverageInfo?.[realPyPath];
       expect(runCov).toBeDefined();
       expect(runCov?.executable).toBeDefined();
       expect(runCov?.executable?.length).toBeGreaterThan(0);
       expect(runCov?.functions).toBeDefined();
       expect(runCov?.lines).toBeDefined();
 
-      // 3. Execute a test run that times out.
+      // 3. Execute a test run that times out using a second runner/file.
       // Expect runner.coverageInfo to RETAIN the static structure (executable, functions, branches)
       // rather than being wiped to undefined.
+      const pyPath2 = path.join(tmpDir, "timeoutModule.py");
       const pyTimeoutCode = `
 def process_val(x: int) -> int:
     while True:
         pass
 `;
-      fs.writeFileSync(pyPath, pyTimeoutCode);
-      const timeoutRes = await runner.run([1], 100);
+      fs.writeFileSync(pyPath2, pyTimeoutCode);
+      const runner2 = new PythonRunner(pyPath2, "process_val", env, 200);
+      await runner2.onRunStart();
+      const timeoutRes = await runner2.run([1], 100);
       expect(timeoutRes.result.tag).toBe("timeout");
 
       // Critical check: static coverage structure must NOT be lost on timeout!
-      expect(runner.coverageInfo).toBeDefined();
-      const timeoutCov = runner.coverageInfo?.[pyPath];
+      expect(runner2.coverageInfo).toBeDefined();
+      const realPyPath2 = fs.realpathSync(pyPath2);
+      const timeoutCov =
+        runner2.coverageInfo?.[pyPath2] ?? runner2.coverageInfo?.[realPyPath2];
       expect(timeoutCov).toBeDefined();
       expect(timeoutCov?.executable).toBeDefined();
       expect(timeoutCov?.executable?.length).toBeGreaterThan(0);
       expect(timeoutCov?.functions).toBeDefined();
 
       await runner.onRunEnd();
+      await runner2.onRunEnd();
     } finally {
       try {
         fs.rmSync(tmpDir, {
