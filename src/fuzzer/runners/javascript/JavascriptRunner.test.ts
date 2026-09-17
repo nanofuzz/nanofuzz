@@ -322,4 +322,57 @@ module.exports = { slowAdd };
       }
     }
   }, 10000);
-});
+  it("resolves node_modules dependencies from the original project directory", async () => {
+    const projectDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-project-")
+    );
+    const nodeModulesDir = path.join(projectDir, "node_modules", "custom_dep");
+    fs.mkdirSync(nodeModulesDir, { recursive: true });
+
+    // Mock a package inside node_modules
+    fs.writeFileSync(
+      path.join(nodeModulesDir, "package.json"),
+      JSON.stringify({ name: "custom_dep", main: "index.js" })
+    );
+    fs.writeFileSync(
+      path.join(nodeModulesDir, "index.js"),
+      "module.exports = { value: 42 };"
+    );
+
+    // Target module that requires the package
+    const jsPath = path.join(projectDir, "target.js");
+    fs.writeFileSync(
+      jsPath,
+      `
+const dep = require('custom_dep');
+function getVal() {
+  return dep.value;
+}
+module.exports = { getVal };
+`
+    );
+
+    try {
+      const runner = new JavascriptRunner(jsPath, "getVal");
+      await runner.onRunStart();
+
+      const res = await runner.run([], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(42);
+      }
+    } finally {
+      try {
+        fs.rmSync(projectDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });});

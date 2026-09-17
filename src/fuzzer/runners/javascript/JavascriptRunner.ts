@@ -24,6 +24,7 @@ import * as fs from "node:fs";
  */
 export class JavascriptRunner extends AbstractRunner {
   protected _filename: string;
+  protected _originalFilename: string;
   protected _jsFn: string;
   protected _env: FuzzEnv | undefined;
   protected _host: NodeHost | undefined = undefined;
@@ -50,6 +51,7 @@ export class JavascriptRunner extends AbstractRunner {
     this._env = env;
 
     let targetPath = getModuleFilename(module, env);
+    this._originalFilename = targetPath;
 
     if (targetPath) {
       const compiler = CompilerFactory.fromSourcefile(targetPath);
@@ -249,7 +251,10 @@ export class JavascriptRunner extends AbstractRunner {
 
     const env = {
       ...process.env,
-      NODE_PATH: JavascriptRunner.getNodePath(this._filename, projectRoot),
+      NODE_PATH: JavascriptRunner.getNodePath(
+        this._originalFilename || this._filename,
+        projectRoot
+      ),
     };
 
     const args = [runnerHost, this._filename, this._jsFn];
