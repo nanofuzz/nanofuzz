@@ -66,6 +66,47 @@ export class AiInputGenerator extends AbstractInputGenerator {
   } // fn: nextable
 
   /**
+   * Returns diagnostic messages when the generator is unable to produce inputs
+   * or encounters configuration/execution errors.
+   */
+  public override getDiagnostics(): string[] {
+    if (!LlmAdapter.isConfigured()) {
+      return [];
+    }
+    const diagnostics: string[] = [];
+    if (LlmAdapter.isConfigured()) {
+      const cfg = LlmAdapter.getConfig();
+      if (!cfg.apiKey) {
+        diagnostics.push(
+          `No API key was provided for ${cfg.provider} model ${cfg.modelName}.`
+        );
+      }
+      const failures = this._stats.calls.history.filter(
+        (h): h is { failure: true; message: string } =>
+          "failure" in h && h.failure === true
+      );
+      if (failures.length > 0) {
+        const uniqueErrors = Array.from(
+          new Set(failures.map((f) => f.message))
+        );
+        uniqueErrors.forEach((errMsg) => {
+          diagnostics.push(errMsg);
+        });
+      }
+      if (this._stats.calls.sent > 0 && this._stats.inputs.gen === 0) {
+        if (this._stats.inputs.invalid + this._stats.inputs.invalidLater > 0) {
+          diagnostics.push(
+            `All ${this._stats.inputs.invalid + this._stats.inputs.invalidLater} inputs returned by the model were invalid.`
+          );
+        } else {
+          diagnostics.push(`The model did not produce any valid inputs.`);
+        }
+      }
+    }
+    return diagnostics;
+  } // fn: getDiagnostics
+
+  /**
    * Manage the life-cycle of the ProgramModel and clear
    * any now-invalid items out of the input cache at the
    * start of each run.

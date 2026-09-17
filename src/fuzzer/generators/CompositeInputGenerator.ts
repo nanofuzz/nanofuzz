@@ -510,4 +510,30 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       };
     }
   } // fn: onRunEnd
+
+  /**
+   * Returns diagnostic messages from composite input generator and active subgens.
+   */
+  public override getDiagnostics(): string[] {
+    const diagnostics: string[] = [];
+
+    // Warn if all subgens are inactive
+    const hasActiveSubgens = this._activeSubgens.some((active) => active);
+    if (!hasActiveSubgens) {
+      return ["All input generators were disabled by user options."];
+    }
+
+    // Return diagnostics from active subgens
+    this._subgens.forEach((subgen, i) => {
+      if (this._activeSubgens[i]) {
+        diagnostics.push(
+          ...subgen
+            .getDiagnostics()
+            .map((m) => `[${subgen.name.replace("InputGenerator", "")}] ${m}`)
+        );
+      }
+    });
+
+    return diagnostics;
+  } // fn: getDiagnostics
 } // class: CompositeInputGenerator

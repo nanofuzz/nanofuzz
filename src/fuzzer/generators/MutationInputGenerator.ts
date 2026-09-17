@@ -40,6 +40,20 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   } // fn: nextable
 
   /**
+   * Returns diagnostic messages when the generator is unable to produce inputs
+   * due to an empty leaderboard.
+   */
+  public override getDiagnostics(): string[] {
+    const diagnostics: string[] = [];
+    if (this._leaderboard.length === 0) {
+      diagnostics.push(
+        "No interesting inputs found for me to mutate. Are the other input generators disabled?"
+      );
+    }
+    return diagnostics;
+  } // fn: getDiagnostics
+
+  /**
    * Returns the next input using a mutation strategy.
    *
    * @returns mutated input

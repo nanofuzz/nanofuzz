@@ -624,6 +624,19 @@ export class Tester {
           channel: "update",
           pct: 100,
         });
+        const diagnostics = this._compositeInputGenerator.getDiagnostics();
+        if (diagnostics.length) {
+          update({
+            msg: ` - Input generator warnings:`,
+            channel: "summary",
+          });
+          this._compositeInputGenerator.getDiagnostics().forEach((diag) => {
+            update({
+              msg: `   - ${diag}`,
+              channel: "summary",
+            });
+          });
+        }
         update({
           msg: ` - Executed ${
             runStats.counters.passedTests +

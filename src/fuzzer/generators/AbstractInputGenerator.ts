@@ -83,4 +83,12 @@ export abstract class AbstractInputGenerator {
   public async onRunEnd(_results?: FuzzTestResults): Promise<void> {
     return;
   } // fn: onRunEnd
+
+  /**
+   * Returns diagnostic messages when the generator is unable to produce inputs
+   * or encounters configuration/execution errors.
+   */
+  public getDiagnostics(): string[] {
+    return [];
+  } // fn: getDiagnostics
 }
