@@ -37,7 +37,6 @@ async function main() {
   const initialFnName = process.argv[3];
 
   const loadedModules: Record<string, unknown> = {};
-  const globalPaths = getGlobalPaths();
 
   const getTargetFunction = (
     filenameToLoad: string,
@@ -213,12 +212,9 @@ function setup() {
   setupNodePath();
 
   // Activate Node.js compile cache if available (Node 22+)
-  const modInternal = moduleApi as unknown as {
-    enableCompileCache?: () => void;
-    globalPaths?: string[];
-  };
-  if (typeof modInternal.enableCompileCache === "function") {
-    modInternal.enableCompileCache();
+  const enableCache = Reflect.get(moduleApi, "enableCompileCache");
+  if (typeof enableCache === "function") {
+    enableCache();
   }
 
   // Redirect all console output away from stdout so IPC stdout is 100% clean
