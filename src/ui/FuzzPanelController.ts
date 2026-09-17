@@ -2181,9 +2181,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                     Generate inputs:
                   </p>
                   <div class="fuzzInputControlGroup">
-                    <vscode-checkbox disabled id="fuzz-gen-RandomInputGenerator-enabled" checked>
+                    <vscode-checkbox ${disabledFlag} id="fuzz-gen-RandomInputGenerator-enabled" ${this._fuzzEnv.options.generators.RandomInputGenerator.enabled ? "checked" : ""}>
                       <span> 
-                        Randomly (always enabled)
+                        Randomly
                       </span>
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-MutationInputGenerator-enabled" ${this._fuzzEnv.options.generators.MutationInputGenerator.enabled ? "checked" : ""}>
@@ -2193,7 +2193,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-AiInputGenerator-enabled" ${this._fuzzEnv.options.generators.AiInputGenerator.enabled ? "checked" : ""}>
                       <span> 
-                        With an LLM (<span class="editorFont" id="llm-model">...</span>)
+                        With AI (<span class="editorFont" id="llm-model">...</span>)
                         <vscode-link id="open.settings.ai">change</vscode-link>
                       </span>
                     </vscode-checkbox>
@@ -2433,22 +2433,17 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               <p>No property validators were found, so the property validator column is blank.</p>
             </div>`;
 
-      const { count: sequentialFailures, message: latestFailureMessage } =
-        this._results && this._results.stats.generators.AiInputGenerator.gen
-          ? getSequentialFailures(
-              this._results.stats.generators.AiInputGenerator.gen.calls.history
-            )
-          : { count: 0 };
-      html += /*html*/ `
-            <div class="fuzzWarnings${
-              this._state === FuzzPanelState.done &&
-              this._fuzzEnv.options.generators.AiInputGenerator.enabled &&
-              sequentialFailures
-                ? ""
-                : " hidden"
-            }">
-              <p>The last ${sequentialFailures === 1 ? `` : `${sequentialFailures}`} LLM response${sequentialFailures === 1 ? "" : "s"} failed: <span class="editorFont">${latestFailureMessage ?? "n/a"}</span></p>
+      const generatorDiagnostics =
+        this._state === FuzzPanelState.done && this._tester
+          ? this._tester.getInputGeneratorDiagnostics()
+          : [];
+
+      for (const diag of generatorDiagnostics) {
+        html += /*html*/ `
+            <div class="fuzzWarnings">
+              <p><span class="editorFont">${diag}</span></p>
             </div>`;
+      }
 
       html += /*html*/ `
             <!-- Fuzzer Info -->
@@ -2613,6 +2608,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               aiGenStats.gen.calls.valid -
               aiGenStats.gen.calls.invalid -
               aiGenStats.gen.calls.failed;
+
+            const { count: sequentialFailures, message: latestFailureMessage } =
+              getSequentialFailures(aiGenStats.gen.calls.history);
 
             // Call details
             aiGeneratorText.push(
@@ -4126,6 +4124,15 @@ function toPrettyList(inList: string[]): string {
 /**
  * Returns the number of sequential failues with the same message from
  * an AiInputGenerator call history.
+ *
+ * @param `history` from InputGeneratorStatsAi.calls.history
+ * @returns {
+ *  `count`: number of most-recent sequential failures
+ *  `message`: error messge for those sequential failures (if count > 0)
+ * }
+ */
+/**
+ * Helper function that counts the number of most-recent sequential failures in the LLM call history.
  *
  * @param `history` from InputGeneratorStatsAi.calls.history
  * @returns {

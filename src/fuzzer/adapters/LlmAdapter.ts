@@ -60,7 +60,7 @@ export class LlmAdapter {
   public constructor() {
     LlmAdapter._handleDebug();
 
-    const cfg = LlmAdapter._getConfig();
+    const cfg = LlmAdapter.getConfig();
     this._cfgString = JSONN.stringify(cfg);
 
     if (!LlmAdapter.isConfigured()) {
@@ -120,7 +120,7 @@ export class LlmAdapter {
    * @returns a new nodellm.Chat instance
    */
   protected _createChat(): nodellm.Chat {
-    const cfg = LlmAdapter._getConfig();
+    const cfg = LlmAdapter.getConfig();
     return this._backend.chat(cfg.modelName, {
       systemPrompt: prompt.system(),
     });
@@ -132,7 +132,7 @@ export class LlmAdapter {
    * @returns `true` if the LLM config has changed since instantiation
    */
   public isStale(): boolean {
-    return JSONN.stringify(LlmAdapter._getConfig()) !== this._cfgString;
+    return JSONN.stringify(LlmAdapter.getConfig()) !== this._cfgString;
   } // fn: isStale
 
   /**
@@ -141,7 +141,7 @@ export class LlmAdapter {
    * @returns a string indicating the configured provider and model id
    */
   public get id(): string | undefined {
-    return `v=${this._backend.provider?.id},n=${LlmAdapter._getConfig().modelName}`;
+    return `v=${this._backend.provider?.id},n=${LlmAdapter.getConfig().modelName}`;
   } // getter: id
 
   public get cacheStats(): LlmCacheStats {
@@ -223,8 +223,8 @@ export class LlmAdapter {
   ): Promise<LlmQueryResult> {
     LlmAdapter._handleDebug();
 
-    const provider = LlmAdapter._getConfig().provider;
-    const modelName = LlmAdapter._getConfig().modelName;
+    const provider = LlmAdapter.getConfig().provider;
+    const modelName = LlmAdapter.getConfig().modelName;
     const schemaJson = schema
       ? JSON.stringify(zod.toJSONSchema(schema))
       : undefined;
@@ -307,7 +307,7 @@ export class LlmAdapter {
    * @returns `true` if the LLM is configured to be active, `false` otherwise
    */
   public static isConfigured(): boolean {
-    const cfg = LlmAdapter._getConfig();
+    const cfg = LlmAdapter.getConfig();
     return cfg.provider !== "disabled" && cfg.modelName !== "";
   } // fn: isConfigured
 
@@ -316,7 +316,7 @@ export class LlmAdapter {
    *
    * @returns provider, modelName, and apiKey
    */
-  protected static _getConfig(): {
+  public static getConfig(): {
     provider: string;
     modelName: string;
     apiKey: string;
@@ -336,7 +336,7 @@ export class LlmAdapter {
         ".nanofuzz-llm-cache.json"
       ),
     };
-  } // fn: _getConfig
+  } // fn: getConfig
 
   /**
    * Returns a vscode extension configuration element

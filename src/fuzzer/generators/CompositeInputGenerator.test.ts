@@ -4,6 +4,7 @@ import { FuzzStopReason, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import { ArgDef } from "../analysis/ArgDef";
 import { FuzzOptions, InputAndSource } from "../Types";
+import { NextableStatus } from "./Types";
 import * as Config from "../../Config";
 
 describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
@@ -162,7 +163,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       cig.onRunStart(true);
 
       // Generating inputs triggers _selectNextSubGen
-      expect(cig.nextable()).toBeTrue();
+      expect(cig.nextable()).toBeTruthy();
       const input1 = cig.next();
       expect(input1).toBeDefined();
 
@@ -410,25 +411,292 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       // Run 1: compositeExplorationChance = 1.0 (fastpath active)
       Config.override("nanofuzz.generators.compositeExplorationChance", 1.0);
       cig.onRunStart(true);
-      expect(cig.nextable()).toBeTrue();
+      expect(cig.nextable()).toBeTruthy();
       const inputRun1 = cig.next();
       expect(inputRun1).toBeDefined();
 
       // Run 2: compositeExplorationChance = 0.1 (productivity calculation active)
       Config.override("nanofuzz.generators.compositeExplorationChance", 0.1);
       cig.onRunStart(true);
-      expect(cig.nextable()).toBeTrue();
+      expect(cig.nextable()).toBeTruthy();
       const inputRun2 = cig.next();
       expect(inputRun2).toBeDefined();
 
       // Run 3: compositeExplorationChance = 1.0 again (fastpath active again)
       Config.override("nanofuzz.generators.compositeExplorationChance", 1.0);
       cig.onRunStart(true);
-      expect(cig.nextable()).toBeTrue();
+      expect(cig.nextable()).toBeTruthy();
       const inputRun3 = cig.next();
       expect(inputRun3).toBeDefined();
     } finally {
       Config.override("nanofuzz.generators.compositeExplorationChance", 0.1);
     }
+  });
+
+  it("nextable: 'now' when an input is immediately available", () => {
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const options = {
+      RandomInputGenerator: { enabled: true },
+      MutationInputGenerator: { enabled: false },
+      AiInputGenerator: { enabled: false },
+    };
+
+    const cig = new CompositeInputGenerator(
+      options,
+      fnDef,
+      "seed",
+      [],
+      new Leaderboard<InputAndSource>(),
+      genStats,
+      new Map(),
+      program.src
+    );
+
+    cig.onRunStart(true);
+    // Tri-state expectation: 'now' (or truthy 'now')
+    expect(cig.nextable()).toBe("now");
+  });
+
+  it("nextable: 'soon' when no input is ready now, but async input generation is pending", () => {
+    class SoonCompositeInputGenerator extends CompositeInputGenerator {
+      public setSubgenSoon(index: number): void {
+        this._subgens[index].nextable = () => "soon";
+      }
+    }
+
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    // Disable Random and Mutation; Enable AI
+    const options = {
+      RandomInputGenerator: { enabled: false },
+      MutationInputGenerator: { enabled: false },
+      AiInputGenerator: { enabled: true },
+    };
+
+    const cig = new SoonCompositeInputGenerator(
+      options,
+      fnDef,
+      "seed",
+      [],
+      new Leaderboard<InputAndSource>(),
+      genStats,
+      new Map(),
+      program.src
+    );
+
+    cig.onRunStart(true);
+    cig.setSubgenSoon(2); // Set AI generator (index 2) to 'soon'
+    expect(cig.nextable()).toBe("soon");
+  });
+
+  it("nextable: `false` when all active subgens are exhausted or disabled", () => {
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    // All subgens disabled
+    const options = {
+      RandomInputGenerator: { enabled: false },
+      MutationInputGenerator: { enabled: false },
+      AiInputGenerator: { enabled: false },
+    };
+
+    const cig = new CompositeInputGenerator(
+      options,
+      fnDef,
+      "seed",
+      [],
+      new Leaderboard<InputAndSource>(),
+      genStats,
+      new Map(),
+      program.src
+    );
+
+    cig.onRunStart(true);
+    expect(cig.nextable()).toBe(false);
+  });
+
+  it("nextable: waits asynch while status is 'soon'", async () => {
+    class SoonCompositeInputGenerator extends CompositeInputGenerator {
+      public setSubgenSoonThenNow(index: number): void {
+        let status: NextableStatus = "soon";
+        this._subgens[index].nextable = () => status;
+        this._subgens[index].nextSoon = async () => {
+          status = "now";
+          return {
+            tick: 1,
+            value: [],
+            source: {
+              type: "generator",
+              generator: "AiInputGenerator",
+              model: "test",
+            },
+          };
+        };
+      }
+    }
+
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const options = {
+      RandomInputGenerator: { enabled: false },
+      MutationInputGenerator: { enabled: false },
+      AiInputGenerator: { enabled: true },
+    };
+
+    const cig = new SoonCompositeInputGenerator(
+      options,
+      fnDef,
+      "seed",
+      [],
+      new Leaderboard<InputAndSource>(),
+      genStats,
+      new Map(),
+      program.src
+    );
+
+    cig.onRunStart(true);
+    cig.setSubgenSoonThenNow(2);
+
+    const result = await cig.waitForNextInput();
+    expect(result).toBeTrue();
+  });
+
+  it("waitForNextInput: respects timeoutMs on 'soon'", async () => {
+    class NeverReadyCompositeInputGenerator extends CompositeInputGenerator {
+      public setSubgenNeverReady(index: number): void {
+        this._subgens[index].nextable = () => "soon";
+        this._subgens[index].nextSoon = async () => {
+          await new Promise((r) => setTimeout(r, 5000));
+          return {
+            tick: 1,
+            value: [],
+            source: {
+              type: "generator",
+              generator: "AiInputGenerator",
+              model: "test",
+            },
+          };
+        };
+      }
+    }
+
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const options = {
+      RandomInputGenerator: { enabled: false },
+      MutationInputGenerator: { enabled: false },
+      AiInputGenerator: { enabled: true },
+    };
+
+    const cig = new NeverReadyCompositeInputGenerator(
+      options,
+      fnDef,
+      "seed",
+      [],
+      new Leaderboard<InputAndSource>(),
+      genStats,
+      new Map(),
+      program.src
+    );
+
+    cig.onRunStart(true);
+    cig.setSubgenNeverReady(2);
+
+    const start = performance.now();
+    const result = await cig.waitForNextInput(100);
+    const elapsed = performance.now() - start;
+
+    expect(result).toBeFalse();
+    expect(elapsed).toBeLessThan(1000);
   });
 });

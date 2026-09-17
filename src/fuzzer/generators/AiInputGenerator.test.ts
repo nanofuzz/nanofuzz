@@ -3,7 +3,7 @@ import { makeArgDef } from "../analysis/TestUtils";
 import { ArgDef } from "../analysis/ArgDef";
 import { ArgTag } from "../analysis/Types";
 import { FunctionDef } from "../analysis/FunctionDef";
-import { prompt } from "../adapters/LlmAdapter";
+import { LlmAdapter, prompt } from "../adapters/LlmAdapter";
 
 describe("src/fuzzer/generators/AiInputGenerator: ", () => {
   it("dimsUnique schema directives", () => {
@@ -171,5 +171,210 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     expect(promptText).toContain("spec with \\`\\`\\` triple backticks");
     expect(promptText).toContain("function testFn() { /* \\`\\`\\` */ }");
     expect(promptText).toContain("// module code\n/* \\`\\`\\` */");
+  });
+
+  it("nextable: 'soon' when LLM call pending and queue is empty", () => {
+    class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public setCallsPending(val: number): void {
+        this._callsPending = val;
+      }
+      public clearInputQueue(): void {
+        this._inputQueue = [];
+      }
+      public populateInputQueue(): void {
+        this._inputQueue = [
+          {
+            tick: 1,
+            value: [{ value: 42, tag: "ArgValueTypeWrapped" }],
+            source: {
+              type: "generator",
+              generator: "AiInputGenerator",
+              model: "test",
+            },
+          },
+        ];
+      }
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new TestableAiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    // Simulate an in-flight call
+    gen.setCallsPending(1);
+    gen.clearInputQueue();
+
+    expect(gen.nextable()).toBe("soon");
+  });
+
+  it("nextable: 'soon'-->`false` on in-flight error", () => {
+    class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public setCallsPending(val: number): void {
+        this._callsPending = val;
+      }
+      public clearInputQueue(): void {
+        this._inputQueue = [];
+      }
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new TestableAiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    // In-flight call
+    gen.setCallsPending(1);
+    gen.clearInputQueue();
+    expect(gen.nextable()).toBe("soon");
+
+    // Request completes with failure: callsPending--, queue remains empty
+    gen.setCallsPending(0);
+    expect(gen.nextable()).toBe(false);
+  });
+
+  it("nextable: triggers _getMoreInputs when queue is empty and LLM is configured", () => {
+    class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public getCallsPending(): number {
+        return this._callsPending;
+      }
+      public setCallsPending(val: number): void {
+        this._callsPending = val;
+      }
+      public initLlm(): void {
+        this._llm = Object.create(LlmAdapter.prototype);
+      }
+      public disableLlm(): void {
+        this._llm = undefined;
+      }
+      protected override _getMoreInputs(): void {
+        this._callsPending = 1;
+      }
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new TestableAiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    // Unconfigured LLM returns false
+    expect(gen.nextable()).toBe(false);
+
+    // Configured LLM triggers _getMoreInputs and returns 'soon'
+    gen.initLlm();
+    expect(gen.nextable()).toBe("soon");
+    expect(gen.getCallsPending()).toBe(1);
+
+    // Disabled LLM returns false
+    gen.disableLlm();
+    gen.setCallsPending(0);
+    expect(gen.nextable()).toBe(false);
+  });
+
+  it("nextable: 'now' when queue is non-empty", () => {
+    class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public populateInputQueue(): void {
+        this._inputQueue = [
+          {
+            tick: 1,
+            value: [{ value: 42, tag: "ArgValueTypeWrapped" }],
+            source: {
+              type: "generator",
+              generator: "AiInputGenerator",
+              model: "test",
+            },
+          },
+        ];
+      }
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new TestableAiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    gen.populateInputQueue();
+
+    expect(gen.nextable()).toBe("now");
+  });
+
+  it("nextable: `false` when unconfigured and no inputs available", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new AiInputGenerator.AiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    gen.onRunStart(false); // Unconfigured / inactive
+    expect<unknown>(gen.nextable()).toBe(false);
   });
 });
