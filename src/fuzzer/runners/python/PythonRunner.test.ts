@@ -29,6 +29,18 @@ function getTmpDir(prefix: string): string {
   return tmpDir;
 }
 
+function getRealPath(p: string): string {
+  let real = fs.realpathSync(p);
+  if (process.platform === "win32") {
+    const colonIdx = real.indexOf(":");
+    if (colonIdx > 0) {
+      real =
+        real.substring(0, colonIdx).toUpperCase() + real.substring(colonIdx);
+    }
+  }
+  return real;
+}
+
 describe("fuzzer/runners/PythonRunner", () => {
   beforeAll(async () => {
     await Parser.init();
@@ -734,7 +746,7 @@ def uncalled_func(y: int) -> int:
       // 1. Check runner.coverageInfo immediately after onRunStart before running any test inputs.
       // Expect initial static analysis (executable, functions, branches) for the file.
       expect(runner.coverageInfo).toBeDefined();
-      const realPyPath = fs.realpathSync(pyPath);
+      const realPyPath = getRealPath(pyPath);
       const initialCov =
         runner.coverageInfo?.[pyPath] ?? runner.coverageInfo?.[realPyPath];
       expect(initialCov).toBeDefined();
@@ -774,7 +786,7 @@ def process_val(x: int) -> int:
 
       // Critical check: static coverage structure must NOT be lost on timeout!
       expect(runner2.coverageInfo).toBeDefined();
-      const realPyPath2 = fs.realpathSync(pyPath2);
+      const realPyPath2 = getRealPath(pyPath2);
       const timeoutCov =
         runner2.coverageInfo?.[pyPath2] ?? runner2.coverageInfo?.[realPyPath2];
       expect(timeoutCov).toBeDefined();
@@ -810,7 +822,7 @@ def x(val: int) -> int:
     return 1
 `;
     fs.writeFileSync(pyPath, pyCode);
-    const realPyPath = fs.realpathSync(pyPath);
+    const realPyPath = getRealPath(pyPath);
 
     const program = ProgramFactory.fromSource(
       () => pyCode,
@@ -1028,7 +1040,7 @@ def x(val: int) -> int:
     return 1
 `;
     fs.writeFileSync(pyPath, pyCode);
-    const realPyPath = fs.realpathSync(pyPath);
+    const realPyPath = getRealPath(pyPath);
 
     const program = ProgramFactory.fromSource(
       () => pyCode,
