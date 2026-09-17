@@ -264,7 +264,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
             })
           );
 
-          if (this._inputQueue.length === 0) {
+          if (this._inputQueue.length === 0 && !inputs.error) {
             this._exhausted = true;
           }
         })
