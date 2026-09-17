@@ -253,6 +253,63 @@ export class PythonRunner extends AbstractRunner {
         pythonEnv.libs;
     }
 
+    // Build PYTHONPATH entries for resolving user project packages and nanofuzz_runtime
+    const pyPaths: string[] = [];
+
+    // Target file's ancestor directories
+    let currPyDir = path.resolve(path.dirname(filename));
+    while (currPyDir) {
+      pyPaths.push(currPyDir);
+      const parent = path.dirname(currPyDir);
+      if (parent === currPyDir) break;
+      currPyDir = parent;
+    }
+
+    // Open workspace folders
+    try {
+      const workspaceFolders = vscode.workspace?.workspaceFolders ?? [];
+      for (const folder of workspaceFolders) {
+        let wsDir = path.resolve(folder.uri.fsPath);
+        while (wsDir) {
+          pyPaths.push(wsDir);
+          const parent = path.dirname(wsDir);
+          if (parent === wsDir) break;
+          wsDir = parent;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (pythonEnv.libs) {
+      pyPaths.push(pythonEnv.libs);
+    }
+
+    const currModuleDir = path.dirname(path.resolve(module.filename));
+    const projectRoot = findInAncestor(currModuleDir, "package.json");
+    if (projectRoot) {
+      const extDir = path.dirname(projectRoot);
+      pyPaths.push(path.join(extDir, "build", "extension"));
+      pyPaths.push(
+        path.join(extDir, "packages", "runtime", "python", "src")
+      );
+    }
+
+    if (pythonEnv.env.PYTHONPATH) {
+      pyPaths.push(
+        ...pythonEnv.env.PYTHONPATH.split(
+          process.platform === "win32" ? ";" : ":"
+        )
+      );
+    }
+
+    const uniquePyPaths = Array.from(
+      new Set(pyPaths.filter((p) => p && fs.existsSync(p)))
+    );
+    pythonEnv.env.PYTHONPATH = uniquePyPaths.join(
+      process.platform === "win32" ? ";" : ":"
+    );
+
     // Use a virtual environment if specified & found
     const searchGlobs = Config.get<string[]>(
       "python-envs.workspaceSearchPaths",
