@@ -322,6 +322,7 @@ module.exports = { slowAdd };
       }
     }
   }, 10000);
+
   it("resolves node_modules dependencies from the original project directory", async () => {
     const projectDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "nanofuzz-project-")
@@ -375,4 +376,5 @@ module.exports = { getVal };
         // ignore
       }
     }
-  });});
+  });
+});
