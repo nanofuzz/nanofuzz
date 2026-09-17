@@ -21,7 +21,8 @@ _VENDOR_DIR = os.path.join(os.path.dirname(
     os.path.realpath(__file__)), "_nanofuzz_python")
 
 _sys_modules_before = set(sys.modules.keys())
-if os.path.exists(_VENDOR_DIR) and _VENDOR_DIR not in sys.path:
+
+if os.path.exists(_VENDOR_DIR):
     sys.path.insert(0, _VENDOR_DIR)
 
 try:
@@ -30,6 +31,10 @@ try:
 except ModuleNotFoundError as e:
     print(f"ERROR {e}")
     exit(3)
+finally:
+    # Remove _VENDOR_DIR from sys.path so PUT (Program Under Test) cannot import from it
+    sys.path = [p for p in sys.path if os.path.realpath(
+        p) != os.path.realpath(_VENDOR_DIR)]
 
 _NANOFUZZ_VENDOR_MODULE_NAMES = set(sys.modules.keys()) - _sys_modules_before
 
@@ -37,10 +42,6 @@ _nanofuzz_sys_modules = {
     name: sys.modules[name]
     for name in _NANOFUZZ_VENDOR_MODULE_NAMES
 }
-
-# Remove _VENDOR_DIR from sys.path so PUT cannot import from it
-sys.path = [p for p in sys.path if os.path.realpath(
-    p) != os.path.realpath(_VENDOR_DIR)]
 
 _put_sys_modules: dict[str, Any] = {}
 
@@ -235,8 +236,14 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
 
 def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
     rootDir = os.path.dirname(filename)
-    if rootDir not in sys.path:
-        sys.path.insert(0, rootDir)
+    curr = os.path.abspath(rootDir)
+    while curr:
+        if curr not in sys.path:
+            sys.path.insert(0, curr)
+        parent = os.path.dirname(curr)
+        if parent == curr:
+            break
+        curr = parent
 
     spec = importlib.util.spec_from_file_location(modulename, filename)
     if spec is None:

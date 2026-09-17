@@ -19,6 +19,15 @@ main().catch((err) => {
   process.exit(1);
 });
 
+function isStringArray(val: unknown): val is string[] {
+  return Array.isArray(val) && val.every((item) => typeof item === "string");
+}
+
+function getGlobalPaths(): string[] {
+  const paths = Reflect.get(moduleApi, "globalPaths");
+  return isStringArray(paths) ? paths : [];
+}
+
 /**
  * Main entry point for the JavascriptRunnerHost process.
  * This function reads RunnerInput messages from stdin, executes
@@ -42,6 +51,7 @@ async function main() {
     } catch {
       // ignore
     }
+    addOriginalNodeModulePaths(resolvedPath);
     if (!(resolvedPath in loadedModules) || !require.cache[resolvedPath]) {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       loadedModules[resolvedPath] = require(resolvedPath);
@@ -188,18 +198,31 @@ async function main() {
   }
 } // fn: main
 
+function setupNodePath() {
+  const globalPaths = getGlobalPaths();
+  const nodePath = process.env.NODE_PATH;
+  if (nodePath) {
+    const extraPaths = nodePath.split(path.delimiter).filter(Boolean);
+    for (const p of extraPaths) {
+      if (!globalPaths.includes(p)) {
+        globalPaths.push(p);
+      }
+    }
+  }
+}
+
 /**
  * Sets up the environment for the JavascriptRunnerHost process, including
  * redirecting console output to stderr and enabling Node.js compile cache,
  * if available.
  */
 function setup() {
+  setupNodePath();
+
   // Activate Node.js compile cache if available (Node 22+)
-  if (
-    "enableCompileCache" in moduleApi &&
-    typeof moduleApi.enableCompileCache === "function"
-  ) {
-    moduleApi.enableCompileCache();
+  const enableCache = Reflect.get(moduleApi, "enableCompileCache");
+  if (typeof enableCache === "function") {
+    enableCache();
   }
 
   // Redirect all console output away from stdout so IPC stdout is 100% clean
@@ -562,6 +585,60 @@ function extractDynamicCoverage(
 
   return result;
 } // fn: extractDynamicCoverage
+
+/**
+ * Adds original project node_modules search paths to moduleApi.globalPaths
+ * so dependencies (e.g. json5) installed in the target project workspace
+ * can be resolved even when code is executed from a temp instrumentation directory.
+ */
+function addOriginalNodeModulePaths(filename: string): void {
+  if (!filename) return;
+
+  let realPath = path.resolve(filename);
+
+  // Strip nanofuzz temp directory prefix if present
+  // Matches e.g. .../inst-<hash>/Users/... or .../tsc/<id>/Users/...
+  const match = realPath.match(/(?:inst-[a-f0-9]+|tsc[/\\]\d+)[/\\](.+)$/i);
+  if (match && match[1]) {
+    let candidate = match[1];
+    if (!path.isAbsolute(candidate)) {
+      if (process.platform === "win32" && candidate.match(/^[a-z][/\\]/i)) {
+        candidate = candidate.charAt(0) + ":" + candidate.substring(1);
+      } else {
+        candidate = "/" + candidate;
+      }
+    }
+    realPath = candidate;
+  }
+
+  const origDir = path.dirname(realPath);
+  const nodePaths = getNodeModulePaths(origDir);
+  const globalPaths = getGlobalPaths();
+
+  for (const p of nodePaths) {
+    if (!globalPaths.includes(p)) {
+      globalPaths.push(p);
+    }
+    if (!module.paths.includes(p)) {
+      module.paths.push(p);
+    }
+  }
+} // fn: addOriginalNodeModulePaths
+
+/**
+ * Returns node_modules directory paths from a starting directory up to root.
+ */
+function getNodeModulePaths(dir: string): string[] {
+  const paths: string[] = [];
+  let curr = path.resolve(dir);
+  while (true) {
+    paths.push(path.join(curr, "node_modules"));
+    const parent = path.dirname(curr);
+    if (parent === curr) break;
+    curr = parent;
+  }
+  return paths;
+}
 
 function isNumberArray(val: unknown[]): val is number[] {
   return val.every((x) => typeof x === "number");
