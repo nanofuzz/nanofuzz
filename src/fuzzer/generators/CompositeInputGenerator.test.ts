@@ -632,4 +632,71 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     const result = await cig.waitForNextInput();
     expect(result).toBeTrue();
   });
+
+  it("waitForNextInput: respects timeoutMs on 'soon'", async () => {
+    class NeverReadyCompositeInputGenerator extends CompositeInputGenerator {
+      public setSubgenNeverReady(index: number): void {
+        this._subgens[index].nextable = () => "soon";
+        this._subgens[index].nextSoon = async () => {
+          await new Promise((r) => setTimeout(r, 5000));
+          return {
+            tick: 1,
+            value: [],
+            source: {
+              type: "generator",
+              generator: "AiInputGenerator",
+              model: "test",
+            },
+          };
+        };
+      }
+    }
+
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const options = {
+      RandomInputGenerator: { enabled: false },
+      MutationInputGenerator: { enabled: false },
+      AiInputGenerator: { enabled: true },
+    };
+
+    const cig = new NeverReadyCompositeInputGenerator(
+      options,
+      fnDef,
+      "seed",
+      [],
+      new Leaderboard<InputAndSource>(),
+      genStats,
+      new Map(),
+      program.src
+    );
+
+    cig.onRunStart(true);
+    cig.setSubgenNeverReady(2);
+
+    const start = performance.now();
+    const result = await cig.waitForNextInput(100);
+    const elapsed = performance.now() - start;
+
+    expect(result).toBeFalse();
+    expect(elapsed).toBeLessThan(1000);
+  });
 });

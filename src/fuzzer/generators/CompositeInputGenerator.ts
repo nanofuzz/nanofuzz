@@ -158,17 +158,46 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
   /**
    * Waits asynchronously until at least one input becomes available,
-   * or until all pending generators finish or fail.
+   * or until all pending generators finish or fail, or until `timeoutMs` elapses.
+   *
+   * @param `timeoutMs` optional max time to wait in ms
    */
-  public async waitForNextInput(): Promise<boolean> {
+  public async waitForNextInput(timeoutMs?: number): Promise<boolean> {
+    const startTime = performance.now();
     while (this.nextable() === "soon") {
+      if (timeoutMs !== undefined && timeoutMs > 0) {
+        const elapsed = performance.now() - startTime;
+        if (elapsed >= timeoutMs) {
+          break;
+        }
+      }
       const pendingSubgens = this._subgens.filter(
         (g, i) => this._activeSubgens[i] && g.nextable() === "soon"
       );
       if (pendingSubgens.length > 0) {
-        await Promise.race(
-          pendingSubgens.map((g) => g.nextSoon().catch(() => {}))
+        const remaining =
+          timeoutMs !== undefined && timeoutMs > 0
+            ? Math.max(0, timeoutMs - (performance.now() - startTime))
+            : undefined;
+
+        if (remaining !== undefined && remaining <= 0) {
+          break;
+        }
+
+        const promises: Promise<unknown>[] = pendingSubgens.map((g) =>
+          g.nextSoon().catch(() => {})
         );
+
+        if (remaining !== undefined) {
+          let timerId: NodeJS.Timeout;
+          const timeoutPromise = new Promise<void>((resolve) => {
+            timerId = setTimeout(resolve, remaining);
+          });
+          await Promise.race([...promises, timeoutPromise]);
+          clearTimeout(timerId!);
+        } else {
+          await Promise.race(promises);
+        }
       } else {
         break;
       }

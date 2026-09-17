@@ -759,13 +759,25 @@ export class Tester {
 
       // Generate and store the inputs
       const startGenTime = performance.now(); // start time: input generation
+      if (!stillInjecting && runStats.timers.startGenTime === 0) {
+        runStats.timers.startGenTime = startGenTime;
+      }
+
       if (this._compositeInputGenerator.nextable() === "soon") {
+        const remainingTimeout =
+          this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
+            ? Math.max(
+                0,
+                this._options.suiteTimeout -
+                  (performance.now() - runStats.timers.startGenTime)
+              )
+            : undefined;
         update({
           msg: "Waiting for input generation...",
           channel: "update",
           pct: typeof stopCondition === "number" ? stopCondition : 0,
         });
-        await this._compositeInputGenerator.waitForNextInput();
+        await this._compositeInputGenerator.waitForNextInput(remainingTimeout);
       }
 
       if (
