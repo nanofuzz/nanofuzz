@@ -16,6 +16,19 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
+function getTmpDir(prefix: string): string {
+  let tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  if (process.platform === "win32") {
+    const colonIdx = tmpDir.indexOf(":");
+    if (colonIdx > 0) {
+      tmpDir =
+        tmpDir.substring(0, colonIdx).toUpperCase() +
+        tmpDir.substring(colonIdx);
+    }
+  }
+  return tmpDir;
+}
+
 describe("fuzzer/runners/PythonRunner", () => {
   beforeAll(async () => {
     await Parser.init();
@@ -50,7 +63,7 @@ describe("fuzzer/runners/PythonRunner", () => {
   });
 
   it("handles binary bytes inputs and outputs", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "binary_test.py");
     const pyCode = `
 def process_bytes(data: bytes) -> bytes:
@@ -99,7 +112,7 @@ def process_bytes(data: bytes) -> bytes:
   });
 
   it("nested UUID inputs and outputs", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "uuid_test.py");
     const pyCode = `import uuid
 
@@ -171,7 +184,7 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
   });
 
   it("set & frozenset inputs and outputs", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "set_test.py");
     const pyCode = `from typing import FrozenSet
 
@@ -241,7 +254,7 @@ def process_sets(s_data: set[int], f_data: FrozenSet[str]):
   });
 
   it("handles tuple arguments, dict with numeric keys, and non-string dict return keys", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "tuple_dict_test.py");
     const pyCode = `
 def process_data(t: tuple[int, str], d: dict[int, str]):
@@ -299,7 +312,7 @@ def process_data(t: tuple[int, str], d: dict[int, str]):
   });
 
   it("handles NaN and Infinity float numbers passed as strings", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "float_test.py");
     const pyCode = `import math
 
@@ -362,7 +375,7 @@ def process_floats(nan_val: float, inf_val: float):
   });
 
   it("skips coverage collection when coverage is disabled", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "nocov_test.py");
     const pyCode = `
 def add_one(x: int) -> int:
@@ -399,7 +412,7 @@ def add_one(x: int) -> int:
   });
 
   it("timeouts with partial coverage", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "timeout_test.py");
     const pyCode = `
 def loop_timeout(n: int) -> int:
@@ -453,7 +466,7 @@ def loop_timeout(n: int) -> int:
   });
 
   it("heartbeat: keep long-running startups alive", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-runner-"));
+    const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "slow_import_hb.py");
     const pyCode = `import time
 time.sleep(1.5)
@@ -536,9 +549,7 @@ def slow_fn(x: int) -> int:
 
     const pkgs = ["msgpack", "pytest"];
     for (const pkg of pkgs) {
-      const tmpDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "nanofuzz-covscope-")
-      );
+      const tmpDir = getTmpDir("nanofuzz-covscope-");
       const helperPath = path.join(tmpDir, "local_helper.py");
       const pyPath = path.join(tmpDir, "cov_scope_test.py");
 
@@ -651,9 +662,7 @@ def calculate(x: int) -> int:
   }, 30000);
 
   it("fails invalid coverageScope", async () => {
-    const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nanofuzz-covscope-invalid-")
-    );
+    const tmpDir = getTmpDir("nanofuzz-covscope-invalid-");
     const pyPath = path.join(tmpDir, "dummy.py");
     fs.writeFileSync(pyPath, "def fn(): pass\n");
 
@@ -689,9 +698,7 @@ def calculate(x: int) -> int:
   }, 30000);
 
   it("static coverage: retains static coverage structure across test runs, timeouts, and errors", async () => {
-    const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nanofuzz-static-py-")
-    );
+    const tmpDir = getTmpDir("nanofuzz-static-py-");
     const pyPath = path.join(tmpDir, "static_test.py");
     const pyCode = `
 def process_val(x: int) -> int:
@@ -792,9 +799,7 @@ def process_val(x: int) -> int:
   });
 
   it("static and dynamic coverage for top-level snippet", async () => {
-    const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nanofuzz-usersnippet-py-")
-    );
+    const tmpDir = getTmpDir("nanofuzz-usersnippet-py-");
     const pyPath = path.join(tmpDir, "user_snippet.py");
     const pyCode = `z = 1
 z += 1
@@ -1014,9 +1019,7 @@ def x(val: int) -> int:
   });
 
   it("skips static coverage at init when 'static' is NOT in coverageScope", async () => {
-    const tmpDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nanofuzz-nostatic-py-")
-    );
+    const tmpDir = getTmpDir("nanofuzz-nostatic-py-");
     const pyPath = path.join(tmpDir, "no_static_test.py");
     const pyCode = `z = 1
 z += 1
@@ -1047,7 +1050,10 @@ def x(val: int) -> int:
       // 2. Dynamic coverage is still collected during test execution
       const res = await runner.run([0], 2000);
       expect(res.result.tag).toBe("value");
-      expect(runner.coverageInfo?.[realPyPath]?.lines).toEqual([5]);
+      expect(
+        runner.coverageInfo?.[realPyPath]?.lines ??
+          runner.coverageInfo?.[pyPath]?.lines
+      ).toEqual([5]);
 
       await runner.onRunEnd();
     } finally {
