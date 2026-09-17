@@ -787,7 +787,7 @@ def process_val(x: int) -> int:
     }
   });
 
-  it("static and dynamic coverage for user snippet with top-level statements and function x in Python", async () => {
+  it("static and dynamic coverage for top-level snippet", async () => {
     const tmpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "nanofuzz-usersnippet-py-")
     );

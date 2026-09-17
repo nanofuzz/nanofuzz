@@ -415,7 +415,7 @@ module.exports = { absVal, deadCode };
     }
   });
 
-  it("static and dynamic coverage for user snippet with top-level statements and function x", async () => {
+  it("static and dynamic coverage for top-level snippet", async () => {
     const tmpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "nanofuzz-usersnippet-js-")
     );
