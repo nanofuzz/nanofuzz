@@ -23,6 +23,7 @@ import {
   getErrorMessageOrJson,
   normalizePathForKey,
 } from "../fuzzer/Util";
+import { parseCoverageScope } from "../fuzzer/measures/Util";
 import {
   removeTickFromOrigin,
   encodeEscapeSequences,
@@ -2694,6 +2695,21 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
           // Build code coverage information
           const fmtPct = (n: number, d: number) =>
             d === 0 ? "na%" : ((n * 100) / d).toFixed(0).toString() + "%";
+          const coverageScopeRaw = Config.get<unknown>(
+            "nanofuzz.fuzzer.coverageScope",
+            "project static"
+          );
+          const scopeConfig = parseCoverageScope(coverageScopeRaw);
+          const scopeItems = ["dynamic executions"];
+          if (scopeConfig.collectStaticCoverage) {
+            scopeItems.push("static loads");
+          }
+          if (scopeConfig.target.includes("directimports")) {
+            scopeItems.push("direct imports");
+          }
+          const scopeText = `The scope of coverage instrumentation included ${toPrettyList(
+            scopeItems
+          )}.`;
           const coverageText =
             this._coverageStats === undefined
               ? ""
@@ -2720,7 +2736,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                   this._coverageStats.counters.branchesTotal
                 )}) in the ${this._coverageStats.files.length} source file${
                   this._coverageStats.files.length === 1 ? "" : "s"
-                } executed.`;
+                } executed. ${scopeText}`;
 
           // Build the list of validators used/not used
           const validatorsUsed: string[] = [];
