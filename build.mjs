@@ -198,7 +198,12 @@ await esbuild.build({
   format: "cjs",
   sourcemap: "both",
   tsconfig: "./tsconfig.json",
-  external: ["path", "fs", "typescript"],
+  external: ["path", "fs", "crypto", "typescript"],
+  plugins: [
+    swapModulePlugin({
+      vscode: "./spec/helpers/vscode.stub.js",
+    }),
+  ],
   define: {
     "process.env.BUILD_TARGET": JSON.stringify("vscode-exthost-worker"),
     "process.env.NANOFUZZ_VERSION": version,
