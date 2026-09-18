@@ -11,6 +11,37 @@ import { isBufferOrUint8Array, makeCanonicalSet } from "../../Util";
  */
 export class ArgDefMutator {
   /**
+   * Convenience method to mutate a set of values once.
+   *
+   * Note: Throws an exception if no mutations are possible.
+   *
+   * @param `specs` ArgDefs that describe the values to mutate
+   * @param `values` Values to mutate
+   * @param `prng` random number generator
+   * @returns array of mutated inputs
+   */
+  public static mutate(
+    specs: ArgDef<ArgTag>[],
+    values: ArgValueTypeWrapped[],
+    prng: seedrandom.prng
+  ): ArgValueTypeWrapped[] {
+    const valuesClone = structuredClone(values);
+
+    // Calculate possible mutations for the values
+    const mutators = ArgDefMutator.getMutators(specs, valuesClone, prng);
+
+    if (mutators.length === 0) {
+      throw new Error(
+        `Unable to mutate values: ${JSONN.stringify(valuesClone, null, 2)}`
+      );
+    }
+
+    // Mutate and return the value
+    mutators[Math.floor(prng() * mutators.length)].fn();
+    return valuesClone;
+  } // fn: mutate
+
+  /**
    * Returns a list of mutator functions for the provided value and
    * ArgDef spec. To mutate the value, call one of the returned
    * mutator functions.
@@ -20,8 +51,8 @@ export class ArgDefMutator {
    * mutator function will raise an exception.
    *
    * @param `specs` ArgDef that describes the value to mutate
-   * @param `value`` Value to mutate
-   * @param `prng`` random number generator
+   * @param `values` Value to mutate
+   * @param `prng` random number generator
    * @returns array of mutator functions
    */
   public static getMutators(

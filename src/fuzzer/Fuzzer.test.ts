@@ -41,7 +41,7 @@ describe("fuzzer: general", () => {
     }
   });
 
-  it("CIG: NOMOREINPUTS if no rnd ig & no other ig provides inputs", async () => {
+  it("CIG: nomoreinputs if no ig can provide inputs", async () => {
     const options = {
       ...intOptions,
       maxTests: 100,

@@ -1,6 +1,6 @@
-import { Judgment } from "./Types";
+import { Judgment, NamedJudgment } from "./Types";
 import { Result } from "../Types";
-import { isError } from "../Util";
+import { isError } from "../../Util";
 import { AbstractRunner } from "../runners/AbstractRunner";
 
 export class PropertyOracle {
@@ -96,15 +96,28 @@ export class PropertyOracle {
    * @param `judgments` array of individual property-based judgments
    * @returns summarized judgment
    */
-  public static summarize(judgments: Judgment[]): Judgment {
-    let summary: Judgment = "unknown";
+  public static summarize(
+    judgments: (Judgment | NamedJudgment | Error)[]
+  ): Judgment {
+    let hasPass = false;
     for (const j of judgments) {
-      if (summary === "unknown" && j === "pass") {
-        summary = "pass";
-      } else if (j === "fail") {
+      if (isError(j)) {
+        continue;
+      }
+      const val = typeof j === "string" ? j : j.judgment;
+      if (val === "pass") {
+        hasPass = true;
+      } else if (val === "fail") {
         return "fail";
       }
     }
-    return summary;
+    return hasPass ? "pass" : "unknown";
   } // fn: summarize
-}
+
+  /**
+   * Getter for default unknown judgment
+   */
+  public static get unknown(): Judgment {
+    return "unknown";
+  } // property: get unknown
+} // class: PropertyOracle

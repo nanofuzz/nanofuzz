@@ -826,6 +826,7 @@ def x(val: int) -> int:
 
       if (res.result.tag === "value") {
         const testResult: FuzzTestResult = {
+          testId: 0,
           pinned: false,
           inputGenerated: {
             tick: 0,
@@ -874,6 +875,7 @@ def x(val: int) -> int:
       };
 
       const resultsStub: FuzzTestResults = {
+        runId: "run-0",
         toolVersion: "0.0.0",
         env,
         stopReason: FuzzStopReason.MAXTESTS,
@@ -944,6 +946,7 @@ def x(val: int) -> int:
               },
             },
             {
+              testId: tick,
               pinned: false,
               inputGenerated: {
                 tick,

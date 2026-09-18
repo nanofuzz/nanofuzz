@@ -29,6 +29,13 @@ export class ImplicitOracle {
         : "pass";
     }
   } // fn: judge
+
+  /**
+   * Getter for default unknown judgment
+   */
+  public static get unknown(): Judgment {
+    return "unknown";
+  }
 } // class: ImplicitOracle
 
 /**

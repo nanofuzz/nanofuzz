@@ -73,6 +73,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     };
 
     const mockResults: FuzzTestResults = {
+      runId: "test-run-id",
       toolVersion: "test",
       env: {
         options: mockFuzzOptions,
@@ -187,6 +188,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       };
 
       const mockResults: FuzzTestResults = {
+        runId: "test-run-id",
         toolVersion: "test",
         env: {
           options: mockFuzzOptions,
@@ -318,6 +320,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       };
 
       const mockResults: FuzzTestResults = {
+        runId: "test-run-id",
         toolVersion: "test",
         env: {
           options: mockFuzzOptions,

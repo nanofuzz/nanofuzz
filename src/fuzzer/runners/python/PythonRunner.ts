@@ -286,9 +286,7 @@ export class PythonRunner extends AbstractRunner {
     if (projectRoot) {
       const extDir = path.dirname(projectRoot);
       pyPaths.push(path.join(extDir, "build", "extension"));
-      pyPaths.push(
-        path.join(extDir, "packages", "runtime", "python", "src")
-      );
+      pyPaths.push(path.join(extDir, "packages", "runtime", "python", "src"));
     }
 
     if (pythonEnv.env.PYTHONPATH) {

@@ -3,12 +3,12 @@ import {
   ArgValueType,
   ArgValueTypeWrapped,
 } from "./analysis/Types";
-import { Judgment as _Judgment } from "./oracles/Types";
 
 /**
  * Single Fuzzer Test Result
  */
 export type FuzzTestResult = {
+  testId: number; // id of test (unique within a runId)
   pinned: boolean; // true if the test was pinned (not randomly generated)
   inputGenerated: InputAndSource; // Raw generated input
   input: FuzzIoElement[]; // function input (may be transformed from inputGenerated)
@@ -44,10 +44,37 @@ export type FuzzTestResult = {
  */
 export type Result = {
   in: ArgValueType[]; // function input
-  out: unknown; // function output
+  out: ArgValueType; // function output
   exception: boolean; // true if an exception was thrown
   timeout: boolean; // true if the fn call timed out
 };
+
+/**
+ * Simplified wrapped single test result for serialization
+ */
+export type ResultWrapped = {
+  inWrapped: ArgValueTypeWrapped[]; // function input
+  outWrapped: ArgValueTypeWrapped; // function output
+  exception: boolean; // true if an exception was thrown
+  timeout: boolean; // true if the fn call timed out
+};
+
+export function wrapResult(r: Result): ResultWrapped {
+  return {
+    inWrapped: r.in.map((i) => ({ tag: "ArgValueTypeWrapped", value: i })),
+    outWrapped: { tag: "ArgValueTypeWrapped", value: r.out },
+    exception: r.exception,
+    timeout: r.timeout,
+  };
+}
+export function unwrapResult(r: ResultWrapped): Result {
+  return {
+    in: r.inWrapped.map((i) => i.value),
+    out: r.outWrapped.value,
+    exception: r.exception,
+    timeout: r.timeout,
+  };
+}
 
 /**
  * Fuzzer Tests - intended to be persisted a fuzzer configuration and
@@ -103,7 +130,7 @@ export type InputAndSource = {
  */
 export type FuzzValueOrigin =
   | {
-      type: "user" | "put" | "unknown";
+      type: "user" | "put" | "mutator" | "unknown";
     }
   | {
       type: "generator";
@@ -334,4 +361,4 @@ export class UnsatisfiedAssumption extends Error {
   }
 }
 
-export type Judgment = _Judgment;
+export type Judgment = "pass" | "fail" | "unknown";

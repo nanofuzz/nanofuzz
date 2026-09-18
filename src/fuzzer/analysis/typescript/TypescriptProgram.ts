@@ -32,7 +32,7 @@ import {
   TypeAnnotationOptionDefaults,
   ProgramLanguage,
 } from "../Types";
-import { getErrorMessageOrJson } from "../../Util";
+import { getErrorMessageOrJson } from "../../../Util";
 import { AbstractProgram } from "../AbstractProgram";
 import * as ProgramFactory from "../ProgramFactory";
 import { ArgDef } from "../ArgDef";
@@ -1678,7 +1678,7 @@ export class TypescriptProgram extends AbstractProgram {
           thisPath.node.leadingComments
             .filter((c) => c.type === "CommentBlock")
             .map((c) => `/*${c.value}*/`)
-            .join("/n") || undefined
+            .join("\n") || undefined
         );
       } else {
         thisPath = thisPath.parentPath;
