@@ -16,31 +16,6 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-function getTmpDir(prefix: string): string {
-  let tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  if (process.platform === "win32") {
-    const colonIdx = tmpDir.indexOf(":");
-    if (colonIdx > 0) {
-      tmpDir =
-        tmpDir.substring(0, colonIdx).toUpperCase() +
-        tmpDir.substring(colonIdx);
-    }
-  }
-  return tmpDir;
-}
-
-function getRealPath(p: string): string {
-  let real = fs.realpathSync(p);
-  if (process.platform === "win32") {
-    const colonIdx = real.indexOf(":");
-    if (colonIdx > 0) {
-      real =
-        real.substring(0, colonIdx).toUpperCase() + real.substring(colonIdx);
-    }
-  }
-  return real;
-}
-
 describe("fuzzer/runners/PythonRunner", () => {
   beforeAll(async () => {
     await Parser.init();
@@ -749,11 +724,6 @@ def uncalled_func(y: int) -> int:
       const realPyPath = getRealPath(pyPath);
       const initialCov =
         runner.coverageInfo?.[pyPath] ?? runner.coverageInfo?.[realPyPath];
-      console.log(`pyPath: ${pyPath}, realPyPath: ${realPyPath}`); // !!!!!!!!!!
-      console.log(`initialCov: ${JSON.stringify(initialCov, null, 2)}`); // !!!!!!!!!!
-      console.log(
-        `runner.coverageInfo: ${JSON.stringify(runner.coverageInfo, null, 2)}`
-      ); // !!!!!!!!!!
       expect(initialCov).toBeDefined();
       expect(initialCov?.executable).toBeDefined();
       expect(initialCov?.executable?.length).toBeGreaterThan(0);
@@ -1125,3 +1095,22 @@ function createFuzzEnv(
     transformers: [],
   };
 } // fn: createFuzzEnv
+
+function getRealPath(p: string): string {
+  let real = fs.realpathSync.native
+    ? fs.realpathSync.native(p)
+    : fs.realpathSync(p);
+  if (process.platform === "win32") {
+    const colonIdx = real.indexOf(":");
+    if (colonIdx > 0) {
+      real =
+        real.substring(0, colonIdx).toUpperCase() + real.substring(colonIdx);
+    }
+  }
+  return real;
+}
+
+function getTmpDir(prefix: string): string {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return getRealPath(tmpDir);
+}
