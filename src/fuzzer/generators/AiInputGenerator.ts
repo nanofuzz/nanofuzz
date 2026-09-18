@@ -93,10 +93,14 @@ export class AiInputGenerator extends AbstractInputGenerator {
           diagnostics.push(errMsg);
         });
       }
-      if (this._stats.calls.sent > 0 && this._stats.inputs.gen === 0) {
-        if (this._stats.inputs.invalid + this._stats.inputs.invalidLater > 0) {
+      const totalInvalid =
+        this._stats.inputs.invalid + this._stats.inputs.invalidLater;
+      const totalValidQueued = this._stats.inputs.gen - totalInvalid;
+
+      if (this._stats.calls.sent > 0 && totalValidQueued === 0) {
+        if (totalInvalid > 0) {
           diagnostics.push(
-            `All ${this._stats.inputs.invalid + this._stats.inputs.invalidLater} inputs returned by the model were invalid.`
+            `All ${totalInvalid} inputs returned by the model were invalid.`
           );
         } else if (this._stats.calls.valid > 0) {
           diagnostics.push(`The model did not produce any valid inputs.`);
