@@ -108,7 +108,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
           this._stats.calls.failed === 0 &&
           this._stats.calls.valid === 0
         ) {
-          diagnostics.push(`Testing finished before the model could respond.`);
+          diagnostics.push(`Testing finished before the model responded.`);
         }
       }
     }
