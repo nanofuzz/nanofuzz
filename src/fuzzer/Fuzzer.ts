@@ -90,6 +90,12 @@ export class Tester {
     }
     const fnList = this._program.functionsExported;
     if (!(this._fnName in fnList)) {
+      if (this._fnName in this._program.functionsNotSupported) {
+        const reason = this._program.functionsNotSupported[this._fnName].reason;
+        throw new Error(
+          `Function ${this._fnName} in ${this._module} is not supported for reason: ${reason}`
+        );
+      }
       throw new Error(
         `Could not find exported function ${this._fnName} in: ${this._module}`
       );
@@ -132,7 +138,8 @@ export class Tester {
       this._measures, // active measures
       this._leaderboard, // leaderboard
       this._results.stats.generators, // generator stats
-      this._allInputs // running list of dupe-checked inputs
+      this._allInputs, // running list of dupe-checked inputs
+      this._program.src // enclosing module source code
     );
 
     // Start a background compilation if precompile mode is active
@@ -579,7 +586,7 @@ export class Tester {
       // End the testing run when we encounter a stop condition
       const stopCondition = _checkStopCondition(
         this._options,
-        this._compositeInputGenerator.nextable(),
+        this._compositeInputGenerator.nextable() !== false,
         stillInjecting,
         injectTests.length,
         !!cancelFn && cancelFn(),
@@ -635,6 +642,19 @@ export class Tester {
           channel: "update",
           pct: 100,
         });
+        const diagnostics = this._compositeInputGenerator.getDiagnostics();
+        if (diagnostics.length) {
+          update({
+            msg: ` - Input generator warnings:`,
+            channel: "summary",
+          });
+          this._compositeInputGenerator.getDiagnostics().forEach((diag) => {
+            update({
+              msg: `   - ${diag}`,
+              channel: "summary",
+            });
+          });
+        }
         update({
           msg: ` - Executed ${
             runStats.counters.passedTests +
@@ -758,6 +778,34 @@ export class Tester {
 
       // Generate and store the inputs
       const startGenTime = performance.now(); // start time: input generation
+      if (!stillInjecting && runStats.timers.startGenTime === 0) {
+        runStats.timers.startGenTime = startGenTime;
+      }
+
+      if (this._compositeInputGenerator.nextable() === "soon") {
+        const remainingTimeout =
+          this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
+            ? Math.max(
+                0,
+                this._options.suiteTimeout -
+                  (performance.now() - runStats.timers.startGenTime)
+              )
+            : undefined;
+        update({
+          msg: "Waiting for input generation...",
+          channel: "update",
+          pct: typeof stopCondition === "number" ? stopCondition : 0,
+        });
+        await this._compositeInputGenerator.waitForNextInput(remainingTimeout);
+      }
+
+      if (
+        this._compositeInputGenerator.nextable() !== "now" &&
+        !stillInjecting
+      ) {
+        continue;
+      }
+
       result.inputGenerated = this._compositeInputGenerator.next();
       result.timers.gen = performance.now() - startGenTime; // total time: input generation
 
@@ -1122,6 +1170,13 @@ export class Tester {
       yield undefined;
     } // for: Main test loop
   } // fn: _run
+
+  /**
+   * Returns diagnostic messages from the composite input generator.
+   */
+  public getInputGeneratorDiagnostics(): string[] {
+    return this._compositeInputGenerator.getDiagnostics();
+  }
 } // class: Tester
 
 /**

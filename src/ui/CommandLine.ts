@@ -7,6 +7,7 @@ import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { FuzzOptions } from "../fuzzer/Types";
+import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
@@ -32,294 +33,325 @@ const USER_CANCELLED = 2;
 const ERROR_INTERNAL = 3;
 const ERROR_USAGE = 4;
 
-Commander.program
-  .name("nanofuzz")
-  .version(`NaNofuzz ${process.env.NANOFUZZ_VERSION}`)
-  .argument(`<filename>`, `The Python or Typescript module to test`)
-  .argument(`<function>`, `The entrypoint function to test`)
+function createProgram(): Commander.Command {
+  const program = new Commander.Command();
+  program
+    .name("nanofuzz")
+    .version(`NaNofuzz ${process.env.NANOFUZZ_VERSION}`)
+    .argument(`<filename>`, `The Python or Typescript module to test`)
+    .argument(`<function>`, `The entrypoint function to test`)
 
-  // -------------------------- Fuzzer Run Parameters -------------------------- //
+    // -------------------------- Fuzzer Run Parameters -------------------------- //
 
-  .option(
-    `--output-file <filename>`,
-    `Path and filename to output file for test results (in JSONN format)`
-  )
-  .option(
-    `--max-runtime <integer>`,
-    `Maximum time in ms NaNofuzz may run (0=no limit)`,
-    parseIntArgGeZero,
-    3000
-  )
-  .option(
-    `--max-tests <integer>`,
-    `Maximum number of tests NaNofuzz may run`,
-    parseIntArgGeZero,
-    1000
-  )
-  .option(
-    `--max-dupe-inputs <integer>`,
-    `Maximum number of sequential duplicate inputs`,
-    parseIntArgGeZero,
-    1000
-  )
-  .option(
-    `--max-failures <integer>`,
-    `Maximum number of test failures (0=no limit)`,
-    parseIntArgGeZero,
-    0
-  )
-  .option(
-    `--fn-timeout <integer>`,
-    `Maximum time in ms allowed for a tested function to run`,
-    parseIntArgGeZero,
-    200
-  )
-  .option(
-    `--host-startup-timeout <integer>`,
-    `Maximum time in ms allowed for test runner host startup`,
-    parseIntArgGeOne,
-    10000
-  )
-  .option(`--seed <string>`, `Seed for pseudo-random number generator`, "")
+    .option(
+      `--output-file <filename>`,
+      `Path and filename to output file for test results (in JSONN format)`
+    )
+    .option(
+      `--max-runtime <integer>`,
+      `Maximum time in ms NaNofuzz may run (0=no limit)`,
+      parseIntArgGeZero,
+      3000
+    )
+    .option(
+      `--max-tests <integer>`,
+      `Maximum number of tests NaNofuzz may run`,
+      parseIntArgGeZero,
+      1000
+    )
+    .option(
+      `--max-dupe-inputs <integer>`,
+      `Maximum number of sequential duplicate inputs`,
+      parseIntArgGeZero,
+      1000
+    )
+    .option(
+      `--max-failures <integer>`,
+      `Maximum number of test failures (0=no limit)`,
+      parseIntArgGeZero,
+      0
+    )
+    .option(
+      `--fn-timeout <integer>`,
+      `Maximum time in ms allowed for a tested function to run`,
+      parseIntArgGeZero,
+      200
+    )
+    .option(
+      `--host-startup-timeout <integer>`,
+      `Maximum time in ms allowed for test runner host startup`,
+      parseIntArgGeOne,
+      10000
+    )
+    .option(`--seed <string>`, `Seed for pseudo-random number generator`)
 
-  // ------------------------------- Transformers ------------------------------ //
+    // ------------------------------- Transformers ------------------------------ //
 
-  .option(`--no-transformer`, `Disable input transformers`)
+    .option(`--no-transformer`, `Disable input transformers`)
 
-  // --------------------------------- Oracles --------------------------------- //
+    // --------------------------------- Oracles --------------------------------- //
 
-  .option(`--no-heuristic-oracle`, `Disable heuristic oracle`)
-  .option(`--no-property-oracle`, `Disable property oracle`)
-  .option(`--no-example-oracle`, `Disable example oracle`)
+    .option(`--no-heuristic-oracle`, `Disable heuristic oracle`)
+    .option(`--no-property-oracle`, `Disable property oracle`)
+    .option(`--no-example-oracle`, `Disable example oracle`)
 
-  // --------------------------------- Measures -------------------------------- //
+    // --------------------------------- Measures -------------------------------- //
 
-  .option(`--no-coverage-measure`, `Disable code coverage measure`)
-  .option(`--no-failed-test-measure`, `Disable failed test measure`)
+    .option(`--no-coverage-measure`, `Disable code coverage measure`)
+    .option(
+      `--coverage-scope <scope>`,
+      `Code coverage scope: 'project static' (default), 'project directimports static', etc.`,
+      parseCoverageScopeOption,
+      "project static"
+    )
+    .option(`--no-failed-test-measure`, `Disable failed test measure`)
 
-  // ----------------------------- Input Generators ---------------------------- //
+    // ----------------------------- Input Generators ---------------------------- //
 
-  .option(`--no-ai-input-generator`, `Disable AI input generator`)
-  .option(`--no-mutation-input-generator`, `Disable mutation input generator`)
+    .option(`--no-ai-input-generator`, `Disable AI input generator`)
+    .option(`--no-mutation-input-generator`, `Disable mutation input generator`)
+    .option(`--no-random-input-generator`, `Disable random input generator`)
 
-  .option(`--model-provider <string>`, `AI model provider`)
-  .option(`--model-name <string>`, `AI model name`)
-  .option(`--model-key <string>`, `AI model API key`)
-  .option(
-    `--ai-cache-mode <mode>`,
-    `LLM cache mode (passthrough, record, replay-record, replay-error, replay-passthrough)`,
-    parseAiCacheMode
-  )
-  .option(`--ai-cache-file <path>`, `Path to LLM cache file`)
+    .option(`--model-provider <string>`, `AI model provider`)
+    .option(`--model-name <string>`, `AI model name`)
+    .option(`--model-key <string>`, `AI model API key`)
+    .option(
+      `--ai-cache-mode <mode>`,
+      `LLM cache mode (passthrough, record, replay-record, replay-error, replay-passthrough)`,
+      parseAiCacheMode
+    )
+    .option(`--ai-cache-file <path>`, `Path to LLM cache file`)
 
-  // ------------------------ Composite Input Generator ------------------------ //
+    // ------------------------ Composite Input Generator ------------------------ //
 
-  .option(
-    `--cig-input-lookback <integer>`,
-    `Lookback window when choosing the next input generator`,
-    parseIntArgGeOne,
-    500
-  )
-  .option(
-    `--cig-input-chunk-size <integer>`,
-    `Inputs to generate before choosing the next input generator`,
-    parseIntArgGeOne,
-    20
-  )
-  .option(
-    `--cig-randomness <float>`,
-    `Chance of choosing the next input generator randomly`,
-    parseFloatArgZeroToOne,
-    0.1
-  )
-  .option(
-    `--cig-input-focus <integer>`,
-    `Extra focus for new interesting inputs`,
-    parseIntArgGeOne,
-    200
-  )
-  .option(
-    `--cig-input-focus-decay <integer>`,
-    `Focus decay as interesting inputs age`,
-    parseIntArgGeZero,
-    1
-  )
-  .option(
-    `--cig-stats-checkpoints`,
-    `Track composite generator subgen selection statistics`
-  )
+    .option(
+      `--cig-input-lookback <integer>`,
+      `Lookback window when choosing the next input generator`,
+      parseIntArgGeOne,
+      500
+    )
+    .option(
+      `--cig-input-chunk-size <integer>`,
+      `Inputs to generate before choosing the next input generator`,
+      parseIntArgGeOne,
+      20
+    )
+    .option(
+      `--cig-randomness <float>`,
+      `Chance of choosing the next input generator randomly`,
+      parseFloatArgZeroToOne,
+      0.1
+    )
+    .option(
+      `--cig-input-focus <integer>`,
+      `Extra focus for new interesting inputs`,
+      parseIntArgGeOne,
+      200
+    )
+    .option(
+      `--cig-input-focus-decay <integer>`,
+      `Focus decay as interesting inputs age`,
+      parseIntArgGeZero,
+      1
+    )
+    .option(
+      `--cig-stats-checkpoints`,
+      `Track composite generator subgen selection statistics`
+    )
 
-  // ------------------------------ System Cleanup ----------------------------- //
+    // ------------------------------ System Cleanup ----------------------------- //
 
-  .option(
-    `--debug [scope]`,
-    `Enable debug logging (scopes: * (default), runners, ai)`
-  )
-  .option(
-    `--clear-compile-cache`,
-    `Force clearing the compile cache prior to testing`
+    .option(
+      `--debug [scope]`,
+      `Enable debug logging (scopes: * (default), runners, ai)`
+    )
+    .option(
+      `--clear-compile-cache`,
+      `Force clearing the compile cache prior to testing`
+    );
+
+  return program;
+}
+
+export async function runCliInProcess(
+  args: string[] = process.argv.slice(2)
+): Promise<number> {
+  const program = createProgram();
+
+  program.exitOverride((_err: Commander.CommanderError) => {
+    throw _err;
+  });
+
+  try {
+    program.parse(args, { from: "user" });
+  } catch (_e: unknown) {
+    return ERROR_USAGE; // command line usage error
+  }
+
+  console.info(`NaNofuzz v${process.env.NANOFUZZ_VERSION}`);
+
+  if (program.args.length < 2) {
+    console.error("Error: missing required arguments <filename> <function>");
+    return ERROR_USAGE;
+  }
+
+  // Resolve the filename
+  const filenameIn: string = program.args[0];
+  let filename: string;
+  try {
+    filename = require.resolve(filenameIn);
+  } catch (_e: unknown) {
+    if (fs.existsSync(path.resolve(filenameIn))) {
+      filename = path.resolve(filenameIn);
+    } else {
+      console.error(`Error: file not found: ${filenameIn}`);
+      return ERROR_USAGE; // command line usage error
+    }
+  }
+
+  const fnname = program.args[1];
+  const options = program.opts();
+
+  // Resolve the output file
+  const outfile = options["outputFile"]
+    ? path.resolve(options["outputFile"])
+    : undefined;
+
+  // Setup update message handler & the progress bar
+  let isCancelled = false;
+  let lastWasMilestone = true;
+  const bar = new SingleBar(
+    {
+      format: " - Testing [{bar}] {percentage}%",
+      clearOnComplete: true,
+      linewrap: true,
+    },
+    Presets.shades_classic
   );
 
-// Process & validate CLI input
-Commander.program
-  .exitOverride((_err: Commander.CommanderError) => {
-    process.exit(ERROR_USAGE); // command line usage error
-  })
-  .parse();
+  const sigintListener = () => {
+    if (isCancelled) {
+      // ignore
+    } else {
+      isCancelled = true;
+      if (!lastWasMilestone) {
+        bar.stop();
+        lastWasMilestone = true;
+      }
+      console.log("Cancellation requested. Stopping NaNofuzz...");
+    }
+  };
 
-console.info(`NaNofuzz v${process.env.NANOFUZZ_VERSION}`);
+  process.on("SIGINT", sigintListener);
 
-// Resolve the filename
-const filenameIn: string = Commander.program.args[0];
-let filename: string;
-try {
-  filename = require.resolve(filenameIn);
-} catch (_e: unknown) {
-  if (fs.existsSync(path.resolve(filenameIn))) {
-    filename = path.resolve(filenameIn);
+  const updateFn = (payload: FuzzBusyStatusMessage) => {
+    if (!isCancelled) {
+      switch (payload.channel) {
+        case "summary":
+        case "milestone": {
+          if (!lastWasMilestone) {
+            bar.stop();
+          }
+          console.log(payload.msg);
+          break;
+        }
+        case "update": {
+          if (lastWasMilestone) {
+            bar.start(100, 0);
+          }
+          if (payload.pct) {
+            bar.update(Math.max(0, Math.min(payload.pct, 100)));
+          }
+          break;
+        }
+      }
+    }
+    lastWasMilestone = payload.channel !== "update" || isCancelled;
+  };
+
+  // infrastructure options
+  Config.override(
+    "nanofuzz.fuzzer.hostStartupTimeout",
+    options["hostStartupTimeout"]
+  );
+
+  // measure options
+  if (options["coverageScope"] !== undefined) {
+    Config.override("nanofuzz.fuzzer.coverageScope", options["coverageScope"]);
+  }
+
+  // ai config options
+  if (options["modelProvider"] !== undefined) {
+    Config.override("nanofuzz.ai.provider", options["modelProvider"]);
+  }
+  if (options["modelName"] !== undefined) {
+    Config.override("nanofuzz.ai.model", options["modelName"]);
+  }
+  if (options["modelKey"] !== undefined) {
+    Config.override("nanofuzz.ai.apiKey", options["modelKey"]);
+  }
+  if (options["aiCacheMode"] !== undefined) {
+    Config.override("nanofuzz.ai.cacheMode", options["aiCacheMode"]);
+  }
+  if (options["aiCacheFile"] !== undefined) {
+    Config.override("nanofuzz.ai.cacheFile", options["aiCacheFile"]);
+  }
+
+  // composite input generator config options
+  Config.override(
+    "nanofuzz.generators.compositeLookbackWindow",
+    options["cigInputLookback"]
+  );
+  Config.override(
+    "nanofuzz.generators.compositeChunkSize",
+    options["cigInputChunkSize"]
+  );
+  Config.override(
+    "nanofuzz.generators.compositeExplorationChance",
+    options["cigRandomness"]
+  );
+  Config.override(
+    "nanofuzz.generators.leaderboardInitialFocus",
+    options["cigInputFocus"]
+  );
+  Config.override(
+    "nanofuzz.generators.leaderboardFocusDecay",
+    options["cigInputFocusDecay"]
+  );
+  Config.override(
+    "nanofuzz.generators.compositeTrackCheckpoints",
+    Boolean(options["cigStatsCheckpoints"])
+  );
+
+  // debug options
+  const debugVal = options["debug"];
+  if (debugVal !== false && debugVal !== undefined) {
+    const scope =
+      typeof debugVal === "string" ? debugVal.toLowerCase().trim() : "*";
+    const scopes = scope.split(",").map((s) => s.trim());
+    Config.override(
+      "nanofuzz.debug.runners",
+      scopes.includes("*") || scopes.includes("runners")
+    );
+    Config.override(
+      "nanofuzz.ai.debug",
+      scopes.includes("*") || scopes.includes("ai")
+    );
   } else {
-    console.error(`Error: file not found: ${filenameIn}`);
-    process.exit(ERROR_USAGE); // command line usage error
+    Config.override("nanofuzz.debug.runners", false);
+    Config.override("nanofuzz.ai.debug", false);
   }
-}
 
-const fnname = Commander.program.args[1];
-const options = Commander.program.opts();
-
-// Resolve the output file
-const outfile = options["outputFile"]
-  ? path.resolve(options["outputFile"])
-  : undefined;
-
-// Setup update message handler & the progress bar
-let isCancelled = false;
-let lastWasMilestone = true;
-const bar = new SingleBar(
-  {
-    format: " - Testing [{bar}] {percentage}%",
-    clearOnComplete: true,
-    linewrap: true,
-  },
-  Presets.shades_classic
-);
-
-process.on("SIGINT", () => {
-  if (isCancelled) {
-    process.exit(USER_CANCELLED);
-  } else {
-    isCancelled = true;
-    if (!lastWasMilestone) {
-      bar.stop();
-      lastWasMilestone = true;
-    }
-    console.log("Cancellation requested. Stopping NaNofuzz...");
+  // Clear compiler cache if requested
+  if (options["clearCompileCache"]) {
+    CompilerFactory.clean();
   }
-});
 
-const updateFn = (payload: FuzzBusyStatusMessage) => {
-  if (!isCancelled) {
-    switch (payload.channel) {
-      case "summary":
-      case "milestone": {
-        if (!lastWasMilestone) {
-          bar.stop();
-        }
-        console.log(payload.msg);
-        break;
-      }
-      case "update": {
-        if (lastWasMilestone) {
-          bar.start(100, 0);
-        }
-        if (payload.pct) {
-          bar.update(Math.max(0, Math.min(payload.pct, 100)));
-        }
-        break;
-      }
-    }
-  }
-  lastWasMilestone = payload.channel !== "update" || isCancelled;
-};
-
-// Set config options
-for (const key in options) {
-  const value = options[key];
-  switch (key) {
-    // infrastructure options
-    case "hostStartupTimeout":
-      Config.override("nanofuzz.fuzzer.hostStartupTimeout", value);
-      break;
-
-    // ai config options
-    case "modelProvider":
-      Config.override("nanofuzz.ai.provider", value);
-      break;
-    case "modelName":
-      Config.override("nanofuzz.ai.model", value);
-      break;
-    case "modelKey":
-      Config.override("nanofuzz.ai.apiKey", value);
-      break;
-    case "aiCacheMode":
-      Config.override("nanofuzz.ai.cacheMode", value);
-      break;
-    case "aiCacheFile":
-      Config.override("nanofuzz.ai.cacheFile", value);
-      break;
-
-    // composite input generator config options
-    case "cigInputLookback":
-      Config.override("nanofuzz.generators.compositeLookbackWindow", value);
-      break;
-    case "cigInputChunkSize":
-      Config.override("nanofuzz.generators.compositeChunkSize", value);
-      break;
-    case "cigRandomness":
-      Config.override("nanofuzz.generators.compositeExplorationChance", value);
-      break;
-    case "cigInputFocus":
-      Config.override("nanofuzz.generators.leaderboardInitialFocus", value);
-      break;
-    case "cigInputFocusDecay":
-      Config.override("nanofuzz.generators.leaderboardFocusDecay", value);
-      break;
-    case "cigStatsCheckpoints":
-      Config.override("nanofuzz.generators.compositeTrackCheckpoints", value);
-      break;
-
-    // debug options
-    case "debug": {
-      if (value !== false && value !== undefined) {
-        const scope =
-          typeof value === "string" ? value.toLowerCase().trim() : "*";
-        const scopes = scope.split(",").map((s) => s.trim());
-        if (scopes.includes("*") || scopes.includes("runners")) {
-          Config.override("nanofuzz.debug.runners", true);
-        }
-        if (scopes.includes("*") || scopes.includes("ai")) {
-          Config.override("nanofuzz.ai.debug", true);
-        }
-      }
-      break;
-    }
-  }
-}
-
-// Clear compiler cache if requested
-if (options["clearCompileCache"]) {
-  CompilerFactory.clean();
-}
-
-// -------------------------------- Run NaNofuzz ------------------------------- //
-
-run();
-
-async function run(): Promise<void> {
   try {
     await ParserAdapter.init();
 
-    const program = ProgramFactory.fromFile(filename);
-    const targetFnDef = program.functionsExported[fnname];
+    const programObj = ProgramFactory.fromFile(filename);
+    const targetFnDef = programObj.functionsExported[fnname];
     const fnRef = targetFnDef?.getRef();
     const fnFuzzOptions = fnRef?.fuzzOptions;
 
@@ -329,7 +361,7 @@ async function run(): Promise<void> {
       cliValue: FuzzOptions[K]
     ): FuzzOptions[K] {
       const isDefault =
-        Commander.program.getOptionValueSource(cliOptionName) === "default";
+        program.getOptionValueSource(cliOptionName) === "default";
       if (
         isDefault &&
         fnFuzzOptions &&
@@ -385,13 +417,15 @@ async function run(): Promise<void> {
           enabled: options["mutationInputGenerator"],
         },
         RandomInputGenerator: {
-          enabled: true, // always enabled
+          enabled: options["randomInputGenerator"],
         },
       },
     }).testSync(undefined, undefined, updateFn, () => isCancelled);
 
+    process.removeListener("SIGINT", sigintListener);
+
     if (isCancelled) {
-      process.exit(USER_CANCELLED);
+      return USER_CANCELLED;
     }
 
     const someTestsRan =
@@ -400,14 +434,15 @@ async function run(): Promise<void> {
 
     if (someTestsRan && !results.stats.counters.erroredTests) {
       if (someTestsFailed) {
-        process.exit(ERROR_TEST_FAILURE); // tests ran and some failed
+        return ERROR_TEST_FAILURE; // tests ran and some failed
       } else {
-        process.exit(EXIT_OK); // tests ran and none failed);
+        return EXIT_OK; // tests ran and none failed);
       }
     } else {
-      process.exit(ERROR_INTERNAL); // internal error
+      return ERROR_INTERNAL; // internal error
     }
   } catch (e: unknown) {
+    process.removeListener("SIGINT", sigintListener);
     await LlmAdapter.flushCache(5000);
     if (isError(e)) {
       if (e.stack) {
@@ -418,9 +453,13 @@ async function run(): Promise<void> {
     } else {
       console.error("Unknown internal error");
     }
-    process.exit(ERROR_USAGE); // internal error
+    return ERROR_USAGE; // internal error
   }
-} // fn: run
+}
+
+if (require.main === module) {
+  runCliInProcess().then((code) => process.exit(code));
+}
 
 // ---------------------------- Parameter Validators --------------------------- //
 
@@ -450,6 +489,17 @@ function parseAiCacheMode(value: string, _previous: string): string {
   }
   return value;
 } // fn: parseAiCacheMode
+
+function parseCoverageScopeOption(value: string, _previous: string): string {
+  try {
+    parseCoverageScope(value);
+    return value;
+  } catch (_e) {
+    throw new Commander.InvalidArgumentError(
+      `Invalid coverage scope '${value}'. Allowed tokens: 'project', 'directimports', 'static'`
+    );
+  }
+} // fn: parseCoverageScopeOption
 
 function parseFloatArgZeroToOne(value: string, _previous: number): number {
   const parsedValue = parseFloatArgGeZero(value, _previous);

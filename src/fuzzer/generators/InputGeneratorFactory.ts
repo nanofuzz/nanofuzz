@@ -19,11 +19,12 @@ export function InputGeneratorFactory(
   fn: FunctionDef,
   rngSeed: string | undefined,
   leaderboard: Leaderboard<InputAndSource>,
-  allInputs: Map<string, unknown>
+  allInputs: Map<string, unknown>,
+  moduleSrc: string
 ): AbstractInputGenerator[] {
   return [
     new RandomInputGenerator(fn.getArgDefs(), rngSeed),
     new MutationInputGenerator(fn.getArgDefs(), rngSeed, leaderboard),
-    new AiInputGenerator(fn, rngSeed, allInputs),
+    new AiInputGenerator(fn, rngSeed, allInputs, moduleSrc),
   ];
 } // fn: InputGeneratorFactory

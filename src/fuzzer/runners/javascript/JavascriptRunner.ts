@@ -10,10 +10,12 @@ import { NodeHost } from "./NodeHost";
 import { FuzzEnv } from "../../Fuzzer";
 import { isCoverageMapData } from "../../measures/TypescriptCoverageMeasure";
 import { CoverageMapData } from "istanbul-lib-coverage";
-import { findInAncestor, isError } from "../../Util";
+import { findInAncestor, isError, normalizePathForKey } from "../../Util";
+import { parseCoverageScope } from "../../measures/Util";
 import { PutTimeoutName } from "../AbstractHost";
 import * as CompilerFactory from "../../compilers/CompilerFactory";
 import * as Config from "../../../Config";
+import vscode from "vscode";
 import { serialize, deserialize } from "node:v8";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -23,6 +25,7 @@ import * as fs from "node:fs";
  */
 export class JavascriptRunner extends AbstractRunner {
   protected _filename: string;
+  protected _originalFilename: string;
   protected _jsFn: string;
   protected _env: FuzzEnv | undefined;
   protected _host: NodeHost | undefined = undefined;
@@ -49,6 +52,7 @@ export class JavascriptRunner extends AbstractRunner {
     this._env = env;
 
     let targetPath = getModuleFilename(module, env);
+    this._originalFilename = targetPath;
 
     if (targetPath) {
       const compiler = CompilerFactory.fromSourcefile(targetPath);
@@ -114,8 +118,59 @@ export class JavascriptRunner extends AbstractRunner {
       const parsedRes = deserialize(rawResBuf);
 
       if (isParsedHostResponse(parsedRes) && parsedRes.coverageData) {
-        if (isCoverageMapData(parsedRes.coverageData)) {
-          this._coverageInfo = parsedRes.coverageData;
+        if (
+          typeof parsedRes.coverageData === "object" &&
+          parsedRes.coverageData !== null &&
+          !Array.isArray(parsedRes.coverageData)
+        ) {
+          if (!this._coverageInfo) {
+            this._coverageInfo = {};
+          }
+          for (const fileKey of Object.keys(parsedRes.coverageData)) {
+            const fileCov = parsedRes.coverageData[fileKey];
+            const normKey = normalizePathForKey(fileKey);
+            let target = this._coverageInfo[normKey];
+            if (!target) {
+              target = {
+                path: normKey,
+                statementMap: fileCov.statementMap
+                  ? JSON.parse(JSON.stringify(fileCov.statementMap))
+                  : {},
+                fnMap: fileCov.fnMap
+                  ? JSON.parse(JSON.stringify(fileCov.fnMap))
+                  : {},
+                branchMap: fileCov.branchMap
+                  ? JSON.parse(JSON.stringify(fileCov.branchMap))
+                  : {},
+                s: {},
+                f: {},
+                b: {},
+              };
+              this._coverageInfo[normKey] = target;
+            }
+            if (fileCov.s && target.s) {
+              for (const sk of Object.keys(fileCov.s)) {
+                target.s[sk] = (target.s[sk] ?? 0) + (fileCov.s[sk] ?? 0);
+              }
+            }
+            if (fileCov.f && target.f) {
+              for (const fk of Object.keys(fileCov.f)) {
+                target.f[fk] = (target.f[fk] ?? 0) + (fileCov.f[fk] ?? 0);
+              }
+            }
+            if (fileCov.b && target.b) {
+              for (const bk of Object.keys(fileCov.b)) {
+                if (!target.b[bk]) {
+                  target.b[bk] = [...(fileCov.b[bk] ?? [])];
+                } else if (Array.isArray(fileCov.b[bk])) {
+                  for (let i = 0; i < fileCov.b[bk].length; i++) {
+                    target.b[bk][i] =
+                      (target.b[bk][i] ?? 0) + (fileCov.b[bk][i] ?? 0);
+                  }
+                }
+              }
+            }
+          }
         }
         this._coverageCallback?.(parsedRes.coverageData);
       }
@@ -246,8 +301,28 @@ export class JavascriptRunner extends AbstractRunner {
       )
     );
 
-    const args = [runnerHost, this._filename, this._jsFn];
-    const host = new NodeHost(args, path.dirname(this._filename));
+    const env = {
+      ...process.env,
+      NODE_PATH: JavascriptRunner.getNodePath(
+        this._originalFilename || this._filename,
+        projectRoot
+      ),
+    };
+
+    const coverageScopeRaw = Config.get<unknown>(
+      "nanofuzz.fuzzer.coverageScope",
+      "project static"
+    );
+    const scopeConfig = parseCoverageScope(coverageScopeRaw);
+
+    const args = [
+      runnerHost,
+      this._filename,
+      this._jsFn,
+      scopeConfig.target,
+      String(scopeConfig.collectStaticCoverage),
+    ];
+    const host = new NodeHost(args, path.dirname(this._filename), env);
 
     const hostStartupTimeout = Config.get<number>(
       "nanofuzz.fuzzer.hostStartupTimeout",
@@ -261,7 +336,14 @@ export class JavascriptRunner extends AbstractRunner {
         await host.getResponseBuffer(hostStartupTimeout)
       );
       if (isCoverageMapData(initialCoverage)) {
-        this._coverageInfo = initialCoverage;
+        this._coverageInfo = {};
+        for (const k of Object.keys(initialCoverage)) {
+          const normKey = normalizePathForKey(k);
+          this._coverageInfo[normKey] = {
+            ...structuredClone(initialCoverage[k]),
+            path: normKey,
+          };
+        }
       }
 
       return host;
@@ -280,13 +362,65 @@ export class JavascriptRunner extends AbstractRunner {
       this._host = undefined;
     }
   } // fn: _killHost
+
+  /**
+   * Constructs NODE_PATH for NodeHost to resolve dependencies of target files
+   * and extension runtime packages even when no workspace folder is open.
+   */
+  public static getNodePath(filename: string, projectRoot?: string): string {
+    const searchPaths: string[] = [];
+
+    // Add target file's ancestor node_modules directories
+    let currDir = path.resolve(path.dirname(filename));
+    while (currDir) {
+      searchPaths.push(path.join(currDir, "node_modules"));
+      const parent = path.dirname(currDir);
+      if (parent === currDir) break;
+      currDir = parent;
+    }
+
+    // Add open workspace folders' node_modules directories
+    try {
+      const workspaceFolders = vscode.workspace?.workspaceFolders ?? [];
+      for (const folder of workspaceFolders) {
+        let wsDir = path.resolve(folder.uri.fsPath);
+        while (wsDir) {
+          searchPaths.push(path.join(wsDir, "node_modules"));
+          const parent = path.dirname(wsDir);
+          if (parent === wsDir) break;
+          wsDir = parent;
+        }
+      }
+    } catch {
+      // vscode.workspace may not be available in non-vscode execution contexts
+    }
+
+    // Add extension's built node_modules & runtime packages
+    if (projectRoot) {
+      const extDir = path.dirname(projectRoot);
+      searchPaths.push(path.join(extDir, "build", "extension", "node_modules"));
+      searchPaths.push(path.join(extDir, "node_modules"));
+      searchPaths.push(path.join(extDir, "packages", "runtime", "typescript"));
+    }
+
+    if (process.env.NODE_PATH) {
+      searchPaths.push(...process.env.NODE_PATH.split(path.delimiter));
+    }
+
+    return Array.from(new Set(searchPaths.filter(Boolean))).join(
+      path.delimiter
+    );
+  }
 } // class: JavascriptRunner
 
 type FileCoverageData = {
+  path?: string;
+  statementMap?: Record<string, unknown>;
+  fnMap?: Record<string, unknown>;
+  branchMap?: Record<string, unknown>;
   s?: Record<string, number>;
   f?: Record<string, number>;
   b?: Record<string, number[]>;
-  path?: string;
 };
 
 type ParsedHostResponse = {

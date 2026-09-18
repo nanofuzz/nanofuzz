@@ -14,6 +14,7 @@ import {
   FuzzTestResults,
   InputAndSource,
 } from "../Fuzzer";
+import { NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import * as zod from "zod/v4";
 import { InputGeneratorStatsAi } from "./Types";
@@ -27,29 +28,88 @@ import * as Config from "../../Config";
 export class AiInputGenerator extends AbstractInputGenerator {
   protected _inputQueue: InputAndSource[] = []; // Cache of valid, generated inputs
   protected _fn: FunctionDef; // Function target for inputs
+  protected _moduleSrc: string; // Module source code
   protected _llm?: LlmAdapter; // Back-end AI model
   protected _callsPending = 0; // Number of calls to AI model pending
   protected _stats = _initStats(); // Stats about inputs generated
   protected _allInputs; // Running list of all generated inputs
+  protected _exhausted = false; // Set to true when the model produces no new valid inputs or encounters an error
 
   public constructor(
     fn: FunctionDef,
     rngSeed: string | undefined,
-    allInputs: Map<string, unknown>
+    allInputs: Map<string, unknown>,
+    moduleSrc: string
   ) {
     super(fn.getArgDefs(), rngSeed);
     this._fn = fn;
     this._allInputs = allInputs;
+    this._moduleSrc = moduleSrc;
   } // fn: constructor
 
   /**
    * Are inputs available?
    *
-   * @returns true if generator inputs are available, false otherwise
+   * @returns 'now' if generator inputs are available, 'soon' if pending, false otherwise
    */
-  public nextable(): boolean {
-    return !!this._inputQueue.length;
-  } // fn: isAvailable
+  public override nextable(): NextableStatus {
+    if (this._inputQueue.length) {
+      return "now";
+    } else if (this._callsPending) {
+      return "soon";
+    } else if (this._llm && !this._exhausted) {
+      this._getMoreInputs();
+      return this._callsPending ? "soon" : false;
+    } else {
+      return false;
+    }
+  } // fn: nextable
+
+  /**
+   * Returns diagnostic messages when the generator is unable to produce inputs
+   * or encounters configuration/execution errors.
+   */
+  public override getDiagnostics(): string[] {
+    if (!LlmAdapter.isConfigured()) {
+      return [];
+    }
+    const diagnostics: string[] = [];
+    if (LlmAdapter.isConfigured()) {
+      const cfg = LlmAdapter.getConfig();
+      if (!cfg.apiKey) {
+        diagnostics.push(
+          `No API key was provided for ${cfg.provider} model ${cfg.modelName}.`
+        );
+      }
+      const failures = this._stats.calls.history.filter(
+        (h): h is { failure: true; message: string } =>
+          "failure" in h && h.failure === true
+      );
+      if (failures.length > 0) {
+        const uniqueErrors = Array.from(
+          new Set(failures.map((f) => f.message))
+        );
+        uniqueErrors.forEach((errMsg) => {
+          diagnostics.push(errMsg);
+        });
+      }
+      if (this._stats.calls.sent > 0 && this._stats.inputs.gen === 0) {
+        if (this._stats.inputs.invalid + this._stats.inputs.invalidLater > 0) {
+          diagnostics.push(
+            `All ${this._stats.inputs.invalid + this._stats.inputs.invalidLater} inputs returned by the model were invalid.`
+          );
+        } else if (this._stats.calls.valid > 0) {
+          diagnostics.push(`The model did not produce any valid inputs.`);
+        } else if (
+          this._stats.calls.failed === 0 &&
+          this._stats.calls.valid === 0
+        ) {
+          diagnostics.push(`Testing finished before the model could respond.`);
+        }
+      }
+    }
+    return diagnostics;
+  } // fn: getDiagnostics
 
   /**
    * Manage the life-cycle of the ProgramModel and clear
@@ -59,6 +119,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @param `active` indicates if inputs are expected this run
    */
   public onRunStart(active: boolean): void {
+    this._exhausted = false;
+
     // Abandon back-end if stale or no longer configured
     if (
       this._llm &&
@@ -114,11 +176,16 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   protected _getMoreInputs(): void {
     // Let any prior calls finish before making a new one
-    if (this._callsPending) {
+    if (this._callsPending || this._exhausted) {
       return;
     }
 
     if (this._llm) {
+      let resolvePending: (hasInputs: boolean) => void = () => {};
+      this._pendingPromise = new Promise<boolean>((resolve) => {
+        resolvePending = resolve;
+      });
+
       this._callsPending++;
       const modelId = this._llm.id;
       const validInputs: { [k: string]: ArgValueType }[] = [];
@@ -130,7 +197,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
       // Fetch inputs from the llm
       this._llm
-        .genInputs(this._fn, schema, directives, this._allInputs)
+        .genInputs(
+          this._fn,
+          schema,
+          directives,
+          this._allInputs,
+          this._moduleSrc
+        )
         .then((inputs) => {
           // Update tokens received stats
           if (inputs.stats) {
@@ -178,6 +251,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
                 failure: true,
                 message: inputs.error.message,
               });
+              this._exhausted = true;
               break;
           }
 
@@ -235,6 +309,10 @@ export class AiInputGenerator extends AbstractInputGenerator {
               };
             })
           );
+
+          if (this._inputQueue.length === 0 && !inputs.error) {
+            this._exhausted = true;
+          }
         })
         .catch((e: unknown) => {
           this._stats.calls.failed++;
@@ -242,9 +320,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
             failure: true,
             message: isError(e) ? e.message : "unknown error",
           });
+          this._exhausted = true;
         })
         .finally(() => {
           this._callsPending--;
+          resolvePending(this._inputQueue.length > 0);
+          this._pendingPromise = undefined;
         });
     }
   } // fn: _getMoreInputs

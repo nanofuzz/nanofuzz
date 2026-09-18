@@ -2,6 +2,7 @@ import { ArgDef } from "../analysis/ArgDef";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { InputAndSource } from "../Types";
+import { NextableStatus } from "./Types";
 
 /**
  * Generates new inputs pseudo-randomly
@@ -18,6 +19,16 @@ export class RandomInputGenerator extends AbstractInputGenerator {
   public constructor(specs: ArgDef[], rngSeed: string | undefined) {
     super(specs, rngSeed);
   } // fn: constructor
+
+  /**
+   * Returns `now` if the generator has inputs available for use,
+   * `soon` if input generation is pending asynchronously,
+   * and `false` otherwise.
+   * @returns "now"
+   */
+  public override nextable(): NextableStatus {
+    return "now";
+  } // fn: nextable
 
   /**
    * Returns the next generated input

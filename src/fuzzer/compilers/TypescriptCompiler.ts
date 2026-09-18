@@ -381,11 +381,13 @@ export class TypescriptCompiler {
       msg: ` - Compile...: ${module.filename}`,
       channel: "milestone",
     });
-    updateFn({
-      msg: `Compiling: ${module.filename}`,
-      channel: "update",
-      pct: 0.1,
-    });
+    if (process.env.BUILD_TARGET !== "node-cli") {
+      updateFn({
+        msg: `Compiling: ${module.filename}`,
+        channel: "update",
+        pct: 0.1,
+      });
+    }
 
     // Construct tsc args
     const argv = [

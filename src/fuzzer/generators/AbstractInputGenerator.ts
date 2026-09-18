@@ -2,7 +2,7 @@ import seedrandom from "seedrandom";
 import { ArgDef } from "../analysis/ArgDef";
 import { InputAndSource } from "./../Types";
 import { FuzzTestResults } from "../Fuzzer";
-import { InputGeneratorStats } from "./Types";
+import { InputGeneratorStats, NextableStatus } from "./Types";
 
 /**
  * Abstract class of an input generator
@@ -10,6 +10,7 @@ import { InputGeneratorStats } from "./Types";
 export abstract class AbstractInputGenerator {
   protected _specs; // ArgDef specs that describe inputs.
   protected _prng; // pseudo random number generator
+  protected _pendingPromise?: Promise<boolean>; // Pending promise for async input generation
 
   /**
    * Create a new input generator
@@ -19,7 +20,8 @@ export abstract class AbstractInputGenerator {
    */
   protected constructor(specs: ArgDef[], rngSeed: string | undefined) {
     this._specs = specs;
-    this._prng = seedrandom(rngSeed);
+    this._prng =
+      rngSeed && rngSeed.length > 0 ? seedrandom(rngSeed) : seedrandom();
   } // fn: constructor
 
   /**
@@ -42,17 +44,31 @@ export abstract class AbstractInputGenerator {
   public abstract next(): InputAndSource;
 
   /**
-   * Returns true If the generator has inputs available for use
-   * and false otherwise. If it returns true, the next `next()` call
-   * should not fail.
-   *
-   * Note: since generators can have asynchronous behavior, `next()` could
-   * still succeed even when `nextable()` is false. E.g., AiInputGenerator
-   * could receive a response between `nextable()` and `next()`.
+   * Asynchronously produce the next test-case inputs when `nextable()` returns "soon".
+   * Awaits the pending promise managed by asynchronous generation tasks, then returns `next()`.
    */
-  public nextable(): boolean {
-    return true;
-  } // fn: isAvailable
+  public async nextSoon(): Promise<InputAndSource> {
+    while (this.nextable() === "soon") {
+      if (this._pendingPromise) {
+        await this._pendingPromise;
+      } else {
+        break;
+      }
+    }
+    if (this.nextable() === "now") {
+      return this.next();
+    }
+    throw new Error(
+      `nextSoon() failed: generator '${this.name}' is no longer pending and produced no inputs.`
+    );
+  } // fn: nextSoon
+
+  /**
+   * Returns `now` if the generator has inputs available for use,
+   * `soon` if input generation is pending asynchronously,
+   * and `false` otherwise.
+   */
+  public abstract nextable(): NextableStatus;
 
   /**
    * Executes any tasks when the test run begins
@@ -67,4 +83,12 @@ export abstract class AbstractInputGenerator {
   public async onRunEnd(_results?: FuzzTestResults): Promise<void> {
     return;
   } // fn: onRunEnd
+
+  /**
+   * Returns diagnostic messages when the generator is unable to produce inputs
+   * or encounters configuration/execution errors.
+   */
+  public getDiagnostics(): string[] {
+    return [];
+  } // fn: getDiagnostics
 }

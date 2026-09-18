@@ -23,6 +23,7 @@ import {
   getErrorMessageOrJson,
   normalizePathForKey,
 } from "../fuzzer/Util";
+import { parseCoverageScope } from "../fuzzer/measures/Util";
 import {
   removeTickFromOrigin,
   encodeEscapeSequences,
@@ -2227,9 +2228,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                     Generate inputs:
                   </p>
                   <div class="fuzzInputControlGroup">
-                    <vscode-checkbox disabled id="fuzz-gen-RandomInputGenerator-enabled" checked>
+                    <vscode-checkbox ${disabledFlag} id="fuzz-gen-RandomInputGenerator-enabled" ${this._fuzzEnv.options.generators.RandomInputGenerator.enabled ? "checked" : ""}>
                       <span> 
-                        Randomly (always enabled)
+                        Randomly
                       </span>
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-MutationInputGenerator-enabled" ${this._fuzzEnv.options.generators.MutationInputGenerator.enabled ? "checked" : ""}>
@@ -2239,7 +2240,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-AiInputGenerator-enabled" ${this._fuzzEnv.options.generators.AiInputGenerator.enabled ? "checked" : ""}>
                       <span> 
-                        With an LLM (<span class="editorFont" id="llm-model">...</span>)
+                        With AI (<span class="editorFont" id="llm-model">...</span>)
                         <vscode-link id="open.settings.ai">change</vscode-link>
                       </span>
                     </vscode-checkbox>
@@ -2479,22 +2480,17 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               <p>No property validators were found, so the property validator column is blank.</p>
             </div>`;
 
-      const { count: sequentialFailures, message: latestFailureMessage } =
-        this._results && this._results.stats.generators.AiInputGenerator.gen
-          ? getSequentialFailures(
-              this._results.stats.generators.AiInputGenerator.gen.calls.history
-            )
-          : { count: 0 };
-      html += /*html*/ `
-            <div class="fuzzWarnings${
-              this._state === FuzzPanelState.done &&
-              this._fuzzEnv.options.generators.AiInputGenerator.enabled &&
-              sequentialFailures
-                ? ""
-                : " hidden"
-            }">
-              <p>The last ${sequentialFailures === 1 ? `` : `${sequentialFailures}`} LLM response${sequentialFailures === 1 ? "" : "s"} failed: <span class="editorFont">${latestFailureMessage ?? "n/a"}</span></p>
+      const generatorDiagnostics =
+        this._state === FuzzPanelState.done && this._tester
+          ? this._tester.getInputGeneratorDiagnostics()
+          : [];
+
+      for (const diag of generatorDiagnostics) {
+        html += /*html*/ `
+            <div class="fuzzWarnings">
+              <p><span class="editorFont">${diag}</span></p>
             </div>`;
+      }
 
       html += /*html*/ `
             <!-- Fuzzer Info -->
@@ -2669,6 +2665,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               aiGenStats.gen.calls.invalid -
               aiGenStats.gen.calls.failed;
 
+            const { count: sequentialFailures, message: latestFailureMessage } =
+              getSequentialFailures(aiGenStats.gen.calls.history);
+
             // Call details
             aiGeneratorText.push(
               `The ai input generator sent ${aiGenStats.gen.calls.sent} request${aiGenStats.gen.calls.sent === 1 ? "" : "s"} to the LLM, of which`
@@ -2749,6 +2748,21 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
           // Build code coverage information
           const fmtPct = (n: number, d: number) =>
             d === 0 ? "na%" : ((n * 100) / d).toFixed(0).toString() + "%";
+          const coverageScopeRaw = Config.get<unknown>(
+            "nanofuzz.fuzzer.coverageScope",
+            "project static"
+          );
+          const scopeConfig = parseCoverageScope(coverageScopeRaw);
+          const scopeItems = ["dynamic executions"];
+          if (scopeConfig.collectStaticCoverage) {
+            scopeItems.push("static loads");
+          }
+          if (scopeConfig.target.includes("directimports")) {
+            scopeItems.push("direct imports");
+          }
+          const scopeText = `The scope of coverage instrumentation included ${toPrettyList(
+            scopeItems
+          )}.`;
           const coverageText =
             this._coverageStats === undefined
               ? ""
@@ -2775,7 +2789,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                   this._coverageStats.counters.branchesTotal
                 )}) in the ${this._coverageStats.files.length} source file${
                   this._coverageStats.files.length === 1 ? "" : "s"
-                } executed.`;
+                } executed. ${scopeText}`;
 
           // Build the list of validators used/not used
           const validatorsUsed: string[] = [];
@@ -4201,6 +4215,15 @@ function toPrettyList(inList: string[]): string {
 /**
  * Returns the number of sequential failues with the same message from
  * an AiInputGenerator call history.
+ *
+ * @param `history` from InputGeneratorStatsAi.calls.history
+ * @returns {
+ *  `count`: number of most-recent sequential failures
+ *  `message`: error messge for those sequential failures (if count > 0)
+ * }
+ */
+/**
+ * Helper function that counts the number of most-recent sequential failures in the LLM call history.
  *
  * @param `history` from InputGeneratorStatsAi.calls.history
  * @returns {

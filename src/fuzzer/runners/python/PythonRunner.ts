@@ -6,9 +6,11 @@ import {
   TypeHint,
 } from "../AbstractRunner";
 import { ArgDef } from "../../analysis/ArgDef";
-import { ArgTag } from "../../analysis/Types";
+import { ArgTag, ProgramImport } from "../../analysis/Types";
+import { parseCoverageScope } from "../../measures/Util";
+import * as ProgramFactory from "../../analysis/ProgramFactory";
 import { FuzzEnv } from "../../Fuzzer";
-import * as JSON5 from "json5";
+import * as JSONN from "../../../Jsonn";
 import DotEnv from "dotenv";
 import vscode from "vscode";
 import * as Config from "../../../Config";
@@ -47,6 +49,7 @@ export class PythonRunner extends AbstractRunner {
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
    * @param `env` optional fuzzer environment
+   * @param `timeout` optional timeout for each run
    */
   constructor(
     filename: string,
@@ -114,20 +117,15 @@ export class PythonRunner extends AbstractRunner {
         },
       };
 
-      const payload = JSON5.stringify(input, (_key, val) => {
-        if (val instanceof Uint8Array || val instanceof Set) {
-          return Array.from(val);
-        }
-        if (val instanceof Map) {
-          return Object.fromEntries(val);
-        }
-        return val;
-      });
+      const encoded = JSONN.pack(input);
+      host.sendMessage(
+        Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength)
+      );
 
-      host.sendMessage(payload);
       const hostTimeout = timeout && timeout > 0 ? timeout + 500 : Infinity;
+      const rawResBuf = await host.getResponseBuffer(hostTimeout);
       const result: RunnerResult = {
-        result: JSON5.parse(await host.getResponse(hostTimeout)),
+        result: JSONN.unpack<RunnerResult["result"]>(rawResBuf),
         env: {},
       };
 
@@ -138,29 +136,25 @@ export class PythonRunner extends AbstractRunner {
       }
 
       // Refresh the dynamic coverage with what this call executed.
-      if (
-        !this._coverageEnabled ||
-        !result.result.coverageData ||
-        Object.keys(result.result.coverageData).length === 0
-      ) {
+      if (!this._coverageEnabled) {
         this._coverageInfo = undefined;
-      } else {
+      } else if (result.result.staticCoverage) {
         this._coverageInfo = result.result.staticCoverage;
-        if (this._coverageInfo) {
-          for (const filename in this._coverageInfo) {
-            const coverageData = result.result.coverageData;
-            const coverageArcs = result.result.coverageArcs;
-            this._coverageInfo[filename].lines =
-              coverageData && !Array.isArray(coverageData)
-                ? coverageData[filename]
-                : undefined;
-            this._coverageInfo[filename].arcs =
-              coverageArcs && !Array.isArray(coverageArcs)
-                ? coverageArcs[filename]
-                : undefined;
-          }
-          this._coverageCallback?.(this._coverageInfo);
+        for (const filename in this._coverageInfo) {
+          const coverageData = result.result.coverageData;
+          const coverageArcs = result.result.coverageArcs;
+          this._coverageInfo[filename].lines =
+            coverageData && !Array.isArray(coverageData)
+              ? coverageData[filename]
+              : undefined;
+          this._coverageInfo[filename].arcs =
+            coverageArcs && !Array.isArray(coverageArcs)
+              ? coverageArcs[filename]
+              : undefined;
         }
+        this._coverageCallback?.(this._coverageInfo);
+      } else {
+        this._coverageInfo = undefined;
       }
 
       return result;
@@ -231,7 +225,7 @@ export class PythonRunner extends AbstractRunner {
 
     const pythonEnv: PythonEnv = {
       env: { ...process.env },
-      libs: findPythonLibDir(path.dirname(module.filename), "json5"),
+      libs: findPythonLibDir(path.dirname(module.filename)),
       paths: [],
       interpreter: Config.get("python.defaultInterpreterPath", "python3"),
     };
@@ -254,6 +248,61 @@ export class PythonRunner extends AbstractRunner {
         (process.platform === "win32" ? ";" : ":") +
         pythonEnv.libs;
     }
+
+    // Build PYTHONPATH entries for resolving user project packages and nanofuzz_runtime
+    const pyPaths: string[] = [];
+
+    // Target file's ancestor directories
+    let currPyDir = path.resolve(path.dirname(filename));
+    while (currPyDir) {
+      pyPaths.push(currPyDir);
+      const parent = path.dirname(currPyDir);
+      if (parent === currPyDir) break;
+      currPyDir = parent;
+    }
+
+    // Open workspace folders
+    try {
+      const workspaceFolders = vscode.workspace?.workspaceFolders ?? [];
+      for (const folder of workspaceFolders) {
+        let wsDir = path.resolve(folder.uri.fsPath);
+        while (wsDir) {
+          pyPaths.push(wsDir);
+          const parent = path.dirname(wsDir);
+          if (parent === wsDir) break;
+          wsDir = parent;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (pythonEnv.libs) {
+      pyPaths.push(pythonEnv.libs);
+    }
+
+    const currModuleDir = path.dirname(path.resolve(module.filename));
+    const projectRoot = findInAncestor(currModuleDir, "package.json");
+    if (projectRoot) {
+      const extDir = path.dirname(projectRoot);
+      pyPaths.push(path.join(extDir, "build", "extension"));
+      pyPaths.push(path.join(extDir, "packages", "runtime", "python", "src"));
+    }
+
+    if (pythonEnv.env.PYTHONPATH) {
+      pyPaths.push(
+        ...pythonEnv.env.PYTHONPATH.split(
+          process.platform === "win32" ? ";" : ":"
+        )
+      );
+    }
+
+    const uniquePyPaths = Array.from(
+      new Set(pyPaths.filter((p) => p && fs.existsSync(p)))
+    );
+    pythonEnv.env.PYTHONPATH = uniquePyPaths.join(
+      process.platform === "win32" ? ";" : ":"
+    );
 
     // Use a virtual environment if specified & found
     const searchGlobs = Config.get<string[]>(
@@ -287,7 +336,34 @@ export class PythonRunner extends AbstractRunner {
         pythonEnv.venv = {
           path: venvPath,
           activateCmd: venvActivateCmd,
-          interpreter: path.resolve(path.join(venvBins, "python3")),
+          interpreter: path.resolve(
+            path.join(
+              venvBins,
+              process.platform === "win32" ? "python" : "python3"
+            )
+          ),
+        };
+        pythonEnv.interpreter = pythonEnv.venv.interpreter;
+      }
+    }
+
+    if (!pythonEnv.venv && process.env.VIRTUAL_ENV) {
+      const venvPath = path.resolve(process.env.VIRTUAL_ENV);
+      const venvBins =
+        process.platform === "win32"
+          ? path.resolve(path.join(venvPath, "Scripts"))
+          : path.resolve(path.join(venvPath, "bin"));
+      const venvInterpreter = path.resolve(
+        path.join(venvBins, process.platform === "win32" ? "python" : "python3")
+      );
+      if (
+        fs.existsSync(venvInterpreter) ||
+        fs.existsSync(venvInterpreter + ".exe")
+      ) {
+        pythonEnv.venv = {
+          path: venvPath,
+          activateCmd: "",
+          interpreter: venvInterpreter,
         };
         pythonEnv.interpreter = pythonEnv.venv.interpreter;
       }
@@ -363,20 +439,33 @@ export class PythonRunner extends AbstractRunner {
     if (candidate) {
       if (candidate.endsWith("python") || candidate.endsWith("python.exe")) {
         const python3Alt = candidate.replace(/python(\.exe)?$/, "python3$1");
-        candidates.push(python3Alt, candidate);
+        if (process.platform === "win32") {
+          candidates.push(candidate, python3Alt);
+        } else {
+          candidates.push(python3Alt, candidate);
+        }
       } else if (
         candidate.endsWith("python3") ||
         candidate.endsWith("python3.exe")
       ) {
         const pythonAlt = candidate.replace(/python3(\.exe)?$/, "python$1");
-        candidates.push(candidate, pythonAlt);
+        if (process.platform === "win32") {
+          candidates.push(pythonAlt, candidate);
+        } else {
+          candidates.push(candidate, pythonAlt);
+        }
       } else {
         candidates.push(candidate);
       }
     }
 
-    if (!candidates.includes("python3")) candidates.push("python3");
-    if (!candidates.includes("python")) candidates.push("python");
+    if (process.platform === "win32") {
+      if (!candidates.includes("python")) candidates.push("python");
+      if (!candidates.includes("python3")) candidates.push("python3");
+    } else {
+      if (!candidates.includes("python3")) candidates.push("python3");
+      if (!candidates.includes("python")) candidates.push("python");
+    }
 
     for (const bin of candidates) {
       if (PythonRunner.canExecute(bin, env)) {
@@ -441,6 +530,26 @@ export class PythonRunner extends AbstractRunner {
     );
 
     const filenameBase = path.basename(this._filename);
+    const coverageScopeRaw = Config.get<unknown>(
+      "nanofuzz.fuzzer.coverageScope",
+      "project static"
+    );
+
+    const scopeConfig = parseCoverageScope(coverageScopeRaw);
+
+    let directPkgs: string[] = [];
+    if (
+      scopeConfig.target.includes("directimports") &&
+      fs.existsSync(this._filename)
+    ) {
+      try {
+        const program = ProgramFactory.fromFile(this._filename);
+        directPkgs = extractDirectPackages(program.imports);
+      } catch {
+        // Fall back gracefully if file resolution or parsing fails
+      }
+    }
+
     const args = [
       runnerHost,
       this._filename,
@@ -449,6 +558,9 @@ export class PythonRunner extends AbstractRunner {
         filenameBase.length - path.extname(filenameBase).length
       ),
       this._fn,
+      scopeConfig.target,
+      JSON.stringify(directPkgs),
+      String(scopeConfig.collectStaticCoverage),
     ];
 
     const host = new PythonHost(
@@ -463,19 +575,19 @@ export class PythonRunner extends AbstractRunner {
     );
 
     // a longer timeout tolerance for the host to pre-warm the coverage
-    const okcode = await host.getResponse(hostStartupTimeout);
-    if (okcode === `"READY"`) {
+    const rawOkBuf = await host.getResponseBuffer(hostStartupTimeout);
+    const okcode = JSONN.unpack<string>(rawOkBuf);
+    if (okcode === "READY") {
       this._host = host;
 
       // Get the static coverage structure, which the host sends once. The
       // dynamic `lines`/`arcs` are filled in by each `run`.
-      this._coverageInfo = JSON5.parse<FullCoverage>(
-        await host.getResponse(hostStartupTimeout)
-      );
+      const rawCovBuf = await host.getResponseBuffer(hostStartupTimeout);
+      this._coverageInfo = JSONN.unpack<FullCoverage>(rawCovBuf);
       return host;
     } else {
       host.kill();
-      throw new Error(`PythonHost not ready (okcode: ${okcode})`);
+      throw new Error(`PythonHost not ready (okcode: ${String(okcode)})`);
     }
   } // get: host
 
@@ -494,23 +606,62 @@ export class PythonRunner extends AbstractRunner {
  * Finds the Python library directory
  *
  * @param dir the starting directory
- * @param item the item to look for
  * @returns the Python library directory, or null if not found
  */
-function findPythonLibDir(dir: string, item: string): string | null {
+function findPythonLibDir(dir: string): string | null {
   // Co-located with this module (e.g., as built)
-  if (fs.existsSync(path.resolve(path.join(dir, item)))) {
-    return dir;
+  const vendorDir = path.resolve(path.join(dir, "_nanofuzz_python"));
+  if (fs.existsSync(vendorDir)) {
+    return vendorDir;
   }
 
   // Find build folder (e.g., during development)
   const buildFolder = findInAncestor(module.filename, "build");
   if (buildFolder) {
-    return path.resolve(path.join(buildFolder, "extension"));
+    const buildVendor = path.resolve(
+      path.join(buildFolder, "extension", "_nanofuzz_python")
+    );
+    if (fs.existsSync(buildVendor)) {
+      return buildVendor;
+    }
   }
 
   return null;
 } // fn: findPythonLibDir
+
+/**
+ * Extracts top-level 3rd-party package names directly imported by the program
+ * using `program.imports`.
+ */
+function extractDirectPackages(
+  imports: Record<string, ProgramImport>
+): string[] {
+  const packages = new Set<string>();
+
+  for (const [key, imp] of Object.entries(imports)) {
+    const pPath = imp.programPath;
+    if (pPath) {
+      const normalized = pPath.replace(/\\/g, "/");
+      const parts = normalized.split("/");
+
+      if (parts.includes("site-packages") || parts.includes("dist-packages")) {
+        const idx = parts.includes("site-packages")
+          ? parts.indexOf("site-packages")
+          : parts.indexOf("dist-packages");
+        if (idx + 1 < parts.length) {
+          packages.add(parts[idx + 1]);
+        }
+      }
+    }
+
+    const pkgName = key.replace(/^\*:/, "").split(".")[0];
+    if (pkgName && !pkgName.startsWith(".")) {
+      packages.add(pkgName);
+    }
+  }
+
+  return Array.from(packages);
+}
 
 /**
  * Checks if the argument is a UUID string
