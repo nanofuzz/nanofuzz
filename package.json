@@ -108,11 +108,13 @@
             "title": "Code coverage scope",
             "type": "string",
             "enum": [
-              "project",
-              "project+directimports"
+              "project static",
+              "project directimports static",
+              "project directimports",
+              "project"
             ],
-            "default": "project",
-            "description": "Code coverage scope: 'project' (local project code) or 'project+directimports' (project + directly imported packages)."
+            "default": "project static",
+            "description": "Code coverage scope"
           }
         }
       },

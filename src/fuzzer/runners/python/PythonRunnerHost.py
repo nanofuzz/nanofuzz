@@ -143,8 +143,8 @@ class RunnerTimeoutResult(TypedDict):
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
 
 
-type RunnerResult = Union[RunnerValueResult,
-                          RunnerErrorResult, RunnerSkipResult, RunnerTimeoutResult]
+RunnerResult = Union[RunnerValueResult,
+                     RunnerErrorResult, RunnerSkipResult, RunnerTimeoutResult]
 
 
 pid = os.getpid()
@@ -505,7 +505,7 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     }
 
 
-VALID_COVERAGE_SCOPES = ("project", "project+directimports")
+VALID_COVERAGE_SCOPES = ("project", "project directimports")
 
 
 def is_under(root: str, path: str) -> bool:
@@ -530,7 +530,7 @@ def program_files(
 
     Coverage Scopes:
     - "project" (default): Group A only.
-    - "project+directimports": Group A + Group B packages whose top-level package name is in `direct_packages`.
+    - "project directimports": Group A + Group B packages whose top-level package name is in `direct_packages`.
     """
     if coverage_scope not in VALID_COVERAGE_SCOPES:
         raise ValueError(
@@ -575,7 +575,7 @@ def program_files(
             continue
 
         # Group B: 3rd-party packages (everything else: site-packages, dist-packages, build/extension, etc.)
-        if coverage_scope == "project+directimports":
+        if "directimports" in coverage_scope:
             mod_name = getattr(module, "__name__", "")
             top_pkg = mod_name.split(".")[0] if mod_name else ""
 
@@ -777,12 +777,10 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     coverageData = {}
     coverageArcs = {}
     if coverage_enabled:
-        for file in cov.get_data().measured_files():
+        for file in covInfo:
             lines = coverage_lines(cov, file)
             if not lines:
                 continue
-            if file not in covInfo:
-                covInfo[file] = static_coverage(cov, file)
             coverageData[file] = lines
             coverageArcs[file] = coverage_arcs(cov, file)
 
@@ -866,15 +864,6 @@ if __name__ == "__main__":
     hb.start()
 
     try:
-        # Try to load the function: either results in a RunnerErrorResult
-        # or a callable function
-        logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
-        [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-        if (loadError is not None):
-            logging.debug(f"[{pid}]  - Unable to load")
-        else:
-            logging.debug(f"[{pid}]  - Loaded function")
-
         coverage_scope = sys.argv[4] if len(sys.argv) > 4 else "project"
         if coverage_scope not in VALID_COVERAGE_SCOPES:
             raise ValueError(
@@ -886,17 +875,73 @@ if __name__ == "__main__":
         except Exception:
             direct_packages = []
 
+        collect_static = (
+            sys.argv[6].lower() == "true"
+            if len(sys.argv) > 6
+            else ("static" in coverage_scope)
+        )
+
         pgm_files = program_files(filename, coverage_scope, direct_packages)
 
-        # One in-memory coverage instance for the whole run
+        # One in-memory coverage instance for the whole run.
         cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
 
-        # Static analysis of the program: the executable lines, functions, and
-        # branches of every file it is made of.
-        coverageInfo = {file: static_coverage(cov, file)
-                        for file in pgm_files}
+        if collect_static:
+            # Start temporary coverage tracer before loading module so static coverage is captured.
+            init_cov = coverage.Coverage(branch=True, data_file=None)
+            init_cov.start()
+
+            # Try to load the function: either results in a RunnerErrorResult
+            # or a callable function
+            logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
+            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
+            if (loadError is not None):
+                logging.debug(f"[{pid}]  - Unable to load")
+            else:
+                logging.debug(f"[{pid}]  - Loaded function")
+
+            init_cov.stop()
+
+            pgm_files = program_files(
+                filename, coverage_scope, direct_packages)
+            cov = coverage.Coverage(
+                include=pgm_files, branch=True, data_file=None)
+
+            # Static analysis of the program: the executable lines, functions, and
+            # branches of every file it is made of.
+            covInfo = {file: static_coverage(cov, file) for file in pgm_files}
+
+            # Initial coverage structure sent at startup includes top-level lines executed at module load
+            initialCoverage = {}
+            for file in pgm_files:
+                info = dict(covInfo[file])
+                lines = coverage_lines(init_cov, file)
+                arcs = coverage_arcs(init_cov, file)
+                if lines:
+                    info["lines"] = lines
+                if arcs:
+                    info["arcs"] = arcs
+                initialCoverage[file] = info
+        else:
+            # Load function without enabling coverage tracer at startup
+            logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
+            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
+            if (loadError is not None):
+                logging.debug(f"[{pid}]  - Unable to load")
+            else:
+                logging.debug(f"[{pid}]  - Loaded function")
+
+            # Re-query program_files now that imports are loaded
+            pgm_files = program_files(
+                filename, coverage_scope, direct_packages)
+            cov = coverage.Coverage(
+                include=pgm_files, branch=True, data_file=None)
+
+            covInfo = {file: static_coverage(cov, file) for file in pgm_files}
+            initialCoverage = {}
+
         logging.debug(
-            f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
+            f"[{pid}] Analyzed {len(covInfo)} file(s) of the program under test")
 
         # Pre-warm the coverage machinery. The first `cov.start()` installs the
         # tracer, which costs far more than a steady-state call and can push the
@@ -920,17 +965,17 @@ if __name__ == "__main__":
     send_msg("READY")
     logging.debug(f"[{pid}] Sent READY message")
 
-    # Send the static coverage info once
-    send_msg(coverageInfo)
+    # Send the initial coverage info once
+    send_msg(initialCoverage)
     logging.debug(
-        f"[{pid}] Sent coverageInfo for {len(coverageInfo)} file(s)")
+        f"[{pid}] Sent initialCoverage for {len(initialCoverage)} file(s)")
 
     # Start the run loop
     while True:
         logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
             put_result(run_put(get_inputs(), filename, fnname, fn,
-                       cov, coverageInfo))  # Call the put
+                       cov, covInfo))  # Call the put
         else:
             get_inputs()
             put_result(loadError)  # Return the load error

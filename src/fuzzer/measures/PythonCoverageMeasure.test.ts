@@ -82,7 +82,8 @@ class TestPythonCoverageMeasure extends PythonCoverageMeasure {
     super();
     this._info = { ...staticInfo };
     this._coverage = { [file]: this._info };
-    this._runners = [new StubPythonRunner(this._coverage)];
+    const stubRunner = new StubPythonRunner(this._coverage);
+    this.onRunStart([stubRunner]);
   }
 
   public record(run: PythonRun): void {
@@ -1228,6 +1229,28 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       expect(results.results).toBe(before.results);
       expect(results.stats.counters).toEqual(before.counters);
       expect(results.stats.timers).toEqual(before.timers);
+    });
+
+    it("static coverage: reports total static statements, functions, and branches before and after test executions", async () => {
+      // multiFunctionStatic has 3 functions (abs_value, helper, never_called) and 6 executable lines
+      const measure = new TestPythonCoverageMeasure(multiFunctionStatic);
+
+      // 1. Before any test runs (0 test executions), stats thunk reports full static totals
+      let stats = await statsOf(measure);
+      expect(stats.counters.functionsTotal).toEqual(3);
+      expect(stats.counters.statementsTotal).toEqual(6);
+      expect(stats.counters.functionsCovered).toEqual(0);
+      expect(stats.counters.statementsCovered).toEqual(0);
+
+      // 2. Execute a single test input covering abs_value and helper
+      runTest(measure, multiFunctionRun, inputAt(0));
+
+      // 3. After test execution, totals remain equal to static totals and covered counts update
+      stats = await statsOf(measure);
+      expect(stats.counters.functionsTotal).toEqual(3);
+      expect(stats.counters.statementsTotal).toEqual(6);
+      expect(stats.counters.functionsCovered).toEqual(2);
+      expect(stats.counters.statementsCovered).toEqual(2);
     });
 
     // the stats should be the union of what the run's inputs covered

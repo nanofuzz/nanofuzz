@@ -6,7 +6,8 @@ import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
-import { CoverageScope, FuzzOptions, isCoverageScope } from "../fuzzer/Types";
+import { FuzzOptions } from "../fuzzer/Types";
+import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
@@ -99,9 +100,9 @@ function createProgram(): Commander.Command {
     .option(`--no-coverage-measure`, `Disable code coverage measure`)
     .option(
       `--coverage-scope <scope>`,
-      `Code coverage scope: project (default) or project+directimports`,
-      parseCoverageScope,
-      "project"
+      `Code coverage scope: 'project static' (default), 'project directimports static', etc.`,
+      parseCoverageScopeOption,
+      "project static"
     )
     .option(`--no-failed-test-measure`, `Disable failed test measure`)
 
@@ -489,15 +490,16 @@ function parseAiCacheMode(value: string, _previous: string): string {
   return value;
 } // fn: parseAiCacheMode
 
-function parseCoverageScope(value: string, _previous: string): CoverageScope {
-  const norm = value.toLowerCase().trim();
-  if (isCoverageScope(norm)) {
-    return norm;
+function parseCoverageScopeOption(value: string, _previous: string): string {
+  try {
+    parseCoverageScope(value);
+    return value;
+  } catch (_e) {
+    throw new Commander.InvalidArgumentError(
+      `Invalid coverage scope '${value}'. Allowed tokens: 'project', 'directimports', 'static'`
+    );
   }
-  throw new Commander.InvalidArgumentError(
-    `Invalid coverage scope '${value}'. Allowed: 'project', 'project+directimports'`
-  );
-} // fn: parseCoverageScope
+} // fn: parseCoverageScopeOption
 
 function parseFloatArgZeroToOne(value: string, _previous: number): number {
   const parsedValue = parseFloatArgGeZero(value, _previous);

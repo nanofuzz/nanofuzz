@@ -7,7 +7,7 @@ import {
 } from "../AbstractRunner";
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag, ProgramImport } from "../../analysis/Types";
-import { CoverageScope, isCoverageScope } from "../../Types";
+import { parseCoverageScope } from "../../measures/Util";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import { FuzzEnv } from "../../Fuzzer";
 import * as JSONN from "../../../Jsonn";
@@ -136,29 +136,25 @@ export class PythonRunner extends AbstractRunner {
       }
 
       // Refresh the dynamic coverage with what this call executed.
-      if (
-        !this._coverageEnabled ||
-        !result.result.coverageData ||
-        Object.keys(result.result.coverageData).length === 0
-      ) {
+      if (!this._coverageEnabled) {
         this._coverageInfo = undefined;
-      } else {
+      } else if (result.result.staticCoverage) {
         this._coverageInfo = result.result.staticCoverage;
-        if (this._coverageInfo) {
-          for (const filename in this._coverageInfo) {
-            const coverageData = result.result.coverageData;
-            const coverageArcs = result.result.coverageArcs;
-            this._coverageInfo[filename].lines =
-              coverageData && !Array.isArray(coverageData)
-                ? coverageData[filename]
-                : undefined;
-            this._coverageInfo[filename].arcs =
-              coverageArcs && !Array.isArray(coverageArcs)
-                ? coverageArcs[filename]
-                : undefined;
-          }
-          this._coverageCallback?.(this._coverageInfo);
+        for (const filename in this._coverageInfo) {
+          const coverageData = result.result.coverageData;
+          const coverageArcs = result.result.coverageArcs;
+          this._coverageInfo[filename].lines =
+            coverageData && !Array.isArray(coverageData)
+              ? coverageData[filename]
+              : undefined;
+          this._coverageInfo[filename].arcs =
+            coverageArcs && !Array.isArray(coverageArcs)
+              ? coverageArcs[filename]
+              : undefined;
         }
+        this._coverageCallback?.(this._coverageInfo);
+      } else {
+        this._coverageInfo = undefined;
       }
 
       return result;
@@ -360,10 +356,7 @@ export class PythonRunner extends AbstractRunner {
           ? path.resolve(path.join(venvPath, "Scripts"))
           : path.resolve(path.join(venvPath, "bin"));
       const venvInterpreter = path.resolve(
-        path.join(
-          venvBins,
-          process.platform === "win32" ? "python" : "python3"
-        )
+        path.join(venvBins, process.platform === "win32" ? "python" : "python3")
       );
       if (
         fs.existsSync(venvInterpreter) ||
@@ -541,21 +534,14 @@ export class PythonRunner extends AbstractRunner {
     const filenameBase = path.basename(this._filename);
     const coverageScopeRaw = Config.get<unknown>(
       "nanofuzz.fuzzer.coverageScope",
-      "project"
+      "project static"
     );
 
-    if (!isCoverageScope(coverageScopeRaw)) {
-      throw new Error(
-        `Invalid coverageScope configuration '${String(
-          coverageScopeRaw
-        )}'. Allowed values: 'project', 'project+directimports'`
-      );
-    }
-    const coverageScope: CoverageScope = coverageScopeRaw;
+    const scopeConfig = parseCoverageScope(coverageScopeRaw);
 
     let directPkgs: string[] = [];
     if (
-      coverageScope === "project+directimports" &&
+      scopeConfig.target.includes("directimports") &&
       fs.existsSync(this._filename)
     ) {
       try {
@@ -574,8 +560,9 @@ export class PythonRunner extends AbstractRunner {
         filenameBase.length - path.extname(filenameBase).length
       ),
       this._fn,
-      coverageScope,
+      scopeConfig.target,
       JSON.stringify(directPkgs),
+      String(scopeConfig.collectStaticCoverage),
     ];
 
     const host = new PythonHost(

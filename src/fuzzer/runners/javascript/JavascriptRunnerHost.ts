@@ -1,5 +1,6 @@
 import * as JSONN from "../../../Jsonn";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import * as moduleApi from "node:module";
 import vm from "node:vm";
 import { Worker } from "node:worker_threads";
@@ -35,6 +36,8 @@ function getGlobalPaths(): string[] {
 async function main() {
   const initialFilename = process.argv[2];
   const initialFnName = process.argv[3];
+  const collectStatic =
+    process.argv[5] !== undefined ? process.argv[5] === "true" : true;
 
   const loadedModules: Record<string, unknown> = {};
 
@@ -42,7 +45,14 @@ async function main() {
     filenameToLoad: string,
     fnNameToLoad: string
   ): ((...args: unknown[]) => unknown) => {
-    const resolvedPath = path.resolve(filenameToLoad);
+    let resolvedPath = path.resolve(filenameToLoad);
+    try {
+      if (fs.existsSync(resolvedPath)) {
+        resolvedPath = fs.realpathSync(resolvedPath);
+      }
+    } catch {
+      // ignore
+    }
     addOriginalNodeModulePaths(resolvedPath);
     if (!(resolvedPath in loadedModules) || !require.cache[resolvedPath]) {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -83,8 +93,11 @@ async function main() {
   sendMsg("READY");
 
   // Send initial coverage info
-  const initialCoverage = getGlobalCoverageData() ?? {};
-  sendMsg(initialCoverage);
+  const rawCoverage = getGlobalCoverageData() ?? {};
+  if (!collectStatic) {
+    resetCoverageCounters(rawCoverage);
+  }
+  sendMsg(rawCoverage);
 
   // Main loop
   while (true) {
@@ -99,7 +112,7 @@ async function main() {
     const payloadBuf = await readBytes(length);
     const input: RunnerInput & { timeout?: number } = deserialize(payloadBuf);
 
-    resetCoverageCounters(getGlobalCoverageData());
+    resetCoverageCounters(Reflect.get(globalThis, "__coverage__"));
 
     const targetFilename = input.filename ?? initialFilename;
     const targetFnName = input.fnName ?? initialFnName;
@@ -319,9 +332,21 @@ function functionTimeout(
 
   return (timeout: number | undefined, ...args: unknown[]): unknown => {
     const context: Record<string, unknown> = {
+      global: globalThis,
+      globalThis,
       returnValue: undefined,
       function_: () => fnToCall(...args),
     };
+    Object.defineProperty(context, "__coverage__", {
+      get() {
+        return Reflect.get(globalThis, "__coverage__");
+      },
+      set(v) {
+        Reflect.set(globalThis, "__coverage__", v);
+      },
+      configurable: true,
+      enumerable: true,
+    });
 
     script.runInNewContext(context, timeout ? { timeout } : {});
     return context.returnValue;
@@ -554,6 +579,7 @@ function extractDynamicCoverage(
       const fileCoverage = covData[fileKey];
       if (fileCoverage) {
         result[fileKey] = {
+          path: fileCoverage.path || fileKey,
           s: fileCoverage.s,
           f: fileCoverage.f,
           b: fileCoverage.b,
@@ -642,6 +668,10 @@ function getGlobalCoverageData(): unknown {
 }
 
 type FileCoverageData = {
+  path?: string;
+  statementMap?: Record<string, unknown>;
+  fnMap?: Record<string, unknown>;
+  branchMap?: Record<string, unknown>;
   s?: Record<string, number>;
   f?: Record<string, number>;
   b?: Record<string, number[]>;

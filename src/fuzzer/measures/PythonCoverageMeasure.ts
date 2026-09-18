@@ -59,6 +59,13 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     // Reset per-run state so a re-run does not accumulate coverage from the
     // previous run.
     this._globalCoverageMap = createCoverageMap({});
+    if (this._coverageData.files().length > 0) {
+      AbstractCoverageMeasure.better_merge(
+        this._globalCoverageMap,
+        this._coverageData
+      );
+      this._coverageData = createCoverageMap(this._snapshotZero());
+    }
     this._history.clear();
     this._lastNode = undefined;
   } // fn: onRunStart
@@ -408,6 +415,33 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     }
     return snapshot;
   } // fn: _snapshot
+
+  /**
+   * Returns a copy of the current coverage data with all counters zeroed.
+   *
+   * @returns a zeroed copy of the current coverage structure
+   */
+  protected _snapshotZero(): CoverageMapData {
+    const snapshot: CoverageMapData = {};
+    for (const fileKey of this._coverageData.files()) {
+      const fc = AbstractCoverageMeasure.file_snapshot(
+        this._coverageData.fileCoverageFor(fileKey)
+      );
+      for (const sKey of Object.keys(fc.s)) {
+        fc.s[sKey] = 0;
+      }
+      for (const fKey of Object.keys(fc.f)) {
+        fc.f[fKey] = 0;
+      }
+      for (const bKey of Object.keys(fc.b)) {
+        fc.b[bKey] = Array.isArray(fc.b[bKey])
+          ? Array(fc.b[bKey].length).fill(0)
+          : [];
+      }
+      snapshot[fileKey] = fc;
+    }
+    return snapshot;
+  } // fn: _snapshotZero
 } // class: PythonCoverageMeasure
 
 /**
