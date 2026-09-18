@@ -21,6 +21,13 @@ export class RandomInputGenerator extends AbstractInputGenerator {
   } // fn: constructor
 
   /**
+   * Returns the human-readable name for the Random input generator
+   */
+  public override get humanName(): string {
+    return "Random";
+  } // property: get humanName
+
+  /**
    * Returns `now` if the generator has inputs available for use,
    * `soon` if input generation is pending asynchronously,
    * and `false` otherwise.

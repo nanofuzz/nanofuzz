@@ -541,6 +541,25 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // fn: onRunEnd
 
   /**
+   * Returns active subgenerators currently pending ("soon").
+   */
+  public getPendingGenerators(): AbstractInputGenerator[] {
+    if (!this._permitSubgens) {
+      return [];
+    }
+    return this._subgens.filter(
+      (g, i) => this._activeSubgens[i] && g.nextable() === "soon"
+    );
+  }
+
+  /**
+   * Returns human-readable names of active subgenerators currently pending ("soon").
+   */
+  public getPendingGeneratorNames(): string[] {
+    return this.getPendingGenerators().map((g) => g.humanName);
+  }
+
+  /**
    * Returns diagnostic messages from composite input generator and active subgens.
    */
   public override getDiagnostics(): string[] {
@@ -556,9 +575,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     this._subgens.forEach((subgen, i) => {
       if (this._activeSubgens[i]) {
         diagnostics.push(
-          ...subgen
-            .getDiagnostics()
-            .map((m) => `[${subgen.name.replace("InputGenerator", "")}] ${m}`)
+          ...subgen.getDiagnostics().map((m) => `[${subgen.humanName}] ${m}`)
         );
       }
     });

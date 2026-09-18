@@ -48,6 +48,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
   } // fn: constructor
 
   /**
+   * Returns the human-readable name for the AI input generator
+   */
+  public override get humanName(): string {
+    return "AI";
+  } // property: get humanName
+
+  /**
    * Are inputs available?
    *
    * @returns 'now' if generator inputs are available, 'soon' if pending, false otherwise
