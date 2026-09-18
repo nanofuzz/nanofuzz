@@ -749,6 +749,11 @@ def uncalled_func(y: int) -> int:
       const realPyPath = getRealPath(pyPath);
       const initialCov =
         runner.coverageInfo?.[pyPath] ?? runner.coverageInfo?.[realPyPath];
+      console.log(`pyPath: ${pyPath}, realPyPath: ${realPyPath}`); // !!!!!!!!!!
+      console.log(`initialCov: ${JSON.stringify(initialCov, null, 2)}`); // !!!!!!!!!!
+      console.log(
+        `runner.coverageInfo: ${JSON.stringify(runner.coverageInfo, null, 2)}`
+      ); // !!!!!!!!!!
       expect(initialCov).toBeDefined();
       expect(initialCov?.executable).toBeDefined();
       expect(initialCov?.executable?.length).toBeGreaterThan(0);
