@@ -435,7 +435,7 @@ describe("cli:", () => {
     const aiGen = new AiInputGenerator(fn, seed, new Map(), program.src);
     aiGen.onRunStart(true);
     const [schema, directives] = aiGen["_getInputsSchema"](fn.getLang());
-    const numRequested = aiGen["_requestedInputCount"];
+    const numRequested = aiGen["_getRequestedInputCount"]();
     const promptText = prompt.genInputs(
       fn,
       directives,

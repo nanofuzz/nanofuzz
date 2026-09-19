@@ -699,6 +699,6 @@ ${top5Report}`;
 
     // Verify overall accuracy bounds across randomly generated specs
     expect(Math.abs(mean)).toBeLessThan(0.05);
-    expect(stdDev).toBeLessThan(0.15);
+    expect(stdDev).toBeLessThan(0.1);
   });
 });

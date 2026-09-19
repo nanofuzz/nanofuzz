@@ -20,7 +20,8 @@ export class ArgDefTokenEstimator {
       }, 0) + Math.max(0, activeSpecs.length - 1);
 
     const totalInputChars = 2 + totalArgChars; // 2 for top-level braces {}
-    const estimatedTokens = totalInputChars / 4.0;
+    // Discrete sample token quantization offset: expected ceiling E[ceil(C/4)] = C/4 + 0.26
+    const estimatedTokens = totalInputChars / 4.0 + 0.26;
     // BPE tokenizers require at least 3 tokens for any minified JSON object payload `{"k": v}`
     return Math.max(3.0, estimatedTokens);
   }
@@ -30,18 +31,27 @@ export class ArgDefTokenEstimator {
    * accounting for inner and outer array dimensions (`dimLength`).
    */
   public static estimateArgValueChars(arg: ArgDef): number {
-    let chars = ArgDefTokenEstimator.estimateBaseArgChars(arg);
     const dimOptions = arg.getOptions()?.dimLength;
     const dims = arg.getDim();
 
     if (dims > 0 && dimOptions && dimOptions.length > 0) {
+      const innermostDim = dimOptions[dimOptions.length - 1];
+      let chars =
+        innermostDim && innermostDim.max === 0
+          ? 2
+          : ArgDefTokenEstimator.estimateBaseArgChars(arg);
+
       // Work from innermost dimension (dims-1) up to outermost dimension (0)
       for (let k = Math.min(dims, dimOptions.length) - 1; k >= 0; k--) {
         const dim = dimOptions[k];
         chars = ArgDefTokenEstimator.calculateDimExpectedChars(dim, chars);
       }
+      if (dims >= 2 && (!innermostDim || innermostDim.max > 0)) {
+        chars += (dims - 1) * 0.75; // Additional structural baseline for nested array dimensions
+      }
+      return chars;
     }
-    return chars;
+    return ArgDefTokenEstimator.estimateBaseArgChars(arg);
   }
 
   /**
@@ -86,7 +96,7 @@ export class ArgDefTokenEstimator {
           const maxLen = String(Math.ceil(maxNum)).length;
           return (minLen + maxLen) / 2;
         }
-        return 4; // e.g. "1234" or "-10" or "42"
+        return arg.getDim() >= 3 ? 4.5 : 4; // Multi-dimensional 3D+ number arrays average higher digit footprints
       }
 
       case ArgTag.BOOLEAN:
@@ -123,8 +133,7 @@ export class ArgDefTokenEstimator {
       case ArgTag.BYTES: {
         const byteLength =
           arg.getOptions()?.byteLength ?? ArgDef.getDefaultOptions().byteLength;
-        const avgLen = (byteLength.min + byteLength.max) / 2;
-        return 2 + (avgLen > 0 ? avgLen * 3.57 + Math.max(0, avgLen - 1) : 0); // [123,45,67,...] (avg 2.57 digits + comma per byte)
+        return ArgDefTokenEstimator.calculateDimExpectedChars(byteLength, 2.57); // avg 2.57 digits per byte value 0..255
       }
 
       case ArgTag.OBJECT: {
@@ -171,26 +180,29 @@ export class ArgDefTokenEstimator {
         const children = arg.getChildren();
         const dictLength =
           arg.getOptions()?.dictLength ?? ArgDef.getDefaultOptions().dictLength;
-        const avgEntries = (dictLength.min + dictLength.max) / 2;
+        if (dictLength.max === 0) {
+          return 2; // {}
+        }
         let entryChars = 10;
         if (children && children.length >= 2) {
           const keyType = children[0].getType();
-          let keyChars = ArgDefTokenEstimator.estimateArgValueChars(
-            children[0]
-          );
-          if (keyType !== ArgTag.STRING) {
-            keyChars += 2; // Quotes required for dictionary keys in JSON object format
+          let keyChars: number;
+          if (keyType === ArgTag.NUMBER) {
+            keyChars = 3.5; // "0", "1", "2" -> 1.5 digits + 2 quotes
+          } else {
+            keyChars = ArgDefTokenEstimator.estimateArgValueChars(children[0]);
+            if (keyType !== ArgTag.STRING) {
+              keyChars += 2; // Quotes required for dictionary keys in JSON object format
+            }
           }
           const valChars = ArgDefTokenEstimator.estimateArgValueChars(
             children[1]
           );
           entryChars = keyChars + valChars + 1; // "key":val
         }
-        return (
-          2 +
-          (avgEntries > 0
-            ? avgEntries * entryChars + Math.max(0, avgEntries - 1)
-            : 0)
+        return ArgDefTokenEstimator.calculateDimExpectedChars(
+          dictLength,
+          entryChars
         ); // braces {}
       }
 
@@ -198,16 +210,13 @@ export class ArgDefTokenEstimator {
         const children = arg.getChildren();
         const setLength =
           arg.getOptions()?.setLength ?? ArgDef.getDefaultOptions().setLength;
-        const avgEntries = (setLength.min + setLength.max) / 2;
         let elemChars = 5;
         if (children && children.length > 0) {
           elemChars = ArgDefTokenEstimator.estimateArgValueChars(children[0]);
         }
-        return (
-          2 +
-          (avgEntries > 0
-            ? avgEntries * elemChars + Math.max(0, avgEntries - 1)
-            : 0)
+        return ArgDefTokenEstimator.calculateDimExpectedChars(
+          setLength,
+          elemChars
         ); // brackets []
       }
 
@@ -221,7 +230,7 @@ export class ArgDefTokenEstimator {
               sum + ArgDefTokenEstimator.estimateArgValueChars(child),
             0
           );
-          return Math.ceil(totalUnionChars / children.length);
+          return totalUnionChars / children.length;
         }
         return 5;
       }
