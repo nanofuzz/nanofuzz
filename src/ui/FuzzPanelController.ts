@@ -3321,25 +3321,17 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
       // BigInt-specific Options
       case fuzzer.ArgTag.BIGINT: {
+        // Note: bigints use their own control ids so that the front-end can
+        // tell them apart from numbers, which it parses with `Number()`.
+        // A bigint is always integral, so there is no Integer/Float choice.
         const interval = arg.getIntervals()[0];
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
-          BigInt(interval.min as string | number | bigint | boolean).toString()
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMin" name="${idBase}-bigIntMin" value="${htmlEscape(
+          bigIntOrThrow(interval.min).toString()
         )}">Min value</vscode-text-field>`;
         html += " ";
-        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-max" name="${idBase}-max" value="${htmlEscape(
-          BigInt(interval.max as string | number | bigint | boolean).toString()
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMax" name="${idBase}-bigIntMax" value="${htmlEscape(
+          bigIntOrThrow(interval.max).toString()
         )}">Max value</vscode-text-field>`;
-        html += " ";
-        html +=
-          /*html*/
-          `<vscode-radio-group style="display: inline-block;">
-            <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
-              arg.getOptions().numInteger ? " checked " : ""
-            }>Integer</vscode-radio>
-            <vscode-radio ${disabledFlag} id="${idBase}-numInteger" name="${idBase}-numInteger" ${
-              !arg.getOptions().numInteger ? " checked " : ""
-            }>Float</vscode-radio>
-          </vscode-radio-group>`;
         break;
       }
 
@@ -4157,6 +4149,23 @@ export const normalizeFuzzOptions = (
       : dft.measures,
   };
 }; // fn: normalizeFuzzOptions()
+
+/**
+ * Returns the given interval bound as a bigint.
+ *
+ * @param value interval bound of a bigint ArgDef
+ * @returns the bound as a bigint
+ *
+ * Throws an exception if the bound is not a bigint
+ */
+function bigIntOrThrow(value: fuzzer.ArgType): bigint {
+  if (typeof value !== "bigint") {
+    throw new Error(
+      `Invalid interval bound for bigint type: ${JSON.stringify(String(value))}`
+    );
+  }
+  return value;
+} // fn: bigIntOrThrow()
 
 /**
  * Accepts an array of strings and returns a prettier list including
