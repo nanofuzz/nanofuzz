@@ -164,7 +164,8 @@ export class LlmAdapter {
     schema: zod.ZodType,
     directives: string[],
     allInputs: Map<string, unknown>,
-    moduleSrc: string
+    moduleSrc: string,
+    numRequested: number
   ): Promise<{
     programInputs: { [k: string]: ArgValueType }[];
     stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
@@ -173,7 +174,7 @@ export class LlmAdapter {
     let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
     try {
       response = await this._query(
-        [prompt.genInputs(fn, directives, allInputs, moduleSrc)],
+        [prompt.genInputs(fn, directives, allInputs, moduleSrc, numRequested)],
         schema
       );
       const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
@@ -312,6 +313,19 @@ export class LlmAdapter {
   } // fn: isConfigured
 
   /**
+   * Returns the maximum output token count supported by the configured model,
+   * or a default fallback if unlisted or unconfigured.
+   */
+  public static getMaxOutputTokens(): number {
+    const cfg = LlmAdapter.getConfig();
+    const maxTokens = nodellm.ModelRegistry.getMaxOutputTokens(
+      cfg.modelName,
+      cfg.provider
+    );
+    return maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  } // fn: getMaxOutputTokens
+
+  /**
    * Gets the key elements of the LLM configuration
    *
    * @returns provider, modelName, and apiKey
@@ -377,7 +391,8 @@ export const prompt = {
     fn: FunctionDef,
     directives: string[],
     allInputs: Map<string, unknown>,
-    moduleSrc: string
+    moduleSrc: string,
+    numRequested: number
   ): string => {
     const fnRef = fn.getRef();
     const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
@@ -401,7 +416,9 @@ ${escapedModuleSrc}
 `
       : "";
 
-    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+
+Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
 
 The specification for the "${fnRef.name}" program:
 \`\`\`
@@ -419,3 +436,9 @@ ${inputs.length ? `The following inputs were previously generated and tested, so
 `;
   },
 };
+
+/**
+ * Fallback maximum output token limit used when a model's max output token capacity
+ * is not specified in the model registry or when no model is configured.
+ */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;

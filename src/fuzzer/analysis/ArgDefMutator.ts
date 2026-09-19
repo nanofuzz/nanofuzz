@@ -829,12 +829,18 @@ export class ArgDefMutator {
               // renames are intentionally left to dictionary regeneration.
               if (valueSpec) {
                 for (const [key, entry] of Object.entries(dict)) {
+                  const childUniqueContexts = subInput.uniqueContexts.map(
+                    (context) => ({
+                      ...context,
+                      pathFromOuter: [...context.pathFromOuter, key],
+                    })
+                  );
                   subInputs.push({
                     subPath: [...subInput.subPath, key],
                     subElement: entry,
                     subSpec: valueSpec,
                     inArray: false,
-                    uniqueContexts: subInput.uniqueContexts,
+                    uniqueContexts: childUniqueContexts,
                   });
                 }
               }
