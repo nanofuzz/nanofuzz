@@ -34,6 +34,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _stats = _initStats(); // Stats about inputs generated
   protected _allInputs; // Running list of all generated inputs
   protected _exhausted = false; // Set to true when the model produces no new valid inputs or encounters an error
+  protected _tokensPerInput: number; // Estimated tokens per input (calculated onRunStart)
+  protected _requestedInputCount; // Number of inputs to request per LLM call (calculated per request)
 
   public constructor(
     fn: FunctionDef,
@@ -45,6 +47,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
     this._fn = fn;
     this._allInputs = allInputs;
     this._moduleSrc = moduleSrc;
+    this._tokensPerInput = this._estimateTokensPerInput();
+    this._requestedInputCount = this._getRequestedInputCount();
   } // fn: constructor
 
   /**
@@ -54,6 +58,14 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   public override nextable(): NextableStatus {
     if (this._inputQueue.length) {
+      if (
+        this._inputQueue.length < getChunkSize() &&
+        !this._callsPending &&
+        this._llm &&
+        !this._exhausted
+      ) {
+        this._getMoreInputs();
+      }
       return "now";
     } else if (this._callsPending) {
       return "soon";
@@ -75,12 +87,6 @@ export class AiInputGenerator extends AbstractInputGenerator {
     }
     const diagnostics: string[] = [];
     if (LlmAdapter.isConfigured()) {
-      const cfg = LlmAdapter.getConfig();
-      if (!cfg.apiKey) {
-        diagnostics.push(
-          `No API key was provided for ${cfg.provider} model ${cfg.modelName}.`
-        );
-      }
       const failures = this._stats.calls.history.filter(
         (h): h is { failure: true; message: string } =>
           "failure" in h && h.failure === true
@@ -120,6 +126,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   public onRunStart(active: boolean): void {
     this._exhausted = false;
+    this._tokensPerInput = this._estimateTokensPerInput();
+    this._requestedInputCount = this._getRequestedInputCount();
 
     // Abandon back-end if stale or no longer configured
     if (
@@ -149,8 +157,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
       });
     }
 
-    // Refill the cache if it's empty
-    if (this._llm && !this._inputQueue.length) {
+    // Refill the cache if it's below chunkSize
+    if (this._llm && this._inputQueue.length < getChunkSize()) {
       this._getMoreInputs();
     }
   } // fn: onRunStart
@@ -165,11 +173,273 @@ export class AiInputGenerator extends AbstractInputGenerator {
     if (inputToReturn === undefined) {
       throw new Error(`next() not allowed when isAvailable()===false`);
     }
-    if (!this._inputQueue.length) {
+    if (
+      this._inputQueue.length < getChunkSize() &&
+      !this._callsPending &&
+      this._llm &&
+      !this._exhausted
+    ) {
       this._getMoreInputs();
     }
     return inputToReturn;
   } // fn: next
+
+  /**
+   * Estimates average JSON response character length for a single 0-dimensional argument value.
+   */
+  protected _estimateBaseArgChars(arg: ArgDef): number {
+    switch (arg.getType()) {
+      case ArgTag.NUMBER: {
+        const numOpts = arg.getOptions();
+        if (!numOpts.numInteger) {
+          return 15; // Floating point numbers format with fractional digits (e.g. 42.18953048591823)
+        }
+        const intervals = arg.getIntervals();
+        if (intervals && intervals.length > 0) {
+          const firstInt = intervals[0];
+          const minNum = typeof firstInt.min === "number" ? firstInt.min : 0;
+          const maxNum = typeof firstInt.max === "number" ? firstInt.max : 100;
+          const minLen = String(Math.floor(minNum)).length;
+          const maxLen = String(Math.ceil(maxNum)).length;
+          return (minLen + maxLen) / 2;
+        }
+        return 4; // e.g. "1234" or "-10" or "42"
+      }
+
+      case ArgTag.BOOLEAN:
+        return 4.5; // avg of "true" (4) and "false" (5)
+
+      case ArgTag.STRING: {
+        const strOptions = arg.getOptions();
+        const strLength =
+          strOptions?.strLength ?? ArgDef.getDefaultOptions().strLength;
+        const avgLen = (strLength.min + strLength.max) / 2;
+        const charSet = Array.from(strOptions?.strCharset ?? "");
+        const escapableCount = charSet.filter(
+          (c) => c === '"' || c === "\\"
+        ).length;
+        const escapeProb =
+          charSet.length > 0 ? escapableCount / charSet.length : 0.021;
+        const escapeFactor = 1 + escapeProb;
+        return 2 + avgLen * escapeFactor; // 2 for "" quotes
+      }
+
+      case ArgTag.LITERAL: {
+        const intervals = arg.getIntervals();
+        if (
+          intervals &&
+          intervals.length > 0 &&
+          intervals[0].min !== undefined &&
+          intervals[0].min !== null
+        ) {
+          return JSON.stringify(intervals[0].min).length;
+        }
+        return 2; // e.g. "x"
+      }
+
+      case ArgTag.BYTES: {
+        const byteLength =
+          arg.getOptions()?.byteLength ?? ArgDef.getDefaultOptions().byteLength;
+        const avgLen = (byteLength.min + byteLength.max) / 2;
+        return 2 + (avgLen > 0 ? avgLen * 3.57 + Math.max(0, avgLen - 1) : 0); // [123,45,67,...] (avg 2.57 digits + comma per byte)
+      }
+
+      case ArgTag.OBJECT: {
+        const children = arg.getChildren();
+        if (children && children.length > 0) {
+          const activeChildren = children.filter((child) => !child.isNoInput());
+          if (activeChildren.length === 0) {
+            return 2; // {}
+          }
+          const expectedPropsChars = activeChildren.reduce((sum, child) => {
+            const keyChars = child.getName().length + 3; // "key":
+            const valChars = this._estimateArgValueChars(child);
+            const propChars = keyChars + valChars;
+            const prob = child.isOptional() ? 0.5 : 1.0;
+            return sum + propChars * prob;
+          }, 0);
+          const expectedPropCount = activeChildren.reduce(
+            (sum, child) => sum + (child.isOptional() ? 0.5 : 1.0),
+            0
+          );
+          const expectedCommaChars = Math.max(0, expectedPropCount - 1);
+          return 2 + expectedPropsChars + expectedCommaChars; // braces {}
+        }
+        return 20; // Default unstructured object e.g. {"prop1":"val1"}
+      }
+
+      case ArgTag.TUPLE: {
+        const children = arg.getChildren();
+        if (children && children.length > 0) {
+          const activeChildren = children.filter((child) => !child.isNoInput());
+          if (activeChildren.length === 0) {
+            return 2; // []
+          }
+          const childrenChars =
+            activeChildren.reduce((sum, child) => {
+              return sum + this._estimateArgValueChars(child);
+            }, 0) + Math.max(0, activeChildren.length - 1);
+          return 2 + childrenChars; // brackets []
+        }
+        return 2;
+      }
+
+      case ArgTag.DICTIONARY: {
+        const children = arg.getChildren();
+        const dictLength =
+          arg.getOptions()?.dictLength ?? ArgDef.getDefaultOptions().dictLength;
+        const avgEntries = (dictLength.min + dictLength.max) / 2;
+        let entryChars = 10;
+        if (children && children.length >= 2) {
+          const keyType = children[0].getType();
+          let keyChars = this._estimateArgValueChars(children[0]);
+          if (keyType !== ArgTag.STRING) {
+            keyChars += 2; // Quotes required for dictionary keys in JSON object format
+          }
+          const valChars = this._estimateArgValueChars(children[1]);
+          entryChars = keyChars + valChars + 1; // "key":val
+        }
+        return (
+          2 +
+          (avgEntries > 0
+            ? avgEntries * entryChars + Math.max(0, avgEntries - 1)
+            : 0)
+        ); // braces {}
+      }
+
+      case ArgTag.SET: {
+        const children = arg.getChildren();
+        const setLength =
+          arg.getOptions()?.setLength ?? ArgDef.getDefaultOptions().setLength;
+        const avgEntries = (setLength.min + setLength.max) / 2;
+        let elemChars = 5;
+        if (children && children.length > 0) {
+          elemChars = this._estimateArgValueChars(children[0]);
+        }
+        return (
+          2 +
+          (avgEntries > 0
+            ? avgEntries * elemChars + Math.max(0, avgEntries - 1)
+            : 0)
+        ); // brackets []
+      }
+
+      case ArgTag.UNION: {
+        const children = arg
+          .getChildren()
+          .filter((child) => !child.isNoInput());
+        if (children.length > 0) {
+          const totalUnionChars = children.reduce(
+            (sum, child) => sum + this._estimateArgValueChars(child),
+            0
+          );
+          return Math.ceil(totalUnionChars / children.length);
+        }
+        return 5;
+      }
+
+      case ArgTag.UNRESOLVED:
+      default:
+        return 5;
+    }
+  } // fn: _estimateBaseArgChars
+
+  /**
+   * Calculates the exact expected JSON character length for an array dimension
+   * over discrete integer lengths in [dim.min, dim.max].
+   */
+  protected _calculateDimExpectedChars(
+    dim: { min: number; max: number },
+    innerChars: number
+  ): number {
+    const minLen = Math.max(0, Math.ceil(dim.min));
+    const maxLen = Math.max(minLen, Math.floor(dim.max));
+    const numLengths = maxLen - minLen + 1;
+
+    let totalCharsSum = 0;
+    for (let len = minLen; len <= maxLen; len++) {
+      if (len === 0) {
+        totalCharsSum += 2; // []
+      } else {
+        totalCharsSum += 2 + len * innerChars + (len - 1); // [elem1, elem2, ...]
+      }
+    }
+    return totalCharsSum / numLengths;
+  } // fn: _calculateDimExpectedChars
+
+  /**
+   * Estimates average JSON response character length for an argument value,
+   * accounting for inner and outer array dimensions (`dimLength`).
+   */
+  protected _estimateArgValueChars(arg: ArgDef): number {
+    let chars = this._estimateBaseArgChars(arg);
+    const dimOptions = arg.getOptions()?.dimLength;
+    const dims = arg.getDim();
+
+    if (dims > 0 && dimOptions && dimOptions.length > 0) {
+      // Work from innermost dimension (dims-1) up to outermost dimension (0)
+      for (let k = Math.min(dims, dimOptions.length) - 1; k >= 0; k--) {
+        const dim = dimOptions[k];
+        chars = this._calculateDimExpectedChars(dim, chars);
+      }
+    }
+    return chars;
+  } // fn: _estimateArgValueChars
+
+  /**
+   * Estimates average JSON response token size for a single generated input object
+   * `{ "param1": val1, "param2": val2, ... }`.
+   */
+  protected _estimateTokensPerInput(): number {
+    const activeSpecs = this._specs.filter((arg) => !arg.isNoInput());
+    const totalArgChars =
+      activeSpecs.reduce((sum, arg) => {
+        const argKeyChars = arg.getName().length + 3; // "paramName":
+        const argValChars = this._estimateArgValueChars(arg);
+        return sum + argKeyChars + argValChars;
+      }, 0) + Math.max(0, activeSpecs.length - 1);
+
+    const totalInputChars = 2 + totalArgChars; // 2 for top-level braces {}
+    return totalInputChars <= 32
+      ? Math.ceil(totalInputChars / 4)
+      : totalInputChars / 4;
+  } // fn: _estimateTokensPerInput
+
+  /**
+   * Calculates requested input count for the LLM prompt, incorporating:
+   *  - Historical invalid input buffer rate (defaulting to 10%), recalculated per request
+   *  - Gross response token size cap based on model's max output token limit
+   *    and static tokens per input estimated at onRunStart
+   */
+  protected _getRequestedInputCount(): number {
+    const chunkSize = getChunkSize();
+
+    const valid = this._stats.inputs.gen;
+    const invalid =
+      this._stats.inputs.invalid + this._stats.inputs.invalidLater;
+    const totalProcessed = valid + invalid;
+
+    // Default invalid buffer rate is 10% before any call history is recorded.
+    // We cap invalidBufferRate at 1.0 (100% buffer) so that we at most double
+    // the requested chunk size (up to 2x chunkSize), preventing extreme over-fetching
+    // if an LLM run experiences a temporary high failure or invalidation rate.
+    let invalidBufferRate = 0.1;
+    if (totalProcessed > 0) {
+      invalidBufferRate = Math.min(1.0, invalid / totalProcessed);
+    }
+
+    const bufferedChunkSize = Math.ceil(chunkSize * (1 + invalidBufferRate));
+
+    // Cap requested inputs so expected response size stays within model's max output tokens
+    const maxOutputTokens = LlmAdapter.getMaxOutputTokens();
+    const maxFitInputs = Math.floor(maxOutputTokens / this._tokensPerInput);
+
+    this._requestedInputCount = Math.max(
+      1,
+      Math.min(100, Math.min(bufferedChunkSize, maxFitInputs))
+    );
+    return this._requestedInputCount;
+  } // fn: _getRequestedInputCount
 
   /**
    * Gets more inputs from the back-end AI model
@@ -194,6 +464,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
       this._stats.calls.sent++;
       const [schema, directives] = this._getInputsSchema(this._fn.getLang());
+      const numRequested = this._getRequestedInputCount();
 
       // Fetch inputs from the llm
       this._llm
@@ -202,7 +473,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
           schema,
           directives,
           this._allInputs,
-          this._moduleSrc
+          this._moduleSrc,
+          numRequested
         )
         .then((inputs) => {
           // Update tokens received stats
@@ -706,6 +978,15 @@ export function _decode(data: ArgValueType, spec?: ArgDef): ArgValueType {
       return data;
   }
 } // fn: _decode
+
+/**
+ * Get the chunk size for composite generators.
+ *
+ * @returns The chunk size as a number.
+ */
+function getChunkSize(): number {
+  return Config.get<number>("nanofuzz.generators.compositeChunkSize", 20);
+} // fn: getChunkSize
 
 // Constants for encoding/decoding
 export const NANOFUZZ_UNDEFINED = "___NANOFUZZ____6158195231___UNDEFINED___";

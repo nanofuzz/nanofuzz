@@ -433,8 +433,16 @@ describe("cli:", () => {
     const program = ProgramFactory.fromFile(targetFile);
     const fn = program.functionsExported[targetFn];
     const aiGen = new AiInputGenerator(fn, seed, new Map(), program.src);
+    aiGen.onRunStart(true);
     const [schema, directives] = aiGen["_getInputsSchema"](fn.getLang());
-    const promptText = prompt.genInputs(fn, directives, new Map(), program.src);
+    const numRequested = aiGen["_requestedInputCount"];
+    const promptText = prompt.genInputs(
+      fn,
+      directives,
+      new Map(),
+      program.src,
+      numRequested
+    );
     const schemaJson = JSON.stringify(zod.toJSONSchema(schema));
     const key = createCacheKey(provider, modelName, [promptText], schemaJson);
 
