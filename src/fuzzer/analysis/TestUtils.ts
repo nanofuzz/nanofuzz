@@ -67,6 +67,7 @@ export function getRandomArgDef(
 ): ArgDef {
   const dftArgOptions = ArgDef.getDefaultOptions();
   const primitiveTags: ArgTag[] = [
+    ArgTag.BIGINT,
     ArgTag.NUMBER,
     ArgTag.STRING,
     ArgTag.BOOLEAN,
@@ -170,6 +171,7 @@ export function getRandomArgDef(
       children.push(elemChild);
       break;
     }
+    case ArgTag.BIGINT:
     case ArgTag.NUMBER:
     case ArgTag.STRING:
     case ArgTag.BOOLEAN:
@@ -259,6 +261,11 @@ export function getRandomArgDef(
         const min = prng() * 100;
         interval = [{ min, max: min + prng() * 100 }];
       }
+      break;
+    }
+    case ArgTag.BIGINT: {
+      const min = BigInt(Math.floor(prng() * 100));
+      interval = [{ min: min, max: min + BigInt(Math.floor(prng() * 100)) }];
       break;
     }
     case ArgTag.STRING: {

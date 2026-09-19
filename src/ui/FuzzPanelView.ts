@@ -2427,6 +2427,8 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const strCharset = document.getElementById(idBase + "-strCharset");
     const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
+    const bigIntMin = document.getElementById(idBase + "-bigIntMin");
+    const bigIntMax = document.getElementById(idBase + "-bigIntMax");
 
     // Process numeric overrides
     if (numInteger && min && max) {
@@ -2439,6 +2441,24 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
         min: Math.min(minVal, maxVal),
         max: Math.max(minVal, maxVal),
       };
+    } // TODO: Validation !!!
+
+    // Process bigint overrides. These are sent to the back-end with JSONN,
+    // which round-trips bigints, so no lossy Number() conversion is needed.
+    if (bigIntMin && bigIntMax) {
+      disableArr.push(bigIntMin, bigIntMax);
+      const minVal = toBigIntOrUndefined(
+        bigIntMin.getAttribute("current-value")
+      );
+      const maxVal = toBigIntOrUndefined(
+        bigIntMax.getAttribute("current-value")
+      );
+      if (minVal !== undefined && maxVal !== undefined) {
+        thisOverride.bigInt = {
+          min: minVal < maxVal ? minVal : maxVal,
+          max: minVal < maxVal ? maxVal : minVal,
+        };
+      }
     } // TODO: Validation !!!
 
     // Process boolean overrides
@@ -2652,6 +2672,19 @@ function handleGetListOfValidators() {
   };
   vscode.postMessage(message);
 } // fn: handleGetListOfValidators()
+
+/**
+ * Converts a control's value to a bigint.
+ *
+ * @param value The value of the control, or null if it has none
+ * @returns The value as a bigint, or undefined if it is not an integer
+ */
+function toBigIntOrUndefined(value: string | null): bigint | undefined {
+  if (value === null || !/^\s*-?\d+\s*$/.test(value)) {
+    return undefined;
+  }
+  return BigInt(value.trim());
+} // fn: toBigIntOrUndefined()
 
 /**
  * Returns true if the DOM node is hidden using the 'hidden' class.

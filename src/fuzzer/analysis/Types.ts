@@ -78,6 +78,7 @@ export type TypeRef = {
  * Indicates the primitive type of an argument
  */
 export enum ArgTag {
+  BIGINT = "bigint",
   NUMBER = "number",
   STRING = "string",
   BOOLEAN = "boolean",
@@ -91,6 +92,7 @@ export enum ArgTag {
   BYTES = "bytes",
 }
 export type ArgType =
+  | bigint
   | number
   | string
   | boolean
@@ -107,6 +109,7 @@ export type ArgType =
  * alongside an `ArgTag` — derive `T` from the tag instead.
  */
 export type TagToType = {
+  [ArgTag.BIGINT]: bigint;
   [ArgTag.NUMBER]: number;
   [ArgTag.STRING]: string;
   [ArgTag.BOOLEAN]: boolean;
@@ -120,6 +123,7 @@ export type TagToType = {
   [ArgTag.BYTES]: Uint8Array;
 };
 export type ArgValueType =
+  | bigint
   | number
   | string
   | boolean
@@ -185,6 +189,7 @@ export type ArgOptionOverrides = {
  * Argument option overrides
  */
 export type ArgOptionOverride = Partial<ArgOptions> & {
+  bigintIntervals?: Interval<bigint>[];
   numIntervals?: Interval<number>[];
   children?: ArgOptionOverrides;
 };
