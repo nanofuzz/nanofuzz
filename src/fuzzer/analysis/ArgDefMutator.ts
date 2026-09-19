@@ -346,8 +346,8 @@ export class ArgDefMutator {
             }
             const max = interval.max;
             const min = interval.min;
-            mutations.push(
-              ...[
+            addMutations(
+              [
                 {
                   name: "bigint-plusOne",
                   value: value + BigInt(1),
