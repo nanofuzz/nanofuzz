@@ -1,11 +1,11 @@
-import { ArgTag, ArgType, ArgOptions, Interval } from "./Types";
+import { ArgTag } from "./Types";
 import { ArgDef } from "./ArgDef";
 import seedrandom from "seedrandom";
 import * as JSONN from "../../Jsonn";
 import { ArgDefValidator } from "./ArgDefValidator";
 import { ArgDefGenerator } from "./ArgDefGenerator";
 import { ArgDefMutator } from "./ArgDefMutator";
-import { makeArgDef, makeTypeRef } from "./TestUtils";
+import { makeArgDef, makeTypeRef, getRandomArgDef } from "./TestUtils";
 import { TypescriptProgram } from "./typescript/TypescriptProgram";
 
 const argOptions = ArgDef.getDefaultOptions();
@@ -1014,16 +1014,24 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     const dupeMutators: { [k: string]: number } = {};
     let uniqueDimensionSpecs = 0;
     let regexStringSpecs = 0;
-    let i = 100;
+    let i = 150;
     while (i--) {
-      const spec = [getRandomArgDef(prng, Math.floor(prng() * 2))];
-      if (spec[0].getDim() > 0 && spec[0].getOptions().dimsUnique) {
-        uniqueDimensionSpecs++;
+      const paramCount = Math.floor(prng() * 3) + 1;
+      const spec: ArgDef[] = [];
+      for (let p = 0; p < paramCount; p++) {
+        spec.push(getRandomArgDef(prng, Math.floor(prng() * 2)));
       }
-      regexStringSpecs += [spec[0], ...spec[0].getChildrenFlat()].filter(
-        (argument) => argument.getOptions().strRegex !== undefined
-      ).length;
-      const stxt = abbrSpec(spec[0]).join("\r\n");
+      for (const s of spec) {
+        if (s.getDim() > 0 && s.getOptions().dimsUnique) {
+          uniqueDimensionSpecs++;
+        }
+        regexStringSpecs += [s, ...s.getChildrenFlat()].filter(
+          (argument) => argument.getOptions().strRegex !== undefined
+        ).length;
+      }
+      const stxt = spec
+        .map((s) => abbrSpec(s).join("\r\n"))
+        .join("\r\n---\r\n");
       const gen = new ArgDefGenerator(spec, prng);
       const val = new ArgDefValidator(spec);
 
@@ -1032,7 +1040,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
         let input = gen.next();
         const isValid = val.validate(input);
         if (!isValid) {
-          const itxt = JSONN.stringify(input[0]);
+          const itxt = JSONN.stringify(input);
           stats.gens.invalid++;
           stats.specsWithErrors[stxt] = stats.specsWithErrors[stxt] ?? {};
           stats.specsWithErrors[stxt][itxt] =
@@ -1155,270 +1163,4 @@ function abbrSpec(spec: ArgDef, indents = 0): string[] {
     clines.push(...abbrSpec(c, indents + 1));
   }
   return [line.join(" "), ...clines];
-}
-
-// Create a random ArgDef spec
-function getRandomArgDef(
-  prng: seedrandom.prng,
-  levels = 0,
-  parentType?: ArgTag
-): ArgDef {
-  const primitiveTags: ArgTag[] = [
-    ArgTag.NUMBER,
-    ArgTag.STRING,
-    ArgTag.BOOLEAN,
-    ArgTag.BYTES,
-    ArgTag.LITERAL,
-  ];
-  const containerTags: ArgTag[] = [
-    ArgTag.OBJECT,
-    ArgTag.DICTIONARY,
-    ArgTag.SET,
-    ArgTag.UNION,
-    ArgTag.TUPLE,
-  ];
-  const argTagOptions =
-    levels > 0 ? [...primitiveTags, ...containerTags] : primitiveTags;
-  const argTag = argTagOptions[Math.floor(prng() * argTagOptions.length)];
-
-  const children: ArgDef[] = [];
-  const nextLevel = Math.max(0, levels - 1);
-
-  switch (argTag) {
-    case ArgTag.OBJECT: {
-      let childCount = 2;
-      let attempts = 0;
-      while (childCount > 0 && attempts++ < 50) {
-        const child = getRandomArgDef(prng, nextLevel, argTag);
-        if (children.every((e) => e.getName() !== child.getName())) {
-          children.push(child);
-          childCount--;
-        }
-      }
-      break;
-    }
-    case ArgTag.UNION: {
-      let childCount = 2;
-      let attempts = 0;
-      while (childCount > 0 && attempts++ < 50) {
-        const child = getRandomArgDef(prng, nextLevel, argTag);
-        if (children.every((e) => e.getName() !== child.getName())) {
-          children.push(child);
-          childCount--;
-        }
-      }
-      break;
-    }
-    case ArgTag.TUPLE: {
-      for (let i = 0; i < 2; i++) {
-        const childRaw = getRandomArgDef(prng, nextLevel, argTag);
-        const childDef = new ArgDef(
-          String(i),
-          childRaw.getOffset(),
-          childRaw.getType(),
-          childRaw.getOptions(),
-          childRaw.getDim(),
-          false,
-          childRaw.getIntervals(),
-          childRaw.getChildren()
-        );
-        children.push(childDef);
-      }
-      break;
-    }
-    case ArgTag.DICTIONARY: {
-      const keyTagOptions = [ArgTag.NUMBER, ArgTag.STRING, ArgTag.BOOLEAN];
-      const keyTag = keyTagOptions[Math.floor(prng() * keyTagOptions.length)];
-      let keyOpt: ArgOptions = { ...argOptions };
-      if (keyTag === ArgTag.STRING) {
-        keyOpt = {
-          ...keyOpt,
-          strLength: { min: 1, max: 2 },
-        };
-      }
-      const keyChild = new ArgDef("keys", 0, keyTag, keyOpt, 0, false);
-
-      const valChildRaw = getRandomArgDef(prng, nextLevel, argTag);
-      const valChild = new ArgDef(
-        "values",
-        valChildRaw.getOffset(),
-        valChildRaw.getType(),
-        valChildRaw.getOptions(),
-        valChildRaw.getDim(),
-        false,
-        valChildRaw.getIntervals(),
-        valChildRaw.getChildren()
-      );
-      children.push(keyChild, valChild);
-      break;
-    }
-    case ArgTag.SET: {
-      const elemChildRaw = getRandomArgDef(prng, nextLevel, argTag);
-      const elemChild = new ArgDef(
-        "values",
-        elemChildRaw.getOffset(),
-        elemChildRaw.getType(),
-        elemChildRaw.getOptions(),
-        elemChildRaw.getDim(),
-        false,
-        elemChildRaw.getIntervals(),
-        elemChildRaw.getChildren()
-      );
-      children.push(elemChild);
-      break;
-    }
-    case ArgTag.NUMBER:
-    case ArgTag.STRING:
-    case ArgTag.BOOLEAN:
-    case ArgTag.BYTES:
-    case ArgTag.LITERAL:
-    case ArgTag.UNRESOLVED:
-      break;
-    default:
-      break;
-  }
-
-  const dimOptions = [
-    { dims: 0, dimLength: [] },
-    { dims: 1, dimLength: [{ min: 0, max: 2 }] },
-    { dims: 1, dimLength: [{ min: 1, max: 1 }] },
-    { dims: 1, dimLength: [{ min: 0, max: 0 }] },
-    { dims: 1, dimLength: [{ min: 1, max: 2 }] },
-    {
-      dims: 2,
-      dimLength: [
-        { min: 0, max: 2 },
-        { min: 1, max: 1 },
-      ],
-    },
-    {
-      dims: 2,
-      dimLength: [
-        { min: 1, max: 1 },
-        { min: 0, max: 0 },
-      ],
-    },
-    {
-      dims: 2,
-      dimLength: [
-        { min: 1, max: 2 },
-        { min: 0, max: 2 },
-      ],
-    },
-    {
-      dims: 3,
-      dimLength: [
-        { min: 0, max: 2 },
-        { min: 1, max: 1 },
-        { min: 0, max: 0 },
-      ],
-    },
-    {
-      dims: 3,
-      dimLength: [
-        { min: 1, max: 2 },
-        { min: 0, max: 2 },
-        { min: 1, max: 2 },
-      ],
-    },
-    {
-      dims: 3,
-      dimLength: [
-        { min: 1, max: 2 },
-        { min: 1, max: 2 },
-        { min: 0, max: 2 },
-      ],
-    },
-  ];
-  const dims = dimOptions[Math.floor(prng() * dimOptions.length)];
-  const isOptional =
-    (parentType === ArgTag.OBJECT || parentType === undefined) && prng() > 0.5;
-  const name = "abcdefghijklmnopqrstuvwxyz".split("")[Math.floor(prng() * 26)];
-  let options: ArgOptions = {
-    ...argOptions,
-    dimsUnique: dims.dims > 0 && prng() > 0.5,
-    dictLength: { min: Math.floor(prng() * 2), max: 2 },
-    setLength: { min: Math.floor(prng() * 2), max: 2 },
-    isNoInput:
-      (parentType === ArgTag.OBJECT || parentType === ArgTag.UNION) &&
-      prng() > 0.5,
-  };
-  let interval: Interval<ArgType>[] | undefined;
-
-  switch (argTag) {
-    case ArgTag.NUMBER: {
-      options = {
-        ...options,
-        numInteger: prng() < 0.5,
-      };
-      if (options.numInteger) {
-        const min = Math.floor(prng() * 100);
-        interval = [{ min, max: min + Math.floor(prng() * 100) }];
-      } else {
-        const min = prng() * 100;
-        interval = [{ min, max: min + prng() * 100 }];
-      }
-      break;
-    }
-    case ArgTag.STRING: {
-      // interval; TODO: string min/max ranges
-      options = {
-        ...options,
-        strLength: { min: Math.floor(prng() * 2), max: 2 },
-        strRegex:
-          prng() < 0.5
-            ? undefined
-            : ["\\A[a-z]{1,2}\\Z", "\\A\\d{2}\\Z", "\\A(a|b)\\Z"][
-                Math.floor(prng() * 3)
-              ],
-      };
-      break;
-    }
-    case ArgTag.BOOLEAN: {
-      interval = [
-        [
-          { min: false, max: false },
-          { min: false, max: true },
-          { min: true, max: true },
-        ][Math.floor(prng() * 3)],
-      ];
-      break;
-    }
-    case ArgTag.BYTES: {
-      options = {
-        ...options,
-        byteLength: { min: Math.floor(prng() * 2), max: 2 },
-      };
-      break;
-    }
-    case ArgTag.LITERAL: {
-      if (prng() < 0.1) {
-        interval = undefined;
-      } else {
-        interval = [{ min: name, max: name }];
-      }
-      break;
-    }
-    case ArgTag.OBJECT:
-    case ArgTag.DICTIONARY:
-    case ArgTag.SET:
-    case ArgTag.UNION:
-    case ArgTag.TUPLE:
-      break;
-    case ArgTag.UNRESOLVED: {
-      throw new Error(
-        "ArgTag.UNRESOLVED is not a valid type for getRandomArgDef"
-      );
-    }
-  }
-  return new ArgDef(
-    name,
-    0,
-    argTag,
-    { ...options, dimLength: dims.dimLength },
-    dims.dims,
-    isOptional,
-    interval,
-    children
-  );
 }
