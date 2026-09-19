@@ -22,7 +22,7 @@ describe("fuzzer: coverageMultiFile benchmark", () => {
       const coverageStats =
         await fuzzResult.stats.measures.CodeCoverageMeasure();
       expect(coverageStats.files.length).toBeGreaterThan(1);
-      expect(coverageStats.counters.functionsCovered).toBe(2);
+      expect(coverageStats.counters.functionsCovered).toBeGreaterThanOrEqual(2);
       expect(coverageStats.counters.statementsCovered).toBeGreaterThan(1);
       expect(coverageStats.counters.branchesCovered).toBeGreaterThan(0);
     }

@@ -7,6 +7,7 @@ import {
   FileCoverageData,
 } from "istanbul-lib-coverage";
 import { InputAndSource } from "../Types";
+import { normalizePathForKey } from "../Util";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 
 export abstract class AbstractCoverageMeasure extends AbstractMeasure {
@@ -64,12 +65,23 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
     new_cov: CoverageMap | CoverageMapData
   ): CoverageMap {
     const other = createCoverageMap(new_cov);
-    const existed = new Set(accum.files());
+    const existingNormPaths = new Map<string, string>();
+    for (const file of accum.files()) {
+      existingNormPaths.set(normalizePathForKey(file), file);
+    }
+
     Object.values(other.data).forEach((fc) => {
-      if (existed.has(fc.path)) {
-        accum.addFileCoverage(fc);
+      const normPath = normalizePathForKey(fc.path);
+      const existingPath = existingNormPaths.get(normPath);
+
+      if (existingPath) {
+        const fcNorm = AbstractCoverageMeasure.file_snapshot(fc);
+        fcNorm.path = existingPath;
+        accum.addFileCoverage(fcNorm);
       } else {
-        accum.addFileCoverage(AbstractCoverageMeasure.file_snapshot(fc));
+        const snapshot = AbstractCoverageMeasure.file_snapshot(fc);
+        accum.addFileCoverage(snapshot);
+        existingNormPaths.set(normPath, fc.path);
       }
     });
     return accum;

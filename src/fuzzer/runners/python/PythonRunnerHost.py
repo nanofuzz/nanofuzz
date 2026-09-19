@@ -7,19 +7,78 @@ import struct
 import logging
 import tempfile
 import traceback
-import re
 import uuid
 import ctypes
 import threading
-from contextlib import redirect_stdout
-from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired
+import sysconfig
+from contextlib import redirect_stdout, contextmanager
+from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
+
+# ---------------------------------------------------------------------------
+# Bootstrap NaNofuzz Vendor Dependencies (_nanofuzz_python)
+# ---------------------------------------------------------------------------
+_VENDOR_DIR = os.path.join(os.path.dirname(
+    os.path.realpath(__file__)), "_nanofuzz_python")
+
+_sys_modules_before = set(sys.modules.keys())
+
+if os.path.exists(_VENDOR_DIR):
+    sys.path.insert(0, _VENDOR_DIR)
 
 try:
-    import json5
+    import msgpack
     import coverage
 except ModuleNotFoundError as e:
     print(f"ERROR {e}")
     exit(3)
+finally:
+    # Remove _VENDOR_DIR from sys.path so PUT (Program Under Test) cannot import from it
+    sys.path = [p for p in sys.path if os.path.realpath(
+        p) != os.path.realpath(_VENDOR_DIR)]
+
+_NANOFUZZ_VENDOR_MODULE_NAMES = set(sys.modules.keys()) - _sys_modules_before
+
+_nanofuzz_sys_modules = {
+    name: sys.modules[name]
+    for name in _NANOFUZZ_VENDOR_MODULE_NAMES
+}
+
+_put_sys_modules: dict[str, Any] = {}
+
+
+@contextmanager
+def isolate_put_environment():
+    """
+    Context manager that swaps sys.modules during PUT (Program Under Test)
+    execution so that PUT imports own copies of vendor dependencies (like msgpack/coverage).
+    Restores NaNofuzz host copies when host code runs.
+    """
+    global _put_sys_modules, _nanofuzz_sys_modules
+
+    # Entering PUT context: stash host modules and insert PUT modules if present
+    for name in _NANOFUZZ_VENDOR_MODULE_NAMES:
+        curr = sys.modules.get(name)
+        if curr is not None and curr is not _nanofuzz_sys_modules.get(name):
+            _put_sys_modules[name] = curr
+
+        if name in _put_sys_modules:
+            sys.modules[name] = _put_sys_modules[name]
+        else:
+            sys.modules.pop(name, None)
+
+    try:
+        yield
+    finally:
+        # Exiting PUT context: stash PUT modules and restore NaNofuzz host modules
+        for name in _NANOFUZZ_VENDOR_MODULE_NAMES:
+            curr = sys.modules.get(name)
+            if curr is not None and curr is not _nanofuzz_sys_modules.get(name):
+                _put_sys_modules[name] = curr
+
+            if name in _nanofuzz_sys_modules:
+                sys.modules[name] = _nanofuzz_sys_modules[name]
+            else:
+                sys.modules.pop(name, None)
 
 
 class CollectOptions(TypedDict):
@@ -84,8 +143,8 @@ class RunnerTimeoutResult(TypedDict):
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
 
 
-type RunnerResult = Union[RunnerValueResult,
-                          RunnerErrorResult, RunnerSkipResult, RunnerTimeoutResult]
+RunnerResult = Union[RunnerValueResult,
+                     RunnerErrorResult, RunnerSkipResult, RunnerTimeoutResult]
 
 
 pid = os.getpid()
@@ -96,13 +155,23 @@ real_stdout = (
 )
 
 
+MAX_HEARTBEATS = 1000
+_HEARTBEAT_BYTES = struct.pack('>I', len(
+    cast(bytes, msgpack.packb("HEART")))) + cast(bytes, msgpack.packb("HEART"))
+
+
+def send_heartbeat() -> None:
+    real_stdout.write(_HEARTBEAT_BYTES)
+    real_stdout.flush()
+
+
 class HostHeartbeat:
     """Sends periodic startup heartbeat messages to the parent process.
-    Capped at max_heartbeats (default 240 = 1 minute total allowance).
+    Capped at max_heartbeats (default MAX_HEARTBEATS).
     Runs as a daemon thread and stops when stop() is called.
     """
 
-    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = 240):
+    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = MAX_HEARTBEATS):
         self.interval = interval_sec
         self.max_heartbeats = max_heartbeats
         self.heartbeat_count = 0
@@ -118,7 +187,7 @@ class HostHeartbeat:
                     break
                 self.heartbeat_count += 1
                 try:
-                    send_msg("HEART")
+                    send_heartbeat()
                 except Exception as e:
                     logging.debug(f"[{pid}] Heartbeat send error: {e}")
                     break
@@ -167,8 +236,14 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
 
 def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerErrorResult, None], Any]:
     rootDir = os.path.dirname(filename)
-    if rootDir not in sys.path:
-        sys.path.insert(0, rootDir)
+    curr = os.path.abspath(rootDir)
+    while curr:
+        if curr not in sys.path:
+            sys.path.insert(0, curr)
+        parent = os.path.dirname(curr)
+        if parent == curr:
+            break
+        curr = parent
 
     spec = importlib.util.spec_from_file_location(modulename, filename)
     if spec is None:
@@ -192,7 +267,8 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
                     source="host",
                     seq=-1
                 ), None)
-            spec.loader.exec_module(module)
+            with isolate_put_environment():
+                spec.loader.exec_module(module)
         return (None, getattr(module, fn))
     except Exception as e:
         return (RunnerErrorResult(
@@ -203,6 +279,42 @@ def loadPythonFn(filename: str, modulename: str, fn: str) -> Tuple[Union[RunnerE
             stack=traceback.format_exc(),
             seq=-1
         ), None)
+
+
+def unwrap_jsonn(val: Any) -> Any:
+    PlaceHolderValueKey = "____JSONN____61581952310____VALUE____"
+    PlaceHolderBigIntKey = "____JSONN____61581952310____BIGINT____"
+    PlaceHolderUint8ArrayKey = "____JSONN____61581952310____UINT8ARRAY____"
+    PlaceHolderMapKey = "____JSONN____61581952310____MAP____"
+    PlaceHolderSetKey = "____JSONN____61581952310____SET____"
+    UndefinedValue = "__undefined__"
+
+    if isinstance(val, dict):
+        if val.get(PlaceHolderValueKey) == UndefinedValue:
+            return None
+        if PlaceHolderBigIntKey in val:
+            return int(val[PlaceHolderBigIntKey])
+        if PlaceHolderUint8ArrayKey in val:
+            return bytes(val[PlaceHolderUint8ArrayKey])
+        if PlaceHolderMapKey in val:
+            raw_entries = val[PlaceHolderMapKey]
+            if isinstance(raw_entries, list):
+                return {
+                    unwrap_jsonn(k): unwrap_jsonn(v)
+                    for entry in raw_entries
+                    if isinstance(entry, list) and len(entry) == 2
+                    for k, v in [entry]
+                }
+            return {}
+        if PlaceHolderSetKey in val:
+            raw_values = val[PlaceHolderSetKey]
+            if isinstance(raw_values, list):
+                return [unwrap_jsonn(x) for x in raw_values]
+            return []
+        return {k: unwrap_jsonn(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [unwrap_jsonn(x) for x in val]
+    return val
 
 
 def get_inputs() -> RunnerInput:
@@ -216,14 +328,15 @@ def get_inputs() -> RunnerInput:
         logging.debug(f"[{pid}]  - Incoming input of length {length}")
 
         # Read exactly that many bytes
-        payload = sys.stdin.buffer.read(length).decode('utf-8')
-        logging.debug(f"[{pid}]  - With value {payload}")
+        payload = sys.stdin.buffer.read(length)
+        logging.debug(f"[{pid}]  - Read {len(payload)} bytes")
 
         # De-serialize arguments for calling the function
-        input: RunnerInput = json5.loads(payload)
+        raw_input: RunnerInput = msgpack.unpackb(payload, raw=False)
+        input_data = unwrap_jsonn(raw_input)
         logging.debug(f"[{pid}]  - Parsed ok")
 
-        return input
+        return input_data
     raise Exception("Unreachable path")
 
 
@@ -392,6 +505,9 @@ def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     }
 
 
+VALID_COVERAGE_SCOPES = ("project", "project directimports")
+
+
 def is_under(root: str, path: str) -> bool:
     """
     Returns whether `path` is `root` or sits beneath it.
@@ -401,22 +517,79 @@ def is_under(root: str, path: str) -> bool:
     return path == root or path.startswith(root + os.sep)
 
 
-def program_files(filename: str) -> List[str]:
+def program_files(
+    filename: str,
+    coverage_scope: str = "project",
+    direct_packages: Optional[List[str]] = None
+) -> List[str]:
     """
-    Returns the files the program under test is made of: `filename`, plus every
-    module imported from `filename`'s own directory tree.
+    Returns the files the program under test is made of based on three groups:
+    - Group A: Local project directory tree (`is_under(root, modfile)`).
+    - Group C: Python standard library & virtualenv internals (`stdlib_path` or `.venv`/`venv`/`env`/`__pycache__`).
+    - Group B: 3rd-party packages (anything that is neither Group A nor Group C).
 
-    Must be called after the PUT is loaded, so that its imports have run.
+    Coverage Scopes:
+    - "project" (default): Group A only.
+    - "project directimports": Group A + Group B packages whose top-level package name is in `direct_packages`.
     """
+    if coverage_scope not in VALID_COVERAGE_SCOPES:
+        raise ValueError(
+            f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
+        )
     root = os.path.dirname(filename)
+    stdlib_path = os.path.normcase(
+        os.path.realpath(sysconfig.get_path("stdlib")))
+
+    direct_pkg_set = set(direct_packages) if direct_packages else set()
+    direct_pkg_lower = {p.lower() for p in direct_pkg_set}
+
     files = {filename}
-    for module in list(sys.modules.values()):
+    all_modules = list(sys.modules.values()) + list(_put_sys_modules.values())
+    for module in all_modules:
         modfile = getattr(module, "__file__", None)
         if not modfile or os.path.splitext(modfile)[1] != ".py":
             continue
+        if not os.path.isabs(modfile):
+            modfile = os.path.join(root, modfile)
         modfile = os.path.realpath(modfile)
+        parts = modfile.split(os.sep)
+        parts_lower = [p.lower() for p in parts]
+
+        # Always ignore bytecode cache and nanofuzz vendor dir
+        if "__pycache__" in parts_lower or "_nanofuzz_python" in parts_lower:
+            continue
+
+        is_site_pkg = "site-packages" in parts_lower or "dist-packages" in parts_lower
+        is_venv_internal = any(p in (".venv", "venv", "env")
+                               for p in parts_lower) and not is_site_pkg
+        is_stdlib = os.path.normcase(modfile).startswith(
+            stdlib_path) and not is_site_pkg
+
+        # Group C: Exclude Python Standard Library and virtualenv internals
+        if is_venv_internal or is_stdlib:
+            continue
+
+        # Group A: Local project files
         if is_under(root, modfile):
             files.add(modfile)
+            continue
+
+        # Group B: 3rd-party packages (everything else: site-packages, dist-packages, build/extension, etc.)
+        if "directimports" in coverage_scope:
+            mod_name = getattr(module, "__name__", "")
+            top_pkg = mod_name.split(".")[0] if mod_name else ""
+
+            pkg_from_path = ""
+            if "site-packages" in parts_lower:
+                idx = parts_lower.index("site-packages")
+                pkg_from_path = parts[idx + 1] if idx + 1 < len(parts) else ""
+            elif "dist-packages" in parts_lower:
+                idx = parts_lower.index("dist-packages")
+                pkg_from_path = parts[idx + 1] if idx + 1 < len(parts) else ""
+
+            if (top_pkg and top_pkg.lower() in direct_pkg_lower) or (pkg_from_path and pkg_from_path.lower() in direct_pkg_lower):
+                files.add(modfile)
+
     return sorted(files)
 
 
@@ -530,7 +703,7 @@ def sanitize_output(obj: Any) -> Any:
     return obj
 
 
-def json5_default(obj: Any) -> Any:
+def default_serializer(obj: Any) -> Any:
     if isinstance(obj, (bytes, bytearray)):
         return list(obj)
     if isinstance(obj, (set, frozenset)):
@@ -538,7 +711,7 @@ def json5_default(obj: Any) -> Any:
     if isinstance(obj, uuid.UUID):
         return str(obj)
     raise TypeError(
-        f"Object of type {type(obj).__name__} is not JSON5 serializable")
+        f"Object of type {type(obj).__name__} is not serializable")
 
 
 def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
@@ -579,15 +752,16 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
 
     try:
         with redirect_stdout(io.StringIO()) as f:
-            # If fn is a Hypothesis-wrapped test, bypass Hypothesis
-            # and call the original underlying function
-            if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
-                # Unwrap Hypothesis test function
-                value = call_with_timeout(
-                    fn.hypothesis.inner_test, args, timeout_ms)
-            else:
-                # Not Hypothesis; call directly
-                value = call_with_timeout(fn, args, timeout_ms)
+            with isolate_put_environment():
+                # If fn is a Hypothesis-wrapped test, bypass Hypothesis
+                # and call the original underlying function
+                if hasattr(fn, 'hypothesis') and hasattr(fn.hypothesis, 'inner_test'):
+                    # Unwrap Hypothesis test function
+                    value = call_with_timeout(
+                        fn.hypothesis.inner_test, args, timeout_ms)
+                else:
+                    # Not Hypothesis; call directly
+                    value = call_with_timeout(fn, args, timeout_ms)
     except PutTimeoutException:
         is_timeout = True
     except Exception as e:
@@ -603,12 +777,10 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     coverageData = {}
     coverageArcs = {}
     if coverage_enabled:
-        for file in cov.get_data().measured_files():
+        for file in covInfo:
             lines = coverage_lines(cov, file)
             if not lines:
                 continue
-            if file not in covInfo:
-                covInfo[file] = static_coverage(cov, file)
             coverageData[file] = lines
             coverageArcs[file] = coverage_arcs(cov, file)
 
@@ -661,17 +833,18 @@ def put_result(result: RunnerResult) -> None:
 
 
 def send_msg(data: Union[RunnerResult, str, dict[str, Any]]) -> None:
-    msg = json5.dumps(data, default=json5_default).encode('utf-8')
-    logging.debug(f"[{pid}]  - Writing {len(msg)} bytes: {msg}")
+    msg = cast(bytes, msgpack.packb(
+        data, default=default_serializer, use_bin_type=True))
+    logging.debug(f"[{pid}]  - Writing {len(msg)} bytes")
     real_stdout.write(struct.pack('>I', len(msg)))  # payload size
     real_stdout.write(msg)  # payload
     real_stdout.flush()
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
+    if len(sys.argv) < 4:
         print(
-            "Usage: python PythonRunnerHost.py <filename.py> <module_name> <function_name>")
+            "Usage: python PythonRunnerHost.py <filename.py> <module_name> <function_name> [coverage_scope] [direct_packages]")
         sys.exit(2)
 
     # Arguments for loading the function
@@ -683,33 +856,92 @@ if __name__ == "__main__":
     # and `include` patterns must match it.
     filename = os.path.realpath(filename)
 
+    # Change cwd from the extension to that of the Python script
+    os.chdir(os.path.dirname(filename))
+
     # Start heartbeat thread during coverage initialization, module import, and static analysis
-    hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=240)
+    hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=MAX_HEARTBEATS)
     hb.start()
 
     try:
-        # One in-memory coverage instance for the whole run
-        cov = coverage.Coverage(
-            include=[os.path.join(os.path.dirname(filename), "**", "*.py")], branch=True, data_file=None)
+        coverage_scope = sys.argv[4] if len(sys.argv) > 4 else "project"
+        if coverage_scope not in VALID_COVERAGE_SCOPES:
+            raise ValueError(
+                f"Invalid coverage_scope '{coverage_scope}'. Allowed values: {VALID_COVERAGE_SCOPES}"
+            )
+        direct_packages_raw = sys.argv[5] if len(sys.argv) > 5 else "[]"
+        try:
+            direct_packages = json.loads(direct_packages_raw)
+        except Exception:
+            direct_packages = []
 
-        # Try to load the function: either results in a RunnerErrorResult
-        # or a callable function
-        logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
-        [loadError, fn] = loadPythonFn(filename, modulename, fnname)
-        if (loadError is not None):
-            logging.debug(f"[{pid}]  - Unable to load")
+        collect_static = (
+            sys.argv[6].lower() == "true"
+            if len(sys.argv) > 6
+            else ("static" in coverage_scope)
+        )
+
+        pgm_files = program_files(filename, coverage_scope, direct_packages)
+
+        # One in-memory coverage instance for the whole run.
+        cov = coverage.Coverage(include=pgm_files, branch=True, data_file=None)
+
+        if collect_static:
+            # Start temporary coverage tracer before loading module so static coverage is captured.
+            init_cov = coverage.Coverage(branch=True, data_file=None)
+            init_cov.start()
+
+            # Try to load the function: either results in a RunnerErrorResult
+            # or a callable function
+            logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
+            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
+            if (loadError is not None):
+                logging.debug(f"[{pid}]  - Unable to load")
+            else:
+                logging.debug(f"[{pid}]  - Loaded function")
+
+            init_cov.stop()
+
+            pgm_files = program_files(
+                filename, coverage_scope, direct_packages)
+            cov = coverage.Coverage(
+                include=pgm_files, branch=True, data_file=None)
+
+            # Static analysis of the program: the executable lines, functions, and
+            # branches of every file it is made of.
+            covInfo = {file: static_coverage(cov, file) for file in pgm_files}
+
+            # Initial coverage structure sent at startup includes top-level lines executed at module load
+            initialCoverage = {}
+            for file in pgm_files:
+                info = dict(covInfo[file])
+                lines = coverage_lines(init_cov, file)
+                arcs = coverage_arcs(init_cov, file)
+                if lines:
+                    info["lines"] = lines
+                if arcs:
+                    info["arcs"] = arcs
+                initialCoverage[file] = info
         else:
-            logging.debug(f"[{pid}]  - Loaded function")
+            # Load function without enabling coverage tracer at startup
+            logging.debug(f"[{pid}] Loading function '{fnname}' in {filename}")
+            [loadError, fn] = loadPythonFn(filename, modulename, fnname)
+            if (loadError is not None):
+                logging.debug(f"[{pid}]  - Unable to load")
+            else:
+                logging.debug(f"[{pid}]  - Loaded function")
 
-        # Static analysis of the program: the executable lines, functions, and
-        # branches of every file it is made of.
-        coverageInfo = {file: static_coverage(cov, file)
-                        for file in program_files(filename)}
+            # Re-query program_files now that imports are loaded
+            pgm_files = program_files(
+                filename, coverage_scope, direct_packages)
+            cov = coverage.Coverage(
+                include=pgm_files, branch=True, data_file=None)
+
+            covInfo = {file: static_coverage(cov, file) for file in pgm_files}
+            initialCoverage = {}
+
         logging.debug(
-            f"[{pid}] Analyzed {len(coverageInfo)} file(s) of the program under test")
-
-        # Change cwd from the extension to that of the Python script
-        os.chdir(os.path.dirname(filename))
+            f"[{pid}] Analyzed {len(covInfo)} file(s) of the program under test")
 
         # Pre-warm the coverage machinery. The first `cov.start()` installs the
         # tracer, which costs far more than a steady-state call and can push the
@@ -733,17 +965,17 @@ if __name__ == "__main__":
     send_msg("READY")
     logging.debug(f"[{pid}] Sent READY message")
 
-    # Send the static coverage info once
-    send_msg(coverageInfo)
+    # Send the initial coverage info once
+    send_msg(initialCoverage)
     logging.debug(
-        f"[{pid}] Sent coverageInfo for {len(coverageInfo)} file(s)")
+        f"[{pid}] Sent initialCoverage for {len(initialCoverage)} file(s)")
 
     # Start the run loop
     while True:
         logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
             put_result(run_put(get_inputs(), filename, fnname, fn,
-                       cov, coverageInfo))  # Call the put
+                       cov, covInfo))  # Call the put
         else:
             get_inputs()
             put_result(loadError)  # Return the load error

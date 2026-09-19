@@ -2279,6 +2279,9 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
   const fuzzBase = "fuzz"; // Base html id name
 
   // Get input elements
+  const RandomInputGeneratorEnabled = getElementByIdOrThrow(
+    `${fuzzBase}-gen-RandomInputGenerator-enabled`
+  );
   const MutationInputGeneratorEnabled = getElementByIdOrThrow(
     `${fuzzBase}-gen-MutationInputGenerator-enabled`
   );
@@ -2302,6 +2305,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
   const disableArr = [
     getElementByIdOrThrow("fuzz.run"),
     document.getElementById("fuzz.addTestInput"), // may be null
+    RandomInputGeneratorEnabled,
     MutationInputGeneratorEnabled,
     CoverageMeasureEnabled,
     CoverageMeasureWeight,
@@ -2376,7 +2380,10 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
       },
       generators: {
         RandomInputGenerator: {
-          enabled: true, // always enabled
+          enabled:
+            (RandomInputGeneratorEnabled.getAttribute("value") ??
+              RandomInputGeneratorEnabled.getAttribute("current-checked")) ===
+            "true",
         },
         MutationInputGenerator: {
           enabled:

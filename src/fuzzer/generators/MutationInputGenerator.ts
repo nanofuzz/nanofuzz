@@ -4,6 +4,7 @@ import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
+import { NextableStatus } from "./Types";
 
 /**
  * Generates new inputs by mutating prior "interesting" inputs
@@ -29,14 +30,35 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   } // fn: constructor
 
   /**
+   * Returns the human-readable name for the Mutation input generator
+   */
+  public override get humanName(): string {
+    return "Mutation";
+  } // property: get humanName
+
+  /**
    * This generator requires a leaderboard with at least one
    * "interesting" input to mutate.
    *
-   * @returns true if generator is available, false otherwise
+   * @returns "now" if generator is available, false otherwise
    */
-  public nextable(): boolean {
-    return !!this._leaderboard.length;
-  } // fn: isAvailable
+  public override nextable(): NextableStatus {
+    return this._leaderboard.length ? "now" : false;
+  } // fn: nextable
+
+  /**
+   * Returns diagnostic messages when the generator is unable to produce inputs
+   * due to an empty leaderboard.
+   */
+  public override getDiagnostics(): string[] {
+    const diagnostics: string[] = [];
+    if (this._leaderboard.length === 0) {
+      diagnostics.push(
+        "No interesting inputs to mutate. Are other input generators enabled?"
+      );
+    }
+    return diagnostics;
+  } // fn: getDiagnostics
 
   /**
    * Returns the next input using a mutation strategy.

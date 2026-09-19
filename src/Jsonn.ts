@@ -1,4 +1,8 @@
 import * as JSON5 from "json5";
+import {
+  encode as msgpackEncode,
+  decode as msgpackDecode,
+} from "@msgpack/msgpack";
 import { isBufferOrUint8Array, isKeyedObject, makeCanonicalSet } from "./Util";
 
 /**
@@ -11,6 +15,9 @@ import { isBufferOrUint8Array, isKeyedObject, makeCanonicalSet } from "./Util";
  * While JSONN is valid JSON5 and might be parsed without error by JSON5,
  * the special types (`undefined`, `bigint`, and `Uint8Array`) will be
  * parsed inaccurately by the standard JSON5 library.
+ *
+ * The `pack` and `unpack` methods serialize to/from a binary MsgPack
+ * format, which is MsgPack behind the scenes.
  */
 
 /**
@@ -59,7 +66,7 @@ export function stringify(
 function cast<T>(val: unknown): T;
 function cast(val: unknown): unknown {
   return val;
-}
+} // fn: cast()
 
 /**
  * Parses a JSONN string and constructing a JavaScript value or object
@@ -110,7 +117,136 @@ export function parse<T>(
   }
 
   return cast<T>(result);
-}
+} // fn: parse()
+
+/**
+ * Packs a value into a MsgPack Uint8Array after sanitizing custom types.
+ *
+ * @param value The value to pack into MsgPack binary format.
+ * @returns Uint8Array containing MsgPack binary data.
+ */
+export function pack(value: unknown): Uint8Array {
+  return msgpackEncode(jsonnReplacerMsgpack(value));
+} // fn: pack()
+
+/**
+ * Unpacks a MsgPack binary buffer back into a JavaScript value.
+ *
+ * @param buffer The MsgPack binary buffer to decode.
+ * @returns The unpacked JavaScript value.
+ */
+export function unpack<T>(buffer: Uint8Array | ArrayBuffer | Buffer): T {
+  const decoded = msgpackDecode(buffer);
+  return cast<T>(jsonnReviverMsgpack(decoded));
+} // fn: unpack()
+
+/**
+ * Recursively converts Sets, Maps, BigInts, and undefined values in an object structure
+ * to MsgPack-serializable placeholders or native binary formats.
+ *
+ * @param val The value to sanitize
+ * @returns Sanitized value suitable for MsgPack encoding
+ */
+function jsonnReplacerMsgpack(value: unknown): unknown {
+  if (isBufferOrUint8Array(value)) {
+    return value;
+  }
+  if (value instanceof Map) {
+    return {
+      [PlaceHolderMapKey]: Array.from(value.entries()).map(([k, v]) => [
+        jsonnReplacerMsgpack(k),
+        jsonnReplacerMsgpack(v),
+      ]),
+    };
+  }
+  if (value instanceof Set) {
+    const canonical = makeCanonicalSet(Array.from(value.values()));
+    return {
+      [PlaceHolderSetKey]: Array.from(canonical.values()).map(
+        jsonnReplacerMsgpack
+      ),
+    };
+  }
+  if (typeof value === "undefined") {
+    return {
+      [PlaceHolderValueKey]: UndefinedValue,
+    };
+  }
+  if (typeof value === "bigint") {
+    return {
+      [PlaceHolderBigIntKey]: value.toString(),
+    };
+  }
+  if (Array.isArray(value)) {
+    return value.map(jsonnReplacerMsgpack);
+  }
+  if (value !== null && typeof value === "object") {
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      obj[k] = jsonnReplacerMsgpack(v);
+    }
+    return obj;
+  }
+  return value;
+} // fn: jsonnReplacerMsgpack()
+
+/**
+ * Recursively revives JSONN placeholders after MsgPack decoding.
+ *
+ * @param value The value decoded from MsgPack
+ * @returns Revived JavaScript value with original types
+ */
+function jsonnReviverMsgpack(value: unknown): unknown {
+  if (isBufferOrUint8Array(value)) {
+    return value;
+  }
+  if (value !== null && typeof value === "object") {
+    if (isKeyedObject(value) && value[PlaceHolderValueKey] === UndefinedValue) {
+      return undefined;
+    }
+    if (
+      isKeyedObject(value) &&
+      typeof value[PlaceHolderBigIntKey] === "string"
+    ) {
+      return BigInt(String(value[PlaceHolderBigIntKey]));
+    }
+    if (
+      isKeyedObject(value) &&
+      Array.isArray(value[PlaceHolderUint8ArrayKey])
+    ) {
+      const arr = value[PlaceHolderUint8ArrayKey];
+      return new Uint8Array(
+        arr.filter((e): e is number => typeof e === "number")
+      );
+    }
+    if (isKeyedObject(value) && Array.isArray(value[PlaceHolderMapKey])) {
+      const rawEntries = value[PlaceHolderMapKey];
+      const entries: Array<[unknown, unknown]> = [];
+      for (const entry of rawEntries) {
+        if (Array.isArray(entry) && entry.length === 2) {
+          entries.push([
+            jsonnReviverMsgpack(entry[0]),
+            jsonnReviverMsgpack(entry[1]),
+          ]);
+        }
+      }
+      return new Map(entries);
+    }
+    if (isKeyedObject(value) && Array.isArray(value[PlaceHolderSetKey])) {
+      const rawValues = value[PlaceHolderSetKey].map(jsonnReviverMsgpack);
+      return makeCanonicalSet(rawValues);
+    }
+    if (Array.isArray(value)) {
+      return value.map(jsonnReviverMsgpack);
+    }
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      obj[k] = jsonnReviverMsgpack(v);
+    }
+    return obj;
+  }
+  return value;
+} // fn: jsonnReviverMsgpack()
 
 /**
  * Returns the stringified placeholder for a particular special value.
@@ -121,7 +257,7 @@ export function parse<T>(
 export function getPlaceholder(_key: "undefined"): string {
   return `{${PlaceHolderValueKey}:'${UndefinedValue}'}`;
   //  return Undefined;
-}
+} // fn: getPlaceholder()
 
 /**
  * Replaces special values with a JSONN placeholder
@@ -163,7 +299,7 @@ function jsonnReplacer(this: unknown, key: string, value: unknown): unknown {
     default:
       return value;
   }
-}
+} // fn: jsonnReplacer()
 
 /**
  * Makes a list of object keys that need values rerplaced.
@@ -219,7 +355,7 @@ function jsonnReviver(
     }
   }
   return value;
-}
+} // fn: jsonnReviver()
 
 type ReviveTarget = {
   key: string;

@@ -16,7 +16,16 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
 
   afterEach(() => {
     if (fs.existsSync(tmpDir)) {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual Windows file lock cleanup errors
+      }
     }
   });
 
@@ -344,5 +353,18 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
       fs.readFileSync(cacheFile, "utf-8")
     );
     expect(content.length).toBe(1);
+  });
+
+  it("handle rejected in-flights queries w/o throwing", async () => {
+    const manager = new LlmCacheManager("passthrough", cacheFile);
+
+    const failingQuery = manager
+      .query("p", "m", ["prompt-timeout"], undefined, async () => {
+        throw new Error("Request timeout after 30000ms");
+      })
+      .catch(() => {});
+
+    await expectAsync(manager.flush(1000)).toBeResolved();
+    await failingQuery;
   });
 });

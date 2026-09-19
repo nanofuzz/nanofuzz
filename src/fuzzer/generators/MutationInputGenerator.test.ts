@@ -194,14 +194,16 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
       );
       const gen = new MutationInputGenerator(arg, seed, leaderboard);
       gen.onRunStart(true);
-      expect(gen.nextable()).toBeTrue();
+      expect(gen.nextable()).toBe("now");
 
       for (let i = 0; i < 1000; i++) {
         const { value: inputs } = gen.next();
         const input = inputs[0].value;
         if (Array.isArray(input)) {
           expect([1, 2].includes(input.length)).toBeTrue();
-          expect(input.every((n) => typeof n === "number" && [0, 1].includes(n))).toBeTrue();
+          expect(
+            input.every((n) => typeof n === "number" && [0, 1].includes(n))
+          ).toBeTrue();
         }
       }
     });
@@ -227,7 +229,7 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
       arg[0].setIntervals([{ min: 0, max: 6 }]);
       gen = new MutationInputGenerator(arg, seed, leaderboard);
       gen.onRunStart(true);
-      expect(gen.nextable()).toBeTrue();
+      expect(gen.nextable()).toBe("now");
     });
   });
 });

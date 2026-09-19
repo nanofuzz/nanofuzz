@@ -14,7 +14,9 @@ import {
   FuzzTestResults,
   InputAndSource,
 } from "../Fuzzer";
+import { NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
+import { ArgDefTokenEstimator } from "../analysis/ArgDefTokenEstimator";
 import * as zod from "zod/v4";
 import { InputGeneratorStatsAi } from "./Types";
 import { isError } from "../Util";
@@ -27,29 +29,105 @@ import * as Config from "../../Config";
 export class AiInputGenerator extends AbstractInputGenerator {
   protected _inputQueue: InputAndSource[] = []; // Cache of valid, generated inputs
   protected _fn: FunctionDef; // Function target for inputs
+  protected _moduleSrc: string; // Module source code
   protected _llm?: LlmAdapter; // Back-end AI model
   protected _callsPending = 0; // Number of calls to AI model pending
   protected _stats = _initStats(); // Stats about inputs generated
   protected _allInputs; // Running list of all generated inputs
+  protected _exhausted = false; // Set to true when the model produces no new valid inputs or encounters an error
+  protected _tokensPerInput: number; // Estimated tokens per input (calculated onRunStart)
+  protected _requestedInputCount; // Number of inputs to request per LLM call (calculated per request)
 
   public constructor(
     fn: FunctionDef,
     rngSeed: string | undefined,
-    allInputs: Map<string, unknown>
+    allInputs: Map<string, unknown>,
+    moduleSrc: string
   ) {
     super(fn.getArgDefs(), rngSeed);
     this._fn = fn;
     this._allInputs = allInputs;
+    this._moduleSrc = moduleSrc;
+    this._tokensPerInput = this._estimateTokensPerInput();
+    this._requestedInputCount = this._getRequestedInputCount();
   } // fn: constructor
+
+  /**
+   * Returns the human-readable name for the AI input generator
+   */
+  public override get humanName(): string {
+    return "AI";
+  } // property: get humanName
 
   /**
    * Are inputs available?
    *
-   * @returns true if generator inputs are available, false otherwise
+   * @returns 'now' if generator inputs are available, 'soon' if pending, false otherwise
    */
-  public nextable(): boolean {
-    return !!this._inputQueue.length;
-  } // fn: isAvailable
+  public override nextable(): NextableStatus {
+    if (this._inputQueue.length) {
+      if (
+        this._inputQueue.length < getChunkSize() &&
+        !this._callsPending &&
+        this._llm &&
+        !this._exhausted
+      ) {
+        this._getMoreInputs();
+      }
+      return "now";
+    } else if (this._callsPending) {
+      return "soon";
+    } else if (this._llm && !this._exhausted) {
+      this._getMoreInputs();
+      return this._callsPending ? "soon" : false;
+    } else {
+      return false;
+    }
+  } // fn: nextable
+
+  /**
+   * Returns diagnostic messages when the generator is unable to produce inputs
+   * or encounters configuration/execution errors.
+   */
+  public override getDiagnostics(): string[] {
+    if (!LlmAdapter.isConfigured()) {
+      return [];
+    }
+    const diagnostics: string[] = [];
+    if (LlmAdapter.isConfigured()) {
+      const failures = this._stats.calls.history.filter(
+        (h): h is { failure: true; message: string } =>
+          "failure" in h && h.failure === true
+      );
+      if (failures.length > 0) {
+        const uniqueErrors = Array.from(
+          new Set(failures.map((f) => f.message))
+        );
+        uniqueErrors.forEach((errMsg) => {
+          diagnostics.push(errMsg);
+        });
+      }
+      const totalInvalid =
+        this._stats.inputs.invalid + this._stats.inputs.invalidLater;
+      const totalValidQueued = this._stats.inputs.gen - totalInvalid;
+
+      if (this._stats.calls.sent > 0 && totalValidQueued === 0) {
+        if (totalInvalid > 0) {
+          diagnostics.push(
+            `All ${totalInvalid} inputs returned by the model were invalid.`
+          );
+        } else if (this._stats.calls.valid > 0) {
+          diagnostics.push(`The model did not produce any valid inputs.`);
+        } else if (
+          this._stats.calls.failed === 0 &&
+          this._stats.calls.valid === 0
+        ) {
+          diagnostics.push(`Testing finished before the model responded.`);
+        }
+      }
+    }
+    return diagnostics;
+  } // fn: getDiagnostics
 
   /**
    * Manage the life-cycle of the ProgramModel and clear
@@ -59,6 +137,10 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * @param `active` indicates if inputs are expected this run
    */
   public onRunStart(active: boolean): void {
+    this._exhausted = false;
+    this._tokensPerInput = this._estimateTokensPerInput();
+    this._requestedInputCount = this._getRequestedInputCount();
+
     // Abandon back-end if stale or no longer configured
     if (
       this._llm &&
@@ -87,8 +169,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
       });
     }
 
-    // Refill the cache if it's empty
-    if (this._llm && !this._inputQueue.length) {
+    // Refill the cache if it's below chunkSize
+    if (this._llm && this._inputQueue.length < getChunkSize()) {
       this._getMoreInputs();
     }
   } // fn: onRunStart
@@ -103,22 +185,76 @@ export class AiInputGenerator extends AbstractInputGenerator {
     if (inputToReturn === undefined) {
       throw new Error(`next() not allowed when isAvailable()===false`);
     }
-    if (!this._inputQueue.length) {
+    if (
+      this._inputQueue.length < getChunkSize() &&
+      !this._callsPending &&
+      this._llm &&
+      !this._exhausted
+    ) {
       this._getMoreInputs();
     }
     return inputToReturn;
   } // fn: next
 
   /**
+   * Estimates average JSON response token size for a single generated input object
+   * `{ "param1": val1, "param2": val2, ... }`.
+   */
+  protected _estimateTokensPerInput(): number {
+    return ArgDefTokenEstimator.estimateTokensPerInput(this._specs);
+  } // fn: _estimateTokensPerInput
+
+  /**
+   * Calculates requested input count for the LLM prompt, incorporating:
+   *  - Historical invalid input buffer rate (defaulting to 10%), recalculated per request
+   *  - Gross response token size cap based on model's max output token limit
+   *    and static tokens per input estimated at onRunStart
+   */
+  protected _getRequestedInputCount(): number {
+    const chunkSize = getChunkSize();
+
+    const valid = this._stats.inputs.gen;
+    const invalid =
+      this._stats.inputs.invalid + this._stats.inputs.invalidLater;
+    const totalProcessed = valid + invalid;
+
+    // Default invalid buffer rate is 10% before any call history is recorded.
+    // We cap invalidBufferRate at 1.0 (100% buffer) so that we at most double
+    // the requested chunk size (up to 2x chunkSize), preventing extreme over-fetching
+    // if an LLM run experiences a temporary high failure or invalidation rate.
+    let invalidBufferRate = 0.1;
+    if (totalProcessed > 0) {
+      invalidBufferRate = Math.min(1.0, invalid / totalProcessed);
+    }
+
+    const bufferedChunkSize = Math.ceil(chunkSize * (1 + invalidBufferRate));
+
+    // Cap requested inputs so expected response size stays within model's max output tokens
+    const maxOutputTokens = LlmAdapter.getMaxOutputTokens();
+    const maxFitInputs = Math.floor(maxOutputTokens / this._tokensPerInput);
+
+    this._requestedInputCount = Math.max(
+      1,
+      Math.min(100, Math.min(bufferedChunkSize, maxFitInputs))
+    );
+    return this._requestedInputCount;
+  } // fn: _getRequestedInputCount
+
+  /**
    * Gets more inputs from the back-end AI model
    */
   protected _getMoreInputs(): void {
     // Let any prior calls finish before making a new one
-    if (this._callsPending) {
+    if (this._callsPending || this._exhausted) {
       return;
     }
 
     if (this._llm) {
+      let resolvePending: (hasInputs: boolean) => void = () => {};
+      this._pendingPromise = new Promise<boolean>((resolve) => {
+        resolvePending = resolve;
+      });
+
       this._callsPending++;
       const modelId = this._llm.id;
       const validInputs: { [k: string]: ArgValueType }[] = [];
@@ -127,10 +263,18 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
       this._stats.calls.sent++;
       const [schema, directives] = this._getInputsSchema(this._fn.getLang());
+      const numRequested = this._getRequestedInputCount();
 
       // Fetch inputs from the llm
       this._llm
-        .genInputs(this._fn, schema, directives, this._allInputs)
+        .genInputs(
+          this._fn,
+          schema,
+          directives,
+          this._allInputs,
+          this._moduleSrc,
+          numRequested
+        )
         .then((inputs) => {
           // Update tokens received stats
           if (inputs.stats) {
@@ -178,6 +322,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
                 failure: true,
                 message: inputs.error.message,
               });
+              this._exhausted = true;
               break;
           }
 
@@ -235,6 +380,10 @@ export class AiInputGenerator extends AbstractInputGenerator {
               };
             })
           );
+
+          if (this._inputQueue.length === 0 && !inputs.error) {
+            this._exhausted = true;
+          }
         })
         .catch((e: unknown) => {
           this._stats.calls.failed++;
@@ -242,9 +391,12 @@ export class AiInputGenerator extends AbstractInputGenerator {
             failure: true,
             message: isError(e) ? e.message : "unknown error",
           });
+          this._exhausted = true;
         })
         .finally(() => {
           this._callsPending--;
+          resolvePending(this._inputQueue.length > 0);
+          this._pendingPromise = undefined;
         });
     }
   } // fn: _getMoreInputs
@@ -632,6 +784,15 @@ export function _decode(data: ArgValueType, spec?: ArgDef): ArgValueType {
       return data;
   }
 } // fn: _decode
+
+/**
+ * Get the chunk size for composite generators.
+ *
+ * @returns The chunk size as a number.
+ */
+function getChunkSize(): number {
+  return Config.get<number>("nanofuzz.generators.compositeChunkSize", 20);
+} // fn: getChunkSize
 
 // Constants for encoding/decoding
 export const NANOFUZZ_UNDEFINED = "___NANOFUZZ____6158195231___UNDEFINED___";
