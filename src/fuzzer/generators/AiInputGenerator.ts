@@ -466,11 +466,25 @@ export class AiInputGenerator extends AbstractInputGenerator {
             .describe(desc);
         }
         case ArgTag.BIGINT: {
-          const min = BigInt(argIntervals[0].min as string | number | bigint | boolean);
-          const max = BigInt(argIntervals[0].max as string | number | bigint | boolean);
-          const desc = `value must be >= ${min} && <= ${max}`;
+          const { min, max } = argIntervals[0];
+          if (typeof min !== "bigint" || typeof max !== "bigint") {
+            throw new Error(
+              `Invalid interval bounds for bigint type: ${JSONN.stringify(
+                argIntervals[0]
+              )}`
+            );
+          }
+          // Neither JSON nor JSON Schema can represent a bigint, so we ask
+          // for a prefixed decimal string that `_decode` converts back to a
+          // bigint. Zod cannot enforce the interval on that string, so the
+          // bounds are communicated as a directive and any out-of-range
+          // value the LLM returns is discarded by the input validator.
+          const desc = `a bigint written as \`${NANOFUZZ_BIGINT}\` followed by an integer >= ${min} && <= ${max} (e.g. \`${NANOFUZZ_BIGINT}${min}\`)`;
           directives.push(`${path}: ${desc}`);
-          return zod.bigint().min(min).max(max).describe(desc);
+          return zod
+            .string()
+            .regex(new RegExp(`^${NANOFUZZ_BIGINT}-?\\d+$`))
+            .describe(desc);
         }
         case ArgTag.BOOLEAN: {
           if (!!argIntervals[0].min !== !!argIntervals[0].max) {
@@ -772,6 +786,11 @@ export function _decode(data: ArgValueType, spec?: ArgDef): ArgValueType {
         case NANOFUZZ_FALSE:
           return false;
         default:
+          // Bigints are encoded as a prefixed decimal string because
+          // neither JSON nor JSON Schema can represent them natively
+          if (data.startsWith(NANOFUZZ_BIGINT)) {
+            return BigInt(data.slice(NANOFUZZ_BIGINT.length));
+          }
           return data;
       }
     }
@@ -800,3 +819,4 @@ export const NANOFUZZ_MISSING_PROPERTY =
   "___NANOFUZZ____6158195231___MISSING___PROPERTY___";
 export const NANOFUZZ_TRUE = "___NANOFUZZ____6158195231___TRUE___";
 export const NANOFUZZ_FALSE = "___NANOFUZZ____6158195231___FALSE___";
+export const NANOFUZZ_BIGINT = "___NANOFUZZ____6158195231___BIGINT___";
