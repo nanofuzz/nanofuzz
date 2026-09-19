@@ -30,6 +30,13 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   } // fn: constructor
 
   /**
+   * Returns the human-readable name for the Mutation input generator
+   */
+  public override get humanName(): string {
+    return "Mutation";
+  } // property: get humanName
+
+  /**
    * This generator requires a leaderboard with at least one
    * "interesting" input to mutate.
    *

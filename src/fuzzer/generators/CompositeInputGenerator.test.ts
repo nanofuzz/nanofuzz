@@ -633,6 +633,56 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     expect(result).toBeTrue();
   });
 
+  it("getPendingGeneratorNames human-readable labe", () => {
+    class SoonCompositeInputGenerator extends CompositeInputGenerator {
+      public setSubgenSoon(index: number): void {
+        this._subgens[index].nextable = () => "soon";
+      }
+    }
+
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const options = {
+      RandomInputGenerator: { enabled: false },
+      MutationInputGenerator: { enabled: false },
+      AiInputGenerator: { enabled: true },
+    };
+
+    const cig = new SoonCompositeInputGenerator(
+      options,
+      fnDef,
+      "seed",
+      [],
+      new Leaderboard<InputAndSource>(),
+      genStats,
+      new Map(),
+      program.src
+    );
+
+    cig.onRunStart(true);
+    cig.setSubgenSoon(2); // AI generator is index 2
+
+    expect(cig.getPendingGeneratorNames()).toEqual(["AI"]);
+  });
+
   it("waitForNextInput: respects timeoutMs on 'soon'", async () => {
     class NeverReadyCompositeInputGenerator extends CompositeInputGenerator {
       public setSubgenNeverReady(index: number): void {
