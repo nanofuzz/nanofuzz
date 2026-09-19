@@ -16,6 +16,7 @@ import {
 } from "../Fuzzer";
 import { NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
+import { ArgDefTokenEstimator } from "../analysis/ArgDefTokenEstimator";
 import * as zod from "zod/v4";
 import { InputGeneratorStatsAi } from "./Types";
 import { isError } from "../Util";
@@ -34,6 +35,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
   protected _stats = _initStats(); // Stats about inputs generated
   protected _allInputs; // Running list of all generated inputs
   protected _exhausted = false; // Set to true when the model produces no new valid inputs or encounters an error
+  protected _tokensPerInput: number; // Estimated tokens per input (calculated onRunStart)
+  protected _requestedInputCount; // Number of inputs to request per LLM call (calculated per request)
 
   public constructor(
     fn: FunctionDef,
@@ -45,6 +48,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
     this._fn = fn;
     this._allInputs = allInputs;
     this._moduleSrc = moduleSrc;
+    this._tokensPerInput = this._estimateTokensPerInput();
+    this._requestedInputCount = this._getRequestedInputCount();
   } // fn: constructor
 
   /**
@@ -61,6 +66,14 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   public override nextable(): NextableStatus {
     if (this._inputQueue.length) {
+      if (
+        this._inputQueue.length < getChunkSize() &&
+        !this._callsPending &&
+        this._llm &&
+        !this._exhausted
+      ) {
+        this._getMoreInputs();
+      }
       return "now";
     } else if (this._callsPending) {
       return "soon";
@@ -82,12 +95,6 @@ export class AiInputGenerator extends AbstractInputGenerator {
     }
     const diagnostics: string[] = [];
     if (LlmAdapter.isConfigured()) {
-      const cfg = LlmAdapter.getConfig();
-      if (!cfg.apiKey) {
-        diagnostics.push(
-          `No API key was provided for ${cfg.provider} model ${cfg.modelName}.`
-        );
-      }
       const failures = this._stats.calls.history.filter(
         (h): h is { failure: true; message: string } =>
           "failure" in h && h.failure === true
@@ -131,6 +138,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
    */
   public onRunStart(active: boolean): void {
     this._exhausted = false;
+    this._tokensPerInput = this._estimateTokensPerInput();
+    this._requestedInputCount = this._getRequestedInputCount();
 
     // Abandon back-end if stale or no longer configured
     if (
@@ -160,8 +169,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
       });
     }
 
-    // Refill the cache if it's empty
-    if (this._llm && !this._inputQueue.length) {
+    // Refill the cache if it's below chunkSize
+    if (this._llm && this._inputQueue.length < getChunkSize()) {
       this._getMoreInputs();
     }
   } // fn: onRunStart
@@ -176,11 +185,60 @@ export class AiInputGenerator extends AbstractInputGenerator {
     if (inputToReturn === undefined) {
       throw new Error(`next() not allowed when isAvailable()===false`);
     }
-    if (!this._inputQueue.length) {
+    if (
+      this._inputQueue.length < getChunkSize() &&
+      !this._callsPending &&
+      this._llm &&
+      !this._exhausted
+    ) {
       this._getMoreInputs();
     }
     return inputToReturn;
   } // fn: next
+
+  /**
+   * Estimates average JSON response token size for a single generated input object
+   * `{ "param1": val1, "param2": val2, ... }`.
+   */
+  protected _estimateTokensPerInput(): number {
+    return ArgDefTokenEstimator.estimateTokensPerInput(this._specs);
+  } // fn: _estimateTokensPerInput
+
+  /**
+   * Calculates requested input count for the LLM prompt, incorporating:
+   *  - Historical invalid input buffer rate (defaulting to 10%), recalculated per request
+   *  - Gross response token size cap based on model's max output token limit
+   *    and static tokens per input estimated at onRunStart
+   */
+  protected _getRequestedInputCount(): number {
+    const chunkSize = getChunkSize();
+
+    const valid = this._stats.inputs.gen;
+    const invalid =
+      this._stats.inputs.invalid + this._stats.inputs.invalidLater;
+    const totalProcessed = valid + invalid;
+
+    // Default invalid buffer rate is 10% before any call history is recorded.
+    // We cap invalidBufferRate at 1.0 (100% buffer) so that we at most double
+    // the requested chunk size (up to 2x chunkSize), preventing extreme over-fetching
+    // if an LLM run experiences a temporary high failure or invalidation rate.
+    let invalidBufferRate = 0.1;
+    if (totalProcessed > 0) {
+      invalidBufferRate = Math.min(1.0, invalid / totalProcessed);
+    }
+
+    const bufferedChunkSize = Math.ceil(chunkSize * (1 + invalidBufferRate));
+
+    // Cap requested inputs so expected response size stays within model's max output tokens
+    const maxOutputTokens = LlmAdapter.getMaxOutputTokens();
+    const maxFitInputs = Math.floor(maxOutputTokens / this._tokensPerInput);
+
+    this._requestedInputCount = Math.max(
+      1,
+      Math.min(100, Math.min(bufferedChunkSize, maxFitInputs))
+    );
+    return this._requestedInputCount;
+  } // fn: _getRequestedInputCount
 
   /**
    * Gets more inputs from the back-end AI model
@@ -205,6 +263,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
       this._stats.calls.sent++;
       const [schema, directives] = this._getInputsSchema(this._fn.getLang());
+      const numRequested = this._getRequestedInputCount();
 
       // Fetch inputs from the llm
       this._llm
@@ -213,7 +272,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
           schema,
           directives,
           this._allInputs,
-          this._moduleSrc
+          this._moduleSrc,
+          numRequested
         )
         .then((inputs) => {
           // Update tokens received stats
@@ -717,6 +777,15 @@ export function _decode(data: ArgValueType, spec?: ArgDef): ArgValueType {
       return data;
   }
 } // fn: _decode
+
+/**
+ * Get the chunk size for composite generators.
+ *
+ * @returns The chunk size as a number.
+ */
+function getChunkSize(): number {
+  return Config.get<number>("nanofuzz.generators.compositeChunkSize", 20);
+} // fn: getChunkSize
 
 // Constants for encoding/decoding
 export const NANOFUZZ_UNDEFINED = "___NANOFUZZ____6158195231___UNDEFINED___";
