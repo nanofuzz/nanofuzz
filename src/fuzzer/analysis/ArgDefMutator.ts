@@ -45,6 +45,7 @@ export class ArgDefMutator {
       path: (string | number)[];
       deleteProperty?: boolean;
       objectKeyOrder?: string[];
+      simplifies?: boolean;
     };
     const mutations: MutationProposal[] = [];
     type UniqueDimensionContext = {
@@ -159,6 +160,18 @@ export class ArgDefMutator {
         requiresUniqueElements: level === 1 && options.dimsUnique,
       });
 
+      // Clear array if empty array is allowed
+      if (a.length > 0 && options.dimLength[level - 1].min === 0) {
+        addMutations([
+          {
+            name: "array-clear",
+            value: [],
+            path: [...path],
+            simplifies: true,
+          },
+        ]);
+      }
+
       // Re-arrange elements if multiple elements are present
       if (a.length > 1) {
         addMutations(
@@ -224,6 +237,7 @@ export class ArgDefMutator {
               name: `array-deleteElement${i}`,
               value: [...a.filter((_v, j) => index !== j)],
               path: [...path],
+              simplifies: true,
             },
           ].filter(
             (e) =>
@@ -314,44 +328,77 @@ export class ArgDefMutator {
         switch (spec.getType()) {
           case ArgTag.NUMBER: {
             const value = Number(subInput.subElement);
+            const numProposals: (MutationProposal & { value: number })[] = [];
+
+            if (
+              value !== 0 &&
+              0 <= Number(spec.getIntervals()[0].max) &&
+              0 >= Number(spec.getIntervals()[0].min)
+            ) {
+              numProposals.push({
+                name: "number-setToZero",
+                value: 0,
+                path: [...subInput.subPath],
+                simplifies: true,
+              });
+            }
+
+            const plusOneVal = value + 1;
+            numProposals.push({
+              name: "number-plusOne",
+              value: plusOneVal,
+              path: [...subInput.subPath],
+              simplifies: Math.abs(plusOneVal) < Math.abs(value),
+            });
+
+            const minusOneVal = value - 1;
+            numProposals.push({
+              name: "number-minusOne",
+              value: minusOneVal,
+              path: [...subInput.subPath],
+              simplifies: Math.abs(minusOneVal) < Math.abs(value),
+            });
+
+            numProposals.push({
+              name: "number-negate",
+              value: value * -1,
+              path: [...subInput.subPath],
+            });
+
+            numProposals.push({
+              name: "number-timesTwo",
+              value: value * 2,
+              path: [...subInput.subPath],
+            });
+
+            numProposals.push({
+              name: "number-timesThree",
+              value: value * 3,
+              path: [...subInput.subPath],
+            });
+
+            const divTwoVal = options.numInteger
+              ? Math.round(value / 2)
+              : value / 2;
+            numProposals.push({
+              name: "number-divTwo",
+              value: divTwoVal,
+              path: [...subInput.subPath],
+              simplifies: Math.abs(divTwoVal) < Math.abs(value),
+            });
+
+            const divThreeVal = options.numInteger
+              ? Math.round(value / 3)
+              : value / 3;
+            numProposals.push({
+              name: "number-divThree",
+              value: divThreeVal,
+              path: [...subInput.subPath],
+              simplifies: Math.abs(divThreeVal) < Math.abs(value),
+            });
+
             addMutations(
-              [
-                {
-                  name: "number-plusOne",
-                  value: value + 1,
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "number-minusOne",
-                  value: value - 1,
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "number-negate",
-                  value: value * -1,
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "number-timesTwo",
-                  value: value * 2,
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "number-timesThree",
-                  value: value * 3,
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "number-divTwo",
-                  value: options.numInteger ? Math.round(value / 2) : value / 2,
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "number-divThree",
-                  value: options.numInteger ? Math.round(value / 3) : value / 3,
-                  path: [...subInput.subPath],
-                },
-              ].filter(
+              numProposals.filter(
                 (e) =>
                   e.value !== value &&
                   e.value <= Number(spec.getIntervals()[0].max) &&
@@ -388,45 +435,58 @@ export class ArgDefMutator {
               );
               break;
             }
+            const strProposals: (MutationProposal & { value: string })[] = [];
+
+            if (value !== "" && options.strLength.min === 0) {
+              strProposals.push({
+                name: "string-clear",
+                value: "",
+                path: [...subInput.subPath],
+                simplifies: true,
+              });
+            }
+
             const rPos = Math.floor(prng() * Math.max(0, value.length - 1));
             const charSet = options.strCharset;
             const rChar = charSet[Math.floor(prng() * (charSet.length - 1))];
 
+            strProposals.push(
+              {
+                name: "string-deleteOneChar",
+                value: `${value.slice(0, rPos)}${value.slice(rPos + 1)}`,
+                path: [...subInput.subPath],
+                simplifies: true,
+              },
+              {
+                name: "string-replaceOneChar",
+                value: `${value.slice(0, rPos)}${rChar}${value.slice(
+                  rPos + 1
+                )}`,
+                path: [...subInput.subPath],
+              },
+              {
+                name: "string-insertOneChar",
+                value: `${value.slice(0, rPos)}${rChar}${value.slice(rPos)}`,
+                path: [...subInput.subPath],
+              }
+            );
+            /*
+            {
+              name: "string-reverse",
+              value: value.split("").reverse().join(""),
+              path: [...subInput.subPath],
+            },
+            {
+              name: "string-jumble",
+              value: value
+                .split("")
+                .sort(() => 0.5 - prng())
+                .join(""),
+              path: [...subInput.subPath],
+            },
+            */
             addMutations(
-              [
-                {
-                  name: "string-deleteOneChar",
-                  value: `${value.slice(0, rPos)}${value.slice(rPos + 1)}`,
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "string-replaceOneChar",
-                  value: `${value.slice(0, rPos)}${rChar}${value.slice(
-                    rPos + 1
-                  )}`,
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "string-insertOneChar",
-                  value: `${value.slice(0, rPos)}${rChar}${value.slice(rPos)}`,
-                  path: [...subInput.subPath],
-                },
-                /*
-                {
-                  name: "string-reverse",
-                  value: value.split("").reverse().join(""),
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "string-jumble",
-                  value: value
-                    .split("")
-                    .sort(() => 0.5 - prng())
-                    .join(""),
-                  path: [...subInput.subPath],
-                },
-                */
-              ].filter(
+              strProposals.filter(
                 (e) =>
                   e.value !== value &&
                   e.value.length <= options.strLength.max &&
@@ -446,19 +506,26 @@ export class ArgDefMutator {
             const rByte = Math.floor(prng() * 256);
             const rBit = Math.floor(prng() * 8);
 
-            const proposals: {
-              name: string;
-              value: Uint8Array;
-              path: (string | number)[];
-            }[] = [];
+            const proposals: (MutationProposal & { value: Uint8Array })[] = [];
+
+            if (rawBytes.length > 0 && options.byteLength.min === 0) {
+              proposals.push({
+                name: "bytes-clear",
+                value: new Uint8Array(0),
+                path: [...subInput.subPath],
+                simplifies: true,
+              });
+            }
 
             if (rawBytes.length > 0) {
               const bitFlipped = new Uint8Array(rawBytes);
+              const bitWasSet = (rawBytes[rPos] & (1 << rBit)) !== 0;
               bitFlipped[rPos] ^= 1 << rBit;
               proposals.push({
                 name: "bytes-flipBit",
                 value: bitFlipped,
                 path: [...subInput.subPath],
+                simplifies: bitWasSet,
               });
 
               const byteInc = new Uint8Array(rawBytes);
@@ -476,6 +543,7 @@ export class ArgDefMutator {
                 name: "bytes-deleteOneByte",
                 value: deleted,
                 path: [...subInput.subPath],
+                simplifies: true,
               });
             }
 
@@ -513,6 +581,7 @@ export class ArgDefMutator {
                   name: "boolean-setFalse",
                   value: false,
                   path: [...subInput.subPath],
+                  simplifies: value === true,
                 },
               ].filter(
                 (e) =>
@@ -573,6 +642,7 @@ export class ArgDefMutator {
                         value: undefined,
                         path: childPath,
                         deleteProperty: true,
+                        simplifies: true,
                       },
                     ]);
                   }
@@ -595,14 +665,170 @@ export class ArgDefMutator {
             if (
               typeof value === "object" &&
               value !== null &&
-              !Array.isArray(value)
+              !Array.isArray(value) &&
+              !(value instanceof Uint8Array) &&
+              !(value instanceof Set) &&
+              !(value instanceof Map)
             ) {
-              const [, valueSpec] = spec.getChildren();
+              const dict: Record<string, ArgValueType> = value;
+              const [keySpec, valueSpec] = spec.getChildren();
+              const dictLen = options.dictLength;
+              const keys = Object.keys(dict);
+
+              // 1. Add new key-value entry (if dict.size < dictLen.max)
+              if (
+                keys.length < dictLen.max &&
+                keySpec &&
+                !keySpec.isNoInput() &&
+                valueSpec &&
+                !valueSpec.isNoInput()
+              ) {
+                let attempts = 0;
+                while (attempts++ < 20) {
+                  const rawKey = ArgDefGenerator.gen(
+                    keySpec,
+                    prng,
+                    true,
+                    false
+                  );
+                  const candidateKey = String(rawKey);
+                  if (
+                    !Object.prototype.hasOwnProperty.call(dict, candidateKey)
+                  ) {
+                    const candidateVal = ArgDefGenerator.gen(
+                      valueSpec,
+                      prng,
+                      true,
+                      false
+                    );
+                    const testDict = { ...dict, [candidateKey]: candidateVal };
+                    if (ArgDefValidator.validate(testDict, spec)) {
+                      addMutations([
+                        {
+                          name: "dictionary-addEntry",
+                          value: candidateVal,
+                          path: [...subInput.subPath, candidateKey],
+                        },
+                      ]);
+                      break;
+                    }
+                  }
+                }
+              }
+
+              // 2. Delete key-value entry (if dict.size > dictLen.min)
+              if (keys.length > dictLen.min) {
+                for (let i = 0; i < keys.length; i++) {
+                  const testDict = { ...dict };
+                  delete testDict[keys[i]];
+                  if (ArgDefValidator.validate(testDict, spec)) {
+                    addMutations([
+                      {
+                        name: `dictionary-deleteEntry${i}`,
+                        value: undefined,
+                        path: [...subInput.subPath, keys[i]],
+                        deleteProperty: true,
+                        simplifies: true,
+                      },
+                    ]);
+                  }
+                }
+              }
+
+              // 3. Replace value for existing key
+              if (keys.length > 0 && valueSpec && !valueSpec.isNoInput()) {
+                for (let i = 0; i < keys.length; i++) {
+                  const key = keys[i];
+                  let attempts = 0;
+                  while (attempts++ < 20) {
+                    const candidateVal = ArgDefGenerator.gen(
+                      valueSpec,
+                      prng,
+                      true,
+                      false
+                    );
+                    if (
+                      JSONN.stringify(candidateVal) !==
+                      JSONN.stringify(dict[key])
+                    ) {
+                      const testDict = { ...dict, [key]: candidateVal };
+                      if (ArgDefValidator.validate(testDict, spec)) {
+                        addMutations([
+                          {
+                            name: `dictionary-replaceValue${i}`,
+                            value: candidateVal,
+                            path: [...subInput.subPath, key],
+                          },
+                        ]);
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+
+              // 4. Rename key (generate non-existing key and transfer value)
+              if (keys.length > 0 && keySpec && !keySpec.isNoInput()) {
+                for (let i = 0; i < keys.length; i++) {
+                  const oldKey = keys[i];
+                  let attempts = 0;
+                  while (attempts++ < 20) {
+                    const rawKey = ArgDefGenerator.gen(
+                      keySpec,
+                      prng,
+                      true,
+                      false
+                    );
+                    const newKeyCandidate = String(rawKey);
+                    if (
+                      newKeyCandidate !== oldKey &&
+                      !Object.prototype.hasOwnProperty.call(
+                        dict,
+                        newKeyCandidate
+                      )
+                    ) {
+                      const newDict: Record<string, ArgValueType> = {};
+                      for (const k of keys) {
+                        if (k === oldKey) {
+                          newDict[newKeyCandidate] = dict[oldKey];
+                        } else {
+                          newDict[k] = dict[k];
+                        }
+                      }
+                      if (ArgDefValidator.validate(newDict, spec)) {
+                        addMutations([
+                          {
+                            name: `dictionary-renameKey${i}`,
+                            value: newDict,
+                            path: [...subInput.subPath],
+                          },
+                        ]);
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+
+              // 5. Clear dictionary (if dictLen.min === 0 and dict has entries)
+              if (dictLen.min === 0 && keys.length > 0) {
+                if (ArgDefValidator.validate({}, spec)) {
+                  addMutations([
+                    {
+                      name: "dictionary-clear",
+                      value: {},
+                      path: [...subInput.subPath],
+                      simplifies: true,
+                    },
+                  ]);
+                }
+              }
+
               // Mapping keys are dynamic, unlike object-property names.  Walk
               // each existing value with the shared value specification; key
               // renames are intentionally left to dictionary regeneration.
               if (valueSpec) {
-                for (const [key, entry] of Object.entries(value)) {
+                for (const [key, entry] of Object.entries(dict)) {
                   const childUniqueContexts = subInput.uniqueContexts.map(
                     (context) => ({
                       ...context,
@@ -672,9 +898,22 @@ export class ArgDefMutator {
                       name: `set-deleteElement${i}`,
                       value: newSet,
                       path: [...subInput.subPath],
+                      simplifies: true,
                     },
                   ]);
                 }
+              }
+
+              // 5. Clear set (if setLen.min === 0 and set has items)
+              if (setLen.min === 0 && items.length > 0) {
+                addMutations([
+                  {
+                    name: "set-clear",
+                    value: new Set(),
+                    path: [...subInput.subPath],
+                    simplifies: true,
+                  },
+                ]);
               }
 
               // 3. Replace element (swaps an existing element for a fresh unique element)
@@ -749,6 +988,7 @@ export class ArgDefMutator {
                             name: cm.name,
                             value: newSet,
                             path: [...subInput.subPath],
+                            simplifies: cm.simplifies,
                           },
                         ]);
                       }
@@ -851,6 +1091,7 @@ export class ArgDefMutator {
                         name: "optional-delete",
                         value: undefined,
                         path: [...subInput.subPath, i],
+                        simplifies: true,
                       },
                     ]);
                   }
@@ -885,6 +1126,7 @@ export class ArgDefMutator {
       return {
         name: e.name,
         path: e.path,
+        simplifies: e.simplifies ?? false,
         fn: () => {
           if (wasMutated) {
             throw new Error(
@@ -1106,5 +1348,6 @@ export class ArgDefMutator {
 export type mutatorFn = {
   name: string; // mutator function name
   path: (string | number)[]; // path to value node to mutate
+  simplifies?: boolean; // true if mutator simplifies/shrinks input complexity
   fn: () => ArgValueType; // mutator function
 };

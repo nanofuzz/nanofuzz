@@ -943,6 +943,76 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(mutatorNames).toContain("set-replaceElement0");
   });
 
+  it("Dictionary mutators: add, delete, replace, rename, clear", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "dictArg",
+      0,
+      ArgTag.DICTIONARY,
+      {
+        ...argOptions,
+        dictLength: { min: 1, max: 3 },
+      },
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "keys", ArgTag.STRING, 0),
+        makeTypeRef(dummyModule, "values", ArgTag.NUMBER, 0),
+      ]
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: { a: 10, b: 20 },
+      },
+    ];
+    const mutatorNames = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("dictMutators")
+    ).map((m) => m.name);
+
+    expect(mutatorNames).toContain("dictionary-addEntry");
+    expect(mutatorNames).toContain("dictionary-deleteEntry0");
+    expect(mutatorNames).toContain("dictionary-deleteEntry1");
+    expect(mutatorNames).toContain("dictionary-replaceValue0");
+    expect(mutatorNames).toContain("dictionary-replaceValue1");
+    expect(mutatorNames).toContain("dictionary-renameKey0");
+    expect(mutatorNames).toContain("dictionary-renameKey1");
+  });
+
+  it("Dictionary clear mutator available when dictLength min === 0", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "dictArg",
+      0,
+      ArgTag.DICTIONARY,
+      {
+        ...argOptions,
+        dictLength: { min: 0, max: 3 },
+      },
+      0,
+      false,
+      [
+        makeTypeRef(dummyModule, "keys", ArgTag.STRING, 0),
+        makeTypeRef(dummyModule, "values", ArgTag.NUMBER, 0),
+      ]
+    );
+    const input = [
+      {
+        tag: "ArgValueTypeWrapped" as const,
+        value: { a: 10 },
+      },
+    ];
+    const mutatorNames = ArgDefMutator.getMutators(
+      [spec],
+      input,
+      seedrandom("dictClearMutator")
+    ).map((m) => m.name);
+
+    expect(mutatorNames).toContain("dictionary-clear");
+  });
+
   it("Set mutators reject element mutations that duplicate an existing element in the Set", () => {
     const spec = makeArgDef(
       dummyModule,
