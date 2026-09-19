@@ -595,14 +595,168 @@ export class ArgDefMutator {
             if (
               typeof value === "object" &&
               value !== null &&
-              !Array.isArray(value)
+              !Array.isArray(value) &&
+              !(value instanceof Uint8Array) &&
+              !(value instanceof Set) &&
+              !(value instanceof Map)
             ) {
-              const [, valueSpec] = spec.getChildren();
+              const dict: Record<string, ArgValueType> = value;
+              const [keySpec, valueSpec] = spec.getChildren();
+              const dictLen = options.dictLength;
+              const keys = Object.keys(dict);
+
+              // 1. Add new key-value entry (if dict.size < dictLen.max)
+              if (
+                keys.length < dictLen.max &&
+                keySpec &&
+                !keySpec.isNoInput() &&
+                valueSpec &&
+                !valueSpec.isNoInput()
+              ) {
+                let attempts = 0;
+                while (attempts++ < 20) {
+                  const rawKey = ArgDefGenerator.gen(
+                    keySpec,
+                    prng,
+                    true,
+                    false
+                  );
+                  const candidateKey = String(rawKey);
+                  if (
+                    !Object.prototype.hasOwnProperty.call(dict, candidateKey)
+                  ) {
+                    const candidateVal = ArgDefGenerator.gen(
+                      valueSpec,
+                      prng,
+                      true,
+                      false
+                    );
+                    const testDict = { ...dict, [candidateKey]: candidateVal };
+                    if (ArgDefValidator.validate(testDict, spec)) {
+                      addMutations([
+                        {
+                          name: "dictionary-addEntry",
+                          value: candidateVal,
+                          path: [...subInput.subPath, candidateKey],
+                        },
+                      ]);
+                      break;
+                    }
+                  }
+                }
+              }
+
+              // 2. Delete key-value entry (if dict.size > dictLen.min)
+              if (keys.length > dictLen.min) {
+                for (let i = 0; i < keys.length; i++) {
+                  const testDict = { ...dict };
+                  delete testDict[keys[i]];
+                  if (ArgDefValidator.validate(testDict, spec)) {
+                    addMutations([
+                      {
+                        name: `dictionary-deleteEntry${i}`,
+                        value: undefined,
+                        path: [...subInput.subPath, keys[i]],
+                        deleteProperty: true,
+                      },
+                    ]);
+                  }
+                }
+              }
+
+              // 3. Replace value for existing key
+              if (keys.length > 0 && valueSpec && !valueSpec.isNoInput()) {
+                for (let i = 0; i < keys.length; i++) {
+                  const key = keys[i];
+                  let attempts = 0;
+                  while (attempts++ < 20) {
+                    const candidateVal = ArgDefGenerator.gen(
+                      valueSpec,
+                      prng,
+                      true,
+                      false
+                    );
+                    if (
+                      JSONN.stringify(candidateVal) !==
+                      JSONN.stringify(dict[key])
+                    ) {
+                      const testDict = { ...dict, [key]: candidateVal };
+                      if (ArgDefValidator.validate(testDict, spec)) {
+                        addMutations([
+                          {
+                            name: `dictionary-replaceValue${i}`,
+                            value: candidateVal,
+                            path: [...subInput.subPath, key],
+                          },
+                        ]);
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+
+              // 4. Rename key (generate non-existing key and transfer value)
+              if (keys.length > 0 && keySpec && !keySpec.isNoInput()) {
+                for (let i = 0; i < keys.length; i++) {
+                  const oldKey = keys[i];
+                  let attempts = 0;
+                  while (attempts++ < 20) {
+                    const rawKey = ArgDefGenerator.gen(
+                      keySpec,
+                      prng,
+                      true,
+                      false
+                    );
+                    const newKeyCandidate = String(rawKey);
+                    if (
+                      newKeyCandidate !== oldKey &&
+                      !Object.prototype.hasOwnProperty.call(
+                        dict,
+                        newKeyCandidate
+                      )
+                    ) {
+                      const newDict: Record<string, ArgValueType> = {};
+                      for (const k of keys) {
+                        if (k === oldKey) {
+                          newDict[newKeyCandidate] = dict[oldKey];
+                        } else {
+                          newDict[k] = dict[k];
+                        }
+                      }
+                      if (ArgDefValidator.validate(newDict, spec)) {
+                        addMutations([
+                          {
+                            name: `dictionary-renameKey${i}`,
+                            value: newDict,
+                            path: [...subInput.subPath],
+                          },
+                        ]);
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+
+              // 5. Clear dictionary (if dictLen.min === 0 and dict has entries)
+              if (dictLen.min === 0 && keys.length > 0) {
+                if (ArgDefValidator.validate({}, spec)) {
+                  addMutations([
+                    {
+                      name: "dictionary-clear",
+                      value: {},
+                      path: [...subInput.subPath],
+                    },
+                  ]);
+                }
+              }
+
               // Mapping keys are dynamic, unlike object-property names.  Walk
               // each existing value with the shared value specification; key
               // renames are intentionally left to dictionary regeneration.
               if (valueSpec) {
-                for (const [key, entry] of Object.entries(value)) {
+                for (const [key, entry] of Object.entries(dict)) {
                   subInputs.push({
                     subPath: [...subInput.subPath, key],
                     subElement: entry,
@@ -631,7 +785,12 @@ export class ArgDefMutator {
               if (items.length < setLen.max && elemSpec) {
                 let attempts = 0;
                 while (attempts++ < 20) {
-                  const candidate = ArgDefGenerator.gen(elemSpec, prng, true, false);
+                  const candidate = ArgDefGenerator.gen(
+                    elemSpec,
+                    prng,
+                    true,
+                    false
+                  );
                   const serializedCandidate = JSONN.stringify(candidate);
                   const existingSerialized = items.map((v) =>
                     JSONN.stringify(v)
@@ -653,7 +812,9 @@ export class ArgDefMutator {
               // 2. Delete element (if set.size > setLen.min)
               if (items.length > setLen.min) {
                 for (let i = 0; i < items.length; i++) {
-                  const newSet = makeCanonicalSet(items.filter((_, j) => j !== i));
+                  const newSet = makeCanonicalSet(
+                    items.filter((_, j) => j !== i)
+                  );
                   addMutations([
                     {
                       name: `set-deleteElement${i}`,
@@ -679,7 +840,9 @@ export class ArgDefMutator {
                     const existingOtherSerialized = items
                       .filter((_, j) => j !== i)
                       .map((v) => JSONN.stringify(v));
-                    if (!existingOtherSerialized.includes(serializedCandidate)) {
+                    if (
+                      !existingOtherSerialized.includes(serializedCandidate)
+                    ) {
                       const newItems = [...items];
                       newItems[i] = candidate;
                       const newSet = makeCanonicalSet(newItems);
