@@ -264,6 +264,12 @@ export class ArgDefValidator {
 
         case ArgTag.UNION: {
           const children = spec.getChildren().filter((c) => !c.isNoInput());
+          if (!children.length) {
+            // A union with no active members has no values to generate, so
+            // `undefined` is its only inhabitant. See ArgDefGenerator, which
+            // returns `undefined` for exactly this case.
+            return value === undefined;
+          }
           for (const c of children) {
             if (ArgDefValidator.validate(value, c)) {
               return true; // validated against one of the union specs
