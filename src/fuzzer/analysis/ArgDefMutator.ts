@@ -328,6 +328,9 @@ export class ArgDefMutator {
         switch (spec.getType()) {
           case ArgTag.BIGINT: {
             const value = subInput.subElement;
+            if (value === undefined && spec.isOptional()) {
+              break; // an optional arg with no value has nothing to mutate
+            }
             if (typeof value !== "bigint") {
               throw new Error(
                 `Expected bigint input, got ${JSONN.stringify(value)}`
