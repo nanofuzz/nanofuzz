@@ -603,12 +603,18 @@ export class ArgDefMutator {
               // renames are intentionally left to dictionary regeneration.
               if (valueSpec) {
                 for (const [key, entry] of Object.entries(value)) {
+                  const childUniqueContexts = subInput.uniqueContexts.map(
+                    (context) => ({
+                      ...context,
+                      pathFromOuter: [...context.pathFromOuter, key],
+                    })
+                  );
                   subInputs.push({
                     subPath: [...subInput.subPath, key],
                     subElement: entry,
                     subSpec: valueSpec,
                     inArray: false,
-                    uniqueContexts: subInput.uniqueContexts,
+                    uniqueContexts: childUniqueContexts,
                   });
                 }
               }
@@ -631,7 +637,12 @@ export class ArgDefMutator {
               if (items.length < setLen.max && elemSpec) {
                 let attempts = 0;
                 while (attempts++ < 20) {
-                  const candidate = ArgDefGenerator.gen(elemSpec, prng, true, false);
+                  const candidate = ArgDefGenerator.gen(
+                    elemSpec,
+                    prng,
+                    true,
+                    false
+                  );
                   const serializedCandidate = JSONN.stringify(candidate);
                   const existingSerialized = items.map((v) =>
                     JSONN.stringify(v)
@@ -653,7 +664,9 @@ export class ArgDefMutator {
               // 2. Delete element (if set.size > setLen.min)
               if (items.length > setLen.min) {
                 for (let i = 0; i < items.length; i++) {
-                  const newSet = makeCanonicalSet(items.filter((_, j) => j !== i));
+                  const newSet = makeCanonicalSet(
+                    items.filter((_, j) => j !== i)
+                  );
                   addMutations([
                     {
                       name: `set-deleteElement${i}`,
@@ -679,7 +692,9 @@ export class ArgDefMutator {
                     const existingOtherSerialized = items
                       .filter((_, j) => j !== i)
                       .map((v) => JSONN.stringify(v));
-                    if (!existingOtherSerialized.includes(serializedCandidate)) {
+                    if (
+                      !existingOtherSerialized.includes(serializedCandidate)
+                    ) {
                       const newItems = [...items];
                       newItems[i] = candidate;
                       const newSet = makeCanonicalSet(newItems);

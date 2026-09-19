@@ -242,9 +242,7 @@ export function getRandomArgDef(
     dimsUnique: dims.dims > 0 && prng() > 0.5,
     dictLength: { min: Math.floor(prng() * 2), max: 2 },
     setLength: { min: Math.floor(prng() * 2), max: 2 },
-    isNoInput:
-      (parentType === ArgTag.OBJECT || parentType === ArgTag.UNION) &&
-      prng() > 0.5,
+    isNoInput: parentType === ArgTag.OBJECT && prng() > 0.5,
   };
   let interval: Interval<ArgType>[] | undefined;
 

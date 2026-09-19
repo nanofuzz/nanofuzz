@@ -1014,16 +1014,24 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     const dupeMutators: { [k: string]: number } = {};
     let uniqueDimensionSpecs = 0;
     let regexStringSpecs = 0;
-    let i = 100;
+    let i = 150;
     while (i--) {
-      const spec = [getRandomArgDef(prng, Math.floor(prng() * 2))];
-      if (spec[0].getDim() > 0 && spec[0].getOptions().dimsUnique) {
-        uniqueDimensionSpecs++;
+      const paramCount = Math.floor(prng() * 3) + 1;
+      const spec: ArgDef[] = [];
+      for (let p = 0; p < paramCount; p++) {
+        spec.push(getRandomArgDef(prng, Math.floor(prng() * 2)));
       }
-      regexStringSpecs += [spec[0], ...spec[0].getChildrenFlat()].filter(
-        (argument) => argument.getOptions().strRegex !== undefined
-      ).length;
-      const stxt = abbrSpec(spec[0]).join("\r\n");
+      for (const s of spec) {
+        if (s.getDim() > 0 && s.getOptions().dimsUnique) {
+          uniqueDimensionSpecs++;
+        }
+        regexStringSpecs += [s, ...s.getChildrenFlat()].filter(
+          (argument) => argument.getOptions().strRegex !== undefined
+        ).length;
+      }
+      const stxt = spec
+        .map((s) => abbrSpec(s).join("\r\n"))
+        .join("\r\n---\r\n");
       const gen = new ArgDefGenerator(spec, prng);
       const val = new ArgDefValidator(spec);
 
@@ -1032,7 +1040,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
         let input = gen.next();
         const isValid = val.validate(input);
         if (!isValid) {
-          const itxt = JSONN.stringify(input[0]);
+          const itxt = JSONN.stringify(input);
           stats.gens.invalid++;
           stats.specsWithErrors[stxt] = stats.specsWithErrors[stxt] ?? {};
           stats.specsWithErrors[stxt][itxt] =
