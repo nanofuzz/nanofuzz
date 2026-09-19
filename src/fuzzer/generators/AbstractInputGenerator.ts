@@ -32,6 +32,13 @@ export abstract class AbstractInputGenerator {
   } // property: get name
 
   /**
+   * Returns the input generator's human-readable name
+   */
+  public get humanName(): string {
+    return this.name.replace("InputGenerator", "");
+  } // property: get humanName
+
+  /**
    * Returns generator stats
    */
   public get stats(): InputGeneratorStats {

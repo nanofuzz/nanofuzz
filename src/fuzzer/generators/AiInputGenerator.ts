@@ -53,6 +53,13 @@ export class AiInputGenerator extends AbstractInputGenerator {
   } // fn: constructor
 
   /**
+   * Returns the human-readable name for the AI input generator
+   */
+  public override get humanName(): string {
+    return "AI";
+  } // property: get humanName
+
+  /**
    * Are inputs available?
    *
    * @returns 'now' if generator inputs are available, 'soon' if pending, false otherwise
@@ -100,10 +107,14 @@ export class AiInputGenerator extends AbstractInputGenerator {
           diagnostics.push(errMsg);
         });
       }
-      if (this._stats.calls.sent > 0 && this._stats.inputs.gen === 0) {
-        if (this._stats.inputs.invalid + this._stats.inputs.invalidLater > 0) {
+      const totalInvalid =
+        this._stats.inputs.invalid + this._stats.inputs.invalidLater;
+      const totalValidQueued = this._stats.inputs.gen - totalInvalid;
+
+      if (this._stats.calls.sent > 0 && totalValidQueued === 0) {
+        if (totalInvalid > 0) {
           diagnostics.push(
-            `All ${this._stats.inputs.invalid + this._stats.inputs.invalidLater} inputs returned by the model were invalid.`
+            `All ${totalInvalid} inputs returned by the model were invalid.`
           );
         } else if (this._stats.calls.valid > 0) {
           diagnostics.push(`The model did not produce any valid inputs.`);
@@ -111,7 +122,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
           this._stats.calls.failed === 0 &&
           this._stats.calls.valid === 0
         ) {
-          diagnostics.push(`Testing finished before the model could respond.`);
+          diagnostics.push(`Testing finished before the model responded.`);
         }
       }
     }

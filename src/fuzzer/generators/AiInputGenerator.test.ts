@@ -7,6 +7,7 @@ import { LlmAdapter, prompt } from "../adapters/LlmAdapter";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import seedrandom from "seedrandom";
+import * as Config from "../../Config";
 
 describe("src/fuzzer/generators/AiInputGenerator: ", () => {
   it("dimsUnique schema directives", () => {
@@ -314,6 +315,50 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     gen.disableLlm();
     gen.setCallsPending(0);
     expect(gen.nextable()).toBe(false);
+  });
+
+  it("getDiagnostics: all generated inputs invalid", () => {
+    class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public setStatsAllInvalid(): void {
+        this._stats.calls.sent = 1;
+        this._stats.calls.valid = 1;
+        this._stats.inputs.gen = 25;
+        this._stats.inputs.invalid = 25;
+      }
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new TestableAiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    gen.setStatsAllInvalid();
+    Config.override("nanofuzz.ai.provider", "gemini");
+    Config.override("nanofuzz.ai.model", "gemini-flash");
+    Config.override("nanofuzz.ai.apiKey", "test-key");
+
+    try {
+      const diagnostics = gen.getDiagnostics();
+      expect(diagnostics).toContain(
+        "All 25 inputs returned by the model were invalid."
+      );
+    } finally {
+      Config.clearOverrides();
+    }
   });
 
   it("nextable: 'now' when queue is non-empty", () => {
