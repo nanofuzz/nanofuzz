@@ -998,7 +998,7 @@ export class Tester {
 
         // Front-end status update
         update({
-          msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
+          msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} input# ${
             runStats.counters.passedTests +
             runStats.counters.failedTests +
             runStats.counters.erroredTests +
