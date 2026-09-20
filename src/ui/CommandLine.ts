@@ -1,3 +1,11 @@
+// Enable Node.js compile cache if supported by Node runtime (Node 22.8+)
+import moduleApi from "node:module";
+if (
+  "enableCompileCache" in moduleApi &&
+  typeof moduleApi.enableCompileCache === "function"
+) {
+  moduleApi.enableCompileCache();
+}
 import * as Commander from "commander";
 import * as Config from "../Config";
 import * as fs from "node:fs";
@@ -185,6 +193,11 @@ export async function runCliInProcess(
   try {
     program.parse(args, { from: "user" });
   } catch (_e: unknown) {
+    // Commander throws a CommanderError with exitCode = 0 when handling --help or --version.
+    // In exitOverride() mode, catch this and return EXIT_OK (0) instead of treating it as a usage error.
+    if (_e instanceof Commander.CommanderError && _e.exitCode === 0) {
+      return EXIT_OK;
+    }
     return ERROR_USAGE; // command line usage error
   }
 

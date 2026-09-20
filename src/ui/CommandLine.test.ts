@@ -117,6 +117,16 @@ describe("cli:", () => {
     }
   });
 
+  it("returns exit code 0 for --help and --version", async () => {
+    const helpRes = await runCli(["--help"]);
+    expect(helpRes.status).toBe(0);
+    expect(helpRes.stdout).toContain("Usage: nanofuzz");
+
+    const versionRes = await runCli(["--version"]);
+    expect(versionRes.status).toBe(0);
+    expect(versionRes.stdout).toContain("NaNofuzz");
+  });
+
   it("--output-file: check matching parameters for TypeScript", async () => {
     const outputFile = path.join(tmpDir, "ts_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
