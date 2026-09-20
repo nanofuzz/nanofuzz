@@ -856,7 +856,7 @@ export class Tester {
         const startTransformTime = performance.now(); // start time: input transformation
         if (!result.inputGenerated.injected && transformRunner) {
           const transformerResult = await transformRunner.run(
-            structuredClone(result.inputGenerated.value.map((e) => e.value)),
+            deepFreeze(result.inputGenerated.value.map((e) => e.value)),
             Math.max(this._options.fnTimeout, 1)
           );
 
@@ -1016,7 +1016,7 @@ export class Tester {
           let exeOutput: RunnerResult;
           try {
             exeOutput = await runner.run(
-              structuredClone(result.input.map((e) => e.value)),
+              deepFreeze(result.input.map((e) => e.value)),
               Math.max(this._options.fnTimeout, 1)
             );
           } catch (e: unknown) {
