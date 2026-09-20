@@ -869,9 +869,9 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       .measure(inputAt(0), anyResult)
       .coverageMeasure.current.fileCoverageFor(jsFileName);
     const maps = {
-      statementMap: JSON.parse(JSON.stringify(first.statementMap)),
-      fnMap: JSON.parse(JSON.stringify(first.fnMap)),
-      branchMap: JSON.parse(JSON.stringify(first.branchMap)),
+      statementMap: structuredClone(first.statementMap),
+      fnMap: structuredClone(first.fnMap),
+      branchMap: structuredClone(first.branchMap),
     };
     expect(first.b).toEqual({ 0: [1, 0] });
 

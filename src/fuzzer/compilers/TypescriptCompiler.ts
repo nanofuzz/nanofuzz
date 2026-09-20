@@ -76,7 +76,7 @@ export class TypescriptCompiler {
    * @returns current set of compiler options
    */
   get options(): CompilerOptions {
-    return JSON.parse(JSON.stringify(this._options));
+    return structuredClone(this._options);
   } // get: options
 
   /**

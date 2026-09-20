@@ -2,14 +2,13 @@ import {
   CoverageMap,
   CoverageMapData,
   createCoverageMap,
+  createFileCoverage,
   FileCoverageData,
-  FileCoverage,
   Range,
 } from "istanbul-lib-coverage";
 import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
 import { FullCoverage, PythonRunner } from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
-import * as JSONN from "../../Jsonn";
 import { normalizePathForKey } from "../Util";
 import {
   AbstractCoverageMeasure,
@@ -322,8 +321,8 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
             const fileSummary = pyCoverageMap
               .fileCoverageFor(filePath)
               .toSummary();
-            const fileMap = JSONN.parse<FileCoverage>(
-              JSONN.stringify(pyCoverageMap.fileCoverageFor(filePath))
+            const fileMap = createFileCoverage(
+              structuredClone(pyCoverageMap.fileCoverageFor(filePath).data)
             );
             // Omit functions and branches with no hits
             for (const k of Object.keys(fileMap.f)) {

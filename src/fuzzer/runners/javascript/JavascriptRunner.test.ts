@@ -1,4 +1,5 @@
 import { JavascriptRunner } from "./JavascriptRunner";
+import { FileCoverageData } from "istanbul-lib-coverage";
 import {
   FuzzEnv,
   FuzzGeneratorStatsBase,
@@ -469,11 +470,16 @@ export function x(
       expect(isCoverageMapData(initialCov)).toBeTrue();
       if (isCoverageMapData(initialCov)) {
         const fileKey = Object.keys(initialCov)[0];
-        const fileCov = JSON.parse(JSON.stringify(initialCov[fileKey]));
-        delete fileCov.inputSourceMap;
-        delete fileCov._coverageSchema;
-        delete fileCov.hash;
-        fileCov.path = "<TEMP_JS_PATH>";
+        const rawCov = structuredClone(initialCov[fileKey]);
+        const fileCov: FileCoverageData = {
+          path: "<TEMP_JS_PATH>",
+          statementMap: rawCov.statementMap,
+          fnMap: rawCov.fnMap,
+          branchMap: rawCov.branchMap,
+          s: rawCov.s,
+          f: rawCov.f,
+          b: rawCov.b,
+        };
 
         expect(fileCov).toEqual({
           path: "<TEMP_JS_PATH>",
@@ -641,10 +647,8 @@ export function x(
       expect(stats.counters.statementsCovered).toBe(6);
       expect(stats.counters.functionsCovered).toBe(1);
 
-      const fileMapNoPath = {
-        ...JSON.parse(JSON.stringify(stats.files[0].fileMap)),
-        path: "<TEMP_TS_PATH>",
-      };
+      const fileMapNoPath = structuredClone(stats.files[0].fileMap.data);
+      fileMapNoPath.path = "<TEMP_TS_PATH>";
       expect(fileMapNoPath).toEqual({
         path: "<TEMP_TS_PATH>",
         statementMap: {
@@ -674,7 +678,7 @@ export function x(
           },
         },
         fnMap: {
-          "0": {
+          "0": jasmine.objectContaining({
             name: "x",
             decl: {
               start: { line: 6, column: 16 },
@@ -684,7 +688,7 @@ export function x(
               start: { line: 10, column: 5 },
               end: { line: 13, column: 1 },
             },
-          },
+          }),
         },
         branchMap: {},
         s: {

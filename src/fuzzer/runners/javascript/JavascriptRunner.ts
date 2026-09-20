@@ -9,7 +9,12 @@ import { ArgTag } from "../../analysis/Types";
 import { NodeHost } from "./NodeHost";
 import { FuzzEnv } from "../../Fuzzer";
 import { isCoverageMapData } from "../../measures/TypescriptCoverageMeasure";
-import { CoverageMapData } from "istanbul-lib-coverage";
+import {
+  CoverageMapData,
+  Range,
+  FunctionMapping,
+  BranchMapping,
+} from "istanbul-lib-coverage";
 import { findInAncestor, isError, normalizePathForKey } from "../../Util";
 import { parseCoverageScope } from "../../measures/Util";
 import { PutTimeoutName } from "../AbstractHost";
@@ -134,13 +139,11 @@ export class JavascriptRunner extends AbstractRunner {
               target = {
                 path: normKey,
                 statementMap: fileCov.statementMap
-                  ? JSON.parse(JSON.stringify(fileCov.statementMap))
+                  ? structuredClone(fileCov.statementMap)
                   : {},
-                fnMap: fileCov.fnMap
-                  ? JSON.parse(JSON.stringify(fileCov.fnMap))
-                  : {},
+                fnMap: fileCov.fnMap ? structuredClone(fileCov.fnMap) : {},
                 branchMap: fileCov.branchMap
-                  ? JSON.parse(JSON.stringify(fileCov.branchMap))
+                  ? structuredClone(fileCov.branchMap)
                   : {},
                 s: {},
                 f: {},
@@ -415,9 +418,9 @@ export class JavascriptRunner extends AbstractRunner {
 
 type FileCoverageData = {
   path?: string;
-  statementMap?: Record<string, unknown>;
-  fnMap?: Record<string, unknown>;
-  branchMap?: Record<string, unknown>;
+  statementMap?: { [key: string]: Range };
+  fnMap?: { [key: string]: FunctionMapping };
+  branchMap?: { [key: string]: BranchMapping };
   s?: Record<string, number>;
   f?: Record<string, number>;
   b?: Record<string, number[]>;

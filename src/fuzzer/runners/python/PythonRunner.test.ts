@@ -916,8 +916,7 @@ def x(val: int) -> int:
       expect(stats.counters.statementsCovered).toBe(6);
       expect(stats.counters.functionsCovered).toBe(1);
 
-      const fileMapNoPath = JSON.parse(JSON.stringify(stats.files[0].fileMap));
-      delete fileMapNoPath.path;
+      const fileMapNoPath = structuredClone(stats.files[0].fileMap.data);
 
       // Single run expectation: all 6 statements are covered (1 hit each)
       expect(fileMapNoPath.s).toEqual({
