@@ -31,6 +31,21 @@ export function isKeyedObject(obj: unknown): obj is Record<string, unknown> {
 } // fn: isKeyedObject
 
 /**
+ * Deeply freezes an object and its nested properties.
+ */
+export function deepFreeze<T>(obj: T): T {
+  if (obj && typeof obj === "object" && !Object.isFrozen(obj)) {
+    Object.freeze(obj);
+    for (const val of Object.values(obj)) {
+      if (val && typeof val === "object") {
+        deepFreeze(val);
+      }
+    }
+  }
+  return obj;
+}
+
+/**
  * Unwraps transformer origins to return the underlying base origin.
  *
  * @param origin the FuzzValueOrigin to unwrap

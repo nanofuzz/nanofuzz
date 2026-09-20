@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as JSONN from "../Jsonn";
-import { isKeyedObject } from "../Util";
+import { deepFreeze, isKeyedObject } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
@@ -1176,8 +1176,8 @@ export class Tester {
           const startMeasureTime = performance.now(); // start timer
           const measurements = this._measures.map((e) =>
             e.measure(
-              structuredClone(result.inputGenerated),
-              structuredClone(result)
+              deepFreeze(result.inputGenerated),
+              deepFreeze({ ...result })
             )
           );
 
