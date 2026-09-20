@@ -726,7 +726,7 @@ def default_serializer(obj: Any) -> Any:
         f"Object of type {type(obj).__name__} is not serializable")
 
 
-def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
+def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]], pgm_files: List[str]) -> RunnerResult:
     collect_options = input.get("collect")
     if collect_options is None:
         coverage_enabled = True
@@ -789,12 +789,12 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     coverageData = {}
     coverageArcs = {}
     if coverage_enabled:
-        for file in covInfo:
+        for idx, file in enumerate(pgm_files):
             lines = coverage_lines(cov, file)
             if not lines:
                 continue
-            coverageData[file] = lines
-            coverageArcs[file] = coverage_arcs(cov, file)
+            coverageData[idx] = lines
+            coverageArcs[idx] = coverage_arcs(cov, file)
 
     if is_timeout:
         return RunnerTimeoutResult(
@@ -974,7 +974,7 @@ if __name__ == "__main__":
     logging.debug(f"[{pid}] Sent READY message")
 
     # Send the initial coverage info once
-    send_msg(initialCoverage)
+    send_msg({"covInfo": initialCoverage, "files": pgm_files})
     logging.debug(
         f"[{pid}] Sent initialCoverage for {len(initialCoverage)} file(s)")
 
@@ -983,7 +983,7 @@ if __name__ == "__main__":
         logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
             put_result(run_put(get_inputs(), filename, fnname, fn,
-                       cov, covInfo))  # Call the put
+                       cov, covInfo, pgm_files))  # Call the put
         else:
             get_inputs()
             put_result(loadError)  # Return the load error
