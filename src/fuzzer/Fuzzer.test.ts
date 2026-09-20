@@ -89,7 +89,7 @@ describe("fuzzer: general", () => {
       expect(statusUpdates.length).toBeGreaterThan(2);
 
       const example1Updates = statusUpdates.filter((u) =>
-        u.msg.includes("example# 1")
+        u.msg.includes("input# 1")
       );
       expect(example1Updates.length).toBeGreaterThanOrEqual(2);
       expect(example1Updates[0].msg).toEqual(example1Updates[1].msg);
