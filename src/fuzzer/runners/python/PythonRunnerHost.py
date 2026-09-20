@@ -340,6 +340,9 @@ def get_inputs() -> RunnerInput:
     raise Exception("Unreachable path")
 
 
+_measured_key_cache: dict[str, Union[str, None]] = {}
+
+
 def measured_key(data, filename: str) -> Union[str, None]:
     """
     Returns the key under which coverage.py recorded `filename`, or None if
@@ -349,12 +352,21 @@ def measured_key(data, filename: str) -> Union[str, None]:
     `filename` does not exactly match the recorded key, so fall back to
     matching against the measured files by resolved path.
     """
-    if filename in data.measured_files():
+    if filename in _measured_key_cache:
+        return _measured_key_cache[filename]
+
+    measured = data.measured_files()
+    if filename in measured:
+        _measured_key_cache[filename] = filename
         return filename
+
     target = os.path.normcase(os.path.realpath(filename))
-    for measured in data.measured_files():
-        if os.path.normcase(os.path.realpath(measured)) == target:
-            return measured
+    for m in measured:
+        if os.path.normcase(os.path.realpath(m)) == target:
+            _measured_key_cache[filename] = m
+            return m
+
+    _measured_key_cache[filename] = None
     return None
 
 
@@ -790,7 +802,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     if skip is not None:
@@ -800,7 +811,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     if error is not None:
@@ -813,7 +823,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     return RunnerValueResult(
@@ -822,7 +831,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         seq=input["seq"],
         coverageData=coverageData,
         coverageArcs=coverageArcs,
-        staticCoverage=covInfo if coverage_enabled else {}
     )
 
 

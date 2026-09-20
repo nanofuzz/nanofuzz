@@ -138,23 +138,36 @@ export class PythonRunner extends AbstractRunner {
       // Refresh the dynamic coverage with what this call executed.
       if (!this._coverageEnabled) {
         this._coverageInfo = undefined;
-      } else if (result.result.staticCoverage) {
-        this._coverageInfo = result.result.staticCoverage;
-        for (const filename in this._coverageInfo) {
-          const coverageData = result.result.coverageData;
-          const coverageArcs = result.result.coverageArcs;
-          this._coverageInfo[filename].lines =
-            coverageData && !Array.isArray(coverageData)
-              ? coverageData[filename]
-              : undefined;
-          this._coverageInfo[filename].arcs =
-            coverageArcs && !Array.isArray(coverageArcs)
-              ? coverageArcs[filename]
-              : undefined;
+      } else {
+        if (
+          result.result.staticCoverage &&
+          Object.keys(result.result.staticCoverage).length > 0
+        ) {
+          this._coverageInfo = result.result.staticCoverage;
+        }
+        if (!this._coverageInfo) {
+          this._coverageInfo = {};
+        }
+        const coverageData = result.result.coverageData;
+        const coverageArcs = result.result.coverageArcs;
+
+        if (coverageData && !Array.isArray(coverageData)) {
+          for (const filename of Object.keys(coverageData)) {
+            if (!this._coverageInfo[filename]) {
+              this._coverageInfo[filename] = {
+                executable: [],
+                functions: [],
+                branches: [],
+              };
+            }
+            this._coverageInfo[filename].lines = coverageData[filename];
+            this._coverageInfo[filename].arcs =
+              coverageArcs && !Array.isArray(coverageArcs)
+                ? coverageArcs[filename]
+                : undefined;
+          }
         }
         this._coverageCallback?.(this._coverageInfo);
-      } else {
-        this._coverageInfo = undefined;
       }
 
       return result;
