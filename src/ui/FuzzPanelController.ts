@@ -667,7 +667,7 @@ export class FuzzPanel {
               ) {
                 thisOpt.maxDupeInputs = Config.get(
                   "nanofuzz.fuzzer.maxDupeInputs",
-                  1000
+                  500
                 );
               }
             }
@@ -4067,7 +4067,7 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
     fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 100),
     suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
-    maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 1000),
+    maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 500),
     maxFailures: Config.get("nanofuzz.fuzzer.maxFailures", 0),
     useTransformer: true,
     useHuman: true,
