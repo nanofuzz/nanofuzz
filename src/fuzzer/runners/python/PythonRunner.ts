@@ -286,9 +286,7 @@ export class PythonRunner extends AbstractRunner {
     if (projectRoot) {
       const extDir = path.dirname(projectRoot);
       pyPaths.push(path.join(extDir, "build", "extension"));
-      pyPaths.push(
-        path.join(extDir, "packages", "runtime", "python", "src")
-      );
+      pyPaths.push(path.join(extDir, "packages", "runtime", "python", "src"));
     }
 
     if (pythonEnv.env.PYTHONPATH) {
@@ -478,20 +476,31 @@ export class PythonRunner extends AbstractRunner {
     return candidate || "python3";
   } // fn: resolveInterpreter
 
+  private static _canExecuteCache: Map<string, boolean> = new Map();
+
   /**
    * Probes whether a python executable candidate can be spawned successfully.
+   * Results are cached to avoid repeated synchronous spawnSync calls.
    */
   public static canExecute(
     bin: string,
     env?: Record<string, string | undefined>
   ): boolean {
+    const cacheKey = `${bin}:${env ? JSON.stringify(env) : ""}`;
+    if (PythonRunner._canExecuteCache.has(cacheKey)) {
+      return PythonRunner._canExecuteCache.get(cacheKey)!;
+    }
+
     try {
       const res = ChildProcess.spawnSync(bin, ["-c", "import sys"], {
         env: env ?? process.env,
         encoding: "utf8",
       });
-      return res.status === 0 && !res.error;
+      const ok = res.status === 0 && !res.error;
+      PythonRunner._canExecuteCache.set(cacheKey, ok);
+      return ok;
     } catch {
+      PythonRunner._canExecuteCache.set(cacheKey, false);
       return false;
     }
   } // fn: canExecute
