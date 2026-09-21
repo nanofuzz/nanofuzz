@@ -403,6 +403,8 @@ describe("cli:", () => {
       "replay-error",
       "--ai-cache-file",
       cacheFile,
+      "--no-random-input-generator",
+      "--no-mutation-input-generator",
       "--max-tests",
       "1",
       "--seed",
