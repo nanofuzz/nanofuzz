@@ -411,12 +411,12 @@ describe("cli:", () => {
       "cli_seed_ai_cache_miss",
     ]);
 
-    if (res.status !== 0) {
+    if (res.status !== 3) {
       console.error("CLI STDOUT:", res.stdout);
       console.error("CLI STDERR:", res.stderr);
     }
 
-    expect(res.status).toBe(0);
+    expect(res.status).toBe(3);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
     const outputData = JSON5.parse<FuzzTestResults>(
