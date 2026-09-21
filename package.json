@@ -72,7 +72,7 @@
           "nanofuzz.fuzzer.maxDupeInputs": {
             "title": "Maximum number of duplicate inputs",
             "type": "integer",
-            "default": 500,
+            "default": 1000,
             "minimum": 0,
             "description": "Default maximum number of duplicate inputs the fuzzer should generate before stopping."
           },

@@ -48,7 +48,7 @@ export const intOptions: FuzzOptions = {
   fnTimeout: 200,
   suiteTimeout: 0,
   seed: "qwertyuiop",
-  maxDupeInputs: 500,
+  maxDupeInputs: 1000,
   maxFailures: 0,
   useImplicit: true,
   useTransformer: true,
