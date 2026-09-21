@@ -19,6 +19,9 @@ import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
+import pkg from "../../package.json";
+
+const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
 
 /**
  * Command line interface for NaNofuzz.
@@ -45,7 +48,7 @@ function createProgram(): Commander.Command {
   const program = new Commander.Command();
   program
     .name("nanofuzz")
-    .version(`NaNofuzz ${process.env.NANOFUZZ_VERSION}`)
+    .version(`NaNofuzz ${nanofuzzVersion}`)
     .argument(`<filename>`, `The Python or Typescript module to test`)
     .argument(`<function>`, `The entrypoint function to test`)
 
@@ -201,7 +204,7 @@ export async function runCliInProcess(
     return ERROR_USAGE; // command line usage error
   }
 
-  console.info(`NaNofuzz v${process.env.NANOFUZZ_VERSION}`);
+  console.info(`NaNofuzz v${nanofuzzVersion}`);
 
   if (program.args.length < 2) {
     console.error("Error: missing required arguments <filename> <function>");
