@@ -99,10 +99,12 @@ describe("cli:", () => {
   });
 
   beforeEach(() => {
+    Config.clearOverrides();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-cli-test-"));
   });
 
   afterEach(() => {
+    Config.clearOverrides();
     if (fs.existsSync(tmpDir)) {
       try {
         fs.rmSync(tmpDir, {
@@ -456,18 +458,16 @@ describe("cli:", () => {
     const schemaJson = JSON.stringify(zod.toJSONSchema(schema));
     const key = createCacheKey(provider, modelName, [promptText], schemaJson);
 
+    const seededInputs = Array.from({ length: numRequested }, (_, i) => ({
+      s: `s${i.toString().padStart(3, "0")}`,
+    }));
+
     const seededEntry = {
       key,
       request: { provider, modelName, prompt: [promptText], schemaJson },
       response: {
         text: JSON.stringify({
-          programInputs: [
-            { s: "replay-cached-input-1" },
-            { s: "replay-cached-input-2" },
-            { s: "replay-cached-input-3" },
-            { s: "replay-cached-input-4" },
-            { s: "replay-cached-input-5" },
-          ],
+          programInputs: seededInputs,
         }),
         stats: {
           tokensSent: 100,
@@ -502,6 +502,8 @@ describe("cli:", () => {
       "replay-error",
       "--ai-cache-file",
       cacheFile,
+      "--no-random-input-generator",
+      "--no-mutation-input-generator",
       "--max-tests",
       "1",
       "--seed",
