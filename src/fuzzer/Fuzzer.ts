@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as JSONN from "../Jsonn";
-import { isKeyedObject } from "../Util";
+import { deepFreeze, isKeyedObject } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
@@ -856,7 +856,7 @@ export class Tester {
         const startTransformTime = performance.now(); // start time: input transformation
         if (!result.inputGenerated.injected && transformRunner) {
           const transformerResult = await transformRunner.run(
-            structuredClone(result.inputGenerated.value.map((e) => e.value)),
+            deepFreeze(result.inputGenerated.value.map((e) => e.value)),
             Math.max(this._options.fnTimeout, 1)
           );
 
@@ -998,7 +998,7 @@ export class Tester {
 
         // Front-end status update
         update({
-          msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
+          msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} input# ${
             runStats.counters.passedTests +
             runStats.counters.failedTests +
             runStats.counters.erroredTests +
@@ -1016,7 +1016,7 @@ export class Tester {
           let exeOutput: RunnerResult;
           try {
             exeOutput = await runner.run(
-              structuredClone(result.input.map((e) => e.value)),
+              deepFreeze(result.input.map((e) => e.value)),
               Math.max(this._options.fnTimeout, 1)
             );
           } catch (e: unknown) {
@@ -1176,8 +1176,8 @@ export class Tester {
           const startMeasureTime = performance.now(); // start timer
           const measurements = this._measures.map((e) =>
             e.measure(
-              structuredClone(result.inputGenerated),
-              structuredClone(result)
+              deepFreeze(result.inputGenerated),
+              deepFreeze({ ...result })
             )
           );
 

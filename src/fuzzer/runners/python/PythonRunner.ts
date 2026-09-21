@@ -1,5 +1,6 @@
 import {
   AbstractRunner,
+  Arc,
   CoverageInfo,
   RunnerInput,
   RunnerResult,
@@ -33,6 +34,7 @@ export class PythonRunner extends AbstractRunner {
   protected _host: PythonHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo?: FullCoverage = undefined;
+  protected _pgmFiles: string[] = [];
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
   protected _pythonEnv: PythonEnv | undefined;
@@ -138,23 +140,48 @@ export class PythonRunner extends AbstractRunner {
       // Refresh the dynamic coverage with what this call executed.
       if (!this._coverageEnabled) {
         this._coverageInfo = undefined;
-      } else if (result.result.staticCoverage) {
-        this._coverageInfo = result.result.staticCoverage;
-        for (const filename in this._coverageInfo) {
-          const coverageData = result.result.coverageData;
-          const coverageArcs = result.result.coverageArcs;
-          this._coverageInfo[filename].lines =
-            coverageData && !Array.isArray(coverageData)
-              ? coverageData[filename]
+      } else {
+        if (
+          result.result.staticCoverage &&
+          Object.keys(result.result.staticCoverage).length > 0
+        ) {
+          const staticCov = result.result.staticCoverage;
+          this._coverageInfo = staticCov;
+          this._pgmFiles = Object.keys(staticCov);
+        }
+        if (!this._coverageInfo) {
+          this._coverageInfo = {};
+        }
+        const coverageData = result.result.coverageData;
+        const coverageArcs = result.result.coverageArcs;
+
+        if (isRecord(coverageData)) {
+          for (const key of Object.keys(coverageData)) {
+            const idx = Number(key);
+            const filename =
+              !isNaN(idx) && this._pgmFiles && this._pgmFiles[idx] !== undefined
+                ? this._pgmFiles[idx]
+                : key;
+            if (!this._coverageInfo[filename]) {
+              this._coverageInfo[filename] = {
+                executable: [],
+                functions: [],
+                branches: [],
+              };
+            }
+            const linesVal = coverageData[key];
+            if (isNumberArray(linesVal)) {
+              this._coverageInfo[filename].lines = linesVal;
+            }
+            const arcsVal = isRecord(coverageArcs)
+              ? coverageArcs[key]
               : undefined;
-          this._coverageInfo[filename].arcs =
-            coverageArcs && !Array.isArray(coverageArcs)
-              ? coverageArcs[filename]
-              : undefined;
+            if (isArcArray(arcsVal)) {
+              this._coverageInfo[filename].arcs = arcsVal;
+            }
+          }
         }
         this._coverageCallback?.(this._coverageInfo);
-      } else {
-        this._coverageInfo = undefined;
       }
 
       return result;
@@ -286,9 +313,7 @@ export class PythonRunner extends AbstractRunner {
     if (projectRoot) {
       const extDir = path.dirname(projectRoot);
       pyPaths.push(path.join(extDir, "build", "extension"));
-      pyPaths.push(
-        path.join(extDir, "packages", "runtime", "python", "src")
-      );
+      pyPaths.push(path.join(extDir, "packages", "runtime", "python", "src"));
     }
 
     if (pythonEnv.env.PYTHONPATH) {
@@ -478,20 +503,31 @@ export class PythonRunner extends AbstractRunner {
     return candidate || "python3";
   } // fn: resolveInterpreter
 
+  private static _canExecuteCache: Map<string, boolean> = new Map();
+
   /**
    * Probes whether a python executable candidate can be spawned successfully.
+   * Results are cached to avoid repeated synchronous spawnSync calls.
    */
   public static canExecute(
     bin: string,
     env?: Record<string, string | undefined>
   ): boolean {
+    const cacheKey = `${bin}:${env ? JSON.stringify(env) : ""}`;
+    if (PythonRunner._canExecuteCache.has(cacheKey)) {
+      return PythonRunner._canExecuteCache.get(cacheKey)!;
+    }
+
     try {
       const res = ChildProcess.spawnSync(bin, ["-c", "import sys"], {
         env: env ?? process.env,
         encoding: "utf8",
       });
-      return res.status === 0 && !res.error;
+      const ok = res.status === 0 && !res.error;
+      PythonRunner._canExecuteCache.set(cacheKey, ok);
+      return ok;
     } catch {
+      PythonRunner._canExecuteCache.set(cacheKey, false);
       return false;
     }
   } // fn: canExecute
@@ -585,7 +621,18 @@ export class PythonRunner extends AbstractRunner {
       // Get the static coverage structure, which the host sends once. The
       // dynamic `lines`/`arcs` are filled in by each `run`.
       const rawCovBuf = await host.getResponseBuffer(hostStartupTimeout);
-      this._coverageInfo = JSONN.unpack<FullCoverage>(rawCovBuf);
+      const rawCov = JSONN.unpack<unknown>(rawCovBuf);
+      const extracted = extractStartupCoverage(rawCov);
+      if (extracted) {
+        this._coverageInfo = extracted.covInfo;
+        this._pgmFiles = extracted.files;
+      } else if (isFullCoverage(rawCov)) {
+        this._coverageInfo = rawCov;
+        this._pgmFiles = Object.keys(rawCov);
+      } else {
+        this._coverageInfo = {};
+        this._pgmFiles = [];
+      }
       return host;
     } else {
       host.kill();
@@ -780,6 +827,63 @@ export type BranchExit = {
   dest: number; // arc target, for matching against `Arc`s
   line: number; // where to display this exit
 };
+
+function isRecord(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null;
+}
+
+function isNumberArray(val: unknown): val is number[] {
+  return Array.isArray(val) && val.every((item) => typeof item === "number");
+}
+
+function isArcArray(val: unknown): val is Arc[] {
+  return (
+    Array.isArray(val) &&
+    val.every(
+      (item) =>
+        Array.isArray(item) &&
+        item.length === 2 &&
+        typeof item[0] === "number" &&
+        typeof item[1] === "number"
+    )
+  );
+}
+
+function extractStartupCoverage(val: unknown):
+  | {
+      covInfo: FullCoverage;
+      files: string[];
+    }
+  | undefined {
+  if (
+    isRecord(val) &&
+    "covInfo" in val &&
+    isRecord(val.covInfo) &&
+    !("executable" in val.covInfo) &&
+    "files" in val &&
+    Array.isArray(val.files)
+  ) {
+    const files = val.files.filter((f): f is string => typeof f === "string");
+    if (isFullCoverage(val.covInfo)) {
+      return { covInfo: val.covInfo, files };
+    }
+  }
+  return undefined;
+}
+
+export function isFullCoverage(val: unknown): val is FullCoverage {
+  if (!isRecord(val)) return false;
+  const values = Object.values(val);
+  if (values.length === 0) return true;
+  return values.every(
+    (item) =>
+      isRecord(item) &&
+      "executable" in item &&
+      "functions" in item &&
+      "branches" in item &&
+      Array.isArray(item.executable)
+  );
+}
 
 export { Arc, CoverageInfo } from "../AbstractRunner";
 export type { PythonEnv } from "./PythonHost";

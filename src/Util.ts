@@ -31,6 +31,34 @@ export function isKeyedObject(obj: unknown): obj is Record<string, unknown> {
 } // fn: isKeyedObject
 
 /**
+ * Deeply freezes an object and its nested properties.
+ * Plain objects and arrays are frozen with Object.freeze.
+ * TypedArrays / Buffers / ArrayBuffers are preserved as native binary views
+ * so native binary serialization (MessagePack IPC) continues to work.
+ */
+export function deepFreeze<T>(obj: T): T {
+  if (
+    obj &&
+    typeof obj === "object" &&
+    !Object.isFrozen(obj) &&
+    !ArrayBuffer.isView(obj) &&
+    !(obj instanceof ArrayBuffer) &&
+    !(
+      typeof SharedArrayBuffer !== "undefined" &&
+      obj instanceof SharedArrayBuffer
+    )
+  ) {
+    Object.freeze(obj);
+    for (const val of Object.values(obj)) {
+      if (val && typeof val === "object") {
+        deepFreeze(val);
+      }
+    }
+  }
+  return obj;
+}
+
+/**
  * Unwraps transformer origins to return the underlying base origin.
  *
  * @param origin the FuzzValueOrigin to unwrap

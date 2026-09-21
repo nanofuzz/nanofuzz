@@ -1,4 +1,3 @@
-import * as JSONN from "../../Jsonn";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createSourceMapStore, MapStore } from "istanbul-lib-source-maps";
 import { RawSourceMap } from "source-map";
@@ -6,6 +5,7 @@ import {
   CoverageMap,
   CoverageMapData,
   createCoverageMap,
+  createFileCoverage,
   FileCoverage,
   FileCoverageData,
 } from "istanbul-lib-coverage";
@@ -425,8 +425,8 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
             const fileSummary = tsCoverageMap
               .fileCoverageFor(filePath)
               .toSummary();
-            const fileMap = JSONN.parse<FileCoverage>(
-              JSONN.stringify(tsCoverageMap.fileCoverageFor(filePath))
+            const fileMap = createFileCoverage(
+              structuredClone(tsCoverageMap.fileCoverageFor(filePath).data)
             );
             // Omit functions and branches with no hits
             for (const k of Object.keys(fileMap.f)) {

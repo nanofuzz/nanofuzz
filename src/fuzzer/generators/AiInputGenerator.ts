@@ -641,7 +641,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * Return stats about the AI input generation process
    */
   public get stats(): InputGeneratorStatsAi {
-    const res: InputGeneratorStatsAi = JSON.parse(JSON.stringify(this._stats));
+    const res: InputGeneratorStatsAi = structuredClone(this._stats);
     if (this._llm) {
       res.cache = this._llm.cacheStats;
     }

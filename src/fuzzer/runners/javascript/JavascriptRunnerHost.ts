@@ -1,7 +1,14 @@
+// Enable Node.js compile cache if supported by Node runtime (Node 22.8+)
+import * as moduleApi from "node:module";
+if (
+  "enableCompileCache" in moduleApi &&
+  typeof moduleApi.enableCompileCache === "function"
+) {
+  moduleApi.enableCompileCache();
+}
 import * as JSONN from "../../../Jsonn";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import * as moduleApi from "node:module";
 import vm from "node:vm";
 import { Worker } from "node:worker_threads";
 import { serialize, deserialize } from "node:v8";
@@ -218,17 +225,10 @@ function setupNodePath() {
 
 /**
  * Sets up the environment for the JavascriptRunnerHost process, including
- * redirecting console output to stderr and enabling Node.js compile cache,
- * if available.
+ * setting up NODE_PATH and redirecting console output to stderr.
  */
 function setup() {
   setupNodePath();
-
-  // Activate Node.js compile cache if available (Node 22+)
-  const enableCache = Reflect.get(moduleApi, "enableCompileCache");
-  if (typeof enableCache === "function") {
-    enableCache();
-  }
 
   // Redirect all console output away from stdout so IPC stdout is 100% clean
   const toStderr = (...args: unknown[]) => {

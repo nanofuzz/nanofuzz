@@ -1,3 +1,11 @@
+// Enable Node.js compile cache if supported by Node runtime (Node 22.8+)
+const moduleApi = require("node:module");
+if (
+  "enableCompileCache" in moduleApi &&
+  typeof moduleApi.enableCompileCache === "function"
+) {
+  moduleApi.enableCompileCache();
+}
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
