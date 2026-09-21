@@ -3319,6 +3319,22 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         break;
       }
 
+      // BigInt-specific Options
+      case fuzzer.ArgTag.BIGINT: {
+        // Note: bigints use their own control ids so that the front-end can
+        // tell them apart from numbers, which it parses with `Number()`.
+        // A bigint is always integral, so there is no Integer/Float choice.
+        const interval = arg.getIntervals()[0];
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMin" name="${idBase}-bigIntMin" value="${htmlEscape(
+          bigIntOrThrow(interval.min).toString()
+        )}">Min value</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMax" name="${idBase}-bigIntMax" value="${htmlEscape(
+          bigIntOrThrow(interval.max).toString()
+        )}">Max value</vscode-text-field>`;
+        break;
+      }
+
       // String-specific Options
       case fuzzer.ArgTag.STRING: {
         // TODO: validate for ints > 0 !!!
@@ -3974,6 +3990,19 @@ function _applyArgOverrides(
           });
         }
         break;
+
+      case fuzzer.ArgTag.BIGINT:
+        if (thisOverride.bigInt) {
+          // Min / Max
+          thisArg.setIntervals([
+            {
+              min: thisOverride.bigInt.min,
+              max: thisOverride.bigInt.max,
+            },
+          ]);
+        }
+        break;
+
       case fuzzer.ArgTag.BOOLEAN:
         if (thisOverride.boolean) {
           // Min / Max
@@ -4120,6 +4149,23 @@ export const normalizeFuzzOptions = (
       : dft.measures,
   };
 }; // fn: normalizeFuzzOptions()
+
+/**
+ * Returns the given interval bound as a bigint.
+ *
+ * @param value interval bound of a bigint ArgDef
+ * @returns the bound as a bigint
+ *
+ * Throws an exception if the bound is not a bigint
+ */
+function bigIntOrThrow(value: fuzzer.ArgType): bigint {
+  if (typeof value !== "bigint") {
+    throw new Error(
+      `Invalid interval bound for bigint type: ${JSON.stringify(String(value))}`
+    );
+  }
+  return value;
+} // fn: bigIntOrThrow()
 
 /**
  * Accepts an array of strings and returns a prettier list including

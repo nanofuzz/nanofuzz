@@ -16,29 +16,33 @@ const dummyModule = "dummy.ts";
  * function argument.
  */
 describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
-  [ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL].forEach(
-    (tag: ArgTag) => {
-      it(`should return %s for primitive type '${tag}'`, () => {
-        const argDef = makeArgDef(
-          dummyModule,
-          "test",
-          0,
-          tag,
-          argOptions,
-          0,
-          undefined,
-          undefined,
-          undefined,
-          tag === ArgTag.LITERAL ? 5 : undefined
-        );
-        if (tag === ArgTag.LITERAL) {
-          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe("5");
-        } else {
-          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(tag);
-        }
-      });
-    }
-  );
+  [
+    ArgTag.BIGINT,
+    ArgTag.STRING,
+    ArgTag.NUMBER,
+    ArgTag.BOOLEAN,
+    ArgTag.LITERAL,
+  ].forEach((tag: ArgTag) => {
+    it(`should return %s for primitive type '${tag}'`, () => {
+      const argDef = makeArgDef(
+        dummyModule,
+        "test",
+        0,
+        tag,
+        argOptions,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        tag === ArgTag.LITERAL ? 5 : undefined
+      );
+      if (tag === ArgTag.LITERAL) {
+        expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe("5");
+      } else {
+        expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(tag);
+      }
+    });
+  });
 
   [1, 2, 3].forEach((dims: number) => {
     it(`should return ${dims} "[]"s for array type with ${dims} dimensions`, () => {
@@ -56,33 +60,37 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     });
   });
 
-  [ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL].forEach(
-    (tag: ArgTag) => {
-      it(`should return '<type> | undefined' for optional types (${tag})`, () => {
-        const argDef = makeArgDef(
-          dummyModule,
-          "test",
-          0,
-          tag,
-          argOptions,
-          0,
-          true,
-          undefined,
-          undefined,
-          tag === ArgTag.LITERAL ? 5 : undefined
+  [
+    ArgTag.BIGINT,
+    ArgTag.STRING,
+    ArgTag.NUMBER,
+    ArgTag.BOOLEAN,
+    ArgTag.LITERAL,
+  ].forEach((tag: ArgTag) => {
+    it(`should return '<type> | undefined' for optional types (${tag})`, () => {
+      const argDef = makeArgDef(
+        dummyModule,
+        "test",
+        0,
+        tag,
+        argOptions,
+        0,
+        true,
+        undefined,
+        undefined,
+        tag === ArgTag.LITERAL ? 5 : undefined
+      );
+      if (tag === ArgTag.LITERAL) {
+        expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
+          "5 | undefined"
         );
-        if (tag === ArgTag.LITERAL) {
-          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
-            "5 | undefined"
-          );
-        } else {
-          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
-            tag + " | undefined"
-          );
-        }
-      });
-    }
-  );
+      } else {
+        expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
+          tag + " | undefined"
+        );
+      }
+    });
+  });
 
   it("should return type name for type refs", () => {
     const argDef = makeArgDef(
@@ -1221,6 +1229,7 @@ function abbrSpec(spec: ArgDef, indents = 0): string[] {
   if (spec.getType() === ArgTag.NUMBER && spec.getOptions().numInteger)
     line.push(`INTEGER`);
   if (
+    spec.getType() === ArgTag.BIGINT ||
     spec.getType() === ArgTag.NUMBER ||
     spec.getType() === ArgTag.BOOLEAN ||
     spec.getType() === ArgTag.LITERAL

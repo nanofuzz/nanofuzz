@@ -82,6 +82,24 @@ export class ArgDefTokenEstimator {
    */
   public static estimateBaseArgChars(arg: ArgDef): number {
     switch (arg.getType()) {
+      case ArgTag.BIGINT: {
+        // Neither JSON nor JSON Schema can represent a bigint, so the AI
+        // generator sends one as a prefixed decimal string:
+        // "<NANOFUZZ_BIGINT><digits>". A spec in AiInputGenerator.test.ts
+        // pins the prefix length so this estimate cannot drift.
+        const placeholderChars = 2 + 37; // 2 quotes + NANOFUZZ_BIGINT prefix
+        const intervals = arg.getIntervals();
+        if (intervals && intervals.length > 0) {
+          const firstInt = intervals[0];
+          const minLen =
+            typeof firstInt.min === "bigint" ? String(firstInt.min).length : 1;
+          const maxLen =
+            typeof firstInt.max === "bigint" ? String(firstInt.max).length : 3;
+          return placeholderChars + (minLen + maxLen) / 2;
+        }
+        return placeholderChars + 2; // digits of the default [0n, 100n] range
+      }
+
       case ArgTag.NUMBER: {
         const numOpts = arg.getOptions();
         if (!numOpts.numInteger) {

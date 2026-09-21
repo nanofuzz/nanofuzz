@@ -132,6 +132,24 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     expect<unknown>(decoded).toEqual(new Uint8Array([104, 101, 108, 108, 111]));
   });
 
+  it("decode bigint placeholder", () => {
+    // ArgDefTokenEstimator sizes a bigint response using this prefix length
+    expect(AiInputGenerator.NANOFUZZ_BIGINT.length).toBe(37);
+
+    expect<unknown>(
+      AiInputGenerator._decode(`${AiInputGenerator.NANOFUZZ_BIGINT}42`)
+    ).toEqual(BigInt(42));
+    expect<unknown>(
+      AiInputGenerator._decode(`${AiInputGenerator.NANOFUZZ_BIGINT}-42`)
+    ).toEqual(BigInt(-42));
+    expect<unknown>(
+      AiInputGenerator._decode([
+        `${AiInputGenerator.NANOFUZZ_BIGINT}1`,
+        `${AiInputGenerator.NANOFUZZ_BIGINT}2`,
+      ])
+    ).toEqual([BigInt(1), BigInt(2)]);
+  });
+
   it("prompt.genInputs includes module source code", () => {
     const fnDef = FunctionDef.fromFunctionRef({
       module: "test.ts",
@@ -496,6 +514,13 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     function toJsonObj(val: unknown): unknown {
       if (val === null || val === undefined) {
         return val;
+      }
+      if (typeof val === "bigint") {
+        // A bigint reaches the model as a prefixed decimal string, since
+        // neither JSON nor JSON Schema can represent one. Without this,
+        // JSON.stringify throws on every bigint sample below and the catch
+        // silently drops it, leaving the estimate unmeasured.
+        return `${AiInputGenerator.NANOFUZZ_BIGINT}${val.toString()}`;
       }
       if (val instanceof Set) {
         return Array.from(val.values()).map(toJsonObj);
