@@ -8,6 +8,7 @@ import {
   FuzzTestResults,
 } from "../../Fuzzer";
 import { PythonCoverageMeasure } from "../../measures/PythonCoverageMeasure";
+import { normalizePathForKey } from "../../Util";
 import { ArgDef } from "../../analysis/ArgDef";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";
@@ -1025,13 +1026,20 @@ def x(val: int) -> int:
     const env = createFuzzEnv(fnDef);
 
     Config.override("nanofuzz.fuzzer.coverageScope", "project");
+    const measure = new PythonCoverageMeasure();
 
     try {
       const runner = new PythonRunner(realPyPath, "x", env, 2000);
       await runner.onRunStart();
+      measure.onRunStart([runner]);
 
-      // 1. Initial coverage at startup is empty when static is not in coverageScope
-      expect(runner.coverageInfo).toEqual({});
+      // 1. Initial coverage at startup has static structure but no module-load lines when static is NOT in coverageScope
+      const initialCov =
+        runner.coverageInfo?.[pyPath] ?? runner.coverageInfo?.[realPyPath];
+      expect(initialCov).toBeDefined();
+      expect(initialCov?.executable).toBeDefined();
+      expect(initialCov?.executable?.length).toBeGreaterThan(0);
+      expect(initialCov?.lines).toBeUndefined();
 
       // 2. Dynamic coverage is still collected during test execution
       const res = await runner.run([0], 2000);
@@ -1040,6 +1048,99 @@ def x(val: int) -> int:
         runner.coverageInfo?.[realPyPath]?.lines ??
           runner.coverageInfo?.[pyPath]?.lines
       ).toEqual([5]);
+
+      if (res.result.tag === "value") {
+        const testResult: FuzzTestResult = {
+          pinned: false,
+          inputGenerated: {
+            tick: 0,
+            value: [],
+            source: {
+              type: "generator",
+              generator: "RandomInputGenerator",
+            },
+          },
+          input: [],
+          output: [],
+          exception: false,
+          skipped: false,
+          timeout: false,
+          passedImplicit: "pass",
+          passedHuman: "unknown",
+          passedValidator: "pass",
+          passedValidators: [],
+          validatorException: false,
+          timers: { gen: 0, transform: 0, run: 0 },
+          category: "ok",
+          interestingReasons: [],
+        };
+
+        measure.measure(
+          {
+            tick: 0,
+            value: [
+              {
+                tag: "ArgValueTypeWrapped",
+                value: [0],
+              },
+            ],
+            source: {
+              type: "generator",
+              generator: "RandomInputGenerator",
+            },
+          },
+          testResult
+        );
+      }
+
+      const dummyGenStats: FuzzGeneratorStatsBase = {
+        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      };
+
+      const resultsStub: FuzzTestResults = {
+        toolVersion: "0.0.0",
+        env,
+        stopReason: FuzzStopReason.MAXTESTS,
+        interesting: { inputs: [] },
+        results: [],
+        stats: {
+          counters: {
+            testingRuns: 1,
+            inputsGenerated: 1,
+            dupesGenerated: 0,
+            inputsInjected: 0,
+            erroredTests: 0,
+            passedTests: 1,
+            inputsSkipped: 0,
+            failedTests: 0,
+          },
+          timers: {
+            total: 10,
+            compile: 0,
+            instrument: 0,
+            put: 10,
+            val: 0,
+            gen: 0,
+            transform: 0,
+            measure: 0,
+          },
+          generators: {
+            RandomInputGenerator: dummyGenStats,
+            MutationInputGenerator: dummyGenStats,
+            AiInputGenerator: dummyGenStats,
+          },
+          measures: {},
+        },
+      };
+
+      measure.onRunEnd(resultsStub);
+      const stats = await resultsStub.stats.measures.CodeCoverageMeasure!();
+      expect(stats.files.length).toBe(1);
+      expect(stats.files[0].path).toBe(normalizePathForKey(realPyPath));
+      expect(
+        Object.keys(stats.files[0].fileMap.statementMap).length
+      ).toBeGreaterThan(0);
 
       await runner.onRunEnd();
     } finally {
