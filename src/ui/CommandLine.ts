@@ -483,18 +483,21 @@ export async function runCliInProcess(
       return USER_CANCELLED;
     }
 
-    const someTestsRan =
-      results.stats.counters.passedTests + results.stats.counters.failedTests;
-    const someTestsFailed = results.stats.counters.failedTests;
+    const totalTestsRan =
+      results.stats.counters.passedTests +
+      results.stats.counters.failedTests +
+      results.stats.counters.erroredTests;
+    const totalTestsFailed =
+      results.stats.counters.failedTests + results.stats.counters.erroredTests;
 
-    if (someTestsRan && !results.stats.counters.erroredTests) {
-      if (someTestsFailed) {
+    if (totalTestsRan > 0) {
+      if (totalTestsFailed > 0) {
         return ERROR_TEST_FAILURE; // tests ran and some failed
       } else {
-        return EXIT_OK; // tests ran and none failed);
+        return EXIT_OK; // tests ran and none failed
       }
     } else {
-      return ERROR_INTERNAL; // internal error
+      return ERROR_INTERNAL; // internal error (0 tests ran)
     }
   } catch (e: unknown) {
     process.removeListener("SIGINT", sigintListener);

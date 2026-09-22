@@ -6,6 +6,26 @@ import {
 import { Judgment as _Judgment } from "./oracles/Types";
 
 /**
+ * Error occurring in test harness (property validator or input transformer)
+ */
+export type HarnessError =
+  | {
+      kind: "exception";
+      stage: "transformer" | "validator";
+      fnName: string;
+      message: string;
+      display?: string;
+      stack: string;
+    }
+  | {
+      kind: "timeout";
+      stage: "transformer" | "validator";
+      fnName: string;
+      message: string;
+      display?: string;
+    };
+
+/**
  * Single Fuzzer Test Result
  */
 export type FuzzTestResult = {
@@ -22,11 +42,7 @@ export type FuzzTestResult = {
   passedHuman: Judgment; // "pass" if actual output matches human-expected output
   passedValidator: Judgment; // "pass" if passed all property oracles
   passedValidators: Judgment[]; // "pass" if passed all property oracles
-  validatorException: boolean; // true if validator threw an exception
-  validatorExceptionDisplay?: string; // display message for validator exception display
-  validatorExceptionMessage?: string; // validator exception message
-  validatorExceptionFunction?: string; // name of validator throwing exception
-  validatorExceptionStack?: string; // validator stack trace if exception was thrown
+  harnessErrors: HarnessError[]; // errors occurring in test harness (transformers/validators)
   timers: {
     gen: number; // time to generate the input in ms
     transform: number; // time to transform the input in ms

@@ -388,10 +388,8 @@ describe("fuzzer: typescript targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionMessage).toContain(
-        "Transformer error message"
-      );
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].message).toContain("Transformer error message");
       expect(r.category).toBe("failure");
     });
   });
@@ -405,8 +403,8 @@ describe("fuzzer: typescript targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionMessage).toBe("timeout");
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].kind).toBe("timeout");
       expect(r.category).toBe("failure");
     });
   });
@@ -420,11 +418,11 @@ describe("fuzzer: typescript targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionFunction).toBe(
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].fnName).toBe(
         "targetValidatorExceptionValidator"
       );
-      expect(r.validatorExceptionMessage).toContain("Validator error message");
+      expect(r.harnessErrors[0].message).toContain("Validator error message");
       expect(r.category).toBe("failure");
     });
   });
@@ -438,11 +436,9 @@ describe("fuzzer: typescript targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionFunction).toBe(
-        "targetValidatorTimeoutValidator"
-      );
-      expect(r.validatorExceptionMessage).toContain("timed out");
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].fnName).toBe("targetValidatorTimeoutValidator");
+      expect(r.harnessErrors[0].kind).toBe("timeout");
       expect(r.category).toBe("failure");
     });
   });

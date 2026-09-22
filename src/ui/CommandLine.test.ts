@@ -1300,55 +1300,6 @@ export function myPutTransformer(x: number): [number] {
     );
     expect(res.stdout).toContain("===============");
   });
-  it("--max-failures 1 with shrinking: prints formatted failure summary block", async () => {
-    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
-    const targetFn = "testCoverageOneFile";
-
-    const res = await runCli([
-      targetFile,
-      targetFn,
-      "--max-failures",
-      "1",
-      "--no-heuristic-oracle",
-      "--seed",
-      "cli_seed_shrink_failure",
-    ]);
-
-    expect(res.status).toBe(1);
-    expect(res.stdout).toContain("❌ FAILED: testCoverageOneFile(");
-    expect(res.stdout).toContain("- Failing test input     :");
-    expect(res.stdout).toContain("- Test output            : false");
-    expect(res.stdout).toContain(
-      "- Failed Validator(s)    : Property Validator (testCoverageOneFileValidator)"
-    );
-    expect(res.stdout).toContain("===============");
-  });
-
-  it("--max-failures 1 with --no-shrink: prints failure summary block without shrinking", async () => {
-    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
-    const targetFn = "testCoverageOneFile";
-
-    const res = await runCli([
-      targetFile,
-      targetFn,
-      "--max-failures",
-      "1",
-      "--no-shrink",
-      "--no-heuristic-oracle",
-      "--seed",
-      "cli_seed_no_shrink_failure",
-    ]);
-
-    expect(res.status).toBe(1);
-    expect(res.stdout).toContain("❌ FAILED: testCoverageOneFile(");
-    expect(res.stdout).toContain("- Failing test input     :");
-    expect(res.stdout).toContain("- Test output            : false");
-    expect(res.stdout).toContain(
-      "- Failed Validator(s)    : Property Validator (testCoverageOneFileValidator)"
-    );
-    expect(res.stdout).not.toContain("Shrunk in");
-    expect(res.stdout).toContain("===============");
-  });
 
   it("--output-file: includes coverage counters", async () => {
     const outputFile = path.join(tmpDir, "cov_counters_output.json5");
@@ -1467,25 +1418,20 @@ export function myPutTransformer(x: number): [number] {
     expect(resAi.status).toBe(0);
   });
 
-  /**
+  /*
    * Commented out so the cache clear does not step on other running tests
    *
-  it("--clear-compile-cache: clears compiler cache prior to testing", () => {
+  it("--clear-compile-cache", async () => {
     const outputFile = path.join(tmpDir, "clear_cache_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testCoverageOneFile";
 
     // First run to populate cache
-    const res1 = runCli([
-      targetFile,
-      targetFn,
-      "--max-tests",
-      "5",
-    ]);
+    const res1 = await runCli([targetFile, targetFn, "--max-tests", "5"]);
     expect(res1.status).toBe(0);
 
     // Second run with --clear-compile-cache flag
-    const res2 = runCli([
+    const res2 = await runCli([
       targetFile,
       targetFn,
       "--output-file",

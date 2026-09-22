@@ -810,7 +810,7 @@ export class Tester {
           input: [],
           output: [],
           exception: false,
-          validatorException: false,
+          harnessErrors: [],
           timeout: false,
           skipped: false,
           passedImplicit: "unknown",
@@ -903,20 +903,28 @@ export class Tester {
               result.skipped = true;
               result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
               break;
+
             case "timeout":
-              result.validatorException = true;
-              result.validatorExceptionDisplay = `(${transformRunner.name} timeout)`;
-              result.validatorExceptionFunction = transformRunner.name;
-              result.validatorExceptionMessage = `timeout`;
+              result.harnessErrors.push({
+                kind: "timeout",
+                stage: "transformer",
+                fnName: transformRunner.name,
+                message: `Timeout exceeding ${this._options.fnTimeout} ms`,
+                display: `(${transformRunner.name} timeout)`,
+              });
               break;
+
             case "error":
-              // TODO: These need their own place in the results
-              result.validatorException = true;
-              result.validatorExceptionDisplay = `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`;
-              result.validatorExceptionFunction = transformRunner.name;
-              result.validatorExceptionMessage =
-                transformerResult.result.message;
+              result.harnessErrors.push({
+                kind: "exception",
+                stage: "transformer",
+                fnName: transformRunner.name,
+                message: transformerResult.result.message,
+                display: `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`,
+                stack: transformerResult.result.stack ?? "<no stack>",
+              });
               break;
+
             case "value": {
               const values = transformerResult.result.value;
               if (Array.isArray(values)) {
@@ -941,10 +949,15 @@ export class Tester {
                   }
                 });
               } else {
-                // TODO: These need their own place in the results (see above)
-                result.validatorException = true;
-                result.validatorExceptionFunction = transformRunner.name;
-                result.validatorExceptionMessage = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
+                const msg = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
+                result.harnessErrors.push({
+                  kind: "exception",
+                  stage: "transformer",
+                  fnName: transformRunner.name,
+                  message: msg,
+                  display: `(${transformRunner.name}) ${msg}`,
+                  stack: "<no stack>",
+                });
                 break;
               }
             }
@@ -1048,7 +1061,7 @@ export class Tester {
         });
 
         // Call the PUT via its runner
-        if (!result.skipped && !result.validatorException) {
+        if (!result.skipped && result.harnessErrors.length === 0) {
           const startRunTime = performance.now(); // start timer
           let exeOutput: RunnerResult;
           try {
@@ -1155,14 +1168,25 @@ export class Tester {
               ).forEach((j, i) => {
                 if (isError(j)) {
                   result.passedValidators.push("unknown");
-                  result.validatorException = true;
-                  result.validatorExceptionDisplay =
-                    j.name === "PropertyValidatorTimeout"
-                      ? `(${this._validators[i].name} timeout)`
-                      : `(${this._validators[i].name} ${j.name}) ${j.message}`;
-                  result.validatorExceptionMessage = j.message;
-                  result.validatorExceptionFunction = this._validators[i].name;
-                  result.validatorExceptionStack = j.stack;
+                  const fnName = this._validators[i].name;
+                  if (j.name === "PropertyValidatorTimeout") {
+                    result.harnessErrors.push({
+                      kind: "timeout",
+                      stage: "validator",
+                      fnName,
+                      message: `Timeout exceeding ${this._options.fnTimeout} ms`,
+                      display: `(${fnName} timeout)`,
+                    });
+                  } else {
+                    result.harnessErrors.push({
+                      kind: "exception",
+                      stage: "validator",
+                      fnName,
+                      message: j.message,
+                      display: `(${fnName} ${j.name}) ${j.message}`,
+                      stack: j.stack ?? "<no stack>",
+                    });
+                  }
                 } else {
                   result.passedValidators.push(j);
                 }
@@ -1406,10 +1430,12 @@ const _checkStopCondition = (
 
   // End testing if we exceed the maximum number of failures & are done injecting inputs
   if (options.maxFailures > 0 && !injecting && fuzzerFocusMode !== "shrink") {
-    if (stats.counters.failedTests >= options.maxFailures) {
+    const totalFailures =
+      stats.counters.failedTests + stats.counters.erroredTests;
+    if (totalFailures >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
-    pcts.push(stats.counters.failedTests / options.maxFailures);
+    pcts.push(totalFailures / options.maxFailures);
   }
 
   // End testing if we exceed the maximum number of sequential duplicates generated
@@ -1515,7 +1541,7 @@ function isSameJudgments(a: FuzzTestResult, b: FuzzTestResult): boolean {
  * @returns the category of the result
  */
 export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
-  if (result.validatorException) {
+  if (result.harnessErrors.length > 0) {
     return "failure"; // Validator or transformer failed
   }
   if (result.skipped) {
@@ -1820,22 +1846,30 @@ function formatFailureBlock(
     }
 
     case "failure": {
-      if (result.validatorExceptionFunction) {
-        const isTransformer =
-          result.validatorExceptionFunction.endsWith("Transformer");
+      if (result.harnessErrors.length > 0) {
+        const err = result.harnessErrors[0];
+        const isTransformer = err.stage === "transformer";
         const typeLabel = isTransformer
           ? "Input transformer"
           : "Property validator";
-        const isTimeout = result.validatorExceptionMessage === "timeout";
+        const isTimeout = err.kind === "timeout";
         const headerText = isTimeout
           ? `${typeLabel} timed out`
           : `${typeLabel} threw an exception`;
 
+        const formattedExc = isTimeout
+          ? `Timeout exceeding ${fnTimeout} ms`
+          : err.message.startsWith("Error:")
+            ? err.message
+            : `Error: ${err.message}`;
+
         lines.push(`❌ TESTING ERROR: ${headerText}`);
         lines.push(
           `   - ${
-            isTransformer ? "Test input (generated)" : "Test input             "
-          } : ${fnCall}`
+            isTransformer
+              ? "Test input (generated) "
+              : "Test input             "
+          }: ${fnCall}`
         );
         lines.push(
           `   - Test output            : ${
@@ -1849,19 +1883,14 @@ function formatFailureBlock(
             isTransformer
               ? "Transformer Function   "
               : "Validator Function     "
-          }: ${result.validatorExceptionFunction}`
+          }: ${err.fnName}`
         );
         lines.push(
           `   - ${
             isTransformer
               ? "Transformer Exception  "
               : "Validator Exception    "
-          }: ${
-            isTimeout
-              ? `Timeout exceeding ${fnTimeout} ms`
-              : (result.validatorExceptionDisplay ??
-                result.validatorExceptionMessage)
-          }`
+          }: ${formattedExc}`
         );
       }
       break;

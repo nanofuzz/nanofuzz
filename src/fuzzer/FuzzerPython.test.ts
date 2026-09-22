@@ -37,7 +37,7 @@ describe("fuzzer: python targets", () => {
     expect(fuzzResult.env.validators.length).toEqual(1);
     fuzzResult.results.forEach((r) => {
       expect(r.passedValidators.length).toBe(1);
-      expect(r.validatorException).toBeFalse();
+      expect(r.harnessErrors.length).toBe(0);
       expect(r.passedValidator).toBe("pass");
     });
 
@@ -245,8 +245,8 @@ describe("fuzzer: python targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionMessage).toContain("Python transformer error");
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].message).toContain("Python transformer error");
       expect(r.category).toBe("failure");
     });
   });
@@ -263,8 +263,8 @@ describe("fuzzer: python targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionMessage).toBe("timeout");
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].kind).toBe("timeout");
       expect(r.category).toBe("failure");
     });
   });
