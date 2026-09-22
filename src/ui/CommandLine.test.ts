@@ -632,6 +632,714 @@ def ${targetFn}(n: int) -> int:
       }
     }
   });
+  it("--max-failures 1: badValue via Property Validator with shrinking", async () => {
+    const tsFile = path.join(tmpDir, "badvalue_prop_shrink.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+  return "fail";
+}
+`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--seed",
+      "cli_seed_bv_prop_shrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain("- Test output            :");
+    expect(res.stdout).toContain(
+      "- Failed Validator(s)    : Property Validator (myPutValidator)"
+    );
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: badValue via Property Validator with --no-shrink", async () => {
+    const tsFile = path.join(tmpDir, "badvalue_prop_noshrink.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+  return "fail";
+}
+`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--no-shrink",
+      "--seed",
+      "cli_seed_bv_prop_noshrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain("- Test output            :");
+    expect(res.stdout).toContain(
+      "- Failed Validator(s)    : Property Validator (myPutValidator)"
+    );
+    expect(res.stdout).not.toContain("Shrunk in");
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: badValue via Heuristic Validator with shrinking", async () => {
+    const tsFile = path.join(tmpDir, "badvalue_heur_shrink.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return NaN;
+}
+`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--no-property-oracle",
+      "--seed",
+      "cli_seed_bv_heur_shrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain("- Test output            : NaN");
+    expect(res.stdout).toContain(
+      "- Failed Validator(s)    : Heuristic Validator"
+    );
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: badValue via Heuristic Validator with --no-shrink", async () => {
+    const tsFile = path.join(tmpDir, "badvalue_heur_noshrink.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return NaN;
+}
+`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--no-shrink",
+      "--no-property-oracle",
+      "--seed",
+      "cli_seed_bv_heur_noshrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain("- Test output            : NaN");
+    expect(res.stdout).toContain(
+      "- Failed Validator(s)    : Heuristic Validator"
+    );
+    expect(res.stdout).not.toContain("Shrunk in");
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: badValue via Example Oracle with shrinking", async () => {
+    const tsFile = path.join(tmpDir, "badvalue_example_shrink.ts");
+    const jsonFile = path.join(tmpDir, "badvalue_example_shrink.ts.nano.json5");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          myPut: {
+            options: {},
+            validators: [],
+            isVoid: false,
+            tests: {
+              '{"value":[5]}': {
+                input: [
+                  { name: "x", offset: 0, value: 5, origin: { type: "user" } },
+                ],
+                output: [],
+                pinned: true,
+                expectedOutput: [
+                  {
+                    name: "0",
+                    offset: 0,
+                    value: 999,
+                    origin: { type: "user" },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--seed",
+      "cli_seed_bv_ex_shrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain("- Test output            : 5");
+    expect(res.stdout).toContain("- Failed Validator(s)    : Example Oracle");
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: badValue via Example Oracle with --no-shrink", async () => {
+    const tsFile = path.join(tmpDir, "badvalue_example_noshrink.ts");
+    const jsonFile = path.join(
+      tmpDir,
+      "badvalue_example_noshrink.ts.nano.json5"
+    );
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          myPut: {
+            options: {},
+            validators: [],
+            isVoid: false,
+            tests: {
+              '{"value":[5]}': {
+                input: [
+                  { name: "x", offset: 0, value: 5, origin: { type: "user" } },
+                ],
+                output: [],
+                pinned: true,
+                expectedOutput: [
+                  {
+                    name: "0",
+                    offset: 0,
+                    value: 999,
+                    origin: { type: "user" },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--no-shrink",
+      "--seed",
+      "cli_seed_bv_ex_noshrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain("- Test output            : 5");
+    expect(res.stdout).toContain("- Failed Validator(s)    : Example Oracle");
+    expect(res.stdout).not.toContain("Shrunk in");
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: exception via PUT exception with shrinking", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testStandardVoidReturnException";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--max-failures",
+      "1",
+      "--seed",
+      "cli_seed_exc_shrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain(
+      "❌ EXCEPTION: testStandardVoidReturnException("
+    );
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain("- Test output            : (none)");
+    expect(res.stdout).toContain(
+      "- Failed Validator(s)    : Heuristic Validator"
+    );
+    expect(res.stdout).toContain("- Failure Exception      :");
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: exception via PUT exception with --no-shrink", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testStandardVoidReturnException";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--max-failures",
+      "1",
+      "--no-shrink",
+      "--seed",
+      "cli_seed_exc_noshrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain(
+      "❌ EXCEPTION: testStandardVoidReturnException("
+    );
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain("- Test output            : (none)");
+    expect(res.stdout).toContain(
+      "- Failed Validator(s)    : Heuristic Validator"
+    );
+    expect(res.stdout).toContain("- Failure Exception      :");
+    expect(res.stdout).not.toContain("Shrunk in");
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: timeout via PUT timeout with shrinking", async () => {
+    const tsFile = path.join(tmpDir, "timeout_put_shrink.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  if (x > 0) while (true) {}
+  return x;
+}
+`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--fn-timeout",
+      "50",
+      "--seed",
+      "cli_seed_timeout_shrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ TIMEOUT: myPut(");
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain(
+      "- Test output            : (timeout after 50 ms)"
+    );
+    expect(res.stdout).toContain(
+      "- Failed Validator(s)    : Heuristic Validator (Timeout)"
+    );
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: timeout via PUT timeout with --no-shrink", async () => {
+    const tsFile = path.join(tmpDir, "timeout_put_noshrink.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  if (x > 0) while (true) {}
+  return x;
+}
+`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--no-shrink",
+      "--fn-timeout",
+      "50",
+      "--seed",
+      "cli_seed_timeout_noshrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ TIMEOUT: myPut(");
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain(
+      "- Test output            : (timeout after 50 ms)"
+    );
+    expect(res.stdout).toContain(
+      "- Failed Validator(s)    : Heuristic Validator (Timeout)"
+    );
+    expect(res.stdout).not.toContain("Shrunk in");
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: disagree via Oracle Disagreement with shrinking", async () => {
+    const tsFile = path.join(tmpDir, "disagree_shrink.ts");
+    const jsonFile = path.join(tmpDir, "disagree_shrink.ts.nano.json5");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+  return "fail";
+}
+`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          myPut: {
+            options: {},
+            validators: ["myPutValidator"],
+            isVoid: false,
+            tests: {
+              '{"value":[5]}': {
+                input: [
+                  { name: "x", offset: 0, value: 5, origin: { type: "user" } },
+                ],
+                output: [],
+                pinned: true,
+                expectedOutput: [
+                  { name: "0", offset: 0, value: 5, origin: { type: "user" } },
+                ],
+              },
+            },
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--seed",
+      "cli_seed_disagree_shrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ DISAGREEMENT: myPut(");
+    expect(res.stdout).toContain("- Test input             :");
+    expect(res.stdout).toContain("- Test output            : 5");
+    expect(res.stdout).toContain("- Oracle Judgments       :");
+    expect(res.stdout).toContain("- Diagnosis              :");
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: disagree via Oracle Disagreement with --no-shrink", async () => {
+    const tsFile = path.join(tmpDir, "disagree_noshrink.ts");
+    const jsonFile = path.join(tmpDir, "disagree_noshrink.ts.nano.json5");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+  return "fail";
+}
+`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          myPut: {
+            options: {},
+            validators: ["myPutValidator"],
+            isVoid: false,
+            tests: {
+              '{"value":[5]}': {
+                input: [
+                  { name: "x", offset: 0, value: 5, origin: { type: "user" } },
+                ],
+                output: [],
+                pinned: true,
+                expectedOutput: [
+                  { name: "0", offset: 0, value: 5, origin: { type: "user" } },
+                ],
+              },
+            },
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--no-shrink",
+      "--seed",
+      "cli_seed_disagree_noshrink",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ DISAGREEMENT: myPut(");
+    expect(res.stdout).toContain("- Test input             :");
+    expect(res.stdout).toContain("- Test output            : 5");
+    expect(res.stdout).toContain("- Oracle Judgments       :");
+    expect(res.stdout).toContain("- Diagnosis              :");
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: failure via Property Validator Exception", async () => {
+    const tsFile = path.join(tmpDir, "fail_validator_exc.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+  throw new Error("Validator throw message");
+}
+`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--seed",
+      "cli_seed_val_exc",
+    ]);
+
+    expect(res.stdout).toContain(
+      "❌ TESTING ERROR: Property validator threw an exception"
+    );
+    expect(res.stdout).toContain("- Test input             :");
+    expect(res.stdout).toContain("- Test output            :");
+    expect(res.stdout).toContain("- Validator Function     : myPutValidator");
+    expect(res.stdout).toContain(
+      "- Validator Exception    : Error: Validator throw message"
+    );
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: failure via Property Validator Timeout", async () => {
+    const tsFile = path.join(tmpDir, "fail_validator_timeout.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+  while (true) {}
+}
+`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--fn-timeout",
+      "50",
+      "--seed",
+      "cli_seed_val_timeout",
+    ]);
+
+    expect(res.stdout).toContain(
+      "❌ TESTING ERROR: Property validator timed out"
+    );
+    expect(res.stdout).toContain("- Test input             :");
+    expect(res.stdout).toContain("- Test output            :");
+    expect(res.stdout).toContain("- Validator Function     : myPutValidator");
+    expect(res.stdout).toContain(
+      "- Validator Exception    : Timeout exceeding 50 ms"
+    );
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: failure via Input Transformer Exception", async () => {
+    const tsFile = path.join(tmpDir, "fail_trans_exc.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+export function myPutTransformer(x: number): [number] {
+  throw new Error("Transformer throw message");
+}
+`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--seed",
+      "cli_seed_trans_exc",
+    ]);
+
+    expect(res.stdout).toContain(
+      "❌ TESTING ERROR: Input transformer threw an exception"
+    );
+    expect(res.stdout).toContain("- Test input (generated) :");
+    expect(res.stdout).toContain("- Test output            : (not executed)");
+    expect(res.stdout).toContain("- Transformer Function   : myPutTransformer");
+    expect(res.stdout).toContain(
+      "- Transformer Exception  : Error: Transformer throw message"
+    );
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1: failure via Input Transformer Timeout", async () => {
+    const tsFile = path.join(tmpDir, "fail_trans_timeout.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+export function myPutTransformer(x: number): [number] {
+  while (true) {}
+}
+`,
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--max-failures",
+      "1",
+      "--fn-timeout",
+      "50",
+      "--seed",
+      "cli_seed_trans_timeout",
+    ]);
+
+    expect(res.stdout).toContain(
+      "❌ TESTING ERROR: Input transformer timed out"
+    );
+    expect(res.stdout).toContain("- Test input (generated) :");
+    expect(res.stdout).toContain("- Test output            : (not executed)");
+    expect(res.stdout).toContain("- Transformer Function   : myPutTransformer");
+    expect(res.stdout).toContain(
+      "- Transformer Exception  : Timeout exceeding 50 ms"
+    );
+    expect(res.stdout).toContain("===============");
+  });
+  it("--max-failures 1 with shrinking: prints formatted failure summary block", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--max-failures",
+      "1",
+      "--no-heuristic-oracle",
+      "--seed",
+      "cli_seed_shrink_failure",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ FAILED: testCoverageOneFile(");
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain("- Test output            : false");
+    expect(res.stdout).toContain(
+      "- Failed Validator(s)    : Property Validator (testCoverageOneFileValidator)"
+    );
+    expect(res.stdout).toContain("===============");
+  });
+
+  it("--max-failures 1 with --no-shrink: prints failure summary block without shrinking", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--max-failures",
+      "1",
+      "--no-shrink",
+      "--no-heuristic-oracle",
+      "--seed",
+      "cli_seed_no_shrink_failure",
+    ]);
+
+    expect(res.status).toBe(1);
+    expect(res.stdout).toContain("❌ FAILED: testCoverageOneFile(");
+    expect(res.stdout).toContain("- Failing test input     :");
+    expect(res.stdout).toContain("- Test output            : false");
+    expect(res.stdout).toContain(
+      "- Failed Validator(s)    : Property Validator (testCoverageOneFileValidator)"
+    );
+    expect(res.stdout).not.toContain("Shrunk in");
+    expect(res.stdout).toContain("===============");
+  });
 
   it("--output-file: includes coverage counters", async () => {
     const outputFile = path.join(tmpDir, "cov_counters_output.json5");
