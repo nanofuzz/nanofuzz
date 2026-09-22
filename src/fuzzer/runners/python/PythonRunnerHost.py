@@ -946,7 +946,7 @@ if __name__ == "__main__":
                 include=pgm_files, branch=True, data_file=None)
 
             covInfo = {file: static_coverage(cov, file) for file in pgm_files}
-            initialCoverage = {}
+            initialCoverage = {file: dict(covInfo[file]) for file in pgm_files}
 
         logging.debug(
             f"[{pid}] Analyzed {len(covInfo)} file(s) of the program under test")
