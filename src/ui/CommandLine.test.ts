@@ -305,7 +305,7 @@ describe("cli:", () => {
     ).toBeFalse();
   });
 
-  it("--no-shrink", async () => {
+  it("--no-shrink and --max-shrink-time flags", async () => {
     const outputFile = path.join(tmpDir, "no_shrink_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testCoverageOneFile";
@@ -316,6 +316,8 @@ describe("cli:", () => {
       "--output-file",
       outputFile,
       "--no-shrink",
+      "--max-shrink-time",
+      "5000",
       "--max-tests",
       "1",
       "--seed",
@@ -324,6 +326,7 @@ describe("cli:", () => {
 
     expect(res.status).toBe(0);
     expect(Config.get("nanofuzz.fuzzer.shrinkFailures", true)).toBeFalse();
+    expect(Config.get("nanofuzz.fuzzer.maxShrinkTime", 2000)).toBe(5000);
   });
 
   it("--cig-* flags: composite input generator parameters", async () => {

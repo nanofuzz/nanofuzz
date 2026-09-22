@@ -96,6 +96,12 @@ function createProgram(): Commander.Command {
     )
     .option(`--seed <string>`, `Seed for pseudo-random number generator`)
     .option(`--no-shrink`, `Disable shrinking failing test inputs`)
+    .option(
+      `--max-shrink-time <integer>`,
+      `Maximum time in ms allowed for shrinking failing test inputs (0=no limit)`,
+      parseIntArgGeZero,
+      2000
+    )
 
     // ------------------------------- Transformers ------------------------------ //
 
@@ -294,6 +300,9 @@ export async function runCliInProcess(
 
   if (options["shrink"] !== undefined) {
     Config.override("nanofuzz.fuzzer.shrinkFailures", options["shrink"]);
+  }
+  if (options["maxShrinkTime"] !== undefined) {
+    Config.override("nanofuzz.fuzzer.maxShrinkTime", options["maxShrinkTime"]);
   }
 
   // measure options
