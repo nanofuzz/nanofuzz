@@ -2,6 +2,7 @@ import { Tester } from "./Fuzzer";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
 import * as ValueMapper from "./mappers/ValueMapper";
+import { FuzzPinnedTest } from "./Types";
 
 describe("fuzzer: typescript targets", () => {
   beforeAll(async () => {
@@ -340,6 +341,42 @@ describe("fuzzer: typescript targets", () => {
         expect(r.input[0].origin.basis.source.type).toBe("generator");
       }
     });
+  });
+
+  it("injected (pinned, saved, and human-generated) inputs bypass input transformer", async () => {
+    const injectedInput: FuzzPinnedTest = {
+      input: [
+        {
+          name: "n",
+          offset: 0,
+          value: 10,
+          origin: { type: "user" },
+        },
+      ],
+      output: [],
+      pinned: true,
+    };
+
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformed",
+      { ...intOptions, maxTests: 0 }
+    ).testSync([injectedInput]);
+
+    expect(fuzzResult.results.length).toBe(1);
+    const injectedResult = fuzzResult.results[0];
+
+    // Verify the injected input was NOT skipped by the transformer
+    expect(injectedResult.skipped).toBeFalse();
+
+    // Verify the input value was NOT transformed (remains 10, not doubled to 20)
+    expect<unknown>(injectedResult.input[0].value).toBe(10);
+
+    // Verify output is targetTransformed(10) => 11 (not 20 + 1 => 21)
+    expect<unknown>(injectedResult.output[0].value).toBe(11);
+
+    // Verify origin was preserved as user input rather than changed to transformer
+    expect(injectedResult.input[0].origin.type).toBe("user");
   });
 
   it("TypeScript transformer exception", async () => {
