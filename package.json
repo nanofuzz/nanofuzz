@@ -104,6 +104,12 @@
             "minimum": 1000,
             "description": "Maximum time (in ms) allowed for the runner host process to startup."
           },
+          "nanofuzz.fuzzer.shrinkFailures": {
+            "title": "Shrink failing inputs?",
+            "type": "boolean",
+            "default": true,
+            "description": "Shrink failing test inputs to a simpler counterexample when maxFailures=1."
+          },
           "nanofuzz.fuzzer.coverageScope": {
             "title": "Code coverage scope",
             "type": "string",

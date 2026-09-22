@@ -305,6 +305,27 @@ describe("cli:", () => {
     ).toBeFalse();
   });
 
+  it("--no-shrink", async () => {
+    const outputFile = path.join(tmpDir, "no_shrink_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-shrink",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_shrink",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(Config.get("nanofuzz.fuzzer.shrinkFailures", true)).toBeFalse();
+  });
+
   it("--cig-* flags: composite input generator parameters", async () => {
     const outputFile = path.join(tmpDir, "cig_flags_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";

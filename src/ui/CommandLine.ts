@@ -95,6 +95,7 @@ function createProgram(): Commander.Command {
       10000
     )
     .option(`--seed <string>`, `Seed for pseudo-random number generator`)
+    .option(`--no-shrink`, `Disable shrinking failing test inputs`)
 
     // ------------------------------- Transformers ------------------------------ //
 
@@ -290,6 +291,10 @@ export async function runCliInProcess(
     "nanofuzz.fuzzer.hostStartupTimeout",
     options["hostStartupTimeout"]
   );
+
+  if (options["shrink"] !== undefined) {
+    Config.override("nanofuzz.fuzzer.shrinkFailures", options["shrink"]);
+  }
 
   // measure options
   if (options["coverageScope"] !== undefined) {
