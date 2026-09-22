@@ -37,6 +37,7 @@ export type FuzzTestResult = {
   interestingReasons: string[]; // reasons (measures) this input may be "interesting"
   skipped?: boolean; // true if the test was skipped
   skipReason?: string; // skip reason message
+  shrinkStep?: number; // number of shrink steps taken if the input was shrunk
 };
 
 /**
@@ -286,6 +287,15 @@ export type SupportedInputGenerators =
  * List of supported input generators
  */
 export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
+
+/**
+ * Focus mode of the fuzzer (generation vs. shrinking)
+ */
+export type FuzzerFocus =
+  | { mode: "gen" }
+  | { mode: "shrink"; target: InputAndSource };
+
+export type GetFuzzerFocusFn = () => FuzzerFocus;
 
 /**
  * Message about how busy the fuzzer is

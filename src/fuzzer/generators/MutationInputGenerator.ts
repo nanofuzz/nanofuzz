@@ -1,8 +1,9 @@
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { ArgDef } from "../analysis/ArgDef";
 import { Leaderboard } from "./Leaderboard";
-import { InputAndSource } from "../Types";
+import { GetFuzzerFocusFn, InputAndSource } from "../Types";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
+import { ArgDefShrinker } from "../analysis/ArgDefShrinker";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { NextableStatus } from "./Types";
 
@@ -10,8 +11,9 @@ import { NextableStatus } from "./Types";
  * Generates new inputs by mutating prior "interesting" inputs
  */
 export class MutationInputGenerator extends AbstractInputGenerator {
-  private _leaderboard: Leaderboard<InputAndSource>; // List of "interesting" inputs
-  private _maxMutations = 2; // Max mutations to apply to interesting inputs
+  protected _leaderboard: Leaderboard<InputAndSource>; // List of "interesting" inputs
+  protected _maxMutations = 2; // Max mutations to apply to interesting inputs
+  protected _getFuzzerFocus?: GetFuzzerFocusFn;
 
   /**
    * Create a MutationInputGenerator
@@ -19,14 +21,17 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    * @param `specs` ArgDef specification of inputs to generate
    * @param `rngSeed` Random seed for input generation
    * @param `leaderboard` Running list of "interesting" inputs
+   * @param `getFuzzerFocus` Optional callback to check fuzzer focus (gen vs shrink)
    */
   public constructor(
     specs: ArgDef[],
     rngSeed: string | undefined,
-    leaderboard: Leaderboard<InputAndSource>
+    leaderboard: Leaderboard<InputAndSource>,
+    getFuzzerFocus?: GetFuzzerFocusFn
   ) {
     super(specs, rngSeed);
     this._leaderboard = leaderboard;
+    this._getFuzzerFocus = getFuzzerFocus;
   } // fn: constructor
 
   /**
@@ -38,11 +43,15 @@ export class MutationInputGenerator extends AbstractInputGenerator {
 
   /**
    * This generator requires a leaderboard with at least one
-   * "interesting" input to mutate.
+   * "interesting" input to mutate, or an active shrink target in shrink mode.
    *
    * @returns "now" if generator is available, false otherwise
    */
   public override nextable(): NextableStatus {
+    const focus = this._getFuzzerFocus?.();
+    if (focus?.mode === "shrink" && focus.target) {
+      return "now";
+    }
     return this._leaderboard.length ? "now" : false;
   } // fn: nextable
 
@@ -61,11 +70,41 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   } // fn: getDiagnostics
 
   /**
-   * Returns the next input using a mutation strategy.
+   * Returns the next input using a mutation strategy or shrinking strategy.
    *
-   * @returns mutated input
+   * @returns mutated or shrunk input
    */
   public next(): InputAndSource {
+    const focus = this._getFuzzerFocus?.();
+
+    // --- SHRINK MODE ---
+    if (focus?.mode === "shrink" && focus.target) {
+      const candidateValue = structuredClone(focus.target.value);
+      const basisTick = focus.target.tick;
+
+      const shrinkers = ArgDefShrinker.getShrinkers(
+        this._specs,
+        candidateValue,
+        this._prng
+      );
+
+      if (shrinkers.length > 0) {
+        const m = Math.floor(this._prng() * shrinkers.length);
+        shrinkers[m].fn();
+      }
+
+      return {
+        tick: 0,
+        value: candidateValue,
+        source: {
+          type: "generator",
+          generator: "MutationInputGenerator",
+          tick: basisTick,
+        },
+      };
+    }
+
+    // --- NORMAL MUTATION MODE ---
     if (!this._leaderboard.length) {
       throw new Error(`${this.name} no interesting inputs to mutate yet`);
     }

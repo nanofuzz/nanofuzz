@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
 import { deepFreeze, isKeyedObject } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
@@ -18,6 +19,7 @@ import {
   FuzzStatusUpdater,
   BaseMeasureConfig,
   FuzzBusyStatusMessage,
+  FuzzerFocus,
 } from "./Types";
 import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
@@ -56,6 +58,14 @@ export class Tester {
   >; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
+
+  protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
+  protected _failingResultToShrink?: FuzzTestResult;
+  protected _shrinkStartTime = 0;
+  protected _savedGeneratorOptions?: FuzzOptions["generators"];
+  protected getFuzzerFocus(): FuzzerFocus {
+    return this._fuzzerFocus;
+  }
 
   constructor(
     module: string,
@@ -137,7 +147,8 @@ export class Tester {
       this._leaderboard, // leaderboard
       this._results.stats.generators, // generator stats
       this._allInputs, // running list of dupe-checked inputs
-      this._program.src // enclosing module source code
+      this._program.src, // enclosing module source code
+      this.getFuzzerFocus.bind(this)
     );
 
     // Start a background compilation if precompile mode is active
@@ -587,7 +598,8 @@ export class Tester {
           injectTests.length,
           !!cancelFn && cancelFn(),
           runStats,
-          !!mode.gen
+          !!mode.gen,
+          this._fuzzerFocus.mode
         );
         const pct = typeof stopCondition === "number" ? stopCondition : 100;
         update({
@@ -612,9 +624,18 @@ export class Tester {
           injectTests.length,
           !!cancelFn && cancelFn(),
           runStats,
-          !!mode.gen
+          !!mode.gen,
+          this._fuzzerFocus.mode
         );
         if (typeof stopCondition !== "number") {
+          if (this._fuzzerFocus.mode === "shrink") {
+            this._fuzzerFocus = deepFreeze({ mode: "gen" });
+            if (this._savedGeneratorOptions) {
+              this._compositeInputGenerator.options =
+                this._savedGeneratorOptions;
+            }
+            continue;
+          }
           // Calculate final stats
           this._results.stopReason = stopCondition;
           this._results.stats.timers.total +=
@@ -744,6 +765,22 @@ export class Tester {
             );
             update({
               msg: ` - Test results: ${this._options.outputFile}`,
+              channel: "summary",
+            });
+          }
+
+          const firstFailing = this._results.results.find(
+            (r) => r.category !== "ok" && r.category !== "skip"
+          );
+          if (firstFailing) {
+            update({
+              msg: formatFailureBlock(
+                this._function.getName(),
+                firstFailing,
+                lang,
+                this._validators,
+                this._options.fnTimeout
+              ),
               channel: "summary",
             });
           }
@@ -1149,6 +1186,85 @@ export class Tester {
         // (Re-)categorize the result
         result.category = categorizeResult(result);
 
+        // --- SHRINKING LOGIC ---
+        if (
+          this._fuzzerFocus.mode === "shrink" &&
+          this._failingResultToShrink
+        ) {
+          const targetFailure = this._failingResultToShrink;
+
+          // Check if candidate input reproduced the exact same failure
+          const sameJudgments = isSameJudgments(result, targetFailure);
+          const sameCategory = result.category === targetFailure.category;
+          const sameException =
+            !targetFailure.exceptionMessage ||
+            result.exceptionMessage === targetFailure.exceptionMessage;
+
+          if (sameJudgments && sameCategory && sameException) {
+            // Adopt smaller input as new shrink target
+            this._fuzzerFocus = deepFreeze({
+              mode: "shrink",
+              target: result.inputGenerated,
+            });
+            targetFailure.input = result.input;
+            targetFailure.output = result.output;
+            targetFailure.shrinkStep = (targetFailure.shrinkStep ?? 0) + 1;
+          }
+
+          // Check shrink exit conditions
+          const maxShrinkTime = Config.get(
+            "nanofuzz.fuzzer.maxShrinkTime",
+            2000
+          );
+          const shrinkTimeElapsed = performance.now() - this._shrinkStartTime;
+          const timeExceeded =
+            maxShrinkTime > 0 && shrinkTimeElapsed >= maxShrinkTime;
+          const stepCapExceeded = (targetFailure.shrinkStep ?? 0) >= 100;
+          const noMoreShrinks =
+            this._compositeInputGenerator.nextable() === false;
+
+          if (timeExceeded || stepCapExceeded || noMoreShrinks) {
+            this._fuzzerFocus = deepFreeze({ mode: "gen" });
+            if (this._savedGeneratorOptions) {
+              this._compositeInputGenerator.options =
+                this._savedGeneratorOptions;
+            }
+          }
+        } else {
+          // --- NORMAL GENERATION MODE: TRIGGER SHRINKING ON FAILURE ---
+          const isFailingResult =
+            result.category === "badValue" ||
+            result.category === "exception" ||
+            result.category === "timeout";
+
+          const shouldShrinkTrigger =
+            isFailingResult &&
+            this._options.maxFailures === 1 &&
+            Config.get("nanofuzz.fuzzer.shrinkFailures", true) &&
+            !result.inputGenerated.injected &&
+            this._function.getArgDefs().length > 0;
+
+          if (shouldShrinkTrigger) {
+            this._failingResultToShrink = result;
+            this._failingResultToShrink.shrinkStep = 0;
+            this._shrinkStartTime = performance.now();
+            this._savedGeneratorOptions = structuredClone(
+              this._options.generators
+            );
+
+            this._fuzzerFocus = deepFreeze({
+              mode: "shrink",
+              target: result.inputGenerated,
+            });
+
+            this._compositeInputGenerator.options = {
+              RandomInputGenerator: { enabled: false },
+              MutationInputGenerator: { enabled: true },
+              AiInputGenerator: { enabled: false },
+            };
+          }
+        }
+
         // Increment the test counters
         switch (result.category) {
           case "ok":
@@ -1199,6 +1315,10 @@ export class Tester {
         yield undefined;
       } // for: Main test loop
     } finally {
+      this._fuzzerFocus = deepFreeze({ mode: "gen" });
+      if (this._savedGeneratorOptions) {
+        this._compositeInputGenerator.options = this._savedGeneratorOptions;
+      }
       if (periodicTimer !== undefined) {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
@@ -1241,7 +1361,8 @@ const _checkStopCondition = (
   injectCount: number,
   userCancel: boolean,
   stats: CurrentRunStats,
-  gen: boolean
+  gen: boolean,
+  fuzzerFocusMode: "gen" | "shrink" = "gen"
 ): FuzzStopReason | number => {
   const pcts: number[] = [0];
   const now = performance.now();
@@ -1284,7 +1405,7 @@ const _checkStopCondition = (
   );
 
   // End testing if we exceed the maximum number of failures & are done injecting inputs
-  if (options.maxFailures > 0 && !injecting) {
+  if (options.maxFailures > 0 && !injecting && fuzzerFocusMode !== "shrink") {
     if (stats.counters.failedTests >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
@@ -1363,6 +1484,29 @@ export function getTransformers(
     )
     .map((fn) => fn.getRef());
 } // fn: getTransformers()
+
+/**
+ * Returns true if all oracle judgments of two test results are identical without allocating arrays or stringifying.
+ */
+function isSameJudgments(a: FuzzTestResult, b: FuzzTestResult): boolean {
+  if (a.passedImplicit !== b.passedImplicit) {
+    return false;
+  }
+  if (a.passedHuman !== b.passedHuman) {
+    return false;
+  }
+  const aVals = a.passedValidators;
+  const bVals = b.passedValidators;
+  if (aVals.length !== bVals.length) {
+    return false;
+  }
+  for (let i = 0; i < aVals.length; i++) {
+    if (aVals[i] !== bVals[i]) {
+      return false;
+    }
+  }
+  return true;
+} // fn: isSameJudgments()
 
 /**
  * Categorizes the result of a fuzz test according to the available
@@ -1553,6 +1697,184 @@ type CurrentRunStats = {
     startGenTime: number; // time the tester started generating new inputs
   };
 };
+
+/**
+ * Formats a single failing result into a terminal-width failure block.
+ */
+function formatFailureBlock(
+  targetFnName: string,
+  result: FuzzTestResult,
+  lang: ProgramLanguage,
+  validators: FunctionRef[],
+  fnTimeout: number = 200,
+  termWidth: number = process.stdout.columns && process.stdout.columns > 0
+    ? process.stdout.columns
+    : 80
+): string {
+  const border = "=".repeat(termWidth);
+  const lines: string[] = [border];
+
+  const argStr = result.input
+    .map((i) => ValueMapper.toLang(lang, i.value))
+    .join(", ");
+
+  const origArgStr = result.inputGenerated?.value
+    ? result.inputGenerated.value
+        .map((v) => ValueMapper.toLang(lang, v.value))
+        .join(", ")
+    : argStr;
+
+  const fnCall = `${targetFnName}(${argStr})`;
+  const origFnCall = `${targetFnName}(${origArgStr})`;
+
+  const isPinned = result.inputGenerated?.injected;
+  const shrinkStep = result.shrinkStep ?? 0;
+  const shrinkSuffix = isPinned
+    ? " (Pinned Test)"
+    : shrinkStep > 0
+      ? ` (Shrunk in ${shrinkStep} step${shrinkStep === 1 ? "" : "s"})`
+      : "";
+
+  const getFailedValidatorsStr = (): string => {
+    const failedNames: string[] = [];
+    if (result.passedValidators) {
+      result.passedValidators.forEach((j, i) => {
+        if (j === "fail" && validators[i]) {
+          failedNames.push(validators[i].name);
+        }
+      });
+    }
+    if (failedNames.length > 0) {
+      const pl = failedNames.length > 1 ? "s" : "";
+      return `Property Validator${pl} (${failedNames.join(", ")})`;
+    }
+    if (result.passedHuman === "fail") return "Example Oracle";
+    if (result.passedImplicit === "fail") return "Heuristic Validator";
+    return "Unknown Validator";
+  };
+
+  switch (result.category) {
+    case "badValue": {
+      lines.push(`❌ FAILED: ${fnCall}`);
+      lines.push(`   - Failing test input     : ${origFnCall}${shrinkSuffix}`);
+      lines.push(
+        `   - Test output            : ${ValueMapper.toLang(
+          lang,
+          result.output[0]?.value
+        )}`
+      );
+      lines.push(`   - Failed Validator(s)    : ${getFailedValidatorsStr()}`);
+      break;
+    }
+
+    case "exception": {
+      lines.push(`❌ EXCEPTION: ${fnCall}`);
+      lines.push(`   - Failing test input     : ${origFnCall}${shrinkSuffix}`);
+      lines.push(`   - Test output            : (none)`);
+      lines.push(`   - Failed Validator(s)    : Heuristic Validator`);
+      if (result.exceptionDisplay || result.exceptionMessage) {
+        lines.push(
+          `   - Failure Exception      : ${
+            result.exceptionDisplay ?? result.exceptionMessage
+          }`
+        );
+      }
+      if (result.stack) {
+        lines.push(
+          result.stack
+            .split("\n")
+            .map((l) => `                            ${l}`)
+            .join("\n")
+        );
+      }
+      break;
+    }
+
+    case "timeout": {
+      lines.push(`❌ TIMEOUT: ${fnCall}`);
+      lines.push(`   - Failing test input     : ${origFnCall}${shrinkSuffix}`);
+      lines.push(
+        `   - Test output            : (timeout after ${fnTimeout} ms)`
+      );
+      lines.push(`   - Failed Validator(s)    : Heuristic Validator (Timeout)`);
+      break;
+    }
+
+    case "disagree": {
+      lines.push(`❌ DISAGREEMENT: ${fnCall}`);
+      lines.push(`   - Test input             : ${fnCall}`);
+      lines.push(
+        `   - Test output            : ${ValueMapper.toLang(
+          lang,
+          result.output[0]?.value
+        )}`
+      );
+      const propFailed = getFailedValidatorsStr();
+      lines.push(
+        `   - Oracle Judgments       : ${propFailed} => "fail", Example Oracle => "pass"`
+      );
+      lines.push(
+        `   - Diagnosis              : Property validator disagreed with the expected output. Check validator function for bugs.`
+      );
+      break;
+    }
+
+    case "failure": {
+      if (result.validatorExceptionFunction) {
+        const isTransformer =
+          result.validatorExceptionFunction.endsWith("Transformer");
+        const typeLabel = isTransformer
+          ? "Input transformer"
+          : "Property validator";
+        const isTimeout = result.validatorExceptionMessage === "timeout";
+        const headerText = isTimeout
+          ? `${typeLabel} timed out`
+          : `${typeLabel} threw an exception`;
+
+        lines.push(`❌ TESTING ERROR: ${headerText}`);
+        lines.push(
+          `   - ${
+            isTransformer ? "Test input (generated)" : "Test input             "
+          } : ${fnCall}`
+        );
+        lines.push(
+          `   - Test output            : ${
+            isTransformer
+              ? "(not executed)"
+              : ValueMapper.toLang(lang, result.output[0]?.value)
+          }`
+        );
+        lines.push(
+          `   - ${
+            isTransformer
+              ? "Transformer Function   "
+              : "Validator Function     "
+          }: ${result.validatorExceptionFunction}`
+        );
+        lines.push(
+          `   - ${
+            isTransformer
+              ? "Transformer Exception  "
+              : "Validator Exception    "
+          }: ${
+            isTimeout
+              ? `Timeout exceeding ${fnTimeout} ms`
+              : (result.validatorExceptionDisplay ??
+                result.validatorExceptionMessage)
+          }`
+        );
+      }
+      break;
+    }
+
+    case "ok":
+    case "skip":
+      break;
+  }
+
+  lines.push(border);
+  return lines.join("\n");
+}
 
 /**
  * Formats passed, failed, errored, and skipped test counts for update messages.

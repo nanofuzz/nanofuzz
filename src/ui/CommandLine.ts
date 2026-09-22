@@ -17,8 +17,10 @@ import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { FuzzOptions } from "../fuzzer/Types";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
+import * as JSONN from "../Jsonn";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
+import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
 import pkg from "../../package.json";
 
 const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
@@ -402,6 +404,29 @@ export async function runCliInProcess(
       return cliValue;
     }
 
+    // TODO: There is no upgrade logic here like in FuzzPanel:
+    //       We need to re-factor the nano file logic out of
+    //       FuzzPanel so that we can call it here.
+    let injectTests: FuzzPinnedTest[] = [];
+    const nanoJsonFile = fs.existsSync(filename + ".nano.json5")
+      ? filename + ".nano.json5"
+      : fs.existsSync(filenameIn + ".nano.json5")
+        ? filenameIn + ".nano.json5"
+        : undefined;
+    if (nanoJsonFile && fs.existsSync(nanoJsonFile)) {
+      try {
+        const fullSet = JSONN.parse<FuzzTests>(
+          fs.readFileSync(nanoJsonFile, "utf8")
+        );
+        const fnSet = fullSet.functions?.[fnname];
+        if (fnSet && fnSet.tests) {
+          injectTests = Object.values(fnSet.tests);
+        }
+      } catch {
+        // Ignore read or parse errors
+      }
+    }
+
     const results = await new Tester(filename, fnname, {
       argDefaults: ArgDef.getDefaultOptions(),
       maxTests: getEffectiveOption("maxTests", "maxTests", options["maxTests"]),
@@ -450,7 +475,7 @@ export async function runCliInProcess(
           enabled: options["randomInputGenerator"],
         },
       },
-    }).testSync(undefined, undefined, updateFn, () => isCancelled);
+    }).testSync(injectTests, undefined, updateFn, () => isCancelled);
 
     process.removeListener("SIGINT", sigintListener);
 

@@ -640,10 +640,11 @@ def ${targetFn}(n: int) -> int:
     fs.writeFileSync(
       tsFile,
       `
+type FuzzTestResult = any;
 export function myPut(x: number): number {
   return x;
 }
-export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   return "fail";
 }
 `,
@@ -674,10 +675,11 @@ export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
     fs.writeFileSync(
       tsFile,
       `
+type FuzzTestResult = any;
 export function myPut(x: number): number {
   return x;
 }
-export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   return "fail";
 }
 `,
@@ -1032,10 +1034,11 @@ export function myPut(x: number): number {
     fs.writeFileSync(
       tsFile,
       `
+type FuzzTestResult = any;
 export function myPut(x: number): number {
   return x;
 }
-export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   return "fail";
 }
 `,
@@ -1092,10 +1095,11 @@ export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
     fs.writeFileSync(
       tsFile,
       `
+type FuzzTestResult = any;
 export function myPut(x: number): number {
   return x;
 }
-export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   return "fail";
 }
 `,
@@ -1152,10 +1156,11 @@ export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
     fs.writeFileSync(
       tsFile,
       `
+type FuzzTestResult = any;
 export function myPut(x: number): number {
   return x;
 }
-export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   throw new Error("Validator throw message");
 }
 `,
@@ -1188,10 +1193,11 @@ export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
     fs.writeFileSync(
       tsFile,
       `
+type FuzzTestResult = any;
 export function myPut(x: number): number {
   return x;
 }
-export function myPutValidator(r: any): "pass" | "fail" | "unknown" {
+export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
   while (true) {}
 }
 `,

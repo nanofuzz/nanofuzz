@@ -4,7 +4,7 @@ import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
-import { FuzzOptions, InputAndSource } from "../Types";
+import { FuzzOptions, GetFuzzerFocusFn, InputAndSource } from "../Types";
 
 /**
  * Produces a set of concrete input generators appropriate for
@@ -20,11 +20,17 @@ export function InputGeneratorFactory(
   rngSeed: string | undefined,
   leaderboard: Leaderboard<InputAndSource>,
   allInputs: Map<string, unknown>,
-  moduleSrc: string
+  moduleSrc: string,
+  getFuzzerFocus?: GetFuzzerFocusFn
 ): AbstractInputGenerator[] {
   return [
     new RandomInputGenerator(fn.getArgDefs(), rngSeed),
-    new MutationInputGenerator(fn.getArgDefs(), rngSeed, leaderboard),
+    new MutationInputGenerator(
+      fn.getArgDefs(),
+      rngSeed,
+      leaderboard,
+      getFuzzerFocus
+    ),
     new AiInputGenerator(fn, rngSeed, allInputs, moduleSrc),
   ];
 } // fn: InputGeneratorFactory
