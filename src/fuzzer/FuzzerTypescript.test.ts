@@ -379,6 +379,23 @@ describe("fuzzer: typescript targets", () => {
     expect(injectedResult.input[0].origin.type).toBe("user");
   });
 
+  it("records dupeTicks in generator stats when duplicate inputs are generated", async () => {
+    // Fuzz a function with small boolean input space to force duplicates
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "testBoolean",
+      { ...intOptions, maxTests: 50 }
+    ).testSync();
+
+    const randomGenStats = fuzzResult.stats.generators.RandomInputGenerator;
+    expect(randomGenStats.counters.dupeTicks).toBeDefined();
+    expect(Array.isArray(randomGenStats.counters.dupeTicks)).toBeTrue();
+    expect(randomGenStats.counters.dupesGenerated).toBeGreaterThan(0);
+    expect(randomGenStats.counters.dupeTicks.length).toBe(
+      randomGenStats.counters.dupesGenerated
+    );
+  });
+
   it("TypeScript transformer exception", async () => {
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.ts",

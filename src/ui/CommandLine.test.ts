@@ -404,6 +404,128 @@ describe("cli:", () => {
     expect(cigStats?.checkpoints?.length).toBeGreaterThan(0);
   });
 
+  it("verify checkpoints", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testBoolean";
+
+    function verifyCheckpointOutput(
+      outputFile: string,
+      expectedRandomness: number
+    ) {
+      expect(fs.existsSync(outputFile)).toBeTrue();
+      const outputData = JSON5.parse<FuzzTestResults>(
+        fs.readFileSync(outputFile, "utf8")
+      );
+
+      const cigStats = outputData.stats.generators.CompositeInputGenerator;
+      expect(cigStats?.checkpoints).toBeDefined();
+      const checkpoints = cigStats!.checkpoints;
+      expect(checkpoints.length).toBeGreaterThan(0);
+
+      // 1. Every checkpoint has a selected subgen
+      for (const cp of checkpoints) {
+        const selectedGens = Object.entries(cp.gens).filter(
+          ([_, g]) => g.selected === true
+        );
+        expect(selectedGens.length).toBe(1);
+      }
+
+      // 2. Checkpoint scheduler matches random exploration parameter (1.0=random, otherwise=mab)
+      if (expectedRandomness >= 1.0) {
+        for (const cp of checkpoints) {
+          for (const g of Object.values(cp.gens)) {
+            expect(g.productivity).toBe(0);
+            expect(g.cost).toBe(0);
+          }
+        }
+      } else {
+        expect(checkpoints.length).toBeGreaterThan(0);
+      }
+
+      // 3 & 4. Verify test result ticks and dupeTicks match selected subgen for each interval
+      for (let i = 0; i < checkpoints.length; i++) {
+        const currentCp = checkpoints[i];
+        const startTick = currentCp.tick;
+        const endTick =
+          i < checkpoints.length - 1 ? checkpoints[i + 1].tick : Infinity;
+
+        const selectedGenName = Object.keys(currentCp.gens).find(
+          (name) => currentCp.gens[name].selected === true
+        )!;
+        expect(selectedGenName).toBeDefined();
+
+        // 3. Test results with ticks between startTick and endTick match selected subgen
+        const intervalResults = outputData.results.filter(
+          (r) =>
+            r.inputGenerated.tick >= startTick &&
+            r.inputGenerated.tick < endTick &&
+            r.inputGenerated.source.type === "generator"
+        );
+
+        for (const r of intervalResults) {
+          if (r.inputGenerated.source.type === "generator") {
+            expect(r.inputGenerated.source.generator).toBe(selectedGenName);
+          }
+        }
+
+        // 4. dupeTicks between startTick and endTick are of the selected subgen
+        for (const [genName, genStat] of Object.entries(
+          outputData.stats.generators
+        )) {
+          if (!("counters" in genStat) || !genStat.counters?.dupeTicks) {
+            continue;
+          }
+          const intervalDupeTicks = genStat.counters.dupeTicks.filter(
+            (t) => t >= startTick && t < endTick
+          );
+          if (intervalDupeTicks.length > 0) {
+            expect(genName).toBe(selectedGenName);
+          }
+        }
+      }
+    }
+
+    // Test 1: MAB mode (randomness < 1.0)
+    const outputFileMab = path.join(tmpDir, "cig_checkpoints_mab.json5");
+    const resMab = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileMab,
+      "--cig-stats-checkpoints",
+      "--cig-randomness",
+      "0.1",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_mab",
+    ]);
+    expect(resMab.status).toBe(0);
+    verifyCheckpointOutput(outputFileMab, 0.1);
+
+    // Test 2: Fastpath random mode (randomness = 1.0)
+    const outputFileRandom = path.join(tmpDir, "cig_checkpoints_random.json5");
+    const resRandom = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileRandom,
+      "--cig-stats-checkpoints",
+      "--cig-randomness",
+      "1.0",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_random",
+    ]);
+    expect(resRandom.status).toBe(0);
+    verifyCheckpointOutput(outputFileRandom, 1.0);
+  });
+
   it("--ai-cache-*: cache miss in replay-error mode", async () => {
     const outputFile = path.join(tmpDir, "ai_cache_miss_output.json5");
     const cacheFile = path.join(tmpDir, "cli_llm_cache_miss.json");

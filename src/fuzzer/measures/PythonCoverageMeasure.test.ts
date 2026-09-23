@@ -205,7 +205,7 @@ const anyEnv: FuzzEnv = {
  * Per-generator statistics for a run whose details do not matter here
  */
 const anyGeneratorStats = (): FuzzGeneratorStatsBase => ({
-  counters: { inputsGenerated: 0, dupesGenerated: 0 },
+  counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
   timers: { run: 0, transform: 0, val: 0, gen: 0, measure: 0 },
 });
 

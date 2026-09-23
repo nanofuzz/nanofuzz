@@ -571,7 +571,7 @@ export function x(
       }
 
       const dummyGenStats: FuzzGeneratorStatsBase = {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       };
 
@@ -919,7 +919,7 @@ export function x(): number {
       }
 
       const dummyGenStats: FuzzGeneratorStatsBase = {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       };
 

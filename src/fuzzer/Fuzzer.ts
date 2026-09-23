@@ -25,7 +25,11 @@ import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
+import {
+  InputGeneratorStatsAi,
+  NextableStatus,
+  ScoredInput,
+} from "./generators/Types";
 import { isError } from "./Util";
 import { isArgValueType } from "./analysis/Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
@@ -250,6 +254,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
           MutationInputGenerator: {
@@ -263,6 +268,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
           AiInputGenerator: {
@@ -276,6 +282,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
         },
@@ -1038,6 +1045,7 @@ export class Tester {
             ); // return empty input generator feedback
             if (genStats) {
               genStats.counters.dupesGenerated++; // increment the generator's dupe counter
+              genStats.counters.dupeTicks.push(result.inputGenerated.tick);
             }
             continue; // skip this test
           } else {
@@ -1643,6 +1651,7 @@ export type FuzzGeneratorStatsBase = {
   counters: {
     inputsGenerated: number; // number of inputs generated, including dupes
     dupesGenerated: number; // number of duplicate inputs generated
+    dupeTicks: number[]; // ticks in which the generator produced a duplicate input
   };
   timers: {
     run: number; // elapsed time the PUT ran
@@ -1691,11 +1700,13 @@ export type FuzzTestStats = {
           string,
           {
             active: boolean; // subgen is active
-            nextable: boolean; // subgen is active and nextable
+            nextable: NextableStatus; // subgen is active and nextable
             productivity: number; // current productivity[g] for this input generator
             cost: number; // current cost[g] for this input generator
+            selected?: true; // subgen was selected for this chunk
           }
         >;
+        scheduler: "mab" | "random";
       }[];
     };
   };
@@ -1889,9 +1900,7 @@ function formatFailureBlock(
         );
         lines.push(
           `     - ${
-            isTransformer
-              ? "Test input (generated)"
-              : "Test input           "
+            isTransformer ? "Test input (generated)" : "Test input           "
           }: ${isTransformer ? origArgStr : argStr}`
         );
         lines.push(`     - Test output          : ${testOutputStr}`);
