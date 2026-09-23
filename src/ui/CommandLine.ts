@@ -17,8 +17,10 @@ import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { FuzzOptions } from "../fuzzer/Types";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
+import * as JSONN from "../Jsonn";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
+import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
 import pkg from "../../package.json";
 
 const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
@@ -95,6 +97,13 @@ function createProgram(): Commander.Command {
       10000
     )
     .option(`--seed <string>`, `Seed for pseudo-random number generator`)
+    .option(`--no-shrink`, `Disable shrinking failing test inputs`)
+    .option(
+      `--max-shrink-time <integer>`,
+      `Maximum time in ms allowed for shrinking failing test inputs (0=no limit)`,
+      parseIntArgGeZero,
+      2000
+    )
 
     // ------------------------------- Transformers ------------------------------ //
 
@@ -291,6 +300,13 @@ export async function runCliInProcess(
     options["hostStartupTimeout"]
   );
 
+  if (options["shrink"] !== undefined) {
+    Config.override("nanofuzz.fuzzer.shrinkFailures", options["shrink"]);
+  }
+  if (options["maxShrinkTime"] !== undefined) {
+    Config.override("nanofuzz.fuzzer.maxShrinkTime", options["maxShrinkTime"]);
+  }
+
   // measure options
   if (options["coverageScope"] !== undefined) {
     Config.override("nanofuzz.fuzzer.coverageScope", options["coverageScope"]);
@@ -388,6 +404,29 @@ export async function runCliInProcess(
       return cliValue;
     }
 
+    // TODO: There is no upgrade logic here like in FuzzPanel:
+    //       We need to re-factor the nano file logic out of
+    //       FuzzPanel so that we can call it here.
+    let injectTests: FuzzPinnedTest[] = [];
+    const nanoJsonFile = fs.existsSync(filename + ".nano.json5")
+      ? filename + ".nano.json5"
+      : fs.existsSync(filenameIn + ".nano.json5")
+        ? filenameIn + ".nano.json5"
+        : undefined;
+    if (nanoJsonFile && fs.existsSync(nanoJsonFile)) {
+      try {
+        const fullSet = JSONN.parse<FuzzTests>(
+          fs.readFileSync(nanoJsonFile, "utf8")
+        );
+        const fnSet = fullSet.functions?.[fnname];
+        if (fnSet && fnSet.tests) {
+          injectTests = Object.values(fnSet.tests);
+        }
+      } catch {
+        // Ignore read or parse errors
+      }
+    }
+
     const results = await new Tester(filename, fnname, {
       argDefaults: ArgDef.getDefaultOptions(),
       maxTests: getEffectiveOption("maxTests", "maxTests", options["maxTests"]),
@@ -436,7 +475,7 @@ export async function runCliInProcess(
           enabled: options["randomInputGenerator"],
         },
       },
-    }).testSync(undefined, undefined, updateFn, () => isCancelled);
+    }).testSync(injectTests, undefined, updateFn, () => isCancelled);
 
     process.removeListener("SIGINT", sigintListener);
 
@@ -444,18 +483,21 @@ export async function runCliInProcess(
       return USER_CANCELLED;
     }
 
-    const someTestsRan =
-      results.stats.counters.passedTests + results.stats.counters.failedTests;
-    const someTestsFailed = results.stats.counters.failedTests;
+    const totalTestsRan =
+      results.stats.counters.passedTests +
+      results.stats.counters.failedTests +
+      results.stats.counters.erroredTests;
+    const totalTestsFailed =
+      results.stats.counters.failedTests + results.stats.counters.erroredTests;
 
-    if (someTestsRan && !results.stats.counters.erroredTests) {
-      if (someTestsFailed) {
+    if (totalTestsRan > 0) {
+      if (totalTestsFailed > 0) {
         return ERROR_TEST_FAILURE; // tests ran and some failed
       } else {
-        return EXIT_OK; // tests ran and none failed);
+        return EXIT_OK; // tests ran and none failed
       }
     } else {
-      return ERROR_INTERNAL; // internal error
+      return ERROR_INTERNAL; // internal error (0 tests ran)
     }
   } catch (e: unknown) {
     process.removeListener("SIGINT", sigintListener);

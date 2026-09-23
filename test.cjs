@@ -11,6 +11,16 @@ const path = require("path");
 const os = require("os");
 const { spawn } = require("child_process");
 
+// Clean up any stale compiler output once before running tests
+try {
+  const tmpTsc = path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "tsc");
+  if (fs.existsSync(tmpTsc)) {
+    fs.rmSync(tmpTsc, { recursive: true, force: true });
+  }
+} catch {
+  // Ignore cleanup errors
+}
+
 const isVerbose = process.argv.includes("--verbose");
 
 // Determine test files to run

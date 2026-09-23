@@ -147,7 +147,7 @@ const anyResult: FuzzTestResult = {
   passedHuman: "unknown",
   passedValidator: "unknown",
   passedValidators: [],
-  validatorException: false,
+  harnessErrors: [],
   timers: { gen: 0, transform: 0, run: 0 },
   category: "ok",
   interestingReasons: [],

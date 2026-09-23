@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
 import { deepFreeze, isKeyedObject } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
@@ -18,6 +19,7 @@ import {
   FuzzStatusUpdater,
   BaseMeasureConfig,
   FuzzBusyStatusMessage,
+  FuzzerFocus,
 } from "./Types";
 import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
@@ -56,6 +58,14 @@ export class Tester {
   >; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
+
+  protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
+  protected _failingResultToShrink?: FuzzTestResult;
+  protected _shrinkStartTime = 0;
+  protected _savedGeneratorOptions?: FuzzOptions["generators"];
+  protected getFuzzerFocus(): FuzzerFocus {
+    return this._fuzzerFocus;
+  }
 
   constructor(
     module: string,
@@ -137,7 +147,8 @@ export class Tester {
       this._leaderboard, // leaderboard
       this._results.stats.generators, // generator stats
       this._allInputs, // running list of dupe-checked inputs
-      this._program.src // enclosing module source code
+      this._program.src, // enclosing module source code
+      this.getFuzzerFocus.bind(this)
     );
 
     // Start a background compilation if precompile mode is active
@@ -587,7 +598,8 @@ export class Tester {
           injectTests.length,
           !!cancelFn && cancelFn(),
           runStats,
-          !!mode.gen
+          !!mode.gen,
+          this._fuzzerFocus.mode
         );
         const pct = typeof stopCondition === "number" ? stopCondition : 100;
         update({
@@ -612,9 +624,18 @@ export class Tester {
           injectTests.length,
           !!cancelFn && cancelFn(),
           runStats,
-          !!mode.gen
+          !!mode.gen,
+          this._fuzzerFocus.mode
         );
         if (typeof stopCondition !== "number") {
+          if (this._fuzzerFocus.mode === "shrink") {
+            this._fuzzerFocus = deepFreeze({ mode: "gen" });
+            if (this._savedGeneratorOptions) {
+              this._compositeInputGenerator.options =
+                this._savedGeneratorOptions;
+            }
+            continue;
+          }
           // Calculate final stats
           this._results.stopReason = stopCondition;
           this._results.stats.timers.total +=
@@ -748,6 +769,22 @@ export class Tester {
             });
           }
 
+          const firstFailing = this._results.results.find(
+            (r) => r.category !== "ok" && r.category !== "skip"
+          );
+          if (firstFailing) {
+            update({
+              msg: formatFailureBlock(
+                this._function.getName(),
+                firstFailing,
+                lang,
+                this._validators,
+                this._options.fnTimeout
+              ),
+              channel: "summary",
+            });
+          }
+
           update({
             msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
             channel: "milestone",
@@ -773,7 +810,7 @@ export class Tester {
           input: [],
           output: [],
           exception: false,
-          validatorException: false,
+          harnessErrors: [],
           timeout: false,
           skipped: false,
           passedImplicit: "unknown",
@@ -866,20 +903,28 @@ export class Tester {
               result.skipped = true;
               result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
               break;
+
             case "timeout":
-              result.validatorException = true;
-              result.validatorExceptionDisplay = `(${transformRunner.name} timeout)`;
-              result.validatorExceptionFunction = transformRunner.name;
-              result.validatorExceptionMessage = `timeout`;
+              result.harnessErrors.push({
+                kind: "timeout",
+                stage: "transformer",
+                fnName: transformRunner.name,
+                message: `Timeout exceeding ${this._options.fnTimeout} ms`,
+                display: `(${transformRunner.name} timeout)`,
+              });
               break;
+
             case "error":
-              // TODO: These need their own place in the results
-              result.validatorException = true;
-              result.validatorExceptionDisplay = `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`;
-              result.validatorExceptionFunction = transformRunner.name;
-              result.validatorExceptionMessage =
-                transformerResult.result.message;
+              result.harnessErrors.push({
+                kind: "exception",
+                stage: "transformer",
+                fnName: transformRunner.name,
+                message: transformerResult.result.message,
+                display: `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`,
+                stack: transformerResult.result.stack ?? "<no stack>",
+              });
               break;
+
             case "value": {
               const values = transformerResult.result.value;
               if (Array.isArray(values)) {
@@ -904,10 +949,15 @@ export class Tester {
                   }
                 });
               } else {
-                // TODO: These need their own place in the results (see above)
-                result.validatorException = true;
-                result.validatorExceptionFunction = transformRunner.name;
-                result.validatorExceptionMessage = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
+                const msg = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
+                result.harnessErrors.push({
+                  kind: "exception",
+                  stage: "transformer",
+                  fnName: transformRunner.name,
+                  message: msg,
+                  display: `(${transformRunner.name}) ${msg}`,
+                  stack: "<no stack>",
+                });
                 break;
               }
             }
@@ -1011,7 +1061,7 @@ export class Tester {
         });
 
         // Call the PUT via its runner
-        if (!result.skipped && !result.validatorException) {
+        if (!result.skipped && result.harnessErrors.length === 0) {
           const startRunTime = performance.now(); // start timer
           let exeOutput: RunnerResult;
           try {
@@ -1118,14 +1168,25 @@ export class Tester {
               ).forEach((j, i) => {
                 if (isError(j)) {
                   result.passedValidators.push("unknown");
-                  result.validatorException = true;
-                  result.validatorExceptionDisplay =
-                    j.name === "PropertyValidatorTimeout"
-                      ? `(${this._validators[i].name} timeout)`
-                      : `(${this._validators[i].name} ${j.name}) ${j.message}`;
-                  result.validatorExceptionMessage = j.message;
-                  result.validatorExceptionFunction = this._validators[i].name;
-                  result.validatorExceptionStack = j.stack;
+                  const fnName = this._validators[i].name;
+                  if (j.name === "PropertyValidatorTimeout") {
+                    result.harnessErrors.push({
+                      kind: "timeout",
+                      stage: "validator",
+                      fnName,
+                      message: `Timeout exceeding ${this._options.fnTimeout} ms`,
+                      display: `(${fnName} timeout)`,
+                    });
+                  } else {
+                    result.harnessErrors.push({
+                      kind: "exception",
+                      stage: "validator",
+                      fnName,
+                      message: j.message,
+                      display: `(${fnName} ${j.name}) ${j.message}`,
+                      stack: j.stack ?? "<no stack>",
+                    });
+                  }
                 } else {
                   result.passedValidators.push(j);
                 }
@@ -1148,6 +1209,85 @@ export class Tester {
 
         // (Re-)categorize the result
         result.category = categorizeResult(result);
+
+        // --- SHRINKING LOGIC ---
+        if (
+          this._fuzzerFocus.mode === "shrink" &&
+          this._failingResultToShrink
+        ) {
+          const targetFailure = this._failingResultToShrink;
+
+          // Check if candidate input reproduced the exact same failure
+          const sameJudgments = isSameJudgments(result, targetFailure);
+          const sameCategory = result.category === targetFailure.category;
+          const sameException =
+            !targetFailure.exceptionMessage ||
+            result.exceptionMessage === targetFailure.exceptionMessage;
+
+          if (sameJudgments && sameCategory && sameException) {
+            // Adopt smaller input as new shrink target
+            this._fuzzerFocus = deepFreeze({
+              mode: "shrink",
+              target: result.inputGenerated,
+            });
+            targetFailure.input = result.input;
+            targetFailure.output = result.output;
+            targetFailure.shrinkStep = (targetFailure.shrinkStep ?? 0) + 1;
+          }
+
+          // Check shrink exit conditions
+          const maxShrinkTime = Config.get(
+            "nanofuzz.fuzzer.maxShrinkTime",
+            2000
+          );
+          const shrinkTimeElapsed = performance.now() - this._shrinkStartTime;
+          const timeExceeded =
+            maxShrinkTime > 0 && shrinkTimeElapsed >= maxShrinkTime;
+          const stepCapExceeded = (targetFailure.shrinkStep ?? 0) >= 100;
+          const noMoreShrinks =
+            this._compositeInputGenerator.nextable() === false;
+
+          if (timeExceeded || stepCapExceeded || noMoreShrinks) {
+            this._fuzzerFocus = deepFreeze({ mode: "gen" });
+            if (this._savedGeneratorOptions) {
+              this._compositeInputGenerator.options =
+                this._savedGeneratorOptions;
+            }
+          }
+        } else {
+          // --- NORMAL GENERATION MODE: TRIGGER SHRINKING ON FAILURE ---
+          const isFailingResult =
+            result.category === "badValue" ||
+            result.category === "exception" ||
+            result.category === "timeout";
+
+          const shouldShrinkTrigger =
+            isFailingResult &&
+            this._options.maxFailures === 1 &&
+            Config.get("nanofuzz.fuzzer.shrinkFailures", true) &&
+            !result.inputGenerated.injected &&
+            this._function.getArgDefs().length > 0;
+
+          if (shouldShrinkTrigger) {
+            this._failingResultToShrink = result;
+            this._failingResultToShrink.shrinkStep = 0;
+            this._shrinkStartTime = performance.now();
+            this._savedGeneratorOptions = structuredClone(
+              this._options.generators
+            );
+
+            this._fuzzerFocus = deepFreeze({
+              mode: "shrink",
+              target: result.inputGenerated,
+            });
+
+            this._compositeInputGenerator.options = {
+              RandomInputGenerator: { enabled: false },
+              MutationInputGenerator: { enabled: true },
+              AiInputGenerator: { enabled: false },
+            };
+          }
+        }
 
         // Increment the test counters
         switch (result.category) {
@@ -1199,6 +1339,10 @@ export class Tester {
         yield undefined;
       } // for: Main test loop
     } finally {
+      this._fuzzerFocus = deepFreeze({ mode: "gen" });
+      if (this._savedGeneratorOptions) {
+        this._compositeInputGenerator.options = this._savedGeneratorOptions;
+      }
       if (periodicTimer !== undefined) {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
@@ -1241,7 +1385,8 @@ const _checkStopCondition = (
   injectCount: number,
   userCancel: boolean,
   stats: CurrentRunStats,
-  gen: boolean
+  gen: boolean,
+  fuzzerFocusMode: "gen" | "shrink" = "gen"
 ): FuzzStopReason | number => {
   const pcts: number[] = [0];
   const now = performance.now();
@@ -1284,11 +1429,13 @@ const _checkStopCondition = (
   );
 
   // End testing if we exceed the maximum number of failures & are done injecting inputs
-  if (options.maxFailures > 0 && !injecting) {
-    if (stats.counters.failedTests >= options.maxFailures) {
+  if (options.maxFailures > 0 && !injecting && fuzzerFocusMode !== "shrink") {
+    const totalFailures =
+      stats.counters.failedTests + stats.counters.erroredTests;
+    if (totalFailures >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
-    pcts.push(stats.counters.failedTests / options.maxFailures);
+    pcts.push(totalFailures / options.maxFailures);
   }
 
   // End testing if we exceed the maximum number of sequential duplicates generated
@@ -1365,13 +1512,36 @@ export function getTransformers(
 } // fn: getTransformers()
 
 /**
+ * Returns true if all oracle judgments of two test results are identical without allocating arrays or stringifying.
+ */
+function isSameJudgments(a: FuzzTestResult, b: FuzzTestResult): boolean {
+  if (a.passedImplicit !== b.passedImplicit) {
+    return false;
+  }
+  if (a.passedHuman !== b.passedHuman) {
+    return false;
+  }
+  const aVals = a.passedValidators;
+  const bVals = b.passedValidators;
+  if (aVals.length !== bVals.length) {
+    return false;
+  }
+  for (let i = 0; i < aVals.length; i++) {
+    if (aVals[i] !== bVals[i]) {
+      return false;
+    }
+  }
+  return true;
+} // fn: isSameJudgments()
+
+/**
  * Categorizes the result of a fuzz test according to the available
  * categories defined in ResultType.
  * @param result of the test
  * @returns the category of the result
  */
 export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
-  if (result.validatorException) {
+  if (result.harnessErrors.length > 0) {
     return "failure"; // Validator or transformer failed
   }
   if (result.skipped) {
@@ -1553,6 +1723,241 @@ type CurrentRunStats = {
     startGenTime: number; // time the tester started generating new inputs
   };
 };
+
+/**
+ * Formats a single failing result into a terminal-width failure block.
+ */
+function formatFailureBlock(
+  targetFnName: string,
+  result: FuzzTestResult,
+  lang: ProgramLanguage,
+  validators: FunctionRef[],
+  fnTimeout: number = 200,
+  termWidth: number = process.stdout.columns && process.stdout.columns > 0
+    ? process.stdout.columns
+    : 80
+): string {
+  const border = "=".repeat(termWidth);
+  const dashBorder = " -".repeat(Math.floor(termWidth / 2));
+  const lines: string[] = [border];
+
+  const argStr = result.input
+    .map((i) => ValueMapper.toLang(lang, i.value))
+    .join(", ");
+
+  const origArgStr = result.inputGenerated?.value
+    ? result.inputGenerated.value
+        .map((v) => ValueMapper.toLang(lang, v.value))
+        .join(", ")
+    : argStr;
+
+  const fnCall = `${targetFnName}(${argStr})`;
+
+  const isPinned = result.inputGenerated?.injected;
+  const shrinkStep = result.shrinkStep ?? 0;
+  const shrinkSuffix = isPinned
+    ? " \x1b[2m(Pinned Test)\x1b[0m"
+    : shrinkStep > 0
+      ? ` \x1b[2m(Shrunk in ${shrinkStep} step${shrinkStep === 1 ? "" : "s"})\x1b[0m`
+      : "";
+
+  const getFailedValidatorsStr = (): string => {
+    const failedNames: string[] = [];
+    if (result.passedValidators) {
+      result.passedValidators.forEach((j, i) => {
+        if (j === "fail" && validators[i]) {
+          failedNames.push(validators[i].name);
+        }
+      });
+    }
+    if (failedNames.length > 0) {
+      const pl = failedNames.length > 1 ? "s" : "";
+      return `Property Validator${pl} (${failedNames.join(", ")})`;
+    }
+    if (result.passedHuman === "fail") return "Example Oracle";
+    if (result.passedImplicit === "fail") return "Heuristic Validator";
+    return "Unknown Validator";
+  };
+
+  switch (result.category) {
+    case "badValue": {
+      lines.push(`❌ FAILED by ${getFailedValidatorsStr()}:`);
+      lines.push(`   - Failing test input     : ${argStr}${shrinkSuffix}`);
+      lines.push(
+        `   - Test output            : ${ValueMapper.toLang(
+          lang,
+          result.output[0]?.value
+        )}`
+      );
+      if (
+        result.passedHuman === "fail" &&
+        result.expectedOutput &&
+        result.expectedOutput.length > 0
+      ) {
+        const exp = result.expectedOutput[0];
+        const expStr = exp.isTimeout
+          ? "(timeout)"
+          : exp.isException
+            ? "(exception)"
+            : ValueMapper.toLang(lang, exp.value);
+        lines.push(`   - Expected output        : ${expStr}`);
+      }
+      break;
+    }
+
+    case "exception": {
+      lines.push(`❌ EXCEPTION:`);
+      lines.push(`   - Failing test input     : ${argStr}${shrinkSuffix}`);
+      lines.push(`   - Test output            : (none)`);
+      lines.push(`   - Failed Validator(s)    : Heuristic Validator`);
+
+      const { excLine, stackLines } = formatExceptionAndStack(
+        result.exceptionMessage,
+        result.stack
+      );
+
+      if (excLine || stackLines.length > 0) {
+        lines.push(dashBorder);
+        if (excLine) {
+          lines.push(excLine);
+        }
+        if (stackLines.length > 0) {
+          lines.push(stackLines.join("\n"));
+        }
+      }
+      break;
+    }
+
+    case "timeout": {
+      lines.push(`❌ TIMEOUT failed by Heuristic Validator:`);
+      lines.push(`   - Failing test input     : ${argStr}${shrinkSuffix}`);
+      lines.push(`   - Timeout after          : ${fnTimeout} ms`);
+      break;
+    }
+
+    case "disagree": {
+      lines.push(`❌ DISAGREEMENT: ${fnCall}`);
+      lines.push(`   - Test input             : ${argStr}`);
+      lines.push(
+        `   - Test output            : ${ValueMapper.toLang(
+          lang,
+          result.output[0]?.value
+        )}`
+      );
+      const propFailed = getFailedValidatorsStr();
+      lines.push(
+        `   - Oracle Judgments       : ${propFailed} => "fail", Example Oracle => "pass"`
+      );
+      lines.push(
+        `   - Diagnosis              : Property validator disagreed with the expected output. Check validator function for bugs.`
+      );
+      break;
+    }
+
+    case "failure": {
+      if (result.harnessErrors.length > 0) {
+        const err = result.harnessErrors[0];
+        const isTransformer = err.stage === "transformer";
+        const typeLabel = isTransformer
+          ? "Input transformer"
+          : "Property validator";
+        const isTimeout = err.kind === "timeout";
+        const headerText = isTimeout
+          ? `${typeLabel} timed out`
+          : `${typeLabel} threw an exception`;
+
+        const testOutputStr = isTransformer
+          ? "(not executed)"
+          : result.output.length > 0
+            ? ValueMapper.toLang(lang, result.output[0]?.value)
+            : result.exception
+              ? `(exception${result.exceptionMessage ? `: ${result.exceptionMessage}` : ""})`
+              : result.timeout
+                ? `(timeout after ${fnTimeout} ms)`
+                : "(none)";
+
+        lines.push(`❌ TESTING ERROR: ${headerText}`);
+        lines.push(
+          `   - ${
+            isTransformer
+              ? "Transformer Function   "
+              : "Validator Function     "
+          }: ${err.fnName}`
+        );
+        lines.push(
+          `   - ${isTransformer ? "Was transforming:" : "Was validating:"}`
+        );
+        lines.push(
+          `     - ${
+            isTransformer
+              ? "Test input (generated)"
+              : "Test input           "
+          }: ${isTransformer ? origArgStr : argStr}`
+        );
+        lines.push(`     - Test output          : ${testOutputStr}`);
+
+        const { excLine, stackLines } = formatExceptionAndStack(
+          isTimeout ? `Timeout exceeding ${fnTimeout} ms` : err.message,
+          err.kind === "exception" ? err.stack : undefined
+        );
+
+        if (excLine || stackLines.length > 0) {
+          lines.push(dashBorder);
+          if (excLine) {
+            lines.push(excLine);
+          }
+          if (stackLines.length > 0) {
+            lines.push(stackLines.join("\n"));
+          }
+        }
+      }
+      break;
+    }
+
+    case "ok":
+    case "skip":
+      break;
+  }
+
+  lines.push(border);
+  return lines.join("\n");
+}
+
+/**
+ * Extracts and formats exception header and stack trace lines for failure blocks.
+ */
+function formatExceptionAndStack(
+  message?: string,
+  stack?: string,
+  defaultName: string = "Error"
+): { excLine: string; stackLines: string[] } {
+  let excLine = "";
+  if (message) {
+    const formattedMsg =
+      message.startsWith("Error:") || message.includes(":")
+        ? message
+        : `${defaultName}: ${message}`;
+    excLine = ` ${formattedMsg}`;
+  }
+
+  const stackLines: string[] = [];
+  if (stack) {
+    const rawLines = stack
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
+    for (const line of rawLines) {
+      if (/^\s*(at\s|File\s|Traceback\b)/.test(line)) {
+        stackLines.push(`   \x1b[2m${line}\x1b[0m`);
+      } else if (!excLine) {
+        excLine = ` ${line}`;
+      }
+    }
+  }
+
+  return { excLine, stackLines };
+}
 
 /**
  * Formats passed, failed, errored, and skipped test counts for update messages.

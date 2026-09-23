@@ -657,10 +657,10 @@ async function main() {
             ? "undefined"
             : ValueMapper.toLang(lang, o.value);
       });
-      if (e.validatorException) {
+      if (e.harnessErrors && e.harnessErrors.length > 0) {
+        const err = e.harnessErrors[0];
         outputs[`output`] =
-          e.validatorExceptionDisplay ??
-          `(${e.validatorExceptionFunction} exception) ${e.validatorExceptionMessage}`;
+          err.display ?? `(${err.fnName} ${err.kind}) ${err.message}`;
       } else if (e.exception) {
         outputs[`output`] =
           e.exceptionDisplay ?? "(exception) " + e.exceptionMessage;

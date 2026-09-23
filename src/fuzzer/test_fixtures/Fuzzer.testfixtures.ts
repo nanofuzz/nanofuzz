@@ -201,3 +201,23 @@ export function targetValidatorExceptionValidator(
 ): "pass" | "fail" | "unknown" {
   throw new Error("Validator error message");
 }
+
+export function testValidatorExceptionOnPutException(_n: number): number {
+  throw new Error("Division by zero");
+}
+export function testValidatorExceptionOnPutExceptionValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  throw new Error("Validator crashed when evaluating exception result");
+}
+
+export function testValidatorExceptionOnPutTimeout(_n: number): number {
+  while (true) {
+    /* noop */
+  }
+}
+export function testValidatorExceptionOnPutTimeoutValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  throw new Error("Validator crashed when evaluating timeout result");
+}

@@ -3,7 +3,7 @@ import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
 import { ScoredInput } from "./Types";
-import { FuzzOptions, InputAndSource } from "./../Types";
+import { FuzzOptions, GetFuzzerFocusFn, InputAndSource } from "./../Types";
 import { NextableStatus } from "./Types";
 import { FunctionDef, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
@@ -73,7 +73,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     leaderboard: Leaderboard<InputAndSource>,
     genStats: FuzzTestStats["generators"],
     allInputs: Map<string, unknown>,
-    moduleSrc: string
+    moduleSrc: string,
+    getFuzzerFocus?: GetFuzzerFocusFn
   ) {
     super([], rngSeed);
 
@@ -83,7 +84,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       rngSeed,
       leaderboard,
       allInputs,
-      moduleSrc
+      moduleSrc,
+      getFuzzerFocus
     );
     this._measures = measures;
     this._leaderboard = leaderboard;

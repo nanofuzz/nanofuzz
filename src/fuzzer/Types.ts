@@ -6,6 +6,26 @@ import {
 import { Judgment as _Judgment } from "./oracles/Types";
 
 /**
+ * Error occurring in test harness (property validator or input transformer)
+ */
+export type HarnessError =
+  | {
+      kind: "exception";
+      stage: "transformer" | "validator";
+      fnName: string;
+      message: string;
+      display?: string;
+      stack: string;
+    }
+  | {
+      kind: "timeout";
+      stage: "transformer" | "validator";
+      fnName: string;
+      message: string;
+      display?: string;
+    };
+
+/**
  * Single Fuzzer Test Result
  */
 export type FuzzTestResult = {
@@ -22,11 +42,7 @@ export type FuzzTestResult = {
   passedHuman: Judgment; // "pass" if actual output matches human-expected output
   passedValidator: Judgment; // "pass" if passed all property oracles
   passedValidators: Judgment[]; // "pass" if passed all property oracles
-  validatorException: boolean; // true if validator threw an exception
-  validatorExceptionDisplay?: string; // display message for validator exception display
-  validatorExceptionMessage?: string; // validator exception message
-  validatorExceptionFunction?: string; // name of validator throwing exception
-  validatorExceptionStack?: string; // validator stack trace if exception was thrown
+  harnessErrors: HarnessError[]; // errors occurring in test harness (transformers/validators)
   timers: {
     gen: number; // time to generate the input in ms
     transform: number; // time to transform the input in ms
@@ -37,6 +53,7 @@ export type FuzzTestResult = {
   interestingReasons: string[]; // reasons (measures) this input may be "interesting"
   skipped?: boolean; // true if the test was skipped
   skipReason?: string; // skip reason message
+  shrinkStep?: number; // number of shrink steps taken if the input was shrunk
 };
 
 /**
@@ -286,6 +303,15 @@ export type SupportedInputGenerators =
  * List of supported input generators
  */
 export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
+
+/**
+ * Focus mode of the fuzzer (generation vs. shrinking)
+ */
+export type FuzzerFocus =
+  | { mode: "gen" }
+  | { mode: "shrink"; target: InputAndSource };
+
+export type GetFuzzerFocusFn = () => FuzzerFocus;
 
 /**
  * Message about how busy the fuzzer is
