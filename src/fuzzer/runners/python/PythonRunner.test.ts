@@ -870,7 +870,7 @@ def x(val: int) -> int:
       }
 
       const dummyGenStats: FuzzGeneratorStatsBase = {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       };
 
@@ -1094,7 +1094,7 @@ def x(val: int) -> int:
       }
 
       const dummyGenStats: FuzzGeneratorStatsBase = {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       };
 

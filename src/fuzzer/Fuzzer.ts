@@ -250,6 +250,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
           MutationInputGenerator: {
@@ -263,6 +264,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
           AiInputGenerator: {
@@ -276,6 +278,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
         },
@@ -1038,6 +1041,7 @@ export class Tester {
             ); // return empty input generator feedback
             if (genStats) {
               genStats.counters.dupesGenerated++; // increment the generator's dupe counter
+              genStats.counters.dupeTicks.push(result.inputGenerated.tick);
             }
             continue; // skip this test
           } else {
@@ -1643,6 +1647,7 @@ export type FuzzGeneratorStatsBase = {
   counters: {
     inputsGenerated: number; // number of inputs generated, including dupes
     dupesGenerated: number; // number of duplicate inputs generated
+    dupeTicks: number[]; // ticks in which the generator produced a duplicate input
   };
   timers: {
     run: number; // elapsed time the PUT ran
@@ -1889,9 +1894,7 @@ function formatFailureBlock(
         );
         lines.push(
           `     - ${
-            isTransformer
-              ? "Test input (generated)"
-              : "Test input           "
+            isTransformer ? "Test input (generated)" : "Test input           "
           }: ${isTransformer ? origArgStr : argStr}`
         );
         lines.push(`     - Test output          : ${testOutputStr}`);

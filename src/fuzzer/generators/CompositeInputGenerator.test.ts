@@ -17,15 +17,15 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
     const genStats: FuzzTestStats["generators"] = {
       RandomInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       MutationInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       AiInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
     };
@@ -127,15 +127,15 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       const genStats: FuzzTestStats["generators"] = {
         RandomInputGenerator: {
-          counters: { inputsGenerated: 0, dupesGenerated: 0 },
+          counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
           timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
         },
         MutationInputGenerator: {
-          counters: { inputsGenerated: 0, dupesGenerated: 0 },
+          counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
           timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
         },
         AiInputGenerator: {
-          counters: { inputsGenerated: 0, dupesGenerated: 0 },
+          counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
           timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
         },
       };
@@ -258,15 +258,15 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
       const genStats: FuzzTestStats["generators"] = {
         RandomInputGenerator: {
-          counters: { inputsGenerated: 0, dupesGenerated: 0 },
+          counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
           timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
         },
         MutationInputGenerator: {
-          counters: { inputsGenerated: 0, dupesGenerated: 0 },
+          counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
           timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
         },
         AiInputGenerator: {
-          counters: { inputsGenerated: 0, dupesGenerated: 0 },
+          counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
           timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
         },
       };
@@ -374,15 +374,15 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
     const genStats: FuzzTestStats["generators"] = {
       RandomInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       MutationInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       AiInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
     };
@@ -441,15 +441,15 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     const fnDef = program.functionsExported["dummyFn"];
     const genStats: FuzzTestStats["generators"] = {
       RandomInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       MutationInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       AiInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
     };
@@ -490,15 +490,15 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     const fnDef = program.functionsExported["dummyFn"];
     const genStats: FuzzTestStats["generators"] = {
       RandomInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       MutationInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       AiInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
     };
@@ -534,15 +534,15 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     const fnDef = program.functionsExported["dummyFn"];
     const genStats: FuzzTestStats["generators"] = {
       RandomInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       MutationInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       AiInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
     };
@@ -596,15 +596,15 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     const fnDef = program.functionsExported["dummyFn"];
     const genStats: FuzzTestStats["generators"] = {
       RandomInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       MutationInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       AiInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
     };
@@ -647,15 +647,15 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     const fnDef = program.functionsExported["dummyFn"];
     const genStats: FuzzTestStats["generators"] = {
       RandomInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       MutationInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       AiInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
     };
@@ -709,15 +709,15 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     const fnDef = program.functionsExported["dummyFn"];
     const genStats: FuzzTestStats["generators"] = {
       RandomInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       MutationInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
       AiInputGenerator: {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       },
     };
