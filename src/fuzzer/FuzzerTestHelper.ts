@@ -1,14 +1,9 @@
 import { ArgDef } from "./Fuzzer";
 import { FuzzOptions } from "./Types";
-import * as CompilerFactory from "./compilers/CompilerFactory";
 import * as Parser from "./adapters/ParserAdapter";
 
 // Extend default test timeout to 60s
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
-
-// Clean up prior testing temporary files, like compiler output,
-// so that we actually run the compiler during testing
-CompilerFactory.clean();
 
 /**
  * Fuzzer option for enabling all Measures

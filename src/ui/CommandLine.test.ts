@@ -661,12 +661,11 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
     ]);
 
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain(
+      "❌ FAILED by Property Validator (myPutValidator):"
+    );
     expect(res.stdout).toContain("- Failing test input     :");
     expect(res.stdout).toContain("- Test output            :");
-    expect(res.stdout).toContain(
-      "- Failed Validator(s)    : Property Validator (myPutValidator)"
-    );
     expect(res.stdout).toContain("===============");
   });
 
@@ -697,12 +696,11 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
     ]);
 
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain(
+      "❌ FAILED by Property Validator (myPutValidator):"
+    );
     expect(res.stdout).toContain("- Failing test input     :");
     expect(res.stdout).toContain("- Test output            :");
-    expect(res.stdout).toContain(
-      "- Failed Validator(s)    : Property Validator (myPutValidator)"
-    );
     expect(res.stdout).not.toContain("Shrunk in");
     expect(res.stdout).toContain("===============");
   });
@@ -730,12 +728,9 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain("❌ FAILED by Heuristic Validator:");
     expect(res.stdout).toContain("- Failing test input     :");
     expect(res.stdout).toContain("- Test output            : NaN");
-    expect(res.stdout).toContain(
-      "- Failed Validator(s)    : Heuristic Validator"
-    );
     expect(res.stdout).toContain("===============");
   });
 
@@ -763,12 +758,9 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain("❌ FAILED by Heuristic Validator:");
     expect(res.stdout).toContain("- Failing test input     :");
     expect(res.stdout).toContain("- Test output            : NaN");
-    expect(res.stdout).toContain(
-      "- Failed Validator(s)    : Heuristic Validator"
-    );
     expect(res.stdout).not.toContain("Shrunk in");
     expect(res.stdout).toContain("===============");
   });
@@ -827,10 +819,9 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain("❌ FAILED by Example Oracle:");
     expect(res.stdout).toContain("- Failing test input     :");
     expect(res.stdout).toContain("- Test output            : 5");
-    expect(res.stdout).toContain("- Failed Validator(s)    : Example Oracle");
     expect(res.stdout).toContain("===============");
   });
 
@@ -892,10 +883,9 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain("❌ FAILED: myPut(");
+    expect(res.stdout).toContain("❌ FAILED by Example Oracle:");
     expect(res.stdout).toContain("- Failing test input     :");
     expect(res.stdout).toContain("- Test output            : 5");
-    expect(res.stdout).toContain("- Failed Validator(s)    : Example Oracle");
     expect(res.stdout).not.toContain("Shrunk in");
     expect(res.stdout).toContain("===============");
   });
@@ -1165,9 +1155,10 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
     expect(res.stdout).toContain(
       "❌ TESTING ERROR: Property validator threw an exception"
     );
-    expect(res.stdout).toContain("- Test input             :");
-    expect(res.stdout).toContain("- Test output            :");
     expect(res.stdout).toContain("- Validator Function     : myPutValidator");
+    expect(res.stdout).toContain("- Was validating:");
+    expect(res.stdout).toContain("- Test input           :");
+    expect(res.stdout).toContain("- Test output          :");
     expect(res.stdout).toContain("Error: Validator throw message");
     expect(res.stdout).toContain("===============");
   });
@@ -1202,9 +1193,10 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
     expect(res.stdout).toContain(
       "❌ TESTING ERROR: Property validator timed out"
     );
-    expect(res.stdout).toContain("- Test input             :");
-    expect(res.stdout).toContain("- Test output            :");
     expect(res.stdout).toContain("- Validator Function     : myPutValidator");
+    expect(res.stdout).toContain("- Was validating:");
+    expect(res.stdout).toContain("- Test input           :");
+    expect(res.stdout).toContain("- Test output          :");
     expect(res.stdout).toContain("Timeout exceeding 50 ms");
     expect(res.stdout).toContain("===============");
   });
@@ -1236,9 +1228,10 @@ export function myPutTransformer(x: number): [number] {
     expect(res.stdout).toContain(
       "❌ TESTING ERROR: Input transformer threw an exception"
     );
-    expect(res.stdout).toContain("- Test input (generated) :");
-    expect(res.stdout).toContain("- Test output            : (not executed)");
     expect(res.stdout).toContain("- Transformer Function   : myPutTransformer");
+    expect(res.stdout).toContain("- Was transforming:");
+    expect(res.stdout).toContain("- Test input (generated)");
+    expect(res.stdout).toContain("- Test output          : (not executed)");
     expect(res.stdout).toContain("Error: Transformer throw message");
     expect(res.stdout).toContain("===============");
   });
@@ -1272,9 +1265,10 @@ export function myPutTransformer(x: number): [number] {
     expect(res.stdout).toContain(
       "❌ TESTING ERROR: Input transformer timed out"
     );
-    expect(res.stdout).toContain("- Test input (generated) :");
-    expect(res.stdout).toContain("- Test output            : (not executed)");
     expect(res.stdout).toContain("- Transformer Function   : myPutTransformer");
+    expect(res.stdout).toContain("- Was transforming:");
+    expect(res.stdout).toContain("- Test input (generated)");
+    expect(res.stdout).toContain("- Test output          : (not executed)");
     expect(res.stdout).toContain("Timeout exceeding 50 ms");
     expect(res.stdout).toContain("===============");
   });
