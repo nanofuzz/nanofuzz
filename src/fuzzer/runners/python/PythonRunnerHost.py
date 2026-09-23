@@ -726,6 +726,22 @@ def default_serializer(obj: Any) -> Any:
         f"Object of type {type(obj).__name__} is not serializable")
 
 
+_file_to_idx: dict[str, int] = {}
+
+
+def init_file_to_idx(pgm_files: List[str]) -> None:
+    """Initializes the cached file-path-to-index mapping dictionary (_file_to_idx)
+    using both raw paths and normalized realpaths for fast O(1) index lookups.
+    """
+    global _file_to_idx
+    _file_to_idx = {f: i for i, f in enumerate(pgm_files)}
+    for i, f in enumerate(pgm_files):
+        try:
+            _file_to_idx[os.path.normcase(os.path.realpath(f))] = i
+        except Exception:
+            pass
+
+
 def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]], pgm_files: List[str]) -> RunnerResult:
     collect_options = input.get("collect")
     if collect_options is None:
@@ -789,12 +805,26 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     coverageData = {}
     coverageArcs = {}
     if coverage_enabled:
-        for idx, file in enumerate(pgm_files):
-            lines = coverage_lines(cov, file)
-            if not lines:
-                continue
-            coverageData[idx] = lines
-            coverageArcs[idx] = coverage_arcs(cov, file)
+        data = cov.get_data()
+        measured = data.measured_files()
+        for file in measured:
+            idx = _file_to_idx.get(file)
+            if idx is None:
+                try:
+                    norm_file = os.path.normcase(os.path.realpath(file))
+                    idx = _file_to_idx.get(norm_file)
+                    if idx is not None:
+                        _file_to_idx[file] = idx
+                except Exception:
+                    pass
+            if idx is not None:
+                lines = data.lines(file)
+                if lines:
+                    coverageData[idx] = sorted(lines)
+                    arcs = data.arcs(file)
+                    if arcs:
+                        coverageArcs[idx] = sorted(
+                            [src, dest] for src, dest in arcs)
 
     if is_timeout:
         return RunnerTimeoutResult(
@@ -950,6 +980,8 @@ if __name__ == "__main__":
 
         logging.debug(
             f"[{pid}] Analyzed {len(covInfo)} file(s) of the program under test")
+
+        init_file_to_idx(pgm_files)
 
         # Pre-warm the coverage machinery. The first `cov.start()` installs the
         # tracer, which costs far more than a steady-state call and can push the

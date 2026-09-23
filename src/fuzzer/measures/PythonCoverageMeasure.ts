@@ -3,6 +3,7 @@ import {
   CoverageMapData,
   createCoverageMap,
   createFileCoverage,
+  FileCoverage,
   FileCoverageData,
   Range,
 } from "istanbul-lib-coverage";
@@ -29,6 +30,8 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   protected _globalCoverageMap = createCoverageMap({});
   protected _history = new Map<number, CoverageMeasurementNode>(); // measurement history
   protected _lastNode: CoverageMeasurementNode | undefined = undefined;
+  protected _fileIndices = new Map<string, FileIndex>();
+  protected _executedFilesThisTest = new Set<string>();
 
   /**
    * Connects this measure to the run's Python runners, which are the source of
@@ -40,6 +43,8 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     const runnerList = Array.isArray(runners) ? runners : [runners];
     this._runners = [];
     this._coverageData = createCoverageMap({});
+    this._fileIndices.clear();
+    this._executedFilesThisTest.clear();
 
     runnerList.forEach((r) => {
       if (r instanceof PythonRunner) {
@@ -59,7 +64,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     // previous run.
     this._globalCoverageMap = createCoverageMap({});
     if (this._coverageData.files().length > 0) {
-      AbstractCoverageMeasure.better_merge(
+      AbstractCoverageMeasure.merge(
         this._globalCoverageMap,
         this._coverageData
       );
@@ -75,8 +80,35 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    * @param covinfo Python coverage info
    */
   public recordHits(covinfo: FullCoverage): void {
-    const mapData = this._toCoverageMapData(covinfo);
-    AbstractCoverageMeasure.better_merge(this._coverageData, mapData);
+    for (const [filename, fileCov] of Object.entries(covinfo)) {
+      let index = this._fileIndices.get(filename);
+      if (!index) {
+        index = buildFileIndex(filename, fileCov);
+        this._fileIndices.set(filename, index);
+      }
+
+      let fileCoverage: FileCoverage;
+      try {
+        fileCoverage = this._coverageData.fileCoverageFor(filename);
+      } catch {
+        fileCoverage = createFileCoverage(
+          AbstractCoverageMeasure.file_snapshot(index.templateData)
+        );
+        this._coverageData.addFileCoverage(fileCoverage);
+      }
+
+      const lines = fileCov.lines;
+      const arcs = fileCov.arcs;
+      if ((lines && lines.length > 0) || (arcs && arcs.length > 0)) {
+        applyHitsToFileCoverage(
+          fileCoverage.data,
+          index,
+          lines ?? [],
+          arcs ?? []
+        );
+        this._executedFilesThisTest.add(filename);
+      }
+    }
   } // fn: recordHits
 
   /**
@@ -85,26 +117,36 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    */
   public override onBeforeNextTestExecution(): void {
     if (this._coverageData) {
-      for (const fileKey of this._coverageData.files()) {
-        const fileCoverage = this._coverageData.fileCoverageFor(fileKey);
-        if (fileCoverage.b) {
-          Object.keys(fileCoverage.b).forEach((bKey) => {
-            fileCoverage.b[bKey] = Array<number>(
-              fileCoverage.b[bKey].length
-            ).fill(0);
-          });
-        }
-        if (fileCoverage.s) {
-          Object.keys(fileCoverage.s).forEach((sKey) => {
-            fileCoverage.s[sKey] = 0;
-          });
-        }
-        if (fileCoverage.f) {
-          Object.keys(fileCoverage.f).forEach((fKey) => {
-            fileCoverage.f[fKey] = 0;
-          });
+      for (const fileKey of this._executedFilesThisTest) {
+        try {
+          const fileCoverage = this._coverageData.fileCoverageFor(fileKey);
+          if (fileCoverage) {
+            if (fileCoverage.s) {
+              for (const k of Object.keys(fileCoverage.s)) {
+                fileCoverage.s[k] = 0;
+              }
+            }
+            if (fileCoverage.f) {
+              for (const k of Object.keys(fileCoverage.f)) {
+                fileCoverage.f[k] = 0;
+              }
+            }
+            if (fileCoverage.b) {
+              for (const k of Object.keys(fileCoverage.b)) {
+                const arr = fileCoverage.b[k];
+                if (arr) {
+                  for (let i = 0; i < arr.length; i++) {
+                    arr[i] = 0;
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          // File not in coverage map, ignore
         }
       }
+      this._executedFilesThisTest.clear();
     }
   } // fn: onBeforeNextTestExecution
 
@@ -132,24 +174,29 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     if (this._coverageData.files().length === 0) {
       for (const r of this._runners) {
         if (r.coverageInfo) {
-          const mapData = this._toCoverageMapData(r.coverageInfo);
-          AbstractCoverageMeasure.better_merge(this._coverageData, mapData);
+          this.recordHits(r.coverageInfo);
         }
       }
     }
-    const currentCoverageData = this._snapshot();
 
-    // Total coverage in a map, summing statements, branches, and functions --
-    // matching CoverageMeasure, so that newly-covered branches and functions
-    // register as progress just as newly-covered lines do.
-    const covered = (m: CoverageMap): number => {
-      const summary = m.getCoverageSummary();
-      return (
-        summary.statements.covered +
-        summary.branches.covered +
-        summary.functions.covered
-      );
-    };
+    const currentCoverageData: CoverageMapData = {};
+    for (const [fileKey, index] of this._fileIndices.entries()) {
+      if (this._executedFilesThisTest.has(fileKey)) {
+        try {
+          const fc = this._coverageData.fileCoverageFor(fileKey);
+          if (fc) {
+            currentCoverageData[fileKey] =
+              AbstractCoverageMeasure.file_snapshot(fc);
+          } else {
+            currentCoverageData[fileKey] = index.templateData;
+          }
+        } catch {
+          currentCoverageData[fileKey] = index.templateData;
+        }
+      } else {
+        currentCoverageData[fileKey] = index.templateData;
+      }
+    }
 
     // Merge the current coverage into root predecessor
     const pred =
@@ -160,27 +207,20 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       pred.refCount++;
     }
 
-    let accumBefore = 0;
-    let accumAfter = 0;
+    let accumDelta = 0;
     let nextPred = pred;
     while (nextPred) {
       if (!nextPred.pred) {
-        accumBefore = covered(nextPred.meas.coverageMeasure.accum);
-        AbstractCoverageMeasure.better_merge(
+        accumDelta = AbstractCoverageMeasure.merge(
           nextPred.meas.coverageMeasure.accum,
-          currentCoverageData
+          currentCoverageData,
+          this._executedFilesThisTest
         );
-        accumAfter = covered(nextPred.meas.coverageMeasure.accum);
       }
       nextPred = nextPred.pred;
     }
 
     // Merge the current coverage into the global coverage map
-    const globalBefore = covered(this._globalCoverageMap);
-    AbstractCoverageMeasure.better_merge(
-      this._globalCoverageMap,
-      currentCoverageData
-    );
 
     // Build the measurement object
     const meas = {
@@ -188,15 +228,13 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
       name: this.name,
       coverageMeasure: {
         current: createCoverageMap(currentCoverageData),
-        globalDelta: Math.max(
-          0,
-          covered(this._globalCoverageMap) - globalBefore
+        globalDelta: AbstractCoverageMeasure.merge(
+          this._globalCoverageMap,
+          currentCoverageData,
+          this._executedFilesThisTest
         ),
-        accum: AbstractCoverageMeasure.better_merge(
-          createCoverageMap({}),
-          currentCoverageData
-        ),
-        accumDelta: Math.max(0, accumAfter - accumBefore),
+        accum: createCoverageMap(currentCoverageData),
+        accumDelta,
       },
     };
 
@@ -243,61 +281,18 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   protected _toCoverageMapData(covinfo: FullCoverage): CoverageMapData {
     const ret: CoverageMapData = {};
     for (const [filename, fileCov] of Object.entries(covinfo)) {
-      const coveredLines = new Set(fileCov.lines ?? []);
-      // Arcs are matched by value, so key them for lookup
-      const takenArcs = new Set((fileCov.arcs ?? []).map(arcKey));
-
-      // Statements: one per executable line
-      const statementMap: FileCoverageData["statementMap"] = {};
-      const s: FileCoverageData["s"] = {};
-      fileCov.executable.forEach((line, i) => {
-        statementMap[i] = wholeLine(line);
-        s[i] = coveredLines.has(line) ? 1 : 0;
-      });
-
-      // Functions: covered when any of their own lines executed
-      const fnMap: FileCoverageData["fnMap"] = {};
-      const f: FileCoverageData["f"] = {};
-      fileCov.functions.forEach((fn, i) => {
-        fnMap[i] = {
-          name: fn.name,
-          decl: wholeLine(fn.declLine),
-          loc: {
-            start: { line: fn.startLine, column: 0 },
-            end: { line: fn.endLine, column: END_OF_LINE_COLUMN },
-          },
-          line: fn.declLine,
-        };
-        f[i] = fn.lines.some((line) => coveredLines.has(line)) ? 1 : 0;
-      });
-
-      // Branches: one hit counter per exit, set when that exit's arc was taken
-      const branchMap: FileCoverageData["branchMap"] = {};
-      const b: FileCoverageData["b"] = {};
-      fileCov.branches.forEach((branch, i) => {
-        branchMap[i] = {
-          loc: wholeLine(branch.line),
-          // Deliberately not "if": the coverage heatmap skips branches of that
-          // type to work around a bug in istanbul's if-branch locations, which
-          // does not apply to locations we compute ourselves from arcs.
-          type: "branch",
-          locations: branch.exits.map((exit) => wholeLine(exit.line)),
-          line: branch.line,
-        };
-        b[i] = branch.exits.map((exit) =>
-          takenArcs.has(arcKey([branch.line, exit.dest])) ? 1 : 0
-        );
-      });
-
-      ret[filename] = {
-        path: filename,
-        statementMap,
-        fnMap,
-        branchMap,
-        s,
-        f,
-        b,
-      };
+      let index = this._fileIndices.get(filename);
+      if (!index) {
+        index = buildFileIndex(filename, fileCov);
+        this._fileIndices.set(filename, index);
+      }
+      const fileData = AbstractCoverageMeasure.file_snapshot(
+        index.templateData
+      );
+      const lines = fileCov.lines ?? [];
+      const arcs = fileCov.arcs ?? [];
+      applyHitsToFileCoverage(fileData, index, lines, arcs);
+      ret[filename] = fileData;
     }
     return ret;
   } // fn: _toCoverageMapData
@@ -473,8 +468,134 @@ function wholeLine(line: number): Range {
 } // fn: wholeLine
 
 /**
- * Returns a lookup key for `arc`, so that arcs can be compared by value.
+ * Builds a pre-indexed static file coverage index for `filename` from its
+ * static coverage information (`fileCov`).
+ *
+ * @param filename source file path
+ * @param fileCov static coverage info for the file
+ * @returns pre-indexed FileIndex structure
  */
-function arcKey(arc: Arc): string {
-  return `${arc[0]},${arc[1]}`;
-} // fn: arcKey
+function buildFileIndex(
+  filename: string,
+  fileCov: import("../runners/AbstractRunner").CoverageInfo
+): FileIndex {
+  const statementMap: FileCoverageData["statementMap"] = {};
+  const s: FileCoverageData["s"] = {};
+  const lineStmtMap = new Map<number, number>();
+
+  (fileCov.executable ?? []).forEach((line, i) => {
+    statementMap[i] = wholeLine(line);
+    s[i] = 0;
+    lineStmtMap.set(line, i);
+  });
+
+  const fnMap: FileCoverageData["fnMap"] = {};
+  const f: FileCoverageData["f"] = {};
+  const fnLinesMap: { fnIdx: number; lines: Set<number> }[] = [];
+
+  (fileCov.functions ?? []).forEach((fn, i) => {
+    fnMap[i] = {
+      name: fn.name,
+      decl: wholeLine(fn.declLine),
+      loc: {
+        start: { line: fn.startLine, column: 0 },
+        end: { line: fn.endLine, column: END_OF_LINE_COLUMN },
+      },
+      line: fn.declLine,
+    };
+    f[i] = 0;
+    fnLinesMap.push({ fnIdx: i, lines: new Set(fn.lines) });
+  });
+
+  const branchMap: FileCoverageData["branchMap"] = {};
+  const b: FileCoverageData["b"] = {};
+  const arcBranchMap = new Map<string, { bIdx: number; eIdx: number }>();
+
+  (fileCov.branches ?? []).forEach((branch, i) => {
+    branchMap[i] = {
+      loc: wholeLine(branch.line),
+      type: "branch",
+      locations: branch.exits.map((exit) => wholeLine(exit.line)),
+      line: branch.line,
+    };
+    b[i] = Array(branch.exits.length).fill(0);
+    branch.exits.forEach((exit, j) => {
+      arcBranchMap.set(`${branch.line},${exit.dest}`, { bIdx: i, eIdx: j });
+    });
+  });
+
+  const templateData: FileCoverageData = {
+    path: filename,
+    statementMap,
+    fnMap,
+    branchMap,
+    s,
+    f,
+    b,
+  };
+
+  return {
+    filename,
+    lineStmtMap,
+    fnLinesMap,
+    arcBranchMap,
+    templateData,
+  };
+} // fn: buildFileIndex
+
+/**
+ * Applies executed line numbers and arc transitions directly into `fileCoverage`
+ * using the pre-indexed `FileIndex`.
+ *
+ * @param fileCoverage file coverage target object
+ * @param index pre-indexed static structure for the file
+ * @param lines list of executed line numbers
+ * @param arcs list of taken branch arcs
+ */
+function applyHitsToFileCoverage(
+  fileCoverage: FileCoverageData,
+  index: FileIndex,
+  lines: number[],
+  arcs: Arc[]
+): void {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const sIdx = index.lineStmtMap.get(line);
+    if (sIdx !== undefined) {
+      fileCoverage.s[sIdx] = 1;
+    }
+  }
+
+  if (lines.length > 0) {
+    for (let i = 0; i < index.fnLinesMap.length; i++) {
+      const fnInfo = index.fnLinesMap[i];
+      for (let j = 0; j < lines.length; j++) {
+        if (fnInfo.lines.has(lines[j])) {
+          fileCoverage.f[fnInfo.fnIdx] = 1;
+          break;
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < arcs.length; i++) {
+    const arc = arcs[i];
+    const key = `${arc[0]},${arc[1]}`;
+    const target = index.arcBranchMap.get(key);
+    if (target !== undefined) {
+      fileCoverage.b[target.bIdx][target.eIdx] = 1;
+    }
+  }
+} // fn: applyHitsToFileCoverage
+
+/**
+ * Pre-indexed static coverage structure for a file, allowing fast O(1)
+ * mapping from line numbers and arc transitions to statement, function, and branch indices.
+ */
+type FileIndex = {
+  filename: string;
+  lineStmtMap: Map<number, number>;
+  fnLinesMap: { fnIdx: number; lines: Set<number> }[];
+  arcBranchMap: Map<string, { bIdx: number; eIdx: number }>;
+  templateData: FileCoverageData;
+}; // type: FileIndex

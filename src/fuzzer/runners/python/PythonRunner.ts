@@ -156,6 +156,11 @@ export class PythonRunner extends AbstractRunner {
         const coverageArcs = result.result.coverageArcs;
 
         if (isRecord(coverageData)) {
+          // Clear previous call's dynamic lines and arcs
+          for (const filename of Object.keys(this._coverageInfo)) {
+            delete this._coverageInfo[filename].lines;
+            delete this._coverageInfo[filename].arcs;
+          }
           for (const key of Object.keys(coverageData)) {
             const idx = Number(key);
             const filename =
