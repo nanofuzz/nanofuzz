@@ -464,7 +464,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       });
       productivity[g] = Math.max(0, cost[g] ? progress[g] / cost[g] : 0);
       const isNextable = e.nextable();
-      const isAvailableNow = !!this._activeSubgens[g] && isNextable;
+      const isAvailableNow = !!this._activeSubgens[g] && isNextable === "now";
       if (isAvailableNow) {
         totalProductivity += productivity[g];
       }

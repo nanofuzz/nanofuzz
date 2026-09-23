@@ -750,4 +750,65 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     expect(result).toBeFalse();
     expect(elapsed).toBeLessThan(1000);
   });
+
+  it("subgen selection ignores productivity of `soon` subgens", async () => {
+    class SoonPendingCompositeInputGenerator extends CompositeInputGenerator {
+      public testSelectNextSubGen(): number {
+        return this._selectNextSubGen();
+      }
+      public setSubgenSoonWithHistory(index: number): void {
+        this._subgens[index].nextable = () => "soon";
+        const h = this._history[index];
+        if (!h.progress.length) {
+          h.progress = [[10]];
+        } else {
+          h.progress[0] = [10];
+        }
+        h.cost[0] = 1;
+      }
+    }
+
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const options = {
+      RandomInputGenerator: { enabled: true },
+      MutationInputGenerator: { enabled: false },
+      AiInputGenerator: { enabled: true },
+    };
+
+    const cig = new SoonPendingCompositeInputGenerator(
+      options,
+      fnDef,
+      "seed",
+      [],
+      new Leaderboard<InputAndSource>(),
+      genStats,
+      new Map(),
+      program.src
+    );
+
+    cig.onRunStart(true);
+    cig.setSubgenSoonWithHistory(2); // AI generator (index 2) is "soon" with high productivity
+
+    expect(() => cig.testSelectNextSubGen()).not.toThrow();
+    expect(cig.testSelectNextSubGen()).toBe(0); // RandomInputGenerator (index 0) selected
+  });
 });
