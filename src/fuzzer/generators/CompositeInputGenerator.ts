@@ -412,9 +412,34 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
           (i) => this._activeSubgens[i] && this._subgens[i].nextable() === "now"
         );
 
-      return activeSubgenIndices[
-        Math.floor(this._prng() * activeSubgenIndices.length)
-      ];
+      const selectedIdx =
+        activeSubgenIndices[
+          Math.floor(this._prng() * activeSubgenIndices.length)
+        ];
+
+      if (this._trackCheckpoints) {
+        const checkpointGens: NonNullable<
+          FuzzTestStats["generators"]["CompositeInputGenerator"]
+        >["checkpoints"][number]["gens"] = {};
+
+        this._subgens.forEach((e, g) => {
+          checkpointGens[e.name] = {
+            active: !!this._activeSubgens[g],
+            nextable: e.nextable(),
+            productivity: 0,
+            cost: 0,
+          };
+        });
+        checkpointGens[this._subgens[selectedIdx].name].selected = true;
+
+        this._checkpoints.push({
+          tick: this._tick,
+          gens: checkpointGens,
+          scheduler: "random",
+        });
+      }
+
+      return selectedIdx;
     }
 
     // Calculate cost and progress for each subgen's prior L generations
@@ -422,10 +447,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     const progress: number[] = []; // progress of subgen for L generations
     const productivity: number[] = []; // productivity = progress / cost
     let totalProductivity = 0; // total productivity of active subgens
-    const checkpointGens: Record<
-      string,
-      { active: boolean; nextable: boolean; productivity: number; cost: number }
-    > = {};
+    const checkpointGens: NonNullable<
+      FuzzTestStats["generators"]["CompositeInputGenerator"]
+    >["checkpoints"][number]["gens"] = {};
 
     this._subgens.forEach((e, g) => {
       cost[g] = 0;
@@ -439,7 +463,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         });
       });
       productivity[g] = Math.max(0, cost[g] ? progress[g] / cost[g] : 0);
-      const isAvailableNow = !!this._activeSubgens[g] && e.nextable() === "now";
+      const isNextable = e.nextable();
+      const isAvailableNow = !!this._activeSubgens[g] && isNextable;
       if (isAvailableNow) {
         totalProductivity += productivity[g];
       }
@@ -447,19 +472,12 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       if (this._trackCheckpoints) {
         checkpointGens[e.name] = {
           active: !!this._activeSubgens[g],
-          nextable: !!(this._activeSubgens[g] && isAvailableNow),
+          nextable: isNextable,
           productivity: productivity[g],
           cost: cost[g],
         };
       }
     }); // foreach: subgen
-
-    if (this._trackCheckpoints) {
-      this._checkpoints.push({
-        tick: this._tick,
-        gens: checkpointGens,
-      });
-    }
 
     // All active subgens have a minimum chance of being selected,
     // which is determined by _P
@@ -474,30 +492,46 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // of higher productivity for the prior L generations
     const rnd = this._prng() * (totalProductivity + addlChanceSpace);
     let lbound = 0;
+    let selectedIdx = -1;
     for (const g in this._subgens) {
       const idx = Number(g);
       if (this._activeSubgens[idx] && this._subgens[idx].nextable() === "now") {
         lbound += productivity[idx] + addlChance;
         if (lbound >= rnd) {
-          return idx;
+          selectedIdx = idx;
+          break;
         }
       }
     }
-    throw new Error(
-      `Internal failure selecting subgen: ${JSON.stringify(
-        {
-          progress,
-          cost,
-          productivity,
-          totalProductivity,
-          lbound,
-          rnd,
-          addlChance,
-        },
-        null,
-        3
-      )}`
-    );
+
+    if (selectedIdx === -1) {
+      throw new Error(
+        `Internal failure selecting subgen: ${JSON.stringify(
+          {
+            progress,
+            cost,
+            productivity,
+            totalProductivity,
+            lbound,
+            rnd,
+            addlChance,
+          },
+          null,
+          3
+        )}`
+      );
+    }
+
+    if (this._trackCheckpoints) {
+      checkpointGens[this._subgens[selectedIdx].name].selected = true;
+      this._checkpoints.push({
+        tick: this._tick,
+        gens: checkpointGens,
+        scheduler: "mab",
+      });
+    }
+
+    return selectedIdx;
   } // fn: selectNextSubGen
 
   /**

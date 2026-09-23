@@ -234,7 +234,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(firstCheckpoint?.tick).toBeDefined();
       expect(firstCheckpoint?.gens.RandomInputGenerator).toBeDefined();
       expect(typeof firstCheckpoint?.gens.RandomInputGenerator.nextable).toBe(
-        "boolean"
+        "string"
       );
       expect(
         typeof firstCheckpoint?.gens.RandomInputGenerator.productivity
@@ -242,6 +242,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(typeof firstCheckpoint?.gens.RandomInputGenerator.cost).toBe(
         "number"
       );
+      expect(firstCheckpoint?.gens.RandomInputGenerator.selected).toBeTrue();
     } finally {
       Config.override("nanofuzz.generators.compositeTrackCheckpoints", false);
     }

@@ -25,7 +25,11 @@ import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
+import {
+  InputGeneratorStatsAi,
+  NextableStatus,
+  ScoredInput,
+} from "./generators/Types";
 import { isError } from "./Util";
 import { isArgValueType } from "./analysis/Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
@@ -1696,11 +1700,13 @@ export type FuzzTestStats = {
           string,
           {
             active: boolean; // subgen is active
-            nextable: boolean; // subgen is active and nextable
+            nextable: NextableStatus; // subgen is active and nextable
             productivity: number; // current productivity[g] for this input generator
             cost: number; // current cost[g] for this input generator
+            selected?: true; // subgen was selected for this chunk
           }
         >;
+        scheduler: "mab" | "random";
       }[];
     };
   };
