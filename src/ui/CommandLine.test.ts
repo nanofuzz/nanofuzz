@@ -914,15 +914,13 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain(
-      "❌ EXCEPTION: testStandardVoidReturnException("
-    );
+    expect(res.stdout).toContain("❌ EXCEPTION:");
     expect(res.stdout).toContain("- Failing test input     :");
     expect(res.stdout).toContain("- Test output            : (none)");
     expect(res.stdout).toContain(
       "- Failed Validator(s)    : Heuristic Validator"
     );
-    expect(res.stdout).toContain("- Failure Exception      :");
+    expect(res.stdout).toContain("Error: Random error");
     expect(res.stdout).toContain("===============");
   });
 
@@ -941,15 +939,13 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain(
-      "❌ EXCEPTION: testStandardVoidReturnException("
-    );
+    expect(res.stdout).toContain("❌ EXCEPTION:");
     expect(res.stdout).toContain("- Failing test input     :");
     expect(res.stdout).toContain("- Test output            : (none)");
     expect(res.stdout).toContain(
       "- Failed Validator(s)    : Heuristic Validator"
     );
-    expect(res.stdout).toContain("- Failure Exception      :");
+    expect(res.stdout).toContain("Error: Random error");
     expect(res.stdout).not.toContain("Shrunk in");
     expect(res.stdout).toContain("===============");
   });
@@ -979,14 +975,9 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain("❌ TIMEOUT: myPut(");
+    expect(res.stdout).toContain("❌ TIMEOUT failed by Heuristic Validator:");
     expect(res.stdout).toContain("- Failing test input     :");
-    expect(res.stdout).toContain(
-      "- Test output            : (timeout after 50 ms)"
-    );
-    expect(res.stdout).toContain(
-      "- Failed Validator(s)    : Heuristic Validator (Timeout)"
-    );
+    expect(res.stdout).toContain("- Timeout after          : 50 ms");
     expect(res.stdout).toContain("===============");
   });
 
@@ -1016,14 +1007,9 @@ export function myPut(x: number): number {
     ]);
 
     expect(res.status).toBe(1);
-    expect(res.stdout).toContain("❌ TIMEOUT: myPut(");
+    expect(res.stdout).toContain("❌ TIMEOUT failed by Heuristic Validator:");
     expect(res.stdout).toContain("- Failing test input     :");
-    expect(res.stdout).toContain(
-      "- Test output            : (timeout after 50 ms)"
-    );
-    expect(res.stdout).toContain(
-      "- Failed Validator(s)    : Heuristic Validator (Timeout)"
-    );
+    expect(res.stdout).toContain("- Timeout after          : 50 ms");
     expect(res.stdout).not.toContain("Shrunk in");
     expect(res.stdout).toContain("===============");
   });
@@ -1182,9 +1168,7 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
     expect(res.stdout).toContain("- Test input             :");
     expect(res.stdout).toContain("- Test output            :");
     expect(res.stdout).toContain("- Validator Function     : myPutValidator");
-    expect(res.stdout).toContain(
-      "- Validator Exception    : Error: Validator throw message"
-    );
+    expect(res.stdout).toContain("Error: Validator throw message");
     expect(res.stdout).toContain("===============");
   });
 
@@ -1221,9 +1205,7 @@ export function myPutValidator(r: FuzzTestResult): "pass" | "fail" | "unknown" {
     expect(res.stdout).toContain("- Test input             :");
     expect(res.stdout).toContain("- Test output            :");
     expect(res.stdout).toContain("- Validator Function     : myPutValidator");
-    expect(res.stdout).toContain(
-      "- Validator Exception    : Timeout exceeding 50 ms"
-    );
+    expect(res.stdout).toContain("Timeout exceeding 50 ms");
     expect(res.stdout).toContain("===============");
   });
 
@@ -1257,9 +1239,7 @@ export function myPutTransformer(x: number): [number] {
     expect(res.stdout).toContain("- Test input (generated) :");
     expect(res.stdout).toContain("- Test output            : (not executed)");
     expect(res.stdout).toContain("- Transformer Function   : myPutTransformer");
-    expect(res.stdout).toContain(
-      "- Transformer Exception  : Error: Transformer throw message"
-    );
+    expect(res.stdout).toContain("Error: Transformer throw message");
     expect(res.stdout).toContain("===============");
   });
 
@@ -1295,9 +1275,7 @@ export function myPutTransformer(x: number): [number] {
     expect(res.stdout).toContain("- Test input (generated) :");
     expect(res.stdout).toContain("- Test output            : (not executed)");
     expect(res.stdout).toContain("- Transformer Function   : myPutTransformer");
-    expect(res.stdout).toContain(
-      "- Transformer Exception  : Timeout exceeding 50 ms"
-    );
+    expect(res.stdout).toContain("Timeout exceeding 50 ms");
     expect(res.stdout).toContain("===============");
   });
 
