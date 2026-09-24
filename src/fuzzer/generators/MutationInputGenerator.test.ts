@@ -16,6 +16,26 @@ import * as JSONN from "../../Jsonn";
 const seed: string = "qwertyuiop";
 
 describe("fuzzer/generator/MutationInputGenerator:", () => {
+  it("handles empty leaderboard: nextable='soon', next throws, nextSoon generates seed input", async () => {
+    const program = ProgramFactory.fromSource(
+      () => `export function x(n: number): number { return n + 1; }`,
+      "typescript"
+    );
+    const specs = program.functionsExported["x"].getArgDefs();
+    const leaderboard = new Leaderboard<InputAndSource>();
+    const gen = new MutationInputGenerator(specs, seed, leaderboard);
+
+    expect(gen.nextable()).toBe("soon");
+    expect(() => gen.next()).toThrow();
+
+    const seedInput = await gen.nextSoon();
+    expect(seedInput.source.type).toBe("generator");
+    if (seedInput.source.type === "generator") {
+      expect(seedInput.source.generator).toBe("MutationInputGenerator");
+    }
+    expect(typeof seedInput.value[0].value).toBe("number");
+  });
+
   it("dimsUnique object arrays for random and mutation generators", () => {
     const program = ProgramFactory.fromSource(
       () => `export function x(obj: { a?: 1 }[]): number { return 1; }`,
@@ -166,7 +186,7 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
       );
       const gen = new MutationInputGenerator(arg, seed, leaderboard);
       gen.onRunStart(true);
-      expect(gen.nextable()).toBeFalse();
+      expect(gen.nextable()).toBe("soon");
     });
 
     it(`Generate specs compliant values after onRunStart()`, () => {
@@ -224,7 +244,7 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
 
       let gen = new MutationInputGenerator(arg, seed, leaderboard);
       gen.onRunStart(true);
-      expect(gen.nextable()).toBeFalse();
+      expect(gen.nextable()).toBe("soon");
 
       arg[0].setIntervals([{ min: 0, max: 6 }]);
       gen = new MutationInputGenerator(arg, seed, leaderboard);

@@ -5,6 +5,7 @@ import { GetFuzzerFocusFn, InputAndSource } from "../Types";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
 import { ArgDefShrinker } from "../analysis/ArgDefShrinker";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
+import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
 import { NextableStatus } from "./Types";
 
 /**
@@ -14,6 +15,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   protected _leaderboard: Leaderboard<InputAndSource>; // List of "interesting" inputs
   protected _maxMutations = 2; // Max mutations to apply to interesting inputs
   protected _getFuzzerFocus?: GetFuzzerFocusFn;
+  protected _seedGen?: ArgDefGenerator;
 
   /**
    * Create a MutationInputGenerator
@@ -44,29 +46,24 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   /**
    * This generator requires a leaderboard with at least one
    * "interesting" input to mutate, or an active shrink target in shrink mode.
+   * If no leaderboard inputs are available, returns "soon" so that other
+   * input generators get priority because we need to gen a seed input.
    *
-   * @returns "now" if generator is available, false otherwise
+   * @returns "now" if generator is available, "soon" if seed generation is needed
    */
   public override nextable(): NextableStatus {
     const focus = this._getFuzzerFocus?.();
     if (focus?.mode === "shrink" && focus.target) {
       return "now";
     }
-    return this._leaderboard.length ? "now" : false;
+    return this._leaderboard.length ? "now" : "soon";
   } // fn: nextable
 
   /**
-   * Returns diagnostic messages when the generator is unable to produce inputs
-   * due to an empty leaderboard.
+   * Returns diagnostic messages when the generator is unable to produce inputs.
    */
   public override getDiagnostics(): string[] {
-    const diagnostics: string[] = [];
-    if (this._leaderboard.length === 0) {
-      diagnostics.push(
-        "No interesting inputs to mutate. Are other input generators enabled?"
-      );
-    }
-    return diagnostics;
+    return [];
   } // fn: getDiagnostics
 
   /**
@@ -153,6 +150,29 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       },
     };
   } // fn: next
+
+  /**
+   * Asynchronously produce the next test-case inputs when `nextable()` returns "soon".
+   * When no leaderboard inputs are available, generates a random seed input using ArgDefGenerator.
+   */
+  public override async nextSoon(): Promise<InputAndSource> {
+    if (this.nextable() === "now") {
+      return this.next();
+    }
+
+    if (!this._seedGen) {
+      this._seedGen = new ArgDefGenerator(this._specs, this._prng);
+    }
+
+    return {
+      tick: 0,
+      value: this._seedGen.next(),
+      source: {
+        type: "generator",
+        generator: "MutationInputGenerator",
+      },
+    };
+  } // fn: nextSoon
 
   /**
    * Clear any now-invalid items out of the leaderboard at the
