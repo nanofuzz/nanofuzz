@@ -17,6 +17,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   protected _maxMutations = 2; // Max mutations to apply to interesting inputs
   protected _getFuzzerFocus?: GetFuzzerFocusFn;
   protected _seedGen?: ArgDefGenerator;
+  protected _seedQueue: InputAndSource[] = [];
   protected _stats?: FuzzGeneratorStatsBase;
   protected _dupeHistory: number[] = [];
 
@@ -50,19 +51,20 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   } // property: get humanName
 
   /**
-   * This generator requires a leaderboard with at least one
-   * "interesting" input to mutate, or an active shrink target in shrink mode.
-   * If no leaderboard inputs are available, returns "soon" so that other
-   * input generators get priority because we need to gen a seed input.
+   * Checks if inputs are available to generate.
    *
-   * @returns "now" if generator is available, "soon" if seed generation is needed
+   * @returns "now" if inputs can be produced immediately; "soon" if seed
+   *          input generation is needed
    */
   public override nextable(): NextableStatus {
     const focus = this._getFuzzerFocus?.();
     if (focus?.mode === "shrink" && focus.target) {
       return "now";
     }
-    return this._leaderboard.length ? "now" : "soon";
+    if (this._leaderboard.length || this._seedQueue.length) {
+      return "now";
+    }
+    return "soon";
   } // fn: nextable
 
   /**
@@ -159,6 +161,11 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       };
     }
 
+    // --- SEED QUEUE MODE ---
+    if (this._seedQueue.length > 0) {
+      return this._seedQueue.shift()!;
+    }
+
     // --- NORMAL MUTATION MODE ---
     if (!this._leaderboard.length) {
       throw new Error(`${this.name} no interesting inputs to mutate yet`);
@@ -212,7 +219,8 @@ export class MutationInputGenerator extends AbstractInputGenerator {
 
   /**
    * Asynchronously produce the next test-case inputs when `nextable()` returns "soon".
-   * When no leaderboard inputs are available, generates a random seed input using ArgDefGenerator.
+   * When no leaderboard or queued inputs are available, generates a random seed input
+   * using ArgDefGenerator, enqueues it, and returns a Promise resolving to it.
    */
   public override async nextSoon(): Promise<InputAndSource> {
     if (this.nextable() === "now") {
@@ -223,7 +231,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       this._seedGen = new ArgDefGenerator(this._specs, this._prng);
     }
 
-    return {
+    const seedInput: InputAndSource = {
       tick: 0,
       value: this._seedGen.next(),
       source: {
@@ -231,6 +239,9 @@ export class MutationInputGenerator extends AbstractInputGenerator {
         generator: "MutationInputGenerator",
       },
     };
+
+    this._seedQueue.push(seedInput);
+    return seedInput;
   } // fn: nextSoon
 
   /**
@@ -238,6 +249,7 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    * start of each run.
    */
   public onRunStart(_active: boolean): void {
+    this._seedQueue = [];
     // Input generation options may have changed, so filter the leaderboard
     const validator = new ArgDefValidator(this._specs);
     this._leaderboard.filter((leader: { leader: InputAndSource }) => {

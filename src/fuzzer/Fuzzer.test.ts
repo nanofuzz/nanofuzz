@@ -41,6 +41,27 @@ describe("fuzzer: general", () => {
     }
   });
 
+  it("mutation-only fuzzing", async () => {
+    const options = {
+      ...intOptions,
+      maxTests: 20,
+      generators: {
+        RandomInputGenerator: { enabled: false },
+        MutationInputGenerator: { enabled: true },
+        AiInputGenerator: { enabled: false },
+      },
+    };
+
+    const results = await new Tester(
+      "nanofuzz-study/examples/1.ts",
+      "minValue",
+      options
+    ).testSync();
+
+    expect(results.results.length).toBeGreaterThan(0);
+    expect(results.stopReason).toBe("maxTests");
+  });
+
   it("CIG: NOMOREINPUTS if no rnd ig & no other ig provides inputs", async () => {
     const options = {
       ...intOptions,

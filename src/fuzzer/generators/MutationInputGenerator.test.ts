@@ -4,6 +4,7 @@ import { RandomInputGenerator } from "./RandomInputGenerator";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
+import { FuzzGeneratorStatsBase } from "../Fuzzer";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
 import { ArgDef } from "../analysis/ArgDef";
@@ -23,11 +24,11 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
     );
     const specs = program.functionsExported["x"].getArgDefs();
     const leaderboard = new Leaderboard<InputAndSource>();
-    const stats = {
+    const stats: FuzzGeneratorStatsBase = {
       counters: {
         inputsGenerated: 10,
         dupesGenerated: 0,
-        dupeTicks: [] as number[],
+        dupeTicks: [],
       },
       timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
     };
@@ -61,7 +62,7 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
     expect(gen.getEffectiveMaxMutations()).toBe(6);
   });
 
-  it("handles empty leaderboard: nextable='soon', next throws, nextSoon generates seed input", async () => {
+  it("handles empty leaderboard: nextable='soon', next throws, nextSoon generates seed input and queues it", async () => {
     const program = ProgramFactory.fromSource(
       () => `export function x(n: number): number { return n + 1; }`,
       "typescript"
@@ -73,12 +74,22 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
     expect(gen.nextable()).toBe("soon");
     expect(() => gen.next()).toThrow();
 
-    const seedInput = await gen.nextSoon();
+    const promise = gen.nextSoon();
+    expect(promise).toBeInstanceOf(Promise);
+    const seedInput = await promise;
     expect(seedInput.source.type).toBe("generator");
     if (seedInput.source.type === "generator") {
       expect(seedInput.source.generator).toBe("MutationInputGenerator");
     }
     expect(typeof seedInput.value[0].value).toBe("number");
+
+    // After nextSoon(), the input is queued so nextable becomes "now" and next() returns it
+    expect(gen.nextable()).toBe("now");
+    const dequeuedInput = gen.next();
+    expect(dequeuedInput).toEqual(seedInput);
+
+    // After popping the queued input, nextable returns "soon" again
+    expect(gen.nextable()).toBe("soon");
   });
 
   it("dimsUnique object arrays for random and mutation generators", () => {
