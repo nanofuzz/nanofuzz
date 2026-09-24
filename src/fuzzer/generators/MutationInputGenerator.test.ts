@@ -16,6 +16,51 @@ import * as JSONN from "../../Jsonn";
 const seed: string = "qwertyuiop";
 
 describe("fuzzer/generator/MutationInputGenerator:", () => {
+  it("adapts maxMutations based on live generator stats (dupe streaks & dupe rates)", () => {
+    const program = ProgramFactory.fromSource(
+      () => `export function x(n: number): number { return n + 1; }`,
+      "typescript"
+    );
+    const specs = program.functionsExported["x"].getArgDefs();
+    const leaderboard = new Leaderboard<InputAndSource>();
+    const stats = {
+      counters: {
+        inputsGenerated: 10,
+        dupesGenerated: 0,
+        dupeTicks: [] as number[],
+      },
+      timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+    };
+
+    const gen = new MutationInputGenerator(
+      specs,
+      seed,
+      leaderboard,
+      undefined,
+      stats
+    );
+    expect(gen.getEffectiveMaxMutations()).toBe(2);
+
+    // Initial 5 non-dupe steps
+    for (let i = 0; i < 5; i++) {
+      stats.counters.inputsGenerated++;
+      gen.getEffectiveMaxMutations();
+    }
+    expect(gen.getEffectiveMaxMutations()).toBe(2);
+
+    // Simulate dupe streak of 2
+    stats.counters.dupesGenerated++;
+    gen.getEffectiveMaxMutations();
+    stats.counters.dupesGenerated++;
+    expect(gen.getEffectiveMaxMutations()).toBe(4);
+
+    // Simulate dupe streak of 4
+    stats.counters.dupesGenerated++;
+    gen.getEffectiveMaxMutations();
+    stats.counters.dupesGenerated++;
+    expect(gen.getEffectiveMaxMutations()).toBe(6);
+  });
+
   it("handles empty leaderboard: nextable='soon', next throws, nextSoon generates seed input", async () => {
     const program = ProgramFactory.fromSource(
       () => `export function x(n: number): number { return n + 1; }`,
