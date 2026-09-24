@@ -83,6 +83,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       fn,
       rngSeed,
       leaderboard,
+      genStats,
       allInputs,
       moduleSrc,
       getFuzzerFocus

@@ -5,6 +5,8 @@ import { GetFuzzerFocusFn, InputAndSource } from "../Types";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
 import { ArgDefShrinker } from "../analysis/ArgDefShrinker";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
+import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
+import { FuzzGeneratorStatsBase } from "../Fuzzer";
 import { NextableStatus } from "./Types";
 
 /**
@@ -14,6 +16,10 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   protected _leaderboard: Leaderboard<InputAndSource>; // List of "interesting" inputs
   protected _maxMutations = 2; // Max mutations to apply to interesting inputs
   protected _getFuzzerFocus?: GetFuzzerFocusFn;
+  protected _seedGen?: ArgDefGenerator;
+  protected _seedQueue: InputAndSource[] = [];
+  protected _stats?: FuzzGeneratorStatsBase;
+  protected _dupeHistory: number[] = [];
 
   /**
    * Create a MutationInputGenerator
@@ -22,16 +28,19 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    * @param `rngSeed` Random seed for input generation
    * @param `leaderboard` Running list of "interesting" inputs
    * @param `getFuzzerFocus` Optional callback to check fuzzer focus (gen vs shrink)
+   * @param `stats` Optional reference to live generator statistics
    */
   public constructor(
     specs: ArgDef[],
     rngSeed: string | undefined,
     leaderboard: Leaderboard<InputAndSource>,
-    getFuzzerFocus?: GetFuzzerFocusFn
+    getFuzzerFocus?: GetFuzzerFocusFn,
+    stats?: FuzzGeneratorStatsBase
   ) {
     super(specs, rngSeed);
     this._leaderboard = leaderboard;
     this._getFuzzerFocus = getFuzzerFocus;
+    this._stats = stats;
   } // fn: constructor
 
   /**
@@ -42,32 +51,80 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   } // property: get humanName
 
   /**
-   * This generator requires a leaderboard with at least one
-   * "interesting" input to mutate, or an active shrink target in shrink mode.
+   * Checks if inputs are available to generate.
    *
-   * @returns "now" if generator is available, false otherwise
+   * @returns "now" if inputs can be produced immediately; "soon" if seed
+   *          input generation is needed
    */
   public override nextable(): NextableStatus {
     const focus = this._getFuzzerFocus?.();
     if (focus?.mode === "shrink" && focus.target) {
       return "now";
     }
-    return this._leaderboard.length ? "now" : false;
+    if (this._leaderboard.length || this._seedQueue.length) {
+      return "now";
+    }
+    return "soon";
   } // fn: nextable
 
   /**
-   * Returns diagnostic messages when the generator is unable to produce inputs
-   * due to an empty leaderboard.
+   * Returns diagnostic messages when the generator is unable to produce inputs.
    */
   public override getDiagnostics(): string[] {
-    const diagnostics: string[] = [];
-    if (this._leaderboard.length === 0) {
-      diagnostics.push(
-        "No interesting inputs to mutate. Are other input generators enabled?"
-      );
-    }
-    return diagnostics;
+    return [];
   } // fn: getDiagnostics
+
+  /**
+   * Calculates the max number of mutations to apply per step.
+   * Dynamically increases _maxMutations if stats indicate dupe streaks
+   * or a high dupe rates which may signal local minima or low entropy).
+   */
+  public getEffectiveMaxMutations(): number {
+    if (!this._stats) {
+      return this._maxMutations;
+    }
+
+    // Record current cumulative dupesGenerated for this generation step
+    const currentDupes = this._stats.counters.dupesGenerated;
+    this._dupeHistory.push(currentDupes);
+
+    // Keep history trimmed to max window size
+    if (this._dupeHistory.length > 50) {
+      this._dupeHistory.shift();
+    }
+
+    const totalHistory = this._dupeHistory.length;
+    if (totalHistory < 5) {
+      return this._maxMutations;
+    }
+
+    // Calculate current duplicate streak by checking consecutive dupe increments backwards
+    let streak = 0;
+    for (let i = totalHistory - 1; i > 0; i--) {
+      if (this._dupeHistory[i] - this._dupeHistory[i - 1] === 1) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    // Calculate duplicate rate over up to the last 20 inputs
+    const windowSize = Math.min(totalHistory - 1, 20);
+    const pastDupes = this._dupeHistory[totalHistory - 1 - windowSize];
+    const dupesInWindow = currentDupes - pastDupes;
+    const dupeRate = windowSize > 0 ? dupesInWindow / windowSize : 0;
+
+    // Step up maxMutations to escape local minima or dupe streaks
+    if (streak >= 4 || dupeRate >= 0.75) {
+      return this._maxMutations + 4;
+    } else if (streak >= 2 || dupeRate >= 0.5) {
+      return this._maxMutations + 2;
+    } else if (dupeRate >= 0.3) {
+      return this._maxMutations + 1;
+    }
+
+    return this._maxMutations;
+  } // fn: getEffectiveMaxMutations
 
   /**
    * Returns the next input using a mutation strategy or shrinking strategy.
@@ -104,6 +161,11 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       };
     }
 
+    // --- SEED QUEUE MODE ---
+    if (this._seedQueue.length > 0) {
+      return this._seedQueue.shift()!;
+    }
+
     // --- NORMAL MUTATION MODE ---
     if (!this._leaderboard.length) {
       throw new Error(`${this.name} no interesting inputs to mutate yet`);
@@ -114,8 +176,9 @@ export class MutationInputGenerator extends AbstractInputGenerator {
     const input = leader.value;
     const sourceTick = leader.tick;
 
-    // Randomize the number of mutations (1.._maxMutations)
-    let n = Math.floor(this._prng() * this._maxMutations) + 1;
+    // Randomize the number of mutations (1..effectiveMaxMutations)
+    const maxMutations = this.getEffectiveMaxMutations();
+    let n = Math.floor(this._prng() * maxMutations) + 1;
     while (n-- > 0) {
       // Calculate possible mutations for the input
       const mutators = ArgDefMutator.getMutators(
@@ -155,10 +218,38 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   } // fn: next
 
   /**
+   * Asynchronously produce the next test-case inputs when `nextable()` returns "soon".
+   * When no leaderboard or queued inputs are available, generates a random seed input
+   * using ArgDefGenerator, enqueues it, and returns a Promise resolving to it.
+   */
+  public override async nextSoon(): Promise<InputAndSource> {
+    if (this.nextable() === "now") {
+      return this.next();
+    }
+
+    if (!this._seedGen) {
+      this._seedGen = new ArgDefGenerator(this._specs, this._prng);
+    }
+
+    const seedInput: InputAndSource = {
+      tick: 0,
+      value: this._seedGen.next(),
+      source: {
+        type: "generator",
+        generator: "MutationInputGenerator",
+      },
+    };
+
+    this._seedQueue.push(seedInput);
+    return seedInput;
+  } // fn: nextSoon
+
+  /**
    * Clear any now-invalid items out of the leaderboard at the
    * start of each run.
    */
   public onRunStart(_active: boolean): void {
+    this._seedQueue = [];
     // Input generation options may have changed, so filter the leaderboard
     const validator = new ArgDefValidator(this._specs);
     this._leaderboard.filter((leader: { leader: InputAndSource }) => {

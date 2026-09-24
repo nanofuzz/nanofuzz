@@ -1,4 +1,4 @@
-import { FunctionDef } from "../Fuzzer";
+import { FunctionDef, FuzzTestStats } from "../Fuzzer";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
@@ -19,6 +19,7 @@ export function InputGeneratorFactory(
   fn: FunctionDef,
   rngSeed: string | undefined,
   leaderboard: Leaderboard<InputAndSource>,
+  genStats: FuzzTestStats["generators"],
   allInputs: Map<string, unknown>,
   moduleSrc: string,
   getFuzzerFocus?: GetFuzzerFocusFn
@@ -29,7 +30,8 @@ export function InputGeneratorFactory(
       fn.getArgDefs(),
       rngSeed,
       leaderboard,
-      getFuzzerFocus
+      getFuzzerFocus,
+      genStats?.MutationInputGenerator
     ),
     new AiInputGenerator(fn, rngSeed, allInputs, moduleSrc),
   ];
