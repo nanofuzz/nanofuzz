@@ -17,7 +17,6 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   protected _maxMutations = 2; // Max mutations to apply to interesting inputs
   protected _getFuzzerFocus?: GetFuzzerFocusFn;
   protected _seedGen?: ArgDefGenerator;
-  protected _seedQueue: InputAndSource[] = [];
   protected _stats?: FuzzGeneratorStatsBase;
   protected _dupeHistory: number[] = [];
 
@@ -57,22 +56,8 @@ export class MutationInputGenerator extends AbstractInputGenerator {
    *          input generation is needed
    */
   public override nextable(): NextableStatus {
-    const focus = this._getFuzzerFocus?.();
-    if (focus?.mode === "shrink" && focus.target) {
-      return "now";
-    }
-    if (this._leaderboard.length || this._seedQueue.length) {
-      return "now";
-    }
-    return "soon";
+    return "now";
   } // fn: nextable
-
-  /**
-   * Returns diagnostic messages when the generator is unable to produce inputs.
-   */
-  public override getDiagnostics(): string[] {
-    return [];
-  } // fn: getDiagnostics
 
   /**
    * Calculates the max number of mutations to apply per step.
@@ -161,16 +146,22 @@ export class MutationInputGenerator extends AbstractInputGenerator {
       };
     }
 
-    // --- SEED QUEUE MODE ---
-    if (this._seedQueue.length > 0) {
-      return this._seedQueue.shift()!;
+    // --- BOOTSTRAP MODE ---
+    if (this._leaderboard.length === 0) {
+      if (!this._seedGen) {
+        this._seedGen = new ArgDefGenerator(this._specs, this._prng);
+      }
+      return {
+        tick: 0,
+        value: this._seedGen.next(),
+        source: {
+          type: "generator",
+          generator: "MutationInputGenerator",
+        },
+      };
     }
 
     // --- NORMAL MUTATION MODE ---
-    if (!this._leaderboard.length) {
-      throw new Error(`${this.name} no interesting inputs to mutate yet`);
-    }
-
     // Get the set of interesting inputs & select one
     const leader = this._leaderboard.getRandomLeader(this._prng);
     const input = leader.value;
@@ -218,38 +209,10 @@ export class MutationInputGenerator extends AbstractInputGenerator {
   } // fn: next
 
   /**
-   * Asynchronously produce the next test-case inputs when `nextable()` returns "soon".
-   * When no leaderboard or queued inputs are available, generates a random seed input
-   * using ArgDefGenerator, enqueues it, and returns a Promise resolving to it.
-   */
-  public override async nextSoon(): Promise<InputAndSource> {
-    if (this.nextable() === "now") {
-      return this.next();
-    }
-
-    if (!this._seedGen) {
-      this._seedGen = new ArgDefGenerator(this._specs, this._prng);
-    }
-
-    const seedInput: InputAndSource = {
-      tick: 0,
-      value: this._seedGen.next(),
-      source: {
-        type: "generator",
-        generator: "MutationInputGenerator",
-      },
-    };
-
-    this._seedQueue.push(seedInput);
-    return seedInput;
-  } // fn: nextSoon
-
-  /**
    * Clear any now-invalid items out of the leaderboard at the
    * start of each run.
    */
   public onRunStart(_active: boolean): void {
-    this._seedQueue = [];
     // Input generation options may have changed, so filter the leaderboard
     const validator = new ArgDefValidator(this._specs);
     this._leaderboard.filter((leader: { leader: InputAndSource }) => {
