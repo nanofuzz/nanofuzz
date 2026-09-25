@@ -81,7 +81,7 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
       expect(input.source.steps).toEqual({
         taken: 0,
         max: 0,
-        mode: "seed",
+        mode: "boot",
         mutators: [],
       });
     }
