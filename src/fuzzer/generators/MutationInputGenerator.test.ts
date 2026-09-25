@@ -74,8 +74,16 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
     expect(gen.nextable()).toBe("now");
     const input = gen.next();
     expect(input.source.type).toBe("generator");
-    if (input.source.type === "generator") {
-      expect(input.source.generator).toBe("MutationInputGenerator");
+    if (
+      input.source.type === "generator" &&
+      input.source.generator === "MutationInputGenerator"
+    ) {
+      expect(input.source.steps).toEqual({
+        taken: 0,
+        max: 0,
+        mode: "seed",
+        mutators: [],
+      });
     }
     expect(typeof input.value[0].value).toBe("number");
     expect(gen.nextable()).toBe("now");

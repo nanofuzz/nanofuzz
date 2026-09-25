@@ -130,8 +130,10 @@ export class MutationInputGenerator extends AbstractInputGenerator {
         this._prng
       );
 
+      const appliedMutators: string[] = [];
       if (shrinkers.length > 0) {
         const m = Math.floor(this._prng() * shrinkers.length);
+        appliedMutators.push(shrinkers[m].name);
         shrinkers[m].fn();
       }
 
@@ -142,6 +144,12 @@ export class MutationInputGenerator extends AbstractInputGenerator {
           type: "generator",
           generator: "MutationInputGenerator",
           tick: basisTick,
+          steps: {
+            taken: appliedMutators.length,
+            max: 1,
+            mode: "shrink",
+            mutators: appliedMutators,
+          },
         },
       };
     }
@@ -157,6 +165,12 @@ export class MutationInputGenerator extends AbstractInputGenerator {
         source: {
           type: "generator",
           generator: "MutationInputGenerator",
+          steps: {
+            taken: 0,
+            max: 0,
+            mode: "boot",
+            mutators: [],
+          },
         },
       };
     }
@@ -170,6 +184,8 @@ export class MutationInputGenerator extends AbstractInputGenerator {
     // Randomize the number of mutations (1..effectiveMaxMutations)
     const maxMutations = this.getEffectiveMaxMutations();
     let n = Math.floor(this._prng() * maxMutations) + 1;
+    const appliedMutators: string[] = [];
+
     while (n-- > 0) {
       // Calculate possible mutations for the input
       const mutators = ArgDefMutator.getMutators(
@@ -187,12 +203,19 @@ export class MutationInputGenerator extends AbstractInputGenerator {
             type: "generator",
             generator: "MutationInputGenerator",
             tick: sourceTick,
+            steps: {
+              taken: appliedMutators.length,
+              max: maxMutations,
+              mode: "mutate",
+              mutators: appliedMutators,
+            },
           },
         };
       }
 
       // Randomly select & execute a mutator
       const m = Math.floor(this._prng() * mutators.length);
+      appliedMutators.push(mutators[m].name);
       mutators[m].fn();
     }
 
@@ -204,6 +227,12 @@ export class MutationInputGenerator extends AbstractInputGenerator {
         type: "generator",
         generator: "MutationInputGenerator",
         tick: sourceTick,
+        steps: {
+          taken: appliedMutators.length,
+          max: maxMutations,
+          mode: "mutate",
+          mutators: appliedMutators,
+        },
       },
     };
   } // fn: next
