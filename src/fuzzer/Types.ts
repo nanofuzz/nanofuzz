@@ -115,6 +115,8 @@ export type InputAndSource = {
   injected?: true;
 };
 
+export type MutationMode = "mutate" | "shrink" | "boot";
+
 /**
  * Provenance of a test value (e.g., an input)
  */
@@ -130,6 +132,12 @@ export type FuzzValueOrigin =
       type: "generator";
       generator: "MutationInputGenerator";
       tick?: number;
+      steps: {
+        taken: number;
+        max: number;
+        mode: MutationMode;
+        mutators: string[];
+      };
     }
   | {
       type: "generator";

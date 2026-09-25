@@ -124,6 +124,12 @@ function mutantAt(tick: number, from?: number): InputAndSource {
       type: "generator",
       generator: "MutationInputGenerator",
       tick: from,
+      steps: {
+        taken: 1,
+        max: 2,
+        mode: "mutate",
+        mutators: ["dummy-mutator"],
+      },
     },
   };
 } // fn: mutantAt
