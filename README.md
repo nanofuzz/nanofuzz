@@ -36,9 +36,9 @@ To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuz
 - **Python targets**: Test Python functions and export the saved tests to `pytest` for use in CI.
 - **Input transformers**: Programatically modify or skip inputs before they are dispatched for test execution.
 - **More types**: Tuples, Unions, `Map`s, `Set`s, unique Arrays/`List`s, dictionaries, regex strings, `null`s, binary data like `Uint8Array`/`bytes`, and select Typescript utility types, like `Record<K,V>`, `Required<T>` and `Partial<T>`.
-- **Composite input generation**: Random-, coverage-, human-, and opt-in ai-guided input generators are coordinated automatically, so you can start testing with a single button click.
-- **Code coverage visualizations**: See in your editor which lines of code were actually executed (and missed) by the generated test examples.
-- **Stop-and-go testing**: Pause and resume testing runs without losing the accumulated results, pinned inputs, or input generator state.
+- **Composite input generation**: Random-, mutation-, human-, and an opt-in ai input generator are coordinated automatically, so you can get the better testing results with a single button click.
+- **Code coverage visualizations**: See in your editor which lines of code were actually executed (and missed!) by the generated test examples.
+- **Stop-and-go**: Pause and resume testing runs and add your own inputs mid-run without losing the accumulated results, pinned inputs, or input generator state.
 - **Project-aware compilation**: NaNofuzz uses the target project's TypeScript compiler and `tsconfig.json` when available.
 
 ## Scope and Limitations
@@ -58,13 +58,12 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
  - **Python**: pytest
 
 The following are not yet supported:
- - Generating inputs of deconstructed, `enum`, generic, intersection, utility (e.g., TypeScript `Record<T>`, `Omit<T1,T2>`), dynamic dictionary, `bigint`s, implicit `any`, `unknown`, and function types as well as values `NaN`, `Infinity`, and `null`
+ - Generating inputs of deconstructed, `enum`, generic, intersection, utility (e.g., TypeScript `Omit<T1,T2>`), `bigint`s, implicit `any`, `unknown`, and function types as well `NaN` and `Infinity`
  - Testing class and object methods (write a test harness for these)
  - Compiling to module formats other than CommonJS (related to [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
  - Stateful, flaky, async, or non-deterministic tests
  - Sandboxing external side-effects of the program under test, mocks, or stubs 
  - Custom generators and input filters
- - Test case minimization ("shrinking")
 
 If the `NaNofuzz...` button does not appear above the function you want to test, that usually means the function is not exported or one of its inputs is comprised of types that are not yet supported. For these cases, write a test hardness function that accepts NaNofuzz' supported inputs and calls the function you want to test.
 
