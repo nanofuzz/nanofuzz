@@ -36,7 +36,7 @@ To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuz
 - **Python targets**: Test Python functions and export the saved tests to `pytest` for use in CI.
 - **Input transformers**: Programatically modify or skip inputs before they are dispatched for test execution.
 - **More types**: Tuples, Unions, `Map`s, `Set`s, unique Arrays/`List`s, dictionaries, regex strings, `null`s, binary data like `Uint8Array`/`bytes`, and select Typescript utility types, like `Record<K,V>`, `Required<T>` and `Partial<T>`.
-- **Composite input generation**: Random-, mutation-, human-, and an opt-in ai input generator are coordinated automatically, so you can get the better testing results with a single button click.
+- **Composite input generation**: Random-, mutation-, human-, and an opt-in ai input generator are coordinated automatically, so you can get better testing results with a single button click.
 - **Code coverage visualizations**: See in your editor which lines of code were actually executed (and missed!) by the generated test examples.
 - **Stop-and-go**: Pause and resume testing runs and add your own inputs mid-run without losing the accumulated results, pinned inputs, or input generator state.
 - **Project-aware compilation**: NaNofuzz uses the target project's TypeScript compiler and `tsconfig.json` when available.
