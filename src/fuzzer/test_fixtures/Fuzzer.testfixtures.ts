@@ -182,6 +182,27 @@ export function targetTransformedTimeoutTransformer(
   }
 }
 
+let transformedDupeCallCount = 0;
+export function targetTransformedDupeCheck(b: boolean): boolean {
+  return b;
+}
+export function targetTransformedDupeCheckTransformer(b: boolean): [boolean] {
+  transformedDupeCallCount++;
+  if (transformedDupeCallCount > 2) {
+    throw new Error(
+      `Transformer called too many times: ${transformedDupeCallCount}`
+    );
+  }
+  return [b];
+}
+
+export function targetTransformedCollapsing(n: number): number {
+  return n;
+}
+export function targetTransformedCollapsingTransformer(_n: number): [number] {
+  return [42];
+}
+
 export function targetValidatorTimeout(n: number): number {
   return n;
 }

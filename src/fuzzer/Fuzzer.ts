@@ -48,6 +48,7 @@ export class Tester {
   protected _leaderboard = new Leaderboard<InputAndSource>(); // top test results, according to measures
   protected _measures; // set of measures for executions
   protected _allInputs: Map<string, unknown> = new Map(); // language-specific dupe check for input generation
+  protected _allTransformerInputs: Map<string, unknown> = new Map(); // language-specific dupe check for transformer inputs
   protected _state: "init" | "ready" | "running" | "paused" | "crashed" =
     "init"; // tester state
 
@@ -896,7 +897,87 @@ export class Tester {
           };
         });
 
-        // Apply input transformers to generated inputs (before dedup)
+        // Pointer to generator stats for this input, if not injected
+        let genStats:
+          | FuzzTestStats["generators"]["RandomInputGenerator"]
+          | undefined = undefined;
+
+        // Handle injected and generated tests differently, e.g.,
+        // we need to retain any saved details for injected tests.
+        if (result.inputGenerated.injected) {
+          // Ensure the injected inputs are in the expected order
+          const expectedInput = JSONN.stringify(
+            injectTests[runStats.counters.inputsInjected].input.map(
+              (i) => i.value
+            )
+          );
+          const returnedInput = JSONN.stringify(
+            result.input.map((i) => i.value)
+          );
+          if (expectedInput !== returnedInput) {
+            throw new Error(
+              `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
+                JSONN.stringify(injectTests, null, 3)
+            );
+          }
+
+          // Map the injected test information to the new result
+          const pinnedTest = injectTests[runStats.counters.inputsInjected];
+          result.pinned = !!pinnedTest.pinned;
+          if (pinnedTest.expectedOutput) {
+            result.expectedOutput = pinnedTest.expectedOutput;
+          }
+          runStats.counters.inputsInjected++; // increment the number of pinned tests injected
+        } else {
+          // Update generator stats
+          if (result.inputGenerated.source.type === "generator") {
+            // Add generation times to the generator stats
+            genStats =
+              this._results.stats.generators[
+                result.inputGenerated.source.generator
+              ];
+            genStats.timers.gen += result.timers.gen;
+            this._results.stats.timers.gen += result.timers.gen;
+
+            // Increment the number of inputs generated
+            runStats.counters.inputsGenerated++;
+            genStats.counters.inputsGenerated++;
+
+            // Log the generation start time
+            if (runStats.timers.startGenTime === 0) {
+              runStats.timers.startGenTime = startGenTime;
+            }
+          }
+          // Indicate that we are no longer injecting inputs
+          stillInjecting = false;
+        }
+
+        // If an input transformer is active, perform a dupe check on the raw generated inputs
+        // before running the transformer so we don't pound the transformer with duplicate inputs
+        if (
+          !result.inputGenerated.injected &&
+          transformRunner &&
+          this._function.getArgDefs().length
+        ) {
+          const rawInputHash = getLangIoKey(lang, result.input);
+          if (this._allTransformerInputs.has(rawInputHash)) {
+            runStats.counters.dupesSequential++; // increment the sequential dupe counter
+            runStats.counters.dupesGenerated++; // increment the total run dupe counter
+            this._compositeInputGenerator.onInputFeedback(
+              [],
+              result.timers.gen
+            ); // return empty input generator feedback
+            if (genStats) {
+              genStats.counters.dupesGenerated++; // increment the generator's dupe counter
+              genStats.counters.dupeTicks.push(result.inputGenerated.tick);
+            }
+            continue; // skip this test
+          } else {
+            this._allTransformerInputs.set(rawInputHash, true);
+          }
+        }
+
+        // Apply input transformers to generated inputs (before main dedupe)
         const startTransformTime = performance.now(); // start time: input transformation
         if (!result.inputGenerated.injected && transformRunner) {
           const transformerResult = await transformRunner.run(
@@ -971,65 +1052,10 @@ export class Tester {
           }
         }
         result.timers.transform = performance.now() - startTransformTime; // total time: input transformation
-
-        // Pointer to generator stats for this input, if not injected
-        let genStats:
-          | FuzzTestStats["generators"]["RandomInputGenerator"]
-          | undefined = undefined;
-
-        // Handle injected and generated tests differently, e.g.,
-        // we need to retain any saved details for injected tests.
-        if (result.inputGenerated.injected) {
-          // Ensure the injected inputs are in the expected order
-          const expectedInput = JSONN.stringify(
-            injectTests[runStats.counters.inputsInjected].input.map(
-              (i) => i.value
-            )
-          );
-          const returnedInput = JSONN.stringify(
-            result.input.map((i) => i.value)
-          );
-          if (expectedInput !== returnedInput) {
-            throw new Error(
-              `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
-                JSONN.stringify(injectTests, null, 3)
-            );
-          }
-
-          // Map the injected test information to the new result
-          const pinnedTest = injectTests[runStats.counters.inputsInjected];
-          result.pinned = !!pinnedTest.pinned;
-          if (pinnedTest.expectedOutput) {
-            result.expectedOutput = pinnedTest.expectedOutput;
-          }
-          runStats.counters.inputsInjected++; // increment the number of pinned tests injected
-        } else {
-          // Update generator stats
-          if (result.inputGenerated.source.type === "generator") {
-            // Add generation times to the generator stats
-            genStats =
-              this._results.stats.generators[
-                result.inputGenerated.source.generator
-              ];
-            genStats.timers.gen += result.timers.gen;
-            this._results.stats.timers.gen += result.timers.gen;
-
-            // Add transform times to the stats
-            genStats.timers.transform += result.timers.transform;
-            this._results.stats.timers.transform += result.timers.transform;
-
-            // Increment the number of inputs generated
-            runStats.counters.inputsGenerated++;
-            genStats.counters.inputsGenerated++;
-
-            // Log the generation start time
-            if (runStats.timers.startGenTime === 0) {
-              runStats.timers.startGenTime = startGenTime;
-            }
-          }
-          // Indicate that we are no longer injecting inputs
-          stillInjecting = false;
+        if (genStats) {
+          genStats.timers.transform += result.timers.transform;
         }
+        this._results.stats.timers.transform += result.timers.transform;
 
         // If the function accepts inputs, check if the input is a dupe
         if (this._function.getArgDefs().length) {
