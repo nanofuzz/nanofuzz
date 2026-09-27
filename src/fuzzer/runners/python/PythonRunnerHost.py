@@ -319,27 +319,29 @@ def unwrap_jsonn(val: Any) -> Any:
     return val
 
 
+_input_buf = bytearray()
+
+
 def get_inputs() -> RunnerInput:
+    global _input_buf
     logging.debug(f"[{pid}] Waiting for input")
     while True:
-        # Read the 4-byte length header
-        header = sys.stdin.buffer.read(4)
-        if not header:
+        if len(_input_buf) >= 4:
+            length = struct.unpack('>I', _input_buf[:4])[0]
+            if len(_input_buf) >= 4 + length:
+                payload = bytes(_input_buf[4:4 + length])
+                del _input_buf[:4 + length]
+                raw_input: RunnerInput = msgpack.unpackb(payload, raw=False)
+                input_data = unwrap_jsonn(raw_input)
+                logging.debug(f"[{pid}]  - Parsed ok")
+                return input_data
+
+        chunk = getattr(sys.stdin.buffer, "read1")(65536)
+        if not chunk:
             break
-        length = struct.unpack('>I', header)[0]
-        logging.debug(f"[{pid}]  - Incoming input of length {length}")
+        _input_buf.extend(chunk)
 
-        # Read exactly that many bytes
-        payload = sys.stdin.buffer.read(length)
-        logging.debug(f"[{pid}]  - Read {len(payload)} bytes")
-
-        # De-serialize arguments for calling the function
-        raw_input: RunnerInput = msgpack.unpackb(payload, raw=False)
-        input_data = unwrap_jsonn(raw_input)
-        logging.debug(f"[{pid}]  - Parsed ok")
-
-        return input_data
-    raise Exception("Unreachable path")
+    raise Exception("stdin closed")
 
 
 _measured_key_cache: dict[str, Union[str, None]] = {}
