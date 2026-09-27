@@ -104,7 +104,7 @@ function generateRandomInputFn(
   const argType = arg.getType();
   switch (argType) {
     case ArgTag.NUMBER:
-      randFn = getRandomNumber;
+      randFn = sampleNumberHeuristic;
       break;
     case ArgTag.BOOLEAN:
       randFn = getRandomBool;
@@ -407,15 +407,13 @@ const getRandomNumber = (
   if (typeof min !== "number" || typeof max !== "number")
     throw new Error("Min and max must be numbers");
 
-  return sampleNumberHeuristic(prng, min, max, options);
-
-  // if (options.numInteger) {
-  //   const minInt: number = Math.ceil(min);
-  //   const maxInt: number = Math.floor(max) + 1;
-  //   return Math.floor(prng() * (maxInt - minInt) + minInt); // Max and Min are inclusive
-  // } else {
-  //   return prng() * (max - min) + min; // Max and Min are inclusive
-  // }
+  if (options.numInteger) {
+    const minInt: number = Math.ceil(min);
+    const maxInt: number = Math.floor(max) + 1;
+    return Math.floor(prng() * (maxInt - minInt) + minInt); // Max and Min are inclusive
+  } else {
+    return prng() * (max - min) + min; // Max and Min are inclusive
+  }
 }; // fn: getRandomNumber
 
 /**
@@ -618,10 +616,13 @@ const nArray = (
  */
 export const sampleNumberHeuristic = (
   prng: seedrandom.prng,
-  min: number,
-  max: number,
+  min: ArgValueType,
+  max: ArgValueType,
   options: ArgOptions
 ): number => {
+  if (typeof min !== "number" || typeof max !== "number") {
+    throw new Error("Min and max must be numbers");
+  }
   if (min === max) return min;
   if (min > max) {
     throw new Error(`min (${min}) cannot be greater than max (${max})`);
