@@ -1042,6 +1042,65 @@ def test_without_settings(x):
     expect(fn3.getRef().fuzzOptions).toBeUndefined();
   });
 
+  it("hypothesis @settings `deadline`", () => {
+    const program = ProgramFactory.fromSource(
+      () => `
+DEADLINE_REF = None
+DEADLINE_NUM = 1200
+
+@settings(max_examples=500, deadline=None)
+@given(x=st.integers())
+def test_deadline_none(x):
+    pass
+
+@settings(deadline=None)
+@given(x=st.integers())
+def test_only_deadline_none(x):
+    pass
+
+@hypothesis.settings(max_examples=250, deadline=DEADLINE_REF)
+@given(x=st.integers())
+def test_referenced_deadline_none(x):
+    pass
+
+@settings(max_examples=500, deadline=500)
+@given(x=st.integers())
+def test_deadline_numeric(x):
+    pass
+
+@settings(deadline=DEADLINE_NUM)
+@given(x=st.integers())
+def test_deadline_numeric_ref(x):
+    pass
+      `,
+      "python"
+    );
+
+    const fn1 = program.functionsExported["test_deadline_none"];
+    expect(fn1.getRef().fuzzOptions).toEqual({
+      maxTests: 500,
+      suiteTimeout: 0,
+    });
+
+    const fn2 = program.functionsExported["test_only_deadline_none"];
+    expect(fn2.getRef().fuzzOptions).toEqual({ suiteTimeout: 0 });
+
+    const fn3 = program.functionsExported["test_referenced_deadline_none"];
+    expect(fn3.getRef().fuzzOptions).toEqual({
+      maxTests: 250,
+      suiteTimeout: 0,
+    });
+
+    const fn4 = program.functionsExported["test_deadline_numeric"];
+    expect(fn4.getRef().fuzzOptions).toEqual({
+      maxTests: 500,
+      suiteTimeout: 500,
+    });
+
+    const fn5 = program.functionsExported["test_deadline_numeric_ref"];
+    expect(fn5.getRef().fuzzOptions).toEqual({ suiteTimeout: 1200 });
+  });
+
   it("hypothesis @given `from_regex` strategy", () => {
     const fn = ProgramFactory.fromSource(
       () => `
