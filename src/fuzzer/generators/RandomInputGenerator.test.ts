@@ -71,6 +71,18 @@ describe("fuzzer/generator/GeneratorFactory:", () => {
     testRandomInt(-50, 50);
   });
 
+  it(`Random Int unbounded [-Infinity, Infinity]`, () => {
+    testRandomInt(-Infinity, Infinity);
+  });
+
+  it(`Random Int one-sided [0, Infinity]`, () => {
+    testRandomInt(0, Infinity);
+  });
+
+  it(`Random Int one-sided [-Infinity, 0]`, () => {
+    testRandomInt(-Infinity, 0);
+  });
+
   it(`Random Int >= 50 && <= -50 (invalid min/max reversal)`, () => {
     testRandomIntException(50, -50);
   });
@@ -83,6 +95,18 @@ describe("fuzzer/generator/GeneratorFactory:", () => {
 
   it(`Random Float >= -5.05 && <= 5.05`, () => {
     testRandomFloat(-5.05, 5.05);
+  });
+
+  it(`Random Float unbounded [-Infinity, Infinity]`, () => {
+    testRandomFloat(-Infinity, Infinity);
+  });
+
+  it(`Random Float one-sided [0.0, Infinity]`, () => {
+    testRandomFloat(0.0, Infinity);
+  });
+
+  it(`Random Float one-sided [-Infinity, 0.0]`, () => {
+    testRandomFloat(-Infinity, 0.0);
   });
 
   it(`Random Float >= 5.05 && <= -5.05 (invalid min/max reversal)`, () => {

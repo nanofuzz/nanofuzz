@@ -1040,6 +1040,35 @@ def test_defaults(t, c):
     expect(args[1].getOptions().strCharset?.length).toBeGreaterThan(0);
   });
 
+  it("hypothesis @given unbounded dft st.integers and st.floats", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+from hypothesis import strategies as st
+
+@given(
+  i_default=st.integers(),
+  i_min=st.integers(min_value=10),
+  i_max=st.integers(max_value=100),
+  f_default=st.floats(),
+  f_min=st.floats(min_value=0.0),
+  f_max=st.floats(max_value=50.0)
+)
+def test_numeric_defaults(i_default, i_min, i_max, f_default, f_min, f_max):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_numeric_defaults"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getIntervals()).toEqual([{ min: -Infinity, max: Infinity }]);
+    expect(args[1].getIntervals()).toEqual([{ min: 10, max: Infinity }]);
+    expect(args[2].getIntervals()).toEqual([{ min: -Infinity, max: 100 }]);
+
+    expect(args[3].getIntervals()).toEqual([{ min: -Infinity, max: Infinity }]);
+    expect(args[4].getIntervals()).toEqual([{ min: 0.0, max: Infinity }]);
+    expect(args[5].getIntervals()).toEqual([{ min: -Infinity, max: 50.0 }]);
+  });
+
   it("hypothesis @settings `max_examples`", () => {
     const program = ProgramFactory.fromSource(
       () => `

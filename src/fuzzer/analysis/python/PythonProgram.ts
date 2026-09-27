@@ -2152,19 +2152,15 @@ export class PythonProgram extends AbstractProgram {
         const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
         const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));
 
-        const options: ArgOptionOverride = { numInteger: true };
-        if (minVal !== undefined || maxVal !== undefined) {
-          const dftInterval = ArgDef.getDefaultIntervals(
-            ArgTag.NUMBER,
-            this._options
-          );
-          options.numIntervals = [
+        const options: ArgOptionOverride = {
+          numInteger: true,
+          numIntervals: [
             {
-              min: Number(minVal ?? dftInterval[0].min),
-              max: Number(maxVal ?? dftInterval[0].max),
+              min: minVal !== undefined ? Number(minVal) : -Infinity,
+              max: maxVal !== undefined ? Number(maxVal) : Infinity,
             },
-          ];
-        }
+          ],
+        };
 
         thisType.type = {
           type: ArgTag.NUMBER,
@@ -2190,19 +2186,15 @@ export class PythonProgram extends AbstractProgram {
         const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
         const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));
 
-        const options: ArgOptionOverride = { numInteger: false };
-        if (minVal !== undefined || maxVal !== undefined) {
-          const dftInterval = ArgDef.getDefaultIntervals(
-            ArgTag.NUMBER,
-            this._options
-          );
-          options.numIntervals = [
+        const options: ArgOptionOverride = {
+          numInteger: false,
+          numIntervals: [
             {
-              min: Number(minVal ?? dftInterval[0].min),
-              max: Number(maxVal ?? dftInterval[0].max),
+              min: minVal !== undefined ? Number(minVal) : -Infinity,
+              max: maxVal !== undefined ? Number(maxVal) : Infinity,
             },
-          ];
-        }
+          ],
+        };
 
         thisType.type = {
           type: ArgTag.NUMBER,

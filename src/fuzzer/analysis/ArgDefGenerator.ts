@@ -407,13 +407,15 @@ const getRandomNumber = (
   if (typeof min !== "number" || typeof max !== "number")
     throw new Error("Min and max must be numbers");
 
-  if (options.numInteger) {
-    const minInt: number = Math.ceil(min);
-    const maxInt: number = Math.floor(max) + 1;
-    return Math.floor(prng() * (maxInt - minInt) + minInt); // Max and Min are inclusive
-  } else {
-    return prng() * (max - min) + min; // Max and Min are inclusive
-  }
+  return sampleNumberHeuristic(prng, min, max, options);
+
+  // if (options.numInteger) {
+  //   const minInt: number = Math.ceil(min);
+  //   const maxInt: number = Math.floor(max) + 1;
+  //   return Math.floor(prng() * (maxInt - minInt) + minInt); // Max and Min are inclusive
+  // } else {
+  //   return prng() * (max - min) + min; // Max and Min are inclusive
+  // }
 }; // fn: getRandomNumber
 
 /**
@@ -602,6 +604,214 @@ const nArray = (
     return genFn(); // Base case -- just an array of values
   }
 }; // fn: nArray
+
+/**
+ * Samples a random number (integer or float) using a 4-category mixture
+ * distribution (25% small near 0, 25% boundary values / powers of two,
+ * 25% medium range, 25% wide range), respecting min and max bounds.
+ *
+ * @param `prng` pseudo-random number generator
+ * @param `min` minimum value allowed (inclusive)
+ * @param `max` maximum value allowed (inclusive)
+ * @param `options` argument option set
+ * @returns random number >= min and <= max
+ */
+export const sampleNumberHeuristic = (
+  prng: seedrandom.prng,
+  min: number,
+  max: number,
+  options: ArgOptions
+): number => {
+  if (min === max) return min;
+  if (min > max) {
+    throw new Error(`min (${min}) cannot be greater than max (${max})`);
+  }
+
+  const category = prng();
+
+  if (options.numInteger) {
+    let candidate: number;
+
+    if (category < 0.25) {
+      // 1. Small integers near 0 (exponential / geometric)
+      const mag = Math.floor(-Math.log(1 - prng() * 0.999) * 5);
+      const sign = prng() < 0.5 ? 1 : -1;
+      candidate = sign * mag;
+      if (candidate < min && Number.isFinite(min)) {
+        candidate = min + mag;
+      } else if (candidate > max && Number.isFinite(max)) {
+        candidate = max - mag;
+      }
+    } else if (category < 0.5) {
+      // 2. Boundary values / powers of two
+      const candidateList = [
+        0,
+        1,
+        -1,
+        2,
+        -2,
+        127,
+        128,
+        -128,
+        -129,
+        255,
+        256,
+        -256,
+        32767,
+        32768,
+        -32768,
+        -32769,
+        65535,
+        65536,
+        2147483647,
+        2147483648,
+        -2147483648,
+        -2147483649,
+        Number.MAX_SAFE_INTEGER,
+        -Number.MAX_SAFE_INTEGER,
+      ];
+      if (Number.isFinite(min)) {
+        candidateList.push(min, min + 1);
+      }
+      if (Number.isFinite(max)) {
+        candidateList.push(max, max - 1);
+      }
+      const filtered = candidateList.filter((b) => b >= min && b <= max);
+      if (filtered.length > 0) {
+        candidate = filtered[Math.floor(prng() * filtered.length)];
+      } else {
+        candidate = Number.isFinite(min) ? min : Number.isFinite(max) ? max : 0;
+      }
+    } else if (category < 0.75) {
+      // 3. Medium range integers
+      if (Number.isFinite(min) && Number.isFinite(max) && max - min <= 2000) {
+        candidate = Math.floor(prng() * (max - min + 1)) + min;
+      } else {
+        const medMin = Math.max(min, -1000);
+        const medMax = Math.min(max, 1000);
+        if (medMin <= medMax) {
+          candidate = Math.floor(prng() * (medMax - medMin + 1)) + medMin;
+        } else if (Number.isFinite(min)) {
+          const span = Number.isFinite(max)
+            ? Math.min(2001, max - min + 1)
+            : 2001;
+          candidate = min + Math.floor(prng() * span);
+        } else if (Number.isFinite(max)) {
+          const span = Number.isFinite(min)
+            ? Math.min(2001, max - min + 1)
+            : 2001;
+          candidate = max - Math.floor(prng() * span);
+        } else {
+          candidate = Math.floor(prng() * 2001) - 1000;
+        }
+      }
+    } else {
+      // 4. Wide range integers
+      if (Number.isFinite(min) && Number.isFinite(max)) {
+        candidate = Math.floor(prng() * (max - min + 1)) + min;
+      } else {
+        const bits = Math.floor(prng() * 32);
+        const val = Math.floor(prng() * Math.pow(2, bits));
+        const raw = (prng() < 0.5 ? 1 : -1) * val;
+        if (Number.isFinite(min) && raw < min) {
+          candidate = min + val;
+        } else if (Number.isFinite(max) && raw > max) {
+          candidate = max - val;
+        } else {
+          candidate = raw;
+        }
+      }
+    }
+
+    const rounded = Math.round(candidate);
+    return Math.min(Math.max(rounded, min), max);
+  } else {
+    // Floats
+    let candidate: number;
+
+    if (category < 0.25) {
+      // 1. Special float boundaries
+      const candidateList = [
+        0.0,
+        -0.0,
+        1.0,
+        -1.0,
+        0.5,
+        -0.5,
+        2.0,
+        -2.0,
+        10.0,
+        -10.0,
+        Number.MIN_VALUE,
+        Number.MAX_VALUE,
+        Number.EPSILON,
+        -Number.MIN_VALUE,
+        -Number.MAX_VALUE,
+        -Number.EPSILON,
+      ];
+      if (Number.isFinite(min)) candidateList.push(min);
+      if (Number.isFinite(max)) candidateList.push(max);
+      const filtered = candidateList.filter((b) => b >= min && b <= max);
+      if (filtered.length > 0) {
+        candidate = filtered[Math.floor(prng() * filtered.length)];
+      } else {
+        candidate = Number.isFinite(min)
+          ? min
+          : Number.isFinite(max)
+            ? max
+            : 0.0;
+      }
+    } else if (category < 0.5) {
+      // 2. Small / normalized floats near 0
+      const sign = prng() < 0.5 ? 1 : -1;
+      const exp = Math.floor(prng() * 11) - 5; // 2^-5 to 2^5
+      const mantissa = prng();
+      candidate = sign * mantissa * Math.pow(2, exp);
+      if (candidate < min && Number.isFinite(min)) {
+        candidate = min + Math.abs(candidate);
+      } else if (candidate > max && Number.isFinite(max)) {
+        candidate = max - Math.abs(candidate);
+      }
+    } else if (category < 0.75) {
+      // 3. Medium range floats
+      if (Number.isFinite(min) && Number.isFinite(max) && max - min <= 2000) {
+        candidate = prng() * (max - min) + min;
+      } else {
+        const medMin = Math.max(min, -1000.0);
+        const medMax = Math.min(max, 1000.0);
+        if (medMin <= medMax) {
+          candidate = prng() * (medMax - medMin) + medMin;
+        } else if (Number.isFinite(min)) {
+          const span = Number.isFinite(max) ? Math.min(2000, max - min) : 2000;
+          candidate = min + prng() * span;
+        } else if (Number.isFinite(max)) {
+          const span = Number.isFinite(min) ? Math.min(2000, max - min) : 2000;
+          candidate = max - prng() * span;
+        } else {
+          candidate = prng() * 2000.0 - 1000.0;
+        }
+      }
+    } else {
+      // 4. Wide exponent floats
+      if (Number.isFinite(min) && Number.isFinite(max)) {
+        candidate = prng() * (max - min) + min;
+      } else {
+        const sign = prng() < 0.5 ? 1 : -1;
+        const exp = Math.floor(prng() * 60) - 30;
+        const raw = sign * prng() * Math.pow(10, exp);
+        if (Number.isFinite(min) && raw < min) {
+          candidate = min + Math.abs(raw);
+        } else if (Number.isFinite(max) && raw > max) {
+          candidate = max - Math.abs(raw);
+        } else {
+          candidate = raw;
+        }
+      }
+    }
+
+    return Math.min(Math.max(candidate, min), max);
+  } // floats
+}; // fn: sampleNumberHeuristic
 
 /**
  * Recursively collects discrete, constant leaf ArgDefs from a UNION argument.
