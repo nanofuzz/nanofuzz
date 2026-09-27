@@ -460,6 +460,38 @@ const getLiteral: PrivateRandFn = (
 }; // fn: getLiteral
 
 /**
+ * Samples a collection or sequence length respecting min and max bounds:
+ * - When max is finite: samples uniformly across [min, max].
+ * - When max is infinite: samples geometrically above min (default mean: 10).
+ *
+ * @param `prng` pseudo-random number generator
+ * @param `min` minimum length allowed (default: 0)
+ * @param `max` maximum length allowed (default: Infinity)
+ * @param `unboundedMean` target average length above min when unbounded (default: 10)
+ * @returns sampled length >= min and <= max
+ */
+export const sampleLength = (
+  prng: seedrandom.prng,
+  min = 0,
+  max = Infinity,
+  unboundedMean = 10
+): number => {
+  const safeMin = Number.isFinite(min) && min >= 0 ? min : 0;
+  const safeMax = max !== undefined ? max : Infinity;
+
+  if (safeMin === safeMax) return safeMin;
+  if (safeMin > safeMax) {
+    throw new Error(`min (${safeMin}) cannot be greater than max (${safeMax})`);
+  }
+
+  if (Number.isFinite(safeMax)) {
+    return Math.floor(prng() * (safeMax - safeMin + 1)) + safeMin;
+  }
+
+  return safeMin + Math.floor(-Math.log(1 - prng() * 0.999) * unboundedMean);
+}; // fn: sampleLength
+
+/**
  * Returns a random string >= min and <= max with
  * length <= options.strLength.max and >= options.strLength.min.
  *
@@ -493,14 +525,11 @@ const getRandomString: PrivateRandFn = (
   // This generator does not currently support min and max, but we don't make
   // that option available in the UI anyway. Find the old code in v0.3.2 and fix
   // intervals for string types when it's time to implement this.
-  const strLen = Number.isFinite(options.strLength.max)
-    ? getRandomNumber(
-        prng,
-        options.strLength.min,
-        options.strLength.max,
-        intOptions
-      )
-    : options.strLength.min + Math.floor(-Math.log(1 - prng() * 0.999) * 10);
+  const strLen = sampleLength(
+    prng,
+    options.strLength.min,
+    options.strLength.max
+  );
 
   // Sequentially choose each character in the string
   // Note: This provides a uniform distribution at each position, but
@@ -514,6 +543,15 @@ const getRandomString: PrivateRandFn = (
   return outChars.join("");
 }; // fn: getRandomString
 
+/**
+ * Generates a random byte array with a length constrained by the provided options.
+ *
+ * @param prng pseudo-random number generator
+ * @param _min minimum value allowed (inclusive)
+ * @param _max maximum value allowed (inclusive)
+ * @param options argument option set
+ * @returns random byte array with length >= options.byteLength.min and <= options.byteLength.max
+ */
 const getRandomBytes: PrivateRandFn = (
   prng: seedrandom.prng,
   _min: ArgValueType,
@@ -521,11 +559,10 @@ const getRandomBytes: PrivateRandFn = (
   options: ArgOptions
 ): Uint8Array => {
   const intOptions = ArgDef.getDefaultOptions();
-  const bytesLen = getRandomNumber(
+  const bytesLen = sampleLength(
     prng,
     options.byteLength.min,
-    options.byteLength.max,
-    intOptions
+    options.byteLength.max
   );
   const outBytes = new Uint8Array(bytesLen);
   for (let i = 0; i < bytesLen; i++) {

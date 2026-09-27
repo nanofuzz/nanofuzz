@@ -2008,8 +2008,8 @@ export class PythonProgram extends AbstractProgram {
     switch (funcName) {
       case "binary": {
         const minSize = parseLiteral(getKwdArg(node, "min_size", 0)) ?? 0;
-        const maxSize = parseLiteral(getKwdArg(node, "max_size", 1));
-        const dftDimLength = ArgDef.getDefaultOptions().dftDimLength;
+        const maxSize =
+          parseLiteral(getKwdArg(node, "max_size", 1)) ?? Infinity;
 
         thisType.typeRefName = "bytes";
         thisType.type = {
@@ -2019,7 +2019,7 @@ export class PythonProgram extends AbstractProgram {
           options: {
             byteLength: {
               min: Number(minSize),
-              max: Number(maxSize ?? dftDimLength.max),
+              max: Number(maxSize),
             },
           },
           resolved: true,

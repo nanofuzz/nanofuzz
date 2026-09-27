@@ -1146,6 +1146,10 @@ def test_binary(data1, data2):
 
     expect(args[0].getName()).toEqual("data1");
     expect(args[0].getType()).toEqual(ArgTag.BYTES);
+    expect(args[0].getOptions().byteLength).toEqual({
+      min: 0,
+      max: Infinity,
+    });
 
     expect(args[1].getName()).toEqual("data2");
     expect(args[1].getType()).toEqual(ArgTag.BYTES);
