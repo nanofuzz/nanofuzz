@@ -1,6 +1,7 @@
 import * as fs from "fs";
+import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
-import { isKeyedObject } from "../Util";
+import { deepFreeze, isKeyedObject } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
@@ -17,12 +18,18 @@ import {
   FuzzStopReason,
   FuzzStatusUpdater,
   BaseMeasureConfig,
+  FuzzBusyStatusMessage,
+  FuzzerFocus,
 } from "./Types";
 import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
+import {
+  InputGeneratorStatsAi,
+  NextableStatus,
+  ScoredInput,
+} from "./generators/Types";
 import { isError } from "./Util";
 import { isArgValueType } from "./analysis/Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
@@ -41,6 +48,7 @@ export class Tester {
   protected _leaderboard = new Leaderboard<InputAndSource>(); // top test results, according to measures
   protected _measures; // set of measures for executions
   protected _allInputs: Map<string, unknown> = new Map(); // language-specific dupe check for input generation
+  protected _allTransformerInputs: Map<string, unknown> = new Map(); // language-specific dupe check for transformer inputs
   protected _state: "init" | "ready" | "running" | "paused" | "crashed" =
     "init"; // tester state
 
@@ -55,6 +63,14 @@ export class Tester {
   >; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
+
+  protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
+  protected _failingResultToShrink?: FuzzTestResult;
+  protected _shrinkStartTime = 0;
+  protected _savedGeneratorOptions?: FuzzOptions["generators"];
+  protected getFuzzerFocus(): FuzzerFocus {
+    return this._fuzzerFocus;
+  }
 
   constructor(
     module: string,
@@ -135,7 +151,9 @@ export class Tester {
       this._measures, // active measures
       this._leaderboard, // leaderboard
       this._results.stats.generators, // generator stats
-      this._allInputs // running list of dupe-checked inputs
+      this._allInputs, // running list of dupe-checked inputs
+      this._program.src, // enclosing module source code
+      this.getFuzzerFocus.bind(this)
     );
 
     // Start a background compilation if precompile mode is active
@@ -237,6 +255,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
           MutationInputGenerator: {
@@ -250,6 +269,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
           AiInputGenerator: {
@@ -263,6 +283,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
         },
@@ -437,7 +458,17 @@ export class Tester {
     }
     this._results.stats.counters.testingRuns++;
 
+    let lastUpdateMsg: FuzzBusyStatusMessage | undefined = undefined;
+    let lastUpdateTimestamp = 0;
+    let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
+
     const update: FuzzStatusUpdater = (payload) => {
+      lastUpdateMsg = payload;
+      lastUpdateTimestamp = performance.now();
+      if (payload.channel !== "update" && periodicTimer !== undefined) {
+        clearInterval(periodicTimer);
+        periodicTimer = undefined;
+      }
       if (updateFn) {
         updateFn({ ...payload });
       } else if (payload.channel !== "update") {
@@ -561,553 +592,804 @@ export class Tester {
     update({ msg: `Target ready to test.`, channel: "milestone" });
     this._state = "ready";
 
-    // Main test loop
-    while (true) {
-      this._state = "running";
-      // End the testing run when we encounter a stop condition
-      const stopCondition = _checkStopCondition(
-        this._options,
-        this._compositeInputGenerator.nextable(),
-        stillInjecting,
-        injectTests.length,
-        !!cancelFn && cancelFn(),
-        runStats,
-        !!mode.gen
-      );
-      if (typeof stopCondition !== "number") {
-        // Calculate final stats
-        this._results.stopReason = stopCondition;
-        this._results.stats.timers.total +=
-          performance.now() - runStats.timers.startTime;
-        this._results.stats.counters.inputsGenerated +=
-          runStats.counters.inputsGenerated;
-        this._results.stats.counters.dupesGenerated +=
-          runStats.counters.dupesGenerated;
-        this._results.stats.counters.inputsInjected +=
-          runStats.counters.inputsInjected;
-        this._results.stats.counters.erroredTests +=
-          runStats.counters.erroredTests;
-        this._results.stats.counters.passedTests +=
-          runStats.counters.passedTests;
-        this._results.stats.counters.inputsSkipped +=
-          runStats.counters.inputsSkipped;
-        this._results.stats.counters.failedTests +=
-          runStats.counters.failedTests;
-
-        // Update interesting inputs
-        this._results.interesting.inputs =
-          this._compositeInputGenerator.getInterestingInputs();
-
-        // End-of-run processing for measures and input generators
-        this._measures.forEach((e) => {
-          e.onRunEnd(this._results);
-        });
-        await this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
-
-        const covStats =
-          typeof this._results.stats.measures.CodeCoverageMeasure === "function"
-            ? await this._results.stats.measures.CodeCoverageMeasure()
-            : undefined;
-
-        // Shut down runners
-        await Promise.all(
-          [
-            runner.onRunEnd(),
-            transformRunner?.onRunEnd(),
-            ...propRunners.map((p) => p.onRunEnd()),
-          ].filter((e) => e !== undefined)
+    const checkPeriodicUpdate = () => {
+      if (
+        lastUpdateMsg &&
+        lastUpdateMsg.channel === "update" &&
+        this._state === "running" &&
+        performance.now() - lastUpdateTimestamp >= 100
+      ) {
+        const stopCondition = _checkStopCondition(
+          this._options,
+          this._compositeInputGenerator.nextable() !== false,
+          stillInjecting,
+          injectTests.length,
+          !!cancelFn && cancelFn(),
+          runStats,
+          !!mode.gen,
+          this._fuzzerFocus.mode
         );
+        const pct = typeof stopCondition === "number" ? stopCondition : 100;
+        update({
+          ...lastUpdateMsg,
+          pct,
+        });
+      }
+    };
 
-        update({
-          msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-          channel: "update",
-          pct: 100,
-        });
-        update({
-          msg: ` - Executed ${
-            runStats.counters.passedTests +
-            runStats.counters.failedTests +
-            runStats.counters.erroredTests
-          } and skipped ${runStats.counters.inputsSkipped} tests in ${(
-            performance.now() - runStats.timers.startTime
-          ).toFixed(
-            0
-          )} ms this run. Stopped for reason: ${this._results.stopReason}.`,
-          channel: "summary",
-        });
-        update({
-          msg: ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`,
-          channel: "summary",
-        });
-        update({
-          msg: ` - Total tests with exceptions: ${
-            this._results.results.filter((e) => e.exception).length
-          }, timeouts: ${this._results.results.filter((e) => e.timeout).length}, errors: ${this._results.stats.counters.erroredTests}`,
-          channel: "summary",
-        });
-        update({
-          msg: ` - Total tests where human validator passed: ${
-            this._results.results.filter((e) => e.passedHuman === "pass").length
-          }, failed: ${
-            this._results.results.filter((e) => e.passedHuman === "fail").length
-          }`,
-          channel: "summary",
-        });
-        update({
-          msg: ` - Total tests where property validator passed: ${
-            this._results.results.filter((e) => e.passedValidator === "pass")
-              .length
-          }, failed: ${
-            this._results.results.filter((e) => e.passedValidator === "fail")
-              .length
-          }`,
-          channel: "summary",
-        });
-        update({
-          msg: ` - Total tests where heuristic validator passed: ${
-            this._results.results.filter((e) => e.passedImplicit === "pass")
-              .length
-          }, failed: ${
-            this._results.results.filter((e) => e.passedImplicit === "fail")
-              .length
-          }`,
-          channel: "summary",
-        });
+    periodicTimer = setInterval(checkPeriodicUpdate, 50);
 
-        // Persist to outfile, if requested
-        if (this._options.outputFile) {
-          fs.writeFileSync(
-            this._options.outputFile,
-            JSONN.stringify(this._results, (k, v) =>
-              k === "CodeCoverageMeasure"
-                ? covStats
-                : k === "coverageMeasure" && isKeyedObject(v)
-                  ? { current: v.current }
-                  : v
-            )
+    try {
+      // Main test loop
+      while (true) {
+        this._state = "running";
+        checkPeriodicUpdate();
+        // End the testing run when we encounter a stop condition
+        const stopCondition = _checkStopCondition(
+          this._options,
+          this._compositeInputGenerator.nextable() !== false,
+          stillInjecting,
+          injectTests.length,
+          !!cancelFn && cancelFn(),
+          runStats,
+          !!mode.gen,
+          this._fuzzerFocus.mode
+        );
+        if (typeof stopCondition !== "number") {
+          if (this._fuzzerFocus.mode === "shrink") {
+            this._fuzzerFocus = deepFreeze({ mode: "gen" });
+            if (this._savedGeneratorOptions) {
+              this._compositeInputGenerator.options =
+                this._savedGeneratorOptions;
+            }
+            continue;
+          }
+          // Calculate final stats
+          this._results.stopReason = stopCondition;
+          this._results.stats.timers.total +=
+            performance.now() - runStats.timers.startTime;
+          this._results.stats.counters.inputsGenerated +=
+            runStats.counters.inputsGenerated;
+          this._results.stats.counters.dupesGenerated +=
+            runStats.counters.dupesGenerated;
+          this._results.stats.counters.inputsInjected +=
+            runStats.counters.inputsInjected;
+          this._results.stats.counters.erroredTests +=
+            runStats.counters.erroredTests;
+          this._results.stats.counters.passedTests +=
+            runStats.counters.passedTests;
+          this._results.stats.counters.inputsSkipped +=
+            runStats.counters.inputsSkipped;
+          this._results.stats.counters.failedTests +=
+            runStats.counters.failedTests;
+
+          // Update interesting inputs
+          this._results.interesting.inputs =
+            this._compositeInputGenerator.getInterestingInputs();
+
+          // End-of-run processing for measures and input generators
+          this._measures.forEach((e) => {
+            e.onRunEnd(this._results);
+          });
+          await this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
+
+          const covStats =
+            typeof this._results.stats.measures.CodeCoverageMeasure ===
+            "function"
+              ? await this._results.stats.measures.CodeCoverageMeasure()
+              : undefined;
+
+          // Shut down runners
+          await Promise.all(
+            [
+              runner.onRunEnd(),
+              transformRunner?.onRunEnd(),
+              ...propRunners.map((p) => p.onRunEnd()),
+            ].filter((e) => e !== undefined)
           );
+
           update({
-            msg: ` - Test results: ${this._options.outputFile}`,
+            msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
+            channel: "update",
+            pct: 100,
+          });
+          const diagnostics = this._compositeInputGenerator.getDiagnostics();
+          if (diagnostics.length) {
+            update({
+              msg: ` - Input generator warnings:`,
+              channel: "summary",
+            });
+            this._compositeInputGenerator.getDiagnostics().forEach((diag) => {
+              update({
+                msg: `   - ${diag}`,
+                channel: "summary",
+              });
+            });
+          }
+          update({
+            msg: ` - Executed ${
+              runStats.counters.passedTests +
+              runStats.counters.failedTests +
+              runStats.counters.erroredTests
+            } and skipped ${runStats.counters.inputsSkipped} tests in ${(
+              performance.now() - runStats.timers.startTime
+            ).toFixed(
+              0
+            )} ms this run. Stopped for reason: ${this._results.stopReason}.`,
             channel: "summary",
           });
+          update({
+            msg: ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`,
+            channel: "summary",
+          });
+          update({
+            msg: ` - Total tests with exceptions: ${
+              this._results.results.filter((e) => e.exception).length
+            }, timeouts: ${this._results.results.filter((e) => e.timeout).length}, errors: ${this._results.stats.counters.erroredTests}`,
+            channel: "summary",
+          });
+          update({
+            msg: ` - Total tests where human validator passed: ${
+              this._results.results.filter((e) => e.passedHuman === "pass")
+                .length
+            }, failed: ${
+              this._results.results.filter((e) => e.passedHuman === "fail")
+                .length
+            }`,
+            channel: "summary",
+          });
+          update({
+            msg: ` - Total tests where property validator passed: ${
+              this._results.results.filter((e) => e.passedValidator === "pass")
+                .length
+            }, failed: ${
+              this._results.results.filter((e) => e.passedValidator === "fail")
+                .length
+            }`,
+            channel: "summary",
+          });
+          update({
+            msg: ` - Total tests where heuristic validator passed: ${
+              this._results.results.filter((e) => e.passedImplicit === "pass")
+                .length
+            }, failed: ${
+              this._results.results.filter((e) => e.passedImplicit === "fail")
+                .length
+            }`,
+            channel: "summary",
+          });
+
+          // Persist to outfile, if requested
+          if (this._options.outputFile) {
+            fs.writeFileSync(
+              this._options.outputFile,
+              JSONN.stringify(this._results, (k, v) =>
+                k === "CodeCoverageMeasure"
+                  ? covStats
+                  : k === "coverageMeasure" && isKeyedObject(v)
+                    ? { current: v.current }
+                    : v
+              )
+            );
+            update({
+              msg: ` - Test results: ${this._options.outputFile}`,
+              channel: "summary",
+            });
+          }
+
+          const firstFailing = this._results.results.find(
+            (r) => r.category !== "ok" && r.category !== "skip"
+          );
+          if (firstFailing) {
+            update({
+              msg: formatFailureBlock(
+                this._function.getName(),
+                firstFailing,
+                lang,
+                this._validators,
+                this._options.fnTimeout
+              ),
+              channel: "summary",
+            });
+          }
+
+          update({
+            msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
+            channel: "milestone",
+          });
+
+          this._state = "paused";
+          return this._results;
         }
 
-        update({
-          msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-          channel: "milestone",
-        });
+        // If starting a new run, record the start time
+        if (runStats.timers.startTime === 0) {
+          runStats.timers.startTime = performance.now();
+        }
 
-        this._state = "paused";
-        return this._results;
-      }
-
-      // If starting a new run, record the start time
-      if (runStats.timers.startTime === 0) {
-        runStats.timers.startTime = performance.now();
-      }
-
-      // Initialized test result - overwritten below
-      const result: FuzzTestResult = {
-        pinned: false,
-        inputGenerated: {
-          tick: 0,
-          value: [],
-          source: { type: "unknown" },
-        },
-        input: [],
-        output: [],
-        exception: false,
-        validatorException: false,
-        timeout: false,
-        skipped: false,
-        passedImplicit: "unknown",
-        passedHuman: "unknown",
-        passedValidator: "unknown",
-        passedValidators: [],
-        timers: {
-          run: 0,
-          gen: 0,
-          transform: 0,
-        },
-        category: "ok",
-        interestingReasons: [],
-      };
-
-      // Prepare measures for next test execution (before transformers & runners execute)
-      {
-        const startMeasTime = performance.now();
-        this._measures.forEach((m) => {
-          m.onBeforeNextTestExecution();
-        });
-        const measureTime = performance.now() - startMeasTime;
-        this._results.stats.timers.measure += measureTime;
-      }
-
-      // Generate and store the inputs
-      const startGenTime = performance.now(); // start time: input generation
-      result.inputGenerated = this._compositeInputGenerator.next();
-      result.timers.gen = performance.now() - startGenTime; // total time: input generation
-
-      // Map the generated inputs to the result object
-      // (the transformer might modify these)
-      result.input = result.inputGenerated.value.map((e, i) => {
-        return {
-          name: argDefs[i]?.getName() ?? "?",
-          offset: i,
-          value: e.value,
-          origin: result.inputGenerated.source,
+        // Initialized test result - overwritten below
+        const result: FuzzTestResult = {
+          pinned: false,
+          inputGenerated: {
+            tick: 0,
+            value: [],
+            source: { type: "unknown" },
+          },
+          input: [],
+          output: [],
+          exception: false,
+          harnessErrors: [],
+          timeout: false,
+          skipped: false,
+          passedImplicit: "unknown",
+          passedHuman: "unknown",
+          passedValidator: "unknown",
+          passedValidators: [],
+          timers: {
+            run: 0,
+            gen: 0,
+            transform: 0,
+          },
+          category: "ok",
+          interestingReasons: [],
         };
-      });
 
-      // Apply input transformers to generated inputs (before dedup)
-      const startTransformTime = performance.now(); // start time: input transformation
-      if (!result.inputGenerated.injected && transformRunner) {
-        const transformerResult = await transformRunner.run(
-          structuredClone(result.inputGenerated.value.map((e) => e.value)),
-          Math.max(this._options.fnTimeout, 1)
-        );
+        // Prepare measures for next test execution (before transformers & runners execute)
+        {
+          const startMeasTime = performance.now();
+          this._measures.forEach((m) => {
+            m.onBeforeNextTestExecution();
+          });
+          const measureTime = performance.now() - startMeasTime;
+          this._results.stats.timers.measure += measureTime;
+        }
 
-        // If transformer returns null, then input was rejected so skip this input
-        switch (transformerResult.result.tag) {
-          case "skip":
-            result.skipped = true;
-            result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
-            break;
-          case "timeout":
-            result.validatorException = true;
-            result.validatorExceptionDisplay = `(${transformRunner.name} timeout)`;
-            result.validatorExceptionFunction = transformRunner.name;
-            result.validatorExceptionMessage = `timeout`;
-            break;
-          case "error":
-            // TODO: These need their own place in the results
-            result.validatorException = true;
-            result.validatorExceptionDisplay = `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`;
-            result.validatorExceptionFunction = transformRunner.name;
-            result.validatorExceptionMessage = transformerResult.result.message;
-            break;
-          case "value": {
-            const values = transformerResult.result.value;
-            if (Array.isArray(values)) {
-              result.inputGenerated.value.forEach((e, i) => {
-                if (i < values.length) {
-                  const oldValue = result.input[i].value;
-                  const newValue = values[i];
-                  result.input[i].value = newValue;
+        // Generate and store the inputs
+        const startGenTime = performance.now(); // start time: input generation
+        if (!stillInjecting && runStats.timers.startGenTime === 0) {
+          runStats.timers.startGenTime = startGenTime;
+        }
 
-                  if (JSONN.stringify(oldValue) !== JSONN.stringify(newValue)) {
-                    result.input[i].origin = {
-                      type: "transformer",
-                      transformer: transformRunner.name,
-                      basis: {
-                        value: structuredClone(result.inputGenerated.value),
-                        source: structuredClone(result.inputGenerated.source),
-                      },
-                    };
-                  }
-                }
-              });
-            } else {
-              // TODO: These need their own place in the results (see above)
-              result.validatorException = true;
-              result.validatorExceptionFunction = transformRunner.name;
-              result.validatorExceptionMessage = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
+        if (this._compositeInputGenerator.nextable() === "soon") {
+          const remainingTimeout =
+            this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
+              ? Math.max(
+                  0,
+                  this._options.suiteTimeout -
+                    (performance.now() - runStats.timers.startGenTime)
+                )
+              : undefined;
+          const pendingGens =
+            this._compositeInputGenerator.getPendingGeneratorNames();
+          const pendingLabel = pendingGens.length
+            ? pendingGens.join(", ") + " "
+            : "";
+          update({
+            msg: `Waiting for ${pendingLabel}input generator...${formatRunStatsSummary(
+              runStats
+            )}`,
+            channel: "update",
+            pct: typeof stopCondition === "number" ? stopCondition : 0,
+          });
+          await this._compositeInputGenerator.waitForNextInput(
+            remainingTimeout
+          );
+        }
+
+        if (
+          this._compositeInputGenerator.nextable() !== "now" &&
+          !stillInjecting
+        ) {
+          continue;
+        }
+
+        result.inputGenerated = this._compositeInputGenerator.next();
+        result.timers.gen = performance.now() - startGenTime; // total time: input generation
+
+        // Map the generated inputs to the result object
+        // (the transformer might modify these)
+        result.input = result.inputGenerated.value.map((e, i) => {
+          return {
+            name: argDefs[i]?.getName() ?? "?",
+            offset: i,
+            value: e.value,
+            origin: result.inputGenerated.source,
+          };
+        });
+
+        // Pointer to generator stats for this input, if not injected
+        let genStats:
+          | FuzzTestStats["generators"]["RandomInputGenerator"]
+          | undefined = undefined;
+
+        // Handle injected and generated tests differently, e.g.,
+        // we need to retain any saved details for injected tests.
+        if (result.inputGenerated.injected) {
+          // Ensure the injected inputs are in the expected order
+          const expectedInput = JSONN.stringify(
+            injectTests[runStats.counters.inputsInjected].input.map(
+              (i) => i.value
+            )
+          );
+          const returnedInput = JSONN.stringify(
+            result.input.map((i) => i.value)
+          );
+          if (expectedInput !== returnedInput) {
+            throw new Error(
+              `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
+                JSONN.stringify(injectTests, null, 3)
+            );
+          }
+
+          // Map the injected test information to the new result
+          const pinnedTest = injectTests[runStats.counters.inputsInjected];
+          result.pinned = !!pinnedTest.pinned;
+          if (pinnedTest.expectedOutput) {
+            result.expectedOutput = pinnedTest.expectedOutput;
+          }
+          runStats.counters.inputsInjected++; // increment the number of pinned tests injected
+        } else {
+          // Update generator stats
+          if (result.inputGenerated.source.type === "generator") {
+            // Add generation times to the generator stats
+            genStats =
+              this._results.stats.generators[
+                result.inputGenerated.source.generator
+              ];
+            genStats.timers.gen += result.timers.gen;
+            this._results.stats.timers.gen += result.timers.gen;
+
+            // Increment the number of inputs generated
+            runStats.counters.inputsGenerated++;
+            genStats.counters.inputsGenerated++;
+
+            // Log the generation start time
+            if (runStats.timers.startGenTime === 0) {
+              runStats.timers.startGenTime = startGenTime;
+            }
+          }
+          // Indicate that we are no longer injecting inputs
+          stillInjecting = false;
+        }
+
+        // If an input transformer is active, perform a dupe check on the raw generated inputs
+        // before running the transformer so we don't pound the transformer with duplicate inputs
+        if (
+          !result.inputGenerated.injected &&
+          transformRunner &&
+          this._function.getArgDefs().length
+        ) {
+          const rawInputHash = getLangIoKey(lang, result.input);
+          if (this._allTransformerInputs.has(rawInputHash)) {
+            runStats.counters.dupesSequential++; // increment the sequential dupe counter
+            runStats.counters.dupesGenerated++; // increment the total run dupe counter
+            this._compositeInputGenerator.onInputFeedback(
+              [],
+              result.timers.gen
+            ); // return empty input generator feedback
+            if (genStats) {
+              genStats.counters.dupesGenerated++; // increment the generator's dupe counter
+              genStats.counters.dupeTicks.push(result.inputGenerated.tick);
+            }
+            continue; // skip this test
+          } else {
+            this._allTransformerInputs.set(rawInputHash, true);
+          }
+        }
+
+        // Apply input transformers to generated inputs (before main dedupe)
+        const startTransformTime = performance.now(); // start time: input transformation
+        if (!result.inputGenerated.injected && transformRunner) {
+          const transformerResult = await transformRunner.run(
+            deepFreeze(result.inputGenerated.value.map((e) => e.value)),
+            Math.max(this._options.fnTimeout, 1)
+          );
+
+          // If transformer returns null, then input was rejected so skip this input
+          switch (transformerResult.result.tag) {
+            case "skip":
+              result.skipped = true;
+              result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
               break;
+
+            case "timeout":
+              result.harnessErrors.push({
+                kind: "timeout",
+                stage: "transformer",
+                fnName: transformRunner.name,
+                message: `Timeout exceeding ${this._options.fnTimeout} ms`,
+                display: `(${transformRunner.name} timeout)`,
+              });
+              break;
+
+            case "error":
+              result.harnessErrors.push({
+                kind: "exception",
+                stage: "transformer",
+                fnName: transformRunner.name,
+                message: transformerResult.result.message,
+                display: `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`,
+                stack: transformerResult.result.stack ?? "<no stack>",
+              });
+              break;
+
+            case "value": {
+              const values = transformerResult.result.value;
+              if (Array.isArray(values)) {
+                result.inputGenerated.value.forEach((e, i) => {
+                  if (i < values.length) {
+                    const oldValue = result.input[i].value;
+                    const newValue = values[i];
+                    result.input[i].value = newValue;
+
+                    if (
+                      JSONN.stringify(oldValue) !== JSONN.stringify(newValue)
+                    ) {
+                      result.input[i].origin = {
+                        type: "transformer",
+                        transformer: transformRunner.name,
+                        basis: {
+                          value: structuredClone(result.inputGenerated.value),
+                          source: structuredClone(result.inputGenerated.source),
+                        },
+                      };
+                    }
+                  }
+                });
+              } else {
+                const msg = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
+                result.harnessErrors.push({
+                  kind: "exception",
+                  stage: "transformer",
+                  fnName: transformRunner.name,
+                  message: msg,
+                  display: `(${transformRunner.name}) ${msg}`,
+                  stack: "<no stack>",
+                });
+                break;
+              }
             }
           }
         }
-      }
-      result.timers.transform = performance.now() - startTransformTime; // total time: input transformation
-
-      // Pointer to generator stats for this input, if not injected
-      let genStats:
-        | FuzzTestStats["generators"]["RandomInputGenerator"]
-        | undefined = undefined;
-
-      // Handle injected and generated tests differently, e.g.,
-      // we need to retain any saved details for injected tests.
-      if (result.inputGenerated.injected) {
-        // Ensure the injected inputs are in the expected order
-        const expectedInput = JSONN.stringify(
-          injectTests[runStats.counters.inputsInjected].input.map(
-            (i) => i.value
-          )
-        );
-        const returnedInput = JSONN.stringify(result.input.map((i) => i.value));
-        if (expectedInput !== returnedInput) {
-          throw new Error(
-            `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
-              JSONN.stringify(injectTests, null, 3)
-          );
-        }
-
-        // Map the injected test information to the new result
-        const pinnedTest = injectTests[runStats.counters.inputsInjected];
-        result.pinned = !!pinnedTest.pinned;
-        if (pinnedTest.expectedOutput) {
-          result.expectedOutput = pinnedTest.expectedOutput;
-        }
-        runStats.counters.inputsInjected++; // increment the number of pinned tests injected
-      } else {
-        // Update generator stats
-        if (result.inputGenerated.source.type === "generator") {
-          // Add generation times to the generator stats
-          genStats =
-            this._results.stats.generators[
-              result.inputGenerated.source.generator
-            ];
-          genStats.timers.gen += result.timers.gen;
-          this._results.stats.timers.gen += result.timers.gen;
-
-          // Add transform times to the stats
+        result.timers.transform = performance.now() - startTransformTime; // total time: input transformation
+        if (genStats) {
           genStats.timers.transform += result.timers.transform;
-          this._results.stats.timers.transform += result.timers.transform;
-
-          // Increment the number of inputs generated
-          runStats.counters.inputsGenerated++;
-          genStats.counters.inputsGenerated++;
-
-          // Log the generation start time
-          if (runStats.timers.startGenTime === 0) {
-            runStats.timers.startGenTime = startGenTime;
-          }
         }
-        // Indicate that we are no longer injecting inputs
-        stillInjecting = false;
-      }
+        this._results.stats.timers.transform += result.timers.transform;
 
-      // If the function accepts inputs, check if the input is a dupe
-      if (this._function.getArgDefs().length) {
-        // Skip tests if we previously processed the input
-        // Note the our hash value is language specific
-        const inputHash = getLangIoKey(lang, result.input);
-        if (this._allInputs.has(inputHash)) {
-          runStats.counters.dupesSequential++; // increment the sequential dupe counter
-          runStats.counters.dupesGenerated++; // incremement the total run dupe counter
-          this._compositeInputGenerator.onInputFeedback([], result.timers.gen); // return empty input generator feedback
-          if (genStats) {
-            genStats.counters.dupesGenerated++; // increment the generator's dupe counter
-          }
-          continue; // skip this test
-        } else {
-          runStats.counters.dupesSequential = 0; // reset the sequential duplicate count
-          this._allInputs.set(inputHash, true);
-        }
-      }
-
-      // Front-end status update
-      update({
-        msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
-          runStats.counters.passedTests +
-          runStats.counters.failedTests +
-          runStats.counters.erroredTests +
-          1
-        }: ${this._function.getName()}(${result.input
-          .map((i) => ValueMapper.toLang(lang, i.value))
-          .join(
-            ","
-          )})\r\n  Passed: ${runStats.counters.passedTests}${`\r\n  Failed: ${runStats.counters.failedTests}`}${
-          runStats.counters.erroredTests
-            ? `\r\n Errored: ${runStats.counters.erroredTests}`
-            : ""
-        }${
-          runStats.counters.inputsSkipped
-            ? `\r\n Skipped: ${runStats.counters.inputsSkipped}`
-            : ""
-        }`,
-        channel: "update",
-        pct: typeof stopCondition === "number" ? stopCondition : 100,
-      });
-
-      // Call the PUT via its runner
-      if (!result.skipped && !result.validatorException) {
-        const startRunTime = performance.now(); // start timer
-        let exeOutput: RunnerResult;
-        try {
-          exeOutput = await runner.run(
-            structuredClone(result.input.map((e) => e.value)),
-            Math.max(this._options.fnTimeout, 1)
-          );
-        } catch (e: unknown) {
-          if (isError(e)) {
-            exeOutput = {
-              result: {
-                tag: "error",
-                name: e.name,
-                message: e.message,
-                stack: e.stack ?? "<no stack>",
-                seq: -1,
-              },
-              env: {},
-            };
+        // If the function accepts inputs, check if the input is a dupe
+        if (this._function.getArgDefs().length) {
+          // Skip tests if we previously processed the input
+          // Note the our hash value is language specific
+          const inputHash = getLangIoKey(lang, result.input);
+          if (this._allInputs.has(inputHash)) {
+            runStats.counters.dupesSequential++; // increment the sequential dupe counter
+            runStats.counters.dupesGenerated++; // incremement the total run dupe counter
+            this._compositeInputGenerator.onInputFeedback(
+              [],
+              result.timers.gen
+            ); // return empty input generator feedback
+            if (genStats) {
+              genStats.counters.dupesGenerated++; // increment the generator's dupe counter
+              genStats.counters.dupeTicks.push(result.inputGenerated.tick);
+            }
+            continue; // skip this test
           } else {
-            exeOutput = {
-              result: {
-                tag: "error",
-                name: "unknown internal runner error",
-                message: "unknown",
-                stack: "<no stack>",
-                seq: -1,
-              },
-              env: {},
+            runStats.counters.dupesSequential = 0; // reset the sequential duplicate count
+            this._allInputs.set(inputHash, true);
+          }
+        }
+
+        // Front-end status update
+        update({
+          msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} input# ${
+            runStats.counters.passedTests +
+            runStats.counters.failedTests +
+            runStats.counters.erroredTests +
+            1
+          }: ${this._function.getName()}(${result.input
+            .map((i) => ValueMapper.toLang(lang, i.value))
+            .join(",")})${formatRunStatsSummary(runStats)}`,
+          channel: "update",
+          pct: typeof stopCondition === "number" ? stopCondition : 100,
+        });
+
+        // Call the PUT via its runner
+        if (!result.skipped && result.harnessErrors.length === 0) {
+          const startRunTime = performance.now(); // start timer
+          let exeOutput: RunnerResult;
+          try {
+            exeOutput = await runner.run(
+              deepFreeze(result.input.map((e) => e.value)),
+              Math.max(this._options.fnTimeout, 1)
+            );
+          } catch (e: unknown) {
+            if (isError(e)) {
+              exeOutput = {
+                result: {
+                  tag: "error",
+                  name: e.name,
+                  message: e.message,
+                  stack: e.stack ?? "<no stack>",
+                  seq: -1,
+                },
+                env: {},
+              };
+            } else {
+              exeOutput = {
+                result: {
+                  tag: "error",
+                  name: "unknown internal runner error",
+                  message: "unknown",
+                  stack: "<no stack>",
+                  seq: -1,
+                },
+                env: {},
+              };
+            }
+          }
+          result.timers.run = performance.now() - startRunTime; // stop timer
+          switch (exeOutput.result.tag) {
+            case "value":
+              result.output.push({
+                name: "0",
+                offset: 0,
+                value: isArgValueType(exeOutput.result.value)
+                  ? exeOutput.result.value
+                  : undefined,
+                origin: { type: "put" },
+              });
+              break;
+            case "error":
+              result.exception = true;
+              result.exceptionMessage = exeOutput.result.message;
+              result.exceptionDisplay = `(${exeOutput.result.name}) ${exeOutput.result.message}`;
+              result.stack = exeOutput.result.stack;
+              break;
+            case "timeout":
+              result.timeout = true;
+              break;
+            case "skip":
+              result.skipped = true;
+              result.skipReason = exeOutput.result.message;
+              break;
+          }
+
+          this._results.stats.timers.put += result.timers.run;
+          if (genStats) {
+            genStats.timers.run += result.timers.run;
+          }
+
+          const startValTime = performance.now(); // start timer
+          if (!result.skipped) {
+            // IMPLICIT ORACLE --------------------------------------------
+            if (this._options.useImplicit) {
+              result.passedImplicit = ImplicitOracle.judge(
+                result.timeout,
+                result.exception,
+                this._function.isVoid(),
+                result.output
+              );
+            }
+
+            // EXAMPLE ORACLE ---------------------------------------------
+            // If a human annotated an expected output, then check it
+            if (this._options.useHuman && result.expectedOutput) {
+              result.passedHuman = ExampleOracle.judge(
+                result.timeout,
+                result.exception,
+                result.expectedOutput,
+                result.output
+              );
+            }
+
+            // PROPERTY ORACLE --------------------------------------------
+            // If a property validator is selected, call it to evaluate the result
+            if (this._options.useProperty) {
+              (
+                await propertyOracle.judge(
+                  Object.freeze({
+                    in: result.input.map((i) => i.value), // inputs
+                    out:
+                      result.output.length === 0
+                        ? "timeout or exception"
+                        : result.output[0].value,
+                    exception: result.exception,
+                    timeout: result.timeout,
+                  }),
+                  Math.max(this._options.fnTimeout, 1)
+                )
+              ).forEach((j, i) => {
+                if (isError(j)) {
+                  result.passedValidators.push("unknown");
+                  const fnName = this._validators[i].name;
+                  if (j.name === "PropertyValidatorTimeout") {
+                    result.harnessErrors.push({
+                      kind: "timeout",
+                      stage: "validator",
+                      fnName,
+                      message: `Timeout exceeding ${this._options.fnTimeout} ms`,
+                      display: `(${fnName} timeout)`,
+                    });
+                  } else {
+                    result.harnessErrors.push({
+                      kind: "exception",
+                      stage: "validator",
+                      fnName,
+                      message: j.message,
+                      display: `(${fnName} ${j.name}) ${j.message}`,
+                      stack: j.stack ?? "<no stack>",
+                    });
+                  }
+                } else {
+                  result.passedValidators.push(j);
+                }
+              });
+
+              // Summarize propert judgments.
+              result.passedValidator = PropertyOracle.summarize(
+                result.passedValidators
+              );
+            } // if validator
+          }
+
+          // Validator stats
+          const valTime = performance.now() - startValTime; // stop timer
+          this._results.stats.timers.val += valTime;
+          if (genStats) {
+            genStats.timers.val += valTime;
+          }
+        }
+
+        // (Re-)categorize the result
+        result.category = categorizeResult(result);
+
+        // --- SHRINKING LOGIC ---
+        if (
+          this._fuzzerFocus.mode === "shrink" &&
+          this._failingResultToShrink
+        ) {
+          const targetFailure = this._failingResultToShrink;
+
+          // Check if candidate input reproduced the exact same failure
+          const sameJudgments = isSameJudgments(result, targetFailure);
+          const sameCategory = result.category === targetFailure.category;
+          const sameException =
+            !targetFailure.exceptionMessage ||
+            result.exceptionMessage === targetFailure.exceptionMessage;
+
+          if (sameJudgments && sameCategory && sameException) {
+            // Adopt smaller input as new shrink target
+            this._fuzzerFocus = deepFreeze({
+              mode: "shrink",
+              target: result.inputGenerated,
+            });
+            targetFailure.input = result.input;
+            targetFailure.output = result.output;
+            targetFailure.shrinkStep = (targetFailure.shrinkStep ?? 0) + 1;
+          }
+
+          // Check shrink exit conditions
+          const maxShrinkTime = Config.get(
+            "nanofuzz.fuzzer.maxShrinkTime",
+            2000
+          );
+          const shrinkTimeElapsed = performance.now() - this._shrinkStartTime;
+          const timeExceeded =
+            maxShrinkTime > 0 && shrinkTimeElapsed >= maxShrinkTime;
+          const stepCapExceeded = (targetFailure.shrinkStep ?? 0) >= 100;
+          const noMoreShrinks =
+            this._compositeInputGenerator.nextable() === false;
+
+          if (timeExceeded || stepCapExceeded || noMoreShrinks) {
+            this._fuzzerFocus = deepFreeze({ mode: "gen" });
+            if (this._savedGeneratorOptions) {
+              this._compositeInputGenerator.options =
+                this._savedGeneratorOptions;
+            }
+          }
+        } else {
+          // --- NORMAL GENERATION MODE: TRIGGER SHRINKING ON FAILURE ---
+          const isFailingResult =
+            result.category === "badValue" ||
+            result.category === "exception" ||
+            result.category === "timeout";
+
+          const shouldShrinkTrigger =
+            isFailingResult &&
+            this._options.maxFailures === 1 &&
+            Config.get("nanofuzz.fuzzer.shrinkFailures", true) &&
+            !result.inputGenerated.injected &&
+            this._function.getArgDefs().length > 0;
+
+          if (shouldShrinkTrigger) {
+            this._failingResultToShrink = result;
+            this._failingResultToShrink.shrinkStep = 0;
+            this._shrinkStartTime = performance.now();
+            this._savedGeneratorOptions = structuredClone(
+              this._options.generators
+            );
+
+            this._fuzzerFocus = deepFreeze({
+              mode: "shrink",
+              target: result.inputGenerated,
+            });
+
+            this._compositeInputGenerator.options = {
+              RandomInputGenerator: { enabled: false },
+              MutationInputGenerator: { enabled: true },
+              AiInputGenerator: { enabled: false },
             };
           }
         }
-        result.timers.run = performance.now() - startRunTime; // stop timer
-        switch (exeOutput.result.tag) {
-          case "value":
-            result.output.push({
-              name: "0",
-              offset: 0,
-              value: isArgValueType(exeOutput.result.value)
-                ? exeOutput.result.value
-                : undefined,
-              origin: { type: "put" },
-            });
-            break;
-          case "error":
-            result.exception = true;
-            result.exceptionMessage = exeOutput.result.message;
-            result.exceptionDisplay = `(${exeOutput.result.name}) ${exeOutput.result.message}`;
-            result.stack = exeOutput.result.stack;
-            break;
-          case "timeout":
-            result.timeout = true;
+
+        // Increment the test counters
+        switch (result.category) {
+          case "ok":
+            runStats.counters.passedTests++;
             break;
           case "skip":
-            result.skipped = true;
-            result.skipReason = exeOutput.result.message;
+            runStats.counters.inputsSkipped++;
+            break;
+          case "failure":
+          case "disagree":
+            runStats.counters.erroredTests++;
+            break;
+          case "badValue":
+          case "timeout":
+          case "exception":
+            runStats.counters.failedTests++;
             break;
         }
 
-        this._results.stats.timers.put += result.timers.run;
-        if (genStats) {
-          genStats.timers.run += result.timers.run;
-        }
+        // Store the result for this iteration
+        this._results.results.push(result);
 
-        const startValTime = performance.now(); // start timer
-        if (!result.skipped) {
-          // IMPLICIT ORACLE --------------------------------------------
-          if (this._options.useImplicit) {
-            result.passedImplicit = ImplicitOracle.judge(
-              result.timeout,
-              result.exception,
-              this._function.isVoid(),
-              result.output
-            );
-          }
-
-          // EXAMPLE ORACLE ---------------------------------------------
-          // If a human annotated an expected output, then check it
-          if (this._options.useHuman && result.expectedOutput) {
-            result.passedHuman = ExampleOracle.judge(
-              result.timeout,
-              result.exception,
-              result.expectedOutput,
-              result.output
-            );
-          }
-
-          // PROPERTY ORACLE --------------------------------------------
-          // If a property validator is selected, call it to evaluate the result
-          if (this._options.useProperty) {
-            (
-              await propertyOracle.judge(
-                Object.freeze({
-                  in: result.input.map((i) => i.value), // inputs
-                  out:
-                    result.output.length === 0
-                      ? "timeout or exception"
-                      : result.output[0].value,
-                  exception: result.exception,
-                  timeout: result.timeout,
-                }),
-                Math.max(this._options.fnTimeout, 1)
-              )
-            ).forEach((j, i) => {
-              if (isError(j)) {
-                result.passedValidators.push("unknown");
-                result.validatorException = true;
-                result.validatorExceptionDisplay =
-                  j.name === "PropertyValidatorTimeout"
-                    ? `(${this._validators[i].name} timeout)`
-                    : `(${this._validators[i].name} ${j.name}) ${j.message}`;
-                result.validatorExceptionMessage = j.message;
-                result.validatorExceptionFunction = this._validators[i].name;
-                result.validatorExceptionStack = j.stack;
-              } else {
-                result.passedValidators.push(j);
-              }
-            });
-
-            // Summarize propert judgments.
-            result.passedValidator = PropertyOracle.summarize(
-              result.passedValidators
-            );
-          } // if validator
-        }
-
-        // Validator stats
-        const valTime = performance.now() - startValTime; // stop timer
-        this._results.stats.timers.val += valTime;
-        if (genStats) {
-          genStats.timers.val += valTime;
-        }
-      }
-
-      // (Re-)categorize the result
-      result.category = categorizeResult(result);
-
-      // Increment the test counters
-      switch (result.category) {
-        case "ok":
-          runStats.counters.passedTests++;
-          break;
-        case "skip":
-          runStats.counters.inputsSkipped++;
-          break;
-        case "failure":
-        case "disagree":
-          runStats.counters.erroredTests++;
-          break;
-        case "badValue":
-        case "timeout":
-        case "exception":
-          runStats.counters.failedTests++;
-          break;
-      }
-
-      // Store the result for this iteration
-      this._results.results.push(result);
-
-      // Take measurements for this test run
-      {
-        const startMeasureTime = performance.now(); // start timer
-        const measurements = this._measures.map((e) =>
-          e.measure(
-            structuredClone(result.inputGenerated),
-            structuredClone(result)
-          )
-        );
-
-        // Provide measures feedback to the composite input generator
-        result.interestingReasons =
-          this._compositeInputGenerator.onInputFeedback(
-            measurements,
-            result.timers.run + result.timers.gen
+        // Take measurements for this test run
+        {
+          const startMeasureTime = performance.now(); // start timer
+          const measurements = this._measures.map((e) =>
+            e.measure(
+              deepFreeze(result.inputGenerated),
+              deepFreeze({ ...result })
+            )
           );
 
-        // Measurement stats
-        const measureTime = performance.now() - startMeasureTime;
-        this._results.stats.timers.measure += measureTime;
-        if (genStats) {
-          genStats.timers.measure += measureTime;
-        }
-      }
+          // Provide measures feedback to the composite input generator
+          result.interestingReasons =
+            this._compositeInputGenerator.onInputFeedback(
+              measurements,
+              result.timers.run + result.timers.gen
+            );
 
-      yield undefined;
-    } // for: Main test loop
+          // Measurement stats
+          const measureTime = performance.now() - startMeasureTime;
+          this._results.stats.timers.measure += measureTime;
+          if (genStats) {
+            genStats.timers.measure += measureTime;
+          }
+        }
+
+        yield undefined;
+      } // for: Main test loop
+    } finally {
+      this._fuzzerFocus = deepFreeze({ mode: "gen" });
+      if (this._savedGeneratorOptions) {
+        this._compositeInputGenerator.options = this._savedGeneratorOptions;
+      }
+      if (periodicTimer !== undefined) {
+        clearInterval(periodicTimer);
+        periodicTimer = undefined;
+      }
+    }
   } // fn: _run
+
+  /**
+   * Returns diagnostic messages from the composite input generator.
+   */
+  public getInputGeneratorDiagnostics(): string[] {
+    return this._compositeInputGenerator.getDiagnostics();
+  }
 } // class: Tester
 
 /**
@@ -1137,7 +1419,8 @@ const _checkStopCondition = (
   injectCount: number,
   userCancel: boolean,
   stats: CurrentRunStats,
-  gen: boolean
+  gen: boolean,
+  fuzzerFocusMode: "gen" | "shrink" = "gen"
 ): FuzzStopReason | number => {
   const pcts: number[] = [0];
   const now = performance.now();
@@ -1180,11 +1463,13 @@ const _checkStopCondition = (
   );
 
   // End testing if we exceed the maximum number of failures & are done injecting inputs
-  if (options.maxFailures > 0 && !injecting) {
-    if (stats.counters.failedTests >= options.maxFailures) {
+  if (options.maxFailures > 0 && !injecting && fuzzerFocusMode !== "shrink") {
+    const totalFailures =
+      stats.counters.failedTests + stats.counters.erroredTests;
+    if (totalFailures >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
-    pcts.push(stats.counters.failedTests / options.maxFailures);
+    pcts.push(totalFailures / options.maxFailures);
   }
 
   // End testing if we exceed the maximum number of sequential duplicates generated
@@ -1261,13 +1546,36 @@ export function getTransformers(
 } // fn: getTransformers()
 
 /**
+ * Returns true if all oracle judgments of two test results are identical without allocating arrays or stringifying.
+ */
+function isSameJudgments(a: FuzzTestResult, b: FuzzTestResult): boolean {
+  if (a.passedImplicit !== b.passedImplicit) {
+    return false;
+  }
+  if (a.passedHuman !== b.passedHuman) {
+    return false;
+  }
+  const aVals = a.passedValidators;
+  const bVals = b.passedValidators;
+  if (aVals.length !== bVals.length) {
+    return false;
+  }
+  for (let i = 0; i < aVals.length; i++) {
+    if (aVals[i] !== bVals[i]) {
+      return false;
+    }
+  }
+  return true;
+} // fn: isSameJudgments()
+
+/**
  * Categorizes the result of a fuzz test according to the available
  * categories defined in ResultType.
  * @param result of the test
  * @returns the category of the result
  */
 export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
-  if (result.validatorException) {
+  if (result.harnessErrors.length > 0) {
     return "failure"; // Validator or transformer failed
   }
   if (result.skipped) {
@@ -1369,6 +1677,7 @@ export type FuzzGeneratorStatsBase = {
   counters: {
     inputsGenerated: number; // number of inputs generated, including dupes
     dupesGenerated: number; // number of duplicate inputs generated
+    dupeTicks: number[]; // ticks in which the generator produced a duplicate input
   };
   timers: {
     run: number; // elapsed time the PUT ran
@@ -1417,11 +1726,13 @@ export type FuzzTestStats = {
           string,
           {
             active: boolean; // subgen is active
-            nextable: boolean; // subgen is active and nextable
+            nextable: NextableStatus; // subgen is active and nextable
             productivity: number; // current productivity[g] for this input generator
             cost: number; // current cost[g] for this input generator
+            selected?: true; // subgen was selected for this chunk
           }
         >;
+        scheduler: "mab" | "random";
       }[];
     };
   };
@@ -1449,6 +1760,256 @@ type CurrentRunStats = {
     startGenTime: number; // time the tester started generating new inputs
   };
 };
+
+/**
+ * Formats a single failing result into a terminal-width failure block.
+ */
+function formatFailureBlock(
+  targetFnName: string,
+  result: FuzzTestResult,
+  lang: ProgramLanguage,
+  validators: FunctionRef[],
+  fnTimeout: number = 200,
+  termWidth: number = process.stdout.columns && process.stdout.columns > 0
+    ? process.stdout.columns
+    : 80
+): string {
+  const border = "=".repeat(termWidth);
+  const dashBorder = " -".repeat(Math.floor(termWidth / 2));
+  const lines: string[] = [border];
+
+  const argStr = result.input
+    .map((i) => ValueMapper.toLang(lang, i.value))
+    .join(", ");
+
+  const origArgStr = result.inputGenerated?.value
+    ? result.inputGenerated.value
+        .map((v) => ValueMapper.toLang(lang, v.value))
+        .join(", ")
+    : argStr;
+
+  const fnCall = `${targetFnName}(${argStr})`;
+
+  const isPinned = result.inputGenerated?.injected;
+  const shrinkStep = result.shrinkStep ?? 0;
+  const shrinkSuffix = isPinned
+    ? " \x1b[2m(Pinned Test)\x1b[0m"
+    : shrinkStep > 0
+      ? ` \x1b[2m(Shrunk in ${shrinkStep} step${shrinkStep === 1 ? "" : "s"})\x1b[0m`
+      : "";
+
+  const getFailedValidatorsStr = (): string => {
+    const failedNames: string[] = [];
+    if (result.passedValidators) {
+      result.passedValidators.forEach((j, i) => {
+        if (j === "fail" && validators[i]) {
+          failedNames.push(validators[i].name);
+        }
+      });
+    }
+    if (failedNames.length > 0) {
+      const pl = failedNames.length > 1 ? "s" : "";
+      return `Property Validator${pl} (${failedNames.join(", ")})`;
+    }
+    if (result.passedHuman === "fail") return "Example Oracle";
+    if (result.passedImplicit === "fail") return "Heuristic Validator";
+    return "Unknown Validator";
+  };
+
+  switch (result.category) {
+    case "badValue": {
+      lines.push(`❌ FAILED by ${getFailedValidatorsStr()}:`);
+      lines.push(`   - Failing test input     : ${argStr}${shrinkSuffix}`);
+      lines.push(
+        `   - Test output            : ${ValueMapper.toLang(
+          lang,
+          result.output[0]?.value
+        )}`
+      );
+      if (
+        result.passedHuman === "fail" &&
+        result.expectedOutput &&
+        result.expectedOutput.length > 0
+      ) {
+        const exp = result.expectedOutput[0];
+        const expStr = exp.isTimeout
+          ? "(timeout)"
+          : exp.isException
+            ? "(exception)"
+            : ValueMapper.toLang(lang, exp.value);
+        lines.push(`   - Expected output        : ${expStr}`);
+      }
+      break;
+    }
+
+    case "exception": {
+      lines.push(`❌ EXCEPTION:`);
+      lines.push(`   - Failing test input     : ${argStr}${shrinkSuffix}`);
+      lines.push(`   - Test output            : (none)`);
+      lines.push(`   - Failed Validator(s)    : Heuristic Validator`);
+
+      const { excLine, stackLines } = formatExceptionAndStack(
+        result.exceptionMessage,
+        result.stack
+      );
+
+      if (excLine || stackLines.length > 0) {
+        lines.push(dashBorder);
+        if (excLine) {
+          lines.push(excLine);
+        }
+        if (stackLines.length > 0) {
+          lines.push(stackLines.join("\n"));
+        }
+      }
+      break;
+    }
+
+    case "timeout": {
+      lines.push(`❌ TIMEOUT failed by Heuristic Validator:`);
+      lines.push(`   - Failing test input     : ${argStr}${shrinkSuffix}`);
+      lines.push(`   - Timeout after          : ${fnTimeout} ms`);
+      break;
+    }
+
+    case "disagree": {
+      lines.push(`❌ DISAGREEMENT: ${fnCall}`);
+      lines.push(`   - Test input             : ${argStr}`);
+      lines.push(
+        `   - Test output            : ${ValueMapper.toLang(
+          lang,
+          result.output[0]?.value
+        )}`
+      );
+      const propFailed = getFailedValidatorsStr();
+      lines.push(
+        `   - Oracle Judgments       : ${propFailed} => "fail", Example Oracle => "pass"`
+      );
+      lines.push(
+        `   - Diagnosis              : Property validator disagreed with the expected output. Check validator function for bugs.`
+      );
+      break;
+    }
+
+    case "failure": {
+      if (result.harnessErrors.length > 0) {
+        const err = result.harnessErrors[0];
+        const isTransformer = err.stage === "transformer";
+        const typeLabel = isTransformer
+          ? "Input transformer"
+          : "Property validator";
+        const isTimeout = err.kind === "timeout";
+        const headerText = isTimeout
+          ? `${typeLabel} timed out`
+          : `${typeLabel} threw an exception`;
+
+        const testOutputStr = isTransformer
+          ? "(not executed)"
+          : result.output.length > 0
+            ? ValueMapper.toLang(lang, result.output[0]?.value)
+            : result.exception
+              ? `(exception${result.exceptionMessage ? `: ${result.exceptionMessage}` : ""})`
+              : result.timeout
+                ? `(timeout after ${fnTimeout} ms)`
+                : "(none)";
+
+        lines.push(`❌ TESTING ERROR: ${headerText}`);
+        lines.push(
+          `   - ${
+            isTransformer
+              ? "Transformer Function   "
+              : "Validator Function     "
+          }: ${err.fnName}`
+        );
+        lines.push(
+          `   - ${isTransformer ? "Was transforming:" : "Was validating:"}`
+        );
+        lines.push(
+          `     - ${
+            isTransformer ? "Test input (generated)" : "Test input           "
+          }: ${isTransformer ? origArgStr : argStr}`
+        );
+        lines.push(`     - Test output          : ${testOutputStr}`);
+
+        const { excLine, stackLines } = formatExceptionAndStack(
+          isTimeout ? `Timeout exceeding ${fnTimeout} ms` : err.message,
+          err.kind === "exception" ? err.stack : undefined
+        );
+
+        if (excLine || stackLines.length > 0) {
+          lines.push(dashBorder);
+          if (excLine) {
+            lines.push(excLine);
+          }
+          if (stackLines.length > 0) {
+            lines.push(stackLines.join("\n"));
+          }
+        }
+      }
+      break;
+    }
+
+    case "ok":
+    case "skip":
+      break;
+  }
+
+  lines.push(border);
+  return lines.join("\n");
+}
+
+/**
+ * Extracts and formats exception header and stack trace lines for failure blocks.
+ */
+function formatExceptionAndStack(
+  message?: string,
+  stack?: string,
+  defaultName: string = "Error"
+): { excLine: string; stackLines: string[] } {
+  let excLine = "";
+  if (message) {
+    const formattedMsg =
+      message.startsWith("Error:") || message.includes(":")
+        ? message
+        : `${defaultName}: ${message}`;
+    excLine = ` ${formattedMsg}`;
+  }
+
+  const stackLines: string[] = [];
+  if (stack) {
+    const rawLines = stack
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
+    for (const line of rawLines) {
+      if (/^\s*(at\s|File\s|Traceback\b)/.test(line)) {
+        stackLines.push(`   \x1b[2m${line}\x1b[0m`);
+      } else if (!excLine) {
+        excLine = ` ${line}`;
+      }
+    }
+  }
+
+  return { excLine, stackLines };
+}
+
+/**
+ * Formats passed, failed, errored, and skipped test counts for update messages.
+ */
+function formatRunStatsSummary(runStats: CurrentRunStats): string {
+  return `\r\n  Passed: ${runStats.counters.passedTests}\r\n  Failed: ${
+    runStats.counters.failedTests
+  }${
+    runStats.counters.erroredTests
+      ? `\r\n Errored: ${runStats.counters.erroredTests}`
+      : ""
+  }${
+    runStats.counters.inputsSkipped
+      ? `\r\n Skipped: ${runStats.counters.inputsSkipped}`
+      : ""
+  }`;
+}
 
 /**
  * Fuzzer mode

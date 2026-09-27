@@ -3,7 +3,8 @@ import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
 import { ScoredInput } from "./Types";
-import { FuzzOptions, InputAndSource } from "./../Types";
+import { FuzzOptions, GetFuzzerFocusFn, InputAndSource } from "./../Types";
+import { NextableStatus } from "./Types";
 import { FunctionDef, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
 
@@ -71,7 +72,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     measures: AbstractMeasure[],
     leaderboard: Leaderboard<InputAndSource>,
     genStats: FuzzTestStats["generators"],
-    allInputs: Map<string, unknown>
+    allInputs: Map<string, unknown>,
+    moduleSrc: string,
+    getFuzzerFocus?: GetFuzzerFocusFn
   ) {
     super([], rngSeed);
 
@@ -80,7 +83,10 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       fn,
       rngSeed,
       leaderboard,
-      allInputs
+      genStats,
+      allInputs,
+      moduleSrc,
+      getFuzzerFocus
     );
     this._measures = measures;
     this._leaderboard = leaderboard;
@@ -126,15 +132,81 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // fn: _loadConfig
 
   /**
-   * Returns true if further inputs may be produced, false otherwise.
+   * Returns `now` or `soon` if further inputs may be produced, `false` otherwise.
    */
-  public nextable(): boolean {
-    return (
-      !!this._injectedInputs.length ||
-      (this._permitSubgens &&
-        this._subgens.some((g, i) => this._activeSubgens[i] && g.nextable()))
-    );
+  public override nextable(): NextableStatus {
+    if (this._injectedInputs.length > 0) {
+      return "now";
+    }
+
+    if (!this._permitSubgens) {
+      return false;
+    }
+
+    let hasSoon = false;
+    for (let i = 0; i < this._subgens.length; i++) {
+      if (this._activeSubgens[i]) {
+        const status = this._subgens[i].nextable();
+        if (status === "now") {
+          return "now";
+        }
+        if (status === "soon") {
+          hasSoon = true;
+        }
+      }
+    }
+
+    return hasSoon ? "soon" : false;
   } // fn: isAvailable
+
+  /**
+   * Waits asynchronously until at least one input becomes available,
+   * or until all pending generators finish or fail, or until `timeoutMs` elapses.
+   *
+   * @param `timeoutMs` optional max time to wait in ms
+   */
+  public async waitForNextInput(timeoutMs?: number): Promise<boolean> {
+    const startTime = performance.now();
+    while (this.nextable() === "soon") {
+      if (timeoutMs !== undefined && timeoutMs > 0) {
+        const elapsed = performance.now() - startTime;
+        if (elapsed >= timeoutMs) {
+          break;
+        }
+      }
+      const pendingSubgens = this._subgens.filter(
+        (g, i) => this._activeSubgens[i] && g.nextable() === "soon"
+      );
+      if (pendingSubgens.length > 0) {
+        const remaining =
+          timeoutMs !== undefined && timeoutMs > 0
+            ? Math.max(0, timeoutMs - (performance.now() - startTime))
+            : undefined;
+
+        if (remaining !== undefined && remaining <= 0) {
+          break;
+        }
+
+        const promises: Promise<unknown>[] = pendingSubgens.map((g) =>
+          g.nextSoon().catch(() => {})
+        );
+
+        if (remaining !== undefined) {
+          let timerId: NodeJS.Timeout;
+          const timeoutPromise = new Promise<void>((resolve) => {
+            timerId = setTimeout(resolve, remaining);
+          });
+          await Promise.race([...promises, timeoutPromise]);
+          clearTimeout(timerId!);
+        } else {
+          await Promise.race(promises);
+        }
+      } else {
+        break;
+      }
+    }
+    return this.nextable() === "now";
+  } // fn: waitForNextInput
 
   /**
    * Suppress all input generators. Input injection
@@ -207,7 +279,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // the subgen for that chunk
     if (
       this._ticksLeftInChunk-- <= 1 ||
-      !this._subgens[this._selectedSubgenIndex].nextable() ||
+      !this._subgens[this._selectedSubgenIndex] ||
+      this._subgens[this._selectedSubgenIndex].nextable() !== "now" ||
       !this._activeSubgens[this._selectedSubgenIndex]
     ) {
       this._ticksLeftInChunk = this._chunkSize;
@@ -320,29 +393,54 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * @returns the index of the selected subgen
    */
   protected _selectNextSubGen(): number {
-    // At least one subgen needs to be available
-    if (!this._subgens.some((g) => g.nextable())) {
+    // At least one active subgen needs to be available
+    if (
+      !this._subgens.some(
+        (g, i) => this._activeSubgens[i] && g.nextable() === "now"
+      )
+    ) {
       throw new Error(
         `Cannot generate the next input: no subgens are available (out of ${this._subgens.length} subgens configured)`
       );
     }
 
-    // Fastpath: if compositeExplorationChance >= 1.0, randomly select from nextable subgens
+    // Fastpath: if compositeExplorationChance >= 1.0, randomly select from active & nextable subgens
     // and skip calculations of cost, progress, and productivity.
     if (this._P >= 1.0) {
       const activeSubgenIndices = this._subgens
         .map((_g, i) => i)
-        .filter((i) => this._activeSubgens[i] && this._subgens[i].nextable());
-      const candidateIndices =
-        activeSubgenIndices.length > 0
-          ? activeSubgenIndices
-          : this._subgens
-              .map((_g, i) => i)
-              .filter((i) => this._subgens[i].nextable());
+        .filter(
+          (i) => this._activeSubgens[i] && this._subgens[i].nextable() === "now"
+        );
 
-      return candidateIndices[
-        Math.floor(this._prng() * candidateIndices.length)
-      ];
+      const selectedIdx =
+        activeSubgenIndices[
+          Math.floor(this._prng() * activeSubgenIndices.length)
+        ];
+
+      if (this._trackCheckpoints) {
+        const checkpointGens: NonNullable<
+          FuzzTestStats["generators"]["CompositeInputGenerator"]
+        >["checkpoints"][number]["gens"] = {};
+
+        this._subgens.forEach((e, g) => {
+          checkpointGens[e.name] = {
+            active: !!this._activeSubgens[g],
+            nextable: e.nextable(),
+            productivity: 0,
+            cost: 0,
+          };
+        });
+        checkpointGens[this._subgens[selectedIdx].name].selected = true;
+
+        this._checkpoints.push({
+          tick: this._tick,
+          gens: checkpointGens,
+          scheduler: "random",
+        });
+      }
+
+      return selectedIdx;
     }
 
     // Calculate cost and progress for each subgen's prior L generations
@@ -350,10 +448,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     const progress: number[] = []; // progress of subgen for L generations
     const productivity: number[] = []; // productivity = progress / cost
     let totalProductivity = 0; // total productivity of active subgens
-    const checkpointGens: Record<
-      string,
-      { active: boolean; nextable: boolean; productivity: number; cost: number }
-    > = {};
+    const checkpointGens: NonNullable<
+      FuzzTestStats["generators"]["CompositeInputGenerator"]
+    >["checkpoints"][number]["gens"] = {};
 
     this._subgens.forEach((e, g) => {
       cost[g] = 0;
@@ -367,31 +464,26 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         });
       });
       productivity[g] = Math.max(0, cost[g] ? progress[g] / cost[g] : 0);
-      if (e.nextable()) {
+      const isNextable = e.nextable();
+      const isAvailableNow = !!this._activeSubgens[g] && isNextable === "now";
+      if (isAvailableNow) {
         totalProductivity += productivity[g];
       }
 
       if (this._trackCheckpoints) {
         checkpointGens[e.name] = {
           active: !!this._activeSubgens[g],
-          nextable: !!(this._activeSubgens[g] && e.nextable()),
+          nextable: isNextable,
           productivity: productivity[g],
           cost: cost[g],
         };
       }
     }); // foreach: subgen
 
-    if (this._trackCheckpoints) {
-      this._checkpoints.push({
-        tick: this._tick,
-        gens: checkpointGens,
-      });
-    }
-
     // All active subgens have a minimum chance of being selected,
     // which is determined by _P
     const activeSubgens = this._subgens.filter(
-      (e, i) => this._activeSubgens[i] && e.nextable()
+      (e, i) => this._activeSubgens[i] && e.nextable() === "now"
     );
     const addlChanceSpace =
       totalProductivity > 0 ? totalProductivity * this._P : 1;
@@ -401,29 +493,46 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // of higher productivity for the prior L generations
     const rnd = this._prng() * (totalProductivity + addlChanceSpace);
     let lbound = 0;
+    let selectedIdx = -1;
     for (const g in this._subgens) {
-      if (this._subgens[g].nextable()) {
-        lbound += productivity[g] + addlChance;
+      const idx = Number(g);
+      if (this._activeSubgens[idx] && this._subgens[idx].nextable() === "now") {
+        lbound += productivity[idx] + addlChance;
         if (lbound >= rnd) {
-          return Number(g);
+          selectedIdx = idx;
+          break;
         }
       }
     }
-    throw new Error(
-      `Internal failure selecting subgen: ${JSON.stringify(
-        {
-          progress,
-          cost,
-          productivity,
-          totalProductivity,
-          lbound,
-          rnd,
-          addlChance,
-        },
-        null,
-        3
-      )}`
-    );
+
+    if (selectedIdx === -1) {
+      throw new Error(
+        `Internal failure selecting subgen: ${JSON.stringify(
+          {
+            progress,
+            cost,
+            productivity,
+            totalProductivity,
+            lbound,
+            rnd,
+            addlChance,
+          },
+          null,
+          3
+        )}`
+      );
+    }
+
+    if (this._trackCheckpoints) {
+      checkpointGens[this._subgens[selectedIdx].name].selected = true;
+      this._checkpoints.push({
+        tick: this._tick,
+        gens: checkpointGens,
+        scheduler: "mab",
+      });
+    }
+
+    return selectedIdx;
   } // fn: selectNextSubGen
 
   /**
@@ -467,4 +576,47 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       };
     }
   } // fn: onRunEnd
+
+  /**
+   * Returns active subgenerators currently pending ("soon").
+   */
+  public getPendingGenerators(): AbstractInputGenerator[] {
+    if (!this._permitSubgens) {
+      return [];
+    }
+    return this._subgens.filter(
+      (g, i) => this._activeSubgens[i] && g.nextable() === "soon"
+    );
+  }
+
+  /**
+   * Returns human-readable names of active subgenerators currently pending ("soon").
+   */
+  public getPendingGeneratorNames(): string[] {
+    return this.getPendingGenerators().map((g) => g.humanName);
+  }
+
+  /**
+   * Returns diagnostic messages from composite input generator and active subgens.
+   */
+  public override getDiagnostics(): string[] {
+    const diagnostics: string[] = [];
+
+    // Warn if all subgens are inactive
+    const hasActiveSubgens = this._activeSubgens.some((active) => active);
+    if (!hasActiveSubgens) {
+      return ["All input generators were disabled by user options."];
+    }
+
+    // Return diagnostics from active subgens
+    this._subgens.forEach((subgen, i) => {
+      if (this._activeSubgens[i]) {
+        diagnostics.push(
+          ...subgen.getDiagnostics().map((m) => `[${subgen.humanName}] ${m}`)
+        );
+      }
+    });
+
+    return diagnostics;
+  } // fn: getDiagnostics
 } // class: CompositeInputGenerator

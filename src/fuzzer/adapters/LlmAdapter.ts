@@ -60,7 +60,7 @@ export class LlmAdapter {
   public constructor() {
     LlmAdapter._handleDebug();
 
-    const cfg = LlmAdapter._getConfig();
+    const cfg = LlmAdapter.getConfig();
     this._cfgString = JSONN.stringify(cfg);
 
     if (!LlmAdapter.isConfigured()) {
@@ -120,7 +120,7 @@ export class LlmAdapter {
    * @returns a new nodellm.Chat instance
    */
   protected _createChat(): nodellm.Chat {
-    const cfg = LlmAdapter._getConfig();
+    const cfg = LlmAdapter.getConfig();
     return this._backend.chat(cfg.modelName, {
       systemPrompt: prompt.system(),
     });
@@ -132,7 +132,7 @@ export class LlmAdapter {
    * @returns `true` if the LLM config has changed since instantiation
    */
   public isStale(): boolean {
-    return JSONN.stringify(LlmAdapter._getConfig()) !== this._cfgString;
+    return JSONN.stringify(LlmAdapter.getConfig()) !== this._cfgString;
   } // fn: isStale
 
   /**
@@ -141,7 +141,7 @@ export class LlmAdapter {
    * @returns a string indicating the configured provider and model id
    */
   public get id(): string | undefined {
-    return `v=${this._backend.provider?.id},n=${LlmAdapter._getConfig().modelName}`;
+    return `v=${this._backend.provider?.id},n=${LlmAdapter.getConfig().modelName}`;
   } // getter: id
 
   public get cacheStats(): LlmCacheStats {
@@ -163,7 +163,9 @@ export class LlmAdapter {
     fn: FunctionDef,
     schema: zod.ZodType,
     directives: string[],
-    allInputs: Map<string, unknown>
+    allInputs: Map<string, unknown>,
+    moduleSrc: string,
+    numRequested: number
   ): Promise<{
     programInputs: { [k: string]: ArgValueType }[];
     stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
@@ -172,7 +174,7 @@ export class LlmAdapter {
     let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
     try {
       response = await this._query(
-        [prompt.genInputs(fn, directives, allInputs)],
+        [prompt.genInputs(fn, directives, allInputs, moduleSrc, numRequested)],
         schema
       );
       const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
@@ -222,8 +224,8 @@ export class LlmAdapter {
   ): Promise<LlmQueryResult> {
     LlmAdapter._handleDebug();
 
-    const provider = LlmAdapter._getConfig().provider;
-    const modelName = LlmAdapter._getConfig().modelName;
+    const provider = LlmAdapter.getConfig().provider;
+    const modelName = LlmAdapter.getConfig().modelName;
     const schemaJson = schema
       ? JSON.stringify(zod.toJSONSchema(schema))
       : undefined;
@@ -256,11 +258,13 @@ export class LlmAdapter {
         const schemaObj = jsonSchemaObj
           ? nodellm.Schema.fromJson("output", cleanJsonSchema(jsonSchemaObj))
           : undefined;
-        let chat = (
-          schemaObj ? baseChat.withSchema(schemaObj) : baseChat
-        ).withRequestOptions({
-          responseFormat: { type: "json_object" },
-        });
+        let chat = (schemaObj ? baseChat.withSchema(schemaObj) : baseChat)
+          .withRequestOptions({
+            responseFormat: { type: "json_object" },
+          })
+          .withParams({
+            max_tokens: undefined, // Overrides default 4096 with undefined
+          });
 
         // Provider specific settings
         if (provider === "anthropic") {
@@ -304,16 +308,29 @@ export class LlmAdapter {
    * @returns `true` if the LLM is configured to be active, `false` otherwise
    */
   public static isConfigured(): boolean {
-    const cfg = LlmAdapter._getConfig();
+    const cfg = LlmAdapter.getConfig();
     return cfg.provider !== "disabled" && cfg.modelName !== "";
   } // fn: isConfigured
+
+  /**
+   * Returns the maximum output token count supported by the configured model,
+   * or a default fallback if unlisted or unconfigured.
+   */
+  public static getMaxOutputTokens(): number {
+    const cfg = LlmAdapter.getConfig();
+    const maxTokens = nodellm.ModelRegistry.getMaxOutputTokens(
+      cfg.modelName,
+      cfg.provider
+    );
+    return maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  } // fn: getMaxOutputTokens
 
   /**
    * Gets the key elements of the LLM configuration
    *
    * @returns provider, modelName, and apiKey
    */
-  protected static _getConfig(): {
+  public static getConfig(): {
     provider: string;
     modelName: string;
     apiKey: string;
@@ -333,7 +350,7 @@ export class LlmAdapter {
         ".nanofuzz-llm-cache.json"
       ),
     };
-  } // fn: _getConfig
+  } // fn: getConfig
 
   /**
    * Returns a vscode extension configuration element
@@ -373,10 +390,15 @@ export const prompt = {
   genInputs: (
     fn: FunctionDef,
     directives: string[],
-    allInputs: Map<string, unknown>
+    allInputs: Map<string, unknown>,
+    moduleSrc: string,
+    numRequested: number
   ): string => {
     const fnRef = fn.getRef();
-    const spec = fn.getCmt() ?? "";
+    const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
+    const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
+    const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
+
     let inputs = Config.get<boolean>("nanofuzz.ai.backfeedPriorInputs", true)
       ? Array.from(allInputs.keys())
       : [];
@@ -384,7 +406,19 @@ export const prompt = {
     if (inputs.length > 10000) {
       inputs = inputs.slice(-10000);
     }
-    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+
+    const moduleContext = escapedModuleSrc
+      ? `The full module source code containing "${fnRef.name}":
+\`\`\`${fnRef.lang}
+${escapedModuleSrc}
+\`\`\`
+
+`
+      : "";
+
+    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+
+Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
 
 The specification for the "${fnRef.name}" program:
 \`\`\`
@@ -393,12 +427,18 @@ ${spec ? spec : `(no specification was found. try to infer the spec from the pro
 
 The "${fnRef.name}" program:
 \`\`\`${fnRef.lang}
-${fnRef.src}
+${fnSrc}
 \`\`\`
 
-${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
 
 ${inputs.length ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}` : ""}
 `;
   },
 };
+
+/**
+ * Fallback maximum output token limit used when a model's max output token capacity
+ * is not specified in the model registry or when no model is configured.
+ */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;

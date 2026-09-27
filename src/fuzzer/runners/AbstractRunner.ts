@@ -112,8 +112,8 @@ export type RunnerResult = {
   result: (
     | {
         tag: "timeout";
-        coverageData?: number[];
-        coverageArcs?: Arc[];
+        coverageData?: Record<string, number[]>;
+        coverageArcs?: Record<string, Arc[]>;
         staticCoverage?: Record<string, CoverageInfo>;
       }
     | {
@@ -122,22 +122,22 @@ export type RunnerResult = {
         message: string;
         stack?: string;
         source?: "put" | "host"; // if the error originated within the put
-        coverageData?: number[]; // lines executed by this call
-        coverageArcs?: Arc[]; // arcs taken by this call
+        coverageData?: Record<string, number[]>; // lines executed by this call
+        coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
         staticCoverage?: Record<string, CoverageInfo>;
       }
     | {
         tag: "skip";
         message: string;
-        coverageData?: number[]; // lines executed by this call
-        coverageArcs?: Arc[]; // arcs taken by this call
+        coverageData?: Record<string, number[]>; // lines executed by this call
+        coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
         staticCoverage?: Record<string, CoverageInfo>;
       }
     | {
         tag: "value";
         value: unknown;
-        coverageData?: number[]; // lines executed by this call
-        coverageArcs?: Arc[]; // arcs taken by this call
+        coverageData?: Record<string, number[]>; // lines executed by this call
+        coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
         staticCoverage?: Record<string, CoverageInfo>;
       }
   ) & { seq: number };

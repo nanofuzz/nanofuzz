@@ -2,6 +2,7 @@ import { Tester } from "./Fuzzer";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
 import * as ValueMapper from "./mappers/ValueMapper";
+import { FuzzPinnedTest } from "./Types";
 
 describe("fuzzer: typescript targets", () => {
   beforeAll(async () => {
@@ -342,6 +343,59 @@ describe("fuzzer: typescript targets", () => {
     });
   });
 
+  it("injected (pinned, saved, and human-generated) inputs bypass input transformer", async () => {
+    const injectedInput: FuzzPinnedTest = {
+      input: [
+        {
+          name: "n",
+          offset: 0,
+          value: 10,
+          origin: { type: "user" },
+        },
+      ],
+      output: [],
+      pinned: true,
+    };
+
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformed",
+      { ...intOptions, maxTests: 0 }
+    ).testSync([injectedInput]);
+
+    expect(fuzzResult.results.length).toBe(1);
+    const injectedResult = fuzzResult.results[0];
+
+    // Verify the injected input was NOT skipped by the transformer
+    expect(injectedResult.skipped).toBeFalse();
+
+    // Verify the input value was NOT transformed (remains 10, not doubled to 20)
+    expect<unknown>(injectedResult.input[0].value).toBe(10);
+
+    // Verify output is targetTransformed(10) => 11 (not 20 + 1 => 21)
+    expect<unknown>(injectedResult.output[0].value).toBe(11);
+
+    // Verify origin was preserved as user input rather than changed to transformer
+    expect(injectedResult.input[0].origin.type).toBe("user");
+  });
+
+  it("records dupeTicks in generator stats when duplicate inputs are generated", async () => {
+    // Fuzz a function with small boolean input space to force duplicates
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "testBoolean",
+      { ...intOptions, maxTests: 50 }
+    ).testSync();
+
+    const randomGenStats = fuzzResult.stats.generators.RandomInputGenerator;
+    expect(randomGenStats.counters.dupeTicks).toBeDefined();
+    expect(Array.isArray(randomGenStats.counters.dupeTicks)).toBeTrue();
+    expect(randomGenStats.counters.dupesGenerated).toBeGreaterThan(0);
+    expect(randomGenStats.counters.dupeTicks.length).toBe(
+      randomGenStats.counters.dupesGenerated
+    );
+  });
+
   it("TypeScript transformer exception", async () => {
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.ts",
@@ -351,10 +405,8 @@ describe("fuzzer: typescript targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionMessage).toContain(
-        "Transformer error message"
-      );
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].message).toContain("Transformer error message");
       expect(r.category).toBe("failure");
     });
   });
@@ -368,10 +420,43 @@ describe("fuzzer: typescript targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionMessage).toBe("timeout");
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].kind).toBe("timeout");
       expect(r.category).toBe("failure");
     });
+  });
+
+  it("dupe check transformer inputs", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformedDupeCheck",
+      { ...intOptions, maxTests: 50 }
+    ).testSync();
+
+    // There are only 2 booleans (true/false).
+    // The transformer throws if called more than twice.
+    // If pre-transformer deduplication works, at most 2 inputs will be transformed
+    // and no transformer exception will occur.
+    expect(fuzzResult.results.length).toBe(2);
+    expect(fuzzResult.stats.counters.dupesGenerated).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.harnessErrors.length).toBe(0);
+      expect(r.category).toBe("ok");
+    });
+  });
+
+  it("deduplicates transformed inputs after transformer collapses distinct inputs", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformedCollapsing",
+      { ...intOptions, maxTests: 50 }
+    ).testSync();
+
+    // Transformer maps all inputs to 42. Post-transformer dupe check should ensure
+    // only 1 unique test output result exists despite generating many inputs.
+    expect(fuzzResult.results.length).toBe(1);
+    expect<unknown>(fuzzResult.results[0].input[0].value).toBe(42);
+    expect(fuzzResult.stats.counters.dupesGenerated).toBeGreaterThan(0);
   });
 
   it("TypeScript validator exception", async () => {
@@ -383,11 +468,11 @@ describe("fuzzer: typescript targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionFunction).toBe(
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].fnName).toBe(
         "targetValidatorExceptionValidator"
       );
-      expect(r.validatorExceptionMessage).toContain("Validator error message");
+      expect(r.harnessErrors[0].message).toContain("Validator error message");
       expect(r.category).toBe("failure");
     });
   });
@@ -401,11 +486,9 @@ describe("fuzzer: typescript targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionFunction).toBe(
-        "targetValidatorTimeoutValidator"
-      );
-      expect(r.validatorExceptionMessage).toContain("timed out");
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].fnName).toBe("targetValidatorTimeoutValidator");
+      expect(r.harnessErrors[0].kind).toBe("timeout");
       expect(r.category).toBe("failure");
     });
   });

@@ -31,7 +31,7 @@ function isJSONSchema(val: unknown): val is JSONSchema {
 }
 
 function deepClone<T>(obj: T): T {
-  return JSON.parse(JSON.stringify(obj));
+  return structuredClone(obj);
 }
 
 function transformJSONSchema(jsonSchema: JSONSchema): JSONSchema {
@@ -104,7 +104,9 @@ function _transformJSONSchema(jsonSchema: JSONSchema): JSONSchema {
 
     strictSchema["properties"] = Object.fromEntries(
       propEntries
-        .filter((entry): entry is [string, JSONSchema] => isJSONSchema(entry[1]))
+        .filter((entry): entry is [string, JSONSchema] =>
+          isJSONSchema(entry[1])
+        )
         .map(([key, propSchema]) => [key, _transformJSONSchema(propSchema)])
     );
 
@@ -117,10 +119,7 @@ function _transformJSONSchema(jsonSchema: JSONSchema): JSONSchema {
     }
   } else if (type === "string") {
     const format = pop(jsonSchema, "format");
-    if (
-      typeof format === "string" &&
-      SUPPORTED_STRING_FORMATS.has(format)
-    ) {
+    if (typeof format === "string" && SUPPORTED_STRING_FORMATS.has(format)) {
       strictSchema["format"] = format;
     } else if (format !== undefined) {
       jsonSchema["format"] = format;

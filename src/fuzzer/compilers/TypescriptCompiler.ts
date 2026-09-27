@@ -19,11 +19,14 @@ import * as JSONN from "../../Jsonn";
 import {
   FuzzStatusUpdater,
   TypescriptCompilerError,
-  TypescriptCompilerErrorDetails,
   VmGlobals,
 } from "../Types";
 import { findInAncestor } from "../Util";
-import { CompilerStaleness } from "./Types";
+import {
+  CompilerStaleness,
+  CompilerMessageToWorker,
+  CompilerMessageFromWorker,
+} from "./Types";
 
 // Global list of compilations by entrypoint module
 const _compilationsByModule: {
@@ -36,10 +39,11 @@ let compileId = 0;
 
 // Pending Worker Tasks
 type TscFinishedCallback<T> = (value: T | PromiseLike<T>) => void;
+type TscRejectCallback = (reason?: unknown) => void;
 const _pendingCompilations: {
   [k: number]: {
     resolve: TscFinishedCallback<void>;
-    reject: TscFinishedCallback<void>;
+    reject: TscRejectCallback;
   };
 } = {};
 
@@ -72,7 +76,7 @@ export class TypescriptCompiler {
    * @returns current set of compiler options
    */
   get options(): CompilerOptions {
-    return JSON.parse(JSON.stringify(this._options));
+    return structuredClone(this._options);
   } // get: options
 
   /**
@@ -82,40 +86,41 @@ export class TypescriptCompiler {
     // If there's no compiler worker, create one
     if (!compilerWorker) {
       // Start compiler worker
+      const currModuleDir = path.dirname(path.resolve(module.filename));
+      const packageJsonPath = findInAncestor(currModuleDir, "package.json");
+      const projectRoot = packageJsonPath
+        ? path.dirname(packageJsonPath)
+        : path.resolve(currModuleDir, "..", "..");
       const workerPath = path.resolve(
-        path.join(
-          path.dirname(module.filename),
-          "..",
-          "..",
-          "build",
-          "workers",
-          "CompilerWorker.js"
-        )
+        path.join(projectRoot, "build", "workers", "CompilerWorker.js")
       );
       compilerWorker = new Worker(workerPath, { name: "CompilerWorker" });
 
       // Handle messages from the worker
-      compilerWorker.on(
-        "message",
-        (message: TypescriptCompilerMessageFromWorker) => {
-          switch (message.command) {
-            case "compile.result":
-              if (message.id in _pendingCompilations) {
-                _pendingCompilations[message.id][
-                  message.success ? "resolve" : "reject"
-                ]();
-                console.info(
-                  `Background compilation# ${message.id} ${message.success ? "succeeded" : "failed"}`
-                );
-                delete _pendingCompilations[message.id];
+      compilerWorker.on("message", (message: CompilerMessageFromWorker) => {
+        switch (message.command) {
+          case "prepare.result":
+            if (message.id in _pendingCompilations) {
+              if (message.success) {
+                _pendingCompilations[message.id].resolve();
               } else {
-                throw new Error(
-                  `No background compilation pending for ${message.id}`
-                );
+                const errMsg =
+                  "output" in message && message.output
+                    ? message.output.join("\n")
+                    : `Background compilation failed`;
+                _pendingCompilations[message.id].reject(new Error(errMsg));
               }
-          }
+              console.info(
+                `Background compilation# ${message.id} ${message.success ? "succeeded" : "failed"}`
+              );
+              delete _pendingCompilations[message.id];
+            } else {
+              throw new Error(
+                `No background compilation pending for ${message.id}`
+              );
+            }
         }
-      );
+      });
       compilerWorker.on("exit", (code) => {
         console.log(`CompilerWorker exited with code ${code}`);
         compilerWorker = undefined;
@@ -128,12 +133,13 @@ export class TypescriptCompiler {
     } // if: no compiler worker
 
     return new Promise<void>((resolve, reject) => {
-      const message: TypeScriptCompilerMessageToWorker = {
-        command: "compile",
-        id: compileId++,
+      const id = compileId++;
+      const message: CompilerMessageToWorker = {
+        command: "prepare",
+        id,
         module: fqModulePath,
       };
-      _pendingCompilations[message.id] = { resolve, reject };
+      _pendingCompilations[id] = { resolve, reject };
       if (compilerWorker) {
         compilerWorker.postMessage(message);
       } else {
@@ -380,11 +386,13 @@ export class TypescriptCompiler {
       msg: ` - Compile...: ${module.filename}`,
       channel: "milestone",
     });
-    updateFn({
-      msg: `Compiling: ${module.filename}`,
-      channel: "update",
-      pct: 0.1,
-    });
+    if (process.env.BUILD_TARGET !== "node-cli") {
+      updateFn({
+        msg: `Compiling: ${module.filename}`,
+        channel: "update",
+        pct: 0.1,
+      });
+    }
 
     // Construct tsc args
     const argv = [
@@ -918,12 +926,7 @@ const defaultOptions: CompilerOptions = {
   target: "ES2022", // default to ES2022
   moduleKind: "nodenext", // cjs is required for running inside express
   emitOnError: false, // fail compilation in case of errors
-  tmpDir: path.join(
-    fs.realpathSync(os.tmpdir()),
-    "nanofuzz",
-    "tsc",
-    String(process.pid)
-  ), // path for compiled files
+  tmpDir: path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "tsc"), // path for compiled files
   lib: ["DOM", "ScriptHost", "ES2020", "ES2021.String", "ES2022"], // default to ES2020
   types: [""], // do not automatically import types
   typeRoots: [], // do not automatically import types
@@ -977,30 +980,6 @@ type CompilationRecord = {
     tscDatetime: string; // ISODateString
   };
 };
-
-/**
- * Messages from the Compiler to its worker
- */
-export type TypeScriptCompilerMessageToWorker =
-  | {
-      command: "compile";
-      id: number;
-      module: string;
-    }
-  | {
-      command: "exit";
-    };
-
-/**
- * Messages from the worker to the Compiler
- */
-export type TypescriptCompilerMessageFromWorker = {
-  command: "compile.result";
-  id: number;
-} & (
-  | { success: true }
-  | ({ success: false } & Partial<TypescriptCompilerErrorDetails>)
-);
 
 // Version of the compilation record file
 const CURR_COMPILATION_FILE_VER = "0.4.0"; // !!!

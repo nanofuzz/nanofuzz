@@ -6,8 +6,10 @@ import * as ChildProcess from "node:child_process";
 export abstract class AbstractHost {
   protected readonly _proc;
   protected _isActive: boolean = false;
-  protected _stdout;
-  protected _stderr;
+  protected _stdoutChunks: Buffer[] = [];
+  protected _stdoutBytes: number = 0;
+  protected _stderrChunks: Buffer[] = [];
+  protected _stderrBytes: number = 0;
   protected _errors: Error[];
   protected _env;
   protected _cwd;
@@ -24,8 +26,10 @@ export abstract class AbstractHost {
     args: string[],
     onExit?: HostExitHandler | undefined
   ) {
-    this._stdout = Buffer.alloc(0);
-    this._stderr = Buffer.alloc(0);
+    this._stdoutChunks = [];
+    this._stdoutBytes = 0;
+    this._stderrChunks = [];
+    this._stderrBytes = 0;
     this._errors = [];
     this._env = env;
     this._cwd = cwd;
@@ -156,11 +160,13 @@ export abstract class AbstractHost {
   }
 
   protected _onStdout = (chunk: Buffer): void => {
-    this._stdout = Buffer.concat([this._stdout, chunk]);
+    this._stdoutChunks.push(chunk);
+    this._stdoutBytes += chunk.length;
   };
 
   protected _onStderr = (chunk: Buffer): void => {
-    this._stderr = Buffer.concat([this._stderr, chunk]);
+    this._stderrChunks.push(chunk);
+    this._stderrBytes += chunk.length;
   };
 
   protected _onError = (err: Error): void => {
@@ -169,9 +175,13 @@ export abstract class AbstractHost {
   };
 
   protected _onClose = (): void => {
+    const stderrStr =
+      this._stderrChunks.length > 0
+        ? Buffer.concat(this._stderrChunks).toString("utf-8")
+        : "";
     this._errors.push(
       new Error(
-        `Host exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${this._proc.stderr.read()}, stdout: ${this._proc.stdout.read()}, cli: ${this._cli}, cwd: ${this._cwd})`
+        `Host exited unexpectedly (exit code: ${this._proc.exitCode}, stderr: ${stderrStr}, cli: ${this._cli}, cwd: ${this._cwd})`
       )
     );
     this.kill();
@@ -200,11 +210,10 @@ export abstract class AbstractHost {
   } // fn: kill
 
   /**
-   * Reads bytes from the stdout buffer. If the bytes have not arrived yet,
-   * then wait longer.
+   * Reads bytes from the stdout chunk list without continuous reallocations.
    *
-   * @param `n` number of bytes to read
-   * @returns `n` bytes
+   * @param `bytes` number of bytes to read
+   * @returns `bytes` buffer
    */
   protected async _readStdout(bytes: number): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
@@ -213,21 +222,16 @@ export abstract class AbstractHost {
         return;
       }
 
-      // Return the data if it's already in the buffer
-      if (this._stdout.length >= bytes) {
-        const result = this._stdout!.subarray(0, bytes);
-        this._stdout = this._stdout!.subarray(bytes);
-        resolve(result);
+      if (this._stdoutBytes >= bytes) {
+        resolve(this._consumeBufferedBytes(bytes));
         return;
       }
 
-      // Otherwise create a listener to wait for more data
-      const onData = (_chunk: Buffer) => {
-        // The constructor listener writes to the buffer
-        if (this._stdout.length >= bytes) {
+      const onData = () => {
+        if (this._stdoutBytes >= bytes) {
           cleanupListeners();
           try {
-            resolve(this._readStdout(bytes));
+            resolve(this._consumeBufferedBytes(bytes));
           } catch (e: unknown) {
             reject(e);
           }
@@ -264,7 +268,56 @@ export abstract class AbstractHost {
       this._proc.stdout.on("error", onError);
       this._proc.once("close", onClose);
     });
-  } // fn: _readBytes
+  }
+
+  /**
+   * Consumes the specified number of bytes from the buffered stdout chunks.
+   *
+   * @param bytes number of bytes to consume
+   * @returns buffer containing the consumed bytes
+   */
+  private _consumeBufferedBytes(bytes: number): Buffer {
+    if (
+      this._stdoutChunks.length === 1 &&
+      this._stdoutChunks[0].length === bytes
+    ) {
+      const result = this._stdoutChunks[0];
+      this._stdoutChunks = [];
+      this._stdoutBytes = 0;
+      return result;
+    }
+
+    if (
+      this._stdoutChunks.length === 1 &&
+      this._stdoutChunks[0].length > bytes
+    ) {
+      const result = this._stdoutChunks[0].subarray(0, bytes);
+      this._stdoutChunks[0] = this._stdoutChunks[0].subarray(bytes);
+      this._stdoutBytes -= bytes;
+      return result;
+    }
+
+    const result = Buffer.allocUnsafe(bytes);
+    let offset = 0;
+
+    while (offset < bytes && this._stdoutChunks.length > 0) {
+      const head = this._stdoutChunks[0];
+      const needed = bytes - offset;
+
+      if (head.length <= needed) {
+        head.copy(result, offset);
+        offset += head.length;
+        this._stdoutChunks.shift();
+      } else {
+        head.copy(result, offset, 0, needed);
+        this._stdoutChunks[0] = head.subarray(needed);
+        offset += needed;
+      }
+    }
+
+    this._stdoutBytes -= bytes;
+    return result;
+  } // fn: _consumeBufferedBytes
 } // class: AbstractHost
 
 export const PutTimeoutName = "PutTimeout";

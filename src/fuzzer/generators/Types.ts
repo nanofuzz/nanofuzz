@@ -2,6 +2,14 @@ import { BaseMeasurement } from "../measures/AbstractMeasure";
 import { InputAndSource } from "../Types";
 
 /**
+ * Tri-state availability status for input generators:
+ * - "now": input is immediately available in memory
+ * - "soon": input generation is in-flight asynchronously (e.g. LLM call)
+ * - false: generator is exhausted and no background work is pending
+ */
+export type NextableStatus = "now" | "soon" | false;
+
+/**
  * LLM Cache Modes
  */
 export type LlmCacheMode =

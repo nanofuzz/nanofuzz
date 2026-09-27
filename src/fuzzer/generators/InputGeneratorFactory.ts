@@ -1,10 +1,10 @@
-import { FunctionDef } from "../Fuzzer";
+import { FunctionDef, FuzzTestStats } from "../Fuzzer";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
-import { FuzzOptions, InputAndSource } from "../Types";
+import { FuzzOptions, GetFuzzerFocusFn, InputAndSource } from "../Types";
 
 /**
  * Produces a set of concrete input generators appropriate for
@@ -19,11 +19,20 @@ export function InputGeneratorFactory(
   fn: FunctionDef,
   rngSeed: string | undefined,
   leaderboard: Leaderboard<InputAndSource>,
-  allInputs: Map<string, unknown>
+  genStats: FuzzTestStats["generators"],
+  allInputs: Map<string, unknown>,
+  moduleSrc: string,
+  getFuzzerFocus?: GetFuzzerFocusFn
 ): AbstractInputGenerator[] {
   return [
     new RandomInputGenerator(fn.getArgDefs(), rngSeed),
-    new MutationInputGenerator(fn.getArgDefs(), rngSeed, leaderboard),
-    new AiInputGenerator(fn, rngSeed, allInputs),
+    new MutationInputGenerator(
+      fn.getArgDefs(),
+      rngSeed,
+      leaderboard,
+      getFuzzerFocus,
+      genStats?.MutationInputGenerator
+    ),
+    new AiInputGenerator(fn, rngSeed, allInputs, moduleSrc),
   ];
 } // fn: InputGeneratorFactory

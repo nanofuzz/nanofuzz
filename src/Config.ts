@@ -48,3 +48,10 @@ export function get<T>(key: string, dft: T): T {
 export function override<T>(key: string, val: T): void {
   overrides[key] = val;
 }
+
+// Clear all temporary overrides
+export function clearOverrides(): void {
+  for (const key of Object.keys(overrides)) {
+    delete overrides[key];
+  }
+}
