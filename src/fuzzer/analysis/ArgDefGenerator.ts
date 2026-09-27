@@ -104,7 +104,7 @@ function generateRandomInputFn(
   const argType = arg.getType();
   switch (argType) {
     case ArgTag.NUMBER:
-      randFn = sampleNumberHeuristic;
+      randFn = getRandomNumber;
       break;
     case ArgTag.BOOLEAN:
       randFn = getRandomBool;
@@ -406,6 +406,10 @@ const getRandomNumber = (
 ): number => {
   if (typeof min !== "number" || typeof max !== "number")
     throw new Error("Min and max must be numbers");
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return sampleNumberHeuristic(prng, min, max, options);
+  }
 
   if (options.numInteger) {
     const minInt: number = Math.ceil(min);
