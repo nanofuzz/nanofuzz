@@ -64,11 +64,13 @@ export abstract class AbstractHost {
 
     const payloadBuffer =
       typeof payload === "string" ? Buffer.from(payload, "utf-8") : payload;
-    const lengthBuffer = Buffer.alloc(PayloadSizeBytes);
-    lengthBuffer.writeUInt32BE(payloadBuffer.length, 0);
+    const combinedBuffer = Buffer.allocUnsafe(
+      PayloadSizeBytes + payloadBuffer.length
+    );
+    combinedBuffer.writeUInt32BE(payloadBuffer.length, 0);
+    payloadBuffer.copy(combinedBuffer, PayloadSizeBytes);
 
-    this._proc.stdin.write(lengthBuffer);
-    this._proc.stdin.write(payloadBuffer);
+    this._proc.stdin.write(combinedBuffer);
   } // fn: sendMessage
 
   /**
