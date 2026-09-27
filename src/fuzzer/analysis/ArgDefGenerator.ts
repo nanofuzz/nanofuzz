@@ -219,7 +219,9 @@ function generateRandomInputFn(
           throw new Error("Min and max must be objects");
         const [elemSpec] = arg.getChildren();
         if (!elemSpec) {
-          throw new Error("Set arguments require an element type specification");
+          throw new Error(
+            "Set arguments require an element type specification"
+          );
         }
         const setLen = arg.getOptions().setLength;
         const count = getRandomNumber(
@@ -491,12 +493,14 @@ const getRandomString: PrivateRandFn = (
   // This generator does not currently support min and max, but we don't make
   // that option available in the UI anyway. Find the old code in v0.3.2 and fix
   // intervals for string types when it's time to implement this.
-  const strLen = getRandomNumber(
-    prng,
-    options.strLength.min,
-    options.strLength.max,
-    intOptions
-  ); // use default for integer selection
+  const strLen = Number.isFinite(options.strLength.max)
+    ? getRandomNumber(
+        prng,
+        options.strLength.min,
+        options.strLength.max,
+        intOptions
+      )
+    : options.strLength.min + Math.floor(-Math.log(1 - prng() * 0.999) * 10);
 
   // Sequentially choose each character in the string
   // Note: This provides a uniform distribution at each position, but

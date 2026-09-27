@@ -1027,6 +1027,10 @@ def test_defaults(t, c):
 
     const args = fn.getArgDefs();
     expect(args[0].getOptions().strRegex).toEqual("\\A(?:.)*\\Z");
+    expect(args[0].getOptions().strLength).toEqual({
+      min: 0,
+      max: Number.POSITIVE_INFINITY,
+    });
     expect(args[0].getOptions().strCharset).toBeDefined();
     expect(args[0].getOptions().strCharset?.length).toBeGreaterThan(0);
 

@@ -2033,17 +2033,15 @@ export class PythonProgram extends AbstractProgram {
         const minSize = parseLiteral(getKwdArg(node, "min_size", 1));
         const maxSize = parseLiteral(getKwdArg(node, "max_size", 2));
 
-        const options: ArgOptionOverride = {};
-        if (minSize !== undefined || maxSize !== undefined) {
-          const dftInterval = ArgDef.getDefaultIntervals(
-            ArgTag.STRING,
-            this._options
-          );
-          options.strLength = {
-            min: Number(minSize ?? dftInterval[0].min),
-            max: Number(maxSize ?? dftInterval[0].max),
-          };
-        }
+        const options: ArgOptionOverride = {
+          strLength: {
+            min: Number(minSize ?? 0),
+            max:
+              maxSize !== undefined
+                ? Number(maxSize)
+                : Number.POSITIVE_INFINITY,
+          },
+        };
         if (parsedAlphabet?.strCharset !== undefined) {
           options.strCharset = parsedAlphabet.strCharset;
         }

@@ -464,10 +464,11 @@ export const create = (
           }
         }
 
-        const range = effMax - effMin + 1;
         // Favor shorter expansions so several unbounded repetitions can still
         // fit within the effective string-length range.
-        const count = effMin + Math.floor(prng() * prng() * range);
+        const count = !Number.isFinite(effMax)
+          ? effMin + Math.floor(-Math.log(1 - prng() * 0.999) * 10)
+          : effMin + Math.floor(prng() * prng() * (effMax - effMin + 1));
 
         const currentTarget = { ...target };
         const parts: string[] = [];

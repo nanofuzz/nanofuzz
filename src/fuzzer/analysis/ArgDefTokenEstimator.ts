@@ -106,7 +106,10 @@ export class ArgDefTokenEstimator {
         const strOptions = arg.getOptions();
         const strLength =
           strOptions?.strLength ?? ArgDef.getDefaultOptions().strLength;
-        const avgLen = (strLength.min + strLength.max) / 2;
+        const effMax = Number.isFinite(strLength.max)
+          ? strLength.max
+          : strLength.min + 20;
+        const avgLen = (strLength.min + effMax) / 2;
         const charSet = Array.from(strOptions?.strCharset ?? "");
         const escapableCount = charSet.filter(
           (c) => c === '"' || c === "\\"
