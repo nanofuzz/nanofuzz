@@ -2049,6 +2049,9 @@ export class PythonProgram extends AbstractProgram {
         }
         if (parsedAlphabet?.strRegex !== undefined) {
           options.strRegex = parsedAlphabet.strRegex;
+        } else if (parsedAlphabet === undefined) {
+          // Default st.text() has alphabet=st.characters(), covering Unicode via strRegex
+          options.strRegex = "\\A(?:.)*\\Z";
         }
 
         thisType.type = {

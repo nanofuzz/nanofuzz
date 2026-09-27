@@ -1010,6 +1010,32 @@ def test_special_chars(s: str):
     expect(args[0].getOptions().strCharset).toEqual("abcdefghijklmnop \n\t");
   });
 
+  it("hypothesis @given default st.text and st.characters Unicode strRegex", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+from hypothesis import strategies as st
+
+@given(
+  t=st.text(),
+  c=st.characters()
+)
+def test_defaults(t, c):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_defaults"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().strRegex).toEqual("\\A(?:.)*\\Z");
+    expect(args[0].getOptions().strCharset).toBeDefined();
+    expect(args[0].getOptions().strCharset?.length).toBeGreaterThan(0);
+
+    expect(args[1].getOptions().strRegex).toEqual("\\A(?:.)*\\Z");
+    expect(args[1].getOptions().strLength).toEqual({ min: 1, max: 1 });
+    expect(args[1].getOptions().strCharset).toBeDefined();
+    expect(args[1].getOptions().strCharset?.length).toBeGreaterThan(0);
+  });
+
   it("hypothesis @settings `max_examples`", () => {
     const program = ProgramFactory.fromSource(
       () => `
