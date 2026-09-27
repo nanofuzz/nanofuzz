@@ -154,6 +154,8 @@ real_stdout = (
     else sys.stdout.buffer
 )
 
+_tracer_running = False
+
 
 MAX_HEARTBEATS = 1000
 _HEARTBEAT_BYTES = struct.pack('>I', len(
@@ -743,6 +745,8 @@ def init_file_to_idx(pgm_files: List[str]) -> None:
 
 
 def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]], pgm_files: List[str]) -> RunnerResult:
+    global _tracer_running
+
     collect_options = input.get("collect")
     if collect_options is None:
         coverage_enabled = True
@@ -764,9 +768,14 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     timeout_ms = input.get("timeout", 0)
 
     if coverage_enabled:
-        # cov.erase() is too expensive. Seems like only erasing the data works too
         cov.get_data().erase()
-        cov.start()
+        if not _tracer_running:
+            cov.start()
+            _tracer_running = True
+    else:
+        if _tracer_running:
+            cov.stop()
+            _tracer_running = False
 
     error = None
     skip = None
@@ -797,11 +806,8 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             skip = e
         else:
             error = e
-    finally:
-        if coverage_enabled:
-            cov.stop()
 
-    # Read coverage after stopping: a failing or timing out input still covers lines
+    # Read coverage after execution: a failing or timing out input still covers lines
     coverageData = {}
     coverageArcs = {}
     if coverage_enabled:
