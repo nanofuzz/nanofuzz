@@ -426,6 +426,39 @@ describe("fuzzer: typescript targets", () => {
     });
   });
 
+  it("dupe check transformer inputs", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformedDupeCheck",
+      { ...intOptions, maxTests: 50 }
+    ).testSync();
+
+    // There are only 2 booleans (true/false).
+    // The transformer throws if called more than twice.
+    // If pre-transformer deduplication works, at most 2 inputs will be transformed
+    // and no transformer exception will occur.
+    expect(fuzzResult.results.length).toBe(2);
+    expect(fuzzResult.stats.counters.dupesGenerated).toBeGreaterThan(0);
+    fuzzResult.results.forEach((r) => {
+      expect(r.harnessErrors.length).toBe(0);
+      expect(r.category).toBe("ok");
+    });
+  });
+
+  it("deduplicates transformed inputs after transformer collapses distinct inputs", async () => {
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "targetTransformedCollapsing",
+      { ...intOptions, maxTests: 50 }
+    ).testSync();
+
+    // Transformer maps all inputs to 42. Post-transformer dupe check should ensure
+    // only 1 unique test output result exists despite generating many inputs.
+    expect(fuzzResult.results.length).toBe(1);
+    expect<unknown>(fuzzResult.results[0].input[0].value).toBe(42);
+    expect(fuzzResult.stats.counters.dupesGenerated).toBeGreaterThan(0);
+  });
+
   it("TypeScript validator exception", async () => {
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.ts",
