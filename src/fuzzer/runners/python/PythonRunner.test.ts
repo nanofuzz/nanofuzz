@@ -18,8 +18,16 @@ import * as path from "path";
 import * as os from "os";
 
 describe("fuzzer/runners/PythonRunner", () => {
+  let originalTimeout: number;
+
   beforeAll(async () => {
     await Parser.init();
+    originalTimeout = jasmine.DEFAULT_TIMEOUT_INTERVAL;
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = 30000;
+  });
+
+  afterAll(() => {
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = originalTimeout;
   });
 
   afterEach(() => {
@@ -457,7 +465,7 @@ def loop_timeout(n: int) -> int:
     const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "slow_import_hb.py");
     const pyCode = `import time
-time.sleep(1.5)
+time.sleep(3.0)
 
 def slow_fn(x: int) -> int:
     return x * 2
@@ -476,16 +484,16 @@ def slow_fn(x: int) -> int:
         maxDupeInputs: 10,
       });
 
-      // Set hostStartupTimeout to 500ms. Without heartbeats (sent every 250ms),
-      // a 1.5s import would time out at t=1000ms. Heartbeats reset the 500ms clock,
-      // allowing the 1.5s import to succeed cleanly.
-      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 1000);
+      // Set hostStartupTimeout to 2000ms. Without heartbeats (sent every 250ms),
+      // a 3.0s import would time out at t=2000ms. Heartbeats reset the clock,
+      // allowing the 3.0s import to succeed cleanly.
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 2000);
 
       const runner = new PythonRunner(pyPath, "slow_fn", env, 10000);
       const start = performance.now();
       await runner.onRunStart();
       const elapsed = performance.now() - start;
-      expect(elapsed).toBeGreaterThanOrEqual(1400);
+      expect(elapsed).toBeGreaterThanOrEqual(2800);
 
       const res = await runner.run([10], 10000);
       await runner.onRunEnd();

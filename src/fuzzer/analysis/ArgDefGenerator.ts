@@ -529,10 +529,11 @@ const getRandomString: PrivateRandFn = (
   // This generator does not currently support min and max, but we don't make
   // that option available in the UI anyway. Find the old code in v0.3.2 and fix
   // intervals for string types when it's time to implement this.
-  const strLen = sampleLength(
+  const strLen = getRandomNumber(
     prng,
     options.strLength.min,
-    options.strLength.max
+    options.strLength.max,
+    intOptions
   );
 
   // Sequentially choose each character in the string
