@@ -271,10 +271,27 @@ function generateRandomInputFn(
   const options = arg.getOptions();
   const dimLength = arg.getOptions().dimLength;
   const isOptional = arg.isOptional();
+  const isUnicodeWildcard =
+    type === ArgTag.STRING && options.strRegex === "\\A(?:.)*\\Z";
   const regexGenerator =
-    type === ArgTag.STRING && options.strRegex !== undefined
+    type === ArgTag.STRING &&
+    options.strRegex !== undefined &&
+    !isUnicodeWildcard
       ? RegexStringBuilder.create(options.strRegex, prng, options)
       : undefined;
+
+  const getRandomUnicodeString: PublicRandFn = () => {
+    const strLen = sampleLength(
+      prng,
+      options.strLength.min,
+      options.strLength.max
+    );
+    const outChars: string[] = [];
+    for (let i = 0; i < strLen; i++) {
+      outChars.push(RegexStringBuilder.getRandomUnicodeChar(prng));
+    }
+    return outChars.join("");
+  };
 
   // Callback fn to generate value
   const randFnWrapper: PublicRandFn = () => {
@@ -295,6 +312,7 @@ function generateRandomInputFn(
       }
     }
     if (type === ArgTag.LITERAL && !intervals.length) return undefined;
+    if (isUnicodeWildcard) return getRandomUnicodeString();
     if (regexGenerator) return regexGenerator();
 
     // TODO: weight interval selection based on the size of the interval !!!
