@@ -289,4 +289,15 @@ describe("JSONN: ", () => {
     expect(unpackedMap instanceof Map).toBeTrue();
     expect(unpackedMap).toEqual(mapVal);
   });
+
+  it("packString canonical for literal and cloned objects", () => {
+    const obj = { x: [1, 2, 3], y: "test", z: new Set([10, 20]) };
+    const clonedObj = structuredClone(obj);
+
+    const packedStr1 = JSONN.packString(obj);
+    const packedStr2 = JSONN.packString(clonedObj);
+
+    expect(typeof packedStr1).toBe("string");
+    expect(packedStr1).toBe(packedStr2);
+  });
 });

@@ -130,6 +130,21 @@ export function pack(value: unknown): Uint8Array {
 } // fn: pack()
 
 /**
+ * Packs a value into a binary string for fast ephemeral equality and Set uniqueness checks.
+ *
+ * @param value The value to pack into binary string format.
+ * @returns Binary string representation of the packed value.
+ */
+export function packString(value: unknown): string {
+  const packed = pack(value);
+  return Buffer.from(
+    packed.buffer,
+    packed.byteOffset,
+    packed.byteLength
+  ).toString("binary");
+} // fn: packString()
+
+/**
  * Unpacks a MsgPack binary buffer back into a JavaScript value.
  *
  * @param buffer The MsgPack binary buffer to decode.
