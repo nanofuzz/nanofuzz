@@ -344,6 +344,20 @@ def get_inputs() -> RunnerInput:
     raise Exception("stdin closed")
 
 
+_norm_path_cache: dict[str, str] = {}
+
+
+def get_norm_path(path_str: str) -> str:
+    """Memoizes os.path.normcase(os.path.realpath(path_str)) to avoid repeated stat() calls."""
+    if path_str not in _norm_path_cache:
+        try:
+            _norm_path_cache[path_str] = os.path.normcase(
+                os.path.realpath(path_str))
+        except Exception:
+            _norm_path_cache[path_str] = path_str
+    return _norm_path_cache[path_str]
+
+
 _measured_key_cache: dict[str, Union[str, None]] = {}
 
 
@@ -364,9 +378,9 @@ def measured_key(data, filename: str) -> Union[str, None]:
         _measured_key_cache[filename] = filename
         return filename
 
-    target = os.path.normcase(os.path.realpath(filename))
+    target = get_norm_path(filename)
     for m in measured:
-        if os.path.normcase(os.path.realpath(m)) == target:
+        if get_norm_path(m) == target:
             _measured_key_cache[filename] = m
             return m
 
@@ -741,7 +755,7 @@ def init_file_to_idx(pgm_files: List[str]) -> None:
     _file_to_idx = {f: i for i, f in enumerate(pgm_files)}
     for i, f in enumerate(pgm_files):
         try:
-            _file_to_idx[os.path.normcase(os.path.realpath(f))] = i
+            _file_to_idx[get_norm_path(f)] = i
         except Exception:
             pass
 
@@ -819,7 +833,7 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             idx = _file_to_idx.get(file)
             if idx is None:
                 try:
-                    norm_file = os.path.normcase(os.path.realpath(file))
+                    norm_file = get_norm_path(file)
                     idx = _file_to_idx.get(norm_file)
                     if idx is not None:
                         _file_to_idx[file] = idx
