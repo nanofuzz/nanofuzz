@@ -1443,10 +1443,57 @@ export class PythonProgram extends AbstractProgram {
     if (valNode.type === "integer" || valNode.type === "float") {
       return Number(valNode.text.replace(/_/g, ""));
     }
+    if (valNode.type === "parenthesized_expression") {
+      return this._parseLiteral(valNode.firstNamedChild ?? undefined);
+    }
     if (valNode.type === "unary_operator") {
       const operand = this._parseLiteral(valNode.lastNamedChild ?? undefined);
       if (typeof operand === "number") {
-        return valNode.text.startsWith("-") ? -operand : operand;
+        if (valNode.text.startsWith("-")) return -operand;
+        if (valNode.text.startsWith("+")) return +operand;
+        if (valNode.text.startsWith("~")) return ~operand;
+        return operand;
+      }
+    }
+    if (valNode.type === "binary_operator") {
+      const left = this._parseLiteral(
+        valNode.childForFieldName("left") ?? valNode.namedChildren[0]
+      );
+      const right = this._parseLiteral(
+        valNode.childForFieldName("right") ?? valNode.namedChildren[1]
+      );
+      const op = valNode.children.find((c) => !c.isNamed)?.text;
+
+      if (typeof left === "number" && typeof right === "number") {
+        switch (op) {
+          case "+":
+            return left + right;
+          case "-":
+            return left - right;
+          case "*":
+            return left * right;
+          case "/":
+            return left / right;
+          case "//":
+            return Math.floor(left / right);
+          case "%":
+            return left % right;
+          case "**":
+            return Math.pow(left, right);
+          case "<<":
+            return left << right;
+          case ">>":
+            return left >> right;
+          case "&":
+            return left & right;
+          case "|":
+            return left | right;
+          case "^":
+            return left ^ right;
+          case undefined:
+          default:
+            return undefined;
+        }
       }
     }
     if (valNode.type === "true") return true;

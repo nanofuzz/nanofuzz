@@ -1331,6 +1331,30 @@ def test_bounds(integer, decimal):
     expect(args[1].getIntervals()).toEqual([{ min: -1.5, max: 2.5 }]);
   });
 
+  it("hypothesis @given constant expressions (powers, bitwise, binary arithmetic)", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    seconds=st.integers(min_value=2**30, max_value=2**34 - 1),
+    nanoseconds=st.integers(min_value=1, max_value=10**9 - 1),
+    flags=st.integers(min_value=1 << 4, max_value=(1 << 8) - 1),
+    buffer_size=st.integers(min_value=64 * 1024, max_value=128 * 1024)
+)
+def test_expressions(seconds, nanoseconds, flags, buffer_size):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_expressions"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getIntervals()).toEqual([
+      { min: 1073741824, max: 17179869183 },
+    ]);
+    expect(args[1].getIntervals()).toEqual([{ min: 1, max: 999999999 }]);
+    expect(args[2].getIntervals()).toEqual([{ min: 16, max: 255 }]);
+    expect(args[3].getIntervals()).toEqual([{ min: 65536, max: 131072 }]);
+  });
+
   it("hypothesis @given `lists` nested and fixed_dictionaries", () => {
     const fn = ProgramFactory.fromSource(
       () => `
