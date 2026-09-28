@@ -37,6 +37,7 @@ import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
+import { Judgment } from "./oracles/Types";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
@@ -977,13 +978,37 @@ export class Tester {
           }
         }
 
+        const getRemainingSuiteTime = (): number => {
+          const timeSinceGenStart =
+            runStats.timers.startGenTime > 0
+              ? performance.now() - runStats.timers.startGenTime
+              : 0;
+          return this._options.suiteTimeout > 0 &&
+            runStats.timers.startGenTime > 0
+            ? Math.max(0, this._options.suiteTimeout - timeSinceGenStart)
+            : Infinity;
+        };
+
         // Apply input transformers to generated inputs (before main dedupe)
         const startTransformTime = performance.now(); // start time: input transformation
         if (!result.inputGenerated.injected && transformRunner) {
-          const transformerResult = await transformRunner.run(
-            deepFreeze(result.inputGenerated.value.map((e) => e.value)),
-            Math.max(this._options.fnTimeout, 1)
-          );
+          let transformerResult: RunnerResult;
+          try {
+            transformerResult = await transformRunner.runWithInterrupt(
+              () =>
+                transformRunner.run(
+                  deepFreeze(result.inputGenerated.value.map((e) => e.value)),
+                  Math.max(this._options.fnTimeout, 1)
+                ),
+              getRemainingSuiteTime(),
+              cancelFn
+            );
+          } catch (e: unknown) {
+            if (isError(e) && e.message === "runnerInterrupted") {
+              continue;
+            }
+            throw e;
+          }
 
           // If transformer returns null, then input was rejected so skip this input
           switch (transformerResult.result.tag) {
@@ -1098,50 +1123,18 @@ export class Tester {
         if (!result.skipped && result.harnessErrors.length === 0) {
           const startRunTime = performance.now(); // start timer
           let exeOutput: RunnerResult;
-          let interruptedReason: FuzzStopReason | undefined = undefined;
-
-          // Calculate remaining suiteTimeout
-          const timeSinceGenStart =
-            runStats.timers.startGenTime > 0
-              ? performance.now() - runStats.timers.startGenTime
-              : 0;
-          const remainingSuiteTime =
-            this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
-              ? Math.max(0, this._options.suiteTimeout - timeSinceGenStart)
-              : Infinity;
-
-          let suiteTimer: NodeJS.Timeout | undefined = undefined;
-          let cancelTimer: NodeJS.Timeout | undefined = undefined;
-
-          const interruptPromise = new Promise<never>((_, reject) => {
-            if (remainingSuiteTime !== Infinity) {
-              suiteTimer = setTimeout(() => {
-                interruptedReason = FuzzStopReason.MAXTIME;
-                reject(new Error("suiteTimeoutExceeded"));
-              }, remainingSuiteTime);
-            }
-
-            cancelTimer = setInterval(() => {
-              if (cancelFn && cancelFn()) {
-                interruptedReason = FuzzStopReason.PAUSE;
-                reject(new Error("userCancelled"));
-              }
-            }, 50);
-          });
-
           try {
-            exeOutput = await Promise.race([
-              runner.run(
-                deepFreeze(result.input.map((e) => e.value)),
-                Math.max(this._options.fnTimeout, 1)
-              ),
-              interruptPromise,
-            ]);
+            exeOutput = await runner.runWithInterrupt(
+              () =>
+                runner.run(
+                  deepFreeze(result.input.map((e) => e.value)),
+                  Math.max(this._options.fnTimeout, 1)
+                ),
+              getRemainingSuiteTime(),
+              cancelFn
+            );
           } catch (e: unknown) {
-            if (interruptedReason !== undefined) {
-              runner.killHost();
-              if (suiteTimer) clearTimeout(suiteTimer);
-              if (cancelTimer) clearInterval(cancelTimer);
+            if (isError(e) && e.message === "runnerInterrupted") {
               continue;
             }
 
@@ -1168,9 +1161,6 @@ export class Tester {
                 env: {},
               };
             }
-          } finally {
-            if (suiteTimer) clearTimeout(suiteTimer);
-            if (cancelTimer) clearInterval(cancelTimer);
           }
           result.timers.run = performance.now() - startRunTime; // stop timer
           switch (exeOutput.result.tag) {
@@ -1230,8 +1220,9 @@ export class Tester {
             // PROPERTY ORACLE --------------------------------------------
             // If a property validator is selected, call it to evaluate the result
             if (this._options.useProperty) {
-              (
-                await propertyOracle.judge(
+              let validatorJudgments: (Judgment | Error)[] = [];
+              try {
+                validatorJudgments = await propertyOracle.judge(
                   Object.freeze({
                     in: result.input.map((i) => i.value), // inputs
                     out:
@@ -1241,9 +1232,18 @@ export class Tester {
                     exception: result.exception,
                     timeout: result.timeout,
                   }),
-                  Math.max(this._options.fnTimeout, 1)
-                )
-              ).forEach((j, i) => {
+                  Math.max(this._options.fnTimeout, 1),
+                  getRemainingSuiteTime(),
+                  cancelFn
+                );
+              } catch (e: unknown) {
+                if (isError(e) && e.message === "runnerInterrupted") {
+                  continue;
+                }
+                throw e;
+              }
+
+              validatorJudgments.forEach((j, i) => {
                 if (isError(j)) {
                   result.passedValidators.push("unknown");
                   const fnName = this._validators[i].name;

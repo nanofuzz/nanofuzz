@@ -1,4 +1,5 @@
 import { VmGlobals } from "../Types";
+import { AbstractHost } from "./AbstractHost";
 
 /**
  * Abstract test runner class
@@ -56,6 +57,28 @@ export abstract class AbstractRunner {
     inputs: unknown[],
     timeout?: number
   ): Promise<RunnerResult>;
+
+  /**
+   * Executes a runner function with host-level interrupt handling.
+   */
+  public async runWithInterrupt<T>(
+    fn: () => Promise<T>,
+    remainingSuiteTime?: number,
+    cancelFn?: () => boolean
+  ): Promise<T> {
+    const host = await this._getHost();
+    if (host) {
+      return host.runWithInterrupt(fn, remainingSuiteTime, cancelFn);
+    }
+    return fn();
+  }
+
+  /**
+   * Internal getter for the runner's host process if one is managed.
+   */
+  protected async _getHost(): Promise<AbstractHost | undefined> {
+    return undefined;
+  }
 
   /**
    * Terminates the active worker host process if one is running.
