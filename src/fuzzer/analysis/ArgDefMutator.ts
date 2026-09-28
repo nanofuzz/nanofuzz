@@ -5,7 +5,6 @@ import * as RegexStringBuilder from "./RegexStringBuilder";
 import { ArgTag, ArgValueType, ArgValueTypeWrapped } from "./Types";
 import * as JSONN from "../../Jsonn";
 import { isBufferOrUint8Array, makeCanonicalSet } from "../../Util";
-import { serialize as v8Serialize } from "v8";
 
 /**
  * Utilities for mutating values described by an ArgDef spec
@@ -109,14 +108,14 @@ export class ArgDefMutator {
       if (context.requiresUniqueElements) {
         if (mutation.value instanceof Set) {
           const serializedValues = Array.from(mutation.value.values()).map(
-            (element) => fastSerialize(element)
+            (element) => JSONN.packString(element)
           );
           if (new Set(serializedValues).size !== serializedValues.length) {
             return false;
           }
         } else if (Array.isArray(mutation.value)) {
           const serializedValues = mutation.value.map((element) =>
-            fastSerialize(element)
+            JSONN.packString(element)
           );
           if (new Set(serializedValues).size !== serializedValues.length) {
             return false;
@@ -134,14 +133,14 @@ export class ArgDefMutator {
           mutation.deleteProperty,
           mutation.objectKeyOrder
         );
-        const serializedOuterElement = fastSerialize(outerElement);
+        const serializedOuterElement = JSONN.packString(outerElement);
         if (uniqueContext.otherSiblingStrings) {
           return !uniqueContext.otherSiblingStrings.has(serializedOuterElement);
         }
         return !uniqueContext.siblings.some(
           (sibling, index) =>
             index !== uniqueContext.index &&
-            fastSerialize(sibling) === serializedOuterElement
+            JSONN.packString(sibling) === serializedOuterElement
         );
       });
     }
@@ -233,7 +232,7 @@ export class ArgDefMutator {
           const otherSiblingStrings = new Set<string>();
           for (let j = 0; j < a.length; j++) {
             if (j !== index) {
-              otherSiblingStrings.add(fastSerialize(a[j]));
+              otherSiblingStrings.add(JSONN.packString(a[j]));
             }
           }
           childUniqueContexts.push({
@@ -1370,10 +1369,3 @@ export type mutatorFn = {
 function toPathKey(path: (string | number)[]): string {
   return path.join("\0");
 } // fn: toPathKey
-
-/**
- * Fast binary serialization for ephemeral equality / Set uniqueness checks.
- */
-function fastSerialize(val: unknown): string {
-  return v8Serialize(val).toString("binary");
-} // fn: fastSerialize
