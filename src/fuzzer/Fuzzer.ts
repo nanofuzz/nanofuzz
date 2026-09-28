@@ -1098,12 +1098,53 @@ export class Tester {
         if (!result.skipped && result.harnessErrors.length === 0) {
           const startRunTime = performance.now(); // start timer
           let exeOutput: RunnerResult;
+          let interruptedReason: FuzzStopReason | undefined = undefined;
+
+          // Calculate remaining suiteTimeout
+          const timeSinceGenStart =
+            runStats.timers.startGenTime > 0
+              ? performance.now() - runStats.timers.startGenTime
+              : 0;
+          const remainingSuiteTime =
+            this._options.suiteTimeout > 0 && runStats.timers.startGenTime > 0
+              ? Math.max(0, this._options.suiteTimeout - timeSinceGenStart)
+              : Infinity;
+
+          let suiteTimer: NodeJS.Timeout | undefined = undefined;
+          let cancelTimer: NodeJS.Timeout | undefined = undefined;
+
+          const interruptPromise = new Promise<never>((_, reject) => {
+            if (remainingSuiteTime !== Infinity) {
+              suiteTimer = setTimeout(() => {
+                interruptedReason = FuzzStopReason.MAXTIME;
+                reject(new Error("suiteTimeoutExceeded"));
+              }, remainingSuiteTime);
+            }
+
+            cancelTimer = setInterval(() => {
+              if (cancelFn && cancelFn()) {
+                interruptedReason = FuzzStopReason.PAUSE;
+                reject(new Error("userCancelled"));
+              }
+            }, 50);
+          });
+
           try {
-            exeOutput = await runner.run(
-              deepFreeze(result.input.map((e) => e.value)),
-              Math.max(this._options.fnTimeout, 1)
-            );
+            exeOutput = await Promise.race([
+              runner.run(
+                deepFreeze(result.input.map((e) => e.value)),
+                Math.max(this._options.fnTimeout, 1)
+              ),
+              interruptPromise,
+            ]);
           } catch (e: unknown) {
+            if (interruptedReason !== undefined) {
+              runner.killHost();
+              if (suiteTimer) clearTimeout(suiteTimer);
+              if (cancelTimer) clearInterval(cancelTimer);
+              continue;
+            }
+
             if (isError(e)) {
               exeOutput = {
                 result: {
@@ -1127,6 +1168,9 @@ export class Tester {
                 env: {},
               };
             }
+          } finally {
+            if (suiteTimer) clearTimeout(suiteTimer);
+            if (cancelTimer) clearInterval(cancelTimer);
           }
           result.timers.run = performance.now() - startRunTime; // stop timer
           switch (exeOutput.result.tag) {

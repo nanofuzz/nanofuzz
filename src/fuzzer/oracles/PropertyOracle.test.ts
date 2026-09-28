@@ -13,6 +13,10 @@ class MockPropRunner extends AbstractRunner {
   public override async run(): Promise<RunnerResult> {
     return this._runFn();
   }
+
+  public override killHost(): void {
+    // No-op for mock
+  }
 }
 
 describe("fuzzer.oracles.PropertyOracle", () => {
@@ -105,34 +109,31 @@ describe("fuzzer.oracles.PropertyOracle", () => {
   });
 
   it("Property Oracle - judge handles error, timeout, skip, and values", async () => {
-    const mockRunnerPass = new MockPropRunner(
-      "passVal",
-      async () => ({ result: { tag: "value", value: "pass", seq: 0 }, env: {} })
-    );
+    const mockRunnerPass = new MockPropRunner("passVal", async () => ({
+      result: { tag: "value", value: "pass", seq: 0 },
+      env: {},
+    }));
 
-    const mockRunnerFail = new MockPropRunner(
-      "failVal",
-      async () => ({ result: { tag: "value", value: "fail", seq: 0 }, env: {} })
-    );
+    const mockRunnerFail = new MockPropRunner("failVal", async () => ({
+      result: { tag: "value", value: "fail", seq: 0 },
+      env: {},
+    }));
 
-    const mockRunnerTimeout = new MockPropRunner(
-      "timeoutVal",
-      async () => ({ result: { tag: "timeout", seq: 0 }, env: {} })
-    );
+    const mockRunnerTimeout = new MockPropRunner("timeoutVal", async () => ({
+      result: { tag: "timeout", seq: 0 },
+      env: {},
+    }));
 
-    const mockRunnerError = new MockPropRunner(
-      "errorVal",
-      async () => ({
-        result: {
-          tag: "error",
-          name: "CustomError",
-          message: "crashed",
-          stack: "Error: crashed",
-          seq: 0,
-        },
-        env: {},
-      })
-    );
+    const mockRunnerError = new MockPropRunner("errorVal", async () => ({
+      result: {
+        tag: "error",
+        name: "CustomError",
+        message: "crashed",
+        stack: "Error: crashed",
+        seq: 0,
+      },
+      env: {},
+    }));
 
     const oracle = new PropertyOracle([
       mockRunnerPass,

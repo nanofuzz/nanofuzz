@@ -58,6 +58,11 @@ export abstract class AbstractRunner {
   ): Promise<RunnerResult>;
 
   /**
+   * Terminates the active worker host process if one is running.
+   */
+  public abstract killHost(): void;
+
+  /**
    * Called after the end of the run
    */
   public async onRunEnd(): Promise<void> {
