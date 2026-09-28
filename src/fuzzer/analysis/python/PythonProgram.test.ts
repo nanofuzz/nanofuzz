@@ -1017,9 +1017,10 @@ from hypothesis import strategies as st
 
 @given(
   t=st.text(),
-  c=st.characters()
+  c=st.characters(),
+  t_alpha=st.text(alphabet="abc")
 )
-def test_defaults(t, c):
+def test_defaults(t, c, t_alpha):
   pass
       `,
       "python"
@@ -1038,6 +1039,12 @@ def test_defaults(t, c):
     expect(args[1].getOptions().strLength).toEqual({ min: 1, max: 1 });
     expect(args[1].getOptions().strCharset).toBeDefined();
     expect(args[1].getOptions().strCharset?.length).toBeGreaterThan(0);
+
+    expect(args[2].getOptions().strCharset).toEqual("abc");
+    expect(args[2].getOptions().strLength).toEqual({
+      min: 0,
+      max: Number.POSITIVE_INFINITY,
+    });
   });
 
   it("hypothesis @given unbounded dft st.integers and st.floats", () => {

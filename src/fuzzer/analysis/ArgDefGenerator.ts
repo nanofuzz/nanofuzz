@@ -468,7 +468,6 @@ export const sampleLength = (
   const safeMin = Number.isFinite(min) && min >= 0 ? min : 0;
   const safeMax = max !== undefined ? max : Infinity;
 
-  if (safeMin === safeMax) return safeMin;
   if (safeMin > safeMax) {
     throw new Error(`min (${safeMin}) cannot be greater than max (${safeMax})`);
   }
@@ -514,11 +513,10 @@ const getRandomString: PrivateRandFn = (
   // This generator does not currently support min and max, but we don't make
   // that option available in the UI anyway. Find the old code in v0.3.2 and fix
   // intervals for string types when it's time to implement this.
-  const strLen = getRandomNumber(
+  const strLen = sampleLength(
     prng,
     options.strLength.min,
-    options.strLength.max,
-    intOptions
+    options.strLength.max
   );
 
   // Sequentially choose each character in the string

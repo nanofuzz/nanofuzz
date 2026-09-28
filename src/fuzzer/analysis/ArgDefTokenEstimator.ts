@@ -63,7 +63,9 @@ export class ArgDefTokenEstimator {
     innerChars: number
   ): number {
     const minLen = Math.max(0, Math.ceil(dim.min));
-    const maxLen = Math.max(minLen, Math.floor(dim.max));
+    const maxLen = Number.isFinite(dim.max)
+      ? Math.max(minLen, Math.floor(dim.max))
+      : minLen + 20;
     const numLengths = maxLen - minLen + 1;
 
     let totalCharsSum = 0;

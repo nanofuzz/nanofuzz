@@ -63,6 +63,10 @@ describe("fuzzer/generator/GeneratorFactory:", () => {
     testRandomStringException("ABCDEF", "ABC", 6, 3);
   });
 
+  it(`Random String unbounded len 0-Infinity`, () => {
+    testRandomString("", "", 0, Infinity);
+  });
+
   // -------------------------------- Integers -------------------------------- //
 
   it(`Random Int >= 0 && <= 5`, () => {

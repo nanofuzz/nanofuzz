@@ -479,23 +479,32 @@ export class AiInputGenerator extends AbstractInputGenerator {
         }
         case ArgTag.STRING: {
           const charSet = argOptions.strCharset;
-          const desc = `string length must be >= ${argOptions.strLength.min} && <= ${argOptions.strLength.max}; the string may contain only the following characters: ${charSet}`;
+          const maxDesc = Number.isFinite(argOptions.strLength.max)
+            ? ` && <= ${argOptions.strLength.max}`
+            : "";
+          const desc = `string length must be >= ${argOptions.strLength.min}${maxDesc}; the string may contain only the following characters: ${charSet}`;
           directives.push(`${path}: ${desc}}`);
-          return zod
-            .string()
-            .min(argOptions.strLength.min)
-            .max(argOptions.strLength.max)
+          let schema = zod.string().min(argOptions.strLength.min);
+          if (Number.isFinite(argOptions.strLength.max)) {
+            schema = schema.max(argOptions.strLength.max);
+          }
+          return schema
             .refine((s) => [...s].every((char) => charSet.includes(char)))
             .describe(desc);
         }
         case ArgTag.BYTES: {
-          const desc = `array of byte integers (0-255) with length >= ${argOptions.byteLength.min} && <= ${argOptions.byteLength.max}`;
+          const maxDesc = Number.isFinite(argOptions.byteLength.max)
+            ? ` && <= ${argOptions.byteLength.max}`
+            : "";
+          const desc = `array of byte integers (0-255) with length >= ${argOptions.byteLength.min}${maxDesc}`;
           directives.push(`${path}: ${desc}`);
-          return zod
+          let schema = zod
             .array(zod.number().int().min(0).max(255))
-            .min(argOptions.byteLength.min)
-            .max(argOptions.byteLength.max)
-            .describe(desc);
+            .min(argOptions.byteLength.min);
+          if (Number.isFinite(argOptions.byteLength.max)) {
+            schema = schema.max(argOptions.byteLength.max);
+          }
+          return schema.describe(desc);
         }
         case ArgTag.LITERAL: {
           const literalValue = arg.getConstantValue();
@@ -628,11 +637,16 @@ export class AiInputGenerator extends AbstractInputGenerator {
     // Dimensions
     argOptions.dimLength.forEach((dim, idx) => {
       const isUnique = idx === 0 && argOptions.dimsUnique;
-      const desc = `array length must be >= ${dim.min} && <= ${dim.max}${
+      const maxDesc = Number.isFinite(dim.max) ? ` && <= ${dim.max}` : "";
+      const desc = `array length must be >= ${dim.min}${maxDesc}${
         isUnique ? "; all elements in the array must be unique" : ""
       }`;
       directives.push(`${path}: ${desc}`);
-      zodArg = zod.array(zodArg).min(dim.min).max(dim.max).describe(desc);
+      let arrSchema = zod.array(zodArg).min(dim.min);
+      if (Number.isFinite(dim.max)) {
+        arrSchema = arrSchema.max(dim.max);
+      }
+      zodArg = arrSchema.describe(desc);
     });
     return zodArg;
   } // fn: _argDefToSchema
