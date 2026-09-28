@@ -665,43 +665,26 @@ export const sampleNumberHeuristic = (
       }
     } else if (category < 0.5) {
       // 2. Boundary values / powers of two
-      const candidateList = [
-        0,
-        1,
-        -1,
-        2,
-        -2,
-        127,
-        128,
-        -128,
-        -129,
-        255,
-        256,
-        -256,
-        32767,
-        32768,
-        -32768,
-        -32769,
-        65535,
-        65536,
-        2147483647,
-        2147483648,
-        -2147483648,
-        -2147483649,
-        Number.MAX_SAFE_INTEGER,
-        -Number.MAX_SAFE_INTEGER,
-      ];
-      if (Number.isFinite(min)) {
-        candidateList.push(min, min + 1);
-      }
-      if (Number.isFinite(max)) {
-        candidateList.push(max, max - 1);
-      }
-      const filtered = candidateList.filter((b) => b >= min && b <= max);
-      if (filtered.length > 0) {
-        candidate = filtered[Math.floor(prng() * filtered.length)];
+      if (!Number.isFinite(min) && !Number.isFinite(max)) {
+        candidate = INT_BOUNDARIES[Math.floor(prng() * INT_BOUNDARIES.length)];
       } else {
-        candidate = Number.isFinite(min) ? min : Number.isFinite(max) ? max : 0;
+        const candidateList = [...INT_BOUNDARIES];
+        if (Number.isFinite(min)) {
+          candidateList.push(min, min + 1);
+        }
+        if (Number.isFinite(max)) {
+          candidateList.push(max, max - 1);
+        }
+        const filtered = candidateList.filter((b) => b >= min && b <= max);
+        if (filtered.length > 0) {
+          candidate = filtered[Math.floor(prng() * filtered.length)];
+        } else {
+          candidate = Number.isFinite(min)
+            ? min
+            : Number.isFinite(max)
+              ? max
+              : 0;
+        }
       }
     } else if (category < 0.75) {
       // 3. Medium range integers
@@ -752,35 +735,22 @@ export const sampleNumberHeuristic = (
 
     if (category < 0.25) {
       // 1. Special float boundaries
-      const candidateList = [
-        0.0,
-        -0.0,
-        1.0,
-        -1.0,
-        0.5,
-        -0.5,
-        2.0,
-        -2.0,
-        10.0,
-        -10.0,
-        Number.MIN_VALUE,
-        Number.MAX_VALUE,
-        Number.EPSILON,
-        -Number.MIN_VALUE,
-        -Number.MAX_VALUE,
-        -Number.EPSILON,
-      ];
-      if (Number.isFinite(min)) candidateList.push(min);
-      if (Number.isFinite(max)) candidateList.push(max);
-      const filtered = candidateList.filter((b) => b >= min && b <= max);
-      if (filtered.length > 0) {
-        candidate = filtered[Math.floor(prng() * filtered.length)];
+      if (!Number.isFinite(min) && !Number.isFinite(max)) {
+        candidate = FLOAT_SPECIALS[Math.floor(prng() * FLOAT_SPECIALS.length)];
       } else {
-        candidate = Number.isFinite(min)
-          ? min
-          : Number.isFinite(max)
-            ? max
-            : 0.0;
+        const candidateList = [...FLOAT_SPECIALS];
+        if (Number.isFinite(min)) candidateList.push(min);
+        if (Number.isFinite(max)) candidateList.push(max);
+        const filtered = candidateList.filter((b) => b >= min && b <= max);
+        if (filtered.length > 0) {
+          candidate = filtered[Math.floor(prng() * filtered.length)];
+        } else {
+          candidate = Number.isFinite(min)
+            ? min
+            : Number.isFinite(max)
+              ? max
+              : 0.0;
+        }
       }
     } else if (category < 0.5) {
       // 2. Small / normalized floats near 0
@@ -868,3 +838,49 @@ const getDiscreteConstantLeaves = (arg: ArgDef): ArgDef[] | undefined => {
   }
   return undefined;
 };
+
+const INT_BOUNDARIES: readonly number[] = Object.freeze([
+  0,
+  1,
+  -1,
+  2,
+  -2,
+  127,
+  128,
+  -128,
+  -129,
+  255,
+  256,
+  -256,
+  32767,
+  32768,
+  -32768,
+  -32769,
+  65535,
+  65536,
+  2147483647,
+  2147483648,
+  -2147483648,
+  -2147483649,
+  Number.MAX_SAFE_INTEGER,
+  -Number.MAX_SAFE_INTEGER,
+]);
+
+const FLOAT_SPECIALS: readonly number[] = Object.freeze([
+  0.0,
+  -0.0,
+  1.0,
+  -1.0,
+  0.5,
+  -0.5,
+  2.0,
+  -2.0,
+  10.0,
+  -10.0,
+  Number.MIN_VALUE,
+  Number.MAX_VALUE,
+  Number.EPSILON,
+  -Number.MIN_VALUE,
+  -Number.MAX_VALUE,
+  -Number.EPSILON,
+]);
