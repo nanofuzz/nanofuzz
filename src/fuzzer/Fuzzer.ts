@@ -1622,7 +1622,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
  * @returns string representation of input key
  */
 export function getIoKey(io: FuzzIoElement[]): string {
-  return JSONN.stringify(
+  return JSONN.packString(
     io.map((input) => {
       return { value: input.value };
     })
