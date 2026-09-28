@@ -2288,9 +2288,9 @@ export class PythonProgram extends AbstractProgram {
           };
         }
 
-        const minSize = parseLiteral(getKwdArg(node, "min_size", 1));
-        const maxSize = parseLiteral(getKwdArg(node, "max_size", 2));
-        const dftInterval = ArgDef.getDefaultOptions().dftDimLength;
+        const minSize = parseLiteral(getKwdArg(node, "min_size", 1)) ?? 0;
+        const maxSize =
+          parseLiteral(getKwdArg(node, "max_size", 2)) ?? Infinity;
 
         // Nested array types increase dims of child spec
         const innerResolvedType = innerTypeRef.type ?? {
@@ -2313,12 +2313,11 @@ export class PythonProgram extends AbstractProgram {
           innerResolvedType.options.dimsUnique = true;
         }
         innerResolvedType.options.dimLength.push({
-          min: Number(minSize ?? dftInterval.min),
-          max: Number(maxSize ?? dftInterval.max),
+          min: Number(minSize),
+          max: Number(maxSize),
         });
 
         if (funcName === "sets") {
-          const dftSetInterval = ArgDef.getDefaultOptions().setLength;
           innerTypeRef.name = "values";
           thisType.typeRefName = "set";
           thisType.baseTypeRef = "set";
@@ -2329,8 +2328,8 @@ export class PythonProgram extends AbstractProgram {
             options: {
               dimsUnique: true,
               setLength: {
-                min: Number(minSize ?? dftSetInterval.min),
-                max: Number(maxSize ?? dftSetInterval.max),
+                min: Number(minSize),
+                max: Number(maxSize),
               },
             },
             resolved: true,
@@ -2602,24 +2601,23 @@ export class PythonProgram extends AbstractProgram {
         }
         valueTypeRef.name = "values";
 
-        const minSize = parseLiteral(getKwdArg(node, "min_size", -1));
-        const maxSize = parseLiteral(getKwdArg(node, "max_size", -1));
-        const dftInterval = ArgDef.getDefaultOptions().dictLength;
+        const minSize = parseLiteral(getKwdArg(node, "min_size", -1)) ?? 0;
+        const maxSize =
+          parseLiteral(getKwdArg(node, "max_size", -1)) ?? Infinity;
 
-        const options: ArgOptionOverride = {};
-        if (minSize !== undefined || maxSize !== undefined) {
-          options.dictLength = {
-            min: Number(minSize ?? dftInterval.min),
-            max: Number(maxSize ?? dftInterval.max),
-          };
-        }
+        const options: ArgOptionOverride = {
+          dictLength: {
+            min: Number(minSize),
+            max: Number(maxSize),
+          },
+        };
 
         thisType.baseTypeRef = "dict";
         thisType.type = {
           type: ArgTag.DICTIONARY,
           dims: 0,
           children: [keyTypeRef, valueTypeRef],
-          ...(Object.keys(options).length > 0 ? { options } : {}),
+          options,
           resolved: true,
           baseTypeRef: "dict",
         };

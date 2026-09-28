@@ -177,12 +177,7 @@ function generateRandomInputFn(
         }
         // The number of key-value entries is sampled dictLength times.
         const dictLen = arg.getOptions().dictLength;
-        const count = getRandomNumber(
-          prng,
-          dictLen.min,
-          dictLen.max,
-          ArgDef.getDefaultOptions()
-        );
+        const count = sampleLength(prng, dictLen.min, dictLen.max);
         const out: { [key: string]: ArgValueType } = {};
         const keyGen = generateRandomInputFn(keySpec, prng);
         const valGen = generateRandomInputFn(valueSpec, prng);
@@ -224,12 +219,7 @@ function generateRandomInputFn(
           );
         }
         const setLen = arg.getOptions().setLength;
-        const count = getRandomNumber(
-          prng,
-          setLen.min,
-          setLen.max,
-          ArgDef.getDefaultOptions()
-        );
+        const count = sampleLength(prng, setLen.min, setLen.max);
         const rawItems: ArgValueType[] = [];
         const seen = new Set<string>();
         const elemGen = generateRandomInputFn(elemSpec, prng);
@@ -333,12 +323,7 @@ function generateRandomInputFn(
   if (constantLeaves !== undefined) {
     randArgValueWrapper = () => {
       const dim = dimLength[0];
-      const targetLen = getRandomNumber(
-        prng,
-        dim.min,
-        dim.max,
-        ArgDef.getDefaultOptions()
-      );
+      const targetLen = sampleLength(prng, dim.min, dim.max);
 
       if (constantLeaves.length < targetLen) {
         return nArray(prng, randFnWrapper, dimLength, options);
@@ -603,12 +588,7 @@ const nArray = (
     const newArray: ArgValueType[] = []; // output array
     const seen =
       currDepth === 0 && options.dimsUnique ? new Set<string>() : undefined;
-    const thisDim = getRandomNumber(
-      prng,
-      dim.min,
-      dim.max,
-      ArgDef.getDefaultOptions()
-    );
+    const thisDim = sampleLength(prng, dim.min, dim.max);
     // Only outer elements must be unique; nested dimensions may repeat. When
     // a finite value domain is exhausted, keep the generated prefix if it
     // already satisfies the minimum dimension length, or fail if it cannot.

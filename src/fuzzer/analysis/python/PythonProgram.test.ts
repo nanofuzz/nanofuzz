@@ -1632,6 +1632,32 @@ def test_popitem_returns_key_value_pair(pairs):
     expect(arg.getOptions().dictLength).toEqual({ min: 3, max: 20 });
   });
 
+  it("hypothesis @given unbounded dft st.lists, st.sets, and st.dictionaries", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+from hypothesis import strategies as st
+
+@given(
+    l_dft=st.lists(st.integers()),
+    s_dft=st.sets(st.integers()),
+    d_dft=st.dictionaries(st.text(), st.integers())
+)
+def test_unbounded_collections(l_dft, s_dft, d_dft):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_unbounded_collections"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().dimLength).toEqual([{ min: 0, max: Infinity }]);
+
+    expect(args[1].getType()).toEqual(ArgTag.SET);
+    expect(args[1].getOptions().setLength).toEqual({ min: 0, max: Infinity });
+
+    expect(args[2].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[2].getOptions().dictLength).toEqual({ min: 0, max: Infinity });
+  });
+
   it("hypothesis @given takes precedence over native type annotations", () => {
     const fn = ProgramFactory.fromSource(
       () => `
