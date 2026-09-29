@@ -410,7 +410,7 @@ describe("cli:", () => {
 
     function verifyCheckpointOutput(
       outputFile: string,
-      expectedRandomness: number
+      isZeroMetricExpected = false
     ) {
       expect(fs.existsSync(outputFile)).toBeTrue();
       const outputData = JSON5.parse<FuzzTestResults>(
@@ -430,8 +430,8 @@ describe("cli:", () => {
         expect(selectedGens.length).toBe(1);
       }
 
-      // 2. Checkpoint scheduler matches random exploration parameter (1.0=random, otherwise=mab)
-      if (expectedRandomness >= 1.0) {
+      // 2. Checkpoint scheduler verification
+      if (isZeroMetricExpected) {
         for (const cp of checkpoints) {
           for (const g of Object.values(cp.gens)) {
             expect(g.productivity).toBe(0);
@@ -485,7 +485,7 @@ describe("cli:", () => {
       }
     }
 
-    // Test 1: MAB mode (randomness < 1.0)
+    // Test 1: MAB mode (default)
     const outputFileMab = path.join(tmpDir, "cig_checkpoints_mab.json5");
     const resMab = await runCli([
       targetFile,
@@ -503,18 +503,18 @@ describe("cli:", () => {
       "cli_seed_cig_checkpoints_mab",
     ]);
     expect(resMab.status).toBe(0);
-    verifyCheckpointOutput(outputFileMab, 0.1);
+    verifyCheckpointOutput(outputFileMab, false);
 
-    // Test 2: Fastpath random mode (randomness = 1.0)
+    // Test 2: Random mode (--cig-scheduler random)
     const outputFileRandom = path.join(tmpDir, "cig_checkpoints_random.json5");
     const resRandom = await runCli([
       targetFile,
       targetFn,
       "--output-file",
       outputFileRandom,
+      "--cig-scheduler",
+      "random",
       "--cig-stats-checkpoints",
-      "--cig-randomness",
-      "1.0",
       "--cig-input-chunk-size",
       "10",
       "--max-tests",
@@ -523,7 +523,27 @@ describe("cli:", () => {
       "cli_seed_cig_checkpoints_random",
     ]);
     expect(resRandom.status).toBe(0);
-    verifyCheckpointOutput(outputFileRandom, 1.0);
+    verifyCheckpointOutput(outputFileRandom, true);
+
+    // Test 3: Round Robin mode (--cig-scheduler round-robin)
+    const outputFileRr = path.join(tmpDir, "cig_checkpoints_rr.json5");
+    const resRr = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileRr,
+      "--cig-scheduler",
+      "round-robin",
+      "--cig-stats-checkpoints",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_rr",
+    ]);
+    expect(resRr.status).toBe(0);
+    verifyCheckpointOutput(outputFileRr, true);
   });
 
   it("--ai-cache-*: cache miss in replay-error mode", async () => {

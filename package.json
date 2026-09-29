@@ -321,6 +321,22 @@
             "default": "",
             "description": "Regex of files for NaNofuzz to ignore"
           },
+          "nanofuzz.generators.compositeScheduler": {
+            "title": "Composite generator scheduler algorithm",
+            "type": "string",
+            "enum": [
+              "mab",
+              "random",
+              "round-robin"
+            ],
+            "enumDescriptions": [
+              "Multi-Armed Bandit (MAB): Productivity-weighted selection based on feedback and exploration",
+              "Random: Uniform pseudo-random selection among ready generators",
+              "Round Robin: Sequential cyclic selection across ready generators"
+            ],
+            "default": "mab",
+            "description": "Scheduler used by CompositeInputGenerator to pick the next input generator"
+          },
           "nanofuzz.generators.compositeLookbackWindow": {
             "title": "Composite generator lookback window size for history",
             "type": "integer",

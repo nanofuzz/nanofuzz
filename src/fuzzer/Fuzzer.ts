@@ -30,6 +30,7 @@ import {
   NextableStatus,
   ScoredInput,
 } from "./generators/Types";
+import { InputSchedulerType } from "./schedulers/Types";
 import { isError } from "./Util";
 import { isArgValueType } from "./analysis/Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
@@ -1752,7 +1753,7 @@ export type FuzzTestStats = {
             selected?: true; // subgen was selected for this chunk
           }
         >;
-        scheduler: "mab" | "random";
+        scheduler: InputSchedulerType;
       }[];
     };
   };

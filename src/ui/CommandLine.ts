@@ -145,6 +145,12 @@ function createProgram(): Commander.Command {
     // ------------------------ Composite Input Generator ------------------------ //
 
     .option(
+      `--cig-scheduler <mab|random|round-robin>`,
+      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin)`,
+      parseCigScheduler,
+      "mab"
+    )
+    .option(
       `--cig-input-lookback <integer>`,
       `Lookback window when choosing the next input generator`,
       parseIntArgGeOne,
@@ -330,6 +336,12 @@ export async function runCliInProcess(
   }
 
   // composite input generator config options
+  if (options["cigScheduler"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.compositeScheduler",
+      options["cigScheduler"]
+    );
+  }
   Config.override(
     "nanofuzz.generators.compositeLookbackWindow",
     options["cigInputLookback"]
@@ -531,6 +543,25 @@ function parseFloatArgGeZero(value: string, _previous: number): number {
   }
   return parsedValue;
 } // fn: parseFloatArgGeZero
+
+function parseCigScheduler(
+  value: string,
+  _previous: string
+): "mab" | "random" | "round-robin" {
+  const normalized = value.toLowerCase().trim();
+  if (normalized === "random" || normalized === "rnd") {
+    return "random";
+  }
+  if (normalized === "round-robin" || normalized === "rr") {
+    return "round-robin";
+  }
+  if (normalized === "mab") {
+    return "mab";
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin`
+  );
+} // fn: parseCigScheduler
 
 function parseAiCacheMode(value: string, _previous: string): string {
   const allowed = [
