@@ -3,11 +3,12 @@ import { InputAndSource } from "../Types";
 
 /**
  * Tri-state availability status for input generators:
+ * - "now!": high-priority input is immediately available in memory (e.g. pinned/human inputs)
  * - "now": input is immediately available in memory
  * - "soon": input generation is in-flight asynchronously (e.g. LLM call)
  * - false: generator is exhausted and no background work is pending
  */
-export type NextableStatus = "now" | "soon" | false;
+export type NextableStatus = "now!" | "now" | "soon" | false;
 
 /**
  * LLM Cache Modes

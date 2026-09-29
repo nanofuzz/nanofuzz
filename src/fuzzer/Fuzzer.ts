@@ -502,23 +502,6 @@ export class Tester {
     const argDefs = this._function.getArgDefs();
     const lang = this._function.getLang();
 
-    // Inject pinned tests into the composite generator so that they generate
-    // first: we want the composite generator to know about these inputs so that
-    // any "interesting" inputs might be further used by other generators.
-    this._compositeInputGenerator.inject(
-      injectTests.map((t): Omit<InputAndSource, "tick"> => {
-        return {
-          value: t.input.map((i) => {
-            return {
-              tag: "ArgValueTypeWrapped",
-              value: i.value,
-            };
-          }),
-          source: t.input.length ? t.input[0].origin : { type: "unknown" },
-        };
-      })
-    );
-
     // Only generate new inputs if running in input generation mode
     if (mode.gen) {
       this._compositeInputGenerator.permitGenerators();
@@ -526,8 +509,8 @@ export class Tester {
       this._compositeInputGenerator.suppressGenerators();
     }
 
-    // Indicate the start of the run
-    this._compositeInputGenerator.onRunStart(!!mode.gen);
+    // Indicate the start of the run w/injected tests
+    this._compositeInputGenerator.onRunStart(!!mode.gen, injectTests);
 
     // Compile the target, if required (currently only Typescript)
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
@@ -878,6 +861,7 @@ export class Tester {
 
         if (
           this._compositeInputGenerator.nextable() !== "now" &&
+          this._compositeInputGenerator.nextable() !== "now!" &&
           !stillInjecting
         ) {
           continue;
