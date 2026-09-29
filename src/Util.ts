@@ -78,16 +78,27 @@ export function getBaseOrigin(
  * unwrapping transformer origins as necessary.
  *
  * @param origin the FuzzValueOrigin from which to remove tick
+ * @returns a copy of the FuzzValueOrigin without tick metadata
  */
-export function removeTickFromOrigin(origin: FuzzValueOrigin): void {
+export function removeTickFromOrigin(origin: FuzzValueOrigin): FuzzValueOrigin {
   if (
     origin.type === "generator" &&
     origin.generator === "MutationInputGenerator"
   ) {
-    delete origin.tick;
-  } else if (origin.type === "transformer") {
-    removeTickFromOrigin(origin.basis.source);
+    const copy = { ...origin };
+    delete copy.tick;
+    return copy;
   }
+  if (origin.type === "transformer") {
+    return {
+      ...origin,
+      basis: {
+        ...origin.basis,
+        source: removeTickFromOrigin(origin.basis.source),
+      },
+    };
+  }
+  return { ...origin };
 }
 
 /**

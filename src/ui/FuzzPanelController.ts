@@ -893,9 +893,11 @@ export class FuzzPanel {
         ...test,
         output: [],
         input: test.input.map((i) => {
-          const i2 = { ...i };
-          removeTickFromOrigin(i2.origin);
-          return i2;
+          return {
+            ...i,
+            // ticks are tester-specific
+            origin: removeTickFromOrigin(i.origin),
+          };
         }),
       };
     }
@@ -1526,10 +1528,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               } else {
                 return {
                   input: i.input.map((e) => {
-                    const e2 = { ...e };
-                    // ticks are tester-specific
-                    removeTickFromOrigin(e2.origin);
-                    return e2;
+                    return {
+                      ...e,
+                      // ticks are tester-specific
+                      origin: removeTickFromOrigin(e.origin),
+                    };
                   }),
                   output: [],
                   pinned: false,
