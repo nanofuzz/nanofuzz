@@ -3,7 +3,12 @@ import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
 import { ScoredInput } from "./Types";
-import { FuzzOptions, GetFuzzerFocusFn, InputAndSource } from "./../Types";
+import {
+  FuzzOptions,
+  FuzzPinnedTest,
+  GetFuzzerFocusFn,
+  InputAndSource,
+} from "./../Types";
 import { NextableStatus } from "./Types";
 import { FunctionDef, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
@@ -39,7 +44,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     currentIndex: number; // current index (of L) into last dimension of progress and cost
   }[] = []; // history for each input generator
   protected interestingInputs: ScoredInput[] = []; // List of interesting inputs
-  protected _injectedInputs: Omit<InputAndSource, "tick">[] = []; // Inputs to force generate first
   protected _selectedSubgenIndex = -1; // Selected subordinate input generator (e.g., by efficiency)
   protected _leaderboard; // Interesting inputs
   protected _lastInput?: InputAndSource; // Last input generated
@@ -52,7 +56,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   protected _checkpoints: NonNullable<
     FuzzTestStats["generators"]["CompositeInputGenerator"]
   >["checkpoints"] = []; // status of subgens at selection
-  public static readonly INJECTED = "injected";
 
   /**
    * Creates a new composite input generator, which subsumes multiple concrete input
@@ -132,31 +135,36 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // fn: _loadConfig
 
   /**
-   * Returns `now` or `soon` if further inputs may be produced, `false` otherwise.
+   * Returns `now!`, `now`, or `soon` if further inputs may be produced, `false` otherwise.
    */
   public override nextable(): NextableStatus {
-    if (this._injectedInputs.length > 0) {
-      return "now";
-    }
-
-    if (!this._permitSubgens) {
-      return false;
-    }
-
+    let hasNow = false;
     let hasSoon = false;
+
     for (let i = 0; i < this._subgens.length; i++) {
-      if (this._activeSubgens[i]) {
-        const status = this._subgens[i].nextable();
+      if (!this._activeSubgens[i]) {
+        continue;
+      }
+      const status = this._subgens[i].nextable();
+      if (status === "now!") {
+        return "now!";
+      }
+      if (this._permitSubgens) {
         if (status === "now") {
-          return "now";
-        }
-        if (status === "soon") {
+          hasNow = true;
+        } else if (status === "soon") {
           hasSoon = true;
         }
       }
     }
 
-    return hasSoon ? "soon" : false;
+    if (hasNow) {
+      return "now";
+    }
+    if (hasSoon) {
+      return "soon";
+    }
+    return false;
   } // fn: isAvailable
 
   /**
@@ -205,7 +213,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         break;
       }
     }
-    return this.nextable() === "now";
+    const status = this.nextable();
+    return status === "now" || status === "now!";
   } // fn: waitForNextInput
 
   /**
@@ -231,19 +240,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     const _options: Record<string, typeof options.RandomInputGenerator> =
       options; // happify the type checker
     this._activeSubgens = this._subgens.map((m) =>
-      m.name in _options ? _options[m.name].enabled : false
+      m.name in _options ? _options[m.name].enabled : true
     );
   } // setter: options
-
-  /**
-   * Inject predefined inputs into the queue. These inputs will be produced
-   * by the composite input generator prior to producing inputs with subgens.
-   *
-   * @param `inputs` array of input values to produce first
-   */
-  public inject(inputs: Omit<InputAndSource, "tick">[]): void {
-    this._injectedInputs = [...inputs].reverse();
-  } // fn: inject
 
   /**
    * Produces the next input
@@ -253,37 +252,19 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   public next(): InputAndSource {
     this._tick++;
 
-    // Produce injected inputs first, if available
-    if (this._injectedInputs.length) {
-      const injectedInput = this._injectedInputs.pop();
-      if (injectedInput) {
-        this._lastInput = {
-          tick: this._tick,
-          value: injectedInput.value,
-          source: injectedInput.source,
-          injected: true,
-        };
-        return this._lastInput;
-      }
-    }
-
-    // Make sure we are permitted to generate inputs
-    if (!this._permitSubgens) {
-      throw new Error(
-        "Injected inputs exhausted and input generators are suppressed."
-      );
-    }
-
     // If the prior chunk of generated inputs is exhausted or the
     // subgen is no longer available, start a new chunk and choose
     // the subgen for that chunk
     if (
       this._ticksLeftInChunk-- <= 1 ||
       !this._subgens[this._selectedSubgenIndex] ||
-      this._subgens[this._selectedSubgenIndex].nextable() !== "now" ||
-      !this._activeSubgens[this._selectedSubgenIndex]
+      !this._activeSubgens[this._selectedSubgenIndex] ||
+      !(
+        this._subgens[this._selectedSubgenIndex].nextable() === "now!" ||
+        (this._permitSubgens &&
+          this._subgens[this._selectedSubgenIndex].nextable() === "now")
+      )
     ) {
-      this._ticksLeftInChunk = this._chunkSize;
       this._selectedSubgenIndex = this._selectNextSubGen();
     }
 
@@ -393,7 +374,26 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * @returns the index of the selected subgen
    */
   protected _selectNextSubGen(): number {
-    // At least one active subgen needs to be available
+    // 1. High-priority inputs (e.g. pinned/human) always come first
+    const priorityIdx = this._subgens.findIndex(
+      (g, i) => this._activeSubgens[i] && g.nextable() === "now!"
+    );
+    if (priorityIdx !== -1) {
+      this._ticksLeftInChunk = 1;
+      return priorityIdx;
+    }
+
+    // 2. Guard: If priority is exhausted and autonomous generation is suppressed
+    if (!this._permitSubgens) {
+      throw new Error(
+        "Injected inputs exhausted and input generators are suppressed."
+      );
+    }
+
+    // 3. Reset standard chunk size for autonomous generation
+    this._ticksLeftInChunk = this._chunkSize;
+
+    // 4. At least one active subgen needs to be available
     if (
       !this._subgens.some(
         (g, i) => this._activeSubgens[i] && g.nextable() === "now"
@@ -549,11 +549,17 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   /**
    * Startup when the test run begins
    */
-  public onRunStart(gen: boolean): void {
+  public override onRunStart(
+    gen: boolean,
+    injectedInputs?: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[]
+  ): void {
     this._loadConfig();
     this._leaderboard.loadConfig();
     for (const subgen in this._subgens) {
-      this._subgens[subgen].onRunStart(gen && this._activeSubgens[subgen]);
+      this._subgens[subgen].onRunStart(
+        gen && this._activeSubgens[subgen],
+        injectedInputs
+      );
     }
   } // fn: onRun
 

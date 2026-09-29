@@ -479,8 +479,9 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
   it("nextable: 'soon' when no input is ready now, but async input generation is pending", () => {
     class SoonCompositeInputGenerator extends CompositeInputGenerator {
-      public setSubgenSoon(index: number): void {
-        this._subgens[index].nextable = () => "soon";
+      public setSubgenSoon(name: string): void {
+        const idx = this._subgens.findIndex((g) => g.name === name);
+        this._subgens[idx].nextable = () => "soon";
       }
     }
 
@@ -523,7 +524,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     cig.onRunStart(true);
-    cig.setSubgenSoon(2); // Set AI generator (index 2) to 'soon'
+    cig.setSubgenSoon("AiInputGenerator"); // Set AI generator to 'soon'
     expect(cig.nextable()).toBe("soon");
   });
 
@@ -572,10 +573,11 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
   it("nextable: waits asynch while status is 'soon'", async () => {
     class SoonCompositeInputGenerator extends CompositeInputGenerator {
-      public setSubgenSoonThenNow(index: number): void {
+      public setSubgenSoonThenNow(name: string): void {
         let status: NextableStatus = "soon";
-        this._subgens[index].nextable = () => status;
-        this._subgens[index].nextSoon = async () => {
+        const idx = this._subgens.findIndex((g) => g.name === name);
+        this._subgens[idx].nextable = () => status;
+        this._subgens[idx].nextSoon = async () => {
           status = "now";
           return {
             tick: 1,
@@ -628,7 +630,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     cig.onRunStart(true);
-    cig.setSubgenSoonThenNow(2);
+    cig.setSubgenSoonThenNow("AiInputGenerator");
 
     const result = await cig.waitForNextInput();
     expect(result).toBeTrue();
@@ -636,8 +638,9 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
   it("getPendingGeneratorNames human-readable labe", () => {
     class SoonCompositeInputGenerator extends CompositeInputGenerator {
-      public setSubgenSoon(index: number): void {
-        this._subgens[index].nextable = () => "soon";
+      public setSubgenSoon(name: string): void {
+        const idx = this._subgens.findIndex((g) => g.name === name);
+        this._subgens[idx].nextable = () => "soon";
       }
     }
 
@@ -679,16 +682,17 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     cig.onRunStart(true);
-    cig.setSubgenSoon(2); // AI generator is index 2
+    cig.setSubgenSoon("AiInputGenerator");
 
     expect(cig.getPendingGeneratorNames()).toEqual(["AI"]);
   });
 
   it("waitForNextInput: respects timeoutMs on 'soon'", async () => {
     class NeverReadyCompositeInputGenerator extends CompositeInputGenerator {
-      public setSubgenNeverReady(index: number): void {
-        this._subgens[index].nextable = () => "soon";
-        this._subgens[index].nextSoon = async () => {
+      public setSubgenNeverReady(name: string): void {
+        const idx = this._subgens.findIndex((g) => g.name === name);
+        this._subgens[idx].nextable = () => "soon";
+        this._subgens[idx].nextSoon = async () => {
           await new Promise((r) => setTimeout(r, 5000));
           return {
             tick: 1,
@@ -741,7 +745,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     cig.onRunStart(true);
-    cig.setSubgenNeverReady(2);
+    cig.setSubgenNeverReady("AiInputGenerator");
 
     const start = performance.now();
     const result = await cig.waitForNextInput(100);
@@ -756,9 +760,10 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       public testSelectNextSubGen(): number {
         return this._selectNextSubGen();
       }
-      public setSubgenSoonWithHistory(index: number): void {
-        this._subgens[index].nextable = () => "soon";
-        const h = this._history[index];
+      public setSubgenSoonWithHistory(name: string): void {
+        const idx = this._subgens.findIndex((g) => g.name === name);
+        this._subgens[idx].nextable = () => "soon";
+        const h = this._history[idx];
         if (!h.progress.length) {
           h.progress = [[10]];
         } else {
@@ -806,9 +811,70 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     cig.onRunStart(true);
-    cig.setSubgenSoonWithHistory(2); // AI generator (index 2) is "soon" with high productivity
+    cig.setSubgenSoonWithHistory("AiInputGenerator"); // AI generator is "soon" with high productivity
 
     expect(() => cig.testSelectNextSubGen()).not.toThrow();
-    expect(cig.testSelectNextSubGen()).toBe(0); // RandomInputGenerator (index 0) selected
+    const randomIdx = cig["_subgens"].findIndex(
+      (g) => g.name === "RandomInputGenerator"
+    );
+    expect(cig.testSelectNextSubGen()).toBe(randomIdx); // RandomInputGenerator selected
+  });
+
+  it("prioritize 'now!' over 'now' or 'soon'", () => {
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const options = {
+      RandomInputGenerator: { enabled: true },
+      MutationInputGenerator: { enabled: false },
+      AiInputGenerator: { enabled: false },
+    };
+
+    const cig = new CompositeInputGenerator(
+      options,
+      fnDef,
+      "seed",
+      [],
+      new Leaderboard<InputAndSource>(),
+      genStats,
+      new Map(),
+      program.src
+    );
+
+    cig.onRunStart(true, [
+      {
+        value: [{ tag: "ArgValueTypeWrapped", value: 999 }],
+        source: { type: "user" },
+        injected: true,
+      },
+    ]);
+
+    expect(cig.nextable()).toBe("now!");
+
+    const first = cig.next();
+    expect(first.injected).toBeTrue();
+    expect<unknown>(first.value).toEqual([
+      { tag: "ArgValueTypeWrapped", value: 999 },
+    ]);
+
+    // After human input is drained, status returns to "now" from RandomInputGenerator
+    expect(cig.nextable()).toBe("now");
   });
 });

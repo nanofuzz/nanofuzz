@@ -195,16 +195,17 @@ async function main() {
     handleAddTestInput
   );
 
-  document
-    .getElementById("fuzz.addTestInput")
-    ?.addEventListener("click", handleAddTestInput);
   for (let i = 0; document.getElementById(`addInputArg-${i}-value`); i++) {
-    getElementByIdOrThrow(`addInputArg-${i}-value`).addEventListener(
-      "change",
-      () => {
-        getInputValues();
+    const inputField = getElementByIdOrThrow(`addInputArg-${i}-value`);
+    inputField.addEventListener("change", () => {
+      getInputValues();
+    });
+    inputField.addEventListener("keydown", (e) => {
+      if (e instanceof KeyboardEvent && e.key === "Enter") {
+        e.preventDefault();
+        handleAddTestInput();
       }
-    );
+    });
   }
 
   // Add event listeners for the fuzz.coverage buttons
