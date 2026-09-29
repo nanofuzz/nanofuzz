@@ -56,7 +56,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   protected _checkpoints: NonNullable<
     FuzzTestStats["generators"]["CompositeInputGenerator"]
   >["checkpoints"] = []; // status of subgens at selection
-  public static readonly INJECTED = "injected";
 
   /**
    * Creates a new composite input generator, which subsumes multiple concrete input
