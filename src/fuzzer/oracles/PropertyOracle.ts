@@ -19,11 +19,19 @@ export class PropertyOracle {
    */
   public async judge(
     result: Result,
-    timeout: number | undefined = 0
+    timeout: number | undefined = 0,
+    remainingSuiteTime: number = Infinity,
+    cancelFn?: () => boolean
   ): Promise<(Judgment | Error)[]> {
     return (
       await Promise.allSettled(
-        this._propRunners.map((r) => r.run([result], timeout))
+        this._propRunners.map((r) =>
+          r.runWithInterrupt(
+            () => r.run([result], timeout),
+            remainingSuiteTime,
+            cancelFn
+          )
+        )
       )
     ).map((result, runnerId) => {
       const runner = this._propRunners[runnerId];
@@ -75,6 +83,12 @@ export class PropertyOracle {
             }
         }
       } else {
+        if (
+          isError(result.reason) &&
+          result.reason.message === "runnerInterrupted"
+        ) {
+          throw result.reason;
+        }
         return isError(result.reason)
           ? result.reason
           : new Error(

@@ -187,7 +187,57 @@ export abstract class AbstractHost {
       )
     );
     this.kill();
-  };
+  }; // fn: _onClose
+
+  /**
+   * Executes a host async operation with interrupt detection for remaining suite timeout
+   * or user cancellation. If interrupted, automatically kills the host process and
+   * throws a runnerInterrupted error.
+   */
+  public async runWithInterrupt<T>(
+    fn: () => Promise<T>,
+    remainingSuiteTime: number = Infinity,
+    cancelFn?: () => boolean
+  ): Promise<T> {
+    let interruptedReason: "suiteTimeout" | "userCancel" | undefined =
+      undefined;
+
+    let suiteTimer: NodeJS.Timeout | undefined = undefined;
+    let cancelTimer: NodeJS.Timeout | undefined = undefined;
+
+    const interruptPromise = new Promise<never>((_, reject) => {
+      if (remainingSuiteTime !== Infinity && remainingSuiteTime >= 0) {
+        suiteTimer = setTimeout(() => {
+          interruptedReason = "suiteTimeout";
+          reject(new Error("runnerInterrupted"));
+        }, remainingSuiteTime);
+      }
+
+      if (cancelFn) {
+        cancelTimer = setInterval(() => {
+          if (cancelFn()) {
+            interruptedReason = "userCancel";
+            reject(new Error("runnerInterrupted"));
+          }
+        }, 50);
+      }
+    });
+
+    try {
+      return await Promise.race([fn(), interruptPromise]);
+    } catch (e: unknown) {
+      if (interruptedReason !== undefined) {
+        this.kill();
+        if (suiteTimer) clearTimeout(suiteTimer);
+        if (cancelTimer) clearInterval(cancelTimer);
+        throw new Error("runnerInterrupted", { cause: e });
+      }
+      throw e;
+    } finally {
+      if (suiteTimer) clearTimeout(suiteTimer);
+      if (cancelTimer) clearInterval(cancelTimer);
+    }
+  } // fn: runWithInterrupt
 
   /**
    * Kills the host process and cleans up resources. If the
@@ -270,7 +320,7 @@ export abstract class AbstractHost {
       this._proc.stdout.on("error", onError);
       this._proc.once("close", onClose);
     });
-  }
+  } // fn: _readStdout
 
   /**
    * Consumes the specified number of bytes from the buffered stdout chunks.
