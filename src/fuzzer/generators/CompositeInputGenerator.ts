@@ -253,35 +253,19 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   public next(): InputAndSource {
     this._tick++;
 
-    // Produce "now!" inputs now!
-    const priorityIdx = this._subgens.findIndex(
-      (g, i) => this._activeSubgens[i] && g.nextable() === "now!"
-    );
-    if (priorityIdx !== -1) {
-      this._lastInput = {
-        ...this._subgens[priorityIdx].next(),
-        tick: this._tick,
-      };
-      return this._lastInput;
-    }
-
-    // Make sure we are permitted to generate inputs
-    if (!this._permitSubgens) {
-      throw new Error(
-        "Injected inputs exhausted and input generators are suppressed."
-      );
-    }
-
     // If the prior chunk of generated inputs is exhausted or the
     // subgen is no longer available, start a new chunk and choose
     // the subgen for that chunk
     if (
       this._ticksLeftInChunk-- <= 1 ||
       !this._subgens[this._selectedSubgenIndex] ||
-      this._subgens[this._selectedSubgenIndex].nextable() !== "now" ||
-      !this._activeSubgens[this._selectedSubgenIndex]
+      !this._activeSubgens[this._selectedSubgenIndex] ||
+      !(
+        this._subgens[this._selectedSubgenIndex].nextable() === "now!" ||
+        (this._permitSubgens &&
+          this._subgens[this._selectedSubgenIndex].nextable() === "now")
+      )
     ) {
-      this._ticksLeftInChunk = this._chunkSize;
       this._selectedSubgenIndex = this._selectNextSubGen();
     }
 
@@ -391,7 +375,26 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * @returns the index of the selected subgen
    */
   protected _selectNextSubGen(): number {
-    // At least one active subgen needs to be available
+    // 1. High-priority inputs (e.g. pinned/human) always come first
+    const priorityIdx = this._subgens.findIndex(
+      (g, i) => this._activeSubgens[i] && g.nextable() === "now!"
+    );
+    if (priorityIdx !== -1) {
+      this._ticksLeftInChunk = 1;
+      return priorityIdx;
+    }
+
+    // 2. Guard: If priority is exhausted and autonomous generation is suppressed
+    if (!this._permitSubgens) {
+      throw new Error(
+        "Injected inputs exhausted and input generators are suppressed."
+      );
+    }
+
+    // 3. Reset standard chunk size for autonomous generation
+    this._ticksLeftInChunk = this._chunkSize;
+
+    // 4. At least one active subgen needs to be available
     if (
       !this._subgens.some(
         (g, i) => this._activeSubgens[i] && g.nextable() === "now"
