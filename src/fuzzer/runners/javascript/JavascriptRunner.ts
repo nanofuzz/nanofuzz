@@ -359,6 +359,13 @@ export class JavascriptRunner extends AbstractRunner {
   /**
    * Kill the current Node host
    */
+  public killHost(): void {
+    this._killHost();
+  }
+
+  /**
+   * Kill the current Node host
+   */
   protected _killHost(): void {
     if (this._host !== undefined) {
       this._host.kill();

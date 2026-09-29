@@ -1145,26 +1145,26 @@ def test_deadline_numeric_ref(x):
     const fn1 = program.functionsExported["test_deadline_none"];
     expect(fn1.getRef().fuzzOptions).toEqual({
       maxTests: 500,
-      suiteTimeout: 0,
+      fnTimeout: 0,
     });
 
     const fn2 = program.functionsExported["test_only_deadline_none"];
-    expect(fn2.getRef().fuzzOptions).toEqual({ suiteTimeout: 0 });
+    expect(fn2.getRef().fuzzOptions).toEqual({ fnTimeout: 0 });
 
     const fn3 = program.functionsExported["test_referenced_deadline_none"];
     expect(fn3.getRef().fuzzOptions).toEqual({
       maxTests: 250,
-      suiteTimeout: 0,
+      fnTimeout: 0,
     });
 
     const fn4 = program.functionsExported["test_deadline_numeric"];
     expect(fn4.getRef().fuzzOptions).toEqual({
       maxTests: 500,
-      suiteTimeout: 500,
+      fnTimeout: 500,
     });
 
     const fn5 = program.functionsExported["test_deadline_numeric_ref"];
-    expect(fn5.getRef().fuzzOptions).toEqual({ suiteTimeout: 1200 });
+    expect(fn5.getRef().fuzzOptions).toEqual({ fnTimeout: 1200 });
   });
 
   it("hypothesis @given `from_regex` strategy", () => {
