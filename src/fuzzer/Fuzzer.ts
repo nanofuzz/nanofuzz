@@ -37,6 +37,7 @@ import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
+import { Judgment } from "./oracles/Types";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
@@ -961,13 +962,42 @@ export class Tester {
           }
         }
 
+        const getRemainingSuiteTime = (): number => {
+          const timeSinceGenStart =
+            runStats.timers.startGenTime > 0
+              ? performance.now() - runStats.timers.startGenTime
+              : 0;
+          return this._options.suiteTimeout > 0 &&
+            runStats.timers.startGenTime > 0
+            ? Math.max(0, this._options.suiteTimeout - timeSinceGenStart)
+            : Infinity;
+        };
+
+        const getEffectiveCancelFn = (): (() => boolean) | undefined => {
+          if (!cancelFn) return undefined;
+          return () => !stillInjecting && cancelFn();
+        };
+
         // Apply input transformers to generated inputs (before main dedupe)
         const startTransformTime = performance.now(); // start time: input transformation
         if (!result.inputGenerated.injected && transformRunner) {
-          const transformerResult = await transformRunner.run(
-            deepFreeze(result.inputGenerated.value.map((e) => e.value)),
-            Math.max(this._options.fnTimeout, 1)
-          );
+          let transformerResult: RunnerResult;
+          try {
+            transformerResult = await transformRunner.runWithInterrupt(
+              () =>
+                transformRunner.run(
+                  deepFreeze(result.inputGenerated.value.map((e) => e.value)),
+                  Math.max(this._options.fnTimeout, 1)
+                ),
+              getRemainingSuiteTime(),
+              getEffectiveCancelFn()
+            );
+          } catch (e: unknown) {
+            if (isError(e) && e.message === "runnerInterrupted") {
+              continue;
+            }
+            throw e;
+          }
 
           // If transformer returns null, then input was rejected so skip this input
           switch (transformerResult.result.tag) {
@@ -1083,11 +1113,20 @@ export class Tester {
           const startRunTime = performance.now(); // start timer
           let exeOutput: RunnerResult;
           try {
-            exeOutput = await runner.run(
-              deepFreeze(result.input.map((e) => e.value)),
-              Math.max(this._options.fnTimeout, 1)
+            exeOutput = await runner.runWithInterrupt(
+              () =>
+                runner.run(
+                  deepFreeze(result.input.map((e) => e.value)),
+                  Math.max(this._options.fnTimeout, 1)
+                ),
+              getRemainingSuiteTime(),
+              getEffectiveCancelFn()
             );
           } catch (e: unknown) {
+            if (isError(e) && e.message === "runnerInterrupted") {
+              continue;
+            }
+
             if (isError(e)) {
               exeOutput = {
                 result: {
@@ -1170,8 +1209,9 @@ export class Tester {
             // PROPERTY ORACLE --------------------------------------------
             // If a property validator is selected, call it to evaluate the result
             if (this._options.useProperty) {
-              (
-                await propertyOracle.judge(
+              let validatorJudgments: (Judgment | Error)[] = [];
+              try {
+                validatorJudgments = await propertyOracle.judge(
                   Object.freeze({
                     in: result.input.map((i) => i.value), // inputs
                     out:
@@ -1181,9 +1221,18 @@ export class Tester {
                     exception: result.exception,
                     timeout: result.timeout,
                   }),
-                  Math.max(this._options.fnTimeout, 1)
-                )
-              ).forEach((j, i) => {
+                  Math.max(this._options.fnTimeout, 1),
+                  getRemainingSuiteTime(),
+                  getEffectiveCancelFn()
+                );
+              } catch (e: unknown) {
+                if (isError(e) && e.message === "runnerInterrupted") {
+                  continue;
+                }
+                throw e;
+              }
+
+              validatorJudgments.forEach((j, i) => {
                 if (isError(j)) {
                   result.passedValidators.push("unknown");
                   const fnName = this._validators[i].name;

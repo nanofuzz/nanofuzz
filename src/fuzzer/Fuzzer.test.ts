@@ -1,4 +1,4 @@
-import { Tester } from "./Fuzzer";
+import { Tester, FuzzStopReason } from "./Fuzzer";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
 import * as fs from "node:fs";
@@ -180,6 +180,57 @@ describe("fuzzer: general", () => {
       expect(waitUpdates.length).toBeGreaterThan(0);
       expect(waitUpdates[0].msg).toContain("Passed: 0");
       expect(waitUpdates[0].msg).toContain("Failed: 0");
+    } finally {
+      try {
+        fs.rmSync(tmpdir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("terminate & discard in-flight PUT executions", async () => {
+    const tmpdir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-cancel-put-")
+    );
+    const tsFile = path.join(tmpdir, "cancelTarget.ts");
+    fs.writeFileSync(
+      tsFile,
+      `
+      export function slowTarget(x: number): number {
+        const start = Date.now();
+        while (Date.now() - start < 5000) {}
+        return x;
+      }
+      `
+    );
+
+    let cancelled = false;
+    setTimeout(() => {
+      cancelled = true;
+    }, 100);
+
+    try {
+      const tester = new Tester(tsFile, "slowTarget", {
+        ...intOptions,
+        maxTests: 10,
+        fnTimeout: 10000,
+      });
+
+      const res = await tester.testSync(
+        undefined,
+        { gen: true },
+        undefined,
+        () => cancelled
+      );
+
+      expect(res.stopReason).toBe(FuzzStopReason.PAUSE);
+      expect(res.results.length).toBe(0);
     } finally {
       try {
         fs.rmSync(tmpdir, {

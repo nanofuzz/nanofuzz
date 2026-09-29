@@ -1082,11 +1082,11 @@ export class PythonProgram extends AbstractProgram {
             }
             const deadlineNode = this._getKwdArg(callNode, "deadline", -1);
             if (deadlineNode?.type === "none") {
-              fuzzOptions = { ...fuzzOptions, suiteTimeout: 0 };
+              fuzzOptions = { ...fuzzOptions, fnTimeout: 0 };
             } else {
               const deadlineVal = this._parseLiteral(deadlineNode);
               if (typeof deadlineVal === "number" && deadlineVal >= 0) {
-                fuzzOptions = { ...fuzzOptions, suiteTimeout: deadlineVal };
+                fuzzOptions = { ...fuzzOptions, fnTimeout: deadlineVal };
               }
             }
           } else if (decoName === "given" && callNode) {
