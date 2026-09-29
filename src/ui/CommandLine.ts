@@ -145,10 +145,16 @@ function createProgram(): Commander.Command {
     // ------------------------ Composite Input Generator ------------------------ //
 
     .option(
-      `--cig-scheduler <mab|random|round-robin>`,
-      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin)`,
+      `--cig-scheduler <mab|random|round-robin|ucb1>`,
+      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin, ucb1)`,
       parseCigScheduler,
       "mab"
+    )
+    .option(
+      `--cig-scheduler-ucb1-exploration <float>`,
+      `Exploration constant (c) for UCB1 scheduler`,
+      parseFloatArgGeZero,
+      1.414
     )
     .option(
       `--cig-input-lookback <integer>`,
@@ -340,6 +346,12 @@ export async function runCliInProcess(
     Config.override(
       "nanofuzz.generators.compositeScheduler",
       options["cigScheduler"]
+    );
+  }
+  if (options["cigSchedulerUcb1Exploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.compositeScheduler.ucb1.exploration",
+      options["cigSchedulerUcb1Exploration"]
     );
   }
   Config.override(
@@ -547,7 +559,7 @@ function parseFloatArgGeZero(value: string, _previous: number): number {
 function parseCigScheduler(
   value: string,
   _previous: string
-): "mab" | "random" | "round-robin" {
+): "mab" | "random" | "round-robin" | "ucb1" {
   const normalized = value.toLowerCase().trim();
   if (normalized === "random" || normalized === "rnd") {
     return "random";
@@ -555,11 +567,14 @@ function parseCigScheduler(
   if (normalized === "round-robin" || normalized === "rr") {
     return "round-robin";
   }
+  if (normalized === "ucb1" || normalized === "ucb") {
+    return "ucb1";
+  }
   if (normalized === "mab") {
     return "mab";
   }
   throw new Commander.InvalidArgumentError(
-    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin`
+    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin, ucb1`
   );
 } // fn: parseCigScheduler
 

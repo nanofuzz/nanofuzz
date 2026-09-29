@@ -544,6 +544,28 @@ describe("cli:", () => {
     ]);
     expect(resRr.status).toBe(0);
     verifyCheckpointOutput(outputFileRr, true);
+
+    // Test 4: UCB1 mode (--cig-scheduler ucb1 --cig-scheduler-ucb1-exploration 2.0)
+    const outputFileUcb = path.join(tmpDir, "cig_checkpoints_ucb.json5");
+    const resUcb = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileUcb,
+      "--cig-scheduler",
+      "ucb1",
+      "--cig-scheduler-ucb1-exploration",
+      "2.0",
+      "--cig-stats-checkpoints",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_ucb",
+    ]);
+    expect(resUcb.status).toBe(0);
+    verifyCheckpointOutput(outputFileUcb, false);
   });
 
   it("--ai-cache-*: cache miss in replay-error mode", async () => {

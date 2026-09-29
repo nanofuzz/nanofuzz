@@ -327,15 +327,24 @@
             "enum": [
               "mab",
               "random",
-              "round-robin"
+              "round-robin",
+              "ucb1"
             ],
             "enumDescriptions": [
               "Multi-Armed Bandit (MAB): Productivity-weighted selection based on feedback and exploration",
               "Random: Uniform pseudo-random selection among ready generators",
-              "Round Robin: Sequential cyclic selection across ready generators"
+              "Round Robin: Sequential cyclic selection across ready generators",
+              "Upper Confidence Bound (UCB1) algorithm balancing empirical yield and exploration uncertainty"
             ],
             "default": "mab",
             "description": "Scheduler used by CompositeInputGenerator to pick the next input generator"
+          },
+          "nanofuzz.generators.compositeScheduler.ucb1.exploration": {
+            "title": "UCB1 exploration constant (c)",
+            "type": "number",
+            "default": 1.414,
+            "minimum": 0,
+            "description": "Exploration constant for the UCB1 scheduler (higher values bias toward under-explored generators)"
           },
           "nanofuzz.generators.compositeLookbackWindow": {
             "title": "Composite generator lookback window size for history",

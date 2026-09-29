@@ -432,6 +432,14 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(cig.nextable()).toBeTruthy();
       const inputRun3 = cig.next();
       expect(inputRun3).toBeDefined();
+
+      // Run 4: switch to ucb1
+      Config.override("nanofuzz.generators.compositeScheduler", "ucb1");
+      cig.onRunStart(true);
+      expect(cig.scheduler.type).toBe("ucb1");
+      expect(cig.nextable()).toBeTruthy();
+      const inputRun4 = cig.next();
+      expect(inputRun4).toBeDefined();
     } finally {
       Config.override("nanofuzz.generators.compositeScheduler", "mab");
     }

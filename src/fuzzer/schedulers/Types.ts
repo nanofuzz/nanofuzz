@@ -2,7 +2,7 @@ import { AbstractInputGenerator } from "../generators/AbstractInputGenerator";
 import { AbstractMeasure } from "../measures/AbstractMeasure";
 import { NextableStatus } from "../generators/Types";
 
-export type InputSchedulerType = "mab" | "random" | "round-robin";
+export type InputSchedulerType = "mab" | "random" | "round-robin" | "ucb1";
 
 /**
  * Context passed to the scheduler when selecting the next subgenerator.
