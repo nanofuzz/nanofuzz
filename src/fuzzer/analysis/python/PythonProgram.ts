@@ -1443,10 +1443,57 @@ export class PythonProgram extends AbstractProgram {
     if (valNode.type === "integer" || valNode.type === "float") {
       return Number(valNode.text.replace(/_/g, ""));
     }
+    if (valNode.type === "parenthesized_expression") {
+      return this._parseLiteral(valNode.firstNamedChild ?? undefined);
+    }
     if (valNode.type === "unary_operator") {
       const operand = this._parseLiteral(valNode.lastNamedChild ?? undefined);
       if (typeof operand === "number") {
-        return valNode.text.startsWith("-") ? -operand : operand;
+        if (valNode.text.startsWith("-")) return -operand;
+        if (valNode.text.startsWith("+")) return +operand;
+        if (valNode.text.startsWith("~")) return ~operand;
+        return operand;
+      }
+    }
+    if (valNode.type === "binary_operator") {
+      const left = this._parseLiteral(
+        valNode.childForFieldName("left") ?? valNode.namedChildren[0]
+      );
+      const right = this._parseLiteral(
+        valNode.childForFieldName("right") ?? valNode.namedChildren[1]
+      );
+      const op = valNode.children.find((c) => !c.isNamed)?.text;
+
+      if (typeof left === "number" && typeof right === "number") {
+        switch (op) {
+          case "+":
+            return left + right;
+          case "-":
+            return left - right;
+          case "*":
+            return left * right;
+          case "/":
+            return left / right;
+          case "//":
+            return Math.floor(left / right);
+          case "%":
+            return left % right;
+          case "**":
+            return Math.pow(left, right);
+          case "<<":
+            return left << right;
+          case ">>":
+            return left >> right;
+          case "&":
+            return left & right;
+          case "|":
+            return left | right;
+          case "^":
+            return left ^ right;
+          case undefined:
+          default:
+            return undefined;
+        }
       }
     }
     if (valNode.type === "true") return true;
@@ -2017,8 +2064,8 @@ export class PythonProgram extends AbstractProgram {
     switch (funcName) {
       case "binary": {
         const minSize = parseLiteral(getKwdArg(node, "min_size", 0)) ?? 0;
-        const maxSize = parseLiteral(getKwdArg(node, "max_size", 1));
-        const dftDimLength = ArgDef.getDefaultOptions().dftDimLength;
+        const maxSize =
+          parseLiteral(getKwdArg(node, "max_size", 1)) ?? Infinity;
 
         thisType.typeRefName = "bytes";
         thisType.type = {
@@ -2028,7 +2075,7 @@ export class PythonProgram extends AbstractProgram {
           options: {
             byteLength: {
               min: Number(minSize),
-              max: Number(maxSize ?? dftDimLength.max),
+              max: Number(maxSize),
             },
           },
           resolved: true,
@@ -2042,22 +2089,23 @@ export class PythonProgram extends AbstractProgram {
         const minSize = parseLiteral(getKwdArg(node, "min_size", 1));
         const maxSize = parseLiteral(getKwdArg(node, "max_size", 2));
 
-        const options: ArgOptionOverride = {};
-        if (minSize !== undefined || maxSize !== undefined) {
-          const dftInterval = ArgDef.getDefaultIntervals(
-            ArgTag.STRING,
-            this._options
-          );
-          options.strLength = {
-            min: Number(minSize ?? dftInterval[0].min),
-            max: Number(maxSize ?? dftInterval[0].max),
-          };
-        }
+        const options: ArgOptionOverride = {
+          strLength: {
+            min: Number(minSize ?? 0),
+            max:
+              maxSize !== undefined
+                ? Number(maxSize)
+                : Number.POSITIVE_INFINITY,
+          },
+        };
         if (parsedAlphabet?.strCharset !== undefined) {
           options.strCharset = parsedAlphabet.strCharset;
         }
         if (parsedAlphabet?.strRegex !== undefined) {
           options.strRegex = parsedAlphabet.strRegex;
+        } else if (parsedAlphabet === undefined) {
+          // Default st.text() has alphabet=st.characters(), covering Unicode via strRegex
+          options.strRegex = "\\A(?:.)*\\Z";
         }
 
         thisType.type = {
@@ -2160,19 +2208,15 @@ export class PythonProgram extends AbstractProgram {
         const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
         const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));
 
-        const options: ArgOptionOverride = { numInteger: true };
-        if (minVal !== undefined || maxVal !== undefined) {
-          const dftInterval = ArgDef.getDefaultIntervals(
-            ArgTag.NUMBER,
-            this._options
-          );
-          options.numIntervals = [
+        const options: ArgOptionOverride = {
+          numInteger: true,
+          numIntervals: [
             {
-              min: Number(minVal ?? dftInterval[0].min),
-              max: Number(maxVal ?? dftInterval[0].max),
+              min: minVal !== undefined ? Number(minVal) : -Infinity,
+              max: maxVal !== undefined ? Number(maxVal) : Infinity,
             },
-          ];
-        }
+          ],
+        };
 
         thisType.type = {
           type: ArgTag.NUMBER,
@@ -2198,19 +2242,15 @@ export class PythonProgram extends AbstractProgram {
         const minVal = parseLiteral(getKwdArg(node, "min_value", 0));
         const maxVal = parseLiteral(getKwdArg(node, "max_value", 1));
 
-        const options: ArgOptionOverride = { numInteger: false };
-        if (minVal !== undefined || maxVal !== undefined) {
-          const dftInterval = ArgDef.getDefaultIntervals(
-            ArgTag.NUMBER,
-            this._options
-          );
-          options.numIntervals = [
+        const options: ArgOptionOverride = {
+          numInteger: false,
+          numIntervals: [
             {
-              min: Number(minVal ?? dftInterval[0].min),
-              max: Number(maxVal ?? dftInterval[0].max),
+              min: minVal !== undefined ? Number(minVal) : -Infinity,
+              max: maxVal !== undefined ? Number(maxVal) : Infinity,
             },
-          ];
-        }
+          ],
+        };
 
         thisType.type = {
           type: ArgTag.NUMBER,
@@ -2295,9 +2335,9 @@ export class PythonProgram extends AbstractProgram {
           };
         }
 
-        const minSize = parseLiteral(getKwdArg(node, "min_size", 1));
-        const maxSize = parseLiteral(getKwdArg(node, "max_size", 2));
-        const dftInterval = ArgDef.getDefaultOptions().dftDimLength;
+        const minSize = parseLiteral(getKwdArg(node, "min_size", 1)) ?? 0;
+        const maxSize =
+          parseLiteral(getKwdArg(node, "max_size", 2)) ?? Infinity;
 
         // Nested array types increase dims of child spec
         const innerResolvedType = innerTypeRef.type ?? {
@@ -2320,12 +2360,11 @@ export class PythonProgram extends AbstractProgram {
           innerResolvedType.options.dimsUnique = true;
         }
         innerResolvedType.options.dimLength.push({
-          min: Number(minSize ?? dftInterval.min),
-          max: Number(maxSize ?? dftInterval.max),
+          min: Number(minSize),
+          max: Number(maxSize),
         });
 
         if (funcName === "sets") {
-          const dftSetInterval = ArgDef.getDefaultOptions().setLength;
           innerTypeRef.name = "values";
           thisType.typeRefName = "set";
           thisType.baseTypeRef = "set";
@@ -2336,8 +2375,8 @@ export class PythonProgram extends AbstractProgram {
             options: {
               dimsUnique: true,
               setLength: {
-                min: Number(minSize ?? dftSetInterval.min),
-                max: Number(maxSize ?? dftSetInterval.max),
+                min: Number(minSize),
+                max: Number(maxSize),
               },
             },
             resolved: true,
@@ -2609,24 +2648,23 @@ export class PythonProgram extends AbstractProgram {
         }
         valueTypeRef.name = "values";
 
-        const minSize = parseLiteral(getKwdArg(node, "min_size", -1));
-        const maxSize = parseLiteral(getKwdArg(node, "max_size", -1));
-        const dftInterval = ArgDef.getDefaultOptions().dictLength;
+        const minSize = parseLiteral(getKwdArg(node, "min_size", -1)) ?? 0;
+        const maxSize =
+          parseLiteral(getKwdArg(node, "max_size", -1)) ?? Infinity;
 
-        const options: ArgOptionOverride = {};
-        if (minSize !== undefined || maxSize !== undefined) {
-          options.dictLength = {
-            min: Number(minSize ?? dftInterval.min),
-            max: Number(maxSize ?? dftInterval.max),
-          };
-        }
+        const options: ArgOptionOverride = {
+          dictLength: {
+            min: Number(minSize),
+            max: Number(maxSize),
+          },
+        };
 
         thisType.baseTypeRef = "dict";
         thisType.type = {
           type: ArgTag.DICTIONARY,
           dims: 0,
           children: [keyTypeRef, valueTypeRef],
-          ...(Object.keys(options).length > 0 ? { options } : {}),
+          options,
           resolved: true,
           baseTypeRef: "dict",
         };
