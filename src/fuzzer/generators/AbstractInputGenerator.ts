@@ -1,6 +1,6 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "../analysis/ArgDef";
-import { InputAndSource } from "./../Types";
+import { FuzzPinnedTest, InputAndSource } from "./../Types";
 import { FuzzTestResults } from "../Fuzzer";
 import { InputGeneratorStats, NextableStatus } from "./Types";
 
@@ -62,7 +62,8 @@ export abstract class AbstractInputGenerator {
         break;
       }
     }
-    if (this.nextable() === "now") {
+    const status = this.nextable();
+    if (status === "now" || status === "now!") {
       return this.next();
     }
     throw new Error(
@@ -80,7 +81,10 @@ export abstract class AbstractInputGenerator {
   /**
    * Executes any tasks when the test run begins
    */
-  public onRunStart(_active: boolean): void {
+  public onRunStart(
+    _active: boolean,
+    _injectedInputs?: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[]
+  ): void {
     return;
   } // fn: onRunStart
 

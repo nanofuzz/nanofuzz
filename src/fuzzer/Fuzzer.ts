@@ -503,23 +503,6 @@ export class Tester {
     const argDefs = this._function.getArgDefs();
     const lang = this._function.getLang();
 
-    // Inject pinned tests into the composite generator so that they generate
-    // first: we want the composite generator to know about these inputs so that
-    // any "interesting" inputs might be further used by other generators.
-    this._compositeInputGenerator.inject(
-      injectTests.map((t): Omit<InputAndSource, "tick"> => {
-        return {
-          value: t.input.map((i) => {
-            return {
-              tag: "ArgValueTypeWrapped",
-              value: i.value,
-            };
-          }),
-          source: t.input.length ? t.input[0].origin : { type: "unknown" },
-        };
-      })
-    );
-
     // Only generate new inputs if running in input generation mode
     if (mode.gen) {
       this._compositeInputGenerator.permitGenerators();
@@ -527,8 +510,8 @@ export class Tester {
       this._compositeInputGenerator.suppressGenerators();
     }
 
-    // Indicate the start of the run
-    this._compositeInputGenerator.onRunStart(!!mode.gen);
+    // Indicate the start of the run w/injected tests
+    this._compositeInputGenerator.onRunStart(!!mode.gen, injectTests);
 
     // Compile the target, if required (currently only Typescript)
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
@@ -586,6 +569,9 @@ export class Tester {
     this._measures.forEach((m) => {
       m.onRunStart(runners);
     });
+
+    // Injected tests lookup map
+    const injectMap = new Map(injectTests.map((t) => [getIoKey(t.input), t]));
 
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
@@ -878,6 +864,7 @@ export class Tester {
 
         if (
           this._compositeInputGenerator.nextable() !== "now" &&
+          this._compositeInputGenerator.nextable() !== "now!" &&
           !stillInjecting
         ) {
           continue;
@@ -887,7 +874,7 @@ export class Tester {
         result.timers.gen = performance.now() - startGenTime; // total time: input generation
 
         // Map the generated inputs to the result object
-        // (the transformer might modify these)
+        // (the transformer might modify result.input)
         result.input = result.inputGenerated.value.map((e, i) => {
           return {
             name: argDefs[i]?.getName() ?? "?",
@@ -902,32 +889,16 @@ export class Tester {
           | FuzzTestStats["generators"]["RandomInputGenerator"]
           | undefined = undefined;
 
-        // Handle injected and generated tests differently, e.g.,
-        // we need to retain any saved details for injected tests.
+        // Handle injected and generated tests
         if (result.inputGenerated.injected) {
-          // Ensure the injected inputs are in the expected order
-          const expectedInput = JSONN.stringify(
-            injectTests[runStats.counters.inputsInjected].input.map(
-              (i) => i.value
-            )
-          );
-          const returnedInput = JSONN.stringify(
-            result.input.map((i) => i.value)
-          );
-          if (expectedInput !== returnedInput) {
-            throw new Error(
-              `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
-                JSONN.stringify(injectTests, null, 3)
-            );
+          const pinnedTest = injectMap.get(getIoKey(result.input));
+          if (pinnedTest) {
+            result.pinned = !!pinnedTest.pinned;
+            if (pinnedTest.expectedOutput) {
+              result.expectedOutput = pinnedTest.expectedOutput;
+            }
           }
-
-          // Map the injected test information to the new result
-          const pinnedTest = injectTests[runStats.counters.inputsInjected];
-          result.pinned = !!pinnedTest.pinned;
-          if (pinnedTest.expectedOutput) {
-            result.expectedOutput = pinnedTest.expectedOutput;
-          }
-          runStats.counters.inputsInjected++; // increment the number of pinned tests injected
+          runStats.counters.inputsInjected++;
         } else {
           // Update generator stats
           if (result.inputGenerated.source.type === "generator") {
