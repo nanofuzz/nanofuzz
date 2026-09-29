@@ -21,6 +21,7 @@ import * as JSONN from "../Jsonn";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
+import { InputSchedulerType } from "../fuzzer/schedulers/Types";
 import pkg from "../../package.json";
 
 const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
@@ -145,8 +146,8 @@ function createProgram(): Commander.Command {
     // ------------------------ Composite Input Generator ------------------------ //
 
     .option(
-      `--cig-scheduler <mab|random|round-robin|ucb1>`,
-      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin, ucb1)`,
+      `--cig-scheduler <mab|random|round-robin|ucb1|thompson>`,
+      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin, ucb1, thompson)`,
       parseCigScheduler,
       "mab"
     )
@@ -155,6 +156,12 @@ function createProgram(): Commander.Command {
       `Exploration constant (c) for UCB1 scheduler`,
       parseFloatArgGeZero,
       1.414
+    )
+    .option(
+      `--cig-scheduler-thompson-prior-variance <float>`,
+      `Prior variance for Thompson Sampling scheduler`,
+      parseFloatArgGeZero,
+      1.0
     )
     .option(
       `--cig-input-lookback <integer>`,
@@ -352,6 +359,12 @@ export async function runCliInProcess(
     Config.override(
       "nanofuzz.generators.compositeScheduler.ucb1.exploration",
       options["cigSchedulerUcb1Exploration"]
+    );
+  }
+  if (options["cigSchedulerThompsonPriorVariance"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.compositeScheduler.thompson.priorVariance",
+      options["cigSchedulerThompsonPriorVariance"]
     );
   }
   Config.override(
@@ -556,25 +569,25 @@ function parseFloatArgGeZero(value: string, _previous: number): number {
   return parsedValue;
 } // fn: parseFloatArgGeZero
 
+function isInputSchedulerType(val: string): val is InputSchedulerType {
+  return (
+    val === "mab" ||
+    val === "random" ||
+    val === "round-robin" ||
+    val === "ucb1" ||
+    val === "thompson"
+  );
+}
+
 function parseCigScheduler(
   value: string,
   _previous: string
-): "mab" | "random" | "round-robin" | "ucb1" {
-  const normalized = value.toLowerCase().trim();
-  if (normalized === "random" || normalized === "rnd") {
-    return "random";
-  }
-  if (normalized === "round-robin" || normalized === "rr") {
-    return "round-robin";
-  }
-  if (normalized === "ucb1" || normalized === "ucb") {
-    return "ucb1";
-  }
-  if (normalized === "mab") {
-    return "mab";
+): InputSchedulerType {
+  if (isInputSchedulerType(value)) {
+    return value;
   }
   throw new Commander.InvalidArgumentError(
-    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin, ucb1`
+    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin, ucb1, thompson`
   );
 } // fn: parseCigScheduler
 

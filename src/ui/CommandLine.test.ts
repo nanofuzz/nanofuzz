@@ -566,6 +566,31 @@ describe("cli:", () => {
     ]);
     expect(resUcb.status).toBe(0);
     verifyCheckpointOutput(outputFileUcb, false);
+
+    // Test 5: Thompson mode (--cig-scheduler thompson --cig-scheduler-thompson-prior-variance 1.5)
+    const outputFileThompson = path.join(
+      tmpDir,
+      "cig_checkpoints_thompson.json5"
+    );
+    const resThompson = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileThompson,
+      "--cig-scheduler",
+      "thompson",
+      "--cig-scheduler-thompson-prior-variance",
+      "1.5",
+      "--cig-stats-checkpoints",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_thompson",
+    ]);
+    expect(resThompson.status).toBe(0);
+    verifyCheckpointOutput(outputFileThompson, false);
   });
 
   it("--ai-cache-*: cache miss in replay-error mode", async () => {
