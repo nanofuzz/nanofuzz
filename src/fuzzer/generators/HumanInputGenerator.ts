@@ -11,7 +11,6 @@ import { FuzzPinnedTest, InputAndSource } from "../Types";
  */
 export class HumanInputGenerator extends AbstractInputGenerator {
   protected _inputs: Omit<InputAndSource, "tick">[] = [];
-  protected _index = 0;
 
   public constructor(
     specs: ArgDef[] = [],
@@ -25,16 +24,16 @@ export class HumanInputGenerator extends AbstractInputGenerator {
   }
 
   public override nextable(): NextableStatus {
-    return this._index < this._inputs.length ? "now!" : false;
+    return this._inputs.length > 0 ? "now!" : false;
   } // nextable()
 
   public override next(): InputAndSource {
-    if (this._index >= this._inputs.length) {
+    const item = this._inputs.shift();
+    if (item === undefined) {
       throw new Error("HumanInputGenerator is exhausted.");
     }
-    const item = this._inputs[this._index++];
     return {
-      tick: this._index,
+      tick: 0, // client sets this
       value: item.value,
       source: item.source,
       injected: true,

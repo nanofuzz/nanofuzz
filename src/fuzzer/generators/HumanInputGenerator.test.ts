@@ -43,7 +43,6 @@ describe("fuzzer/generators/HumanInputGenerator:", () => {
     expect(gen.nextable()).toBe("now!");
 
     const first = gen.next();
-    expect(first.tick).toBe(1);
     expect(first.injected).toBeTrue();
     expect<unknown>(first.value).toEqual([
       { tag: "ArgValueTypeWrapped", value: 10 },
@@ -53,7 +52,6 @@ describe("fuzzer/generators/HumanInputGenerator:", () => {
     expect(gen.nextable()).toBe("now!");
 
     const second = gen.next();
-    expect(second.tick).toBe(2);
     expect(second.injected).toBeTrue();
     expect<unknown>(second.value).toEqual([
       { tag: "ArgValueTypeWrapped", value: 20 },
@@ -63,7 +61,7 @@ describe("fuzzer/generators/HumanInputGenerator:", () => {
     expect(() => gen.next()).toThrow();
   });
 
-  it("onRunStart() appends inputs to queue", () => {
+  it("onRunStart() loads inputs for the run", () => {
     const gen = new HumanInputGenerator([]);
     expect(gen.nextable()).toBe(false);
 
@@ -78,6 +76,13 @@ describe("fuzzer/generators/HumanInputGenerator:", () => {
     gen.onRunStart(true, inputs1);
     expect(gen.nextable()).toBe("now!");
 
+    const item1 = gen.next();
+    expect<unknown>(item1.value).toEqual([
+      { tag: "ArgValueTypeWrapped", value: "first" },
+    ]);
+    expect(gen.nextable()).toBe(false);
+
+    // Next run receives new inputs
     const inputs2: Omit<InputAndSource, "tick">[] = [
       {
         value: [{ tag: "ArgValueTypeWrapped", value: "second" }],
@@ -87,12 +92,6 @@ describe("fuzzer/generators/HumanInputGenerator:", () => {
     ];
 
     gen.onRunStart(true, inputs2);
-    expect(gen.nextable()).toBe("now!");
-
-    const item1 = gen.next();
-    expect<unknown>(item1.value).toEqual([
-      { tag: "ArgValueTypeWrapped", value: "first" },
-    ]);
     expect(gen.nextable()).toBe("now!");
 
     const item2 = gen.next();
