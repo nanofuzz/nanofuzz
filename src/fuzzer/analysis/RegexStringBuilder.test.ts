@@ -144,6 +144,57 @@ describe("fuzzer/analysis/RegexStringBuilder:", () => {
     }
   });
 
+  it("unicode wildcard non-ascii chars '.'", () => {
+    const unicodeOptions = {
+      ...options,
+      strLength: { min: 1, max: 1 },
+    };
+    const builder = create(
+      "\\A.\\Z",
+      seedrandom("unicode-wildcard"),
+      unicodeOptions
+    );
+    const seenCodepoints: number[] = [];
+    for (let index = 0; index < 100; index++) {
+      const value = builder();
+      expect(value.length).toBeGreaterThanOrEqual(1);
+      const cp = value.codePointAt(0)!;
+      seenCodepoints.push(cp);
+      // Ensure no surrogate code points are generated
+      expect(cp >= 0xd800 && cp <= 0xdfff).toBeFalse();
+    }
+    // Should see both ASCII and non-ASCII codepoints across 100 samples
+    const hasAscii = seenCodepoints.some((cp) => cp < 128);
+    const hasNonAscii = seenCodepoints.some((cp) => cp >= 128);
+    expect(hasAscii).toBeTrue();
+    expect(hasNonAscii).toBeTrue();
+  });
+
+  it("unbounded strLength w/geometric repetition", () => {
+    const unboundedOptions = {
+      ...options,
+      strLength: { min: 0, max: Number.POSITIVE_INFINITY },
+    };
+    const builder = create(
+      "\\A.*\\Z",
+      seedrandom("unbounded-test"),
+      unboundedOptions
+    );
+    const lengths: number[] = [];
+    for (let index = 0; index < 100; index++) {
+      const value = builder();
+      lengths.push(value.length);
+    }
+    const maxSeen = Math.max(...lengths);
+    const minSeen = Math.min(...lengths);
+    expect(minSeen).toBeGreaterThanOrEqual(0);
+    expect(maxSeen).toBeGreaterThan(0);
+    // Average length should be moderate (near ~10) rather than blowing up
+    const avgLen = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+    expect(avgLen).toBeGreaterThan(2);
+    expect(avgLen).toBeLessThan(40);
+  });
+
   it("fails fast for incompatible regex and strLength bounds", () => {
     expect(() =>
       create("\\A[a-z]{6}\\Z", seedrandom("impossible-lengths"), {

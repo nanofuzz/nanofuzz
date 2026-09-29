@@ -177,12 +177,7 @@ function generateRandomInputFn(
         }
         // The number of key-value entries is sampled dictLength times.
         const dictLen = arg.getOptions().dictLength;
-        const count = getRandomNumber(
-          prng,
-          dictLen.min,
-          dictLen.max,
-          ArgDef.getDefaultOptions()
-        );
+        const count = sampleLength(prng, dictLen.min, dictLen.max);
         const out: { [key: string]: ArgValueType } = {};
         const keyGen = generateRandomInputFn(keySpec, prng);
         const valGen = generateRandomInputFn(valueSpec, prng);
@@ -219,15 +214,12 @@ function generateRandomInputFn(
           throw new Error("Min and max must be objects");
         const [elemSpec] = arg.getChildren();
         if (!elemSpec) {
-          throw new Error("Set arguments require an element type specification");
+          throw new Error(
+            "Set arguments require an element type specification"
+          );
         }
         const setLen = arg.getOptions().setLength;
-        const count = getRandomNumber(
-          prng,
-          setLen.min,
-          setLen.max,
-          ArgDef.getDefaultOptions()
-        );
+        const count = sampleLength(prng, setLen.min, setLen.max);
         const rawItems: ArgValueType[] = [];
         const seen = new Set<string>();
         const elemGen = generateRandomInputFn(elemSpec, prng);
@@ -279,10 +271,27 @@ function generateRandomInputFn(
   const options = arg.getOptions();
   const dimLength = arg.getOptions().dimLength;
   const isOptional = arg.isOptional();
+  const isUnicodeWildcard =
+    type === ArgTag.STRING && options.strRegex === "\\A(?:.)*\\Z";
   const regexGenerator =
-    type === ArgTag.STRING && options.strRegex !== undefined
+    type === ArgTag.STRING &&
+    options.strRegex !== undefined &&
+    !isUnicodeWildcard
       ? RegexStringBuilder.create(options.strRegex, prng, options)
       : undefined;
+
+  const getRandomUnicodeString: PublicRandFn = () => {
+    const strLen = sampleLength(
+      prng,
+      options.strLength.min,
+      options.strLength.max
+    );
+    const outChars: string[] = [];
+    for (let i = 0; i < strLen; i++) {
+      outChars.push(RegexStringBuilder.getRandomUnicodeChar(prng));
+    }
+    return outChars.join("");
+  };
 
   // Callback fn to generate value
   const randFnWrapper: PublicRandFn = () => {
@@ -303,6 +312,7 @@ function generateRandomInputFn(
       }
     }
     if (type === ArgTag.LITERAL && !intervals.length) return undefined;
+    if (isUnicodeWildcard) return getRandomUnicodeString();
     if (regexGenerator) return regexGenerator();
 
     // TODO: weight interval selection based on the size of the interval !!!
@@ -331,12 +341,7 @@ function generateRandomInputFn(
   if (constantLeaves !== undefined) {
     randArgValueWrapper = () => {
       const dim = dimLength[0];
-      const targetLen = getRandomNumber(
-        prng,
-        dim.min,
-        dim.max,
-        ArgDef.getDefaultOptions()
-      );
+      const targetLen = sampleLength(prng, dim.min, dim.max);
 
       if (constantLeaves.length < targetLen) {
         return nArray(prng, randFnWrapper, dimLength, options);
@@ -405,6 +410,10 @@ const getRandomNumber = (
   if (typeof min !== "number" || typeof max !== "number")
     throw new Error("Min and max must be numbers");
 
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return sampleNumberHeuristic(prng, min, max, options);
+  }
+
   if (options.numInteger) {
     const minInt: number = Math.ceil(min);
     const maxInt: number = Math.floor(max) + 1;
@@ -458,6 +467,37 @@ const getLiteral: PrivateRandFn = (
 }; // fn: getLiteral
 
 /**
+ * Samples a collection or sequence length respecting min and max bounds:
+ * - When max is finite: samples uniformly across [min, max].
+ * - When max is infinite: samples geometrically above min (default mean: 10).
+ *
+ * @param `prng` pseudo-random number generator
+ * @param `min` minimum length allowed (default: 0)
+ * @param `max` maximum length allowed (default: Infinity)
+ * @param `unboundedMean` target average length above min when unbounded (default: 10)
+ * @returns sampled length >= min and <= max
+ */
+export const sampleLength = (
+  prng: seedrandom.prng,
+  min = 0,
+  max = Infinity,
+  unboundedMean = 10
+): number => {
+  const safeMin = Number.isFinite(min) && min >= 0 ? min : 0;
+  const safeMax = max !== undefined ? max : Infinity;
+
+  if (safeMin > safeMax) {
+    throw new Error(`min (${safeMin}) cannot be greater than max (${safeMax})`);
+  }
+
+  if (Number.isFinite(safeMax)) {
+    return Math.floor(prng() * (safeMax - safeMin + 1)) + safeMin;
+  }
+
+  return safeMin + Math.floor(-Math.log(1 - prng() * 0.999) * unboundedMean);
+}; // fn: sampleLength
+
+/**
  * Returns a random string >= min and <= max with
  * length <= options.strLength.max and >= options.strLength.min.
  *
@@ -491,12 +531,11 @@ const getRandomString: PrivateRandFn = (
   // This generator does not currently support min and max, but we don't make
   // that option available in the UI anyway. Find the old code in v0.3.2 and fix
   // intervals for string types when it's time to implement this.
-  const strLen = getRandomNumber(
+  const strLen = sampleLength(
     prng,
     options.strLength.min,
-    options.strLength.max,
-    intOptions
-  ); // use default for integer selection
+    options.strLength.max
+  );
 
   // Sequentially choose each character in the string
   // Note: This provides a uniform distribution at each position, but
@@ -510,6 +549,15 @@ const getRandomString: PrivateRandFn = (
   return outChars.join("");
 }; // fn: getRandomString
 
+/**
+ * Generates a random byte array with a length constrained by the provided options.
+ *
+ * @param prng pseudo-random number generator
+ * @param _min minimum value allowed (inclusive)
+ * @param _max maximum value allowed (inclusive)
+ * @param options argument option set
+ * @returns random byte array with length >= options.byteLength.min and <= options.byteLength.max
+ */
 const getRandomBytes: PrivateRandFn = (
   prng: seedrandom.prng,
   _min: ArgValueType,
@@ -517,11 +565,10 @@ const getRandomBytes: PrivateRandFn = (
   options: ArgOptions
 ): Uint8Array => {
   const intOptions = ArgDef.getDefaultOptions();
-  const bytesLen = getRandomNumber(
+  const bytesLen = sampleLength(
     prng,
     options.byteLength.min,
-    options.byteLength.max,
-    intOptions
+    options.byteLength.max
   );
   const outBytes = new Uint8Array(bytesLen);
   for (let i = 0; i < bytesLen; i++) {
@@ -557,12 +604,7 @@ const nArray = (
     const newArray: ArgValueType[] = []; // output array
     const seen =
       currDepth === 0 && options.dimsUnique ? new Set<string>() : undefined;
-    const thisDim = getRandomNumber(
-      prng,
-      dim.min,
-      dim.max,
-      ArgDef.getDefaultOptions()
-    );
+    const thisDim = sampleLength(prng, dim.min, dim.max);
     // Only outer elements must be unique; nested dimensions may repeat. When
     // a finite value domain is exhausted, keep the generated prefix if it
     // already satisfies the minimum dimension length, or fail if it cannot.
@@ -600,6 +642,187 @@ const nArray = (
 }; // fn: nArray
 
 /**
+ * Samples a random number (integer or float) using a 4-category mixture
+ * distribution (25% small near 0, 25% boundary values / powers of two,
+ * 25% medium range, 25% wide range), respecting min and max bounds.
+ *
+ * @param `prng` pseudo-random number generator
+ * @param `min` minimum value allowed (inclusive)
+ * @param `max` maximum value allowed (inclusive)
+ * @param `options` argument option set
+ * @returns random number >= min and <= max
+ */
+export const sampleNumberHeuristic = (
+  prng: seedrandom.prng,
+  min: ArgValueType,
+  max: ArgValueType,
+  options: ArgOptions
+): number => {
+  if (typeof min !== "number" || typeof max !== "number") {
+    throw new Error("Min and max must be numbers");
+  }
+  if (min === max) return min;
+  if (min > max) {
+    throw new Error(`min (${min}) cannot be greater than max (${max})`);
+  }
+
+  const category = prng();
+
+  if (options.numInteger) {
+    let candidate: number;
+
+    if (category < 0.25) {
+      // 1. Small integers near 0 (exponential / geometric)
+      const mag = Math.floor(-Math.log(1 - prng() * 0.999) * 5);
+      const sign = prng() < 0.5 ? 1 : -1;
+      candidate = sign * mag;
+      if (candidate < min && Number.isFinite(min)) {
+        candidate = min + mag;
+      } else if (candidate > max && Number.isFinite(max)) {
+        candidate = max - mag;
+      }
+    } else if (category < 0.5) {
+      // 2. Boundary values / powers of two
+      if (!Number.isFinite(min) && !Number.isFinite(max)) {
+        candidate = INT_BOUNDARIES[Math.floor(prng() * INT_BOUNDARIES.length)];
+      } else {
+        const candidateList = [...INT_BOUNDARIES];
+        if (Number.isFinite(min)) {
+          candidateList.push(min, min + 1);
+        }
+        if (Number.isFinite(max)) {
+          candidateList.push(max, max - 1);
+        }
+        const filtered = candidateList.filter((b) => b >= min && b <= max);
+        if (filtered.length > 0) {
+          candidate = filtered[Math.floor(prng() * filtered.length)];
+        } else {
+          candidate = Number.isFinite(min)
+            ? min
+            : Number.isFinite(max)
+              ? max
+              : 0;
+        }
+      }
+    } else if (category < 0.75) {
+      // 3. Medium range integers
+      if (Number.isFinite(min) && Number.isFinite(max) && max - min <= 2000) {
+        candidate = Math.floor(prng() * (max - min + 1)) + min;
+      } else {
+        const medMin = Math.max(min, -1000);
+        const medMax = Math.min(max, 1000);
+        if (medMin <= medMax) {
+          candidate = Math.floor(prng() * (medMax - medMin + 1)) + medMin;
+        } else if (Number.isFinite(min)) {
+          const span = Number.isFinite(max)
+            ? Math.min(2001, max - min + 1)
+            : 2001;
+          candidate = min + Math.floor(prng() * span);
+        } else if (Number.isFinite(max)) {
+          const span = Number.isFinite(min)
+            ? Math.min(2001, max - min + 1)
+            : 2001;
+          candidate = max - Math.floor(prng() * span);
+        } else {
+          candidate = Math.floor(prng() * 2001) - 1000;
+        }
+      }
+    } else {
+      // 4. Wide range integers
+      if (Number.isFinite(min) && Number.isFinite(max)) {
+        candidate = Math.floor(prng() * (max - min + 1)) + min;
+      } else {
+        const bits = Math.floor(prng() * 32);
+        const val = Math.floor(prng() * Math.pow(2, bits));
+        const raw = (prng() < 0.5 ? 1 : -1) * val;
+        if (Number.isFinite(min) && raw < min) {
+          candidate = min + val;
+        } else if (Number.isFinite(max) && raw > max) {
+          candidate = max - val;
+        } else {
+          candidate = raw;
+        }
+      }
+    }
+
+    const rounded = Math.round(candidate);
+    return Math.min(Math.max(rounded, min), max);
+  } else {
+    // Floats
+    let candidate: number;
+
+    if (category < 0.25) {
+      // 1. Special float boundaries
+      if (!Number.isFinite(min) && !Number.isFinite(max)) {
+        candidate = FLOAT_SPECIALS[Math.floor(prng() * FLOAT_SPECIALS.length)];
+      } else {
+        const candidateList = [...FLOAT_SPECIALS];
+        if (Number.isFinite(min)) candidateList.push(min);
+        if (Number.isFinite(max)) candidateList.push(max);
+        const filtered = candidateList.filter((b) => b >= min && b <= max);
+        if (filtered.length > 0) {
+          candidate = filtered[Math.floor(prng() * filtered.length)];
+        } else {
+          candidate = Number.isFinite(min)
+            ? min
+            : Number.isFinite(max)
+              ? max
+              : 0.0;
+        }
+      }
+    } else if (category < 0.5) {
+      // 2. Small / normalized floats near 0
+      const sign = prng() < 0.5 ? 1 : -1;
+      const exp = Math.floor(prng() * 11) - 5; // 2^-5 to 2^5
+      const mantissa = prng();
+      candidate = sign * mantissa * Math.pow(2, exp);
+      if (candidate < min && Number.isFinite(min)) {
+        candidate = min + Math.abs(candidate);
+      } else if (candidate > max && Number.isFinite(max)) {
+        candidate = max - Math.abs(candidate);
+      }
+    } else if (category < 0.75) {
+      // 3. Medium range floats
+      if (Number.isFinite(min) && Number.isFinite(max) && max - min <= 2000) {
+        candidate = prng() * (max - min) + min;
+      } else {
+        const medMin = Math.max(min, -1000.0);
+        const medMax = Math.min(max, 1000.0);
+        if (medMin <= medMax) {
+          candidate = prng() * (medMax - medMin) + medMin;
+        } else if (Number.isFinite(min)) {
+          const span = Number.isFinite(max) ? Math.min(2000, max - min) : 2000;
+          candidate = min + prng() * span;
+        } else if (Number.isFinite(max)) {
+          const span = Number.isFinite(min) ? Math.min(2000, max - min) : 2000;
+          candidate = max - prng() * span;
+        } else {
+          candidate = prng() * 2000.0 - 1000.0;
+        }
+      }
+    } else {
+      // 4. Wide exponent floats
+      if (Number.isFinite(min) && Number.isFinite(max)) {
+        candidate = prng() * (max - min) + min;
+      } else {
+        const sign = prng() < 0.5 ? 1 : -1;
+        const exp = Math.floor(prng() * 60) - 30;
+        const raw = sign * prng() * Math.pow(10, exp);
+        if (Number.isFinite(min) && raw < min) {
+          candidate = min + Math.abs(raw);
+        } else if (Number.isFinite(max) && raw > max) {
+          candidate = max - Math.abs(raw);
+        } else {
+          candidate = raw;
+        }
+      }
+    }
+
+    return Math.min(Math.max(candidate, min), max);
+  } // floats
+}; // fn: sampleNumberHeuristic
+
+/**
  * Recursively collects discrete, constant leaf ArgDefs from a UNION argument.
  * Returns undefined if any non-constant or non-discrete child is present.
  */
@@ -633,3 +856,49 @@ const getDiscreteConstantLeaves = (arg: ArgDef): ArgDef[] | undefined => {
   }
   return undefined;
 };
+
+const INT_BOUNDARIES: readonly number[] = Object.freeze([
+  0,
+  1,
+  -1,
+  2,
+  -2,
+  127,
+  128,
+  -128,
+  -129,
+  255,
+  256,
+  -256,
+  32767,
+  32768,
+  -32768,
+  -32769,
+  65535,
+  65536,
+  2147483647,
+  2147483648,
+  -2147483648,
+  -2147483649,
+  Number.MAX_SAFE_INTEGER,
+  -Number.MAX_SAFE_INTEGER,
+]);
+
+const FLOAT_SPECIALS: readonly number[] = Object.freeze([
+  0.0,
+  -0.0,
+  1.0,
+  -1.0,
+  0.5,
+  -0.5,
+  2.0,
+  -2.0,
+  10.0,
+  -10.0,
+  Number.MIN_VALUE,
+  Number.MAX_VALUE,
+  Number.EPSILON,
+  -Number.MIN_VALUE,
+  -Number.MAX_VALUE,
+  -Number.EPSILON,
+]);

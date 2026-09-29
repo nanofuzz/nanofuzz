@@ -1010,6 +1010,72 @@ def test_special_chars(s: str):
     expect(args[0].getOptions().strCharset).toEqual("abcdefghijklmnop \n\t");
   });
 
+  it("hypothesis @given default st.text and st.characters Unicode strRegex", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+from hypothesis import strategies as st
+
+@given(
+  t=st.text(),
+  c=st.characters(),
+  t_alpha=st.text(alphabet="abc")
+)
+def test_defaults(t, c, t_alpha):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_defaults"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().strRegex).toEqual("\\A(?:.)*\\Z");
+    expect(args[0].getOptions().strLength).toEqual({
+      min: 0,
+      max: Number.POSITIVE_INFINITY,
+    });
+    expect(args[0].getOptions().strCharset).toBeDefined();
+    expect(args[0].getOptions().strCharset?.length).toBeGreaterThan(0);
+
+    expect(args[1].getOptions().strRegex).toEqual("\\A(?:.)*\\Z");
+    expect(args[1].getOptions().strLength).toEqual({ min: 1, max: 1 });
+    expect(args[1].getOptions().strCharset).toBeDefined();
+    expect(args[1].getOptions().strCharset?.length).toBeGreaterThan(0);
+
+    expect(args[2].getOptions().strCharset).toEqual("abc");
+    expect(args[2].getOptions().strLength).toEqual({
+      min: 0,
+      max: Number.POSITIVE_INFINITY,
+    });
+  });
+
+  it("hypothesis @given unbounded dft st.integers and st.floats", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+from hypothesis import strategies as st
+
+@given(
+  i_default=st.integers(),
+  i_min=st.integers(min_value=10),
+  i_max=st.integers(max_value=100),
+  f_default=st.floats(),
+  f_min=st.floats(min_value=0.0),
+  f_max=st.floats(max_value=50.0)
+)
+def test_numeric_defaults(i_default, i_min, i_max, f_default, f_min, f_max):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_numeric_defaults"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getIntervals()).toEqual([{ min: -Infinity, max: Infinity }]);
+    expect(args[1].getIntervals()).toEqual([{ min: 10, max: Infinity }]);
+    expect(args[2].getIntervals()).toEqual([{ min: -Infinity, max: 100 }]);
+
+    expect(args[3].getIntervals()).toEqual([{ min: -Infinity, max: Infinity }]);
+    expect(args[4].getIntervals()).toEqual([{ min: 0.0, max: Infinity }]);
+    expect(args[5].getIntervals()).toEqual([{ min: -Infinity, max: 50.0 }]);
+  });
+
   it("hypothesis @settings `max_examples`", () => {
     const program = ProgramFactory.fromSource(
       () => `
@@ -1146,6 +1212,10 @@ def test_binary(data1, data2):
 
     expect(args[0].getName()).toEqual("data1");
     expect(args[0].getType()).toEqual(ArgTag.BYTES);
+    expect(args[0].getOptions().byteLength).toEqual({
+      min: 0,
+      max: Infinity,
+    });
 
     expect(args[1].getName()).toEqual("data2");
     expect(args[1].getType()).toEqual(ArgTag.BYTES);
@@ -1259,6 +1329,30 @@ def test_bounds(integer, decimal):
     const args = fn.getArgDefs();
     expect(args[0].getIntervals()).toEqual([{ min: -10, max: 200 }]);
     expect(args[1].getIntervals()).toEqual([{ min: -1.5, max: 2.5 }]);
+  });
+
+  it("hypothesis @given constant expressions (powers, bitwise, binary arithmetic)", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    seconds=st.integers(min_value=2**30, max_value=2**34 - 1),
+    nanoseconds=st.integers(min_value=1, max_value=10**9 - 1),
+    flags=st.integers(min_value=1 << 4, max_value=(1 << 8) - 1),
+    buffer_size=st.integers(min_value=64 * 1024, max_value=128 * 1024)
+)
+def test_expressions(seconds, nanoseconds, flags, buffer_size):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_expressions"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getIntervals()).toEqual([
+      { min: 1073741824, max: 17179869183 },
+    ]);
+    expect(args[1].getIntervals()).toEqual([{ min: 1, max: 999999999 }]);
+    expect(args[2].getIntervals()).toEqual([{ min: 16, max: 255 }]);
+    expect(args[3].getIntervals()).toEqual([{ min: 65536, max: 131072 }]);
   });
 
   it("hypothesis @given `lists` nested and fixed_dictionaries", () => {
@@ -1567,6 +1661,32 @@ def test_popitem_returns_key_value_pair(pairs):
     expect(children[1].getIntervals()).toEqual([{ min: 0, max: 200 }]);
 
     expect(arg.getOptions().dictLength).toEqual({ min: 3, max: 20 });
+  });
+
+  it("hypothesis @given unbounded dft st.lists, st.sets, and st.dictionaries", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+from hypothesis import strategies as st
+
+@given(
+    l_dft=st.lists(st.integers()),
+    s_dft=st.sets(st.integers()),
+    d_dft=st.dictionaries(st.text(), st.integers())
+)
+def test_unbounded_collections(l_dft, s_dft, d_dft):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_unbounded_collections"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().dimLength).toEqual([{ min: 0, max: Infinity }]);
+
+    expect(args[1].getType()).toEqual(ArgTag.SET);
+    expect(args[1].getOptions().setLength).toEqual({ min: 0, max: Infinity });
+
+    expect(args[2].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[2].getOptions().dictLength).toEqual({ min: 0, max: Infinity });
   });
 
   it("hypothesis @given takes precedence over native type annotations", () => {
