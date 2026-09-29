@@ -1,5 +1,15 @@
-import importlib.util
 import sys
+
+# Send an immediate heartbeat as early as possible during startup
+# so parent process timeout timer is reset while modules load.
+if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
+    try:
+        sys.__stdout__.buffer.write(b'\x00\x00\x00\x06\xa5HEART')
+        sys.__stdout__.buffer.flush()
+    except Exception:
+        pass
+
+import importlib.util
 import os
 import io
 import json
@@ -182,6 +192,12 @@ class HostHeartbeat:
 
     def start(self):
         def _worker():
+            try:
+                send_heartbeat()
+            except Exception as e:
+                logging.debug(f"[{pid}] Heartbeat send error: {e}")
+                return
+
             while not self.stop_event.wait(timeout=self.interval):
                 if self.heartbeat_count >= self.max_heartbeats:
                     logging.debug(
