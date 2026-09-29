@@ -56,7 +56,7 @@ export class Ucb1Scheduler extends AbstractInputScheduler {
    */
   protected _loadConfig(): void {
     this._c = Config.get<number>(
-      "nanofuzz.generators.compositeScheduler.ucb1.exploration",
+      "nanofuzz.generators.scheduler.ucb1.exploration",
       1.414
     );
   } // fn: _loadConfig

@@ -62,7 +62,7 @@ export class ThompsonScheduler extends AbstractInputScheduler {
    */
   protected _loadConfig(): void {
     this._priorVariance = Config.get<number>(
-      "nanofuzz.generators.compositeScheduler.thompson.priorVariance",
+      "nanofuzz.generators.scheduler.thompson.priorVariance",
       1.0
     );
   } // fn: _loadConfig

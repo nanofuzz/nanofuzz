@@ -42,10 +42,7 @@ describe("src/fuzzer/schedulers/EwmaScheduler:", () => {
     const measures = [new MockMeasure(1)];
 
     // Force zero random exploration to test pure convergence
-    Config.override(
-      "nanofuzz.generators.compositeScheduler.ewma.exploration",
-      0.0
-    );
+    Config.override("nanofuzz.generators.scheduler.ewma.exploration", 0.0);
     scheduler.onRunStart();
 
     // Initial picks & feedback
@@ -83,10 +80,7 @@ describe("src/fuzzer/schedulers/EwmaScheduler:", () => {
     expect(scheduler.getSubgenMetrics(0).productivity).toBe(100);
     expect(scheduler.getSubgenMetrics(1).productivity).toBe(0);
 
-    Config.override(
-      "nanofuzz.generators.compositeScheduler.ewma.exploration",
-      0.1
-    );
+    Config.override("nanofuzz.generators.scheduler.ewma.exploration", 0.1);
   });
 
   it("adapts smoothly when productivity shifts between generators", () => {
@@ -98,11 +92,8 @@ describe("src/fuzzer/schedulers/EwmaScheduler:", () => {
     const activeSubgens = [true, true];
     const measures = [new MockMeasure(1)];
 
-    Config.override("nanofuzz.generators.compositeScheduler.ewma.alpha", 0.5);
-    Config.override(
-      "nanofuzz.generators.compositeScheduler.ewma.exploration",
-      0.0
-    );
+    Config.override("nanofuzz.generators.scheduler.ewma.alpha", 0.5);
+    Config.override("nanofuzz.generators.scheduler.ewma.exploration", 0.0);
     scheduler.onRunStart();
 
     const feedbackHigh: MockMeasurement = {
@@ -156,28 +147,19 @@ describe("src/fuzzer/schedulers/EwmaScheduler:", () => {
     });
     expect(selected).toBe(1);
 
-    Config.override("nanofuzz.generators.compositeScheduler.ewma.alpha", 0.2);
-    Config.override(
-      "nanofuzz.generators.compositeScheduler.ewma.exploration",
-      0.1
-    );
+    Config.override("nanofuzz.generators.scheduler.ewma.alpha", 0.2);
+    Config.override("nanofuzz.generators.scheduler.ewma.exploration", 0.1);
   });
 
   it("handles alpha and exploration configuration changes on onRunStart", () => {
     const scheduler = new EwmaScheduler("seed");
-    Config.override("nanofuzz.generators.compositeScheduler.ewma.alpha", 0.4);
-    Config.override(
-      "nanofuzz.generators.compositeScheduler.ewma.exploration",
-      0.3
-    );
+    Config.override("nanofuzz.generators.scheduler.ewma.alpha", 0.4);
+    Config.override("nanofuzz.generators.scheduler.ewma.exploration", 0.3);
     scheduler.onRunStart();
     expect(scheduler["_alpha"]).toBe(0.4);
     expect(scheduler["_exploration"]).toBe(0.3);
 
-    Config.override("nanofuzz.generators.compositeScheduler.ewma.alpha", 0.2);
-    Config.override(
-      "nanofuzz.generators.compositeScheduler.ewma.exploration",
-      0.1
-    );
+    Config.override("nanofuzz.generators.scheduler.ewma.alpha", 0.2);
+    Config.override("nanofuzz.generators.scheduler.ewma.exploration", 0.1);
   });
 });

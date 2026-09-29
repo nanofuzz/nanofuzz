@@ -71,19 +71,19 @@ export class MoptScheduler extends AbstractInputScheduler {
    */
   protected _loadConfig(): void {
     this._swarmSize = Config.get<number>(
-      "nanofuzz.generators.compositeScheduler.mopt.swarmSize",
+      "nanofuzz.generators.scheduler.mopt.swarmSize",
       5
     );
     this._period = Config.get<number>(
-      "nanofuzz.generators.compositeScheduler.mopt.period",
+      "nanofuzz.generators.scheduler.mopt.period",
       50
     );
     this._w = Config.get<number>(
-      "nanofuzz.generators.compositeScheduler.mopt.inertia",
+      "nanofuzz.generators.scheduler.mopt.inertia",
       0.7
     );
     this._minProb = Config.get<number>(
-      "nanofuzz.generators.compositeScheduler.mopt.exploration",
+      "nanofuzz.generators.scheduler.mopt.exploration",
       0.05
     );
   } // fn: _loadConfig

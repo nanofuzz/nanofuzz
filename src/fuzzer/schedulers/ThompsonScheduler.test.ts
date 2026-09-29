@@ -111,13 +111,13 @@ describe("src/fuzzer/schedulers/ThompsonScheduler:", () => {
   it("handle prior variance configuration changes on onRunStart", () => {
     const scheduler = new ThompsonScheduler("seed");
     Config.override(
-      "nanofuzz.generators.compositeScheduler.thompson.priorVariance",
+      "nanofuzz.generators.scheduler.thompson.priorVariance",
       2.5
     );
     scheduler.onRunStart();
     expect(scheduler["_priorVariance"]).toBe(2.5);
     Config.override(
-      "nanofuzz.generators.compositeScheduler.thompson.priorVariance",
+      "nanofuzz.generators.scheduler.thompson.priorVariance",
       1.0
     );
   });

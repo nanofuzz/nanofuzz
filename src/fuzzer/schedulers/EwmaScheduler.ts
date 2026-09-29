@@ -56,11 +56,11 @@ export class EwmaScheduler extends AbstractInputScheduler {
    */
   protected _loadConfig(): void {
     this._alpha = Config.get<number>(
-      "nanofuzz.generators.compositeScheduler.ewma.alpha",
+      "nanofuzz.generators.scheduler.ewma.alpha",
       0.2
     );
     this._exploration = Config.get<number>(
-      "nanofuzz.generators.compositeScheduler.ewma.exploration",
+      "nanofuzz.generators.scheduler.ewma.exploration",
       0.1
     );
   } // fn: _loadConfig

@@ -65,7 +65,7 @@ describe("src/fuzzer/schedulers/MoptScheduler:", () => {
     const activeSubgens = [true, true];
     const measures = [new MockMeasure(1)];
 
-    Config.override("nanofuzz.generators.compositeScheduler.mopt.period", 10);
+    Config.override("nanofuzz.generators.scheduler.mopt.period", 10);
     scheduler.onRunStart();
 
     const feedbackA: MockMeasurement = {
@@ -113,18 +113,15 @@ describe("src/fuzzer/schedulers/MoptScheduler:", () => {
     expect(countA).toBeGreaterThan(30);
     expect(scheduler.getSubgenMetrics(0).productivity).toBeGreaterThan(50);
 
-    Config.override("nanofuzz.generators.compositeScheduler.mopt.period", 50);
+    Config.override("nanofuzz.generators.scheduler.mopt.period", 50);
   });
 
   it("handles configuration changes on onRunStart", () => {
     const scheduler = new MoptScheduler("seed");
-    Config.override("nanofuzz.generators.compositeScheduler.mopt.swarmSize", 8);
-    Config.override("nanofuzz.generators.compositeScheduler.mopt.period", 25);
-    Config.override("nanofuzz.generators.compositeScheduler.mopt.inertia", 0.5);
-    Config.override(
-      "nanofuzz.generators.compositeScheduler.mopt.exploration",
-      0.1
-    );
+    Config.override("nanofuzz.generators.scheduler.mopt.swarmSize", 8);
+    Config.override("nanofuzz.generators.scheduler.mopt.period", 25);
+    Config.override("nanofuzz.generators.scheduler.mopt.inertia", 0.5);
+    Config.override("nanofuzz.generators.scheduler.mopt.exploration", 0.1);
 
     scheduler.onRunStart();
     expect(scheduler["_swarmSize"]).toBe(8);
@@ -132,12 +129,9 @@ describe("src/fuzzer/schedulers/MoptScheduler:", () => {
     expect(scheduler["_w"]).toBe(0.5);
     expect(scheduler["_minProb"]).toBe(0.1);
 
-    Config.override("nanofuzz.generators.compositeScheduler.mopt.swarmSize", 5);
-    Config.override("nanofuzz.generators.compositeScheduler.mopt.period", 50);
-    Config.override("nanofuzz.generators.compositeScheduler.mopt.inertia", 0.7);
-    Config.override(
-      "nanofuzz.generators.compositeScheduler.mopt.exploration",
-      0.05
-    );
+    Config.override("nanofuzz.generators.scheduler.mopt.swarmSize", 5);
+    Config.override("nanofuzz.generators.scheduler.mopt.period", 50);
+    Config.override("nanofuzz.generators.scheduler.mopt.inertia", 0.7);
+    Config.override("nanofuzz.generators.scheduler.mopt.exploration", 0.05);
   });
 });

@@ -321,7 +321,7 @@
             "default": "",
             "description": "Regex of files for NaNofuzz to ignore"
           },
-          "nanofuzz.generators.compositeScheduler": {
+          "nanofuzz.generators.scheduler.impl": {
             "title": "Composite generator scheduler algorithm",
             "type": "string",
             "enum": [
@@ -345,21 +345,21 @@
             "default": "mab",
             "description": "Scheduler used by CompositeInputGenerator to pick the next input generator"
           },
-          "nanofuzz.generators.compositeScheduler.ucb1.exploration": {
+          "nanofuzz.generators.scheduler.ucb1.exploration": {
             "title": "UCB1 exploration constant (c)",
             "type": "number",
             "default": 1.414,
             "minimum": 0,
             "description": "Exploration constant for the UCB1 scheduler (higher values bias toward under-explored generators)"
           },
-          "nanofuzz.generators.compositeScheduler.thompson.priorVariance": {
+          "nanofuzz.generators.scheduler.thompson.priorVariance": {
             "title": "Thompson Sampling prior variance",
             "type": "number",
             "default": 1,
             "minimum": 0.01,
             "description": "Initial prior variance for Thompson Sampling (higher values encourage more initial exploration)"
           },
-          "nanofuzz.generators.compositeScheduler.ewma.alpha": {
+          "nanofuzz.generators.scheduler.ewma.alpha": {
             "title": "EWMA smoothing factor (alpha)",
             "type": "number",
             "default": 0.2,
@@ -367,7 +367,7 @@
             "maximum": 1,
             "description": "Smoothing weight given to the newest observation (higher values react faster to recent yield changes)"
           },
-          "nanofuzz.generators.compositeScheduler.ewma.exploration": {
+          "nanofuzz.generators.scheduler.ewma.exploration": {
             "title": "EWMA exploration chance (epsilon)",
             "type": "number",
             "default": 0.1,
@@ -375,21 +375,21 @@
             "maximum": 1,
             "description": "Baseline random exploration probability for the EWMA scheduler"
           },
-          "nanofuzz.generators.compositeScheduler.mopt.swarmSize": {
+          "nanofuzz.generators.scheduler.mopt.swarmSize": {
             "title": "MOpt swarm size (number of particles)",
             "type": "integer",
             "default": 5,
             "minimum": 2,
             "description": "Number of probability distribution particles in the MOpt swarm"
           },
-          "nanofuzz.generators.compositeScheduler.mopt.period": {
+          "nanofuzz.generators.scheduler.mopt.period": {
             "title": "MOpt pilot evaluation period length",
             "type": "integer",
             "default": 50,
             "minimum": 5,
             "description": "Number of input evaluations allocated to a particle before updating swarm velocities"
           },
-          "nanofuzz.generators.compositeScheduler.mopt.inertia": {
+          "nanofuzz.generators.scheduler.mopt.inertia": {
             "title": "MOpt inertia weight (w)",
             "type": "number",
             "default": 0.7,
@@ -397,7 +397,7 @@
             "maximum": 1,
             "description": "Inertia weight for MOpt particle velocity updates"
           },
-          "nanofuzz.generators.compositeScheduler.mopt.exploration": {
+          "nanofuzz.generators.scheduler.mopt.exploration": {
             "title": "MOpt minimum generator probability",
             "type": "number",
             "default": 0.05,

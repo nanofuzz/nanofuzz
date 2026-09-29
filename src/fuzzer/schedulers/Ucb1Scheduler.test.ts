@@ -128,15 +128,9 @@ describe("src/fuzzer/schedulers/Ucb1Scheduler:", () => {
 
   it("handles exploration constant configuration changes on onRunStart", () => {
     const scheduler = new Ucb1Scheduler("seed");
-    Config.override(
-      "nanofuzz.generators.compositeScheduler.ucb1.exploration",
-      0.5
-    );
+    Config.override("nanofuzz.generators.scheduler.ucb1.exploration", 0.5);
     scheduler.onRunStart();
     expect(scheduler["_c"]).toBe(0.5);
-    Config.override(
-      "nanofuzz.generators.compositeScheduler.ucb1.exploration",
-      1.414
-    );
+    Config.override("nanofuzz.generators.scheduler.ucb1.exploration", 1.414);
   });
 });

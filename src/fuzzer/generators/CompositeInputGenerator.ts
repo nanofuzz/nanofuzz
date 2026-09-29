@@ -106,7 +106,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    */
   protected _loadConfig(): void {
     const schedulerType = Config.get<InputSchedulerType>(
-      "nanofuzz.generators.compositeScheduler",
+      "nanofuzz.generators.scheduler.impl",
       "mab"
     );
     this._L = Config.get<number>(

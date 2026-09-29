@@ -410,7 +410,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
     try {
       // Run 1: mab (default)
-      Config.override("nanofuzz.generators.compositeScheduler", "mab");
+      Config.override("nanofuzz.generators.scheduler.impl", "mab");
       cig.onRunStart(true);
       expect(cig.scheduler.type).toBe("mab");
       expect(cig.nextable()).toBeTruthy();
@@ -418,7 +418,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(inputRun1).toBeDefined();
 
       // Run 2: switch to random
-      Config.override("nanofuzz.generators.compositeScheduler", "random");
+      Config.override("nanofuzz.generators.scheduler.impl", "random");
       cig.onRunStart(true);
       expect(cig.scheduler.type).toBe("random");
       expect(cig.nextable()).toBeTruthy();
@@ -426,7 +426,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(inputRun2).toBeDefined();
 
       // Run 3: switch to round-robin
-      Config.override("nanofuzz.generators.compositeScheduler", "round-robin");
+      Config.override("nanofuzz.generators.scheduler.impl", "round-robin");
       cig.onRunStart(true);
       expect(cig.scheduler.type).toBe("round-robin");
       expect(cig.nextable()).toBeTruthy();
@@ -434,7 +434,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(inputRun3).toBeDefined();
 
       // Run 4: switch to ucb1
-      Config.override("nanofuzz.generators.compositeScheduler", "ucb1");
+      Config.override("nanofuzz.generators.scheduler.impl", "ucb1");
       cig.onRunStart(true);
       expect(cig.scheduler.type).toBe("ucb1");
       expect(cig.nextable()).toBeTruthy();
@@ -442,7 +442,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(inputRun4).toBeDefined();
 
       // Run 5: switch to thompson
-      Config.override("nanofuzz.generators.compositeScheduler", "thompson");
+      Config.override("nanofuzz.generators.scheduler.impl", "thompson");
       cig.onRunStart(true);
       expect(cig.scheduler.type).toBe("thompson");
       expect(cig.nextable()).toBeTruthy();
@@ -450,7 +450,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(inputRun5).toBeDefined();
 
       // Run 6: switch to ewma
-      Config.override("nanofuzz.generators.compositeScheduler", "ewma");
+      Config.override("nanofuzz.generators.scheduler.impl", "ewma");
       cig.onRunStart(true);
       expect(cig.scheduler.type).toBe("ewma");
       expect(cig.nextable()).toBeTruthy();
@@ -458,14 +458,14 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(inputRun6).toBeDefined();
 
       // Run 7: switch to mopt
-      Config.override("nanofuzz.generators.compositeScheduler", "mopt");
+      Config.override("nanofuzz.generators.scheduler.impl", "mopt");
       cig.onRunStart(true);
       expect(cig.scheduler.type).toBe("mopt");
       expect(cig.nextable()).toBeTruthy();
       const inputRun7 = cig.next();
       expect(inputRun7).toBeDefined();
     } finally {
-      Config.override("nanofuzz.generators.compositeScheduler", "mab");
+      Config.override("nanofuzz.generators.scheduler.impl", "mab");
     }
   });
 
@@ -514,12 +514,12 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       );
 
       // Run 1 with MAB
-      Config.override("nanofuzz.generators.compositeScheduler", "mab");
+      Config.override("nanofuzz.generators.scheduler.impl", "mab");
       cig.onRunStart(true);
       cig.next();
 
       // Run 2 with Round-Robin
-      Config.override("nanofuzz.generators.compositeScheduler", "round-robin");
+      Config.override("nanofuzz.generators.scheduler.impl", "round-robin");
       cig.onRunStart(true);
       cig.next();
 
@@ -589,7 +589,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(checkpoints?.[1].scheduler).toBe("round-robin");
     } finally {
       Config.override("nanofuzz.generators.compositeTrackCheckpoints", false);
-      Config.override("nanofuzz.generators.compositeScheduler", "mab");
+      Config.override("nanofuzz.generators.scheduler.impl", "mab");
     }
   });
 

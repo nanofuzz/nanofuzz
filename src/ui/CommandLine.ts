@@ -387,55 +387,55 @@ export async function runCliInProcess(
   // composite input generator config options
   if (options["cigScheduler"] !== undefined) {
     Config.override(
-      "nanofuzz.generators.compositeScheduler",
+      "nanofuzz.generators.scheduler.impl",
       options["cigScheduler"]
     );
   }
   if (options["cigSchedulerUcb1Exploration"] !== undefined) {
     Config.override(
-      "nanofuzz.generators.compositeScheduler.ucb1.exploration",
+      "nanofuzz.generators.scheduler.ucb1.exploration",
       options["cigSchedulerUcb1Exploration"]
     );
   }
   if (options["cigSchedulerThompsonPriorVariance"] !== undefined) {
     Config.override(
-      "nanofuzz.generators.compositeScheduler.thompson.priorVariance",
+      "nanofuzz.generators.scheduler.thompson.priorVariance",
       options["cigSchedulerThompsonPriorVariance"]
     );
   }
   if (options["cigSchedulerEwmaAlpha"] !== undefined) {
     Config.override(
-      "nanofuzz.generators.compositeScheduler.ewma.alpha",
+      "nanofuzz.generators.scheduler.ewma.alpha",
       options["cigSchedulerEwmaAlpha"]
     );
   }
   if (options["cigSchedulerEwmaExploration"] !== undefined) {
     Config.override(
-      "nanofuzz.generators.compositeScheduler.ewma.exploration",
+      "nanofuzz.generators.scheduler.ewma.exploration",
       options["cigSchedulerEwmaExploration"]
     );
   }
   if (options["cigSchedulerMoptSwarmSize"] !== undefined) {
     Config.override(
-      "nanofuzz.generators.compositeScheduler.mopt.swarmSize",
+      "nanofuzz.generators.scheduler.mopt.swarmSize",
       options["cigSchedulerMoptSwarmSize"]
     );
   }
   if (options["cigSchedulerMoptPeriod"] !== undefined) {
     Config.override(
-      "nanofuzz.generators.compositeScheduler.mopt.period",
+      "nanofuzz.generators.scheduler.mopt.period",
       options["cigSchedulerMoptPeriod"]
     );
   }
   if (options["cigSchedulerMoptInertia"] !== undefined) {
     Config.override(
-      "nanofuzz.generators.compositeScheduler.mopt.inertia",
+      "nanofuzz.generators.scheduler.mopt.inertia",
       options["cigSchedulerMoptInertia"]
     );
   }
   if (options["cigSchedulerMoptExploration"] !== undefined) {
     Config.override(
-      "nanofuzz.generators.compositeScheduler.mopt.exploration",
+      "nanofuzz.generators.scheduler.mopt.exploration",
       options["cigSchedulerMoptExploration"]
     );
   }
