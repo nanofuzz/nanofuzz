@@ -273,7 +273,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
           directives,
           this._allInputs,
           this._moduleSrc,
-          numRequested
+          numRequested,
+          this._stats.calls.sent
         )
         .then((inputs) => {
           // Update tokens received stats

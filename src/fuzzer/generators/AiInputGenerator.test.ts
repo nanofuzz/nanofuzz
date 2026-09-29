@@ -1,7 +1,7 @@
 import * as AiInputGenerator from "./AiInputGenerator";
 import { makeArgDef, getRandomArgDef } from "../analysis/TestUtils";
 import { ArgDef } from "../analysis/ArgDef";
-import { ArgTag } from "../analysis/Types";
+import { ArgTag, ArgValueType } from "../analysis/Types";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { LlmAdapter, prompt } from "../adapters/LlmAdapter";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
@@ -175,6 +175,74 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     expect(promptText).toContain("spec with \\`\\`\\` triple backticks");
     expect(promptText).toContain("function testFn() { /* \\`\\`\\` */ }");
     expect(promptText).toContain("// module code\n/* \\`\\`\\` */");
+  });
+
+  it("prompt.genInputs adds request sequence number when backfeedPriorInputs is false", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const allInputs = new Map<string, unknown>([
+      ['[{"value":1,"tag":"ArgValueTypeWrapped"}]', true],
+    ]);
+
+    Config.override("nanofuzz.ai.backfeedPriorInputs", false);
+    try {
+      const prompt1 = prompt.genInputs(fnDef, [], allInputs, "", 25);
+      expect(prompt1).toContain(
+        "This is request number 1 for this testing session."
+      );
+      expect(prompt1).not.toContain(
+        "The following inputs were previously generated and tested"
+      );
+
+      const prompt2 = prompt.genInputs(fnDef, [], allInputs, "", 25, 2);
+      expect(prompt2).toContain(
+        "This is request number 2 for this testing session."
+      );
+      expect(prompt2).not.toContain(
+        "The following inputs were previously generated and tested"
+      );
+    } finally {
+      Config.clearOverrides();
+    }
+  });
+
+  it("prompt.genInputs omits request sequence number when backfeedPriorInputs is true", () => {
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const allInputs = new Map<string, unknown>([
+      ['[{"value":1,"tag":"ArgValueTypeWrapped"}]', true],
+    ]);
+
+    Config.override("nanofuzz.ai.backfeedPriorInputs", true);
+    try {
+      const promptText = prompt.genInputs(fnDef, [], allInputs, "", 25, 1);
+      expect(promptText).not.toContain("This is request number");
+      expect(promptText).toContain(
+        "The following inputs were previously generated and tested"
+      );
+    } finally {
+      Config.clearOverrides();
+    }
   });
 
   it("nextable: 'soon' when LLM call pending and queue is empty", () => {
@@ -466,6 +534,97 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
     // High invalid rate (50% invalid): chunkSize 20 * 1.5 = 30
     gen.setStats(10, 10);
     expect(gen.getRequestedCount()).toBe(30);
+  });
+
+  it("passes request sequence number to llm.genInputs", async () => {
+    class TestableAiInputGenerator extends AiInputGenerator.AiInputGenerator {
+      public setLlm(llm: LlmAdapter): void {
+        this._llm = llm;
+      }
+      public callGetMoreInputs(): void {
+        this._getMoreInputs();
+      }
+      public clearPending(): void {
+        this._callsPending = 0;
+      }
+    }
+
+    class MockLlmAdapter extends LlmAdapter {
+      public readonly seqNums: (number | undefined)[] = [];
+      public override get id(): string {
+        return "test-model";
+      }
+      public override async genInputs(
+        _fn: FunctionDef,
+        _schema: unknown,
+        _directives: string[],
+        _allInputs: Map<string, unknown>,
+        _moduleSrc: string,
+        _numRequested: number,
+        reqSeqNum?: number
+      ): Promise<{
+        programInputs: { [k: string]: ArgValueType }[];
+        stats?: {
+          tokensSent: number;
+          tokensSentCost: { amt: number; unit: string };
+          tokensReceived: number;
+          tokensReceivedCost: { amt: number; unit: string };
+        };
+        error?: { type: "discard" } | { type: "failure"; message: string };
+      }> {
+        this.seqNums.push(reqSeqNum);
+        return {
+          programInputs: [],
+          stats: {
+            tokensSent: 10,
+            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensReceived: 5,
+            tokensReceivedCost: { amt: 0, unit: "USD" },
+          },
+        };
+      }
+    }
+
+    const fnDef = FunctionDef.fromFunctionRef({
+      module: "test.ts",
+      name: "testFn",
+      src: "function testFn(x: number) {}",
+      lang: "typescript",
+      startOffset: 0,
+      endOffset: 30,
+      isExported: true,
+      isVoid: true,
+      args: [],
+    });
+
+    const gen = new TestableAiInputGenerator(
+      fnDef,
+      "seed",
+      new Map(),
+      "function testFn(x: number) {}"
+    );
+
+    Config.override("nanofuzz.ai.provider", "gemini");
+    Config.override("nanofuzz.ai.model", "gemini-flash");
+    Config.override("nanofuzz.ai.apiKey", "test-key");
+
+    try {
+      const mockLlm = new MockLlmAdapter();
+      gen.setLlm(mockLlm);
+      gen.callGetMoreInputs();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(mockLlm.seqNums).toEqual([1]);
+
+      gen.clearPending();
+      gen["_exhausted"] = false;
+      gen.callGetMoreInputs();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(mockLlm.seqNums).toEqual([1, 2]);
+    } finally {
+      Config.clearOverrides();
+    }
   });
 
   it("random input generation size estimation accuracy test", () => {
