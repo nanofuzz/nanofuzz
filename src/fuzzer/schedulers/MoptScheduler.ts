@@ -6,7 +6,7 @@ import { InputSchedulerNextContext, InputSchedulerType } from "./Types";
 /**
  * MOpt (Mutation Optimization) scheduler using Particle Swarm Optimization
  *
- * Based on the paper:
+ * References:
  *   C. Lyu et al., “MOPT: Optimized Mutation Scheduling for Fuzzers,”
  *   presented at the 28th USENIX Security Symposium (USENIX Security 19),
  *   2019, pp. 1949–1966.

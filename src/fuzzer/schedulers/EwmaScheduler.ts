@@ -5,6 +5,13 @@ import { InputSchedulerNextContext, InputSchedulerType } from "./Types";
 
 /**
  * Exponentially Weighted Moving Average (EWMA) subgenerator scheduler.
+ *
+ * References:
+ *   S. W. Roberts,
+ *   “Control Chart Tests Based on Geometric Moving Averages,”
+ *   Technometrics, vol. 42, no. 1, pp. 97–101, Feb. 2000,
+ *   doi: 10.1080/00401706.2000.10485986.
+ *
  * Maintains an O(1) rolling productivity score per subgenerator using exponential decay:
  *   mu_i = alpha * reward + (1 - alpha) * mu_i
  */

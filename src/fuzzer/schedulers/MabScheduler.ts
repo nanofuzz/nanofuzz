@@ -5,6 +5,20 @@ import { InputSchedulerNextContext, InputSchedulerType } from "./Types";
 
 /**
  * Multi-Armed Bandit (MAB) subgenerator scheduler.
+ *
+ * References:
+ *   M. Woo, S. K. Cha, S. Gottlieb, and D. Brumley,
+ *   “Scheduling black-box mutational fuzzing,”
+ *   in Proceedings of the 2013 ACM SIGSAC conference on Computer & Communications Security,
+ *   in CCS ’13. New York, NY, USA: Association for Computing Machinery,
+ *   Nov. 2013, pp. 511–522. doi: 10.1145/2508859.2516736.
+ *
+ *   H. Robbins,
+ *   "Some aspects of the sequential design of experiments."
+ *   in Bulletin of the American Mathematical Society.
+ *   Vol 58, issue 5. September, 1952. 527-535.
+ *   https://projecteuclid.org/journals/bulletin-of-the-american-mathematical-society/volume-58/issue-5/Robins/bams/1183517370.pdf
+ *
  * Selects subgenerators based on their historical productivity (progress / cost)
  * with an additional exploration chance.
  */

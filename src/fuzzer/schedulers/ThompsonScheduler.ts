@@ -5,6 +5,19 @@ import { InputSchedulerNextContext, InputSchedulerType } from "./Types";
 
 /**
  * Thompson Sampling (Bayesian Bandit) subgenerator scheduler.
+ *
+ * References:
+ *   S. Agrawal and N. Goyal,
+ *   “Analysis of Thompson Sampling for the Multi-armed Bandit Problem,”
+ *   in Proceedings of the 25th Annual Conference on Learning Theory,
+ *   JMLR Workshop and Conference Proceedings, Jun. 2012, p. 39.1-39.26.
+ *   https://proceedings.mlr.press/v23/agrawal12.html
+ *
+ *   William R. Thompson.
+ *   "On the Likelihood that One Unknown Probability Exceeds Another in View of the Evidence of Two Samples"
+ *   Biometrika, 25(3/4): 285–294, 1933.
+ *   doi: 10.2307/2332286
+ *
  * Samples from each candidate generator's posterior productivity distribution
  * and selects the generator with the maximum sample.
  */

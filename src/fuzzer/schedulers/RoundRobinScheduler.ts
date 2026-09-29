@@ -3,6 +3,13 @@ import { InputSchedulerNextContext, InputSchedulerType } from "./Types";
 
 /**
  * Round-robin subgenerator scheduler.
+ *
+ * References:
+ *   L. Kleinrock,
+ *   “Analysis of a time-shared processor†,”
+ *   Naval Research Logistics Quarterly, vol. 11, no. 1, pp. 59–73,
+ *   Mar. 1964, doi: 10.1002/nav.3800110105.
+ *
  * Sequentially selects the next available subgenerator ("now") in cyclic order.
  */
 export class RoundRobinScheduler extends AbstractInputScheduler {

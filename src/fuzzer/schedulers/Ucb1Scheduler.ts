@@ -5,6 +5,13 @@ import { InputSchedulerNextContext, InputSchedulerType } from "./Types";
 
 /**
  * Upper Confidence Bound (UCB1) subgenerator scheduler.
+ * 
+ * References:
+ *   P. Auer, N. Cesa-Bianchi, and P. Fischer, 
+ *   “Finite-time Analysis of the Multiarmed Bandit Problem,” 
+ *   Machine Learning, vol. 47, no. 2, pp. 235–256, May 2002, 
+ *   doi: 10.1023/A:1013689704352.
+
  * Selects subgenerators using optimistic exploration in the face of uncertainty:
  * Score_i = mu_i + c * sqrt(2 * ln(N) / n_i)
  */
