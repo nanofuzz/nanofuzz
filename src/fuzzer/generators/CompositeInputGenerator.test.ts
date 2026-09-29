@@ -456,6 +456,14 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(cig.nextable()).toBeTruthy();
       const inputRun6 = cig.next();
       expect(inputRun6).toBeDefined();
+
+      // Run 7: switch to mopt
+      Config.override("nanofuzz.generators.compositeScheduler", "mopt");
+      cig.onRunStart(true);
+      expect(cig.scheduler.type).toBe("mopt");
+      expect(cig.nextable()).toBeTruthy();
+      const inputRun7 = cig.next();
+      expect(inputRun7).toBeDefined();
     } finally {
       Config.override("nanofuzz.generators.compositeScheduler", "mab");
     }

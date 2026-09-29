@@ -146,8 +146,8 @@ function createProgram(): Commander.Command {
     // ------------------------ Composite Input Generator ------------------------ //
 
     .option(
-      `--cig-scheduler <mab|random|round-robin|ucb1|thompson|ewma>`,
-      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin, ucb1, thompson, ewma)`,
+      `--cig-scheduler <mab|random|round-robin|ucb1|thompson|ewma|mopt>`,
+      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin, ucb1, thompson, ewma, mopt)`,
       parseCigScheduler,
       "mab"
     )
@@ -174,6 +174,30 @@ function createProgram(): Commander.Command {
       `Exploration chance (epsilon) for EWMA scheduler`,
       parseFloatArgZeroToOne,
       0.1
+    )
+    .option(
+      `--cig-scheduler-mopt-swarm-size <integer>`,
+      `Swarm size (number of particles) for MOpt scheduler`,
+      parseIntArgGeOne,
+      5
+    )
+    .option(
+      `--cig-scheduler-mopt-period <integer>`,
+      `Pilot evaluation period length for MOpt scheduler`,
+      parseIntArgGeOne,
+      50
+    )
+    .option(
+      `--cig-scheduler-mopt-inertia <float>`,
+      `Inertia weight (w) for MOpt scheduler`,
+      parseFloatArgZeroToOne,
+      0.7
+    )
+    .option(
+      `--cig-scheduler-mopt-exploration <float>`,
+      `Minimum generator probability for MOpt scheduler`,
+      parseFloatArgZeroToOne,
+      0.05
     )
     .option(
       `--cig-input-lookback <integer>`,
@@ -391,6 +415,30 @@ export async function runCliInProcess(
       options["cigSchedulerEwmaExploration"]
     );
   }
+  if (options["cigSchedulerMoptSwarmSize"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.compositeScheduler.mopt.swarmSize",
+      options["cigSchedulerMoptSwarmSize"]
+    );
+  }
+  if (options["cigSchedulerMoptPeriod"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.compositeScheduler.mopt.period",
+      options["cigSchedulerMoptPeriod"]
+    );
+  }
+  if (options["cigSchedulerMoptInertia"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.compositeScheduler.mopt.inertia",
+      options["cigSchedulerMoptInertia"]
+    );
+  }
+  if (options["cigSchedulerMoptExploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.compositeScheduler.mopt.exploration",
+      options["cigSchedulerMoptExploration"]
+    );
+  }
   Config.override(
     "nanofuzz.generators.compositeLookbackWindow",
     options["cigInputLookback"]
@@ -600,7 +648,8 @@ function isInputSchedulerType(val: string): val is InputSchedulerType {
     val === "round-robin" ||
     val === "ucb1" ||
     val === "thompson" ||
-    val === "ewma"
+    val === "ewma" ||
+    val === "mopt"
   );
 }
 
@@ -612,7 +661,7 @@ function parseCigScheduler(
     return value;
   }
   throw new Commander.InvalidArgumentError(
-    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin, ucb1, thompson, ewma`
+    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin, ucb1, thompson, ewma, mopt`
   );
 } // fn: parseCigScheduler
 

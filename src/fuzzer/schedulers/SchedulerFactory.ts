@@ -5,6 +5,7 @@ import { RoundRobinScheduler } from "./RoundRobinScheduler";
 import { Ucb1Scheduler } from "./Ucb1Scheduler";
 import { ThompsonScheduler } from "./ThompsonScheduler";
 import { EwmaScheduler } from "./EwmaScheduler";
+import { MoptScheduler } from "./MoptScheduler";
 import { InputSchedulerType } from "./Types";
 
 /**
@@ -14,7 +15,7 @@ export class SchedulerFactory {
   /**
    * Creates an instance of the requested scheduler type
    *
-   * @param `type` scheduler type ("mab", "random", "round-robin", "ucb1", "thompson", "ewma")
+   * @param `type` scheduler type ("mab", "random", "round-robin", "ucb1", "thompson", "ewma", "mopt")
    * @param `rngSeed` optional pseudo-random seed
    */
   public static create(
@@ -32,6 +33,8 @@ export class SchedulerFactory {
         return new ThompsonScheduler(rngSeed);
       case "ewma":
         return new EwmaScheduler(rngSeed);
+      case "mopt":
+        return new MoptScheduler(rngSeed);
       case "mab":
       default:
         return new MabScheduler(rngSeed);

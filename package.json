@@ -330,7 +330,8 @@
               "round-robin",
               "ucb1",
               "thompson",
-              "ewma"
+              "ewma",
+              "mopt"
             ],
             "enumDescriptions": [
               "Multi-Armed Bandit (MAB): Productivity-weighted selection based on feedback and exploration",
@@ -338,7 +339,8 @@
               "Round Robin: Sequential cyclic selection across ready generators",
               "Upper Confidence Bound (UCB1) algorithm balancing empirical yield and exploration uncertainty",
               "Thompson Sampling (Bayesian Bandit) drawing from posterior productivity distributions",
-              "Exponentially Weighted Moving Average (EWMA): Fast O(1) rolling productivity updates"
+              "Exponentially Weighted Moving Average (EWMA): Fast O(1) rolling productivity updates",
+              "MOpt (Particle Swarm Optimization): Multi-particle swarm moving through probability space"
             ],
             "default": "mab",
             "description": "Scheduler used by CompositeInputGenerator to pick the next input generator"
@@ -372,6 +374,36 @@
             "minimum": 0,
             "maximum": 1,
             "description": "Baseline random exploration probability for the EWMA scheduler"
+          },
+          "nanofuzz.generators.compositeScheduler.mopt.swarmSize": {
+            "title": "MOpt swarm size (number of particles)",
+            "type": "integer",
+            "default": 5,
+            "minimum": 2,
+            "description": "Number of probability distribution particles in the MOpt swarm"
+          },
+          "nanofuzz.generators.compositeScheduler.mopt.period": {
+            "title": "MOpt pilot evaluation period length",
+            "type": "integer",
+            "default": 50,
+            "minimum": 5,
+            "description": "Number of input evaluations allocated to a particle before updating swarm velocities"
+          },
+          "nanofuzz.generators.compositeScheduler.mopt.inertia": {
+            "title": "MOpt inertia weight (w)",
+            "type": "number",
+            "default": 0.7,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Inertia weight for MOpt particle velocity updates"
+          },
+          "nanofuzz.generators.compositeScheduler.mopt.exploration": {
+            "title": "MOpt minimum generator probability",
+            "type": "number",
+            "default": 0.05,
+            "minimum": 0.001,
+            "maximum": 0.5,
+            "description": "Minimum exploration probability allocated to each subgenerator in MOpt"
           },
           "nanofuzz.generators.compositeLookbackWindow": {
             "title": "Composite generator lookback window size for history",

@@ -615,6 +615,30 @@ describe("cli:", () => {
     ]);
     expect(resEwma.status).toBe(0);
     verifyCheckpointOutput(outputFileEwma, false);
+
+    // Test 7: MOpt mode (--cig-scheduler mopt --cig-scheduler-mopt-swarm-size 4 --cig-scheduler-mopt-period 20)
+    const outputFileMopt = path.join(tmpDir, "cig_checkpoints_mopt.json5");
+    const resMopt = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileMopt,
+      "--cig-scheduler",
+      "mopt",
+      "--cig-scheduler-mopt-swarm-size",
+      "4",
+      "--cig-scheduler-mopt-period",
+      "20",
+      "--cig-stats-checkpoints",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_mopt",
+    ]);
+    expect(resMopt.status).toBe(0);
+    verifyCheckpointOutput(outputFileMopt, false);
   });
 
   it("--ai-cache-*: cache miss in replay-error mode", async () => {
