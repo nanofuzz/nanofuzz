@@ -1,6 +1,7 @@
 import { Tester } from "./Fuzzer";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import * as ValueMapper from "./mappers/ValueMapper";
+import { FuzzPinnedTest } from "./Types";
 
 describe("fuzzer: python targets", () => {
   beforeAll(async () => {
@@ -36,7 +37,7 @@ describe("fuzzer: python targets", () => {
     expect(fuzzResult.env.validators.length).toEqual(1);
     fuzzResult.results.forEach((r) => {
       expect(r.passedValidators.length).toBe(1);
-      expect(r.validatorException).toBeFalse();
+      expect(r.harnessErrors.length).toBe(0);
       expect(r.passedValidator).toBe("pass");
     });
 
@@ -199,6 +200,42 @@ describe("fuzzer: python targets", () => {
     }
   });
 
+  it("injected (pinned, saved, and human-generated) inputs bypass Python input transformer", async () => {
+    const injectedInput: FuzzPinnedTest = {
+      input: [
+        {
+          name: "n",
+          offset: 0,
+          value: 5,
+          origin: { type: "user" },
+        },
+      ],
+      output: [],
+      pinned: true,
+    };
+
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_transformed",
+      { ...intOptions, maxTests: 0 }
+    ).testSync([injectedInput]);
+
+    expect(fuzzResult.results.length).toBe(1);
+    const injectedResult = fuzzResult.results[0];
+
+    // Verify the injected input was NOT skipped by py_transformedTransformer (which skips n=5)
+    expect(injectedResult.skipped).toBeFalse();
+
+    // Verify the input value was NOT transformed (remains 5, not multiplied by 10)
+    expect<unknown>(injectedResult.input[0].value).toBe(5);
+
+    // Verify output is py_transformed(5) => 6 (not 50 + 1 => 51)
+    expect<unknown>(injectedResult.output[0].value).toBe(6);
+
+    // Verify origin was preserved as user input rather than changed to transformer
+    expect(injectedResult.input[0].origin.type).toBe("user");
+  });
+
   it("Python transformer exception", async () => {
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.py",
@@ -208,8 +245,8 @@ describe("fuzzer: python targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionMessage).toContain("Python transformer error");
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].message).toContain("Python transformer error");
       expect(r.category).toBe("failure");
     });
   });
@@ -226,8 +263,8 @@ describe("fuzzer: python targets", () => {
 
     expect(fuzzResult.results.length).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
-      expect(r.validatorException).toBeTrue();
-      expect(r.validatorExceptionMessage).toBe("timeout");
+      expect(r.harnessErrors.length).toBeGreaterThan(0);
+      expect(r.harnessErrors[0].kind).toBe("timeout");
       expect(r.category).toBe("failure");
     });
   });

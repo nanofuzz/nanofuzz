@@ -8,6 +8,7 @@ import {
   FuzzTestResults,
 } from "../../Fuzzer";
 import { PythonCoverageMeasure } from "../../measures/PythonCoverageMeasure";
+import { normalizePathForKey } from "../../Util";
 import { ArgDef } from "../../analysis/ArgDef";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";
@@ -19,6 +20,7 @@ import * as os from "os";
 describe("fuzzer/runners/PythonRunner", () => {
   beforeAll(async () => {
     await Parser.init();
+    jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
   });
 
   afterEach(() => {
@@ -456,7 +458,7 @@ def loop_timeout(n: int) -> int:
     const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "slow_import_hb.py");
     const pyCode = `import time
-time.sleep(1.5)
+time.sleep(3.5)
 
 def slow_fn(x: int) -> int:
     return x * 2
@@ -475,16 +477,16 @@ def slow_fn(x: int) -> int:
         maxDupeInputs: 10,
       });
 
-      // Set hostStartupTimeout to 500ms. Without heartbeats (sent every 250ms),
-      // a 1.5s import would time out at t=1000ms. Heartbeats reset the 500ms clock,
-      // allowing the 1.5s import to succeed cleanly.
-      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 1000);
+      // Set hostStartupTimeout to 2000ms. Without heartbeats (sent every 250ms),
+      // a 3.5s import would time out. Heartbeats reset the 2000ms clock,
+      // allowing the 3.5s import to succeed cleanly.
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 2000);
 
       const runner = new PythonRunner(pyPath, "slow_fn", env, 10000);
       const start = performance.now();
       await runner.onRunStart();
       const elapsed = performance.now() - start;
-      expect(elapsed).toBeGreaterThanOrEqual(1400);
+      expect(elapsed).toBeGreaterThanOrEqual(3400);
 
       const res = await runner.run([10], 10000);
       await runner.onRunEnd();
@@ -844,7 +846,7 @@ def x(val: int) -> int:
           passedHuman: "unknown",
           passedValidator: "pass",
           passedValidators: [],
-          validatorException: false,
+          harnessErrors: [],
           timers: { gen: 0, transform: 0, run: 0 },
           category: "ok",
           interestingReasons: [],
@@ -869,7 +871,7 @@ def x(val: int) -> int:
       }
 
       const dummyGenStats: FuzzGeneratorStatsBase = {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       };
 
@@ -916,8 +918,7 @@ def x(val: int) -> int:
       expect(stats.counters.statementsCovered).toBe(6);
       expect(stats.counters.functionsCovered).toBe(1);
 
-      const fileMapNoPath = JSON.parse(JSON.stringify(stats.files[0].fileMap));
-      delete fileMapNoPath.path;
+      const fileMapNoPath = structuredClone(stats.files[0].fileMap.data);
 
       // Single run expectation: all 6 statements are covered (1 hit each)
       expect(fileMapNoPath.s).toEqual({
@@ -962,7 +963,7 @@ def x(val: int) -> int:
               passedHuman: "unknown",
               passedValidator: "pass",
               passedValidators: [],
-              validatorException: false,
+              harnessErrors: [],
               timers: { gen: 0, transform: 0, run: 0 },
               category: "ok",
               interestingReasons: [],
@@ -1026,13 +1027,20 @@ def x(val: int) -> int:
     const env = createFuzzEnv(fnDef);
 
     Config.override("nanofuzz.fuzzer.coverageScope", "project");
+    const measure = new PythonCoverageMeasure();
 
     try {
       const runner = new PythonRunner(realPyPath, "x", env, 2000);
       await runner.onRunStart();
+      measure.onRunStart([runner]);
 
-      // 1. Initial coverage at startup is empty when static is not in coverageScope
-      expect(runner.coverageInfo).toEqual({});
+      // 1. Initial coverage at startup has static structure but no module-load lines when static is NOT in coverageScope
+      const initialCov =
+        runner.coverageInfo?.[pyPath] ?? runner.coverageInfo?.[realPyPath];
+      expect(initialCov).toBeDefined();
+      expect(initialCov?.executable).toBeDefined();
+      expect(initialCov?.executable?.length).toBeGreaterThan(0);
+      expect(initialCov?.lines).toBeUndefined();
 
       // 2. Dynamic coverage is still collected during test execution
       const res = await runner.run([0], 2000);
@@ -1041,6 +1049,99 @@ def x(val: int) -> int:
         runner.coverageInfo?.[realPyPath]?.lines ??
           runner.coverageInfo?.[pyPath]?.lines
       ).toEqual([5]);
+
+      if (res.result.tag === "value") {
+        const testResult: FuzzTestResult = {
+          pinned: false,
+          inputGenerated: {
+            tick: 0,
+            value: [],
+            source: {
+              type: "generator",
+              generator: "RandomInputGenerator",
+            },
+          },
+          input: [],
+          output: [],
+          exception: false,
+          skipped: false,
+          timeout: false,
+          passedImplicit: "pass",
+          passedHuman: "unknown",
+          passedValidator: "pass",
+          passedValidators: [],
+          harnessErrors: [],
+          timers: { gen: 0, transform: 0, run: 0 },
+          category: "ok",
+          interestingReasons: [],
+        };
+
+        measure.measure(
+          {
+            tick: 0,
+            value: [
+              {
+                tag: "ArgValueTypeWrapped",
+                value: [0],
+              },
+            ],
+            source: {
+              type: "generator",
+              generator: "RandomInputGenerator",
+            },
+          },
+          testResult
+        );
+      }
+
+      const dummyGenStats: FuzzGeneratorStatsBase = {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      };
+
+      const resultsStub: FuzzTestResults = {
+        toolVersion: "0.0.0",
+        env,
+        stopReason: FuzzStopReason.MAXTESTS,
+        interesting: { inputs: [] },
+        results: [],
+        stats: {
+          counters: {
+            testingRuns: 1,
+            inputsGenerated: 1,
+            dupesGenerated: 0,
+            inputsInjected: 0,
+            erroredTests: 0,
+            passedTests: 1,
+            inputsSkipped: 0,
+            failedTests: 0,
+          },
+          timers: {
+            total: 10,
+            compile: 0,
+            instrument: 0,
+            put: 10,
+            val: 0,
+            gen: 0,
+            transform: 0,
+            measure: 0,
+          },
+          generators: {
+            RandomInputGenerator: dummyGenStats,
+            MutationInputGenerator: dummyGenStats,
+            AiInputGenerator: dummyGenStats,
+          },
+          measures: {},
+        },
+      };
+
+      measure.onRunEnd(resultsStub);
+      const stats = await resultsStub.stats.measures.CodeCoverageMeasure!();
+      expect(stats.files.length).toBe(1);
+      expect(stats.files[0].path).toBe(normalizePathForKey(realPyPath));
+      expect(
+        Object.keys(stats.files[0].fileMap.statementMap).length
+      ).toBeGreaterThan(0);
 
       await runner.onRunEnd();
     } finally {

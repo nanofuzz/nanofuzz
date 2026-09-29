@@ -72,7 +72,7 @@
           "nanofuzz.fuzzer.maxDupeInputs": {
             "title": "Maximum number of duplicate inputs",
             "type": "integer",
-            "default": 1000,
+            "default": 500,
             "minimum": 0,
             "description": "Default maximum number of duplicate inputs the fuzzer should generate before stopping."
           },
@@ -103,6 +103,19 @@
             "default": 10000,
             "minimum": 1000,
             "description": "Maximum time (in ms) allowed for the runner host process to startup."
+          },
+          "nanofuzz.fuzzer.shrinkFailures": {
+            "title": "Shrink failing inputs?",
+            "type": "boolean",
+            "default": true,
+            "description": "Shrink failing test inputs to a simpler counterexample when maxFailures=1."
+          },
+          "nanofuzz.fuzzer.maxShrinkTime": {
+            "title": "Maximum time to shrink failing inputs (ms)",
+            "type": "integer",
+            "default": 2000,
+            "minimum": 0,
+            "description": "Maximum time in ms allowed for shrinking a failing input before stopping (0=no limit)."
           },
           "nanofuzz.fuzzer.coverageScope": {
             "title": "Code coverage scope",

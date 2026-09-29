@@ -31,6 +31,7 @@ describe("fuzzer: coverageOneFile benchmark", () => {
           seed,
           maxTests: 12000,
           maxFailures: 1,
+          fnTimeout: 2000,
           argDefaults: {
             ...intOptions.argDefaults,
             strLength: {

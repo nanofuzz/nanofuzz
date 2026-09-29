@@ -4,6 +4,7 @@ import { RandomInputGenerator } from "./RandomInputGenerator";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { InputAndSource } from "../Types";
+import { FuzzGeneratorStatsBase } from "../Fuzzer";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefMutator } from "../analysis/ArgDefMutator";
 import { ArgDef } from "../analysis/ArgDef";
@@ -16,6 +17,78 @@ import * as JSONN from "../../Jsonn";
 const seed: string = "qwertyuiop";
 
 describe("fuzzer/generator/MutationInputGenerator:", () => {
+  it("adapts maxMutations based on live generator stats (dupe streaks & dupe rates)", () => {
+    const program = ProgramFactory.fromSource(
+      () => `export function x(n: number): number { return n + 1; }`,
+      "typescript"
+    );
+    const specs = program.functionsExported["x"].getArgDefs();
+    const leaderboard = new Leaderboard<InputAndSource>();
+    const stats: FuzzGeneratorStatsBase = {
+      counters: {
+        inputsGenerated: 10,
+        dupesGenerated: 0,
+        dupeTicks: [],
+      },
+      timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+    };
+
+    const gen = new MutationInputGenerator(
+      specs,
+      seed,
+      leaderboard,
+      undefined,
+      stats
+    );
+    expect(gen.getEffectiveMaxMutations()).toBe(2);
+
+    // Initial 5 non-dupe steps
+    for (let i = 0; i < 5; i++) {
+      stats.counters.inputsGenerated++;
+      gen.getEffectiveMaxMutations();
+    }
+    expect(gen.getEffectiveMaxMutations()).toBe(2);
+
+    // Simulate dupe streak of 2
+    stats.counters.dupesGenerated++;
+    gen.getEffectiveMaxMutations();
+    stats.counters.dupesGenerated++;
+    expect(gen.getEffectiveMaxMutations()).toBe(4);
+
+    // Simulate dupe streak of 4
+    stats.counters.dupesGenerated++;
+    gen.getEffectiveMaxMutations();
+    stats.counters.dupesGenerated++;
+    expect(gen.getEffectiveMaxMutations()).toBe(6);
+  });
+
+  it("bootstrap mode (empty leaderboard)", async () => {
+    const program = ProgramFactory.fromSource(
+      () => `export function x(n: number): number { return n + 1; }`,
+      "typescript"
+    );
+    const specs = program.functionsExported["x"].getArgDefs();
+    const leaderboard = new Leaderboard<InputAndSource>();
+    const gen = new MutationInputGenerator(specs, seed, leaderboard);
+
+    expect(gen.nextable()).toBe("now");
+    const input = gen.next();
+    expect(input.source.type).toBe("generator");
+    if (
+      input.source.type === "generator" &&
+      input.source.generator === "MutationInputGenerator"
+    ) {
+      expect(input.source.steps).toEqual({
+        taken: 0,
+        max: 0,
+        mode: "boot",
+        mutators: [],
+      });
+    }
+    expect(typeof input.value[0].value).toBe("number");
+    expect(gen.nextable()).toBe("now");
+  });
+
   it("dimsUnique object arrays for random and mutation generators", () => {
     const program = ProgramFactory.fromSource(
       () => `export function x(obj: { a?: 1 }[]): number { return 1; }`,
@@ -166,7 +239,7 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
       );
       const gen = new MutationInputGenerator(arg, seed, leaderboard);
       gen.onRunStart(true);
-      expect(gen.nextable()).toBeFalse();
+      expect(gen.nextable()).toBe("now");
     });
 
     it(`Generate specs compliant values after onRunStart()`, () => {
@@ -224,7 +297,7 @@ describe("fuzzer/generator/MutationInputGenerator:", () => {
 
       let gen = new MutationInputGenerator(arg, seed, leaderboard);
       gen.onRunStart(true);
-      expect(gen.nextable()).toBeFalse();
+      expect(gen.nextable()).toBe("now");
 
       arg[0].setIntervals([{ min: 0, max: 6 }]);
       gen = new MutationInputGenerator(arg, seed, leaderboard);

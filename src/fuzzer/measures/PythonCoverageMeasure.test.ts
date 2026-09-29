@@ -129,6 +129,12 @@ function mutantAt(tick: number, from?: number): InputAndSource {
       type: "generator",
       generator: "MutationInputGenerator",
       tick: from,
+      steps: {
+        taken: 1,
+        max: 2,
+        mode: "mutate",
+        mutators: ["dummy-mutator"],
+      },
     },
   };
 } // fn: mutantAt
@@ -152,7 +158,7 @@ const anyResult: FuzzTestResult = {
   passedHuman: "unknown",
   passedValidator: "unknown",
   passedValidators: [],
-  validatorException: false,
+  harnessErrors: [],
   timers: { gen: 0, transform: 0, run: 0 },
   category: "ok",
   interestingReasons: [],
@@ -205,7 +211,7 @@ const anyEnv: FuzzEnv = {
  * Per-generator statistics for a run whose details do not matter here
  */
 const anyGeneratorStats = (): FuzzGeneratorStatsBase => ({
-  counters: { inputsGenerated: 0, dupesGenerated: 0 },
+  counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
   timers: { run: 0, transform: 0, val: 0, gen: 0, measure: 0 },
 });
 
@@ -276,13 +282,13 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
   it("onBeforeNextTestExecution does not disturb the runner's coverage report", () => {
     const measure = new TestPythonCoverageMeasure(twoPathStatic);
     measure.record(twoPathNegative);
-    const before = JSON.parse(JSON.stringify(measure.info));
+    const before = structuredClone(measure.info);
 
     measure.onBeforeNextTestExecution();
 
     // Both halves survive: the static structure sent once at host start, and
     // the lines and arcs of the call that just ran
-    expect(JSON.parse(JSON.stringify(measure.info))).toEqual(before);
+    expect(structuredClone(measure.info)).toEqual(before);
     expect(measure.info.executable).toEqual([1, 2, 3, 4]);
     expect(measure.info.lines).toEqual([2, 3]);
     expect(measure.info.arcs).toEqual([[2, 3]]);
@@ -675,9 +681,9 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       inputAt(0)
     ).coverageMeasure.current.fileCoverageFor(pyFileName);
     const maps = {
-      statementMap: JSON.parse(JSON.stringify(first.statementMap)),
-      fnMap: JSON.parse(JSON.stringify(first.fnMap)),
-      branchMap: JSON.parse(JSON.stringify(first.branchMap)),
+      statementMap: structuredClone(first.statementMap),
+      fnMap: structuredClone(first.fnMap),
+      branchMap: structuredClone(first.branchMap),
     };
     expect(first.b).toEqual({ 0: [1, 0] });
 

@@ -154,6 +154,8 @@ real_stdout = (
     else sys.stdout.buffer
 )
 
+_tracer_running = False
+
 
 MAX_HEARTBEATS = 1000
 _HEARTBEAT_BYTES = struct.pack('>I', len(
@@ -317,27 +319,46 @@ def unwrap_jsonn(val: Any) -> Any:
     return val
 
 
+_input_buf = bytearray()
+
+
 def get_inputs() -> RunnerInput:
+    global _input_buf
     logging.debug(f"[{pid}] Waiting for input")
     while True:
-        # Read the 4-byte length header
-        header = sys.stdin.buffer.read(4)
-        if not header:
+        if len(_input_buf) >= 4:
+            length = struct.unpack('>I', _input_buf[:4])[0]
+            if len(_input_buf) >= 4 + length:
+                payload = bytes(_input_buf[4:4 + length])
+                del _input_buf[:4 + length]
+                raw_input: RunnerInput = msgpack.unpackb(payload, raw=False)
+                input_data = unwrap_jsonn(raw_input)
+                logging.debug(f"[{pid}]  - Parsed ok")
+                return input_data
+
+        chunk = getattr(sys.stdin.buffer, "read1")(65536)
+        if not chunk:
             break
-        length = struct.unpack('>I', header)[0]
-        logging.debug(f"[{pid}]  - Incoming input of length {length}")
+        _input_buf.extend(chunk)
 
-        # Read exactly that many bytes
-        payload = sys.stdin.buffer.read(length)
-        logging.debug(f"[{pid}]  - Read {len(payload)} bytes")
+    raise Exception("stdin closed")
 
-        # De-serialize arguments for calling the function
-        raw_input: RunnerInput = msgpack.unpackb(payload, raw=False)
-        input_data = unwrap_jsonn(raw_input)
-        logging.debug(f"[{pid}]  - Parsed ok")
 
-        return input_data
-    raise Exception("Unreachable path")
+_norm_path_cache: dict[str, str] = {}
+
+
+def get_norm_path(path_str: str) -> str:
+    """Memoizes os.path.normcase(os.path.realpath(path_str)) to avoid repeated stat() calls."""
+    if path_str not in _norm_path_cache:
+        try:
+            _norm_path_cache[path_str] = os.path.normcase(
+                os.path.realpath(path_str))
+        except Exception:
+            _norm_path_cache[path_str] = path_str
+    return _norm_path_cache[path_str]
+
+
+_measured_key_cache: dict[str, Union[str, None]] = {}
 
 
 def measured_key(data, filename: str) -> Union[str, None]:
@@ -349,12 +370,21 @@ def measured_key(data, filename: str) -> Union[str, None]:
     `filename` does not exactly match the recorded key, so fall back to
     matching against the measured files by resolved path.
     """
-    if filename in data.measured_files():
+    if filename in _measured_key_cache:
+        return _measured_key_cache[filename]
+
+    measured = data.measured_files()
+    if filename in measured:
+        _measured_key_cache[filename] = filename
         return filename
-    target = os.path.normcase(os.path.realpath(filename))
-    for measured in data.measured_files():
-        if os.path.normcase(os.path.realpath(measured)) == target:
-            return measured
+
+    target = get_norm_path(filename)
+    for m in measured:
+        if get_norm_path(m) == target:
+            _measured_key_cache[filename] = m
+            return m
+
+    _measured_key_cache[filename] = None
     return None
 
 
@@ -714,7 +744,25 @@ def default_serializer(obj: Any) -> Any:
         f"Object of type {type(obj).__name__} is not serializable")
 
 
-def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
+_file_to_idx: dict[str, int] = {}
+
+
+def init_file_to_idx(pgm_files: List[str]) -> None:
+    """Initializes the cached file-path-to-index mapping dictionary (_file_to_idx)
+    using both raw paths and normalized realpaths for fast O(1) index lookups.
+    """
+    global _file_to_idx
+    _file_to_idx = {f: i for i, f in enumerate(pgm_files)}
+    for i, f in enumerate(pgm_files):
+        try:
+            _file_to_idx[get_norm_path(f)] = i
+        except Exception:
+            pass
+
+
+def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]], pgm_files: List[str]) -> RunnerResult:
+    global _tracer_running
+
     collect_options = input.get("collect")
     if collect_options is None:
         coverage_enabled = True
@@ -736,9 +784,14 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     timeout_ms = input.get("timeout", 0)
 
     if coverage_enabled:
-        # cov.erase() is too expensive. Seems like only erasing the data works too
         cov.get_data().erase()
-        cov.start()
+        if not _tracer_running:
+            cov.start()
+            _tracer_running = True
+    else:
+        if _tracer_running:
+            cov.stop()
+            _tracer_running = False
 
     error = None
     skip = None
@@ -769,20 +822,31 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             skip = e
         else:
             error = e
-    finally:
-        if coverage_enabled:
-            cov.stop()
 
-    # Read coverage after stopping: a failing or timing out input still covers lines
+    # Read coverage after execution: a failing or timing out input still covers lines
     coverageData = {}
     coverageArcs = {}
     if coverage_enabled:
-        for file in covInfo:
-            lines = coverage_lines(cov, file)
-            if not lines:
-                continue
-            coverageData[file] = lines
-            coverageArcs[file] = coverage_arcs(cov, file)
+        data = cov.get_data()
+        measured = data.measured_files()
+        for file in measured:
+            idx = _file_to_idx.get(file)
+            if idx is None:
+                try:
+                    norm_file = get_norm_path(file)
+                    idx = _file_to_idx.get(norm_file)
+                    if idx is not None:
+                        _file_to_idx[file] = idx
+                except Exception:
+                    pass
+            if idx is not None:
+                lines = data.lines(file)
+                if lines:
+                    coverageData[idx] = sorted(lines)
+                    arcs = data.arcs(file)
+                    if arcs:
+                        coverageArcs[idx] = sorted(
+                            [src, dest] for src, dest in arcs)
 
     if is_timeout:
         return RunnerTimeoutResult(
@@ -790,7 +854,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     if skip is not None:
@@ -800,7 +863,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     if error is not None:
@@ -813,7 +875,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     return RunnerValueResult(
@@ -822,7 +883,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         seq=input["seq"],
         coverageData=coverageData,
         coverageArcs=coverageArcs,
-        staticCoverage=covInfo if coverage_enabled else {}
     )
 
 
@@ -938,10 +998,12 @@ if __name__ == "__main__":
                 include=pgm_files, branch=True, data_file=None)
 
             covInfo = {file: static_coverage(cov, file) for file in pgm_files}
-            initialCoverage = {}
+            initialCoverage = {file: dict(covInfo[file]) for file in pgm_files}
 
         logging.debug(
             f"[{pid}] Analyzed {len(covInfo)} file(s) of the program under test")
+
+        init_file_to_idx(pgm_files)
 
         # Pre-warm the coverage machinery. The first `cov.start()` installs the
         # tracer, which costs far more than a steady-state call and can push the
@@ -966,7 +1028,7 @@ if __name__ == "__main__":
     logging.debug(f"[{pid}] Sent READY message")
 
     # Send the initial coverage info once
-    send_msg(initialCoverage)
+    send_msg({"covInfo": initialCoverage, "files": pgm_files})
     logging.debug(
         f"[{pid}] Sent initialCoverage for {len(initialCoverage)} file(s)")
 
@@ -975,7 +1037,7 @@ if __name__ == "__main__":
         logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
             put_result(run_put(get_inputs(), filename, fnname, fn,
-                       cov, covInfo))  # Call the put
+                       cov, covInfo, pgm_files))  # Call the put
         else:
             get_inputs()
             put_result(loadError)  # Return the load error

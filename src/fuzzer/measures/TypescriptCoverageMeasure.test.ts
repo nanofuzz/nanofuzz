@@ -124,6 +124,12 @@ function mutantAt(tick: number, from?: number): InputAndSource {
       type: "generator",
       generator: "MutationInputGenerator",
       tick: from,
+      steps: {
+        taken: 1,
+        max: 2,
+        mode: "mutate",
+        mutators: ["dummy-mutator"],
+      },
     },
   };
 } // fn: mutantAt
@@ -147,7 +153,7 @@ const anyResult: FuzzTestResult = {
   passedHuman: "unknown",
   passedValidator: "unknown",
   passedValidators: [],
-  validatorException: false,
+  harnessErrors: [],
   timers: { gen: 0, transform: 0, run: 0 },
   category: "ok",
   interestingReasons: [],
@@ -200,7 +206,7 @@ const anyEnv: FuzzEnv = {
  * Per-generator statistics for a run whose details do not matter here
  */
 const anyGeneratorStats = (): FuzzGeneratorStatsBase => ({
-  counters: { inputsGenerated: 0, dupesGenerated: 0 },
+  counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
   timers: { run: 0, transform: 0, val: 0, gen: 0, measure: 0 },
 });
 
@@ -869,9 +875,9 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       .measure(inputAt(0), anyResult)
       .coverageMeasure.current.fileCoverageFor(jsFileName);
     const maps = {
-      statementMap: JSON.parse(JSON.stringify(first.statementMap)),
-      fnMap: JSON.parse(JSON.stringify(first.fnMap)),
-      branchMap: JSON.parse(JSON.stringify(first.branchMap)),
+      statementMap: structuredClone(first.statementMap),
+      fnMap: structuredClone(first.fnMap),
+      branchMap: structuredClone(first.branchMap),
     };
     expect(first.b).toEqual({ 0: [1, 0] });
 

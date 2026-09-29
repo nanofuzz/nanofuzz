@@ -328,6 +328,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
   pointer-events: none;
   content: attr(aria-label);
   background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
   border-width: 1px;
   border-style: solid;
   border-color: var(--vscode-focus-border);
@@ -356,7 +357,7 @@ tr.classErrorExpectedOutputRow td div.slightFade {
 .tooltipped:focus::after {
   display: inline-block;
   text-decoration: none;
-  color: var(--button-primary-foreground);
+  color: var(--vscode-foreground);
   opacity: 1;
 }
 .tooltipped-multiline:hover::after,

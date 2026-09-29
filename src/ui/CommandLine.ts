@@ -1,3 +1,11 @@
+// Enable Node.js compile cache if supported by Node runtime (Node 22.8+)
+import moduleApi from "node:module";
+if (
+  "enableCompileCache" in moduleApi &&
+  typeof moduleApi.enableCompileCache === "function"
+) {
+  moduleApi.enableCompileCache();
+}
 import * as Commander from "commander";
 import * as Config from "../Config";
 import * as fs from "node:fs";
@@ -9,8 +17,13 @@ import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { FuzzOptions } from "../fuzzer/Types";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
+import * as JSONN from "../Jsonn";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
+import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
+import pkg from "../../package.json";
+
+const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
 
 /**
  * Command line interface for NaNofuzz.
@@ -37,7 +50,7 @@ function createProgram(): Commander.Command {
   const program = new Commander.Command();
   program
     .name("nanofuzz")
-    .version(`NaNofuzz ${process.env.NANOFUZZ_VERSION}`)
+    .version(`NaNofuzz ${nanofuzzVersion}`)
     .argument(`<filename>`, `The Python or Typescript module to test`)
     .argument(`<function>`, `The entrypoint function to test`)
 
@@ -84,6 +97,13 @@ function createProgram(): Commander.Command {
       10000
     )
     .option(`--seed <string>`, `Seed for pseudo-random number generator`)
+    .option(`--no-shrink`, `Disable shrinking failing test inputs`)
+    .option(
+      `--max-shrink-time <integer>`,
+      `Maximum time in ms allowed for shrinking failing test inputs (0=no limit)`,
+      parseIntArgGeZero,
+      2000
+    )
 
     // ------------------------------- Transformers ------------------------------ //
 
@@ -185,10 +205,15 @@ export async function runCliInProcess(
   try {
     program.parse(args, { from: "user" });
   } catch (_e: unknown) {
+    // Commander throws a CommanderError with exitCode = 0 when handling --help or --version.
+    // In exitOverride() mode, catch this and return EXIT_OK (0) instead of treating it as a usage error.
+    if (_e instanceof Commander.CommanderError && _e.exitCode === 0) {
+      return EXIT_OK;
+    }
     return ERROR_USAGE; // command line usage error
   }
 
-  console.info(`NaNofuzz v${process.env.NANOFUZZ_VERSION}`);
+  console.info(`NaNofuzz v${nanofuzzVersion}`);
 
   if (program.args.length < 2) {
     console.error("Error: missing required arguments <filename> <function>");
@@ -274,6 +299,13 @@ export async function runCliInProcess(
     "nanofuzz.fuzzer.hostStartupTimeout",
     options["hostStartupTimeout"]
   );
+
+  if (options["shrink"] !== undefined) {
+    Config.override("nanofuzz.fuzzer.shrinkFailures", options["shrink"]);
+  }
+  if (options["maxShrinkTime"] !== undefined) {
+    Config.override("nanofuzz.fuzzer.maxShrinkTime", options["maxShrinkTime"]);
+  }
 
   // measure options
   if (options["coverageScope"] !== undefined) {
@@ -372,6 +404,29 @@ export async function runCliInProcess(
       return cliValue;
     }
 
+    // TODO: There is no upgrade logic here like in FuzzPanel:
+    //       We need to re-factor the nano file logic out of
+    //       FuzzPanel so that we can call it here.
+    let injectTests: FuzzPinnedTest[] = [];
+    const nanoJsonFile = fs.existsSync(filename + ".nano.json5")
+      ? filename + ".nano.json5"
+      : fs.existsSync(filenameIn + ".nano.json5")
+        ? filenameIn + ".nano.json5"
+        : undefined;
+    if (nanoJsonFile && fs.existsSync(nanoJsonFile)) {
+      try {
+        const fullSet = JSONN.parse<FuzzTests>(
+          fs.readFileSync(nanoJsonFile, "utf8")
+        );
+        const fnSet = fullSet.functions?.[fnname];
+        if (fnSet && fnSet.tests) {
+          injectTests = Object.values(fnSet.tests);
+        }
+      } catch {
+        // Ignore read or parse errors
+      }
+    }
+
     const results = await new Tester(filename, fnname, {
       argDefaults: ArgDef.getDefaultOptions(),
       maxTests: getEffectiveOption("maxTests", "maxTests", options["maxTests"]),
@@ -420,7 +475,7 @@ export async function runCliInProcess(
           enabled: options["randomInputGenerator"],
         },
       },
-    }).testSync(undefined, undefined, updateFn, () => isCancelled);
+    }).testSync(injectTests, undefined, updateFn, () => isCancelled);
 
     process.removeListener("SIGINT", sigintListener);
 
@@ -428,18 +483,21 @@ export async function runCliInProcess(
       return USER_CANCELLED;
     }
 
-    const someTestsRan =
-      results.stats.counters.passedTests + results.stats.counters.failedTests;
-    const someTestsFailed = results.stats.counters.failedTests;
+    const totalTestsRan =
+      results.stats.counters.passedTests +
+      results.stats.counters.failedTests +
+      results.stats.counters.erroredTests;
+    const totalTestsFailed =
+      results.stats.counters.failedTests + results.stats.counters.erroredTests;
 
-    if (someTestsRan && !results.stats.counters.erroredTests) {
-      if (someTestsFailed) {
+    if (totalTestsRan > 0) {
+      if (totalTestsFailed > 0) {
         return ERROR_TEST_FAILURE; // tests ran and some failed
       } else {
-        return EXIT_OK; // tests ran and none failed);
+        return EXIT_OK; // tests ran and none failed
       }
     } else {
-      return ERROR_INTERNAL; // internal error
+      return ERROR_INTERNAL; // internal error (0 tests ran)
     }
   } catch (e: unknown) {
     process.removeListener("SIGINT", sigintListener);

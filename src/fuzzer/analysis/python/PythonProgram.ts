@@ -1080,6 +1080,15 @@ export class PythonProgram extends AbstractProgram {
             if (typeof maxExamplesVal === "number" && maxExamplesVal >= 0) {
               fuzzOptions = { ...fuzzOptions, maxTests: maxExamplesVal };
             }
+            const deadlineNode = this._getKwdArg(callNode, "deadline", -1);
+            if (deadlineNode?.type === "none") {
+              fuzzOptions = { ...fuzzOptions, fnTimeout: 0 };
+            } else {
+              const deadlineVal = this._parseLiteral(deadlineNode);
+              if (typeof deadlineVal === "number" && deadlineVal >= 0) {
+                fuzzOptions = { ...fuzzOptions, fnTimeout: deadlineVal };
+              }
+            }
           } else if (decoName === "given" && callNode) {
             const argsNode = callNode.childForFieldName("arguments");
             if (argsNode) {

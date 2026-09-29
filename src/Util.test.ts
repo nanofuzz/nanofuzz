@@ -1,4 +1,10 @@
-import { encodeEscapeSequences, decodeEscapeSequences } from "./Util";
+import {
+  encodeEscapeSequences,
+  decodeEscapeSequences,
+  removeTickFromOrigin,
+  deepFreeze,
+} from "./Util";
+import { FuzzValueOrigin } from "./fuzzer/Types";
 
 describe("src/Util escape sequence encoder/decoder", () => {
   it("encodes control characters and backslashes to printable escape sequences", () => {
@@ -23,5 +29,25 @@ describe("src/Util escape sequence encoder/decoder", () => {
     expect(encoded).toEqual("abcdefghijklmnop \\n\\t\\r\\0\\\\");
     const decoded = decodeEscapeSequences(encoded);
     expect(decoded).toEqual(original);
+  });
+
+  it("removes tick from MutationInputGenerator origin (unfrozen and frozen)", () => {
+    const mutableOrigin: FuzzValueOrigin = {
+      type: "generator",
+      generator: "MutationInputGenerator",
+      tick: 42,
+      steps: { taken: 1, max: 5, mode: "mutate", mutators: ["foo"] },
+    };
+    const res1 = removeTickFromOrigin(mutableOrigin);
+    expect("tick" in res1).toBeFalse();
+
+    const frozenOrigin: FuzzValueOrigin = deepFreeze({
+      type: "generator",
+      generator: "MutationInputGenerator",
+      tick: 42,
+      steps: { taken: 1, max: 5, mode: "mutate", mutators: ["foo"] },
+    });
+    const res2 = removeTickFromOrigin(frozenOrigin);
+    expect("tick" in res2).toBeFalse();
   });
 });

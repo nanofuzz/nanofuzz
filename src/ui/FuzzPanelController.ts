@@ -667,7 +667,7 @@ export class FuzzPanel {
               ) {
                 thisOpt.maxDupeInputs = Config.get(
                   "nanofuzz.fuzzer.maxDupeInputs",
-                  1000
+                  500
                 );
               }
             }
@@ -893,9 +893,11 @@ export class FuzzPanel {
         ...test,
         output: [],
         input: test.input.map((i) => {
-          const i2 = { ...i };
-          removeTickFromOrigin(i2.origin);
-          return i2;
+          return {
+            ...i,
+            // ticks are tester-specific
+            origin: removeTickFromOrigin(i.origin),
+          };
         }),
       };
     }
@@ -1526,10 +1528,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               } else {
                 return {
                   input: i.input.map((e) => {
-                    const e2 = { ...e };
-                    // ticks are tester-specific
-                    removeTickFromOrigin(e2.origin);
-                    return e2;
+                    return {
+                      ...e,
+                      // ticks are tester-specific
+                      origin: removeTickFromOrigin(e.origin),
+                    };
                   }),
                   output: [],
                   pinned: false,
@@ -4067,7 +4070,7 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
     maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
     fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 100),
     suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
-    maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 1000),
+    maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 500),
     maxFailures: Config.get("nanofuzz.fuzzer.maxFailures", 0),
     useTransformer: true,
     useHuman: true,
