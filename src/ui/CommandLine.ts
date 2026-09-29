@@ -146,8 +146,8 @@ function createProgram(): Commander.Command {
     // ------------------------ Composite Input Generator ------------------------ //
 
     .option(
-      `--cig-scheduler <mab|random|round-robin|ucb1|thompson>`,
-      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin, ucb1, thompson)`,
+      `--cig-scheduler <mab|random|round-robin|ucb1|thompson|ewma>`,
+      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin, ucb1, thompson, ewma)`,
       parseCigScheduler,
       "mab"
     )
@@ -162,6 +162,18 @@ function createProgram(): Commander.Command {
       `Prior variance for Thompson Sampling scheduler`,
       parseFloatArgGeZero,
       1.0
+    )
+    .option(
+      `--cig-scheduler-ewma-alpha <float>`,
+      `Smoothing factor (alpha) for EWMA scheduler`,
+      parseFloatArgZeroToOne,
+      0.2
+    )
+    .option(
+      `--cig-scheduler-ewma-exploration <float>`,
+      `Exploration chance (epsilon) for EWMA scheduler`,
+      parseFloatArgZeroToOne,
+      0.1
     )
     .option(
       `--cig-input-lookback <integer>`,
@@ -365,6 +377,18 @@ export async function runCliInProcess(
     Config.override(
       "nanofuzz.generators.compositeScheduler.thompson.priorVariance",
       options["cigSchedulerThompsonPriorVariance"]
+    );
+  }
+  if (options["cigSchedulerEwmaAlpha"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.compositeScheduler.ewma.alpha",
+      options["cigSchedulerEwmaAlpha"]
+    );
+  }
+  if (options["cigSchedulerEwmaExploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.compositeScheduler.ewma.exploration",
+      options["cigSchedulerEwmaExploration"]
     );
   }
   Config.override(
@@ -575,7 +599,8 @@ function isInputSchedulerType(val: string): val is InputSchedulerType {
     val === "random" ||
     val === "round-robin" ||
     val === "ucb1" ||
-    val === "thompson"
+    val === "thompson" ||
+    val === "ewma"
   );
 }
 
@@ -587,7 +612,7 @@ function parseCigScheduler(
     return value;
   }
   throw new Commander.InvalidArgumentError(
-    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin, ucb1, thompson`
+    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin, ucb1, thompson, ewma`
   );
 } // fn: parseCigScheduler
 

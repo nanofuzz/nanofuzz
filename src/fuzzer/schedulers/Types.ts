@@ -7,7 +7,8 @@ export type InputSchedulerType =
   | "random"
   | "round-robin"
   | "ucb1"
-  | "thompson";
+  | "thompson"
+  | "ewma";
 
 /**
  * Context passed to the scheduler when selecting the next subgenerator.

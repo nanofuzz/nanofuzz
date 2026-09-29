@@ -448,6 +448,14 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       expect(cig.nextable()).toBeTruthy();
       const inputRun5 = cig.next();
       expect(inputRun5).toBeDefined();
+
+      // Run 6: switch to ewma
+      Config.override("nanofuzz.generators.compositeScheduler", "ewma");
+      cig.onRunStart(true);
+      expect(cig.scheduler.type).toBe("ewma");
+      expect(cig.nextable()).toBeTruthy();
+      const inputRun6 = cig.next();
+      expect(inputRun6).toBeDefined();
     } finally {
       Config.override("nanofuzz.generators.compositeScheduler", "mab");
     }

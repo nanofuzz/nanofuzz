@@ -591,6 +591,30 @@ describe("cli:", () => {
     ]);
     expect(resThompson.status).toBe(0);
     verifyCheckpointOutput(outputFileThompson, false);
+
+    // Test 6: EWMA mode (--cig-scheduler ewma --cig-scheduler-ewma-alpha 0.3 --cig-scheduler-ewma-exploration 0.2)
+    const outputFileEwma = path.join(tmpDir, "cig_checkpoints_ewma.json5");
+    const resEwma = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileEwma,
+      "--cig-scheduler",
+      "ewma",
+      "--cig-scheduler-ewma-alpha",
+      "0.3",
+      "--cig-scheduler-ewma-exploration",
+      "0.2",
+      "--cig-stats-checkpoints",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_ewma",
+    ]);
+    expect(resEwma.status).toBe(0);
+    verifyCheckpointOutput(outputFileEwma, false);
   });
 
   it("--ai-cache-*: cache miss in replay-error mode", async () => {

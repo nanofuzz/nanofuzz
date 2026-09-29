@@ -4,6 +4,7 @@ import { RandomScheduler } from "./RandomScheduler";
 import { RoundRobinScheduler } from "./RoundRobinScheduler";
 import { Ucb1Scheduler } from "./Ucb1Scheduler";
 import { ThompsonScheduler } from "./ThompsonScheduler";
+import { EwmaScheduler } from "./EwmaScheduler";
 
 describe("src/fuzzer/schedulers/SchedulerFactory:", () => {
   it("creates MabScheduler for 'mab'", () => {
@@ -34,6 +35,12 @@ describe("src/fuzzer/schedulers/SchedulerFactory:", () => {
     const scheduler = SchedulerFactory.create("thompson", "seed");
     expect(scheduler instanceof ThompsonScheduler).toBeTrue();
     expect(scheduler.type).toBe("thompson");
+  });
+
+  it("creates EwmaScheduler for 'ewma'", () => {
+    const scheduler = SchedulerFactory.create("ewma", "seed");
+    expect(scheduler instanceof EwmaScheduler).toBeTrue();
+    expect(scheduler.type).toBe("ewma");
   });
 
   it("defaults to MabScheduler for unknown scheduler types", () => {
