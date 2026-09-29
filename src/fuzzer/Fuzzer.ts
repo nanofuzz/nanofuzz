@@ -989,6 +989,11 @@ export class Tester {
             : Infinity;
         };
 
+        const getEffectiveCancelFn = (): (() => boolean) | undefined => {
+          if (!cancelFn) return undefined;
+          return () => !stillInjecting && cancelFn();
+        };
+
         // Apply input transformers to generated inputs (before main dedupe)
         const startTransformTime = performance.now(); // start time: input transformation
         if (!result.inputGenerated.injected && transformRunner) {
@@ -1001,7 +1006,7 @@ export class Tester {
                   Math.max(this._options.fnTimeout, 1)
                 ),
               getRemainingSuiteTime(),
-              cancelFn
+              getEffectiveCancelFn()
             );
           } catch (e: unknown) {
             if (isError(e) && e.message === "runnerInterrupted") {
@@ -1131,7 +1136,7 @@ export class Tester {
                   Math.max(this._options.fnTimeout, 1)
                 ),
               getRemainingSuiteTime(),
-              cancelFn
+              getEffectiveCancelFn()
             );
           } catch (e: unknown) {
             if (isError(e) && e.message === "runnerInterrupted") {
@@ -1234,7 +1239,7 @@ export class Tester {
                   }),
                   Math.max(this._options.fnTimeout, 1),
                   getRemainingSuiteTime(),
-                  cancelFn
+                  getEffectiveCancelFn()
                 );
               } catch (e: unknown) {
                 if (isError(e) && e.message === "runnerInterrupted") {
