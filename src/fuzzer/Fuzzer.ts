@@ -49,7 +49,6 @@ export class Tester {
   protected _leaderboard = new Leaderboard<InputAndSource>(); // top test results, according to measures
   protected _measures; // set of measures for executions
   protected _allInputs: Map<string, unknown> = new Map(); // language-specific dupe check for input generation
-  protected _allTransformerInputs: Map<string, unknown> = new Map(); // language-specific dupe check for transformer inputs
   protected _state: "init" | "ready" | "running" | "paused" | "crashed" =
     "init"; // tester state
 
@@ -510,9 +509,6 @@ export class Tester {
       this._compositeInputGenerator.suppressGenerators();
     }
 
-    // Indicate the start of the run w/injected tests
-    this._compositeInputGenerator.onRunStart(!!mode.gen, injectTests);
-
     // Compile the target, if required (currently only Typescript)
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
     const startCompTime = performance.now(); // start time: compile & instrument
@@ -553,6 +549,15 @@ export class Tester {
       await transformRunner.onRunStart();
     }
 
+    // Indicate the start of the run for the composite input generator
+    this._compositeInputGenerator.onRunStart(
+      !!mode.gen,
+      injectTests,
+      transformRunner,
+      this._options.fnTimeout,
+      this._options.maxDupeInputs
+    );
+
     // Build runners for the property validators
     // Assumed: property validators are in the same module
     const propRunners = this._validators.map((vFnRef) =>
@@ -586,16 +591,25 @@ export class Tester {
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
-        const stopCondition = _checkStopCondition(
-          this._options,
-          this._compositeInputGenerator.nextable() !== false,
-          stillInjecting,
-          injectTests.length,
-          !!cancelFn && cancelFn(),
-          runStats,
-          !!mode.gen,
-          this._fuzzerFocus.mode
-        );
+        runStats.counters.inputsGenerated =
+          this._compositeInputGenerator.inputsGenerated;
+        runStats.counters.dupesGenerated =
+          this._compositeInputGenerator.dupesGenerated;
+        runStats.counters.dupesSequential =
+          this._compositeInputGenerator.dupesSequential;
+
+        const stopCondition =
+          this._compositeInputGenerator.stopReason ??
+          _checkStopCondition(
+            this._options,
+            this._compositeInputGenerator.nextable() !== false,
+            stillInjecting,
+            injectTests.length,
+            !!cancelFn && cancelFn(),
+            runStats,
+            !!mode.gen,
+            this._fuzzerFocus.mode
+          );
         const pct = typeof stopCondition === "number" ? stopCondition : 100;
         update({
           ...lastUpdateMsg,
@@ -611,17 +625,26 @@ export class Tester {
       while (true) {
         this._state = "running";
         checkPeriodicUpdate();
+        runStats.counters.inputsGenerated =
+          this._compositeInputGenerator.inputsGenerated;
+        runStats.counters.dupesGenerated =
+          this._compositeInputGenerator.dupesGenerated;
+        runStats.counters.dupesSequential =
+          this._compositeInputGenerator.dupesSequential;
+
         // End the testing run when we encounter a stop condition
-        const stopCondition = _checkStopCondition(
-          this._options,
-          this._compositeInputGenerator.nextable() !== false,
-          stillInjecting,
-          injectTests.length,
-          !!cancelFn && cancelFn(),
-          runStats,
-          !!mode.gen,
-          this._fuzzerFocus.mode
-        );
+        const stopCondition =
+          this._compositeInputGenerator.stopReason ??
+          _checkStopCondition(
+            this._options,
+            this._compositeInputGenerator.nextable() !== false,
+            stillInjecting,
+            injectTests.length,
+            !!cancelFn && cancelFn(),
+            runStats,
+            !!mode.gen,
+            this._fuzzerFocus.mode
+          );
         if (typeof stopCondition !== "number") {
           if (this._fuzzerFocus.mode === "shrink") {
             this._fuzzerFocus = deepFreeze({ mode: "gen" });
@@ -870,11 +893,74 @@ export class Tester {
           continue;
         }
 
-        result.inputGenerated = this._compositeInputGenerator.next();
+        const getRemainingSuiteTime = (): number => {
+          const timeSinceGenStart =
+            runStats.timers.startGenTime > 0
+              ? performance.now() - runStats.timers.startGenTime
+              : 0;
+          return this._options.suiteTimeout > 0 &&
+            runStats.timers.startGenTime > 0
+            ? Math.max(0, this._options.suiteTimeout - timeSinceGenStart)
+            : Infinity;
+        };
+
+        const getEffectiveCancelFn = (): (() => boolean) | undefined => {
+          if (!cancelFn) return undefined;
+          return () => !stillInjecting && cancelFn();
+        };
+
+        if (transformRunner) {
+          const transformedInput =
+            await this._compositeInputGenerator.nextTransformed();
+          if (!transformedInput) {
+            continue; // stopReason checked at top of loop
+          }
+          result.inputGenerated = transformedInput;
+
+          // Process transformer result if candidate was skipped/errored by transformer
+          if (transformedInput.transformerResult) {
+            const transformerResult = transformedInput.transformerResult;
+            switch (transformerResult.result.tag) {
+              case "skip":
+                result.skipped = true;
+                result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
+                break;
+
+              case "timeout":
+                result.harnessErrors.push({
+                  kind: "timeout",
+                  stage: "transformer",
+                  fnName: transformRunner.name,
+                  message: `Timeout exceeding ${this._options.fnTimeout} ms`,
+                  display: `(${transformRunner.name} timeout)`,
+                });
+                break;
+
+              case "error":
+                result.harnessErrors.push({
+                  kind: "exception",
+                  stage: "transformer",
+                  fnName: transformRunner.name,
+                  message: transformerResult.result.message,
+                  display: `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`,
+                  stack: transformerResult.result.stack ?? "<no stack>",
+                });
+                break;
+
+              case "value":
+                break;
+            }
+          }
+        } else {
+          try {
+            result.inputGenerated = this._compositeInputGenerator.next();
+          } catch {
+            continue; // stopReason checked at top of loop
+          }
+        }
         result.timers.gen = performance.now() - startGenTime; // total time: input generation
 
         // Map the generated inputs to the result object
-        // (the transformer might modify result.input)
         result.input = result.inputGenerated.value.map((e, i) => {
           return {
             name: argDefs[i]?.getName() ?? "?",
@@ -910,10 +996,6 @@ export class Tester {
             genStats.timers.gen += result.timers.gen;
             this._results.stats.timers.gen += result.timers.gen;
 
-            // Increment the number of inputs generated
-            runStats.counters.inputsGenerated++;
-            genStats.counters.inputsGenerated++;
-
             // Log the generation start time
             if (runStats.timers.startGenTime === 0) {
               runStats.timers.startGenTime = startGenTime;
@@ -921,163 +1003,6 @@ export class Tester {
           }
           // Indicate that we are no longer injecting inputs
           stillInjecting = false;
-        }
-
-        // If an input transformer is active, perform a dupe check on the raw generated inputs
-        // before running the transformer so we don't pound the transformer with duplicate inputs
-        if (
-          !result.inputGenerated.injected &&
-          transformRunner &&
-          this._function.getArgDefs().length
-        ) {
-          const rawInputHash = getLangIoKey(lang, result.input);
-          if (this._allTransformerInputs.has(rawInputHash)) {
-            runStats.counters.dupesSequential++; // increment the sequential dupe counter
-            runStats.counters.dupesGenerated++; // increment the total run dupe counter
-            this._compositeInputGenerator.onInputFeedback(
-              [],
-              result.timers.gen
-            ); // return empty input generator feedback
-            if (genStats) {
-              genStats.counters.dupesGenerated++; // increment the generator's dupe counter
-              genStats.counters.dupeTicks.push(result.inputGenerated.tick);
-            }
-            continue; // skip this test
-          } else {
-            this._allTransformerInputs.set(rawInputHash, true);
-          }
-        }
-
-        const getRemainingSuiteTime = (): number => {
-          const timeSinceGenStart =
-            runStats.timers.startGenTime > 0
-              ? performance.now() - runStats.timers.startGenTime
-              : 0;
-          return this._options.suiteTimeout > 0 &&
-            runStats.timers.startGenTime > 0
-            ? Math.max(0, this._options.suiteTimeout - timeSinceGenStart)
-            : Infinity;
-        };
-
-        const getEffectiveCancelFn = (): (() => boolean) | undefined => {
-          if (!cancelFn) return undefined;
-          return () => !stillInjecting && cancelFn();
-        };
-
-        // Apply input transformers to generated inputs (before main dedupe)
-        const startTransformTime = performance.now(); // start time: input transformation
-        if (!result.inputGenerated.injected && transformRunner) {
-          let transformerResult: RunnerResult;
-          try {
-            transformerResult = await transformRunner.runWithInterrupt(
-              () =>
-                transformRunner.run(
-                  deepFreeze(result.inputGenerated.value.map((e) => e.value)),
-                  Math.max(this._options.fnTimeout, 1)
-                ),
-              getRemainingSuiteTime(),
-              getEffectiveCancelFn()
-            );
-          } catch (e: unknown) {
-            if (isError(e) && e.message === "runnerInterrupted") {
-              continue;
-            }
-            throw e;
-          }
-
-          // If transformer returns null, then input was rejected so skip this input
-          switch (transformerResult.result.tag) {
-            case "skip":
-              result.skipped = true;
-              result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
-              break;
-
-            case "timeout":
-              result.harnessErrors.push({
-                kind: "timeout",
-                stage: "transformer",
-                fnName: transformRunner.name,
-                message: `Timeout exceeding ${this._options.fnTimeout} ms`,
-                display: `(${transformRunner.name} timeout)`,
-              });
-              break;
-
-            case "error":
-              result.harnessErrors.push({
-                kind: "exception",
-                stage: "transformer",
-                fnName: transformRunner.name,
-                message: transformerResult.result.message,
-                display: `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`,
-                stack: transformerResult.result.stack ?? "<no stack>",
-              });
-              break;
-
-            case "value": {
-              const values = transformerResult.result.value;
-              if (Array.isArray(values)) {
-                result.inputGenerated.value.forEach((e, i) => {
-                  if (i < values.length) {
-                    const oldValue = result.input[i].value;
-                    const newValue = values[i];
-                    result.input[i].value = newValue;
-
-                    if (
-                      JSONN.stringify(oldValue) !== JSONN.stringify(newValue)
-                    ) {
-                      result.input[i].origin = {
-                        type: "transformer",
-                        transformer: transformRunner.name,
-                        basis: {
-                          value: structuredClone(result.inputGenerated.value),
-                          source: structuredClone(result.inputGenerated.source),
-                        },
-                      };
-                    }
-                  }
-                });
-              } else {
-                const msg = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
-                result.harnessErrors.push({
-                  kind: "exception",
-                  stage: "transformer",
-                  fnName: transformRunner.name,
-                  message: msg,
-                  display: `(${transformRunner.name}) ${msg}`,
-                  stack: "<no stack>",
-                });
-                break;
-              }
-            }
-          }
-        }
-        result.timers.transform = performance.now() - startTransformTime; // total time: input transformation
-        if (genStats) {
-          genStats.timers.transform += result.timers.transform;
-        }
-        this._results.stats.timers.transform += result.timers.transform;
-
-        // If the function accepts inputs, check if the input is a dupe
-        if (this._function.getArgDefs().length) {
-          // Skip tests if we previously processed the input
-          // Note the our hash value is language specific
-          const inputHash = getLangIoKey(lang, result.input);
-          if (this._allInputs.has(inputHash)) {
-            runStats.counters.dupesSequential++; // increment the sequential dupe counter
-            runStats.counters.dupesGenerated++; // incremement the total run dupe counter
-            this._compositeInputGenerator.onInputFeedback(
-              [],
-              result.timers.gen
-            ); // return empty input generator feedback
-            if (genStats) {
-              genStats.counters.dupesGenerated++; // increment the generator's dupe counter
-              genStats.counters.dupeTicks.push(result.inputGenerated.tick);
-            }
-            continue; // skip this test
-          } else {
-            runStats.counters.dupesSequential = 0; // reset the sequential duplicate count
-            this._allInputs.set(inputHash, true);
-          }
         }
 
         // Front-end status update

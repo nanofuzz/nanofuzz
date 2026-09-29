@@ -3,6 +3,7 @@ import { ArgDef } from "../analysis/ArgDef";
 import { FuzzPinnedTest, InputAndSource } from "./../Types";
 import { FuzzTestResults } from "../Fuzzer";
 import { InputGeneratorStats, NextableStatus } from "./Types";
+import { AbstractRunner } from "../runners/AbstractRunner";
 
 /**
  * Abstract class of an input generator
@@ -83,7 +84,10 @@ export abstract class AbstractInputGenerator {
    */
   public onRunStart(
     _active: boolean,
-    _injectedInputs?: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[]
+    _injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[] = [],
+    _transformRunner?: AbstractRunner,
+    _fnTimeout: number = 0,
+    _maxDupeInputs: number = 0
   ): void {
     return;
   } // fn: onRunStart

@@ -5,6 +5,7 @@ import * as ProgramFactory from "../analysis/ProgramFactory";
 import { ArgDef } from "../analysis/ArgDef";
 import { FuzzOptions, InputAndSource } from "../Types";
 import { NextableStatus } from "./Types";
+import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
 import * as Config from "../../Config";
 
 describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
@@ -50,7 +51,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true);
+    cig.onRunStart(true, [], undefined, 200, 1000);
     cig.next();
 
     const mockFuzzOptions: FuzzOptions = {
@@ -160,7 +161,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         program.src
       );
 
-      cig.onRunStart(true);
+      cig.onRunStart(true, [], undefined, 200, 1000);
 
       // Generating inputs triggers _selectNextSubGen
       expect(cig.nextable()).toBeTruthy();
@@ -292,7 +293,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         program.src
       );
 
-      cig.onRunStart(true);
+      cig.onRunStart(true, [], undefined, 200, 1000);
 
       const chunkSize = 20;
       for (let i = 0; i < chunkSize * 2; i++) {
@@ -411,21 +412,21 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     try {
       // Run 1: compositeExplorationChance = 1.0 (fastpath active)
       Config.override("nanofuzz.generators.compositeExplorationChance", 1.0);
-      cig.onRunStart(true);
+      cig.onRunStart(true, [], undefined, 200, 1000);
       expect(cig.nextable()).toBeTruthy();
       const inputRun1 = cig.next();
       expect(inputRun1).toBeDefined();
 
       // Run 2: compositeExplorationChance = 0.1 (productivity calculation active)
       Config.override("nanofuzz.generators.compositeExplorationChance", 0.1);
-      cig.onRunStart(true);
+      cig.onRunStart(true, [], undefined, 200, 1000);
       expect(cig.nextable()).toBeTruthy();
       const inputRun2 = cig.next();
       expect(inputRun2).toBeDefined();
 
       // Run 3: compositeExplorationChance = 1.0 again (fastpath active again)
       Config.override("nanofuzz.generators.compositeExplorationChance", 1.0);
-      cig.onRunStart(true);
+      cig.onRunStart(true, [], undefined, 200, 1000);
       expect(cig.nextable()).toBeTruthy();
       const inputRun3 = cig.next();
       expect(inputRun3).toBeDefined();
@@ -472,7 +473,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true);
+    cig.onRunStart(true, [], undefined, 200, 1000);
     // Tri-state expectation: 'now' (or truthy 'now')
     expect(cig.nextable()).toBe("now");
   });
@@ -523,7 +524,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true);
+    cig.onRunStart(true, [], undefined, 200, 1000);
     cig.setSubgenSoon("AiInputGenerator"); // Set AI generator to 'soon'
     expect(cig.nextable()).toBe("soon");
   });
@@ -567,7 +568,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true);
+    cig.onRunStart(true, [], undefined, 200, 1000);
     expect(cig.nextable()).toBe(false);
   });
 
@@ -629,7 +630,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true);
+    cig.onRunStart(true, [], undefined, 200, 1000);
     cig.setSubgenSoonThenNow("AiInputGenerator");
 
     const result = await cig.waitForNextInput();
@@ -681,7 +682,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true);
+    cig.onRunStart(true, [], undefined, 200, 1000);
     cig.setSubgenSoon("AiInputGenerator");
 
     expect(cig.getPendingGeneratorNames()).toEqual(["AI"]);
@@ -744,7 +745,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true);
+    cig.onRunStart(true, [], undefined, 200, 1000);
     cig.setSubgenNeverReady("AiInputGenerator");
 
     const start = performance.now();
@@ -810,7 +811,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true);
+    cig.onRunStart(true, [], undefined, 200, 1000);
     cig.setSubgenSoonWithHistory("AiInputGenerator"); // AI generator is "soon" with high productivity
 
     expect(() => cig.testSelectNextSubGen()).not.toThrow();
@@ -858,13 +859,19 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       program.src
     );
 
-    cig.onRunStart(true, [
-      {
-        value: [{ tag: "ArgValueTypeWrapped", value: 999 }],
-        source: { type: "user" },
-        injected: true,
-      },
-    ]);
+    cig.onRunStart(
+      true,
+      [
+        {
+          value: [{ tag: "ArgValueTypeWrapped", value: 999 }],
+          source: { type: "user" },
+          injected: true,
+        },
+      ],
+      undefined,
+      200,
+      1000
+    );
 
     expect(cig.nextable()).toBe("now!");
 
@@ -876,5 +883,66 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
 
     // After human input is drained, status returns to "now" from RandomInputGenerator
     expect(cig.nextable()).toBe("now");
+  });
+
+  it("next() throws if an input transformer is configured", () => {
+    class MockTransformerRunner extends AbstractRunner {
+      public override async run(): Promise<RunnerResult> {
+        return {
+          result: { tag: "value", value: [1], seq: 0 },
+          env: {},
+        };
+      }
+      public override killHost(): void {
+        // No-op
+      }
+    }
+
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const cig = new CompositeInputGenerator(
+      {
+        RandomInputGenerator: { enabled: true },
+        MutationInputGenerator: { enabled: false },
+        AiInputGenerator: { enabled: false },
+      },
+      fnDef,
+      "seed",
+      [],
+      new Leaderboard<InputAndSource>(),
+      genStats,
+      new Map(),
+      program.src
+    );
+
+    const mockTransformerRunner = new MockTransformerRunner("dummyTransformer");
+
+    cig.onRunStart(true, [], mockTransformerRunner, 200, 1000);
+
+    expect(() => cig.next()).toThrowMatching(
+      (err: unknown) =>
+        err instanceof Error &&
+        err.message.includes(
+          "CompositeInputGenerator.next() cannot be called when an input transformer is configured"
+        )
+    );
   });
 });
