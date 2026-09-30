@@ -1735,6 +1735,7 @@ export type FuzzTestStats = {
     AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
     CompositeInputGenerator?: {
       config?: {
+        scheduler: InputSchedulerType;
         lookbackWindow: number;
         chunkSize: number;
         explorationChance: number;

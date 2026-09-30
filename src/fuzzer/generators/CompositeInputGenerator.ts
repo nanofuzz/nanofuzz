@@ -110,7 +110,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       "mab"
     );
     this._L = Config.get<number>(
-      "nanofuzz.generators.compositeLookbackWindow",
+      "nanofuzz.generators.scheduler.mab.lookback",
       500
     );
     this._chunkSize = Config.get<number>(
@@ -118,7 +118,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       20
     );
     this._P = Config.get<number>(
-      "nanofuzz.generators.compositeExplorationChance",
+      "nanofuzz.generators.scheduler.mab.exploration",
       0.1
     );
     this._trackCheckpoints = Config.get<boolean>(
@@ -457,6 +457,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     if (results) {
       results.stats.generators.CompositeInputGenerator = {
         config: {
+          scheduler: this._scheduler.type,
           lookbackWindow: this._L,
           chunkSize: this._chunkSize,
           explorationChance: this._P,

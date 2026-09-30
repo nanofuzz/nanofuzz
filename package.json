@@ -345,6 +345,21 @@
             "default": "mab",
             "description": "Scheduler used by CompositeInputGenerator to pick the next input generator"
           },
+          "nanofuzz.generators.scheduler.mab.lookback": {
+            "title": "MAB lookback window size for history",
+            "type": "integer",
+            "default": 500,
+            "minimum": 1,
+            "description": "Lookback window size for calculating Multi-Armed Bandit generator productivity"
+          },
+          "nanofuzz.generators.scheduler.mab.exploration": {
+            "title": "MAB additional chance of subgen exploration",
+            "type": "number",
+            "default": 0.1,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Multi-Armed Bandit additional chance of subgen exploration"
+          },
           "nanofuzz.generators.scheduler.ucb1.exploration": {
             "title": "UCB1 exploration constant (c)",
             "type": "number",
@@ -405,27 +420,12 @@
             "maximum": 0.5,
             "description": "Minimum exploration probability allocated to each subgenerator in MOpt"
           },
-          "nanofuzz.generators.compositeLookbackWindow": {
-            "title": "Composite generator lookback window size for history",
-            "type": "integer",
-            "default": 500,
-            "minimum": 1,
-            "description": "Composite generator lookback window size for history"
-          },
           "nanofuzz.generators.compositeChunkSize": {
             "title": "Re-evaluate which input generator to use after every `chunkSize` inputs generated",
             "type": "integer",
             "default": 20,
             "minimum": 1,
             "description": "Re-evaluate which input generator to use after every `chunkSize` inputs generated"
-          },
-          "nanofuzz.generators.compositeExplorationChance": {
-            "title": "Composite generator additional chance of subgen exploration",
-            "type": "number",
-            "default": 0.1,
-            "minimum": 0,
-            "maximum": 1,
-            "description": "Composite generator additional chance of subgen exploration"
           },
           "nanofuzz.generators.leaderboardMinScore": {
             "title": "Leaderboard initial minimum score",

@@ -200,22 +200,22 @@ function createProgram(): Commander.Command {
       0.05
     )
     .option(
-      `--cig-input-lookback <integer>`,
-      `Lookback window when choosing the next input generator`,
+      `--cig-scheduler-mab-lookback <integer>`,
+      `Lookback window when choosing the next input generator in MAB`,
       parseIntArgGeOne,
       500
+    )
+    .option(
+      `--cig-scheduler-mab-exploration <float>`,
+      `Chance of choosing the next input generator randomly in MAB`,
+      parseFloatArgZeroToOne,
+      0.1
     )
     .option(
       `--cig-input-chunk-size <integer>`,
       `Inputs to generate before choosing the next input generator`,
       parseIntArgGeOne,
       20
-    )
-    .option(
-      `--cig-randomness <float>`,
-      `Chance of choosing the next input generator randomly`,
-      parseFloatArgZeroToOne,
-      0.1
     )
     .option(
       `--cig-input-focus <integer>`,
@@ -439,17 +439,21 @@ export async function runCliInProcess(
       options["cigSchedulerMoptExploration"]
     );
   }
-  Config.override(
-    "nanofuzz.generators.compositeLookbackWindow",
-    options["cigInputLookback"]
-  );
+  if (options["cigSchedulerMabLookback"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mab.lookback",
+      options["cigSchedulerMabLookback"]
+    );
+  }
+  if (options["cigSchedulerMabExploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mab.exploration",
+      options["cigSchedulerMabExploration"]
+    );
+  }
   Config.override(
     "nanofuzz.generators.compositeChunkSize",
     options["cigInputChunkSize"]
-  );
-  Config.override(
-    "nanofuzz.generators.compositeExplorationChance",
-    options["cigRandomness"]
   );
   Config.override(
     "nanofuzz.generators.leaderboardInitialFocus",

@@ -33,7 +33,7 @@ describe("src/fuzzer/schedulers/MabScheduler:", () => {
   });
 
   it("selects among available candidates and biases selection toward higher productivity", () => {
-    Config.override("nanofuzz.generators.compositeExplorationChance", 0.0);
+    Config.override("nanofuzz.generators.scheduler.mab.exploration", 0.0);
     const scheduler = new MabScheduler("mab-seed-123");
     const genA = new MockInputGenerator("GenA");
     genA.status = "now";
@@ -96,7 +96,7 @@ describe("src/fuzzer/schedulers/MabScheduler:", () => {
 
   it("handles lookback window configuration changes on onRunStart", () => {
     const scheduler = new MabScheduler("seed");
-    Config.override("nanofuzz.generators.compositeLookbackWindow", 200);
+    Config.override("nanofuzz.generators.scheduler.mab.lookback", 200);
     scheduler.onRunStart();
     expect(scheduler["_L"]).toBe(200);
   });

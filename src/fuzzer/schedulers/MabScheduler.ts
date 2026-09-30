@@ -65,11 +65,11 @@ export class MabScheduler extends AbstractInputScheduler {
    */
   protected _loadConfig(): void {
     const L = Config.get<number>(
-      "nanofuzz.generators.compositeLookbackWindow",
+      "nanofuzz.generators.scheduler.mab.lookback",
       500
     );
     this._P = Config.get<number>(
-      "nanofuzz.generators.compositeExplorationChance",
+      "nanofuzz.generators.scheduler.mab.exploration",
       0.1
     );
 
