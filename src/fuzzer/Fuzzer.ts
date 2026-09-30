@@ -20,6 +20,7 @@ import {
   BaseMeasureConfig,
   FuzzBusyStatusMessage,
   FuzzerFocus,
+  TransformedInputAndSource,
 } from "./Types";
 import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
@@ -598,18 +599,16 @@ export class Tester {
         runStats.counters.dupesSequential =
           this._compositeInputGenerator.dupesSequential;
 
-        const stopCondition =
-          this._compositeInputGenerator.stopReason ??
-          _checkStopCondition(
-            this._options,
-            this._compositeInputGenerator.nextable() !== false,
-            stillInjecting,
-            injectTests.length,
-            !!cancelFn && cancelFn(),
-            runStats,
-            !!mode.gen,
-            this._fuzzerFocus.mode
-          );
+        const stopCondition = _checkStopCondition(
+          this._options,
+          this._compositeInputGenerator.nextable() !== false,
+          stillInjecting,
+          injectTests.length,
+          !!cancelFn && cancelFn(),
+          runStats,
+          !!mode.gen,
+          this._fuzzerFocus.mode
+        );
         const pct = typeof stopCondition === "number" ? stopCondition : 100;
         update({
           ...lastUpdateMsg,
@@ -633,18 +632,16 @@ export class Tester {
           this._compositeInputGenerator.dupesSequential;
 
         // End the testing run when we encounter a stop condition
-        const stopCondition =
-          this._compositeInputGenerator.stopReason ??
-          _checkStopCondition(
-            this._options,
-            this._compositeInputGenerator.nextable() !== false,
-            stillInjecting,
-            injectTests.length,
-            !!cancelFn && cancelFn(),
-            runStats,
-            !!mode.gen,
-            this._fuzzerFocus.mode
-          );
+        const stopCondition = _checkStopCondition(
+          this._options,
+          this._compositeInputGenerator.nextable() !== false,
+          stillInjecting,
+          injectTests.length,
+          !!cancelFn && cancelFn(),
+          runStats,
+          !!mode.gen,
+          this._fuzzerFocus.mode
+        );
         if (typeof stopCondition !== "number") {
           if (this._fuzzerFocus.mode === "shrink") {
             this._fuzzerFocus = deepFreeze({ mode: "gen" });
@@ -910,9 +907,11 @@ export class Tester {
         };
 
         if (transformRunner) {
-          const transformedInput =
-            await this._compositeInputGenerator.nextTransformed();
-          if (!transformedInput) {
+          let transformedInput: TransformedInputAndSource;
+          try {
+            transformedInput =
+              await this._compositeInputGenerator.nextTransformed();
+          } catch {
             continue; // stopReason checked at top of loop
           }
           result.inputGenerated = transformedInput;
