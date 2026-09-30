@@ -235,9 +235,31 @@ describe("src/fuzzer/generators/AiInputGenerator: ", () => {
 
     Config.override("nanofuzz.ai.backfeedPriorInputs", true);
     try {
-      const promptText = prompt.genInputs(fnDef, [], allInputs, "", 25, 1);
-      expect(promptText).not.toContain("This is request number");
-      expect(promptText).toContain(
+      // Non-empty allInputs
+      const promptWithInputs = prompt.genInputs(
+        fnDef,
+        [],
+        allInputs,
+        "",
+        25,
+        1
+      );
+      expect(promptWithInputs).not.toContain("This is request number");
+      expect(promptWithInputs).toContain(
+        "The following inputs were previously generated and tested"
+      );
+
+      // Empty allInputs (e.g. first request in session)
+      const promptEmptyInputs = prompt.genInputs(
+        fnDef,
+        [],
+        new Map(),
+        "",
+        25,
+        1
+      );
+      expect(promptEmptyInputs).not.toContain("This is request number");
+      expect(promptEmptyInputs).not.toContain(
         "The following inputs were previously generated and tested"
       );
     } finally {

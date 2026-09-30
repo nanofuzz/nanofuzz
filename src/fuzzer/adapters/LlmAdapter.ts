@@ -415,9 +415,11 @@ export const prompt = {
     const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
     const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
 
-    let inputs = Config.get<boolean>("nanofuzz.ai.backfeedPriorInputs", true)
-      ? Array.from(allInputs.keys())
-      : [];
+    const backfeed = Config.get<boolean>(
+      "nanofuzz.ai.backfeedPriorInputs",
+      true
+    );
+    let inputs = backfeed ? Array.from(allInputs.keys()) : [];
     // draw a line at 10k inputs
     if (inputs.length > 10000) {
       inputs = inputs.slice(-10000);
@@ -430,10 +432,6 @@ ${escapedModuleSrc}
 \`\`\`
 
 `
-      : "";
-
-    const seqPrompt = !inputs
-      ? `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat previously generated inputs.\n`
       : "";
 
     return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
@@ -452,7 +450,13 @@ ${fnSrc}
 
 ${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
 
-${inputs.length ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}` : ""}${seqPrompt}`;
+${
+  backfeed
+    ? inputs.length
+      ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}`
+      : ""
+    : `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`
+}`;
   },
 };
 

@@ -141,6 +141,10 @@ function createProgram(): Commander.Command {
       parseAiCacheMode
     )
     .option(`--ai-cache-file <path>`, `Path to LLM cache file`)
+    .option(
+      `--no-ai-input-backfeed`,
+      `Disable backfeeding prior inputs to the AI model`
+    )
 
     // ------------------------ Composite Input Generator ------------------------ //
 
@@ -327,6 +331,12 @@ export async function runCliInProcess(
   }
   if (options["aiCacheFile"] !== undefined) {
     Config.override("nanofuzz.ai.cacheFile", options["aiCacheFile"]);
+  }
+  if (options["aiInputBackfeed"] !== undefined) {
+    Config.override(
+      "nanofuzz.ai.backfeedPriorInputs",
+      options["aiInputBackfeed"]
+    );
   }
 
   // composite input generator config options

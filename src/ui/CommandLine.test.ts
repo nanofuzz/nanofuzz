@@ -329,6 +329,29 @@ describe("cli:", () => {
     expect(Config.get("nanofuzz.fuzzer.maxShrinkTime", 2000)).toBe(5000);
   });
 
+  it("--no-ai-input-backfeed flag overrides backfeedPriorInputs", async () => {
+    const outputFile = path.join(tmpDir, "no_backfeed_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--no-ai-input-backfeed",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_no_backfeed",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(
+      Config.get<boolean>("nanofuzz.ai.backfeedPriorInputs", true)
+    ).toBeFalse();
+  });
+
   it("--cig-* flags: composite input generator parameters", async () => {
     const outputFile = path.join(tmpDir, "cig_flags_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
