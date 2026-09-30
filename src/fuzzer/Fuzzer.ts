@@ -18,6 +18,7 @@ import {
   FuzzResultCategoryValues,
   FuzzStopReason,
   FuzzStatusUpdater,
+  FuzzResultCallback,
   BaseMeasureConfig,
   FuzzBusyStatusMessage,
   FuzzerFocus,
@@ -370,17 +371,21 @@ export class Tester {
    *
    * @param `injectTests` tests to inject
    * @param `mode` testing mode
+   * @param `updateFn` status update callback
+   * @param `cancelFn` cancel checking callback
+   * @param `onResultFn` callback called for each test result produced
    * @returns `FuzzTestResults`
    */
   public async testSync(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean
+    cancelFn?: () => boolean,
+    onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
     try {
-      const run = this._run(injectTests, mode, updateFn, cancelFn);
+      const run = this._run(injectTests, mode, updateFn, cancelFn, onResultFn);
       while (!result) {
         result = (await run.next()).value;
       }
@@ -402,17 +407,19 @@ export class Tester {
    * @param `callbackFn` called when testing completes
    * @param `statusFn` called to report status updates
    * @param `cancelFn` called to check cancel status
+   * @param `onResultFn` callback called for each test result produced
    */
   public async testAsync(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     callbackFn: (result: FuzzTestResults | Error) => void,
     statusFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean
+    cancelFn?: () => boolean,
+    onResultFn?: FuzzResultCallback
   ): Promise<void> {
     this._runBatchAsync(
       callbackFn,
-      this._run(injectTests, mode, statusFn, cancelFn)
+      this._run(injectTests, mode, statusFn, cancelFn, onResultFn)
     );
   } // fn: testAsync
 
@@ -461,13 +468,15 @@ export class Tester {
    * @param `mode` tester mode
    * @param `updateFn` called to report status updates
    * @param `cancelFn` called to check cancel status
+   * @param `onResultFn` called for each test result produced
    * @returns test results
    */
   protected async *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean
+    cancelFn?: () => boolean,
+    onResultFn?: FuzzResultCallback
   ): AsyncGenerator<
     FuzzTestResults | undefined,
     FuzzTestResults,
@@ -1441,6 +1450,9 @@ export class Tester {
 
         // Store the result for this iteration
         this._results.results.push(result);
+        if (onResultFn) {
+          onResultFn(result);
+        }
 
         // Take measurements for this test run
         {

@@ -1,7 +1,7 @@
 import { Tester } from "./Fuzzer";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import * as ValueMapper from "./mappers/ValueMapper";
-import { FuzzPinnedTest } from "./Types";
+import { FuzzPinnedTest, FuzzTestResult } from "./Types";
 
 describe("fuzzer: python targets", () => {
   beforeAll(async () => {
@@ -9,6 +9,7 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Python string input and property test", async () => {
+    const results: FuzzTestResult[] = [];
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "greeting",
@@ -17,14 +18,14 @@ describe("fuzzer: python targets", () => {
         useProperty: true,
         suiteTimeout: 3000,
       }
-    ).testSync();
+    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toEqual(
       fuzzResult.stats.outcomes.total
     );
     expect(
-      fuzzResult.results.every(
+      results.every(
         (e) =>
           e.output.length &&
           typeof e.output[0].value === "string" &&
@@ -38,7 +39,7 @@ describe("fuzzer: python targets", () => {
     expect(fuzzResult.stats.outcomes.oracles.property.pass).toEqual(
       fuzzResult.stats.outcomes.total
     );
-    fuzzResult.results.forEach((r) => {
+    results.forEach((r) => {
       expect(r.passedValidators.length).toBe(1);
       expect(r.harnessErrors.length).toBe(0);
       expect(r.passedValidator).toBe("pass");
@@ -136,6 +137,7 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Python assume statement (skipped tests)", async () => {
+    const skips: FuzzTestResult[] = [];
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "with_assume",
@@ -143,11 +145,11 @@ describe("fuzzer: python targets", () => {
         ...intOptions,
         maxTests: 200, // Make sure we generate enough tests to hit n = 5
       }
-    ).testSync();
+    ).testSync([], { gen: true }, undefined, undefined, (r) => {
+      if (r.category === "skip") skips.push(r);
+    });
 
     expect(fuzzResult.stats.outcomes.categories.skip).toBeGreaterThan(0);
-    const skips = fuzzResult.results.filter((r) => r.category === "skip");
-
     expect(skips.length).toBeGreaterThan(0);
     skips.forEach((r) => {
       expect(r.skipped).toBeTrue();
@@ -157,23 +159,26 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Python transformer input transformation, skips, and null return", async () => {
+    const skips: FuzzTestResult[] = [];
+    const passed: FuzzTestResult[] = [];
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed",
       intOptions
-    ).testSync();
+    ).testSync([], { gen: true }, undefined, undefined, (r) => {
+      if (r.category === "skip") skips.push(r);
+      if (r.category === "ok") passed.push(r);
+    });
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.skip).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.ok).toBeGreaterThan(0);
 
-    const skips = fuzzResult.results.filter((r) => r.category === "skip");
     expect(skips.length).toBeGreaterThan(0);
     skips.forEach((r) => {
       expect(r.skipped).toBeTrue();
     });
 
-    const passed = fuzzResult.results.filter((r) => r.category === "ok");
     expect(passed.length).toBeGreaterThan(0);
     passed.forEach((r) => {
       const transformedInput = Number(r.input[0].value);
@@ -218,14 +223,17 @@ describe("fuzzer: python targets", () => {
       pinned: true,
     };
 
-    const fuzzResult = await new Tester(
+    const results: FuzzTestResult[] = [];
+    await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed",
       { ...intOptions, maxTests: 0 }
-    ).testSync([injectedInput]);
+    ).testSync([injectedInput], { gen: true }, undefined, undefined, (r) =>
+      results.push(r)
+    );
 
-    expect(fuzzResult.results.length).toBe(1);
-    const injectedResult = fuzzResult.results[0];
+    expect(results.length).toBe(1);
+    const injectedResult = results[0];
 
     // Verify the injected input was NOT skipped by py_transformedTransformer (which skips n=5)
     expect(injectedResult.skipped).toBeFalse();
@@ -241,17 +249,18 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Python transformer exception", async () => {
+    const results: FuzzTestResult[] = [];
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed_exception",
       intOptions
-    ).testSync();
+    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
       fuzzResult.stats.outcomes.total
     );
-    fuzzResult.results.forEach((r) => {
+    results.forEach((r) => {
       expect(r.harnessErrors.length).toBeGreaterThan(0);
       expect(r.harnessErrors[0].message).toContain("Python transformer error");
       expect(r.category).toBe("failure");
@@ -259,6 +268,7 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Python transformer timeout", async () => {
+    const results: FuzzTestResult[] = [];
     const fuzzResult = await new Tester(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed_timeout",
@@ -266,13 +276,13 @@ describe("fuzzer: python targets", () => {
         ...intOptions,
         maxTests: 2,
       }
-    ).testSync();
+    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
       fuzzResult.stats.outcomes.total
     );
-    fuzzResult.results.forEach((r) => {
+    results.forEach((r) => {
       expect(r.harnessErrors.length).toBeGreaterThan(0);
       expect(r.harnessErrors[0].kind).toBe("timeout");
       expect(r.category).toBe("failure");

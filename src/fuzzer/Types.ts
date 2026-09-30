@@ -341,6 +341,11 @@ export type FuzzBusyStatusMessage =
 export type FuzzStatusUpdater = (payload: FuzzBusyStatusMessage) => void;
 
 /**
+ * Callback called for each test result produced during fuzzing
+ */
+export type FuzzResultCallback = (result: FuzzTestResult) => void;
+
+/**
  * Exception class for TypeScript compiler errors
  */
 export type TypescriptCompilerErrorDetails = {
