@@ -2,8 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import * as JSONN from "../../Jsonn";
+import { getToolVersion } from "../../ToolVersion";
 import {
   LlmCacheEntry,
+  LlmCacheFile,
   LlmCacheMode,
   LlmCacheStats,
   LlmQueryResult,
@@ -57,9 +59,8 @@ export class LlmCacheManager {
     if (this._mode === "passthrough" || !this._filePath) return;
     if (fs.existsSync(this._filePath)) {
       try {
-        const raw = fs.readFileSync(this._filePath, "utf-8");
-        const entries: LlmCacheEntry[] = JSONN.parse(raw);
-        entries.forEach((e) => this._cache.set(e.key, e));
+        const payload = JSONN.fromFile<LlmCacheFile>(this._filePath);
+        payload.recordings.forEach((e) => this._cache.set(e.key, e));
       } catch (err) {
         console.warn(
           `[LlmCacheManager] Failed to load cache from ${this._filePath}:`,
@@ -72,10 +73,11 @@ export class LlmCacheManager {
   public saveCache(): void {
     if (!this._filePath || this._mode === "passthrough") return;
     try {
-      const dir = path.dirname(this._filePath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      const data = Array.from(this._cache.values());
-      fs.writeFileSync(this._filePath, JSONN.stringify(data, null, 2), "utf-8");
+      const payload: LlmCacheFile = {
+        toolVersion: getToolVersion(),
+        recordings: Array.from(this._cache.values()),
+      };
+      JSONN.toFile(this._filePath, payload);
     } catch (err) {
       console.error(
         `[LlmCacheManager] Failed to write cache to ${this._filePath}:`,
