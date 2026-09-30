@@ -122,7 +122,7 @@ export class LlmAdapter {
       delayConfig,
       prng
     );
-  } // constructor
+  }
 
   /**
    * Creates a fresh, stateless LLM chat session for a single query.

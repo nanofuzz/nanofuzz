@@ -4,7 +4,7 @@ import os from "node:os";
 import seedrandom from "seedrandom";
 import { LlmCacheManager, createCacheKey } from "./LlmCacheManager";
 import { LlmDelayCalculator } from "./LlmDelayCalculator";
-import { LlmCacheEntry } from "../generators/Types";
+import { LlmCacheEntry, LlmCacheFile } from "../generators/Types";
 import * as JSONN from "../../Jsonn";
 
 describe("src/fuzzer/adapters/LlmCacheManager:", () => {
@@ -108,38 +108,42 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
     expect(stats.live.tokensReceived).toBe(5);
 
     // Verify cache file contents
-    const content = JSONN.parse<LlmCacheEntry[]>(
+    const content = JSONN.parse<LlmCacheFile>(
       fs.readFileSync(cacheFile, "utf-8")
     );
-    expect(content.length).toBe(1);
-    expect(content[0].response.text).toBe("recorded-answer");
-    expect(content[0].delayMs).toBeGreaterThanOrEqual(15);
+    expect(content.toolVersion).toBeDefined();
+    expect(content.recordings.length).toBe(1);
+    expect(content.recordings[0].response.text).toBe("recorded-answer");
+    expect(content.recordings[0].delayMs).toBeGreaterThanOrEqual(15);
   });
 
   it("replay-record mode: serves hits from cache with delay and records misses", async () => {
     // 1. Seed cache file
     const key = createCacheKey("provider1", "model1", ["prompt1"], undefined);
-    const seededData = [
-      {
-        key,
-        request: {
-          provider: "provider1",
-          modelName: "model1",
-          prompt: ["prompt1"],
-        },
-        response: {
-          text: "cached-answer",
-          stats: {
-            tokensSent: 5,
-            tokensSentCost: { amt: 0, unit: "USD" },
-            tokensReceived: 5,
-            tokensReceivedCost: { amt: 0, unit: "USD" },
+    const seededData: LlmCacheFile = {
+      toolVersion: "NaNofuzz v0.4.0",
+      recordings: [
+        {
+          key,
+          request: {
+            provider: "provider1",
+            modelName: "model1",
+            prompt: ["prompt1"],
           },
+          response: {
+            text: "cached-answer",
+            stats: {
+              tokensSent: 5,
+              tokensSentCost: { amt: 0, unit: "USD" },
+              tokensReceived: 5,
+              tokensReceivedCost: { amt: 0, unit: "USD" },
+            },
+          },
+          delayMs: 30,
+          recordedAt: new Date().toISOString(),
         },
-        delayMs: 30,
-        recordedAt: new Date().toISOString(),
-      },
-    ];
+      ],
+    };
     fs.writeFileSync(cacheFile, JSON.stringify(seededData), "utf-8");
 
     const manager = new LlmCacheManager("replay-record", cacheFile);
@@ -207,32 +211,36 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
     expect(stats.live.tokensReceived).toBe(5);
 
     // Check that cache file now contains 2 entries
-    const updatedContent = JSONN.parse<LlmCacheEntry[]>(
+    const updatedContent = JSONN.parse<LlmCacheFile>(
       fs.readFileSync(cacheFile, "utf-8")
     );
-    expect(updatedContent.length).toBe(2);
+    expect(updatedContent.toolVersion).toBeDefined();
+    expect(updatedContent.recordings.length).toBe(2);
   });
 
   it("replay-error mode: serves hits and throws on misses without calling live function", async () => {
     // Seed cache file
     const key = createCacheKey("p", "m", ["p1"], undefined);
-    const seededData = [
-      {
-        key,
-        request: { provider: "p", modelName: "m", prompt: ["p1"] },
-        response: {
-          text: "cached-p1",
-          stats: {
-            tokensSent: 1,
-            tokensSentCost: { amt: 0, unit: "USD" },
-            tokensReceived: 1,
-            tokensReceivedCost: { amt: 0, unit: "USD" },
+    const seededData: LlmCacheFile = {
+      toolVersion: "NaNofuzz v0.4.0",
+      recordings: [
+        {
+          key,
+          request: { provider: "p", modelName: "m", prompt: ["p1"] },
+          response: {
+            text: "cached-p1",
+            stats: {
+              tokensSent: 1,
+              tokensSentCost: { amt: 0, unit: "USD" },
+              tokensReceived: 1,
+              tokensReceivedCost: { amt: 0, unit: "USD" },
+            },
           },
+          delayMs: 5,
+          recordedAt: new Date().toISOString(),
         },
-        delayMs: 5,
-        recordedAt: new Date().toISOString(),
-      },
-    ];
+      ],
+    };
     fs.writeFileSync(cacheFile, JSON.stringify(seededData), "utf-8");
 
     const manager = new LlmCacheManager("replay-error", cacheFile);
@@ -273,23 +281,26 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
   it("replay-passthrough mode: serves hits and passes misses live without recording", async () => {
     // Seed cache file
     const key = createCacheKey("p", "m", ["p1"], undefined);
-    const seededData = [
-      {
-        key,
-        request: { provider: "p", modelName: "m", prompt: ["p1"] },
-        response: {
-          text: "cached-p1",
-          stats: {
-            tokensSent: 1,
-            tokensSentCost: { amt: 0, unit: "USD" },
-            tokensReceived: 1,
-            tokensReceivedCost: { amt: 0, unit: "USD" },
+    const seededData: LlmCacheFile = {
+      toolVersion: "NaNofuzz v0.4.0",
+      recordings: [
+        {
+          key,
+          request: { provider: "p", modelName: "m", prompt: ["p1"] },
+          response: {
+            text: "cached-p1",
+            stats: {
+              tokensSent: 1,
+              tokensSentCost: { amt: 0, unit: "USD" },
+              tokensReceived: 1,
+              tokensReceivedCost: { amt: 0, unit: "USD" },
+            },
           },
+          delayMs: 5,
+          recordedAt: new Date().toISOString(),
         },
-        delayMs: 5,
-        recordedAt: new Date().toISOString(),
-      },
-    ];
+      ],
+    };
     fs.writeFileSync(cacheFile, JSON.stringify(seededData), "utf-8");
 
     const manager = new LlmCacheManager("replay-passthrough", cacheFile);
@@ -350,11 +361,14 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
     expect(stats.live.calls).toBe(1);
     expect(stats.live.tokensSent).toBe(2);
 
-    // Cache file length should still be 1
-    const content = JSONN.parse<LlmCacheEntry[]>(
+    // Cache file length should still be 1 (seeded format preserved)
+    const content = JSONN.parse<LlmCacheFile | LlmCacheEntry[]>(
       fs.readFileSync(cacheFile, "utf-8")
     );
-    expect(content.length).toBe(1);
+    const count = Array.isArray(content)
+      ? content.length
+      : content.recordings.length;
+    expect(count).toBe(1);
   });
 
   it("handle rejected in-flights queries w/o throwing", async () => {
@@ -372,23 +386,26 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
 
   it("replays with perturbed delay (0ms / instant replay)", async () => {
     const key = createCacheKey("p", "m", ["p1"], undefined);
-    const seededData = [
-      {
-        key,
-        request: { provider: "p", modelName: "m", prompt: ["p1"] },
-        response: {
-          text: "cached-p1",
-          stats: {
-            tokensSent: 1,
-            tokensSentCost: { amt: 0, unit: "USD" },
-            tokensReceived: 1,
-            tokensReceivedCost: { amt: 0, unit: "USD" },
+    const seededData: LlmCacheFile = {
+      toolVersion: "NaNofuzz v0.4.0",
+      recordings: [
+        {
+          key,
+          request: { provider: "p", modelName: "m", prompt: ["p1"] },
+          response: {
+            text: "cached-p1",
+            stats: {
+              tokensSent: 1,
+              tokensSentCost: { amt: 0, unit: "USD" },
+              tokensReceived: 1,
+              tokensReceivedCost: { amt: 0, unit: "USD" },
+            },
           },
+          delayMs: 200,
+          recordedAt: new Date().toISOString(),
         },
-        delayMs: 200,
-        recordedAt: new Date().toISOString(),
-      },
-    ];
+      ],
+    };
     fs.writeFileSync(cacheFile, JSON.stringify(seededData), "utf-8");
 
     // Replay with delayConfig = { fixedMs: 0 } (should bypass the 200ms recorded delay)
@@ -415,23 +432,26 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
 
   it("replays with perturbed delay (fixed delay and dynamic setter)", async () => {
     const key = createCacheKey("p", "m", ["p1"], undefined);
-    const seededData = [
-      {
-        key,
-        request: { provider: "p", modelName: "m", prompt: ["p1"] },
-        response: {
-          text: "cached-p1",
-          stats: {
-            tokensSent: 1,
-            tokensSentCost: { amt: 0, unit: "USD" },
-            tokensReceived: 1,
-            tokensReceivedCost: { amt: 0, unit: "USD" },
+    const seededData: LlmCacheFile = {
+      toolVersion: "NaNofuzz v0.4.0",
+      recordings: [
+        {
+          key,
+          request: { provider: "p", modelName: "m", prompt: ["p1"] },
+          response: {
+            text: "cached-p1",
+            stats: {
+              tokensSent: 1,
+              tokensSentCost: { amt: 0, unit: "USD" },
+              tokensReceived: 1,
+              tokensReceivedCost: { amt: 0, unit: "USD" },
+            },
           },
+          delayMs: 100,
+          recordedAt: new Date().toISOString(),
         },
-        delayMs: 100,
-        recordedAt: new Date().toISOString(),
-      },
-    ];
+      ],
+    };
     fs.writeFileSync(cacheFile, JSON.stringify(seededData), "utf-8");
 
     const manager = new LlmCacheManager(
@@ -459,6 +479,141 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
     // Update delayConfig dynamically to { fixedMs: 0 }
     manager.delayConfig = { fixedMs: 0 };
     expect(manager.delayConfig).toEqual({ fixedMs: 0 });
+  });
+
+  it("loads cache file structured with toolVersion and recordings", async () => {
+    const key = createCacheKey("p", "m", ["p-header-test"], undefined);
+    const headerPayload: LlmCacheFile = {
+      toolVersion: "NaNofuzz v0.4.0",
+      recordings: [
+        {
+          key,
+          request: { provider: "p", modelName: "m", prompt: ["p-header-test"] },
+          response: {
+            text: "header-answer",
+            stats: {
+              tokensSent: 2,
+              tokensSentCost: { amt: 0, unit: "USD" },
+              tokensReceived: 2,
+              tokensReceivedCost: { amt: 0, unit: "USD" },
+            },
+          },
+          delayMs: 10,
+          recordedAt: new Date().toISOString(),
+        },
+      ],
+    };
+    fs.writeFileSync(cacheFile, JSON.stringify(headerPayload), "utf-8");
+
+    const manager = new LlmCacheManager("replay-error", cacheFile);
+    const res = await manager.query(
+      "p",
+      "m",
+      ["p-header-test"],
+      undefined,
+      async () => ({
+        text: "fail",
+        stats: {
+          tokensSent: 0,
+          tokensSentCost: { amt: 0, unit: "USD" },
+          tokensReceived: 0,
+          tokensReceivedCost: { amt: 0, unit: "USD" },
+        },
+      })
+    );
+    expect(res.text).toBe("header-answer");
+  });
+
+  it("saves and loads binary packed cache files (.msgpack / non-json extension)", async () => {
+    const binCacheFile = path.join(tmpDir, "cache.msgpack");
+    const recordManager = new LlmCacheManager("record", binCacheFile);
+
+    const queryFn = async () => ({
+      text: "bin-recorded-answer",
+      stats: {
+        tokensSent: 10,
+        tokensSentCost: { amt: 0, unit: "USD" },
+        tokensReceived: 5,
+        tokensReceivedCost: { amt: 0, unit: "USD" },
+      },
+    });
+
+    await recordManager.query("p", "m", ["bin-prompt"], undefined, queryFn);
+    expect(fs.existsSync(binCacheFile)).toBeTrue();
+
+    // Verify binary format: unpacks using JSONN.unpack
+    const binBuffer = fs.readFileSync(binCacheFile);
+    const unpacked = JSONN.unpack<LlmCacheFile>(binBuffer);
+    expect(unpacked.toolVersion).toBeDefined();
+    expect(unpacked.recordings.length).toBe(1);
+    expect(unpacked.recordings[0].response.text).toBe("bin-recorded-answer");
+
+    // Verify loading by replay manager
+    const replayManager = new LlmCacheManager("replay-error", binCacheFile);
+    const replayRes = await replayManager.query(
+      "p",
+      "m",
+      ["bin-prompt"],
+      undefined,
+      async () => ({
+        text: "should-not-be-called",
+        stats: {
+          tokensSent: 0,
+          tokensSentCost: { amt: 0, unit: "USD" },
+          tokensReceived: 0,
+          tokensReceivedCost: { amt: 0, unit: "USD" },
+        },
+      })
+    );
+    expect(replayRes.text).toBe("bin-recorded-answer");
+  });
+
+  it("saves and loads human-readable JSONN text for .txt and .text extensions", async () => {
+    const txtCacheFile = path.join(tmpDir, "cache.txt");
+    const recordManager = new LlmCacheManager("record", txtCacheFile);
+
+    await recordManager.query(
+      "p",
+      "m",
+      ["txt-prompt"],
+      undefined,
+      async () => ({
+        text: "txt-recorded-answer",
+        stats: {
+          tokensSent: 10,
+          tokensSentCost: { amt: 0, unit: "USD" },
+          tokensReceived: 5,
+          tokensReceivedCost: { amt: 0, unit: "USD" },
+        },
+      })
+    );
+    expect(fs.existsSync(txtCacheFile)).toBeTrue();
+
+    // Verify it is saved as text
+    const rawContent = fs.readFileSync(txtCacheFile, "utf-8");
+    const parsed = JSONN.parse<LlmCacheFile>(rawContent);
+    expect(parsed.toolVersion).toBeDefined();
+    expect(parsed.recordings.length).toBe(1);
+    expect(parsed.recordings[0].response.text).toBe("txt-recorded-answer");
+
+    // Verify replay manager loads it cleanly
+    const replayManager = new LlmCacheManager("replay-error", txtCacheFile);
+    const res = await replayManager.query(
+      "p",
+      "m",
+      ["txt-prompt"],
+      undefined,
+      async () => ({
+        text: "fail",
+        stats: {
+          tokensSent: 0,
+          tokensSentCost: { amt: 0, unit: "USD" },
+          tokensReceived: 0,
+          tokensReceivedCost: { amt: 0, unit: "USD" },
+        },
+      })
+    );
+    expect(res.text).toBe("txt-recorded-answer");
   });
 
   it("uses provided prng for deterministic stochastic delay perturbations", () => {
@@ -576,7 +731,11 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
           recordedAt: new Date().toISOString(),
         },
       ];
-      fs.writeFileSync(cacheFile, JSON.stringify(seededEntries), "utf-8");
+      const payload: LlmCacheFile = {
+        toolVersion: "NaNofuzz v0.4.0",
+        recordings: seededEntries,
+      };
+      fs.writeFileSync(cacheFile, JSON.stringify(payload), "utf-8");
 
       const manager = new LlmCacheManager(
         "replay-error",
@@ -656,7 +815,11 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
       recordedAt: new Date().toISOString(),
     }));
 
-    fs.writeFileSync(cacheFile, JSON.stringify(seededEntries), "utf-8");
+    const payload: LlmCacheFile = {
+      toolVersion: "NaNofuzz v0.4.0",
+      recordings: seededEntries,
+    };
+    fs.writeFileSync(cacheFile, JSON.stringify(payload), "utf-8");
 
     // Scale delay by 0.5x: expected delays are >=30ms, >=10ms, >=40ms
     const manager = new LlmCacheManager(

@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import JSON5 from "json5";
+import * as JSONN from "../Jsonn";
 import * as zod from "zod/v4";
 import * as Config from "../Config";
 import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Fuzzer";
@@ -221,6 +222,62 @@ describe("cli:", () => {
     // Verify test results were produced
     expect(pyOutputData.results.length).toBeGreaterThan(0);
     expect(pyOutputData.results.length).toBeLessThanOrEqual(maxTests);
+  });
+
+  it("--output-file: writes packed binary output for .msgpack extension", async () => {
+    const outputFile = path.join(tmpDir, "ts_output.msgpack");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+    const seed = "bin_cli_seed_789";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "5",
+      "--seed",
+      seed,
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const binBuffer = fs.readFileSync(outputFile);
+    const outputData = JSONN.unpack<FuzzTestResults>(binBuffer);
+
+    expect(outputData.toolVersion).toBeDefined();
+    expect(outputData.results.length).toBeGreaterThan(0);
+    expect(outputData.env.options.seed).toBe(seed);
+  });
+
+  it("--output-file: writes human-readable JSONN text output for .txt extension", async () => {
+    const outputFile = path.join(tmpDir, "ts_output.txt");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+    const seed = "txt_cli_seed_101";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--max-tests",
+      "5",
+      "--seed",
+      seed,
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(outputFile)).toBeTrue();
+
+    const textContent = fs.readFileSync(outputFile, "utf8");
+    const outputData = JSONN.parse<FuzzTestResults>(textContent);
+
+    expect(outputData.toolVersion).toBeDefined();
+    expect(outputData.results.length).toBeGreaterThan(0);
+    expect(outputData.env.options.seed).toBe(seed);
   });
 
   it("--no-* flags: measures and generators", async () => {
@@ -769,7 +826,14 @@ describe("cli:", () => {
     fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
     fs.writeFileSync(
       cacheFile,
-      JSON5.stringify([seededEntry], null, 2),
+      JSON5.stringify(
+        {
+          toolVersion: "NaNofuzz v0.4.0",
+          recordings: [seededEntry],
+        },
+        null,
+        2
+      ),
       "utf8"
     );
 
@@ -889,7 +953,14 @@ describe("cli:", () => {
 
     fs.writeFileSync(
       cacheFile,
-      JSON5.stringify([seededEntry], null, 2),
+      JSON5.stringify(
+        {
+          toolVersion: "NaNofuzz v0.4.0",
+          recordings: [seededEntry],
+        },
+        null,
+        2
+      ),
       "utf8"
     );
 

@@ -37,6 +37,14 @@ export type LlmCacheEntry = {
 };
 
 /**
+ * LLM Cache File Header & Payload
+ */
+export type LlmCacheFile = {
+  toolVersion: string;
+  recordings: LlmCacheEntry[];
+};
+
+/**
  * LLM Cache Statistics
  */
 export type LlmCacheStats = {
