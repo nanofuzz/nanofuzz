@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import seedrandom from "seedrandom";
 import * as JSONN from "../../Jsonn";
 import { getToolVersion } from "../../ToolVersion";
 import {
@@ -18,6 +19,7 @@ export class LlmCacheManager {
   protected _mode: LlmCacheMode;
   protected _filePath?: string;
   protected _delayConfig?: LlmCacheDelayConfig;
+  protected _prng: seedrandom.prng;
   protected _cache: Map<string, LlmCacheEntry> = new Map();
   protected _stats: LlmCacheStats;
   protected _pendingQueries: Set<Promise<unknown>> = new Set();
@@ -25,11 +27,13 @@ export class LlmCacheManager {
   constructor(
     mode: LlmCacheMode = "passthrough",
     filePath?: string,
-    delayConfig?: LlmCacheDelayConfig
+    delayConfig?: LlmCacheDelayConfig,
+    prng?: seedrandom.prng
   ) {
     this._mode = mode;
     this._filePath = filePath ? path.resolve(filePath) : undefined;
     this._delayConfig = delayConfig;
+    this._prng = prng ?? seedrandom();
     this._stats = {
       mode,
       calls: 0,
@@ -143,7 +147,8 @@ export class LlmCacheManager {
 
       const effectiveDelayMs = LlmDelayCalculator.calculate(
         cachedEntry.delayMs,
-        this._delayConfig
+        this._delayConfig,
+        this._prng
       );
 
       if (effectiveDelayMs > 0) {
@@ -242,6 +247,14 @@ export class LlmCacheManager {
 
   public set delayConfig(config: LlmCacheDelayConfig | undefined) {
     this._delayConfig = config;
+  }
+
+  public get prng(): seedrandom.prng {
+    return this._prng;
+  }
+
+  public set prng(prng: seedrandom.prng) {
+    this._prng = prng;
   }
 }
 

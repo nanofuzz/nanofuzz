@@ -152,7 +152,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
     // Create new back-end if configured but not yet loaded
     if (active && !this._llm && LlmAdapter.isConfigured()) {
-      this._llm = new LlmAdapter();
+      this._llm = new LlmAdapter(this._prng);
       this._inputQueue = []; // empty the queue to avoid user confusion
     }
 
