@@ -651,4 +651,126 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
       expect(elapsed).toBeLessThanOrEqual(max);
     }
   });
+
+  it("replays multi-turn queries sequentially with independent delays", async () => {
+    const requests = [
+      {
+        prompt: "turn-1",
+        delay: 60,
+        sent: 10,
+        recv: 20,
+        cost: 0.001,
+        ans: "a1",
+      },
+      {
+        prompt: "turn-2",
+        delay: 20,
+        sent: 15,
+        recv: 25,
+        cost: 0.002,
+        ans: "a2",
+      },
+      {
+        prompt: "turn-3",
+        delay: 80,
+        sent: 20,
+        recv: 30,
+        cost: 0.003,
+        ans: "a3",
+      },
+    ];
+
+    const seededEntries: LlmCacheEntry[] = requests.map((req) => ({
+      key: createCacheKey("provider1", "model1", [req.prompt], undefined),
+      request: {
+        provider: "provider1",
+        modelName: "model1",
+        prompt: [req.prompt],
+      },
+      response: {
+        text: req.ans,
+        stats: {
+          tokensSent: req.sent,
+          tokensSentCost: { amt: req.cost / 2, unit: "USD" },
+          tokensReceived: req.recv,
+          tokensReceivedCost: { amt: req.cost / 2, unit: "USD" },
+        },
+      },
+      delayMs: req.delay,
+      recordedAt: new Date().toISOString(),
+    }));
+
+    fs.writeFileSync(cacheFile, JSON.stringify(seededEntries), "utf-8");
+
+    // Scale delay by 0.5x: expected delays are 30ms, 10ms, 40ms
+    const manager = new LlmCacheManager(
+      "replay-error",
+      cacheFile,
+      LlmDelayCalculator.parse("0.5x"),
+      seedrandom("multi-turn-seed")
+    );
+
+    const dummyLiveFn = async () => ({
+      text: "live-should-not-run",
+      stats: {
+        tokensSent: 0,
+        tokensSentCost: { amt: 0, unit: "USD" },
+        tokensReceived: 0,
+        tokensReceivedCost: { amt: 0, unit: "USD" },
+      },
+    });
+
+    // Query 1 (expected ~30ms)
+    const start1 = performance.now();
+    const res1 = await manager.query(
+      "provider1",
+      "model1",
+      ["turn-1"],
+      undefined,
+      dummyLiveFn
+    );
+    const elapsed1 = performance.now() - start1;
+    expect(res1.text).toBe("a1");
+    expect(elapsed1).toBeGreaterThanOrEqual(25);
+    expect(elapsed1).toBeLessThanOrEqual(60);
+
+    // Query 2 (expected ~10ms)
+    const start2 = performance.now();
+    const res2 = await manager.query(
+      "provider1",
+      "model1",
+      ["turn-2"],
+      undefined,
+      dummyLiveFn
+    );
+    const elapsed2 = performance.now() - start2;
+    expect(res2.text).toBe("a2");
+    expect(elapsed2).toBeGreaterThanOrEqual(8);
+    expect(elapsed2).toBeLessThanOrEqual(40);
+
+    // Query 3 (expected ~40ms)
+    const start3 = performance.now();
+    const res3 = await manager.query(
+      "provider1",
+      "model1",
+      ["turn-3"],
+      undefined,
+      dummyLiveFn
+    );
+    const elapsed3 = performance.now() - start3;
+    expect(res3.text).toBe("a3");
+    expect(elapsed3).toBeGreaterThanOrEqual(35);
+    expect(elapsed3).toBeLessThanOrEqual(70);
+
+    // Check cumulative replay statistics
+    const stats = manager.stats;
+    expect(stats.calls).toBe(3);
+    expect(stats.hits).toBe(3);
+    expect(stats.misses).toBe(0);
+    expect(stats.failures).toBe(0);
+    expect(stats.replayed.calls).toBe(3);
+    expect(stats.replayed.tokensSent).toBe(10 + 15 + 20);
+    expect(stats.replayed.tokensReceived).toBe(20 + 25 + 30);
+    expect(stats.replayed.costUsd).toBeCloseTo(0.001 + 0.002 + 0.003, 5);
+  });
 });
