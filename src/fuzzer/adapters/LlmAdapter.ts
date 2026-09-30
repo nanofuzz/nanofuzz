@@ -1,4 +1,5 @@
 import vscode from "vscode";
+import seedrandom from "seedrandom";
 import * as Config from "../../Config";
 import { ArgValueType } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
@@ -9,6 +10,7 @@ import * as telemetry from "../../telemetry/Telemetry";
 import * as zod from "zod/v4";
 import { zodOutputFormat } from "./AnthropicUtils";
 import { LlmCacheManager } from "./LlmCacheManager";
+import { LlmDelayCalculator } from "./LlmDelayCalculator";
 import {
   LlmCacheMode,
   LlmCacheStats,
@@ -57,7 +59,7 @@ export class LlmAdapter {
   protected _cacheManager: LlmCacheManager; // Cache manager
   protected _cfgString: string; // LLM config; for detecting config changes
 
-  public constructor() {
+  public constructor(prng?: seedrandom.prng) {
     LlmAdapter._handleDebug();
 
     const cfg = LlmAdapter.getConfig();
@@ -111,7 +113,15 @@ export class LlmAdapter {
 
     // Create the model backend
     this._backend = nodellm.createLLM(this._modelConfig);
-    this._cacheManager = new LlmCacheManager(cfg.cacheMode, cfg.cacheFile);
+    const delayConfig = cfg.cacheDelay
+      ? LlmDelayCalculator.parse(cfg.cacheDelay)
+      : undefined;
+    this._cacheManager = new LlmCacheManager(
+      cfg.cacheMode,
+      cfg.cacheFile,
+      delayConfig,
+      prng
+    );
   } // constructor
 
   /**
@@ -351,6 +361,7 @@ export class LlmAdapter {
     apiKey: string;
     cacheMode: LlmCacheMode;
     cacheFile: string;
+    cacheDelay: string;
   } {
     return {
       provider: LlmAdapter._getConfigValue("provider", "disabled"),
@@ -364,6 +375,7 @@ export class LlmAdapter {
         "cacheFile",
         ".nanofuzz-llm-cache.json"
       ),
+      cacheDelay: LlmAdapter._getConfigValue<string>("cacheDelay", "1x"),
     };
   } // fn: getConfig
 
