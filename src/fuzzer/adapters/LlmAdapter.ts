@@ -1,4 +1,5 @@
 import vscode from "vscode";
+import seedrandom from "seedrandom";
 import * as Config from "../../Config";
 import { ArgValueType } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
@@ -58,7 +59,7 @@ export class LlmAdapter {
   protected _cacheManager: LlmCacheManager; // Cache manager
   protected _cfgString: string; // LLM config; for detecting config changes
 
-  public constructor() {
+  public constructor(prng?: seedrandom.prng) {
     LlmAdapter._handleDebug();
 
     const cfg = LlmAdapter.getConfig();
@@ -118,7 +119,8 @@ export class LlmAdapter {
     this._cacheManager = new LlmCacheManager(
       cfg.cacheMode,
       cfg.cacheFile,
-      delayConfig
+      delayConfig,
+      prng
     );
   } // constructor
 

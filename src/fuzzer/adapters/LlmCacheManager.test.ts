@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import seedrandom from "seedrandom";
 import { LlmCacheManager, createCacheKey } from "./LlmCacheManager";
 import { LlmDelayCalculator } from "./LlmDelayCalculator";
 import { LlmCacheEntry } from "../generators/Types";
@@ -458,5 +459,44 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
     // Update delayConfig dynamically to { fixedMs: 0 }
     manager.delayConfig = { fixedMs: 0 };
     expect(manager.delayConfig).toEqual({ fixedMs: 0 });
+  });
+
+  it("uses provided prng for deterministic stochastic delay perturbations", () => {
+    const manager1 = new LlmCacheManager(
+      "replay-error",
+      cacheFile,
+      LlmDelayCalculator.parse("~20%"),
+      seedrandom("test-seed-123")
+    );
+    const manager2 = new LlmCacheManager(
+      "replay-error",
+      cacheFile,
+      LlmDelayCalculator.parse("~20%"),
+      seedrandom("test-seed-123")
+    );
+
+    const val1 = manager1.prng();
+    const val2 = manager2.prng();
+
+    expect(val1).toBe(val2);
+  });
+
+  it("does not convert undefined seed to literal 'undefined' string", () => {
+    // When no prng is passed, seedrandom() should autoseed with entropy rather than using seedrandom("undefined")
+    const literalUndefinedPrng = seedrandom("undefined");
+    const expectedLiteralUndefinedVal = literalUndefinedPrng();
+
+    // The autoseeded prng should not be locked to the literal "undefined" sequence
+    const sampleVals: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      const m = new LlmCacheManager("replay-error", cacheFile);
+      sampleVals.push(m.prng());
+    }
+
+    // At least some samples should differ from seedrandom("undefined")
+    const matchesLiteral = sampleVals.filter(
+      (v) => v === expectedLiteralUndefinedVal
+    ).length;
+    expect(matchesLiteral).toBeLessThan(sampleVals.length);
   });
 });
