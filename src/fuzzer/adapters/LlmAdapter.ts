@@ -157,6 +157,11 @@ export class LlmAdapter {
    *
    * @param `fn` function for which inputs should be generated
    * @param `schema` optional Zod or JSON schema of the function's inputs
+   * @param `directives` formatting directives for input schema
+   * @param `allInputs` map of previously generated inputs
+   * @param `moduleSrc` full module source code
+   * @param `numRequested` number of inputs requested
+   * @param `reqSeqNum` optional 1-indexed sequence number of this request in the session
    * @returns a set of inputs, stats, and error information
    */
   public async genInputs(
@@ -165,7 +170,8 @@ export class LlmAdapter {
     directives: string[],
     allInputs: Map<string, unknown>,
     moduleSrc: string,
-    numRequested: number
+    numRequested: number,
+    reqSeqNum?: number
   ): Promise<{
     programInputs: { [k: string]: ArgValueType }[];
     stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
@@ -174,7 +180,16 @@ export class LlmAdapter {
     let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
     try {
       response = await this._query(
-        [prompt.genInputs(fn, directives, allInputs, moduleSrc, numRequested)],
+        [
+          prompt.genInputs(
+            fn,
+            directives,
+            allInputs,
+            moduleSrc,
+            numRequested,
+            reqSeqNum
+          ),
+        ],
         schema
       );
       const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
@@ -392,16 +407,19 @@ export const prompt = {
     directives: string[],
     allInputs: Map<string, unknown>,
     moduleSrc: string,
-    numRequested: number
+    numRequested: number,
+    reqSeqNum: number = 1
   ): string => {
     const fnRef = fn.getRef();
     const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
     const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
     const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
 
-    let inputs = Config.get<boolean>("nanofuzz.ai.backfeedPriorInputs", true)
-      ? Array.from(allInputs.keys())
-      : [];
+    const backfeed = Config.get<boolean>(
+      "nanofuzz.ai.backfeedPriorInputs",
+      true
+    );
+    let inputs = backfeed ? Array.from(allInputs.keys()) : [];
     // draw a line at 10k inputs
     if (inputs.length > 10000) {
       inputs = inputs.slice(-10000);
@@ -432,8 +450,13 @@ ${fnSrc}
 
 ${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
 
-${inputs.length ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}` : ""}
-`;
+${
+  backfeed
+    ? inputs.length
+      ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}`
+      : ""
+    : `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`
+}`;
   },
 };
 
