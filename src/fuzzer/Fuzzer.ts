@@ -809,15 +809,12 @@ export class Tester {
 
           // Persist to outfile, if requested
           if (this._options.outputFile) {
-            fs.writeFileSync(
-              this._options.outputFile,
-              JSONN.stringify(this._results, (k, v) =>
-                k === "CodeCoverageMeasure"
-                  ? covStats
-                  : k === "coverageMeasure" && isKeyedObject(v)
-                    ? { current: v.current }
-                    : v
-              )
+            JSONN.toFile(this._options.outputFile, this._results, (k, v) =>
+              k === "CodeCoverageMeasure"
+                ? covStats
+                : k === "coverageMeasure" && isKeyedObject(v)
+                  ? { current: v.current }
+                  : v
             );
             update({
               msg: ` - Test results: ${this._options.outputFile}`,

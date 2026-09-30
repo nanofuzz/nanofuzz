@@ -213,6 +213,13 @@
             "type": "string",
             "default": ".nanofuzz-llm-cache.json",
             "description": "File path where recorded LLM query responses and latencies are saved"
+          },
+          "nanofuzz.ai.cacheDelay": {
+            "title": "LLM response cache replay delay perturbation",
+            "order": 85,
+            "type": "string",
+            "default": "1x",
+            "description": "Rule to perturb replayed LLM cache latency (e.g. '0', '500ms', '0.5x', '+50ms', '100..500ms', '~20%', '[50..500ms]', or composed '0.5x ~20% [50..500ms]')"
           }
         }
       },
