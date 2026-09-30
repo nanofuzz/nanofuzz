@@ -282,9 +282,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     while (this._permitSubgens || this._hasPrioritySubgen()) {
       const { candidate, genCost } = this._generateCandidate();
 
-      // Injected inputs from HumanInputGenerator are always processed and never dupe-skipped
+      // Injected inputs from HumanInputGenerator bpass the dupe check
       if (candidate.injected) {
-        return this._acceptInjectedCandidate(candidate);
+        return this._acceptCandidate(candidate);
       }
 
       // Deduplicate against _allInputs
@@ -327,7 +327,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
       // Injected inputs from HumanInputGenerator are always processed and never dupe-skipped or transformed
       if (untransformedCandidate.injected) {
-        return this._acceptInjectedCandidate(untransformedCandidate);
+        return this._acceptCandidate(untransformedCandidate);
       }
 
       // Stage 1: Pre-transformer duplicate check (only if transformer is active)
@@ -525,30 +525,26 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // fn: _handleDuplicate
 
   /**
-   * Accepts and records an injected input.
-   */
-  protected _acceptInjectedCandidate(
-    candidate: InputAndSource
-  ): InputAndSource {
-    if (this._fn && this._fn.getArgDefs().length) {
-      const hash = ValueMapper.toLang(
-        this._fn.getLang(),
-        candidate.value.map((v) => v.value)
-      );
-      this._pretransformedInputs.add(hash);
-      this._allInputs.set(hash, true);
-    }
-    this._lastInput = candidate;
-    this._lastInputSubgenIndex = this._selectedSubgenIndex;
-    return structuredClone(this._lastInput);
-  } // fn: _acceptInjectedCandidate
-
-  /**
-   * Accepts and records a successfully generated candidate input.
+   * Accepts and records a candidate input (injected or generated).
+   *
+   * Injected inputs are, by definition, post-transformation and post-dupe
+   * check. Therefore, injected inputs bypass input transformation as well
+   * as both stages of the duplicate check, but their hash is registered in
+   * `_allInputs` so subsequent generated inputs are deduplicated against them.
    */
   protected _acceptCandidate(candidate: InputAndSource): InputAndSource {
-    this._dupesSequential = 0;
-    this._recordGenerated(candidate);
+    if (candidate.injected) {
+      if (this._fn && this._fn.getArgDefs().length) {
+        const hash = ValueMapper.toLang(
+          this._fn.getLang(),
+          candidate.value.map((v) => v.value)
+        );
+        this._allInputs.set(hash, true);
+      }
+    } else {
+      this._dupesSequential = 0;
+      this._recordGenerated(candidate);
+    }
     this._lastInput = candidate;
     this._lastInputSubgenIndex = this._selectedSubgenIndex;
     return structuredClone(this._lastInput);

@@ -1329,4 +1329,254 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     expect(cig.dupesGenerated).toBe(maxDupes);
     expect(cig.nextable()).toBe(false);
   });
+
+  it("handles injected inputs correctly and deduplicates subsequent generated inputs against them", () => {
+    class MockAutonomousGen extends AbstractInputGenerator {
+      private _seq = 0;
+      public constructor(specs: ArgDef[], rngSeed?: string) {
+        super(specs, rngSeed);
+      }
+      public override nextable(): NextableStatus {
+        return "now";
+      }
+      public override next(): InputAndSource {
+        const values = ["injected_val_1", "unique_gen_val"];
+        const val = values[this._seq++] ?? "overflow_val";
+        return {
+          tick: 0,
+          value: [{ tag: "ArgValueTypeWrapped", value: val }],
+          source: { type: "generator", generator: "RandomInputGenerator" },
+        };
+      }
+    }
+
+    class TestInjectedCompositeInputGenerator extends CompositeInputGenerator {
+      public constructor(
+        fnDef: FunctionDef,
+        genStats: FuzzTestStats["generators"],
+        allInputs: Map<string, unknown>,
+        src: string
+      ) {
+        super(
+          {
+            RandomInputGenerator: { enabled: true },
+            MutationInputGenerator: { enabled: false },
+            AiInputGenerator: { enabled: false },
+          },
+          fnDef,
+          "test-seed",
+          [],
+          new Leaderboard<InputAndSource>(),
+          genStats,
+          allInputs,
+          src
+        );
+        // Replace autonomous generator with MockAutonomousGen while keeping HumanInputGenerator
+        const humanGen = this._subgens.find(
+          (g) => g.name === "HumanInputGenerator"
+        )!;
+        this._subgens = [
+          humanGen,
+          new MockAutonomousGen(this._specs, this._rngSeed),
+        ];
+        this._activeSubgens = [true, true];
+      }
+    }
+
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: string) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const allInputs = new Map<string, unknown>();
+    const cig = new TestInjectedCompositeInputGenerator(
+      fnDef,
+      genStats,
+      allInputs,
+      program.src
+    );
+
+    const injected: InputAndSource[] = [
+      {
+        tick: 0,
+        value: [{ tag: "ArgValueTypeWrapped", value: "injected_val_1" }],
+        source: { type: "user" },
+        injected: true,
+      },
+      {
+        tick: 0,
+        value: [{ tag: "ArgValueTypeWrapped", value: "injected_val_2" }],
+        source: { type: "user" },
+        injected: true,
+      },
+    ];
+
+    cig.onRunStart(true, injected, undefined, 200, 100);
+
+    // 1. First two calls produce the injected inputs in order with priority
+    expect(cig.nextable()).toBe("now!");
+    const first = cig.next();
+    expect(first.injected).toBeTrue();
+    expect<unknown>(first.value[0].value).toBe("injected_val_1");
+    expect(first.tick).toBe(1);
+
+    expect(cig.nextable()).toBe("now!");
+    const second = cig.next();
+    expect(second.injected).toBeTrue();
+    expect<unknown>(second.value[0].value).toBe("injected_val_2");
+    expect(second.tick).toBe(2);
+
+    // 2. Human inputs exhausted, status transitions to autonomous "now"
+    expect(cig.nextable()).toBe("now");
+
+    // 3. Next call to next() attempts to generate autonomously:
+    //    - First candidate is "injected_val_1" (tick 3), which matches the first injected input!
+    //    - CIG detects the duplicate against allInputs, records dupeTick 3 in RandomInputGenerator,
+    //      and continues to candidate 2 ("unique_gen_val", tick 4).
+    const third = cig.next();
+    expect(third.injected).toBeUndefined();
+    expect<unknown>(third.value[0].value).toBe("unique_gen_val");
+    expect(third.tick).toBe(4);
+    expect(cig.dupesGenerated).toBe(1);
+    expect(genStats.RandomInputGenerator.counters.dupesGenerated).toBe(1);
+    expect(genStats.RandomInputGenerator.counters.dupeTicks).toEqual([3]);
+  });
+
+  it("injected inputs do not populate _pretransformedInputs and do not block raw generator candidates", async () => {
+    class MockMultiplierTransformer extends AbstractRunner {
+      public override async run(inputs: unknown[]): Promise<RunnerResult> {
+        const n = typeof inputs[0] === "number" ? inputs[0] : 0;
+        return {
+          result: { tag: "value", value: [n * 10], seq: 0 },
+          env: {},
+        };
+      }
+      public override killHost(): void {
+        // No-op
+      }
+    }
+
+    class MockRawNumberGen extends AbstractInputGenerator {
+      private _seq = 0;
+      public constructor(specs: ArgDef[], rngSeed?: string) {
+        super(specs, rngSeed);
+      }
+      public override nextable(): NextableStatus {
+        return "now";
+      }
+      public override next(): InputAndSource {
+        const values = [5, 6];
+        const val = values[this._seq++] ?? 99;
+        return {
+          tick: 0,
+          value: [{ tag: "ArgValueTypeWrapped", value: val }],
+          source: { type: "generator", generator: "RandomInputGenerator" },
+        };
+      }
+    }
+
+    class TestTransformerInjectedCompositeInputGenerator extends CompositeInputGenerator {
+      public constructor(
+        fnDef: FunctionDef,
+        genStats: FuzzTestStats["generators"],
+        allInputs: Map<string, unknown>,
+        src: string
+      ) {
+        super(
+          {
+            RandomInputGenerator: { enabled: true },
+            MutationInputGenerator: { enabled: false },
+            AiInputGenerator: { enabled: false },
+          },
+          fnDef,
+          "test-seed",
+          [],
+          new Leaderboard<InputAndSource>(),
+          genStats,
+          allInputs,
+          src
+        );
+        const humanGen = this._subgens.find(
+          (g) => g.name === "HumanInputGenerator"
+        )!;
+        this._subgens = [
+          humanGen,
+          new MockRawNumberGen(this._specs, this._rngSeed),
+        ];
+        this._activeSubgens = [true, true];
+      }
+    }
+
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats: FuzzTestStats["generators"] = {
+      RandomInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      MutationInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+      AiInputGenerator: {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      },
+    };
+
+    const allInputs = new Map<string, unknown>();
+    const cig = new TestTransformerInjectedCompositeInputGenerator(
+      fnDef,
+      genStats,
+      allInputs,
+      program.src
+    );
+
+    const transformerRunner = new MockMultiplierTransformer("multiplier");
+
+    // Injected input is 5 (final/post-transformed value)
+    const injected: InputAndSource[] = [
+      {
+        tick: 0,
+        value: [{ tag: "ArgValueTypeWrapped", value: 5 }],
+        source: { type: "user" },
+        injected: true,
+      },
+    ];
+
+    cig.onRunStart(true, injected, transformerRunner, 200, 100);
+
+    // 1. Drain injected input (value 5)
+    const first = await cig.nextTransformed();
+    expect(first.injected).toBeTrue();
+    expect<unknown>(first.value[0].value).toBe(5);
+
+    // 2. Next call generates raw 5 from MockRawNumberGen.
+    // Because injected 5 is NOT in _pretransformedInputs, raw 5 is NOT discarded at Stage 1.
+    // It gets transformed: 5 -> 50.
+    // 50 is checked against _allInputs (which contains 5). 50 is unique, so it is accepted!
+    const second = await cig.nextTransformed();
+    expect(second.injected).toBeUndefined();
+    expect<unknown>(second.value[0].value).toBe(50);
+    expect(second.source.type).toBe("transformer");
+    expect(cig.dupesGenerated).toBe(0);
+  });
 });
