@@ -648,7 +648,7 @@ def calculate(x: int) -> int:
         }
       }
     }
-  }, 30000);
+  });
 
   it("fails invalid coverageScope", async () => {
     const tmpDir = getTmpDir("nanofuzz-covscope-invalid-");

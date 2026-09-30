@@ -367,7 +367,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     }
   });
 
-  it("rnd-only fastpath: compositeExplorationChance >= 1.0 and toggling between runs", async () => {
+  it("scheduler selection and toggling between runs (mab, random, round-robin)", async () => {
     const program = ProgramFactory.fromSource(
       () => `export function dummyFn(x: number) {}`,
       "typescript"
@@ -410,28 +410,187 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     try {
-      // Run 1: compositeExplorationChance = 1.0 (fastpath active)
-      Config.override("nanofuzz.generators.compositeExplorationChance", 1.0);
+      // Run 1: mab (default)
+      Config.override("nanofuzz.generators.scheduler.impl", "mab");
       cig.onRunStart(true, [], undefined, 200, 1000);
+      expect(cig.scheduler.type).toBe("mab");
       expect(cig.nextable()).toBeTruthy();
       const inputRun1 = cig.next();
       expect(inputRun1).toBeDefined();
 
-      // Run 2: compositeExplorationChance = 0.1 (productivity calculation active)
-      Config.override("nanofuzz.generators.compositeExplorationChance", 0.1);
+      // Run 2: switch to random
+      Config.override("nanofuzz.generators.scheduler.impl", "random");
       cig.onRunStart(true, [], undefined, 200, 1000);
+      expect(cig.scheduler.type).toBe("random");
       expect(cig.nextable()).toBeTruthy();
       const inputRun2 = cig.next();
       expect(inputRun2).toBeDefined();
 
-      // Run 3: compositeExplorationChance = 1.0 again (fastpath active again)
-      Config.override("nanofuzz.generators.compositeExplorationChance", 1.0);
+      // Run 3: switch to round-robin
+      Config.override("nanofuzz.generators.scheduler.impl", "round-robin");
       cig.onRunStart(true, [], undefined, 200, 1000);
+      expect(cig.scheduler.type).toBe("round-robin");
       expect(cig.nextable()).toBeTruthy();
       const inputRun3 = cig.next();
       expect(inputRun3).toBeDefined();
+
+      // Run 4: switch to ucb1
+      Config.override("nanofuzz.generators.scheduler.impl", "ucb1");
+      cig.onRunStart(true, [], undefined, 200, 1000);
+      expect(cig.scheduler.type).toBe("ucb1");
+      expect(cig.nextable()).toBeTruthy();
+      const inputRun4 = cig.next();
+      expect(inputRun4).toBeDefined();
+
+      // Run 5: switch to thompson
+      Config.override("nanofuzz.generators.scheduler.impl", "thompson");
+      cig.onRunStart(true, [], undefined, 200, 1000);
+      expect(cig.scheduler.type).toBe("thompson");
+      expect(cig.nextable()).toBeTruthy();
+      const inputRun5 = cig.next();
+      expect(inputRun5).toBeDefined();
+
+      // Run 6: switch to ewma
+      Config.override("nanofuzz.generators.scheduler.impl", "ewma");
+      cig.onRunStart(true, [], undefined, 200, 1000);
+      expect(cig.scheduler.type).toBe("ewma");
+      expect(cig.nextable()).toBeTruthy();
+      const inputRun6 = cig.next();
+      expect(inputRun6).toBeDefined();
+
+      // Run 7: switch to mopt
+      Config.override("nanofuzz.generators.scheduler.impl", "mopt");
+      cig.onRunStart(true, [], undefined, 200, 1000);
+      expect(cig.scheduler.type).toBe("mopt");
+      expect(cig.nextable()).toBeTruthy();
+      const inputRun7 = cig.next();
+      expect(inputRun7).toBeDefined();
     } finally {
-      Config.override("nanofuzz.generators.compositeExplorationChance", 0.1);
+      Config.override("nanofuzz.generators.scheduler.impl", "mab");
+    }
+  });
+
+  it("accumulates checkpoints across runs when scheduler changes in between runs", async () => {
+    Config.override("nanofuzz.generators.compositeTrackCheckpoints", true);
+    try {
+      const program = ProgramFactory.fromSource(
+        () => `export function dummyFn(x: number) {}`,
+        "typescript"
+      );
+      const fnDef = program.functionsExported["dummyFn"];
+
+      const genStats: FuzzTestStats["generators"] = {
+        RandomInputGenerator: {
+          counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+          timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+        },
+        MutationInputGenerator: {
+          counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+          timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+        },
+        AiInputGenerator: {
+          counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+          timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+        },
+      };
+
+      const options = {
+        RandomInputGenerator: { enabled: true },
+        MutationInputGenerator: { enabled: true },
+        AiInputGenerator: { enabled: false },
+      };
+
+      const leaderboard = new Leaderboard<InputAndSource>();
+      const allInputs = new Map<string, unknown>();
+
+      const cig = new CompositeInputGenerator(
+        options,
+        fnDef,
+        "test-seed",
+        [],
+        leaderboard,
+        genStats,
+        allInputs,
+        program.src
+      );
+
+      // Run 1 with MAB
+      Config.override("nanofuzz.generators.scheduler.impl", "mab");
+      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.next();
+
+      // Run 2 with Round-Robin
+      Config.override("nanofuzz.generators.scheduler.impl", "round-robin");
+      cig.onRunStart(true, [], undefined, 200, 1000);
+      cig.next();
+
+      const mockFuzzOptions: FuzzOptions = {
+        argDefaults: ArgDef.getDefaultOptions(),
+        measures: {
+          FailedTestMeasure: { enabled: true, weight: 1 },
+          CoverageMeasure: { enabled: false, weight: 0 },
+        },
+        generators: options,
+        maxTests: 10,
+        fnTimeout: 1000,
+        suiteTimeout: 10000,
+        seed: "test-seed",
+        maxDupeInputs: 100,
+        maxFailures: 0,
+        useImplicit: true,
+        useHuman: false,
+        useProperty: true,
+        useTransformer: false,
+      };
+
+      const mockResults: FuzzTestResults = {
+        toolVersion: "test",
+        env: {
+          options: mockFuzzOptions,
+          function: fnDef,
+          validators: [],
+          transformers: [],
+        },
+        results: [],
+        interesting: { inputs: [] },
+        stopReason: FuzzStopReason.MAXTESTS,
+        stats: {
+          timers: {
+            total: 0,
+            compile: 0,
+            instrument: 0,
+            put: 0,
+            val: 0,
+            gen: 0,
+            transform: 0,
+            measure: 0,
+          },
+          counters: {
+            testingRuns: 2,
+            inputsGenerated: 2,
+            dupesGenerated: 0,
+            inputsInjected: 0,
+            erroredTests: 0,
+            passedTests: 2,
+            inputsSkipped: 0,
+            failedTests: 0,
+          },
+          generators: genStats,
+          measures: {},
+        },
+      };
+
+      await cig.onRunEnd(mockResults);
+
+      const checkpoints =
+        mockResults.stats.generators.CompositeInputGenerator?.checkpoints;
+      expect(checkpoints).toBeDefined();
+      expect(checkpoints?.length).toBe(2);
+      expect(checkpoints?.[0].scheduler).toBe("mab");
+      expect(checkpoints?.[1].scheduler).toBe("round-robin");
+    } finally {
+      Config.override("nanofuzz.generators.compositeTrackCheckpoints", false);
+      Config.override("nanofuzz.generators.scheduler.impl", "mab");
     }
   });
 
@@ -756,21 +915,14 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     expect(elapsed).toBeLessThan(1000);
   });
 
-  it("subgen selection ignores productivity of `soon` subgens", async () => {
+  it("subgen selection ignores `soon` subgens", async () => {
     class SoonPendingCompositeInputGenerator extends CompositeInputGenerator {
       public testSelectNextSubGen(): number {
         return this._selectNextSubGen();
       }
-      public setSubgenSoonWithHistory(name: string): void {
+      public setSubgenSoon(name: string): void {
         const idx = this._subgens.findIndex((g) => g.name === name);
         this._subgens[idx].nextable = () => "soon";
-        const h = this._history[idx];
-        if (!h.progress.length) {
-          h.progress = [[10]];
-        } else {
-          h.progress[0] = [10];
-        }
-        h.cost[0] = 1;
       }
     }
 
@@ -812,7 +964,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     );
 
     cig.onRunStart(true, [], undefined, 200, 1000);
-    cig.setSubgenSoonWithHistory("AiInputGenerator"); // AI generator is "soon" with high productivity
+    cig.setSubgenSoon("AiInputGenerator"); // AI generator is "soon"
 
     expect(() => cig.testSelectNextSubGen()).not.toThrow();
     const randomIdx = cig["_subgens"].findIndex(

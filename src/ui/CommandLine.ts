@@ -21,6 +21,7 @@ import * as JSONN from "../Jsonn";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
+import { InputSchedulerType } from "../fuzzer/schedulers/Types";
 import pkg from "../../package.json";
 
 const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
@@ -141,26 +142,84 @@ function createProgram(): Commander.Command {
       parseAiCacheMode
     )
     .option(`--ai-cache-file <path>`, `Path to LLM cache file`)
+    .option(
+      `--no-ai-input-backfeed`,
+      `Disable backfeeding prior inputs to the AI model`
+    )
 
     // ------------------------ Composite Input Generator ------------------------ //
 
     .option(
-      `--cig-input-lookback <integer>`,
-      `Lookback window when choosing the next input generator`,
+      `--cig-scheduler <mab|random|round-robin|ucb1|thompson|ewma|mopt>`,
+      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin, ucb1, thompson, ewma, mopt)`,
+      parseCigScheduler,
+      "mab"
+    )
+    .option(
+      `--cig-scheduler-ucb1-exploration <float>`,
+      `Exploration constant (c) for UCB1 scheduler`,
+      parseFloatArgGeZero,
+      1.414
+    )
+    .option(
+      `--cig-scheduler-thompson-prior-variance <float>`,
+      `Prior variance for Thompson Sampling scheduler`,
+      parseFloatArgGeZero,
+      1.0
+    )
+    .option(
+      `--cig-scheduler-ewma-alpha <float>`,
+      `Smoothing factor (alpha) for EWMA scheduler`,
+      parseFloatArgZeroToOne,
+      0.2
+    )
+    .option(
+      `--cig-scheduler-ewma-exploration <float>`,
+      `Exploration chance (epsilon) for EWMA scheduler`,
+      parseFloatArgZeroToOne,
+      0.1
+    )
+    .option(
+      `--cig-scheduler-mopt-swarm-size <integer>`,
+      `Swarm size (number of particles) for MOpt scheduler`,
+      parseIntArgGeOne,
+      5
+    )
+    .option(
+      `--cig-scheduler-mopt-period <integer>`,
+      `Pilot evaluation period length for MOpt scheduler`,
+      parseIntArgGeOne,
+      50
+    )
+    .option(
+      `--cig-scheduler-mopt-inertia <float>`,
+      `Inertia weight (w) for MOpt scheduler`,
+      parseFloatArgZeroToOne,
+      0.7
+    )
+    .option(
+      `--cig-scheduler-mopt-exploration <float>`,
+      `Minimum generator probability for MOpt scheduler`,
+      parseFloatArgZeroToOne,
+      0.05
+    )
+    .option(
+      `--cig-scheduler-mab-lookback <integer>`,
+      `Lookback window when choosing the next input generator in MAB`,
       parseIntArgGeOne,
       500
+    )
+    .option(
+      `--cig-scheduler-mab-exploration <float>`,
+      `Chance of choosing the next input generator randomly in MAB`,
+      parseFloatArgZeroToOne,
+      0.1
     )
     .option(
       `--cig-input-chunk-size <integer>`,
       `Inputs to generate before choosing the next input generator`,
       parseIntArgGeOne,
       20
-    )
-    .option(
-      `--cig-randomness <float>`,
-      `Chance of choosing the next input generator randomly`,
-      parseFloatArgZeroToOne,
-      0.1
     )
     .option(
       `--cig-input-focus <integer>`,
@@ -328,19 +387,83 @@ export async function runCliInProcess(
   if (options["aiCacheFile"] !== undefined) {
     Config.override("nanofuzz.ai.cacheFile", options["aiCacheFile"]);
   }
+  if (options["aiInputBackfeed"] !== undefined) {
+    Config.override(
+      "nanofuzz.ai.backfeedPriorInputs",
+      options["aiInputBackfeed"]
+    );
+  }
 
   // composite input generator config options
-  Config.override(
-    "nanofuzz.generators.compositeLookbackWindow",
-    options["cigInputLookback"]
-  );
+  if (options["cigScheduler"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.impl",
+      options["cigScheduler"]
+    );
+  }
+  if (options["cigSchedulerUcb1Exploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.ucb1.exploration",
+      options["cigSchedulerUcb1Exploration"]
+    );
+  }
+  if (options["cigSchedulerThompsonPriorVariance"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.thompson.priorVariance",
+      options["cigSchedulerThompsonPriorVariance"]
+    );
+  }
+  if (options["cigSchedulerEwmaAlpha"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.ewma.alpha",
+      options["cigSchedulerEwmaAlpha"]
+    );
+  }
+  if (options["cigSchedulerEwmaExploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.ewma.exploration",
+      options["cigSchedulerEwmaExploration"]
+    );
+  }
+  if (options["cigSchedulerMoptSwarmSize"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mopt.swarmSize",
+      options["cigSchedulerMoptSwarmSize"]
+    );
+  }
+  if (options["cigSchedulerMoptPeriod"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mopt.period",
+      options["cigSchedulerMoptPeriod"]
+    );
+  }
+  if (options["cigSchedulerMoptInertia"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mopt.inertia",
+      options["cigSchedulerMoptInertia"]
+    );
+  }
+  if (options["cigSchedulerMoptExploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mopt.exploration",
+      options["cigSchedulerMoptExploration"]
+    );
+  }
+  if (options["cigSchedulerMabLookback"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mab.lookback",
+      options["cigSchedulerMabLookback"]
+    );
+  }
+  if (options["cigSchedulerMabExploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mab.exploration",
+      options["cigSchedulerMabExploration"]
+    );
+  }
   Config.override(
     "nanofuzz.generators.compositeChunkSize",
     options["cigInputChunkSize"]
-  );
-  Config.override(
-    "nanofuzz.generators.compositeExplorationChance",
-    options["cigRandomness"]
   );
   Config.override(
     "nanofuzz.generators.leaderboardInitialFocus",
@@ -531,6 +654,30 @@ function parseFloatArgGeZero(value: string, _previous: number): number {
   }
   return parsedValue;
 } // fn: parseFloatArgGeZero
+
+function isInputSchedulerType(val: string): val is InputSchedulerType {
+  return (
+    val === "mab" ||
+    val === "random" ||
+    val === "round-robin" ||
+    val === "ucb1" ||
+    val === "thompson" ||
+    val === "ewma" ||
+    val === "mopt"
+  );
+}
+
+function parseCigScheduler(
+  value: string,
+  _previous: string
+): InputSchedulerType {
+  if (isInputSchedulerType(value)) {
+    return value;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin, ucb1, thompson, ewma, mopt`
+  );
+} // fn: parseCigScheduler
 
 function parseAiCacheMode(value: string, _previous: string): string {
   const allowed = [

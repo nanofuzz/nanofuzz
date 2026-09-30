@@ -321,12 +321,104 @@
             "default": "",
             "description": "Regex of files for NaNofuzz to ignore"
           },
-          "nanofuzz.generators.compositeLookbackWindow": {
-            "title": "Composite generator lookback window size for history",
+          "nanofuzz.generators.scheduler.impl": {
+            "title": "Composite generator scheduler algorithm",
+            "type": "string",
+            "enum": [
+              "mab",
+              "random",
+              "round-robin",
+              "ucb1",
+              "thompson",
+              "ewma",
+              "mopt"
+            ],
+            "enumDescriptions": [
+              "Multi-Armed Bandit (MAB): Productivity-weighted selection based on feedback and exploration",
+              "Random: Uniform pseudo-random selection among ready generators",
+              "Round Robin: Sequential cyclic selection across ready generators",
+              "Upper Confidence Bound (UCB1) algorithm balancing empirical yield and exploration uncertainty",
+              "Thompson Sampling (Bayesian Bandit) drawing from posterior productivity distributions",
+              "Exponentially Weighted Moving Average (EWMA): Fast O(1) rolling productivity updates",
+              "MOpt (Particle Swarm Optimization): Multi-particle swarm moving through probability space"
+            ],
+            "default": "mab",
+            "description": "Scheduler used by CompositeInputGenerator to pick the next input generator"
+          },
+          "nanofuzz.generators.scheduler.mab.lookback": {
+            "title": "MAB lookback window size for history",
             "type": "integer",
             "default": 500,
             "minimum": 1,
-            "description": "Composite generator lookback window size for history"
+            "description": "Lookback window size for calculating Multi-Armed Bandit generator productivity"
+          },
+          "nanofuzz.generators.scheduler.mab.exploration": {
+            "title": "MAB additional chance of subgen exploration",
+            "type": "number",
+            "default": 0.1,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Multi-Armed Bandit additional chance of subgen exploration"
+          },
+          "nanofuzz.generators.scheduler.ucb1.exploration": {
+            "title": "UCB1 exploration constant (c)",
+            "type": "number",
+            "default": 1.414,
+            "minimum": 0,
+            "description": "Exploration constant for the UCB1 scheduler (higher values bias toward under-explored generators)"
+          },
+          "nanofuzz.generators.scheduler.thompson.priorVariance": {
+            "title": "Thompson Sampling prior variance",
+            "type": "number",
+            "default": 1,
+            "minimum": 0.01,
+            "description": "Initial prior variance for Thompson Sampling (higher values encourage more initial exploration)"
+          },
+          "nanofuzz.generators.scheduler.ewma.alpha": {
+            "title": "EWMA smoothing factor (alpha)",
+            "type": "number",
+            "default": 0.2,
+            "minimum": 0.01,
+            "maximum": 1,
+            "description": "Smoothing weight given to the newest observation (higher values react faster to recent yield changes)"
+          },
+          "nanofuzz.generators.scheduler.ewma.exploration": {
+            "title": "EWMA exploration chance (epsilon)",
+            "type": "number",
+            "default": 0.1,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Baseline random exploration probability for the EWMA scheduler"
+          },
+          "nanofuzz.generators.scheduler.mopt.swarmSize": {
+            "title": "MOpt swarm size (number of particles)",
+            "type": "integer",
+            "default": 5,
+            "minimum": 2,
+            "description": "Number of probability distribution particles in the MOpt swarm"
+          },
+          "nanofuzz.generators.scheduler.mopt.period": {
+            "title": "MOpt pilot evaluation period length",
+            "type": "integer",
+            "default": 50,
+            "minimum": 5,
+            "description": "Number of input evaluations allocated to a particle before updating swarm velocities"
+          },
+          "nanofuzz.generators.scheduler.mopt.inertia": {
+            "title": "MOpt inertia weight (w)",
+            "type": "number",
+            "default": 0.7,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Inertia weight for MOpt particle velocity updates"
+          },
+          "nanofuzz.generators.scheduler.mopt.exploration": {
+            "title": "MOpt minimum generator probability",
+            "type": "number",
+            "default": 0.05,
+            "minimum": 0.001,
+            "maximum": 0.5,
+            "description": "Minimum exploration probability allocated to each subgenerator in MOpt"
           },
           "nanofuzz.generators.compositeChunkSize": {
             "title": "Re-evaluate which input generator to use after every `chunkSize` inputs generated",
@@ -334,14 +426,6 @@
             "default": 20,
             "minimum": 1,
             "description": "Re-evaluate which input generator to use after every `chunkSize` inputs generated"
-          },
-          "nanofuzz.generators.compositeExplorationChance": {
-            "title": "Composite generator additional chance of subgen exploration",
-            "type": "number",
-            "default": 0.1,
-            "minimum": 0,
-            "maximum": 1,
-            "description": "Composite generator additional chance of subgen exploration"
           },
           "nanofuzz.generators.leaderboardMinScore": {
             "title": "Leaderboard initial minimum score",

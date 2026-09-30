@@ -1,5 +1,15 @@
-import importlib.util
 import sys
+
+# Send an immediate heartbeat as early as possible during startup
+# so parent process timeout timer is reset while modules load.
+if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
+    try:
+        sys.__stdout__.buffer.write(b'\x00\x00\x00\x06\xa5HEART')
+        sys.__stdout__.buffer.flush()
+    except Exception:
+        pass
+
+import importlib.util
 import os
 import io
 import json
@@ -182,6 +192,12 @@ class HostHeartbeat:
 
     def start(self):
         def _worker():
+            try:
+                send_heartbeat()
+            except Exception as e:
+                logging.debug(f"[{pid}] Heartbeat send error: {e}")
+                return
+
             while not self.stop_event.wait(timeout=self.interval):
                 if self.heartbeat_count >= self.max_heartbeats:
                     logging.debug(
@@ -490,49 +506,54 @@ def static_branches(entry: dict) -> List[dict]:
 
 def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     """
-    Returns the PUT's static coverage structure: every executable line, every
-    function, and every branch point. These are the denominators for coverage
+    Single-file wrapper for static_coverage_all.
+    """
+    res = static_coverage_all(cov, [filename])
+    return res.get(filename, {"executable": [], "functions": [], "branches": []})
+
+
+def static_coverage_all(cov: coverage.Coverage, filenames: List[str]) -> dict[str, dict]:
+    """
+    Returns the PUT's static coverage structure for all filenames: every executable line,
+    every function, and every branch point. These are the denominators for coverage
     and are stable for the whole run, so the caller sends them once rather than
     with every result.
 
-    This comes from coverage.py's own JSON report, which reports branch arcs
-    and per-function line attribution directly. It gives each of those as an
-    `executed_*`/`missing_*` pair whose union is the full static set; no test
-    has run yet, so in practice everything lands in `missing_*`.
+    Analyzes all files in a single batched json_report call for maximum performance.
     """
-    # coverage.py reports branch data only once its data is arc-flavored, which
-    # normally happens when the first arcs are recorded. Nothing has run yet at
-    # startup, so mark the data explicitly, or the report omits all branches.
-    # `run_put` erases this before measuring the first test.
-    cov.get_data().add_arcs({filename: set()})
-
     empty = {"executable": [], "functions": [], "branches": []}
+    if not filenames:
+        return {}
 
-    # `json_report` writes to a path rather than returning the report, and
-    # stdout is reserved for the protocol, so route it through a temp file.
+    # coverage.py reports branch data only once its data is arc-flavored, which
+    # normally happens when the first arcs are recorded. Mark all filenames explicitly.
+    cov.get_data().add_arcs({f: set() for f in filenames})
+
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             outfile = os.path.join(tmpdir, "coverage.json")
-            cov.json_report(morfs=[filename], outfile=outfile)
+            cov.json_report(morfs=filenames, outfile=outfile)
             with open(outfile, encoding="utf-8") as f:
                 report = json.load(f)
     except coverage.CoverageException as e:
-        logging.debug(f"[{pid}] coverage.py could not analyze {filename}: {e}")
-        return empty
+        logging.debug(f"[{pid}] coverage.py could not analyze files: {e}")
+        return {f: dict(empty) for f in filenames}
 
-    # Only `filename` was reported, so there is at most one entry
     files = report.get("files", {})
-    if not files:
-        logging.debug(
-            f"[{pid}] coverage.py reported no coverage data for {filename}")
-        return empty
-    entry = next(iter(files.values()))
+    files_by_norm = {get_norm_path(k): v for k, v in files.items()}
 
-    return {
-        "executable": report_lines(entry),
-        "functions": static_functions(entry),
-        "branches": static_branches(entry),
-    }
+    res = {}
+    for f in filenames:
+        entry = files.get(f) or files_by_norm.get(get_norm_path(f))
+        if entry:
+            res[f] = {
+                "executable": report_lines(entry),
+                "functions": static_functions(entry),
+                "branches": static_branches(entry),
+            }
+        else:
+            res[f] = dict(empty)
+    return res
 
 
 VALID_COVERAGE_SCOPES = ("project", "project directimports")
@@ -969,7 +990,7 @@ if __name__ == "__main__":
 
             # Static analysis of the program: the executable lines, functions, and
             # branches of every file it is made of.
-            covInfo = {file: static_coverage(cov, file) for file in pgm_files}
+            covInfo = static_coverage_all(cov, pgm_files)
 
             # Initial coverage structure sent at startup includes top-level lines executed at module load
             initialCoverage = {}
@@ -997,7 +1018,7 @@ if __name__ == "__main__":
             cov = coverage.Coverage(
                 include=pgm_files, branch=True, data_file=None)
 
-            covInfo = {file: static_coverage(cov, file) for file in pgm_files}
+            covInfo = static_coverage_all(cov, pgm_files)
             initialCoverage = {file: dict(covInfo[file]) for file in pgm_files}
 
         logging.debug(
