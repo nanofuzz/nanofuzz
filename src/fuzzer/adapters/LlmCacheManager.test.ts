@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { LlmCacheManager, createCacheKey } from "./LlmCacheManager";
+import { LlmDelayCalculator } from "./LlmDelayCalculator";
 import { LlmCacheEntry } from "../generators/Types";
 import * as JSONN from "../../Jsonn";
 
@@ -366,5 +367,96 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
 
     await expectAsync(manager.flush(1000)).toBeResolved();
     await failingQuery;
+  });
+
+  it("replays with perturbed delay (0ms / instant replay)", async () => {
+    const key = createCacheKey("p", "m", ["p1"], undefined);
+    const seededData = [
+      {
+        key,
+        request: { provider: "p", modelName: "m", prompt: ["p1"] },
+        response: {
+          text: "cached-p1",
+          stats: {
+            tokensSent: 1,
+            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensReceived: 1,
+            tokensReceivedCost: { amt: 0, unit: "USD" },
+          },
+        },
+        delayMs: 200,
+        recordedAt: new Date().toISOString(),
+      },
+    ];
+    fs.writeFileSync(cacheFile, JSON.stringify(seededData), "utf-8");
+
+    // Replay with delayConfig = { fixedMs: 0 } (should bypass the 200ms recorded delay)
+    const manager = new LlmCacheManager(
+      "replay-error",
+      cacheFile,
+      LlmDelayCalculator.parse("0")
+    );
+    const start = performance.now();
+    const res = await manager.query("p", "m", ["p1"], undefined, async () => ({
+      text: "live",
+      stats: {
+        tokensSent: 0,
+        tokensSentCost: { amt: 0, unit: "USD" },
+        tokensReceived: 0,
+        tokensReceivedCost: { amt: 0, unit: "USD" },
+      },
+    }));
+    const elapsed = performance.now() - start;
+
+    expect(res.text).toBe("cached-p1");
+    expect(elapsed).toBeLessThan(100);
+  });
+
+  it("replays with perturbed delay (fixed delay and dynamic setter)", async () => {
+    const key = createCacheKey("p", "m", ["p1"], undefined);
+    const seededData = [
+      {
+        key,
+        request: { provider: "p", modelName: "m", prompt: ["p1"] },
+        response: {
+          text: "cached-p1",
+          stats: {
+            tokensSent: 1,
+            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensReceived: 1,
+            tokensReceivedCost: { amt: 0, unit: "USD" },
+          },
+        },
+        delayMs: 100,
+        recordedAt: new Date().toISOString(),
+      },
+    ];
+    fs.writeFileSync(cacheFile, JSON.stringify(seededData), "utf-8");
+
+    const manager = new LlmCacheManager(
+      "replay-error",
+      cacheFile,
+      LlmDelayCalculator.parse("25ms")
+    );
+    expect(manager.delayConfig).toEqual({ fixedMs: 25 });
+
+    const start = performance.now();
+    const res = await manager.query("p", "m", ["p1"], undefined, async () => ({
+      text: "live",
+      stats: {
+        tokensSent: 0,
+        tokensSentCost: { amt: 0, unit: "USD" },
+        tokensReceived: 0,
+        tokensReceivedCost: { amt: 0, unit: "USD" },
+      },
+    }));
+    const elapsed = performance.now() - start;
+
+    expect(res.text).toBe("cached-p1");
+    expect(elapsed).toBeGreaterThanOrEqual(20);
+
+    // Update delayConfig dynamically to { fixedMs: 0 }
+    manager.delayConfig = { fixedMs: 0 };
+    expect(manager.delayConfig).toEqual({ fixedMs: 0 });
   });
 });

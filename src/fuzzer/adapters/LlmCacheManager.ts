@@ -8,19 +8,26 @@ import {
   LlmCacheStats,
   LlmQueryResult,
 } from "../generators/Types";
+import { LlmCacheDelayConfig, LlmDelayCalculator } from "./LlmDelayCalculator";
 
 export class LlmCacheManager {
   protected static _activeManagers = new Set<LlmCacheManager>();
 
   protected _mode: LlmCacheMode;
   protected _filePath?: string;
+  protected _delayConfig?: LlmCacheDelayConfig;
   protected _cache: Map<string, LlmCacheEntry> = new Map();
   protected _stats: LlmCacheStats;
   protected _pendingQueries: Set<Promise<unknown>> = new Set();
 
-  constructor(mode: LlmCacheMode = "passthrough", filePath?: string) {
+  constructor(
+    mode: LlmCacheMode = "passthrough",
+    filePath?: string,
+    delayConfig?: LlmCacheDelayConfig
+  ) {
     this._mode = mode;
     this._filePath = filePath ? path.resolve(filePath) : undefined;
+    this._delayConfig = delayConfig;
     this._stats = {
       mode,
       calls: 0,
@@ -132,8 +139,13 @@ export class LlmCacheManager {
         cachedEntry.response.stats?.tokensReceived ?? 0;
       this._stats.replayed.costUsd += sentCost + receivedCost;
 
-      if (cachedEntry.delayMs > 0) {
-        await new Promise((r) => setTimeout(r, cachedEntry.delayMs));
+      const effectiveDelayMs = LlmDelayCalculator.calculate(
+        cachedEntry.delayMs,
+        this._delayConfig
+      );
+
+      if (effectiveDelayMs > 0) {
+        await new Promise((r) => setTimeout(r, effectiveDelayMs));
       }
       return {
         text: cachedEntry.response.text,
@@ -220,6 +232,14 @@ export class LlmCacheManager {
 
   public get mode(): LlmCacheMode {
     return this._mode;
+  }
+
+  public get delayConfig(): LlmCacheDelayConfig | undefined {
+    return this._delayConfig;
+  }
+
+  public set delayConfig(config: LlmCacheDelayConfig | undefined) {
+    this._delayConfig = config;
   }
 }
 

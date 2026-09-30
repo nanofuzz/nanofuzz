@@ -818,6 +818,33 @@ describe("cli:", () => {
     expect(aiGenStats?.calls.sent).toBe(1);
   });
 
+  it("--ai-cache-delay: validates and perturbs delay", async () => {
+    const targetFile = path.resolve(
+      "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts"
+    );
+    const targetFn = "testCoverageOneFile";
+
+    // Invalid delay spec should fail CLI option parsing
+    const resInvalid = await runCli([
+      targetFile,
+      targetFn,
+      "--ai-cache-delay",
+      "invalid-delay-xyz",
+    ]);
+    expect(resInvalid.status).not.toBe(0);
+    expect(resInvalid.stderr).toContain("Invalid ai cache delay");
+
+    // Conflicting fixed and window delay should fail CLI option parsing
+    const resConflict = await runCli([
+      targetFile,
+      targetFn,
+      "--ai-cache-delay",
+      "100ms 50..200ms",
+    ]);
+    expect(resConflict.status).not.toBe(0);
+    expect(resConflict.stderr).toContain("Conflicting base delay");
+  });
+
   it("--max-failures: stops fuzzing after reaching maximum allowed failures", async () => {
     const outputFile = path.join(tmpDir, "max_failures_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";

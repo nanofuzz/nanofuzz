@@ -9,6 +9,7 @@ import * as telemetry from "../../telemetry/Telemetry";
 import * as zod from "zod/v4";
 import { zodOutputFormat } from "./AnthropicUtils";
 import { LlmCacheManager } from "./LlmCacheManager";
+import { LlmDelayCalculator } from "./LlmDelayCalculator";
 import {
   LlmCacheMode,
   LlmCacheStats,
@@ -111,7 +112,14 @@ export class LlmAdapter {
 
     // Create the model backend
     this._backend = nodellm.createLLM(this._modelConfig);
-    this._cacheManager = new LlmCacheManager(cfg.cacheMode, cfg.cacheFile);
+    const delayConfig = cfg.cacheDelay
+      ? LlmDelayCalculator.parse(cfg.cacheDelay)
+      : undefined;
+    this._cacheManager = new LlmCacheManager(
+      cfg.cacheMode,
+      cfg.cacheFile,
+      delayConfig
+    );
   } // constructor
 
   /**
@@ -351,6 +359,7 @@ export class LlmAdapter {
     apiKey: string;
     cacheMode: LlmCacheMode;
     cacheFile: string;
+    cacheDelay: string;
   } {
     return {
       provider: LlmAdapter._getConfigValue("provider", "disabled"),
@@ -364,6 +373,7 @@ export class LlmAdapter {
         "cacheFile",
         ".nanofuzz-llm-cache.json"
       ),
+      cacheDelay: LlmAdapter._getConfigValue<string>("cacheDelay", "1x"),
     };
   } // fn: getConfig
 
