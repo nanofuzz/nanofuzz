@@ -30,6 +30,7 @@ import {
   NextableStatus,
   ScoredInput,
 } from "./generators/Types";
+import { InputSchedulerType } from "./schedulers/Types";
 import { isError } from "./Util";
 import { isArgValueType } from "./analysis/Util";
 import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
@@ -1734,6 +1735,7 @@ export type FuzzTestStats = {
     AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
     CompositeInputGenerator?: {
       config?: {
+        scheduler: InputSchedulerType;
         lookbackWindow: number;
         chunkSize: number;
         explorationChance: number;
@@ -1752,7 +1754,7 @@ export type FuzzTestStats = {
             selected?: true; // subgen was selected for this chunk
           }
         >;
-        scheduler: "mab" | "random";
+        scheduler: InputSchedulerType;
       }[];
     };
   };

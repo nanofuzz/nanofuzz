@@ -362,11 +362,11 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFile,
-      "--cig-input-lookback",
+      "--cig-scheduler-mab-lookback",
       "300",
       "--cig-input-chunk-size",
       "10",
-      "--cig-randomness",
+      "--cig-scheduler-mab-exploration",
       "0.2",
       "--cig-input-focus",
       "150",
@@ -433,7 +433,7 @@ describe("cli:", () => {
 
     function verifyCheckpointOutput(
       outputFile: string,
-      expectedRandomness: number
+      isZeroMetricExpected = false
     ) {
       expect(fs.existsSync(outputFile)).toBeTrue();
       const outputData = JSON5.parse<FuzzTestResults>(
@@ -453,8 +453,8 @@ describe("cli:", () => {
         expect(selectedGens.length).toBe(1);
       }
 
-      // 2. Checkpoint scheduler matches random exploration parameter (1.0=random, otherwise=mab)
-      if (expectedRandomness >= 1.0) {
+      // 2. Checkpoint scheduler verification
+      if (isZeroMetricExpected) {
         for (const cp of checkpoints) {
           for (const g of Object.values(cp.gens)) {
             expect(g.productivity).toBe(0);
@@ -508,7 +508,7 @@ describe("cli:", () => {
       }
     }
 
-    // Test 1: MAB mode (randomness < 1.0)
+    // Test 1: MAB mode (default)
     const outputFileMab = path.join(tmpDir, "cig_checkpoints_mab.json5");
     const resMab = await runCli([
       targetFile,
@@ -516,7 +516,7 @@ describe("cli:", () => {
       "--output-file",
       outputFileMab,
       "--cig-stats-checkpoints",
-      "--cig-randomness",
+      "--cig-scheduler-mab-exploration",
       "0.1",
       "--cig-input-chunk-size",
       "10",
@@ -526,18 +526,18 @@ describe("cli:", () => {
       "cli_seed_cig_checkpoints_mab",
     ]);
     expect(resMab.status).toBe(0);
-    verifyCheckpointOutput(outputFileMab, 0.1);
+    verifyCheckpointOutput(outputFileMab, false);
 
-    // Test 2: Fastpath random mode (randomness = 1.0)
+    // Test 2: Random mode (--cig-scheduler random)
     const outputFileRandom = path.join(tmpDir, "cig_checkpoints_random.json5");
     const resRandom = await runCli([
       targetFile,
       targetFn,
       "--output-file",
       outputFileRandom,
+      "--cig-scheduler",
+      "random",
       "--cig-stats-checkpoints",
-      "--cig-randomness",
-      "1.0",
       "--cig-input-chunk-size",
       "10",
       "--max-tests",
@@ -546,7 +546,122 @@ describe("cli:", () => {
       "cli_seed_cig_checkpoints_random",
     ]);
     expect(resRandom.status).toBe(0);
-    verifyCheckpointOutput(outputFileRandom, 1.0);
+    verifyCheckpointOutput(outputFileRandom, true);
+
+    // Test 3: Round Robin mode (--cig-scheduler round-robin)
+    const outputFileRr = path.join(tmpDir, "cig_checkpoints_rr.json5");
+    const resRr = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileRr,
+      "--cig-scheduler",
+      "round-robin",
+      "--cig-stats-checkpoints",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_rr",
+    ]);
+    expect(resRr.status).toBe(0);
+    verifyCheckpointOutput(outputFileRr, true);
+
+    // Test 4: UCB1 mode (--cig-scheduler ucb1 --cig-scheduler-ucb1-exploration 2.0)
+    const outputFileUcb = path.join(tmpDir, "cig_checkpoints_ucb.json5");
+    const resUcb = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileUcb,
+      "--cig-scheduler",
+      "ucb1",
+      "--cig-scheduler-ucb1-exploration",
+      "2.0",
+      "--cig-stats-checkpoints",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_ucb",
+    ]);
+    expect(resUcb.status).toBe(0);
+    verifyCheckpointOutput(outputFileUcb, false);
+
+    // Test 5: Thompson mode (--cig-scheduler thompson --cig-scheduler-thompson-prior-variance 1.5)
+    const outputFileThompson = path.join(
+      tmpDir,
+      "cig_checkpoints_thompson.json5"
+    );
+    const resThompson = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileThompson,
+      "--cig-scheduler",
+      "thompson",
+      "--cig-scheduler-thompson-prior-variance",
+      "1.5",
+      "--cig-stats-checkpoints",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_thompson",
+    ]);
+    expect(resThompson.status).toBe(0);
+    verifyCheckpointOutput(outputFileThompson, false);
+
+    // Test 6: EWMA mode (--cig-scheduler ewma --cig-scheduler-ewma-alpha 0.3 --cig-scheduler-ewma-exploration 0.2)
+    const outputFileEwma = path.join(tmpDir, "cig_checkpoints_ewma.json5");
+    const resEwma = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileEwma,
+      "--cig-scheduler",
+      "ewma",
+      "--cig-scheduler-ewma-alpha",
+      "0.3",
+      "--cig-scheduler-ewma-exploration",
+      "0.2",
+      "--cig-stats-checkpoints",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_ewma",
+    ]);
+    expect(resEwma.status).toBe(0);
+    verifyCheckpointOutput(outputFileEwma, false);
+
+    // Test 7: MOpt mode (--cig-scheduler mopt --cig-scheduler-mopt-swarm-size 4 --cig-scheduler-mopt-period 20)
+    const outputFileMopt = path.join(tmpDir, "cig_checkpoints_mopt.json5");
+    const resMopt = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFileMopt,
+      "--cig-scheduler",
+      "mopt",
+      "--cig-scheduler-mopt-swarm-size",
+      "4",
+      "--cig-scheduler-mopt-period",
+      "20",
+      "--cig-stats-checkpoints",
+      "--cig-input-chunk-size",
+      "10",
+      "--max-tests",
+      "50",
+      "--seed",
+      "cli_seed_cig_checkpoints_mopt",
+    ]);
+    expect(resMopt.status).toBe(0);
+    verifyCheckpointOutput(outputFileMopt, false);
   });
 
   it("--ai-cache-*: cache miss in replay-error mode", async () => {

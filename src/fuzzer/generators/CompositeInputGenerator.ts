@@ -12,6 +12,9 @@ import {
 import { NextableStatus } from "./Types";
 import { FunctionDef, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
+import { AbstractInputScheduler } from "../schedulers/AbstractInputScheduler";
+import { SchedulerFactory } from "../schedulers/SchedulerFactory";
+import { InputSchedulerType } from "../schedulers/Types";
 
 /**
  * The Composite Input Generator subsumes multiple types of input generator and biases
@@ -35,16 +38,12 @@ import { InputGeneratorFactory } from "./InputGeneratorFactory";
 export class CompositeInputGenerator extends AbstractInputGenerator {
   protected _subgens; // Subordinate input generators
   protected _activeSubgens: boolean[] = []; // boolean array of whether subgen is active
+  protected _scheduler!: AbstractInputScheduler; // Subgenerator scheduler strategy
   protected _tick = 0; // Number of inputs generated
   protected _ticksLeftInChunk = 0; // Number of input generations remaining in this chunk
   protected _measures: AbstractMeasure[]; // Measures that provide feedback
-  protected _history: {
-    progress: (number | undefined)[][]; // progress by measure and input tick (of L)
-    cost: (number | undefined)[]; // cost by input tick (of L)
-    currentIndex: number; // current index (of L) into last dimension of progress and cost
-  }[] = []; // history for each input generator
   protected interestingInputs: ScoredInput[] = []; // List of interesting inputs
-  protected _selectedSubgenIndex = -1; // Selected subordinate input generator (e.g., by efficiency)
+  protected _selectedSubgenIndex = -1; // Selected subordinate input generator
   protected _leaderboard; // Interesting inputs
   protected _lastInput?: InputAndSource; // Last input generated
   protected _L = 500; // Lookback window size for history
@@ -56,6 +55,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   protected _checkpoints: NonNullable<
     FuzzTestStats["generators"]["CompositeInputGenerator"]
   >["checkpoints"] = []; // status of subgens at selection
+  protected _rngSeed?: string; // Seed for pseudo random number generator
 
   /**
    * Creates a new composite input generator, which subsumes multiple concrete input
@@ -81,6 +81,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   ) {
     super([], rngSeed);
 
+    this._rngSeed = rngSeed;
     this._subgens = InputGeneratorFactory(
       options,
       fn,
@@ -102,13 +103,14 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
   /**
    * Loads any configurable parameters using `Config`.
-   *
-   * If the lookback window size changes, the measure history is reset with
-   * the new window size.
    */
   protected _loadConfig(): void {
-    const L = Config.get<number>(
-      "nanofuzz.generators.compositeLookbackWindow",
+    const schedulerType = Config.get<InputSchedulerType>(
+      "nanofuzz.generators.scheduler.impl",
+      "mab"
+    );
+    this._L = Config.get<number>(
+      "nanofuzz.generators.scheduler.mab.lookback",
       500
     );
     this._chunkSize = Config.get<number>(
@@ -116,7 +118,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       20
     );
     this._P = Config.get<number>(
-      "nanofuzz.generators.compositeExplorationChance",
+      "nanofuzz.generators.scheduler.mab.exploration",
       0.1
     );
     this._trackCheckpoints = Config.get<boolean>(
@@ -124,13 +126,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       false
     );
 
-    if (L !== this._L || !this._history.length) {
-      this._L = L;
-      this._history = this._subgens.map(() => ({
-        progress: this._measures.map(() => Array(this._L).fill(undefined)),
-        cost: Array(this._L).fill(undefined),
-        currentIndex: 0,
-      }));
+    if (!this._scheduler || this._scheduler.type !== schedulerType) {
+      this._scheduler = SchedulerFactory.create(schedulerType, this._rngSeed);
+      this._ticksLeftInChunk = 0;
     }
   } // fn: _loadConfig
 
@@ -302,7 +300,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       );
     }
 
-    const h = this._history[this._selectedSubgenIndex]; // history of current subgen
     const interestingReasons: string[] = []; // list of measures finding this input interesing
     let weightedProgress = 0; // weighted progress of input, according to measures
 
@@ -327,17 +324,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       if (delta) {
         interestingReasons.push(measure.name);
       }
-
-      // Update history of current subgen (-1 = no subgen)
-      if (this._selectedSubgenIndex >= 0) {
-        h.progress[m][h.currentIndex] = delta;
-        h.cost[h.currentIndex] = cost;
-      }
     }); // foreach: measurements
 
-    // Roll over to the beginning if we reach the last slot
-    if (this._selectedSubgenIndex >= 0) {
-      h.currentIndex = (h.currentIndex + 1) % this._L;
+    // Forward feedback to the scheduler if it needs feedback
+    if (this._scheduler.needsFeedback) {
+      this._scheduler.onInputFeedback(measurements, cost, this._measures);
     }
 
     // Update history of composite input generator if the input was interesting
@@ -368,8 +359,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // fn: onInputFeedback
 
   /**
-   * Randomly selects a subgen for the next chunk with a bias toward
-   * subgens of higher relative productivity.
+   * Selects a subgen for the next chunk via the configured scheduler.
+   * Priority inputs ("now!") bypass the scheduler and use a 1-tick chunk.
    *
    * @returns the index of the selected subgen
    */
@@ -393,147 +384,39 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     // 3. Reset standard chunk size for autonomous generation
     this._ticksLeftInChunk = this._chunkSize;
 
-    // 4. At least one active subgen needs to be available
-    if (
-      !this._subgens.some(
-        (g, i) => this._activeSubgens[i] && g.nextable() === "now"
-      )
-    ) {
-      throw new Error(
-        `Cannot generate the next input: no subgens are available (out of ${this._subgens.length} subgens configured)`
-      );
-    }
-
-    // Fastpath: if compositeExplorationChance >= 1.0, randomly select from active & nextable subgens
-    // and skip calculations of cost, progress, and productivity.
-    if (this._P >= 1.0) {
-      const activeSubgenIndices = this._subgens
-        .map((_g, i) => i)
-        .filter(
-          (i) => this._activeSubgens[i] && this._subgens[i].nextable() === "now"
-        );
-
-      const selectedIdx =
-        activeSubgenIndices[
-          Math.floor(this._prng() * activeSubgenIndices.length)
-        ];
-
-      if (this._trackCheckpoints) {
-        const checkpointGens: NonNullable<
-          FuzzTestStats["generators"]["CompositeInputGenerator"]
-        >["checkpoints"][number]["gens"] = {};
-
-        this._subgens.forEach((e, g) => {
-          checkpointGens[e.name] = {
-            active: !!this._activeSubgens[g],
-            nextable: e.nextable(),
-            productivity: 0,
-            cost: 0,
-          };
-        });
-        checkpointGens[this._subgens[selectedIdx].name].selected = true;
-
-        this._checkpoints.push({
-          tick: this._tick,
-          gens: checkpointGens,
-          scheduler: "random",
-        });
-      }
-
-      return selectedIdx;
-    }
-
-    // Calculate cost and progress for each subgen's prior L generations
-    const cost: number[] = []; // cost of subgen for L generations
-    const progress: number[] = []; // progress of subgen for L generations
-    const productivity: number[] = []; // productivity = progress / cost
-    let totalProductivity = 0; // total productivity of active subgens
-    const checkpointGens: NonNullable<
-      FuzzTestStats["generators"]["CompositeInputGenerator"]
-    >["checkpoints"][number]["gens"] = {};
-
-    this._subgens.forEach((e, g) => {
-      cost[g] = 0;
-      this._history[g].cost.forEach((e) => {
-        cost[g] += e || 0;
-      });
-      progress[g] = 0;
-      this._measures.forEach((e, m) => {
-        this._history[g].progress[m].forEach((e) => {
-          progress[g] += (e || 0) * this._measures[m].weight;
-        });
-      });
-      productivity[g] = Math.max(0, cost[g] ? progress[g] / cost[g] : 0);
-      const isNextable = e.nextable();
-      const isAvailableNow = !!this._activeSubgens[g] && isNextable === "now";
-      if (isAvailableNow) {
-        totalProductivity += productivity[g];
-      }
-
-      if (this._trackCheckpoints) {
-        checkpointGens[e.name] = {
-          active: !!this._activeSubgens[g],
-          nextable: isNextable,
-          productivity: productivity[g],
-          cost: cost[g],
-        };
-      }
-    }); // foreach: subgen
-
-    // All active subgens have a minimum chance of being selected,
-    // which is determined by _P
-    const activeSubgens = this._subgens.filter(
-      (e, i) => this._activeSubgens[i] && e.nextable() === "now"
-    );
-    const addlChanceSpace =
-      totalProductivity > 0 ? totalProductivity * this._P : 1;
-    const addlChance = addlChanceSpace / activeSubgens.length;
-
-    // Randomly select an active subgen with a bias toward subgens
-    // of higher productivity for the prior L generations
-    const rnd = this._prng() * (totalProductivity + addlChanceSpace);
-    let lbound = 0;
-    let selectedIdx = -1;
-    for (const g in this._subgens) {
-      const idx = Number(g);
-      if (this._activeSubgens[idx] && this._subgens[idx].nextable() === "now") {
-        lbound += productivity[idx] + addlChance;
-        if (lbound >= rnd) {
-          selectedIdx = idx;
-          break;
-        }
-      }
-    }
-
-    if (selectedIdx === -1) {
-      throw new Error(
-        `Internal failure selecting subgen: ${JSON.stringify(
-          {
-            progress,
-            cost,
-            productivity,
-            totalProductivity,
-            lbound,
-            rnd,
-            addlChance,
-          },
-          null,
-          3
-        )}`
-      );
-    }
+    // 4. Delegate subgenerator selection to the scheduler
+    const selectedIdx = this._scheduler.next({
+      tick: this._tick,
+      subgens: this._subgens,
+      activeSubgens: this._activeSubgens,
+      measures: this._measures,
+    });
 
     if (this._trackCheckpoints) {
+      const checkpointGens: NonNullable<
+        FuzzTestStats["generators"]["CompositeInputGenerator"]
+      >["checkpoints"][number]["gens"] = {};
+
+      this._subgens.forEach((subgen, g) => {
+        const metrics = this._scheduler.getSubgenMetrics(g);
+        checkpointGens[subgen.name] = {
+          active: !!this._activeSubgens[g],
+          nextable: subgen.nextable(),
+          productivity: metrics.productivity,
+          cost: metrics.cost,
+        };
+      });
       checkpointGens[this._subgens[selectedIdx].name].selected = true;
+
       this._checkpoints.push({
         tick: this._tick,
         gens: checkpointGens,
-        scheduler: "mab",
+        scheduler: this._scheduler.type,
       });
     }
 
     return selectedIdx;
-  } // fn: selectNextSubGen
+  } // fn: _selectNextSubGen
 
   /**
    * Return interesting inputs, their sources, and their measures
@@ -554,6 +437,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     injectedInputs?: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[]
   ): void {
     this._loadConfig();
+    this._scheduler.onRunStart();
     this._leaderboard.loadConfig();
     for (const subgen in this._subgens) {
       this._subgens[subgen].onRunStart(
@@ -569,9 +453,11 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   public async onRunEnd(results?: FuzzTestResults): Promise<void> {
     await super.onRunEnd(results);
     await Promise.all(this._subgens.map((g) => g.onRunEnd(results)));
+    this._scheduler.onRunEnd(results);
     if (results) {
       results.stats.generators.CompositeInputGenerator = {
         config: {
+          scheduler: this._scheduler.type,
           lookbackWindow: this._L,
           chunkSize: this._chunkSize,
           explorationChance: this._P,
@@ -582,6 +468,13 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       };
     }
   } // fn: onRunEnd
+
+  /**
+   * Returns the active subgenerator scheduler
+   */
+  public get scheduler(): AbstractInputScheduler {
+    return this._scheduler;
+  } // property: get scheduler
 
   /**
    * Returns active subgenerators currently pending ("soon").
