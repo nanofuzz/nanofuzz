@@ -14,8 +14,8 @@ describe("fuzzer: study examples 8-14", () => {
           "minSalary",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 09 - getOffsetOrDefault", async () => {
@@ -26,8 +26,8 @@ describe("fuzzer: study examples 8-14", () => {
           "getOffsetOrDefault",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   // TODO: Vector length is randomized here - probably do not want that !!!
@@ -39,8 +39,8 @@ describe("fuzzer: study examples 8-14", () => {
           "gramSchmidt",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 11 - idMatrix", async () => {
@@ -51,8 +51,8 @@ describe("fuzzer: study examples 8-14", () => {
           "idMatrix",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 12 - levenshtein", async () => {
@@ -63,8 +63,8 @@ describe("fuzzer: study examples 8-14", () => {
           "levenshtein",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 13 - isSteady", async () => {
@@ -75,8 +75,8 @@ describe("fuzzer: study examples 8-14", () => {
           "isSteady",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 14 - modInv", async () => {

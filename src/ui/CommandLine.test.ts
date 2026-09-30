@@ -176,8 +176,8 @@ describe("cli:", () => {
     expect(outputData.env.options.seed).toBe(seed);
 
     // Verify test results were produced
-    expect(outputData.results.length).toBeGreaterThan(0);
-    expect(outputData.results.length).toBeLessThanOrEqual(maxTests);
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
+    expect(outputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
   });
 
   it("--output-file: check matching parameter set for Python", async () => {
@@ -219,8 +219,8 @@ describe("cli:", () => {
     expect(pyOutputData.env.options.seed).toBe(seed);
 
     // Verify test results were produced
-    expect(pyOutputData.results.length).toBeGreaterThan(0);
-    expect(pyOutputData.results.length).toBeLessThanOrEqual(maxTests);
+    expect(pyOutputData.stats.outcomes.total).toBeGreaterThan(0);
+    expect(pyOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
   });
 
   it("--no-* flags: measures and generators", async () => {
@@ -265,7 +265,7 @@ describe("cli:", () => {
       outputData.env.options.generators.RandomInputGenerator.enabled
     ).toBeTrue();
 
-    expect(outputData.results.length).toBeGreaterThan(0);
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
   });
 
   it("--no-random-input-generator", async () => {
@@ -385,7 +385,7 @@ describe("cli:", () => {
       fs.readFileSync(outputFile, "utf8")
     );
 
-    expect(outputData.results.length).toBeGreaterThan(0);
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
 
     // Verify composite generator config recorded in output stats
     const cigStats = outputData.stats.generators.CompositeInputGenerator;

@@ -1448,12 +1448,6 @@ export class Tester {
             break;
         }
 
-        // Store the result for this iteration
-        this._results.results.push(result);
-        if (onResultFn) {
-          onResultFn(result);
-        }
-
         // Take measurements for this test run
         {
           const startMeasureTime = performance.now(); // start timer
@@ -1477,6 +1471,12 @@ export class Tester {
           if (genStats) {
             genStats.timers.measure += measureTime;
           }
+        }
+
+        // Store the result for this iteration
+        this._results.results.push(result);
+        if (onResultFn) {
+          onResultFn(deepFreeze(result));
         }
 
         yield undefined;
