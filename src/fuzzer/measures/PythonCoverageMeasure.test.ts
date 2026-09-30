@@ -1249,6 +1249,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       const before = {
         results: results.results,
         counters: { ...results.stats.counters },
+        outcomes: structuredClone(results.stats.outcomes),
         timers: { ...results.stats.timers },
       };
 
@@ -1265,6 +1266,7 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       ]);
       expect(results.results).toBe(before.results);
       expect(results.stats.counters).toEqual(before.counters);
+      expect(results.stats.outcomes).toEqual(before.outcomes);
       expect(results.stats.timers).toEqual(before.timers);
     });
 
