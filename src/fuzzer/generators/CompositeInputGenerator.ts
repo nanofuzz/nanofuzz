@@ -467,10 +467,18 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       this._selectedSubgenIndex = this._selectNextSubGen();
     }
 
+    this._tick++;
+    this._ticksLeftInChunk--;
     const selectedSubgen = this._subgens[this._selectedSubgenIndex];
     const startGenTime = performance.now();
-    const candidate = selectedSubgen.next();
+    const rawCandidate = selectedSubgen.next();
     const genCost = performance.now() - startGenTime;
+    const candidate: InputAndSource = {
+      ...rawCandidate,
+      tick: this._tick,
+    };
+    this._lastInput = candidate;
+    this._lastInputSubgenIndex = this._selectedSubgenIndex;
     return { candidate, genCost };
   } // fn: _generateCandidate
 
@@ -522,7 +530,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   protected _acceptInjectedCandidate(
     candidate: InputAndSource
   ): InputAndSource {
-    this._tick++;
     if (this._fn && this._fn.getArgDefs().length) {
       const hash = ValueMapper.toLang(
         this._fn.getLang(),
@@ -531,10 +538,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       this._pretransformedInputs.add(hash);
       this._allInputs.set(hash, true);
     }
-    this._lastInput = {
-      ...candidate,
-      tick: this._tick,
-    };
+    this._lastInput = candidate;
     this._lastInputSubgenIndex = this._selectedSubgenIndex;
     return structuredClone(this._lastInput);
   } // fn: _acceptInjectedCandidate
@@ -543,14 +547,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * Accepts and records a successfully generated candidate input.
    */
   protected _acceptCandidate(candidate: InputAndSource): InputAndSource {
-    this._tick++;
-    this._ticksLeftInChunk--;
     this._dupesSequential = 0;
     this._recordGenerated(candidate);
-    this._lastInput = {
-      ...candidate,
-      tick: this._tick,
-    };
+    this._lastInput = candidate;
     this._lastInputSubgenIndex = this._selectedSubgenIndex;
     return structuredClone(this._lastInput);
   } // fn: _acceptCandidate
@@ -563,12 +562,9 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     transformerResult: RunnerResult | undefined,
     genCost: number
   ): TransformedInputAndSource {
-    this._tick++;
-    this._ticksLeftInChunk--;
     this._recordGenerated(candidate);
     const skippedInput: TransformedInputAndSource = {
       ...candidate,
-      tick: this._tick,
       transformerResult,
     };
     this._lastInput = skippedInput;
@@ -588,7 +584,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       const stats = this._genStats[candidate.source.generator];
       stats.counters.dupesGenerated++;
       stats.counters.inputsGenerated++;
-      stats.counters.dupeTicks.push(this._tick + 1);
+      stats.counters.dupeTicks.push(candidate.tick);
     }
   } // fn: _recordDupe
 
