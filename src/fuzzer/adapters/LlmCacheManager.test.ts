@@ -499,4 +499,156 @@ describe("src/fuzzer/adapters/LlmCacheManager:", () => {
     ).length;
     expect(matchesLiteral).toBeLessThan(sampleVals.length);
   });
+
+  it("replays correctly under various delay perturbation rules", async () => {
+    const delayTestCases = [
+      { id: "instant (0)", spec: "0", baseDelay: 80, min: 0, max: 25 },
+      {
+        id: "fixed constant (25ms)",
+        spec: "25ms",
+        baseDelay: 80,
+        min: 20,
+        max: 55,
+      },
+      {
+        id: "scale speedup (0.5x)",
+        spec: "0.5x",
+        baseDelay: 50,
+        min: 20,
+        max: 55,
+      },
+      {
+        id: "scale slowdown (2x)",
+        spec: "2x",
+        baseDelay: 15,
+        min: 25,
+        max: 60,
+      },
+      {
+        id: "positive offset (+15ms)",
+        spec: "+15ms",
+        baseDelay: 10,
+        min: 20,
+        max: 55,
+      },
+      {
+        id: "negative offset floor (-100ms)",
+        spec: "-100ms",
+        baseDelay: 30,
+        min: 0,
+        max: 25,
+      },
+      {
+        id: "clamp upper bound ([20..40ms])",
+        spec: "[20..40ms]",
+        baseDelay: 90,
+        min: 35,
+        max: 70,
+      },
+      {
+        id: "clamp lower bound ([20..40ms])",
+        spec: "[20..40ms]",
+        baseDelay: 5,
+        min: 18,
+        max: 50,
+      },
+      {
+        id: "window range (20..35ms)",
+        spec: "20..35ms",
+        baseDelay: 100,
+        min: 18,
+        max: 65,
+      },
+      {
+        id: "percentage jitter (~20%)",
+        spec: "~20%",
+        baseDelay: 30,
+        min: 20,
+        max: 65,
+      },
+      {
+        id: "absolute jitter (~10ms)",
+        spec: "~10ms",
+        baseDelay: 30,
+        min: 18,
+        max: 70,
+      },
+      {
+        id: "composition: scale + offset + clamp",
+        spec: "0.5x +10ms [20..45ms]",
+        baseDelay: 50,
+        min: 30,
+        max: 65,
+      },
+      {
+        id: "composition: scale + jitter + clamp",
+        spec: "0.5x ~20% [15..40ms]",
+        baseDelay: 40,
+        min: 14,
+        max: 65,
+      },
+      {
+        id: "composition: fixed + offset + jitter",
+        spec: "25ms +10ms ~5ms",
+        baseDelay: 100,
+        min: 25,
+        max: 65,
+      },
+    ];
+
+    for (const { spec, baseDelay, min, max } of delayTestCases) {
+      const key = createCacheKey("provider1", "model1", ["prompt1"], undefined);
+      const seededEntries: LlmCacheEntry[] = [
+        {
+          key,
+          request: {
+            provider: "provider1",
+            modelName: "model1",
+            prompt: ["prompt1"],
+          },
+          response: {
+            text: "cached-answer",
+            stats: {
+              tokensSent: 5,
+              tokensSentCost: { amt: 0, unit: "USD" },
+              tokensReceived: 5,
+              tokensReceivedCost: { amt: 0, unit: "USD" },
+            },
+          },
+          delayMs: baseDelay,
+          recordedAt: new Date().toISOString(),
+        },
+      ];
+      fs.writeFileSync(cacheFile, JSON.stringify(seededEntries), "utf-8");
+
+      const manager = new LlmCacheManager(
+        "replay-error",
+        cacheFile,
+        LlmDelayCalculator.parse(spec),
+        seedrandom("delay-ci-seed")
+      );
+
+      const start = performance.now();
+      const res = await manager.query(
+        "provider1",
+        "model1",
+        ["prompt1"],
+        undefined,
+        async () => ({
+          text: "live-should-not-run",
+          stats: {
+            tokensSent: 0,
+            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensReceived: 0,
+            tokensReceivedCost: { amt: 0, unit: "USD" },
+          },
+        })
+      );
+      const elapsed = performance.now() - start;
+
+      expect(res.text).toBe("cached-answer");
+      expect(elapsed).toBeGreaterThanOrEqual(min);
+      expect(elapsed).toBeLessThanOrEqual(max);
+    }
+  });
 });
