@@ -248,7 +248,7 @@ describe("cli:", () => {
     const outputData = JSONN.unpack<FuzzTestResults>(binBuffer);
 
     expect(outputData.toolVersion).toBeDefined();
-    expect(outputData.results.length).toBeGreaterThan(0);
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
     expect(outputData.env.options.seed).toBe(seed);
   });
 
@@ -276,7 +276,7 @@ describe("cli:", () => {
     const outputData = JSONN.parse<FuzzTestResults>(textContent);
 
     expect(outputData.toolVersion).toBeDefined();
-    expect(outputData.results.length).toBeGreaterThan(0);
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
     expect(outputData.env.options.seed).toBe(seed);
   });
 
