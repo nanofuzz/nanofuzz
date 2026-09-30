@@ -89,7 +89,7 @@ describe("fuzzer: study examples 8-14", () => {
       }
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.some((e) => e.timeout)).toBe(true);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.timeouts).toBeGreaterThan(0);
   });
 });

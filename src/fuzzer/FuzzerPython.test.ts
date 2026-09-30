@@ -19,10 +19,10 @@ describe("fuzzer: python targets", () => {
       }
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.every((e) => e.passedImplicit === "pass")
-    ).toBeTrue();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
     expect(
       fuzzResult.results.every(
         (e) =>
@@ -35,6 +35,9 @@ describe("fuzzer: python targets", () => {
     ).toBeTrue();
     // Check property test results
     expect(fuzzResult.env.validators.length).toEqual(1);
+    expect(fuzzResult.stats.outcomes.oracles.property.pass).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
     fuzzResult.results.forEach((r) => {
       expect(r.passedValidators.length).toBe(1);
       expect(r.harnessErrors.length).toBe(0);
@@ -112,24 +115,24 @@ describe("fuzzer: python targets", () => {
       intOptions
     ).testSync();
 
-    const failures = fuzzResult.results.filter(
-      (r) => r.passedImplicit === "fail"
-    );
-
-    expect(fuzzResult.results.length).toBeGreaterThan(1);
-    expect(failures.length).toEqual(1);
-    expect(ValueMapper.toLang("python", failures[0].input[0].value)).toEqual(
-      "6"
-    );
-    expect(
-      typeof failures[0].output[0].value === "object" &&
-        failures[0].output[0].value !== null &&
-        "a" in failures[0].output[0].value &&
-        failures[0].output[0].value["a"] === null
-    ).toBeTrue();
-    expect(ValueMapper.toLang("python", failures[0].output[0].value)).toEqual(
-      `{"a": None}`
-    );
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(1);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.fail).toEqual(1);
+    const firstFailure = fuzzResult.stats.outcomes.firstFailure;
+    expect(firstFailure).toBeDefined();
+    if (firstFailure) {
+      expect(ValueMapper.toLang("python", firstFailure.input[0].value)).toEqual(
+        "6"
+      );
+      expect(
+        typeof firstFailure.output[0].value === "object" &&
+          firstFailure.output[0].value !== null &&
+          "a" in firstFailure.output[0].value &&
+          firstFailure.output[0].value["a"] === null
+      ).toBeTrue();
+      expect(
+        ValueMapper.toLang("python", firstFailure.output[0].value)
+      ).toEqual(`{"a": None}`);
+    }
   });
 
   it("Python assume statement (skipped tests)", async () => {
@@ -142,6 +145,7 @@ describe("fuzzer: python targets", () => {
       }
     ).testSync();
 
+    expect(fuzzResult.stats.outcomes.categories.skip).toBeGreaterThan(0);
     const skips = fuzzResult.results.filter((r) => r.category === "skip");
 
     expect(skips.length).toBeGreaterThan(0);
@@ -159,7 +163,9 @@ describe("fuzzer: python targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.skip).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.ok).toBeGreaterThan(0);
 
     const skips = fuzzResult.results.filter((r) => r.category === "skip");
     expect(skips.length).toBeGreaterThan(0);

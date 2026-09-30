@@ -42,15 +42,13 @@ describe("fuzzer: coverageOneFile benchmark", () => {
         }
       ).testSync();
 
-      expect(fuzzResult.results.length).toBeGreaterThan(0);
-      expect(
-        fuzzResult.results.every((e) => e.passedImplicit === "pass")
-      ).toBeTruthy();
-      expect(
-        fuzzResult.results.some((e) =>
-          e.passedValidators.some((v) => v === "pass")
-        )
-      ).toBeTruthy();
+      expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+      expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toEqual(
+        fuzzResult.stats.outcomes.total
+      );
+      expect(fuzzResult.stats.outcomes.oracles.property.pass).toBeGreaterThan(
+        0
+      );
 
       runs.push({
         seed,

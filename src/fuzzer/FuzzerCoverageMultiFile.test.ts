@@ -13,10 +13,10 @@ describe("fuzzer: coverageMultiFile benchmark", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.every((e) => e.passedImplicit === "pass")
-    ).toBeTruthy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(
+      fuzzResult.stats.outcomes.total
+    );
     expect(fuzzResult.stats.measures.CodeCoverageMeasure).toBeDefined();
     if (fuzzResult.stats.measures.CodeCoverageMeasure) {
       const coverageStats =

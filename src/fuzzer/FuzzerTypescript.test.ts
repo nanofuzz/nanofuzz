@@ -221,10 +221,8 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).toBe(3);
-    expect(
-      fuzzResult.results.every((e) => e.passedImplicit === "pass")
-    ).toBeTruthy();
+    expect(fuzzResult.stats.outcomes.total).toBe(3);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(3);
 
     // Run the following tests on the raw and cloned results
     [fuzzResult.results, structuredClone(fuzzResult.results)].forEach((r) => {
@@ -260,24 +258,24 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    const failures = fuzzResult.results.filter(
-      (r) => r.passedImplicit === "fail"
-    );
-
-    expect(fuzzResult.results.length).toBeGreaterThan(1);
-    expect(failures.length).toEqual(1);
-    expect(
-      ValueMapper.toLang("typescript", failures[0].input[0].value)
-    ).toEqual("6");
-    expect(
-      typeof failures[0].output[0].value === "object" &&
-        failures[0].output[0].value !== null &&
-        "a" in failures[0].output[0].value &&
-        failures[0].output[0].value["a"] === undefined
-    ).toBeTrue();
-    expect(
-      ValueMapper.toLang("typescript", failures[0].output[0].value)
-    ).toEqual(`{a: undefined}`);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(1);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.fail).toEqual(1);
+    const firstFailure = fuzzResult.stats.outcomes.firstFailure;
+    expect(firstFailure).toBeDefined();
+    if (firstFailure) {
+      expect(
+        ValueMapper.toLang("typescript", firstFailure.input[0].value)
+      ).toEqual("6");
+      expect(
+        typeof firstFailure.output[0].value === "object" &&
+          firstFailure.output[0].value !== null &&
+          "a" in firstFailure.output[0].value &&
+          firstFailure.output[0].value["a"] === undefined
+      ).toBeTrue();
+      expect(
+        ValueMapper.toLang("typescript", firstFailure.output[0].value)
+      ).toEqual(`{a: undefined}`);
+    }
   });
 
   it("TypeScript target importing a class from a parent module compiles and runs successfully", async () => {
@@ -287,7 +285,7 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
   });
 
   it("Typescript transformer skip and modify", async () => {
@@ -297,7 +295,9 @@ describe("fuzzer: typescript targets", () => {
       { ...intOptions, maxTests: 200 }
     ).testSync();
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.skip).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.ok).toBeGreaterThan(0);
 
     // Check skipped inputs
     const skips = fuzzResult.results.filter((r) => r.category === "skip");
@@ -387,7 +387,10 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
     fuzzResult.results.forEach((r) => {
       expect(r.harnessErrors.length).toBeGreaterThan(0);
       expect(r.harnessErrors[0].message).toContain("Transformer error message");
@@ -402,7 +405,10 @@ describe("fuzzer: typescript targets", () => {
       { ...intOptions, maxTests: 2 }
     ).testSync();
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
     fuzzResult.results.forEach((r) => {
       expect(r.harnessErrors.length).toBeGreaterThan(0);
       expect(r.harnessErrors[0].kind).toBe("timeout");
@@ -421,7 +427,7 @@ describe("fuzzer: typescript targets", () => {
     // The transformer throws if called more than twice.
     // If pre-transformer deduplication works, at most 2 inputs will be transformed
     // and no transformer exception will occur.
-    expect(fuzzResult.results.length).toBe(2);
+    expect(fuzzResult.stats.outcomes.total).toBe(2);
     expect(fuzzResult.stats.counters.dupesGenerated).toBeGreaterThan(0);
     fuzzResult.results.forEach((r) => {
       expect(r.harnessErrors.length).toBe(0);
@@ -450,7 +456,10 @@ describe("fuzzer: typescript targets", () => {
       { ...intOptions, useProperty: true, maxTests: 2 }
     ).testSync();
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
     fuzzResult.results.forEach((r) => {
       expect(r.harnessErrors.length).toBeGreaterThan(0);
       expect(r.harnessErrors[0].fnName).toBe(
@@ -468,7 +477,10 @@ describe("fuzzer: typescript targets", () => {
       { ...intOptions, useProperty: true, maxTests: 2 }
     ).testSync();
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
     fuzzResult.results.forEach((r) => {
       expect(r.harnessErrors.length).toBeGreaterThan(0);
       expect(r.harnessErrors[0].fnName).toBe("targetValidatorTimeoutValidator");

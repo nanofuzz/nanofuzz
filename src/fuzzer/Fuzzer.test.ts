@@ -58,7 +58,7 @@ describe("fuzzer: general", () => {
       options
     ).testSync();
 
-    expect(results.results.length).toBeGreaterThan(0);
+    expect(results.stats.outcomes.total).toBeGreaterThan(0);
     expect(results.stopReason).toBe("maxTests");
   });
 
