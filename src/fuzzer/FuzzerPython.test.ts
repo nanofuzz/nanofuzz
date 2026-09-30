@@ -65,11 +65,9 @@ describe("fuzzer: python targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeTrue();
-    expect(fuzzResult.results.some((e) => e.timeout)).toBeTrue();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.timeouts).toBeGreaterThan(0);
   });
 
   it("Python exceptions", async () => {
@@ -79,11 +77,9 @@ describe("fuzzer: python targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeTrue();
-    expect(fuzzResult.results.some((e) => e.exception)).toBeTrue();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.exceptions).toBeGreaterThan(0);
   });
 
   it("Python valid target in invalid file", async () => {
@@ -93,8 +89,10 @@ describe("fuzzer: python targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(fuzzResult.results.every((e) => e.exception)).toBeTrue();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.exceptions).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
   });
 
   it("Python invalid target in invalid file", async () => {
@@ -243,7 +241,10 @@ describe("fuzzer: python targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
     fuzzResult.results.forEach((r) => {
       expect(r.harnessErrors.length).toBeGreaterThan(0);
       expect(r.harnessErrors[0].message).toContain("Python transformer error");
@@ -261,7 +262,10 @@ describe("fuzzer: python targets", () => {
       }
     ).testSync();
 
-    expect(fuzzResult.results.length).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
     fuzzResult.results.forEach((r) => {
       expect(r.harnessErrors.length).toBeGreaterThan(0);
       expect(r.harnessErrors[0].kind).toBe("timeout");

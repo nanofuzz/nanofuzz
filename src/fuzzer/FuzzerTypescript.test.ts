@@ -92,10 +92,8 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeFalsy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
   });
   it("Arrow fn void fuzz target fails if return is !==undefined", async () => {
     const fuzzResult = await new Tester(
@@ -104,10 +102,8 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeFalsy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
   });
 
   /**
@@ -121,10 +117,8 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeTruthy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
   });
   it("Arrow fn void fuzz target passes if return is undefined", async () => {
     const fuzzResult = await new Tester(
@@ -133,10 +127,8 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeTruthy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
   });
 
   /**
@@ -150,11 +142,11 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeFalsy();
-    expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
+    expect(fuzzResult.stats.outcomes.exceptions).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
   });
   it("Arrow fn void fuzz target fails if exception is thrown", async () => {
     const fuzzResult = await new Tester(
@@ -163,11 +155,11 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeFalsy();
-    expect(fuzzResult.results.every((e) => e.exception)).toBeTruthy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
+    expect(fuzzResult.stats.outcomes.exceptions).toEqual(
+      fuzzResult.stats.outcomes.total
+    );
   });
 
   /**
@@ -181,10 +173,8 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeTruthy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
   });
   it("Arrow void literal arg fuzz target", async () => {
     const fuzzResult = await new Tester(
@@ -193,10 +183,8 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeTruthy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
   });
 
   /**
@@ -209,10 +197,8 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeFalsy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
   });
   it("Arrow union arg fuzz target", async () => {
     const fuzzResult = await new Tester(
@@ -221,10 +207,8 @@ describe("fuzzer: typescript targets", () => {
       intOptions
     ).testSync();
 
-    expect(fuzzResult.results.length).not.toBe(0);
-    expect(
-      fuzzResult.results.some((e) => e.passedImplicit === "pass")
-    ).toBeFalsy();
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
   });
 
   /**

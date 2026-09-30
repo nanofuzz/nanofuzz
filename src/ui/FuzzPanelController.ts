@@ -2037,9 +2037,16 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
       // If fuzzer results are available, calculate how many tests passed, failed, etc.
       if (this._state === FuzzPanelState.done && this._results !== undefined) {
-        this._results.results.forEach((result) => {
-          resultSummary[result.category]++;
-        });
+        if (this._results.stats.outcomes.categories) {
+          for (const cat of fuzzer.FuzzResultCategoryValues) {
+            resultSummary[cat] =
+              this._results.stats.outcomes.categories[cat] ?? 0;
+          }
+        } else {
+          this._results.results.forEach((result) => {
+            resultSummary[result.category]++;
+          });
+        }
       } // if: results are available
 
       // Prettier abhorrently butchers this HTML, so disable prettier here
@@ -2775,6 +2782,16 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             validatorsUsedText = `${toolName} did not use any validators in this test. This means that all tests were categorized as passed.`;
           }
 
+          const totalReported =
+            this._results.stats.outcomes.total !== undefined
+              ? this._results.stats.outcomes.total +
+                this._results.stats.counters.inputsSkipped
+              : this._results.results.length;
+          const executedInputs =
+            this._results.stats.outcomes.total ||
+            this._results.results.length ||
+            1;
+
           // Add the run info tab to the panel
           tabs.push({
             id: "runInfo",
@@ -2799,10 +2816,8 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                 this._results.stats.counters.dupesGenerated !== 1
                   ? "were duplicates"
                   : "was a duplicate"
-              } previously tested), and reported ${
-                this._results.results.length
-              } test result${
-                this._results.results.length !== 1 ? "s" : ""
+              } previously tested), and reported ${totalReported} test result${
+                totalReported !== 1 ? "s" : ""
               } before testing ended.
             </p>
 
@@ -2822,10 +2837,10 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
             <div class="fuzzResultHeading">What was returned?</div>
             <p>
-              ${toolName} returned ${this._results.results.length} test result${
-                this._results.results.length === 1 ? "" : "s"
+              ${toolName} returned ${totalReported} test result${
+                totalReported === 1 ? "" : "s"
               }${
-                this._results.results.length
+                totalReported
                   ? (this._results.stats.counters.inputsSkipped
                       ? `, including ${this._results.stats.counters.inputsSkipped} skipped input${this._results.stats.counters.inputsSkipped === 1 ? "" : "s"}`
                       : ``) + `, which you can view in the other tabs.`
@@ -2905,18 +2920,17 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               )} ms, executing the program used ${Math.round(
                 this._results.stats.timers.put
               )} ms (${(
-                this._results.stats.timers.put / this._results.results.length
+                this._results.stats.timers.put / executedInputs
               ).toFixed(2)} ms/input),
               validating outputs used ${Math.round(
                 this._results.stats.timers.val
               )} ms (${(
-                this._results.stats.timers.val / this._results.results.length
+                this._results.stats.timers.val / executedInputs
               ).toFixed(2)} ms/input),
               and measuring execution results used ${Math.round(
                 this._results.stats.timers.measure
               )} ms (${(
-                this._results.stats.timers.measure /
-                this._results.results.length
+                this._results.stats.timers.measure / executedInputs
               ).toFixed(2)} ms/input).
               ${coverageText}
             </p>

@@ -1358,6 +1358,37 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
           inputsSkipped: 0,
           failedTests: 0,
         },
+        outcomes: {
+          total: 0,
+          oracles: {
+            heuristic: {
+              pass: 0,
+              fail: 0,
+              unknown: 0,
+            },
+            human: {
+              fail: 0,
+              unknown: 0,
+              pass: 0,
+            },
+            property: {
+              fail: 0,
+              unknown: 0,
+              pass: 0,
+            },
+          },
+          exceptions: 0,
+          timeouts: 0,
+          categories: {
+            ok: 0,
+            badValue: 0,
+            timeout: 0,
+            exception: 0,
+            skip: 0,
+            disagree: 0,
+            failure: 0,
+          },
+        },
         timers: {
           total: 21,
           compile: 5,

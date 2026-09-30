@@ -15,6 +15,7 @@ import {
   FuzzPinnedTest,
   FuzzTestResult,
   FuzzResultCategory,
+  FuzzResultCategoryValues,
   FuzzStopReason,
   FuzzStatusUpdater,
   BaseMeasureConfig,
@@ -244,6 +245,26 @@ export class Tester {
           erroredTests: 0, // updated later
           inputsSkipped: 0, // updated later
           failedTests: 0, // updated later
+        },
+        outcomes: {
+          total: 0,
+          exceptions: 0,
+          timeouts: 0,
+          categories: {
+            ok: 0,
+            badValue: 0,
+            timeout: 0,
+            exception: 0,
+            skip: 0,
+            disagree: 0,
+            failure: 0,
+          },
+          oracles: {
+            heuristic: { pass: 0, fail: 0, unknown: 0 },
+            human: { pass: 0, fail: 0, unknown: 0 },
+            property: { pass: 0, fail: 0, unknown: 0 },
+          },
+          firstFailure: undefined,
         },
         generators: {
           RandomInputGenerator: {
@@ -488,6 +509,26 @@ export class Tester {
         passedTests: 0, // number of passed tests encountered so far
         inputsSkipped: 0, // number of skipped tests so far
       },
+      outcomes: {
+        total: 0,
+        exceptions: 0,
+        timeouts: 0,
+        categories: {
+          ok: 0,
+          badValue: 0,
+          timeout: 0,
+          exception: 0,
+          skip: 0,
+          disagree: 0,
+          failure: 0,
+        },
+        oracles: {
+          heuristic: { pass: 0, fail: 0, unknown: 0 },
+          human: { pass: 0, fail: 0, unknown: 0 },
+          property: { pass: 0, fail: 0, unknown: 0 },
+        },
+        firstFailure: undefined,
+      },
       timers: {
         startTime: performance.now(), // time the tester started in this run
         startGenTime: 0, // time the tester started generating inputs in this run
@@ -651,6 +692,30 @@ export class Tester {
           this._results.stats.counters.failedTests +=
             runStats.counters.failedTests;
 
+          this._results.stats.outcomes.total += runStats.outcomes.total;
+          this._results.stats.outcomes.exceptions +=
+            runStats.outcomes.exceptions;
+          this._results.stats.outcomes.timeouts += runStats.outcomes.timeouts;
+          for (const cat of FuzzResultCategoryValues) {
+            this._results.stats.outcomes.categories[cat] +=
+              runStats.outcomes.categories[cat];
+          }
+          for (const j of ["pass", "fail", "unknown"] as const) {
+            this._results.stats.outcomes.oracles.heuristic[j] +=
+              runStats.outcomes.oracles.heuristic[j];
+            this._results.stats.outcomes.oracles.human[j] +=
+              runStats.outcomes.oracles.human[j];
+            this._results.stats.outcomes.oracles.property[j] +=
+              runStats.outcomes.oracles.property[j];
+          }
+          if (
+            !this._results.stats.outcomes.firstFailure &&
+            runStats.outcomes.firstFailure
+          ) {
+            this._results.stats.outcomes.firstFailure =
+              runStats.outcomes.firstFailure;
+          }
+
           // Update interesting inputs
           this._results.interesting.inputs =
             this._compositeInputGenerator.getInterestingInputs();
@@ -696,9 +761,7 @@ export class Tester {
           }
           update({
             msg: ` - Executed ${
-              runStats.counters.passedTests +
-              runStats.counters.failedTests +
-              runStats.counters.erroredTests
+              this._results.stats.outcomes.total
             } and skipped ${runStats.counters.inputsSkipped} tests in ${(
               performance.now() - runStats.timers.startTime
             ).toFixed(
@@ -712,38 +775,26 @@ export class Tester {
           });
           update({
             msg: ` - Total tests with exceptions: ${
-              this._results.results.filter((e) => e.exception).length
-            }, timeouts: ${this._results.results.filter((e) => e.timeout).length}, errors: ${this._results.stats.counters.erroredTests}`,
+              this._results.stats.outcomes.exceptions
+            }, timeouts: ${this._results.stats.outcomes.timeouts}, errors: ${this._results.stats.counters.erroredTests}`,
             channel: "summary",
           });
           update({
             msg: ` - Total tests where human validator passed: ${
-              this._results.results.filter((e) => e.passedHuman === "pass")
-                .length
-            }, failed: ${
-              this._results.results.filter((e) => e.passedHuman === "fail")
-                .length
-            }`,
+              this._results.stats.outcomes.oracles.human.pass
+            }, failed: ${this._results.stats.outcomes.oracles.human.fail}`,
             channel: "summary",
           });
           update({
             msg: ` - Total tests where property validator passed: ${
-              this._results.results.filter((e) => e.passedValidator === "pass")
-                .length
-            }, failed: ${
-              this._results.results.filter((e) => e.passedValidator === "fail")
-                .length
-            }`,
+              this._results.stats.outcomes.oracles.property.pass
+            }, failed: ${this._results.stats.outcomes.oracles.property.fail}`,
             channel: "summary",
           });
           update({
             msg: ` - Total tests where heuristic validator passed: ${
-              this._results.results.filter((e) => e.passedImplicit === "pass")
-                .length
-            }, failed: ${
-              this._results.results.filter((e) => e.passedImplicit === "fail")
-                .length
-            }`,
+              this._results.stats.outcomes.oracles.heuristic.pass
+            }, failed: ${this._results.stats.outcomes.oracles.heuristic.fail}`,
             channel: "summary",
           });
 
@@ -765,9 +816,7 @@ export class Tester {
             });
           }
 
-          const firstFailing = this._results.results.find(
-            (r) => r.category !== "ok" && r.category !== "skip"
-          );
+          const firstFailing = this._results.stats.outcomes.firstFailure;
           if (firstFailing) {
             update({
               msg: formatFailureBlock(
@@ -1344,7 +1393,34 @@ export class Tester {
           }
         }
 
-        // Increment the test counters
+        // Increment the test counters and outcome statistics
+        runStats.outcomes.categories[result.category]++;
+        if (result.exception) {
+          runStats.outcomes.exceptions++;
+        }
+        if (result.timeout) {
+          runStats.outcomes.timeouts++;
+        }
+        if (result.passedImplicit in runStats.outcomes.oracles.heuristic) {
+          runStats.outcomes.oracles.heuristic[result.passedImplicit]++;
+        }
+        if (result.passedHuman in runStats.outcomes.oracles.human) {
+          runStats.outcomes.oracles.human[result.passedHuman]++;
+        }
+        if (result.passedValidator in runStats.outcomes.oracles.property) {
+          runStats.outcomes.oracles.property[result.passedValidator]++;
+        }
+        if (result.category !== "skip") {
+          runStats.outcomes.total++;
+        }
+        if (
+          result.category !== "ok" &&
+          result.category !== "skip" &&
+          !runStats.outcomes.firstFailure
+        ) {
+          runStats.outcomes.firstFailure = result;
+        }
+
         switch (result.category) {
           case "ok":
             runStats.counters.passedTests++;
@@ -1708,6 +1784,19 @@ export type FuzzGeneratorStatsBase = {
     transform: number; // elapsed time to transform inputs
   };
 };
+export type FuzzOutcomeStats = {
+  total: number; // number of tests actually executed (pass + fail + error, excluding skipped)
+  exceptions: number; // total tests that encountered exceptions
+  timeouts: number; // total tests that timed out
+  categories: Record<FuzzResultCategory, number>; // total counts per category
+  oracles: {
+    heuristic: Record<Judgment, number>;
+    human: Record<Judgment, number>;
+    property: Record<Judgment, number>;
+  };
+  firstFailure?: FuzzTestResult;
+};
+
 export type FuzzTestStats = {
   timers: {
     total: number; // elapsed time the fuzzer ran
@@ -1729,6 +1818,7 @@ export type FuzzTestStats = {
     inputsSkipped: number; // number of skipped tests
     failedTests: number; // number of failed tests
   };
+  outcomes: FuzzOutcomeStats;
   generators: {
     RandomInputGenerator: FuzzGeneratorStatsBase;
     MutationInputGenerator: FuzzGeneratorStatsBase;
@@ -1777,6 +1867,7 @@ type CurrentRunStats = {
     passedTests: number; // number of passed tests so far
     inputsSkipped: number; // number of skipped tests so far
   };
+  outcomes: FuzzOutcomeStats;
   timers: {
     startTime: number; // time the tester started in this run
     startGenTime: number; // time the tester started generating new inputs
