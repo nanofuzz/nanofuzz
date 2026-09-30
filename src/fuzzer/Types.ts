@@ -202,8 +202,11 @@ export function isFuzzResultTab(obj: unknown): obj is FuzzResultTab {
 /**
  * Fuzzer Options that specify the fuzzing behavior
  */
+export type FuzzOutputResults = "all" | "failures" | "none";
+
 export type FuzzOptions = {
   outputFile?: string; // optional file to receive the fuzzing output (JSON format)
+  outputResults?: FuzzOutputResults; // test results retention mode
   argDefaults: ArgOptions; // default options for arguments
   seed?: string; // optional seed for pseudo-random number generator
   maxTests: number; // number of fuzzing tests to execute (>= 0)

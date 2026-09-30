@@ -4080,6 +4080,7 @@ function _applyArgOverrides(
  */
 export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
   return {
+    outputResults: "all",
     argDefaults: fuzzer.ArgDef.getDefaultOptions(),
     maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
     fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 100),
@@ -4128,6 +4129,7 @@ export const normalizeFuzzOptions = (
   return {
     ...dft,
     ...options,
+    outputResults: options.outputResults ?? "all",
     argDefaults: fuzzer.ArgDef.normalizeOptions(options.argDefaults),
     generators: options.generators
       ? { ...dft.generators, ...options.generators }

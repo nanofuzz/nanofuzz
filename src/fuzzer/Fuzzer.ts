@@ -1474,7 +1474,17 @@ export class Tester {
         }
 
         // Store the result for this iteration
-        this._results.results.push(result);
+        const retention = this._options.outputResults ?? "all";
+        const shouldRetain =
+          retention === "all" ||
+          Boolean(result.inputGenerated?.injected) ||
+          (retention === "failures" &&
+            result.category !== "ok" &&
+            result.category !== "skip");
+
+        if (shouldRetain) {
+          this._results.results.push(result);
+        }
         if (onResultFn) {
           onResultFn(deepFreeze(result));
         }
@@ -1607,6 +1617,8 @@ const isOptionValid = (options: FuzzOptions): boolean => {
     options.maxTests >= 0 &&
     options.maxDupeInputs >= 0 &&
     options.maxFailures >= 0 &&
+    (options.outputResults === undefined ||
+      ["all", "failures", "none"].includes(options.outputResults)) &&
     ArgDef.isOptionValid(options.argDefaults) &&
     typeof options.generators === "object" &&
     "RandomInputGenerator" in options.generators &&

@@ -1434,9 +1434,10 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       const results = resultsStub();
       const before = {
         results: results.results,
-        counters: { ...results.stats.counters },
+        counters: structuredClone(results.stats.counters),
         outcomes: structuredClone(results.stats.outcomes),
-        timers: { ...results.stats.timers },
+        timers: structuredClone(results.stats.timers),
+        generators: structuredClone(results.stats.generators),
       };
 
       measure.onRunEnd(results);
@@ -1454,6 +1455,7 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       expect(results.stats.counters).toEqual(before.counters);
       expect(results.stats.outcomes).toEqual(before.outcomes);
       expect(results.stats.timers).toEqual(before.timers);
+      expect(results.stats.generators).toEqual(before.generators);
     });
 
     it("static coverage: reports top-level statements as well as function statements", async () => {
