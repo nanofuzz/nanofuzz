@@ -1172,6 +1172,37 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
           inputsSkipped: 0,
           failedTests: 0,
         },
+        outcomes: {
+          total: 0,
+          oracles: {
+            heuristic: {
+              pass: 0,
+              fail: 0,
+              unknown: 0,
+            },
+            human: {
+              fail: 0,
+              unknown: 0,
+              pass: 0,
+            },
+            property: {
+              fail: 0,
+              unknown: 0,
+              pass: 0,
+            },
+          },
+          exceptions: 0,
+          timeouts: 0,
+          categories: {
+            ok: 0,
+            badValue: 0,
+            timeout: 0,
+            exception: 0,
+            skip: 0,
+            disagree: 0,
+            failure: 0,
+          },
+        },
         timers: {
           total: 21,
           compile: 5,
@@ -1217,8 +1248,10 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       const results = resultsStub();
       const before = {
         results: results.results,
-        counters: { ...results.stats.counters },
-        timers: { ...results.stats.timers },
+        counters: structuredClone(results.stats.counters),
+        outcomes: structuredClone(results.stats.outcomes),
+        timers: structuredClone(results.stats.timers),
+        generators: structuredClone(results.stats.generators),
       };
 
       measure.onRunEnd(results);
@@ -1234,7 +1267,9 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       ]);
       expect(results.results).toBe(before.results);
       expect(results.stats.counters).toEqual(before.counters);
+      expect(results.stats.outcomes).toEqual(before.outcomes);
       expect(results.stats.timers).toEqual(before.timers);
+      expect(results.stats.generators).toEqual(before.generators);
     });
 
     it("static coverage: reports total static statements, functions, and branches before and after test executions", async () => {

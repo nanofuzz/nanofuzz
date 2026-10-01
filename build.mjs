@@ -148,7 +148,7 @@ await esbuild.build({
   minify: true,
   format: "esm", // for web-tree-sitter (was iife)
   sourcemap: "both",
-  external: ["module", "fs/promises", "node:fs", "node:path"],
+  external: ["module", "fs/promises", "path"],
   define: {
     "process.env.BUILD_TARGET": JSON.stringify("vscode-webview"),
     "process.env.NANOFUZZ_VERSION": version,

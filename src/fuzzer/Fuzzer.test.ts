@@ -58,7 +58,7 @@ describe("fuzzer: general", () => {
       options
     ).testSync();
 
-    expect(results.results.length).toBeGreaterThan(0);
+    expect(results.stats.outcomes.total).toBeGreaterThan(0);
     expect(results.stopReason).toBe("maxTests");
   });
 
@@ -230,7 +230,7 @@ describe("fuzzer: general", () => {
       );
 
       expect(res.stopReason).toBe(FuzzStopReason.PAUSE);
-      expect(res.results.length).toBe(0);
+      expect(res.stats.outcomes.total).toBe(0);
     } finally {
       try {
         fs.rmSync(tmpdir, {

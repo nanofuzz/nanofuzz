@@ -106,6 +106,12 @@ function createProgram(): Commander.Command {
       parseIntArgGeZero,
       2000
     )
+    .option(
+      `--output-results <all|failures|none>`,
+      `Output results mode: 'failures' (default), 'all', 'none'`,
+      parseOutputResults,
+      "failures"
+    )
 
     // ------------------------------- Transformers ------------------------------ //
 
@@ -587,6 +593,11 @@ export async function runCliInProcess(
       useImplicit: options["heuristicOracle"],
       useHuman: options["exampleOracle"],
       useProperty: options["propertyOracle"],
+      outputResults: getEffectiveOption(
+        "outputResults",
+        "outputResults",
+        options["outputResults"] ?? "failures"
+      ),
       outputFile: outfile,
       measures: {
         CoverageMeasure: {
@@ -687,6 +698,16 @@ function parseCigScheduler(
     `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin, ucb1, thompson, ewma, mopt`
   );
 } // fn: parseCigScheduler
+
+function parseOutputResults(value: string, _previous: string): string {
+  const allowed = ["all", "failures", "none"];
+  if (!allowed.includes(value)) {
+    throw new Commander.InvalidArgumentError(
+      `Invalid output results mode '${value}'. Allowed: ${allowed.join(", ")}`
+    );
+  }
+  return value;
+} // fn: parseOutputResults
 
 function parseAiCacheMode(value: string, _previous: string): string {
   const allowed = [

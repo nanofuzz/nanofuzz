@@ -15,8 +15,10 @@ import {
   FuzzPinnedTest,
   FuzzTestResult,
   FuzzResultCategory,
+  FuzzResultCategoryValues,
   FuzzStopReason,
   FuzzStatusUpdater,
+  FuzzResultCallback,
   BaseMeasureConfig,
   FuzzBusyStatusMessage,
   FuzzerFocus,
@@ -245,6 +247,26 @@ export class Tester {
           inputsSkipped: 0, // updated later
           failedTests: 0, // updated later
         },
+        outcomes: {
+          total: 0,
+          exceptions: 0,
+          timeouts: 0,
+          categories: {
+            ok: 0,
+            badValue: 0,
+            timeout: 0,
+            exception: 0,
+            skip: 0,
+            disagree: 0,
+            failure: 0,
+          },
+          oracles: {
+            heuristic: { pass: 0, fail: 0, unknown: 0 },
+            human: { pass: 0, fail: 0, unknown: 0 },
+            property: { pass: 0, fail: 0, unknown: 0 },
+          },
+          firstFailure: undefined,
+        },
         generators: {
           RandomInputGenerator: {
             timers: {
@@ -349,17 +371,21 @@ export class Tester {
    *
    * @param `injectTests` tests to inject
    * @param `mode` testing mode
+   * @param `updateFn` status update callback
+   * @param `cancelFn` cancel checking callback
+   * @param `onResultFn` callback called for each test result produced
    * @returns `FuzzTestResults`
    */
   public async testSync(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean
+    cancelFn?: () => boolean,
+    onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
     try {
-      const run = this._run(injectTests, mode, updateFn, cancelFn);
+      const run = this._run(injectTests, mode, updateFn, cancelFn, onResultFn);
       while (!result) {
         result = (await run.next()).value;
       }
@@ -381,17 +407,19 @@ export class Tester {
    * @param `callbackFn` called when testing completes
    * @param `statusFn` called to report status updates
    * @param `cancelFn` called to check cancel status
+   * @param `onResultFn` callback called for each test result produced
    */
   public async testAsync(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     callbackFn: (result: FuzzTestResults | Error) => void,
     statusFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean
+    cancelFn?: () => boolean,
+    onResultFn?: FuzzResultCallback
   ): Promise<void> {
     this._runBatchAsync(
       callbackFn,
-      this._run(injectTests, mode, statusFn, cancelFn)
+      this._run(injectTests, mode, statusFn, cancelFn, onResultFn)
     );
   } // fn: testAsync
 
@@ -440,13 +468,15 @@ export class Tester {
    * @param `mode` tester mode
    * @param `updateFn` called to report status updates
    * @param `cancelFn` called to check cancel status
+   * @param `onResultFn` called for each test result produced
    * @returns test results
    */
   protected async *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean
+    cancelFn?: () => boolean,
+    onResultFn?: FuzzResultCallback
   ): AsyncGenerator<
     FuzzTestResults | undefined,
     FuzzTestResults,
@@ -487,6 +517,26 @@ export class Tester {
         failedTests: 0, // number of failed tests encountered so far
         passedTests: 0, // number of passed tests encountered so far
         inputsSkipped: 0, // number of skipped tests so far
+      },
+      outcomes: {
+        total: 0,
+        exceptions: 0,
+        timeouts: 0,
+        categories: {
+          ok: 0,
+          badValue: 0,
+          timeout: 0,
+          exception: 0,
+          skip: 0,
+          disagree: 0,
+          failure: 0,
+        },
+        oracles: {
+          heuristic: { pass: 0, fail: 0, unknown: 0 },
+          human: { pass: 0, fail: 0, unknown: 0 },
+          property: { pass: 0, fail: 0, unknown: 0 },
+        },
+        firstFailure: undefined,
       },
       timers: {
         startTime: performance.now(), // time the tester started in this run
@@ -671,6 +721,30 @@ export class Tester {
           this._results.stats.counters.failedTests +=
             runStats.counters.failedTests;
 
+          this._results.stats.outcomes.total += runStats.outcomes.total;
+          this._results.stats.outcomes.exceptions +=
+            runStats.outcomes.exceptions;
+          this._results.stats.outcomes.timeouts += runStats.outcomes.timeouts;
+          for (const cat of FuzzResultCategoryValues) {
+            this._results.stats.outcomes.categories[cat] +=
+              runStats.outcomes.categories[cat];
+          }
+          for (const j of ["pass", "fail", "unknown"] as const) {
+            this._results.stats.outcomes.oracles.heuristic[j] +=
+              runStats.outcomes.oracles.heuristic[j];
+            this._results.stats.outcomes.oracles.human[j] +=
+              runStats.outcomes.oracles.human[j];
+            this._results.stats.outcomes.oracles.property[j] +=
+              runStats.outcomes.oracles.property[j];
+          }
+          if (
+            !this._results.stats.outcomes.firstFailure &&
+            runStats.outcomes.firstFailure
+          ) {
+            this._results.stats.outcomes.firstFailure =
+              runStats.outcomes.firstFailure;
+          }
+
           // Update interesting inputs
           this._results.interesting.inputs =
             this._compositeInputGenerator.getInterestingInputs();
@@ -716,9 +790,7 @@ export class Tester {
           }
           update({
             msg: ` - Executed ${
-              runStats.counters.passedTests +
-              runStats.counters.failedTests +
-              runStats.counters.erroredTests
+              this._results.stats.outcomes.total
             } and skipped ${runStats.counters.inputsSkipped} tests in ${(
               performance.now() - runStats.timers.startTime
             ).toFixed(
@@ -732,49 +804,40 @@ export class Tester {
           });
           update({
             msg: ` - Total tests with exceptions: ${
-              this._results.results.filter((e) => e.exception).length
-            }, timeouts: ${this._results.results.filter((e) => e.timeout).length}, errors: ${this._results.stats.counters.erroredTests}`,
+              this._results.stats.outcomes.exceptions
+            }, timeouts: ${this._results.stats.outcomes.timeouts}, errors: ${this._results.stats.counters.erroredTests}`,
             channel: "summary",
           });
           update({
             msg: ` - Total tests where human validator passed: ${
-              this._results.results.filter((e) => e.passedHuman === "pass")
-                .length
-            }, failed: ${
-              this._results.results.filter((e) => e.passedHuman === "fail")
-                .length
-            }`,
+              this._results.stats.outcomes.oracles.human.pass
+            }, failed: ${this._results.stats.outcomes.oracles.human.fail}`,
             channel: "summary",
           });
           update({
             msg: ` - Total tests where property validator passed: ${
-              this._results.results.filter((e) => e.passedValidator === "pass")
-                .length
-            }, failed: ${
-              this._results.results.filter((e) => e.passedValidator === "fail")
-                .length
-            }`,
+              this._results.stats.outcomes.oracles.property.pass
+            }, failed: ${this._results.stats.outcomes.oracles.property.fail}`,
             channel: "summary",
           });
           update({
             msg: ` - Total tests where heuristic validator passed: ${
-              this._results.results.filter((e) => e.passedImplicit === "pass")
-                .length
-            }, failed: ${
-              this._results.results.filter((e) => e.passedImplicit === "fail")
-                .length
-            }`,
+              this._results.stats.outcomes.oracles.heuristic.pass
+            }, failed: ${this._results.stats.outcomes.oracles.heuristic.fail}`,
             channel: "summary",
           });
 
           // Persist to outfile, if requested
           if (this._options.outputFile) {
-            JSONN.toFile(this._options.outputFile, this._results, (k, v) =>
-              k === "CodeCoverageMeasure"
-                ? covStats
-                : k === "coverageMeasure" && isKeyedObject(v)
-                  ? { current: v.current }
-                  : v
+            JSONN.toFile(
+              this._options.outputFile,
+              this._results,
+              (k: string, v: unknown) =>
+                k === "CodeCoverageMeasure"
+                  ? covStats
+                  : k === "coverageMeasure" && isKeyedObject(v)
+                    ? { current: v.current }
+                    : v
             );
             update({
               msg: ` - Test results: ${this._options.outputFile}`,
@@ -782,9 +845,7 @@ export class Tester {
             });
           }
 
-          const firstFailing = this._results.results.find(
-            (r) => r.category !== "ok" && r.category !== "skip"
-          );
+          const firstFailing = this._results.stats.outcomes.firstFailure;
           if (firstFailing) {
             update({
               msg: formatFailureBlock(
@@ -1025,7 +1086,7 @@ export class Tester {
               () =>
                 runner.run(
                   deepFreeze(result.input.map((e) => e.value)),
-                  Math.max(this._options.fnTimeout, 1)
+                  Math.max(this._options.fnTimeout, 0)
                 ),
               getRemainingSuiteTime(),
               getEffectiveCancelFn()
@@ -1129,7 +1190,7 @@ export class Tester {
                     exception: result.exception,
                     timeout: result.timeout,
                   }),
-                  Math.max(this._options.fnTimeout, 1),
+                  Math.max(this._options.fnTimeout, 0),
                   getRemainingSuiteTime(),
                   getEffectiveCancelFn()
                 );
@@ -1264,7 +1325,34 @@ export class Tester {
           }
         }
 
-        // Increment the test counters
+        // Increment the test counters and outcome statistics
+        runStats.outcomes.categories[result.category]++;
+        if (result.exception) {
+          runStats.outcomes.exceptions++;
+        }
+        if (result.timeout) {
+          runStats.outcomes.timeouts++;
+        }
+        if (result.passedImplicit in runStats.outcomes.oracles.heuristic) {
+          runStats.outcomes.oracles.heuristic[result.passedImplicit]++;
+        }
+        if (result.passedHuman in runStats.outcomes.oracles.human) {
+          runStats.outcomes.oracles.human[result.passedHuman]++;
+        }
+        if (result.passedValidator in runStats.outcomes.oracles.property) {
+          runStats.outcomes.oracles.property[result.passedValidator]++;
+        }
+        if (result.category !== "skip") {
+          runStats.outcomes.total++;
+        }
+        if (
+          result.category !== "ok" &&
+          result.category !== "skip" &&
+          !runStats.outcomes.firstFailure
+        ) {
+          runStats.outcomes.firstFailure = result;
+        }
+
         switch (result.category) {
           case "ok":
             runStats.counters.passedTests++;
@@ -1282,9 +1370,6 @@ export class Tester {
             runStats.counters.failedTests++;
             break;
         }
-
-        // Store the result for this iteration
-        this._results.results.push(result);
 
         // Take measurements for this test run
         {
@@ -1309,6 +1394,22 @@ export class Tester {
           if (genStats) {
             genStats.timers.measure += measureTime;
           }
+        }
+
+        // Store the result for this iteration
+        const retention = this._options.outputResults ?? "all";
+        const shouldRetain =
+          retention === "all" ||
+          Boolean(result.inputGenerated?.injected) ||
+          (retention === "failures" &&
+            result.category !== "ok" &&
+            result.category !== "skip");
+
+        if (shouldRetain) {
+          this._results.results.push(result);
+        }
+        if (onResultFn) {
+          onResultFn(deepFreeze(result));
         }
 
         yield undefined;
@@ -1439,6 +1540,8 @@ const isOptionValid = (options: FuzzOptions): boolean => {
     options.maxTests >= 0 &&
     options.maxDupeInputs >= 0 &&
     options.maxFailures >= 0 &&
+    (options.outputResults === undefined ||
+      ["all", "failures", "none"].includes(options.outputResults)) &&
     ArgDef.isOptionValid(options.argDefaults) &&
     typeof options.generators === "object" &&
     "RandomInputGenerator" in options.generators &&
@@ -1628,6 +1731,19 @@ export type FuzzGeneratorStatsBase = {
     transform: number; // elapsed time to transform inputs
   };
 };
+export type FuzzOutcomeStats = {
+  total: number; // number of tests actually executed (pass + fail + error, excluding skipped)
+  exceptions: number; // total tests that encountered exceptions
+  timeouts: number; // total tests that timed out
+  categories: Record<FuzzResultCategory, number>; // total counts per category
+  oracles: {
+    heuristic: Record<Judgment, number>;
+    human: Record<Judgment, number>;
+    property: Record<Judgment, number>;
+  };
+  firstFailure?: FuzzTestResult;
+};
+
 export type FuzzTestStats = {
   timers: {
     total: number; // elapsed time the fuzzer ran
@@ -1649,6 +1765,7 @@ export type FuzzTestStats = {
     inputsSkipped: number; // number of skipped tests
     failedTests: number; // number of failed tests
   };
+  outcomes: FuzzOutcomeStats;
   generators: {
     RandomInputGenerator: FuzzGeneratorStatsBase;
     MutationInputGenerator: FuzzGeneratorStatsBase;
@@ -1697,6 +1814,7 @@ type CurrentRunStats = {
     passedTests: number; // number of passed tests so far
     inputsSkipped: number; // number of skipped tests so far
   };
+  outcomes: FuzzOutcomeStats;
   timers: {
     startTime: number; // time the tester started in this run
     startGenTime: number; // time the tester started generating new inputs

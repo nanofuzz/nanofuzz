@@ -177,8 +177,8 @@ describe("cli:", () => {
     expect(outputData.env.options.seed).toBe(seed);
 
     // Verify test results were produced
-    expect(outputData.results.length).toBeGreaterThan(0);
-    expect(outputData.results.length).toBeLessThanOrEqual(maxTests);
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
+    expect(outputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
   });
 
   it("--output-file: check matching parameter set for Python", async () => {
@@ -220,8 +220,8 @@ describe("cli:", () => {
     expect(pyOutputData.env.options.seed).toBe(seed);
 
     // Verify test results were produced
-    expect(pyOutputData.results.length).toBeGreaterThan(0);
-    expect(pyOutputData.results.length).toBeLessThanOrEqual(maxTests);
+    expect(pyOutputData.stats.outcomes.total).toBeGreaterThan(0);
+    expect(pyOutputData.stats.outcomes.total).toBeLessThanOrEqual(maxTests);
   });
 
   it("--output-file: writes packed binary output for .msgpack extension", async () => {
@@ -248,7 +248,7 @@ describe("cli:", () => {
     const outputData = JSONN.unpack<FuzzTestResults>(binBuffer);
 
     expect(outputData.toolVersion).toBeDefined();
-    expect(outputData.results.length).toBeGreaterThan(0);
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
     expect(outputData.env.options.seed).toBe(seed);
   });
 
@@ -276,7 +276,7 @@ describe("cli:", () => {
     const outputData = JSONN.parse<FuzzTestResults>(textContent);
 
     expect(outputData.toolVersion).toBeDefined();
-    expect(outputData.results.length).toBeGreaterThan(0);
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
     expect(outputData.env.options.seed).toBe(seed);
   });
 
@@ -322,7 +322,7 @@ describe("cli:", () => {
       outputData.env.options.generators.RandomInputGenerator.enabled
     ).toBeTrue();
 
-    expect(outputData.results.length).toBeGreaterThan(0);
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
   });
 
   it("--no-random-input-generator", async () => {
@@ -442,7 +442,7 @@ describe("cli:", () => {
       fs.readFileSync(outputFile, "utf8")
     );
 
-    expect(outputData.results.length).toBeGreaterThan(0);
+    expect(outputData.stats.outcomes.total).toBeGreaterThan(0);
 
     // Verify composite generator config recorded in output stats
     const cigStats = outputData.stats.generators.CompositeInputGenerator;
@@ -572,6 +572,8 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFileMab,
+      "--output-results",
+      "all",
       "--cig-stats-checkpoints",
       "--cig-scheduler-mab-exploration",
       "0.1",
@@ -592,6 +594,8 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFileRandom,
+      "--output-results",
+      "all",
       "--cig-scheduler",
       "random",
       "--cig-stats-checkpoints",
@@ -612,6 +616,8 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFileRr,
+      "--output-results",
+      "all",
       "--cig-scheduler",
       "round-robin",
       "--cig-stats-checkpoints",
@@ -632,6 +638,8 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFileUcb,
+      "--output-results",
+      "all",
       "--cig-scheduler",
       "ucb1",
       "--cig-scheduler-ucb1-exploration",
@@ -657,6 +665,8 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFileThompson,
+      "--output-results",
+      "all",
       "--cig-scheduler",
       "thompson",
       "--cig-scheduler-thompson-prior-variance",
@@ -679,6 +689,8 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFileEwma,
+      "--output-results",
+      "all",
       "--cig-scheduler",
       "ewma",
       "--cig-scheduler-ewma-alpha",
@@ -703,6 +715,8 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFileMopt,
+      "--output-results",
+      "all",
       "--cig-scheduler",
       "mopt",
       "--cig-scheduler-mopt-swarm-size",
@@ -1079,6 +1093,75 @@ def ${targetFn}(n: int) -> int:
         }
       }
     }
+  });
+
+  it("--output-results: verifies retention modes (all, failures, none)", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testStandardVoidLiteralArgs"; // passing target
+
+    // 1. Mode: all -> records passing results
+    const outFileAll = path.join(tmpDir, "out_results_all.json5");
+    const resAll = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outFileAll,
+      "--output-results",
+      "all",
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_ret_all",
+    ]);
+    expect(resAll.status).toBe(0);
+    const dataAll = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outFileAll, "utf8")
+    );
+    expect(dataAll.results.length).toBe(5);
+
+    // 2. Mode: failures (default) -> passing target records 0 results
+    const outFileFailures = path.join(tmpDir, "out_results_failures.json5");
+    const resFailures = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outFileFailures,
+      "--output-results",
+      "failures",
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_ret_failures",
+    ]);
+    expect(resFailures.status).toBe(0);
+    const dataFailures = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outFileFailures, "utf8")
+    );
+    expect(dataFailures.results.length).toBe(0);
+    expect(dataFailures.stats.outcomes.total).toBe(5);
+
+    // 3. Mode: none -> records 0 results even with failures
+    const failTargetFn = "testStandardVoidReturnException";
+    const outFileNone = path.join(tmpDir, "out_results_none.json5");
+    const resNone = await runCli([
+      targetFile,
+      failTargetFn,
+      "--output-file",
+      outFileNone,
+      "--output-results",
+      "none",
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_ret_none",
+    ]);
+    expect(resNone.status).toBe(1);
+    const dataNone = JSON5.parse<FuzzTestResults>(
+      fs.readFileSync(outFileNone, "utf8")
+    );
+    expect(dataNone.results.length).toBe(0);
+    expect(dataNone.stats.outcomes.total).toBe(5);
+    expect(dataNone.stats.outcomes.exceptions).toBe(5);
   });
   it("--max-failures 1: badValue via Property Validator with shrinking", async () => {
     const tsFile = path.join(tmpDir, "badvalue_prop_shrink.ts");
@@ -1728,6 +1811,8 @@ export function myPutTransformer(x: number): [number] {
       targetFn,
       "--output-file",
       outputFile,
+      "--output-results",
+      "all",
       "--no-property-oracle",
       "--max-tests",
       "1",

@@ -621,6 +621,37 @@ export function x(
             inputsSkipped: 0,
             failedTests: 0,
           },
+          outcomes: {
+            total: 0,
+            oracles: {
+              heuristic: {
+                pass: 0,
+                fail: 0,
+                unknown: 0,
+              },
+              human: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+              property: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+            },
+            exceptions: 0,
+            timeouts: 0,
+            categories: {
+              ok: 0,
+              badValue: 0,
+              timeout: 0,
+              exception: 0,
+              skip: 0,
+              disagree: 0,
+              failure: 0,
+            },
+          },
           timers: {
             total: 10,
             compile: 0,
@@ -968,6 +999,37 @@ export function x(): number {
             passedTests: 1,
             inputsSkipped: 0,
             failedTests: 0,
+          },
+          outcomes: {
+            total: 0,
+            oracles: {
+              heuristic: {
+                pass: 0,
+                fail: 0,
+                unknown: 0,
+              },
+              human: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+              property: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+            },
+            exceptions: 0,
+            timeouts: 0,
+            categories: {
+              ok: 0,
+              badValue: 0,
+              timeout: 0,
+              exception: 0,
+              skip: 0,
+              disagree: 0,
+              failure: 0,
+            },
           },
           timers: {
             total: 10,

@@ -389,7 +389,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
     const transformerResult = await this._transformRunner.run(
       structuredClone(untransformedCandidate.value.map((e) => e.value)),
-      Math.max(this._fnTimeout, 1)
+      Math.max(this._fnTimeout, 0)
     );
 
     if (transformerResult.result.tag === "value") {
@@ -785,10 +785,10 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    */
   public override onRunStart(
     gen: boolean,
-    injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[],
-    transformRunner: AbstractRunner | undefined,
-    fnTimeout: number,
-    maxDupeInputs: number
+    injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[] = [],
+    transformRunner?: AbstractRunner,
+    fnTimeout: number = 0,
+    maxDupeInputs: number = 0
   ): void {
     this._dupesSequential = 0;
     this._dupesGenerated = 0;

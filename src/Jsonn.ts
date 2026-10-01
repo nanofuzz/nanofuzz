@@ -1,6 +1,4 @@
 import * as JSON5 from "json5";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import {
   encode as msgpackEncode,
   decode as msgpackDecode,
@@ -186,6 +184,24 @@ export function unpack<T>(
 // File I/O
 // -----------------------------------------------------------------------------
 
+function getFs(): typeof import("node:fs") {
+  const req = typeof require !== "undefined" ? require : undefined;
+  if (!req) {
+    throw new Error("File I/O is not supported in this environment");
+  }
+  const mod = "fs";
+  return req(mod);
+}
+
+function getPath(): typeof import("node:path") {
+  const req = typeof require !== "undefined" ? require : undefined;
+  if (!req) {
+    throw new Error("File I/O is not supported in this environment");
+  }
+  const mod = "path";
+  return req(mod);
+}
+
 /**
  * Serializes and writes a JavaScript value to disk, automatically selecting
  * human-readable text (JSONN formatted with indentation) or binary MsgPack
@@ -205,15 +221,17 @@ export function toFile(
     | undefined,
   space: string | number = 2
 ): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  const nodeFs = getFs();
+  const nodePath = getPath();
+  const dir = nodePath.dirname(filePath);
+  if (!nodeFs.existsSync(dir)) {
+    nodeFs.mkdirSync(dir, { recursive: true });
   }
 
   if (isTextFilename(filePath)) {
-    fs.writeFileSync(filePath, stringify(value, replacer, space), "utf-8");
+    nodeFs.writeFileSync(filePath, stringify(value, replacer, space), "utf-8");
   } else {
-    fs.writeFileSync(filePath, pack(value, replacer));
+    nodeFs.writeFileSync(filePath, pack(value, replacer));
   }
 } // fn: toFile()
 
@@ -230,11 +248,12 @@ export function fromFile<T = unknown>(
   filePath: string,
   reviver?: (this: unknown, key: string, value: unknown) => unknown
 ): T {
+  const nodeFs = getFs();
   if (isTextFilename(filePath)) {
-    const raw = fs.readFileSync(filePath, "utf-8");
+    const raw = nodeFs.readFileSync(filePath, "utf-8");
     return parse<T>(raw, reviver);
   } else {
-    const raw = fs.readFileSync(filePath);
+    const raw = nodeFs.readFileSync(filePath);
     return unpack<T>(raw, reviver);
   }
 } // fn: fromFile()

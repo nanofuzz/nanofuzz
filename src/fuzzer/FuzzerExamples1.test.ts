@@ -14,8 +14,8 @@ describe("fuzzer: study examples 1-7", () => {
           "minValue",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 02 - getSortSetting", async () => {
@@ -26,8 +26,8 @@ describe("fuzzer: study examples 1-7", () => {
           "getSortSetting",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 03 - totalDinnerExpenses", async () => {
@@ -38,8 +38,8 @@ describe("fuzzer: study examples 1-7", () => {
           "totalDinnerExpenses",
           floatOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 04 - maxOfArray", async () => {
@@ -49,8 +49,8 @@ describe("fuzzer: study examples 1-7", () => {
           ...intOptions,
           argDefaults: { ...intOptions.argDefaults, anyDims: 1 },
         }).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 05 - getRandomNumber", async () => {
@@ -61,8 +61,8 @@ describe("fuzzer: study examples 1-7", () => {
           "getRandomNumber",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 06 - getZero", async () => {
@@ -73,8 +73,8 @@ describe("fuzzer: study examples 1-7", () => {
           "getZero",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 07 - sortByWinLoss", async () => {
@@ -85,7 +85,7 @@ describe("fuzzer: study examples 1-7", () => {
           "sortByWinLoss",
           intOptions
         ).testSync()
-      ).results.length
-    ).not.toBe(0);
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 });

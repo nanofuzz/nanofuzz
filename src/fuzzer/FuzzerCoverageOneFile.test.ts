@@ -1,5 +1,6 @@
 import { Tester } from "./Fuzzer";
 import { intOptions, initParser } from "./FuzzerTestHelper";
+import { FuzzTestResult } from "./Types";
 
 const coverageSearchSeeds = [
   "qwertyuiop" /*, "coverage", "needle", "mutation"*/,
@@ -22,6 +23,7 @@ describe("fuzzer: coverageOneFile benchmark", () => {
     }[] = [];
 
     for (const seed of coverageSearchSeeds) {
+      const capturedResults: FuzzTestResult[] = [];
       const fuzzResult = await new Tester(
         "./test_fixtures/Fuzzer.testfixtures.ts",
         "testCoverageOneFile",
@@ -40,21 +42,21 @@ describe("fuzzer: coverageOneFile benchmark", () => {
             },
           },
         }
-      ).testSync();
+      ).testSync([], { gen: true }, undefined, undefined, (r) =>
+        capturedResults.push(r)
+      );
 
-      expect(fuzzResult.results.length).toBeGreaterThan(0);
-      expect(
-        fuzzResult.results.every((e) => e.passedImplicit === "pass")
-      ).toBeTruthy();
-      expect(
-        fuzzResult.results.some((e) =>
-          e.passedValidators.some((v) => v === "pass")
-        )
-      ).toBeTruthy();
+      expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+      expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toEqual(
+        fuzzResult.stats.outcomes.total
+      );
+      expect(fuzzResult.stats.outcomes.oracles.property.pass).toBeGreaterThan(
+        0
+      );
 
       runs.push({
         seed,
-        best: fuzzResult.results.reduce((max, e) => {
+        best: capturedResults.reduce((max, e) => {
           const value = String(e.input[0].value);
           let matched = 0;
           for (let i = 0; i < needle.length; i++) {
@@ -62,8 +64,8 @@ describe("fuzzer: coverageOneFile benchmark", () => {
           }
           return Math.max(max, matched);
         }, 0),
-        solved: fuzzResult.results.some((e) => e.input[0].value === needle),
-        validatorFailed: fuzzResult.results.some((e) =>
+        solved: capturedResults.some((e) => e.input[0].value === needle),
+        validatorFailed: capturedResults.some((e) =>
           e.passedValidators.some((v) => v === "fail")
         ),
       });
