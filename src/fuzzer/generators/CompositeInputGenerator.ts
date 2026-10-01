@@ -785,10 +785,10 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    */
   public override onRunStart(
     gen: boolean,
-    injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[],
-    transformRunner: AbstractRunner | undefined,
-    fnTimeout: number,
-    maxDupeInputs: number
+    injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[] = [],
+    transformRunner?: AbstractRunner,
+    fnTimeout: number = 0,
+    maxDupeInputs: number = 0
   ): void {
     this._dupesSequential = 0;
     this._dupesGenerated = 0;
