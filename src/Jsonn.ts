@@ -219,7 +219,7 @@ export function toFile(
     | ((this: unknown, key: string, value: unknown) => unknown)
     | null
     | undefined,
-  space: string | number = 2
+  space: string | number = 0
 ): void {
   const nodeFs = getFs();
   const nodePath = getPath();

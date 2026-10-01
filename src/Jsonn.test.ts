@@ -352,7 +352,7 @@ describe("JSONN: ", () => {
 
       // Ensure file content is text
       const rawText = fs.readFileSync(filePath, "utf-8");
-      expect(rawText).toContain("name: 'test'");
+      expect(rawText).toContain("name:'test'");
 
       // fromFile round-trip
       const loaded = JSONN.fromFile<typeof sample>(filePath);
