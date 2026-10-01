@@ -1030,7 +1030,7 @@ export class Tester {
               () =>
                 transformRunner.run(
                   deepFreeze(result.inputGenerated.value.map((e) => e.value)),
-                  Math.max(this._options.fnTimeout, 1)
+                  Math.max(this._options.fnTimeout, 0)
                 ),
               getRemainingSuiteTime(),
               getEffectiveCancelFn()
@@ -1160,7 +1160,7 @@ export class Tester {
               () =>
                 runner.run(
                   deepFreeze(result.input.map((e) => e.value)),
-                  Math.max(this._options.fnTimeout, 1)
+                  Math.max(this._options.fnTimeout, 0)
                 ),
               getRemainingSuiteTime(),
               getEffectiveCancelFn()
@@ -1264,7 +1264,7 @@ export class Tester {
                     exception: result.exception,
                     timeout: result.timeout,
                   }),
-                  Math.max(this._options.fnTimeout, 1),
+                  Math.max(this._options.fnTimeout, 0),
                   getRemainingSuiteTime(),
                   getEffectiveCancelFn()
                 );
