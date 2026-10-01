@@ -466,8 +466,7 @@ async function main() {
         break;
       case "config.updated": {
         getElementByIdOrThrow("llm-model").innerText =
-          data.config.ai.provider === "disabled" ||
-          data.config.ai.model === undefined
+          data.config.ai.provider === "disabled" || !data.config.ai.model
             ? "disabled"
             : data.config.ai.model;
         break;

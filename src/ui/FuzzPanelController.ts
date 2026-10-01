@@ -2035,6 +2035,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         ? `Heuristic validator (for void functions). Fails: timeout, exception, values!==${heuristicFailValues}`
         : `Heuristic validator. Fails: timeout, exception, ${heuristicFailValues}`;
 
+      const aiProvider = Config.get<string>("nanofuzz.ai.provider", "disabled");
+      const aiModel = Config.get<string>("nanofuzz.ai.model", "");
+      const aiModelDisplay =
+        aiProvider === "disabled" || !aiModel ? "disabled" : aiModel;
+
       // If fuzzer results are available, calculate how many tests passed, failed, etc.
       if (this._state === FuzzPanelState.done && this._results !== undefined) {
         if (this._results.stats.outcomes.categories) {
@@ -2204,7 +2209,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-AiInputGenerator-enabled" ${this._fuzzEnv.options.generators.AiInputGenerator.enabled ? "checked" : ""}>
                       <span> 
-                        With AI (<span class="editorFont" id="llm-model">...</span>)
+                        With AI (<span class="editorFont" id="llm-model">${htmlEscape(aiModelDisplay)}</span>)
                         <vscode-link id="open.settings.ai">change</vscode-link>
                       </span>
                     </vscode-checkbox>
