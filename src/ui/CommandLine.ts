@@ -20,6 +20,7 @@ import path from "node:path";
 import * as JSONN from "../Jsonn";
 import { isError } from "../fuzzer/Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
+import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
 import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
 import { InputSchedulerType } from "../fuzzer/schedulers/Types";
 import pkg from "../../package.json";
@@ -142,6 +143,11 @@ function createProgram(): Commander.Command {
       parseAiCacheMode
     )
     .option(`--ai-cache-file <path>`, `Path to LLM cache file`)
+    .option(
+      `--ai-cache-delay <spec>`,
+      `Replay latency rule: '0' (instant), '500ms' (fixed), '0.5x' (scale), '+50ms' (offset), '100..500ms' (window), '~20%' or '~50ms' (jitter), '[50..500ms]' (clamp), or composed '0.5x ~20% [50..500ms]'`,
+      parseAiCacheDelay
+    )
     .option(
       `--no-ai-input-backfeed`,
       `Disable backfeeding prior inputs to the AI model`
@@ -386,6 +392,9 @@ export async function runCliInProcess(
   }
   if (options["aiCacheFile"] !== undefined) {
     Config.override("nanofuzz.ai.cacheFile", options["aiCacheFile"]);
+  }
+  if (options["aiCacheDelay"] !== undefined) {
+    Config.override("nanofuzz.ai.cacheDelay", options["aiCacheDelay"]);
   }
   if (options["aiInputBackfeed"] !== undefined) {
     Config.override(
@@ -694,6 +703,18 @@ function parseAiCacheMode(value: string, _previous: string): string {
   }
   return value;
 } // fn: parseAiCacheMode
+
+function parseAiCacheDelay(value: string, _previous: string): string {
+  try {
+    LlmDelayCalculator.parse(value);
+    return value;
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Commander.InvalidArgumentError(
+      `Invalid ai cache delay '${value}': ${msg}`
+    );
+  }
+} // fn: parseAiCacheDelay
 
 function parseCoverageScopeOption(value: string, _previous: string): string {
   try {
