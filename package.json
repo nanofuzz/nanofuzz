@@ -135,13 +135,11 @@
         "title": "User interface",
         "order": 15,
         "properties": {
-          "nanofuzz.ui": {
-            "nanofuzz.ui.showSourceColumn": {
-              "title": "Show the 'source' column in test results?",
-              "type": "boolean",
-              "default": false,
-              "description": "Show the `source` column?"
-            }
+          "nanofuzz.ui.showSourceColumn": {
+            "title": "Show the 'source' column in test results?",
+            "type": "boolean",
+            "default": false,
+            "description": "Show the `source` column?"
           }
         }
       },
