@@ -4,6 +4,7 @@ import {
   ArgValueTypeWrapped,
 } from "./analysis/Types";
 import { Judgment as _Judgment } from "./oracles/Types";
+import { RunnerResult } from "./runners/AbstractRunner";
 
 /**
  * Error occurring in test harness (property validator or input transformer)
@@ -113,6 +114,13 @@ export type InputAndSource = {
   value: ArgValueTypeWrapped[];
   source: FuzzValueOrigin;
   injected?: true;
+};
+
+/**
+ * Transformed input values and their source, including transformer runner result if any
+ */
+export type TransformedInputAndSource = InputAndSource & {
+  transformerResult?: RunnerResult;
 };
 
 export type MutationMode = "mutate" | "shrink" | "boot";

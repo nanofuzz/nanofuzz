@@ -3224,7 +3224,6 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     } else {
       typeString = htmlEscape(argType.toLowerCase());
 
-      // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
       switch (argType) {
         case fuzzer.ArgTag.OBJECT:
           typeString = "Object";
@@ -3240,6 +3239,14 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             const constantValue = arg.getConstantValue();
             typeString = htmlEscape(ValueMapper.toLang(lang, constantValue));
           }
+          break;
+        case fuzzer.ArgTag.NUMBER:
+        case fuzzer.ArgTag.STRING:
+        case fuzzer.ArgTag.BOOLEAN:
+        case fuzzer.ArgTag.UNION:
+        case fuzzer.ArgTag.TUPLE:
+        case fuzzer.ArgTag.UNRESOLVED:
+        case fuzzer.ArgTag.BYTES:
           break;
       }
     }
@@ -3259,7 +3266,6 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     }
 
     let sep: string;
-    // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
     switch (argType) {
       case fuzzer.ArgTag.LITERAL:
         sep = endSep;
@@ -3275,8 +3281,13 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       case fuzzer.ArgTag.TUPLE:
         sep = ` = [` + htmlEllipsis;
         break;
-      default:
+      case fuzzer.ArgTag.NUMBER:
+      case fuzzer.ArgTag.STRING:
+      case fuzzer.ArgTag.BOOLEAN:
+      case fuzzer.ArgTag.UNRESOLVED:
+      case fuzzer.ArgTag.BYTES:
         sep = " = " + htmlEllipsis;
+        break;
     }
 
     html += /*html*/ `
@@ -3974,7 +3985,6 @@ function _applyArgOverrides(
     }
 
     // Min and max values
-    // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
     switch (thisArg.getType()) {
       case fuzzer.ArgTag.NUMBER:
         if (thisOverride.number) {
@@ -4048,6 +4058,12 @@ function _applyArgOverrides(
             },
           });
         }
+        break;
+      case fuzzer.ArgTag.OBJECT:
+      case fuzzer.ArgTag.LITERAL:
+      case fuzzer.ArgTag.UNION:
+      case fuzzer.ArgTag.TUPLE:
+      case fuzzer.ArgTag.UNRESOLVED:
         break;
     }
 

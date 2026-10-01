@@ -8,10 +8,14 @@ import {
   FuzzPinnedTest,
   GetFuzzerFocusFn,
   InputAndSource,
+  TransformedInputAndSource,
 } from "./../Types";
 import { NextableStatus } from "./Types";
 import { FunctionDef, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
+import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
+import * as ValueMapper from "../mappers/ValueMapper";
+import * as JSONN from "../../Jsonn";
 import { AbstractInputScheduler } from "../schedulers/AbstractInputScheduler";
 import { SchedulerFactory } from "../schedulers/SchedulerFactory";
 import { InputSchedulerType } from "../schedulers/Types";
@@ -56,6 +60,18 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     FuzzTestStats["generators"]["CompositeInputGenerator"]
   >["checkpoints"] = []; // status of subgens at selection
   protected _rngSeed?: string; // Seed for pseudo random number generator
+  protected _fn: FunctionDef; // Target function
+  protected _allInputs: Map<string, unknown>; // Hashed inputs map
+  protected _dupesSequential = 0; // Sequential duplicates count
+  protected _dupesGenerated = 0; // Duplicates generated count
+  protected _inputsGenerated = 0; // Inputs generated count
+  protected _maxDupeInputs!: number; // Max sequential duplicates before stopping
+  protected _transformRunner?: AbstractRunner; // Input transformer runner
+  protected _transformerName?: string; // Active transformer name
+  protected _pretransformedInputs: Set<string> = new Set(); // Pre-transformer candidate hashes
+  protected _fnTimeout!: number; // Timeout for function/transformer execution
+  protected _lastInputSubgenIndex = 0; // Subgen index for last generated input
+  public static readonly INJECTED = "injected";
 
   /**
    * Creates a new composite input generator, which subsumes multiple concrete input
@@ -81,6 +97,8 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   ) {
     super([], rngSeed);
 
+    this._fn = fn;
+    this._allInputs = allInputs;
     this._rngSeed = rngSeed;
     this._subgens = InputGeneratorFactory(
       options,
@@ -243,18 +261,201 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // setter: options
 
   /**
-   * Produces the next input
+   * Produces the next input (synchronous fast path when no transformer is active).
    *
    * @returns the next input, including its source metadata
    */
-  public next(): InputAndSource {
-    this._tick++;
+  public override next(): InputAndSource {
+    if (this._transformRunner) {
+      throw new Error(
+        "CompositeInputGenerator.next() cannot be called when an input transformer is configured. Use nextTransformed() instead."
+      );
+    }
 
-    // If the prior chunk of generated inputs is exhausted or the
-    // subgen is no longer available, start a new chunk and choose
-    // the subgen for that chunk
+    // Make sure we are permitted to generate inputs
+    if (!this.nextable()) {
+      throw new Error(
+        "Injected inputs exhausted and input generators are suppressed."
+      );
+    }
+
+    while (this._permitSubgens || this._hasPrioritySubgen()) {
+      const { candidate, genCost } = this._generateCandidate();
+
+      // Injected inputs from HumanInputGenerator bpass the dupe check
+      if (candidate.injected) {
+        return this._acceptCandidate(candidate);
+      }
+
+      // Deduplicate against _allInputs
+      if (this._isDuplicate(candidate, this._allInputs)) {
+        if (this._handleDuplicate(candidate, genCost)) {
+          break;
+        }
+        continue;
+      }
+
+      return this._acceptCandidate(candidate);
+    }
+
+    throw new Error(
+      "Injected inputs exhausted and input generators are suppressed."
+    );
+  } // fn: next
+
+  /**
+   * Produces the next transformed input (asynchronous path when transformer is active).
+   *
+   * @returns the next transformed input, including its source metadata and transformer result
+   */
+  public async nextTransformed(): Promise<TransformedInputAndSource> {
+    // If no transformer is active, fast-path to standard synchronous next()
+    if (!this._transformRunner) {
+      return this.next();
+    }
+
+    // Make sure we are permitted to generate inputs
+    if (!this.nextable()) {
+      throw new Error(
+        "Injected inputs exhausted and input generators are suppressed."
+      );
+    }
+
+    while (this._permitSubgens || this._hasPrioritySubgen()) {
+      const { candidate: untransformedCandidate, genCost } =
+        this._generateCandidate();
+
+      // Injected inputs from HumanInputGenerator are always processed and never dupe-skipped or transformed
+      if (untransformedCandidate.injected) {
+        return this._acceptCandidate(untransformedCandidate);
+      }
+
+      // Stage 1: Pre-transformer duplicate check (only if transformer is active)
+      if (this._transformRunner && this._fn && this._fn.getArgDefs().length) {
+        if (
+          this._isDuplicate(untransformedCandidate, this._pretransformedInputs)
+        ) {
+          if (this._handleDuplicate(untransformedCandidate, genCost)) {
+            break;
+          }
+          continue;
+        }
+      }
+
+      // 1. Transform candidate
+      const transformRes = await this._transformCandidate(
+        untransformedCandidate
+      );
+      if (transformRes.skip) {
+        return this._acceptSkippedCandidate(
+          untransformedCandidate,
+          transformRes.transformerResult,
+          genCost
+        );
+      }
+
+      const candidate = transformRes.candidate;
+
+      // Stage 2: Post-transformer duplicate check
+      if (this._isDuplicate(candidate, this._allInputs)) {
+        if (this._handleDuplicate(untransformedCandidate, genCost)) {
+          break;
+        }
+        continue;
+      }
+
+      // Accounting & return
+      return this._acceptCandidate(candidate);
+    } // while (generate & dupe check inputs)
+
+    throw new Error(
+      "Injected inputs exhausted and input generators are suppressed."
+    );
+  } // fn: nextTransformed
+
+  /**
+   * Applies the input transformer (if configured) to an untransformed candidate input.
+   */
+  protected async _transformCandidate(
+    untransformedCandidate: InputAndSource
+  ): Promise<{
+    candidate: InputAndSource;
+    skip?: boolean;
+    transformerResult?: RunnerResult;
+  }> {
+    if (!this._transformRunner) {
+      return { candidate: untransformedCandidate };
+    }
+
+    const transformerResult = await this._transformRunner.run(
+      structuredClone(untransformedCandidate.value.map((e) => e.value)),
+      Math.max(this._fnTimeout, 0)
+    );
+
+    if (transformerResult.result.tag === "value") {
+      const values = transformerResult.result.value;
+      if (Array.isArray(values)) {
+        const transformedValue = structuredClone(untransformedCandidate.value);
+        let changed = false;
+        transformedValue.forEach((e, i) => {
+          if (i < values.length) {
+            const oldValue = untransformedCandidate.value[i]?.value;
+            const newValue = values[i];
+            transformedValue[i].value = newValue;
+
+            if (JSONN.stringify(oldValue) !== JSONN.stringify(newValue)) {
+              changed = true;
+            }
+          }
+        });
+
+        const transformedCandidate: InputAndSource = {
+          ...untransformedCandidate,
+          value: transformedValue,
+          source: changed
+            ? {
+                type: "transformer",
+                transformer: this._transformRunner.name,
+                basis: {
+                  value: structuredClone(untransformedCandidate.value),
+                  source: structuredClone(untransformedCandidate.source),
+                },
+              }
+            : untransformedCandidate.source,
+        };
+        return { candidate: transformedCandidate };
+      } else {
+        const msg = `Transformer returned non-array value: ${JSONN.stringify(
+          transformerResult.result.value
+        )}`;
+        return {
+          candidate: untransformedCandidate,
+          skip: true,
+          transformerResult: {
+            result: {
+              tag: "error",
+              name: "TransformerError",
+              message: msg,
+              seq: -1,
+            },
+            env: {},
+          },
+        };
+      }
+    }
+
+    return { candidate: untransformedCandidate, skip: true, transformerResult };
+  } // fn: _transformCandidate
+
+  /**
+   * Generates an untransformed candidate from the selected subgenerator.
+   */
+  protected _generateCandidate(): {
+    candidate: InputAndSource;
+    genCost: number;
+  } {
     if (
-      this._ticksLeftInChunk-- <= 1 ||
+      this._ticksLeftInChunk <= 0 ||
       !this._subgens[this._selectedSubgenIndex] ||
       !this._activeSubgens[this._selectedSubgenIndex] ||
       !(
@@ -266,13 +467,142 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       this._selectedSubgenIndex = this._selectNextSubGen();
     }
 
-    // Generate and return the input
-    this._lastInput = {
-      ...this._subgens[this._selectedSubgenIndex].next(),
+    this._tick++;
+    this._ticksLeftInChunk--;
+    const selectedSubgen = this._subgens[this._selectedSubgenIndex];
+    const startGenTime = performance.now();
+    const rawCandidate = selectedSubgen.next();
+    const genCost = performance.now() - startGenTime;
+    const candidate: InputAndSource = {
+      ...rawCandidate,
       tick: this._tick,
     };
+    this._lastInput = candidate;
+    this._lastInputSubgenIndex = this._selectedSubgenIndex;
+    return { candidate, genCost };
+  } // fn: _generateCandidate
+
+  /**
+   * Checks if an input is a duplicate in the given hash collection, and registers it if not.
+   */
+  protected _isDuplicate(
+    candidate: InputAndSource,
+    hashCollection: Set<string> | Map<string, unknown>
+  ): boolean {
+    if (this._fn && this._fn.getArgDefs().length) {
+      const hash = ValueMapper.toLang(
+        this._fn.getLang(),
+        candidate.value.map((v) => v.value)
+      );
+
+      if (hashCollection.has(hash)) {
+        return true;
+      }
+      if (hashCollection instanceof Set) {
+        hashCollection.add(hash);
+      } else {
+        hashCollection.set(hash, true);
+      }
+    }
+    return false;
+  } // fn: _isDuplicate
+
+  /**
+   * Handles duplicate input accounting and feedback. Returns true if maxDupeInputs limit was reached.
+   */
+  protected _handleDuplicate(
+    candidate: InputAndSource,
+    genCost: number
+  ): boolean {
+    this._recordDupe(candidate);
+    this.onInputFeedback([], genCost);
+
+    if (this._dupesSequential >= this._maxDupeInputs) {
+      this.suppressGenerators();
+      return true;
+    }
+    return false;
+  } // fn: _handleDuplicate
+
+  /**
+   * Accepts and records a candidate input (injected or generated).
+   *
+   * Injected inputs are, by definition, post-transformation and post-dupe
+   * check. Therefore, injected inputs bypass input transformation as well
+   * as both stages of the duplicate check, but their hash is registered in
+   * `_allInputs` so subsequent generated inputs are deduplicated against them.
+   */
+  protected _acceptCandidate(candidate: InputAndSource): InputAndSource {
+    if (candidate.injected) {
+      if (this._fn && this._fn.getArgDefs().length) {
+        const hash = ValueMapper.toLang(
+          this._fn.getLang(),
+          candidate.value.map((v) => v.value)
+        );
+        this._allInputs.set(hash, true);
+      }
+    } else {
+      this._dupesSequential = 0;
+      this._recordGenerated(candidate);
+    }
+    this._lastInput = candidate;
+    this._lastInputSubgenIndex = this._selectedSubgenIndex;
     return structuredClone(this._lastInput);
-  } // fn: next
+  } // fn: _acceptCandidate
+
+  /**
+   * Accepts and records a candidate input skipped or rejected by the input transformer.
+   */
+  protected _acceptSkippedCandidate(
+    candidate: InputAndSource,
+    transformerResult: RunnerResult | undefined,
+    genCost: number
+  ): TransformedInputAndSource {
+    this._recordGenerated(candidate);
+    const skippedInput: TransformedInputAndSource = {
+      ...candidate,
+      transformerResult,
+    };
+    this._lastInput = skippedInput;
+    this._lastInputSubgenIndex = this._selectedSubgenIndex;
+    this.onInputFeedback([], genCost);
+    return structuredClone(skippedInput);
+  } // fn: _acceptSkippedCandidate
+
+  /**
+   * Records that a candidate input was a duplicate in generator stats.
+   */
+  protected _recordDupe(candidate: InputAndSource): void {
+    this._dupesSequential++;
+    this._dupesGenerated++;
+    this._inputsGenerated++;
+    if (candidate.source.type === "generator") {
+      const stats = this._genStats[candidate.source.generator];
+      stats.counters.dupesGenerated++;
+      stats.counters.inputsGenerated++;
+      stats.counters.dupeTicks.push(candidate.tick);
+    }
+  } // fn: _recordDupe
+
+  /**
+   * Records that a candidate input was generated in generator stats.
+   */
+  protected _recordGenerated(candidate: InputAndSource): void {
+    this._inputsGenerated++;
+    if (candidate.source.type === "generator") {
+      const stats = this._genStats[candidate.source.generator];
+      stats.counters.inputsGenerated++;
+    }
+  } // fn: _recordGenerated
+
+  /**
+   * Returns true if any active subgenerator has immediate high-priority inputs (e.g. pinned/injected).
+   */
+  protected _hasPrioritySubgen(): boolean {
+    return this._subgens.some(
+      (g, i) => this._activeSubgens[i] && g.nextable() === "now!"
+    );
+  } // fn: _hasPrioritySubgen
 
   /**
    * Provide feedback to the composite input generator about the last input generated.
@@ -409,7 +739,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       checkpointGens[this._subgens[selectedIdx].name].selected = true;
 
       this._checkpoints.push({
-        tick: this._tick,
+        tick: this._tick + 1,
         gens: checkpointGens,
         scheduler: this._scheduler.type,
       });
@@ -430,12 +760,50 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   } // fn: getInterestingInputs
 
   /**
+   * Returns the number of sequential duplicate inputs generated in the current run.
+   */
+  public get dupesSequential(): number {
+    return this._dupesSequential;
+  }
+
+  /**
+   * Returns the total number of duplicate inputs generated in the current run.
+   */
+  public get dupesGenerated(): number {
+    return this._dupesGenerated;
+  }
+
+  /**
+   * Returns the total number of inputs generated in the current run.
+   */
+  public get inputsGenerated(): number {
+    return this._inputsGenerated;
+  }
+
+  /**
    * Startup when the test run begins
    */
   public override onRunStart(
     gen: boolean,
-    injectedInputs?: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[]
+    injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[],
+    transformRunner: AbstractRunner | undefined,
+    fnTimeout: number,
+    maxDupeInputs: number
   ): void {
+    this._dupesSequential = 0;
+    this._dupesGenerated = 0;
+    this._inputsGenerated = 0;
+    this._ticksLeftInChunk = 0;
+
+    const newTransformerName = transformRunner?.name;
+    if (this._transformerName !== newTransformerName) {
+      this._pretransformedInputs.clear();
+      this._transformerName = newTransformerName;
+    }
+    this._transformRunner = transformRunner;
+    this._fnTimeout = fnTimeout;
+    this._maxDupeInputs = maxDupeInputs;
+
     this._loadConfig();
     this._scheduler.onRunStart();
     this._leaderboard.loadConfig();
@@ -445,7 +813,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
         injectedInputs
       );
     }
-  } // fn: onRun
+  } // fn: onRunStart
 
   /**
    * Cleanup all subgens and update stats when the test run ends
