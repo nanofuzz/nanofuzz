@@ -117,7 +117,7 @@ function createProgram(): Commander.Command {
       `--engine <v1|v2>`,
       `Fuzzer engine version: 'v1' (classic) or 'v2' (refactored)`,
       (val: string): FuzzerEngineVersion => (val === "v2" ? "v2" : "v1"),
-      "v1"
+      "v2"
     )
 
     // ------------------------------- Transformers ------------------------------ //

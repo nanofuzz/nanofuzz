@@ -73,7 +73,7 @@ export function FuzzerFactory(
   const engine: FuzzerEngineVersion =
     mode.engine ??
     envEngine ??
-    Config.get<FuzzerEngineVersion>("nanofuzz.fuzzer.engine", "v1");
+    Config.get<FuzzerEngineVersion>("nanofuzz.fuzzer.engine", "v2");
 
   if (engine === "v2") {
     return new FuzzerV2(module, fnName, options, mode);
