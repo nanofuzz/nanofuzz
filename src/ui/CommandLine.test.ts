@@ -798,6 +798,10 @@ describe("cli:", () => {
     const modelName = "gemini-flash";
     const seed = "cli_seed_ai_cache_hit";
 
+    Config.override("nanofuzz.ai.provider", provider);
+    Config.override("nanofuzz.ai.model", modelName);
+    Config.override("nanofuzz.ai.apiKey", "test-key");
+
     // Pre-seed cache entry for testCoverageOneFile
     const program = ProgramFactory.fromFile(targetFile);
     const fn = program.functionsExported[targetFn];
@@ -928,6 +932,10 @@ describe("cli:", () => {
     const provider = "gemini";
     const modelName = "gemini-flash";
     const seed = "cli_seed_ai_cache_delay";
+
+    Config.override("nanofuzz.ai.provider", provider);
+    Config.override("nanofuzz.ai.model", modelName);
+    Config.override("nanofuzz.ai.apiKey", "test-key");
 
     const program = ProgramFactory.fromFile(targetFile);
     const fn = program.functionsExported[targetFn];
