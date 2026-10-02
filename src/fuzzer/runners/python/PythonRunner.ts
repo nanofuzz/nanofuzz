@@ -38,12 +38,18 @@ export class PythonRunner extends AbstractRunner {
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
   protected _pythonEnv: PythonEnv | undefined;
-  protected static _envs: {
-    [file: string]: PythonEnv;
-  } = {};
-  protected static _paths: {
-    [path: string]: readonly string[];
-  } = {};
+  protected static _envs: Map<
+    string,
+    { env: PythonEnv; expiresAt: number }
+  > = new Map();
+  protected static _paths: Map<
+    string,
+    { paths: readonly string[]; expiresAt: number }
+  > = new Map();
+  protected static _canExecuteCache: Map<
+    string,
+    { result: boolean; expiresAt: number }
+  > = new Map();
 
   /**
    * Create a new Python runner
@@ -251,8 +257,9 @@ export class PythonRunner extends AbstractRunner {
    * @returns a python environment
    */
   public static envFor(filename: string): PythonEnv {
-    if (filename in PythonRunner._envs) {
-      return PythonRunner._envs[filename];
+    const cached = PythonRunner._envs.get(filename);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.env;
     }
 
     const pythonEnv: PythonEnv = {
@@ -414,12 +421,13 @@ export class PythonRunner extends AbstractRunner {
 
     pythonEnv.paths = PythonRunner._pathsFor(pythonEnv);
 
-    PythonRunner._envs[filename] = Object.freeze(pythonEnv);
-    setTimeout(() => {
-      delete PythonRunner._envs[filename];
-    }, 10000);
+    const frozenEnv = Object.freeze(pythonEnv);
+    PythonRunner._envs.set(filename, {
+      env: frozenEnv,
+      expiresAt: Date.now() + 10000,
+    });
 
-    return pythonEnv;
+    return frozenEnv;
   } // fn: envFor
 
   /**
@@ -430,28 +438,37 @@ export class PythonRunner extends AbstractRunner {
    */
   protected static _pathsFor(pythonEnv: PythonEnv): readonly string[] {
     const interpreter = pythonEnv.interpreter;
-    if (!(interpreter in PythonRunner._paths)) {
-      try {
-        const output = ChildProcess.execFileSync(
-          interpreter,
-          ["-c", "import sys, json; print(json.dumps(sys.path))"],
-          { encoding: "utf8", env: pythonEnv.env }
-        );
-        const entries: unknown = JSON.parse(output);
-        PythonRunner._paths[interpreter] = Array.isArray(entries)
-          ? Object.freeze(
-              entries.filter((e) => typeof e === "string" && e !== "")
-            )
-          : [];
-      } catch (_e: unknown) {
-        // No interpreter on PATH, or it failed to run
-        PythonRunner._paths[interpreter] = Object.freeze([]);
-      }
-      setTimeout(() => {
-        delete PythonRunner._paths[interpreter];
-      }, 15000);
+    const cached = PythonRunner._paths.get(interpreter);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.paths;
     }
-    return PythonRunner._paths[interpreter];
+
+    try {
+      const output = ChildProcess.execFileSync(
+        interpreter,
+        ["-c", "import sys, json; print(json.dumps(sys.path))"],
+        { encoding: "utf8", env: pythonEnv.env }
+      );
+      const entries: unknown = JSON.parse(output);
+      const paths = Array.isArray(entries)
+        ? Object.freeze(
+            entries.filter((e) => typeof e === "string" && e !== "")
+          )
+        : [];
+      PythonRunner._paths.set(interpreter, {
+        paths,
+        expiresAt: Date.now() + 10000,
+      });
+      return paths;
+    } catch (_e: unknown) {
+      // No interpreter on PATH, or it failed to run
+      const paths = Object.freeze([]);
+      PythonRunner._paths.set(interpreter, {
+        paths,
+        expiresAt: Date.now() + 10000,
+      });
+      return paths;
+    }
   } //fn: _pathsFor
 
   /**
@@ -508,8 +525,6 @@ export class PythonRunner extends AbstractRunner {
     return candidate || "python3";
   } // fn: resolveInterpreter
 
-  private static _canExecuteCache: Map<string, boolean> = new Map();
-
   /**
    * Probes whether a python executable candidate can be spawned successfully.
    * Results are cached to avoid repeated synchronous spawnSync calls.
@@ -518,9 +533,11 @@ export class PythonRunner extends AbstractRunner {
     bin: string,
     env?: Record<string, string | undefined>
   ): boolean {
-    const cacheKey = `${bin}:${env ? JSON.stringify(env) : ""}`;
-    if (PythonRunner._canExecuteCache.has(cacheKey)) {
-      return PythonRunner._canExecuteCache.get(cacheKey)!;
+    const pathVal = env?.PATH ?? process.env.PATH ?? "";
+    const cacheKey = `${bin}:${pathVal}`;
+    const cached = PythonRunner._canExecuteCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.result;
     }
 
     try {
@@ -529,13 +546,28 @@ export class PythonRunner extends AbstractRunner {
         encoding: "utf8",
       });
       const ok = res.status === 0 && !res.error;
-      PythonRunner._canExecuteCache.set(cacheKey, ok);
+      PythonRunner._canExecuteCache.set(cacheKey, {
+        result: ok,
+        expiresAt: Date.now() + 10000,
+      });
       return ok;
     } catch {
-      PythonRunner._canExecuteCache.set(cacheKey, false);
+      PythonRunner._canExecuteCache.set(cacheKey, {
+        result: false,
+        expiresAt: Date.now() + 10000,
+      });
       return false;
     }
   } // fn: canExecute
+
+  /**
+   * Clears environment and interpreter resolution caches
+   */
+  public static clearCache(): void {
+    PythonRunner._envs.clear();
+    PythonRunner._paths.clear();
+    PythonRunner._canExecuteCache.clear();
+  }
 
   /**
    * Get the current Python host process (creates a new one if needed)
