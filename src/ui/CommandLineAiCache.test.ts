@@ -99,7 +99,9 @@ describe("cli: ai cache", () => {
 
   beforeEach(() => {
     Config.clearOverrides();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-cli-ai-cache-test-"));
+    tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-cli-ai-cache-test-")
+    );
   });
 
   afterEach(() => {
