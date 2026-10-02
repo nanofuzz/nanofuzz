@@ -29,7 +29,7 @@ import {
   encodeEscapeSequences,
   decodeEscapeSequences,
 } from "../Util";
-import { Tester } from "../fuzzer/Fuzzer";
+import { FuzzerFactory, IFuzzer } from "../fuzzer/FuzzerFactory";
 import {
   applyCoverageHeatmapToEditor,
   clearCoverageHeatmapFromEditor,
@@ -88,7 +88,7 @@ export class FuzzPanel {
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
   private _focusInput?: [fuzzer.FuzzResultCategory, number]; // Newly-added input to receive UI focus
   private _lastTab: fuzzer.FuzzResultTab | undefined; // Last tab id that had focus
-  private _tester: fuzzer.Tester; // The test generator
+  private _tester: IFuzzer; // The test generator
   private _showingCoverage = false; // Currently showing code coverage?
   private _wasShowingCoverage = false; // Was showing coverage on the prior run?
   private _coverageStats: CodeCoverageMeasureStats | undefined; // Code coverage stats
@@ -148,7 +148,7 @@ export class FuzzPanel {
       return new FuzzPanel(
         panel,
         extensionUri,
-        new Tester(moduleFile, fnName, normalizeFuzzOptions(options), {
+        FuzzerFactory(moduleFile, fnName, normalizeFuzzOptions(options), {
           precompile: true,
         })
       );
@@ -208,7 +208,7 @@ export class FuzzPanel {
         const localFuzzPanel = new FuzzPanel(
           panel,
           extensionUri,
-          new fuzzer.Tester(
+          FuzzerFactory(
             state.fnRef.module,
             state.fnRef.name,
             normalizeFuzzOptions(state.options),
@@ -297,7 +297,7 @@ export class FuzzPanel {
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
-    tester: fuzzer.Tester
+    tester: IFuzzer
   ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
@@ -372,7 +372,7 @@ export class FuzzPanel {
    */
   private resultsAreStale(
     options: fuzzer.FuzzOptions
-  ): ReturnType<fuzzer.Tester["isStale"]> {
+  ): ReturnType<IFuzzer["isStale"]> {
     return this._tester.isStale(options);
   } // fn: resultsAreStale
 
@@ -1497,7 +1497,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     // Create a new tester if the current one is stale
     if (needNewTester) {
       try {
-        this._tester = new fuzzer.Tester(
+        this._tester = FuzzerFactory(
           this._fuzzEnv.function.getModule(),
           this._fuzzEnv.function.getName(),
           this._fuzzEnv.options
@@ -1714,7 +1714,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
   private _testClear(json: string): void {
     // Start over with a new tester
     try {
-      this._tester = new fuzzer.Tester(
+      this._tester = FuzzerFactory(
         this._fuzzEnv.function.getModule(),
         this._fuzzEnv.function.getName(),
         this._fuzzEnv.options
@@ -3747,9 +3747,9 @@ export async function handleFuzzWithValidatorCommand(
   const fuzzOptions = getDefaultFuzzOptions();
   fuzzOptions.useProperty = true; // Enable property oracle by default
 
-  let tester: fuzzer.Tester;
+  let tester: IFuzzer;
   try {
-    tester = new fuzzer.Tester(srcFile, fnName, fuzzOptions);
+    tester = FuzzerFactory(srcFile, fnName, fuzzOptions);
   } catch (e: unknown) {
     const msg = getErrorMessageOrJson(e);
     vscode.window.showErrorMessage(

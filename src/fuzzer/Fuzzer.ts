@@ -1535,7 +1535,7 @@ const _checkStopCondition = (
  * @param options fuzzer option set
  * @returns true if the options are valid, false otherwise
  */
-const isOptionValid = (options: FuzzOptions): boolean => {
+export const isOptionValid = (options: FuzzOptions): boolean => {
   return (
     options.maxTests >= 0 &&
     options.maxDupeInputs >= 0 &&
@@ -1592,7 +1592,7 @@ export function getTransformers(
 /**
  * Returns true if all oracle judgments of two test results are identical without allocating arrays or stringifying.
  */
-function isSameJudgments(a: FuzzTestResult, b: FuzzTestResult): boolean {
+export function isSameJudgments(a: FuzzTestResult, b: FuzzTestResult): boolean {
   if (a.passedImplicit !== b.passedImplicit) {
     return false;
   }
@@ -1803,7 +1803,7 @@ export type FuzzTestStats = {
 /**
  * Current run statistics
  */
-type CurrentRunStats = {
+export type CurrentRunStats = {
   counters: {
     inputsInjected: number; // number of inputs injected for testing
     inputsGenerated: number; // number of inputs generated so far
@@ -1824,7 +1824,7 @@ type CurrentRunStats = {
 /**
  * Formats a single failing result into a terminal-width failure block.
  */
-function formatFailureBlock(
+export function formatFailureBlock(
   targetFnName: string,
   result: FuzzTestResult,
   lang: ProgramLanguage,
@@ -2021,7 +2021,7 @@ function formatFailureBlock(
 /**
  * Extracts and formats exception header and stack trace lines for failure blocks.
  */
-function formatExceptionAndStack(
+export function formatExceptionAndStack(
   message?: string,
   stack?: string,
   defaultName: string = "Error"
@@ -2057,7 +2057,7 @@ function formatExceptionAndStack(
 /**
  * Formats passed, failed, errored, and skipped test counts for update messages.
  */
-function formatRunStatsSummary(runStats: CurrentRunStats): string {
+export function formatRunStatsSummary(runStats: CurrentRunStats): string {
   return `\r\n  Passed: ${runStats.counters.passedTests}\r\n  Failed: ${
     runStats.counters.failedTests
   }${
