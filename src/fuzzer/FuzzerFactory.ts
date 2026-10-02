@@ -63,8 +63,7 @@ export function FuzzerFactory(
   mode: { precompile?: true; engine?: FuzzerEngineVersion } = {}
 ): IFuzzer {
   const engine =
-    mode.engine ??
-    Config.get<string>("nanofuzz.fuzzer.engine", "v2");
+    mode.engine ?? Config.get<string>("nanofuzz.fuzzer.engine", "v2");
 
   return engine === "v1"
     ? new FuzzerV1(module, fnName, options, mode)

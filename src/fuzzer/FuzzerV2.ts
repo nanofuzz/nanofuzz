@@ -384,6 +384,7 @@ export class FuzzerV2 {
       this._validators,
       this._transformers
     );
+    this._stats.startRun();
 
     let lastUpdateMsg: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
@@ -417,7 +418,6 @@ export class FuzzerV2 {
       update,
       updateFn
     );
-    this._stats.startRun();
 
     let stillInjecting = injectTests.length > 0;
 
