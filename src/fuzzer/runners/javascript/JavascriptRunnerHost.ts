@@ -30,6 +30,15 @@ function isStringArray(val: unknown): val is string[] {
   return Array.isArray(val) && val.every((item) => typeof item === "string");
 }
 
+function isPromiseLike(val: unknown): val is PromiseLike<unknown> {
+  return (
+    val !== null &&
+    (typeof val === "object" || typeof val === "function") &&
+    "then" in val &&
+    typeof Reflect.get(val, "then") === "function"
+  );
+}
+
 function getGlobalPaths(): string[] {
   const paths = Reflect.get(moduleApi, "globalPaths");
   return isStringArray(paths) ? paths : [];
@@ -141,10 +150,39 @@ async function main() {
         i < typeHints.length ? transformArg(arg, typeHints[i]) : arg
       );
 
+      const startExecTime = performance.now();
       if (input.timeout && input.timeout > 0) {
         value = functionTimeout(fnToExec)(input.timeout, ...hydratedArgs);
       } else {
         value = fnToExec(...hydratedArgs);
+      }
+
+      if (isPromiseLike(value)) {
+        if (input.timeout && input.timeout > 0) {
+          const elapsed = performance.now() - startExecTime;
+          const remainingTimeout = Math.max(1, input.timeout - elapsed);
+          let timer: NodeJS.Timeout | undefined;
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              const err = new Error("Script execution timed out");
+              Reflect.set(err, "code", "ERR_SCRIPT_EXECUTION_TIMEOUT");
+              reject(err);
+            }, remainingTimeout);
+            if (typeof timer.unref === "function") {
+              timer.unref();
+            }
+          });
+
+          try {
+            value = await Promise.race([value, timeoutPromise]);
+          } finally {
+            if (timer !== undefined) {
+              clearTimeout(timer);
+            }
+          }
+        } else {
+          value = await value;
+        }
       }
     } catch (e: unknown) {
       const isTimeout =
@@ -257,6 +295,11 @@ function setup() {
 
   process.stdin.on("data", (chunk: Buffer) => {
     stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    // Prevent unhandled promise rejections in background tasks from crashing the host
+    console.error("Unhandled promise rejection:", reason);
   });
 } // fn: setup
 
