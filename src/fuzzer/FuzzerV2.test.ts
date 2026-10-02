@@ -13,7 +13,14 @@ describe("fuzzer V2: general & parity tests", () => {
     await initParser();
   });
 
-  it("TesterFactory instantiates V1 or V2 based on engine option", () => {
+  it("TesterFactory instantiates V1 or V2 based on engine option and defaults to V2", () => {
+    const testerDefault = FuzzerFactory(
+      "nanofuzz-study/examples/1.ts",
+      "minValue",
+      intOptions
+    );
+    expect(testerDefault instanceof TesterV2).toBe(true);
+
     const testerV1 = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
