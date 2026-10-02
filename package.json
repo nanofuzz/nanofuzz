@@ -14,7 +14,7 @@
   "license": "MIT",
   "main": "build/extension/extension.js",
   "engines": {
-    "vscode": "^1.75.0",
+    "vscode": "^1.93.0",
     "node": "22"
   },
   "categories": [
@@ -55,6 +55,72 @@
         "command": "nanofuzz.telemetry.log",
         "title": "Log Telemetry Event (internal)",
         "category": "NaNofuzz"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "nanofuzz_listTargets",
+        "displayName": "List NaNofuzz Targets",
+        "modelDescription": "Discovers and lists all exported functions, type signatures, and parameter structures in a TypeScript or Python source file that can be targeted for structure-aware fuzzing and property testing.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "listTargets",
+        "icon": "$(symbol-method)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path to the source file (e.g. src/math.ts or test.py)."
+            }
+          },
+          "required": [
+            "filePath"
+          ]
+        }
+      },
+      {
+        "name": "nanofuzz_fuzzFunction",
+        "displayName": "Fuzz Target with NaNofuzz",
+        "modelDescription": "Runs coverage-guided, structure-aware property fuzzing on a target function in TypeScript or Python. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest or Pytest) and branch coverage metrics.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "fuzzFunction",
+        "icon": "$(beaker)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path to the source file containing the target function."
+            },
+            "functionName": {
+              "type": "string",
+              "description": "The exact name of the exported function to test."
+            },
+            "maxTests": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum number of test cases to generate and execute (default: 1000)."
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 100,
+              "description": "Maximum suite execution timeout in milliseconds (default: 3000)."
+            },
+            "maxFailures": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum number of failures to find before stopping (default: 0 for no limit)."
+            },
+            "seed": {
+              "type": "string",
+              "description": "Optional pseudo-random generator seed for deterministic fuzzing runs."
+            }
+          },
+          "required": [
+            "filePath",
+            "functionName"
+          ]
+        }
       }
     ],
     "configuration": [
@@ -152,6 +218,7 @@
             "order": 10,
             "enum": [
               "disabled",
+              "copilot",
               "openai",
               "gemini",
               "anthropic",
@@ -628,7 +695,7 @@
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
     "@types/seedrandom": "^2.4.28",
-    "@types/vscode": "^1.75.0",
+    "@types/vscode": "^1.93.0",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/vsce": "^3.6.0",
     "cli-progress": "^3.12.0",

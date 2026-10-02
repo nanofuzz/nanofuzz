@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as fp from "./ui/FuzzPanelController";
 import * as tm from "./telemetry/Telemetry";
 import * as Parser from "./fuzzer/adapters/ParserAdapter";
+import { registerLmTools } from "./ui/LmTools";
 
 const disposables: vscode.Disposable[] = []; // Keep track of disposables
 
@@ -68,6 +69,14 @@ export async function activate(
   fp.listeners.forEach((listener) => {
     context.subscriptions.push(listener.register());
   });
+
+  // --------------------------- LM Tools --------------------------- //
+
+  /**
+   * Register Language Model Tools for GitHub Copilot / Agent mode
+   */
+  const lmDisposables = registerLmTools(context);
+  disposables.push(...lmDisposables);
 } // fn: activate()
 
 /**

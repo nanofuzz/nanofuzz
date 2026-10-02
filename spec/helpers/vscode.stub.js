@@ -54,4 +54,34 @@ module.exports = {
       };
     },
   },
+  CancellationTokenSource: class CancellationTokenSource {
+    constructor() {
+      this.token = {
+        isCancellationRequested: false,
+        onCancellationRequested: () => ({ dispose: () => {} }),
+      };
+    }
+    cancel() {
+      this.token.isCancellationRequested = true;
+    }
+    dispose() {}
+  },
+  LanguageModelToolResult: class LanguageModelToolResult {
+    constructor(content) {
+      this.content = content;
+    }
+  },
+  LanguageModelTextPart: class LanguageModelTextPart {
+    constructor(value) {
+      this.value = value;
+    }
+  },
+  LanguageModelChatMessage: {
+    User: (content) => ({ role: 1, content }),
+    Assistant: (content) => ({ role: 2, content }),
+  },
+  lm: {
+    registerTool: (_name, _tool) => ({ dispose: () => {} }),
+    selectChatModels: async (_selector) => [],
+  },
 };
