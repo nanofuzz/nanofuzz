@@ -64,6 +64,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         suiteTimeout: timeoutMs,
         maxFailures,
         seed,
+        enableCopilotAi: true,
       },
       () => token.isCancellationRequested
     );

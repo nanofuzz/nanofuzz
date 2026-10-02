@@ -312,6 +312,12 @@ export class LlmAdapter {
           }
 
           const model = models[0];
+          if (LlmAdapter.isDebugConfigured()) {
+            console.log(
+              `[NaNofuzz Copilot AI] Sending query (${model.name || model.id || "copilot"}):\n${prompt.join("\n")}`
+            );
+          }
+
           const messages = [
             vscode.LanguageModelChatMessage.User(prompt.join("\n")),
           ];
@@ -323,6 +329,10 @@ export class LlmAdapter {
           );
           for await (const chunk of response.text) {
             text += chunk;
+          }
+
+          if (LlmAdapter.isDebugConfigured()) {
+            console.log(`[NaNofuzz Copilot AI] Received response:\n${text}`);
           }
         } else {
           const promptParts: nodellm.ContentPart[] = [];

@@ -5,6 +5,7 @@ import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import {
   listTargets,
   runFuzz,
+  resolveFilePath,
   getDefaultFuzzOptions,
   normalizeAgentFuzzOptions,
   synthesizeReproducer,
@@ -278,6 +279,72 @@ describe("Agent", () => {
 
     expect(summary).toContain("Diagnostics & Guidance");
     expect(summary).toContain("AI input generation is enabled");
+  });
+
+  it("summary: generators and origin", () => {
+    const summary = buildSummaryMarkdown({
+      status: "counterexample_found",
+      filePath: tsFixture,
+      functionName: "testFn",
+      language: "typescript",
+      toolVersion: "NaNofuzz v0.4.0",
+      totalTests: 100,
+      passedTests: 99,
+      failedTests: 1,
+      erroredTests: 0,
+      timeouts: 0,
+      exceptions: 0,
+      primaryCounterexample: {
+        input: [{ name: "x", offset: 0, value: 42 }],
+        category: "badValue",
+        exception: false,
+        timeout: false,
+        passedImplicit: "fail",
+        passedHuman: "unknown",
+        passedValidator: "unknown",
+        shrunk: false,
+        origin: "AI (copilot)",
+      },
+      counterexamples: [],
+      generators: {
+        aiInputs: 20,
+        aiQueriesSent: 1,
+        mutationInputs: 30,
+        randomInputs: 50,
+      },
+    });
+
+    expect(summary).toContain("Generator Breakdown");
+    expect(summary).toContain("AI Generator");
+    expect(summary).toContain("Input Source");
+    expect(summary).toContain("AI (copilot)");
+  });
+
+  it("runFuzz: enableCopilotAi", async () => {
+    Config.override("nanofuzz.ai.provider", "disabled");
+    const result = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testStandardVoidReturnUndefined",
+      maxTests: 5,
+      suiteTimeout: 2000,
+      enableCopilotAi: true,
+    });
+
+    expect(result.status).toBe("success");
+    expect(Config.get("nanofuzz.ai.provider", "disabled")).toBe("disabled");
+  });
+
+  it("resolveFilePath: relative and file URI", () => {
+    const abs = resolveFilePath(tsFixture);
+    expect(abs).toBe(tsFixture);
+
+    const rel = resolveFilePath(
+      "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts"
+    );
+    expect(rel).toBe(tsFixture);
+
+    const fileUri = resolveFilePath(`file://${tsFixture}`);
+    expect(fileUri).toBe(tsFixture);
   });
 
   it("llm: copilot provider config", () => {

@@ -1,5 +1,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import vscode from "vscode";
 import pkg from "../../package.json";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
@@ -36,6 +38,59 @@ import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 // -------------------------------------------------------------------------- //
 
 /**
+ * Resolves a target file path against absolute paths, file URIs, VS Code workspace folders, or process.cwd().
+ *
+ * @param filePath Path or file URI to the source file
+ * @returns Fully-resolved filesystem path
+ */
+export function resolveFilePath(filePath: string): string {
+  let normalized = filePath.trim();
+
+  // Handle file:// URIs
+  if (normalized.startsWith("file://")) {
+    try {
+      normalized = fileURLToPath(normalized);
+    } catch {
+      normalized = normalized.replace(/^file:\/\//, "");
+    }
+  }
+
+  if (path.isAbsolute(normalized)) {
+    return normalized;
+  }
+
+  // Check VS Code workspace folders
+  const folders = vscode.workspace?.workspaceFolders;
+  if (folders && folders.length > 0) {
+    for (const folder of folders) {
+      const folderPath = folder.uri.fsPath;
+      if (folderPath) {
+        const candidate = path.resolve(folderPath, normalized);
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+      }
+    }
+  }
+
+  // Check process.cwd()
+  const cwdCandidate = path.resolve(process.cwd(), normalized);
+  if (fs.existsSync(cwdCandidate)) {
+    return cwdCandidate;
+  }
+
+  // Fallback to first workspace folder if present
+  if (folders && folders.length > 0) {
+    const firstFolder = folders[0].uri.fsPath;
+    if (firstFolder) {
+      return path.resolve(firstFolder, normalized);
+    }
+  }
+
+  return cwdCandidate;
+}
+
+/**
  * Discovers and lists all fuzzable exported functions in a source file.
  *
  * @param filePath Path to the target source file (TypeScript or Python)
@@ -44,9 +99,7 @@ import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 export async function listTargets(filePath: string): Promise<TargetListResult> {
   await ParserAdapter.init();
 
-  const resolvedPath = path.isAbsolute(filePath)
-    ? filePath
-    : path.resolve(process.cwd(), filePath);
+  const resolvedPath = resolveFilePath(filePath);
 
   if (!fs.existsSync(resolvedPath)) {
     throw new Error(`Target file does not exist: ${filePath}`);
@@ -111,17 +164,38 @@ export async function runFuzz(
 ): Promise<AgentFuzzResult> {
   await ParserAdapter.init();
 
-  const resolvedPath = path.isAbsolute(options.filePath)
-    ? options.filePath
-    : path.resolve(process.cwd(), options.filePath);
+  const resolvedPath = resolveFilePath(options.filePath);
 
   if (!fs.existsSync(resolvedPath)) {
     throw new Error(`Target file does not exist: ${options.filePath}`);
   }
 
-  const normalizedOptions = normalizeAgentFuzzOptions(options);
+  const currentProvider = Config.get<string>(
+    "nanofuzz.ai.provider",
+    "disabled"
+  );
+  const shouldAutoEnableCopilot =
+    Boolean(options.enableCopilotAi) &&
+    (currentProvider === "disabled" || currentProvider === "copilot");
 
   try {
+    if (shouldAutoEnableCopilot) {
+      Config.override("nanofuzz.ai.provider", "copilot");
+    }
+
+    const effectiveGenerators = {
+      ...options.generators,
+      ...(shouldAutoEnableCopilot &&
+      options.generators?.AiInputGenerator?.enabled === undefined
+        ? { AiInputGenerator: { enabled: true } }
+        : {}),
+    };
+
+    const normalizedOptions = normalizeAgentFuzzOptions({
+      ...options,
+      generators: effectiveGenerators,
+    });
+
     const tester = new Tester(
       resolvedPath,
       options.functionName,
@@ -182,6 +256,10 @@ export async function runFuzz(
       ...resultBase,
       summaryText,
     };
+  } finally {
+    if (shouldAutoEnableCopilot) {
+      Config.override("nanofuzz.ai.provider", currentProvider);
+    }
   }
 }
 
@@ -300,6 +378,17 @@ export function isCounterexample(result: FuzzTestResult): boolean {
 export function mapToAgentCounterexample(
   result: FuzzTestResult
 ): AgentCounterexample {
+  let origin: string | undefined;
+  if (result.inputGenerated?.source) {
+    const s = result.inputGenerated.source;
+    if (s.type === "generator") {
+      origin =
+        s.generator === "AiInputGenerator" ? `AI (${s.model})` : s.generator;
+    } else {
+      origin = s.type;
+    }
+  }
+
   return {
     input: result.input.map((e) => ({
       name: e.name,
@@ -328,6 +417,7 @@ export function mapToAgentCounterexample(
     })),
     shrunk: Boolean(result.shrinkStep && result.shrinkStep > 0),
     shrinkSteps: result.shrinkStep,
+    origin,
   };
 }
 
@@ -486,6 +576,9 @@ export function buildSummaryMarkdown(
       if (ce.exception && ce.exceptionMessage) {
         parts.push(`**Exception Raised**: \`${ce.exceptionMessage}\``);
       }
+      if (ce.origin) {
+        parts.push(`**Input Source**: \`${ce.origin}\``);
+      }
       if (ce.timeout) {
         parts.push(`**Failure Reason**: Function execution timed out.`);
       }
@@ -522,6 +615,29 @@ export function buildSummaryMarkdown(
     );
   } else {
     parts.push(`### ❌ ${toolName} Run Failed on \`${result.functionName}\``);
+  }
+
+  if (result.generators) {
+    const g = result.generators;
+    const partsList: string[] = [];
+    if (g.aiInputs > 0 || g.aiQueriesSent > 0) {
+      partsList.push(
+        `- 🤖 **AI Generator**: **${g.aiInputs}** input(s) generated (${g.aiQueriesSent} model query/queries)`
+      );
+    }
+    if (g.mutationInputs > 0) {
+      partsList.push(
+        `- 🧬 **Mutation Generator**: **${g.mutationInputs}** input(s)`
+      );
+    }
+    if (g.randomInputs > 0) {
+      partsList.push(
+        `- 🎲 **Random Generator**: **${g.randomInputs}** input(s)`
+      );
+    }
+    if (partsList.length > 0) {
+      parts.push(`\n**Generator Breakdown**:`, ...partsList);
+    }
   }
 
   if (result.coverage) {
@@ -603,6 +719,16 @@ export async function formatFuzzResult(
 
   const coverage = await getCoverageSummary(results);
 
+  const genStats = results.stats?.generators;
+  const generators: AgentGeneratorSummary = {
+    randomInputs:
+      genStats?.RandomInputGenerator?.counters?.inputsGenerated ?? 0,
+    mutationInputs:
+      genStats?.MutationInputGenerator?.counters?.inputsGenerated ?? 0,
+    aiInputs: genStats?.AiInputGenerator?.counters?.inputsGenerated ?? 0,
+    aiQueriesSent: genStats?.AiInputGenerator?.gen?.calls?.sent ?? 0,
+  };
+
   const diagnostics: string[] = [];
   if (
     results.env.options?.generators?.AiInputGenerator?.enabled &&
@@ -630,6 +756,7 @@ export async function formatFuzzResult(
     primaryCounterexample,
     reproducerCode,
     coverage,
+    generators,
     diagnostics: diagnostics.length > 0 ? diagnostics : undefined,
     rawResults: results,
   };
@@ -743,6 +870,7 @@ export type AgentFuzzOptions = {
   measures?: Partial<FuzzOptions["measures"]>;
   argDefaults?: Partial<ArgOptions>;
   injectTests?: FuzzPinnedTest[];
+  enableCopilotAi?: boolean;
 };
 
 /**
@@ -769,6 +897,17 @@ export type AgentCounterexample = {
   harnessErrors?: { fnName: string; message: string }[];
   shrunk: boolean;
   shrinkSteps?: number;
+  origin?: string;
+};
+
+/**
+ * Breakdown of generated test inputs by input generator
+ */
+export type AgentGeneratorSummary = {
+  randomInputs: number;
+  mutationInputs: number;
+  aiInputs: number;
+  aiQueriesSent: number;
 };
 
 /**
@@ -817,6 +956,7 @@ export type AgentFuzzResult = {
   primaryCounterexample?: AgentCounterexample;
   reproducerCode?: string;
   coverage?: AgentCoverageSummary;
+  generators?: AgentGeneratorSummary;
   diagnostics?: string[];
   rawResults?: FuzzTestResults;
   summaryText: string;

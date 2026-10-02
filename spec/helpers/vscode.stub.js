@@ -18,6 +18,13 @@ module.exports = {
         },
       };
     },
+    workspaceFolders: [
+      {
+        uri: {
+          fsPath: process.cwd(),
+        },
+      },
+    ],
   },
   window: {
     createTextEditorDecorationType: () => ({}),
