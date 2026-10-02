@@ -38,10 +38,8 @@ export class PythonRunner extends AbstractRunner {
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
   protected _pythonEnv: PythonEnv | undefined;
-  protected static _envs: Map<
-    string,
-    { env: PythonEnv; expiresAt: number }
-  > = new Map();
+  protected static _envs: Map<string, { env: PythonEnv; expiresAt: number }> =
+    new Map();
   protected static _paths: Map<
     string,
     { paths: readonly string[]; expiresAt: number }
