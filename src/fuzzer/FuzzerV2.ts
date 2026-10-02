@@ -483,14 +483,20 @@ export class FuzzerV2 {
           return await this._finalizeRun(stopCondition, update, cancelFn);
         }
 
+        // If non-injected generation has begun, record startGenTime
+        const startGenTime = performance.now();
+        if (!stillInjecting && this._stats!.startGenTime === 0) {
+          this._stats!.markGenStarted(startGenTime);
+        }
+
         // Handle async generator wait (e.g. LLM inputs)
         if (this._compositeInputGenerator.nextable() === "soon") {
           const remainingTimeout =
-            this._options.suiteTimeout > 0 && this._stats.startGenTime > 0
+            this._options.suiteTimeout > 0 && this._stats!.startGenTime > 0
               ? Math.max(
                   0,
                   this._options.suiteTimeout -
-                    (performance.now() - this._stats.startGenTime)
+                    (performance.now() - this._stats!.startGenTime)
                 )
               : undefined;
           const pendingGens =
@@ -500,7 +506,7 @@ export class FuzzerV2 {
             : "";
           update({
             msg: `Waiting for ${pendingLabel}input generator...${formatRunStatsSummary(
-              this._stats.currentRun
+              this._stats!.currentRun
             )}`,
             channel: "update",
             pct: typeof stopCondition === "number" ? stopCondition : 0,
@@ -519,7 +525,6 @@ export class FuzzerV2 {
         }
 
         // Fetch candidate input
-        const startGenTime = performance.now();
         let candidate: TransformedInputAndSource;
         try {
           candidate = await this._compositeInputGenerator.nextTransformed();
@@ -528,9 +533,11 @@ export class FuzzerV2 {
         }
         const genTime = performance.now() - startGenTime;
 
-        if (!candidate.injected && stillInjecting) {
+        if (!candidate.injected) {
           stillInjecting = false;
-          this._stats.markGenStarted(startGenTime);
+          if (this._stats!.startGenTime === 0) {
+            this._stats!.markGenStarted(startGenTime);
+          }
         }
 
         // Execute single test pipeline: Run -> Oracles -> Measures -> Feedback
