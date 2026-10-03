@@ -451,23 +451,29 @@ export function asyncPropValidator(result: { out: number }): string {
       path.join(tmpDir, "package.json"),
       JSON.stringify({ name: "jest-adapter-test" })
     );
+    fs.writeFileSync(
+      path.join(tmpDir, "jest.config.json"),
+      JSON.stringify({ testMatch: ["**/*.test.js"] })
+    );
 
     try {
+      const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
       const res = spawnSync(
-        "npx",
+        npxCmd,
         [
           "jest",
-          testJsPath,
-          '--config={"testMatch":["**/*.test.js"]}',
+          "asyncModule.test.js",
+          "--config=jest.config.json",
           "--colors=false",
         ],
         {
           cwd: tmpDir,
           encoding: "utf8",
+          shell: process.platform === "win32",
         }
       );
       expect(res.status).toBe(0);
-      expect(res.stderr).toContain("4 passed");
+      expect(res.stderr + res.stdout).toContain("4 passed");
     } finally {
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true });
