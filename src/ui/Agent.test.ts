@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as Config from "../Config";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
+import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import {
   listTargets,
@@ -11,6 +12,8 @@ import {
   synthesizeReproducer,
   buildSummaryMarkdown,
   getToolName,
+  synthesizeValidator,
+  synthesizeTransformer,
   AgentFuzzOptions,
 } from "./Agent";
 import { FuzzTestResult } from "../fuzzer/Types";
@@ -65,6 +68,15 @@ describe("Agent", () => {
     expect(asyncFn).toBeDefined();
     expect(asyncFn!.isAsync).toBe(true);
     expect(asyncFn!.signature).toContain("async function testAsyncGreeting");
+
+    expect(voidFn.validatorTemplate).toBeDefined();
+    expect(voidFn.validatorTemplate).toContain(
+      'import { FuzzTestResult } from "@nanofuzz/runtime";'
+    );
+    expect(voidFn.validatorTemplate).toContain(
+      'export function testStandardVoidReturnUndefinedValidator(r: FuzzTestResult): "pass" | "fail" | "unknown"'
+    );
+    expect(voidFn.validatorTemplate).toContain("const _x: number = r.in[0];");
   });
 
   it("listTargets: py", async () => {
@@ -80,6 +92,14 @@ describe("Agent", () => {
     expect(greetingFn.args.length).toBe(1);
     expect(greetingFn.args[0].name).toBe("name");
     expect(greetingFn.signature).toContain("def greeting(name: a)");
+    expect(greetingFn.validatorTemplate).toBeDefined();
+    expect(greetingFn.validatorTemplate).toContain(
+      "from nanofuzz_runtime import FuzzTestResult"
+    );
+    expect(greetingFn.validatorTemplate).toContain(
+      'def greetingValidator1(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:'
+    );
+    expect(greetingFn.validatorTemplate).toContain("name: a = r['in'][0]");
 
     const asyncFn = fnMap.get("async_greeting");
     expect(asyncFn).toBeDefined();
@@ -401,5 +421,40 @@ describe("Agent", () => {
     const adapter = new LlmAdapter();
     expect(adapter.id).toContain("v=copilot");
     expect(LlmAdapter.getMaxOutputTokens()).toBe(4096);
+  });
+
+  it("synthesis: generates validator and transformer templates for targets", async () => {
+    const list = await listTargets(tsFixture);
+    const targetFn = list.functions.find(
+      (f) => f.name === "testStandardVoidReturnUndefined"
+    );
+    expect(targetFn).toBeDefined();
+    expect(targetFn?.validatorTemplate).toContain(
+      "testStandardVoidReturnUndefinedValidator"
+    );
+    expect(targetFn?.transformerTemplate).toContain(
+      "testStandardVoidReturnUndefinedTransformer"
+    );
+
+    const program = ProgramFactory.fromFile(tsFixture);
+    const fnDef = program.functions["testStandardVoidReturnUndefined"];
+    const valSkel = synthesizeValidator(fnDef, "typescript", [
+      "testStandardVoidReturnUndefinedValidator",
+    ]);
+    expect(valSkel.name).toBe("testStandardVoidReturnUndefinedValidator1");
+    expect(valSkel.skeleton).toContain(
+      "testStandardVoidReturnUndefinedValidator1"
+    );
+    expect(valSkel.fullTemplate).toContain(
+      'import { FuzzTestResult } from "@nanofuzz/runtime";'
+    );
+
+    const transSkel = synthesizeTransformer(fnDef, "typescript", [
+      "testStandardVoidReturnUndefinedTransformer",
+    ]);
+    expect(transSkel.name).toBe("testStandardVoidReturnUndefinedTransformer1");
+    expect(transSkel.skeleton).toContain(
+      "testStandardVoidReturnUndefinedTransformer1"
+    );
   });
 });

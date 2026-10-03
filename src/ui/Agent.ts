@@ -32,6 +32,11 @@ import { Judgment } from "../fuzzer/oracles/Types";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
+import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
+import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
+import { FuzzerCodeSnippet } from "../fuzzer/synthesis/Types";
+
+export { synthesizeValidator, synthesizeTransformer, FuzzerCodeSnippet };
 
 // -------------------------------------------------------------------------- //
 // Primary Public API
@@ -120,6 +125,17 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       constantValue: arg.isConstant() ? arg.getConstantValue() : undefined,
     }));
 
+    const valSkel = synthesizeValidator(
+      fnDef,
+      language,
+      Object.keys(program.functions)
+    );
+    const transSkel = synthesizeTransformer(
+      fnDef,
+      language,
+      Object.keys(program.functions)
+    );
+
     functions.push({
       name: fnDef.getName(),
       signature: formatFunctionSignature(fnDef, language),
@@ -130,6 +146,8 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       startOffset: fnDef.getStartOffset(),
       endOffset: fnDef.getEndOffset(),
       comment: fnDef.getCmt(),
+      validatorTemplate: valSkel.fullTemplate,
+      transformerTemplate: transSkel.fullTemplate,
     });
   }
 
@@ -855,6 +873,8 @@ export type TargetFunction = {
   startOffset: number;
   endOffset: number;
   comment?: string;
+  validatorTemplate?: string;
+  transformerTemplate?: string;
 };
 
 /**

@@ -61,7 +61,7 @@
       {
         "name": "nanofuzz_listTargets",
         "displayName": "List NaNofuzz Targets",
-        "modelDescription": "Discovers and lists all exported functions (synchronous and asynchronous), type signatures, and parameter structures in a TypeScript or Python source file that can be targeted for structure-aware fuzzing and property testing. If a target function is not exported or uses unsupported signature types, you can write an exported wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
+        "modelDescription": "Discovers and lists all exported functions (synchronous and asynchronous), type signatures, parameter structures, and ready-to-use property validator and input transformer code templates (validatorTemplate and transformerTemplate) in a TypeScript or Python source file that can be targeted for structure-aware fuzzing and property testing. If a target function is not exported or uses unsupported signature types, you can write an exported wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "listTargets",
         "icon": "$(symbol-method)",
