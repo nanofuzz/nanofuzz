@@ -579,21 +579,79 @@ export async function getCoverageSummary(
       fnTotal > 0 ? Math.round((fnCovered / fnTotal) * 10000) / 100 : 100;
 
     const uncoveredLinesByFile: Record<string, number[]> = {};
+    const partiallyCoveredLinesByFile: Record<string, number[]> = {};
     if (covStats.files) {
       for (const file of covStats.files) {
         const fileMap = file.fileMap;
-        if (fileMap && fileMap.s && fileMap.statementMap) {
-          const uncoveredLines: number[] = [];
-          for (const [key, hits] of Object.entries(fileMap.s)) {
-            if (hits === 0 && fileMap.statementMap[key]) {
-              const startLine = fileMap.statementMap[key].start.line;
-              if (!uncoveredLines.includes(startLine)) {
-                uncoveredLines.push(startLine);
+        if (fileMap) {
+          const lineStats: Record<
+            number,
+            { hitCount: number; zeroCount: number }
+          > = {};
+
+          if (fileMap.s && fileMap.statementMap) {
+            for (const [key, hits] of Object.entries(fileMap.s)) {
+              if (fileMap.statementMap[key]) {
+                const startLine = fileMap.statementMap[key].start.line;
+                if (!lineStats[startLine]) {
+                  lineStats[startLine] = { hitCount: 0, zeroCount: 0 };
+                }
+                if (hits > 0) {
+                  lineStats[startLine].hitCount++;
+                } else {
+                  lineStats[startLine].zeroCount++;
+                }
               }
             }
           }
+
+          if (fileMap.b && fileMap.branchMap) {
+            for (const [bKey, hitsArr] of Object.entries(fileMap.b)) {
+              const bDef = fileMap.branchMap[bKey];
+              if (bDef && bDef.locations && Array.isArray(hitsArr)) {
+                for (let i = 0; i < bDef.locations.length; i++) {
+                  const loc = bDef.locations[i];
+                  if (loc && loc.start && typeof loc.start.line === "number") {
+                    const startLine = loc.start.line;
+                    if (!lineStats[startLine]) {
+                      lineStats[startLine] = { hitCount: 0, zeroCount: 0 };
+                    }
+                    const armHits = hitsArr[i];
+                    if (typeof armHits === "number" && armHits > 0) {
+                      lineStats[startLine].hitCount++;
+                    } else if (armHits === 0) {
+                      lineStats[startLine].zeroCount++;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          const uncoveredLines: number[] = [];
+          const partiallyCoveredLines: number[] = [];
+
+          for (const [lineStr, stats] of Object.entries(lineStats)) {
+            const line = Number(lineStr);
+            if (stats.zeroCount > 0) {
+              if (stats.hitCount === 0) {
+                uncoveredLines.push(line);
+              } else {
+                partiallyCoveredLines.push(line);
+              }
+            }
+          }
+
           uncoveredLines.sort((a, b) => a - b);
-          uncoveredLinesByFile[normalizePathForKey(file.path)] = uncoveredLines;
+          partiallyCoveredLines.sort((a, b) => a - b);
+
+          const fileKey = normalizePathForKey(file.path);
+          if (uncoveredLines.length > 0) {
+            uncoveredLinesByFile[fileKey] = uncoveredLines;
+          }
+          if (partiallyCoveredLines.length > 0) {
+            partiallyCoveredLinesByFile[fileKey] = partiallyCoveredLines;
+          }
         }
       }
     }
@@ -609,6 +667,7 @@ export async function getCoverageSummary(
       functionsCovered: fnCovered,
       functionCoveragePercent: fnPct,
       uncoveredLinesByFile,
+      partiallyCoveredLinesByFile,
     };
   } catch (_e) {
     return undefined;
@@ -750,6 +809,23 @@ export function buildSummaryMarkdown(
       );
       if (fileEntries.length > 0) {
         parts.push(`- **Uncovered Lines**:`);
+        for (const [filePath, lines] of fileEntries) {
+          const displayPath = path.isAbsolute(filePath)
+            ? path.relative(process.cwd(), filePath) || filePath
+            : filePath;
+          parts.push(
+            `  - \`${displayPath}\`: line(s) ${formatLineRanges(lines)}`
+          );
+        }
+      }
+    }
+
+    if (cov.partiallyCoveredLinesByFile) {
+      const fileEntries = Object.entries(
+        cov.partiallyCoveredLinesByFile
+      ).filter(([, lines]) => lines.length > 0);
+      if (fileEntries.length > 0) {
+        parts.push(`- **Partially Covered Lines**:`);
         for (const [filePath, lines] of fileEntries) {
           const displayPath = path.isAbsolute(filePath)
             ? path.relative(process.cwd(), filePath) || filePath
@@ -1046,6 +1122,7 @@ export type AgentCoverageSummary = {
   functionsCovered: number;
   functionCoveragePercent: number;
   uncoveredLinesByFile?: Record<string, number[]>;
+  partiallyCoveredLinesByFile?: Record<string, number[]>;
 };
 
 /**

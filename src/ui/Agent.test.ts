@@ -497,7 +497,7 @@ describe("Agent", () => {
     expect(formatLineRanges([10, 2, 1, 3, 9, 8, 5])).toBe("1-3, 5, 8-10");
   });
 
-  it("summary: coverage details including uncovered lines", () => {
+  it("summary: coverage details including uncovered and partially covered lines", () => {
     const summary = buildSummaryMarkdown({
       status: "success",
       filePath: tsFixture,
@@ -524,12 +524,17 @@ describe("Agent", () => {
         uncoveredLinesByFile: {
           [tsFixture]: [12, 13, 14, 25, 30],
         },
+        partiallyCoveredLinesByFile: {
+          [tsFixture]: [8, 15],
+        },
       },
     });
 
     expect(summary).toContain("Code Coverage Summary");
     expect(summary).toContain("Statement Coverage: **75%**");
-    expect(summary).toContain("Uncovered Lines");
+    expect(summary).toContain("- **Uncovered Lines**:");
     expect(summary).toContain("12-14, 25, 30");
+    expect(summary).toContain("- **Partially Covered Lines**:");
+    expect(summary).toContain("8, 15");
   });
 });
