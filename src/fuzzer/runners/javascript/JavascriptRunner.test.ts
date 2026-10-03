@@ -1072,4 +1072,116 @@ export function x(): number {
       }
     }
   });
+
+  it("async function: resolves value", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-async-js-"));
+    const jsPath = path.join(tmpDir, "asyncModule.js");
+    const jsCode = `
+async function asyncAdd(a, b) {
+  await new Promise((r) => setTimeout(r, 10));
+  return a + b;
+}
+module.exports = { asyncAdd };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      const runner = new JavascriptRunner(jsPath, "asyncAdd");
+      await runner.onRunStart();
+
+      const res = await runner.run([15, 27], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(42);
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it("async function: rejects with error", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-async-err-js-")
+    );
+    const jsPath = path.join(tmpDir, "asyncErrModule.js");
+    const jsCode = `
+async function asyncFail(msg) {
+  await new Promise((r) => setTimeout(r, 10));
+  throw new Error("async failure: " + msg);
+}
+module.exports = { asyncFail };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      const runner = new JavascriptRunner(jsPath, "asyncFail");
+      await runner.onRunStart();
+
+      const res = await runner.run(["boom"], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("error");
+      if (res.result.tag === "error") {
+        expect(res.result.message).toContain("async failure: boom");
+        expect(res.result.source).toBe("put");
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it("async function: timeout triggers", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-async-timeout-js-")
+    );
+    const jsPath = path.join(tmpDir, "asyncTimeoutModule.js");
+    const jsCode = `
+async function asyncHang() {
+  await new Promise(() => {}); // never resolves
+}
+module.exports = { asyncHang };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      const runner = new JavascriptRunner(jsPath, "asyncHang");
+      await runner.onRunStart();
+
+      const res = await runner.run([], 100);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("timeout");
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
 });

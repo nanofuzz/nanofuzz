@@ -21,6 +21,8 @@ import uuid
 import ctypes
 import threading
 import sysconfig
+import inspect
+import asyncio
 from contextlib import redirect_stdout, contextmanager
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
 
@@ -222,6 +224,44 @@ class PutTimeoutException(Exception):
     pass
 
 
+_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def get_event_loop() -> asyncio.AbstractEventLoop:
+    global _loop
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_loop)
+    return _loop
+
+
+def run_coroutine_with_timeout(coro: Any, timeout_ms: int) -> Any:
+    """Runs a coroutine to completion in the event loop with timeout handling and cleanup."""
+    loop = get_event_loop()
+
+    async def _waiter():
+        if timeout_ms > 0:
+            return await asyncio.wait_for(coro, timeout=timeout_ms / 1000.0)
+        return await coro
+
+    try:
+        return loop.run_until_complete(_waiter())
+    except asyncio.TimeoutError:
+        raise PutTimeoutException("Coroutine execution timed out")
+    finally:
+        # Cancel any orphan background tasks created during coroutine execution
+        try:
+            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+            if pending:
+                for task in pending:
+                    task.cancel()
+                loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
+        except Exception:
+            pass
+
+
 def _raise_async_exception(target_thread_id: int, exception_cls: type) -> None:
     """Injects an exception asynchronously into a CPython thread."""
     ret = ctypes.pythonapi.PyThreadState_SetAsyncExc(
@@ -235,9 +275,20 @@ def _raise_async_exception(target_thread_id: int, exception_cls: type) -> None:
 
 
 def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
-    """Executes fn(*args) with an in-process timeout across Mac, Linux, and Windows."""
+    """Executes fn(*args) with an in-process timeout across Mac, Linux, and Windows, supporting async coroutines."""
+    if inspect.iscoroutinefunction(fn):
+        def _exec():
+            coro = fn(*args)
+            return run_coroutine_with_timeout(coro, timeout_ms)
+    else:
+        def _exec():
+            res = fn(*args)
+            if inspect.iscoroutine(res):
+                return run_coroutine_with_timeout(res, timeout_ms)
+            return res
+
     if not timeout_ms or timeout_ms <= 0:
-        return fn(*args)
+        return _exec()
 
     main_thread_id = threading.get_ident()
     timer = threading.Timer(
@@ -247,7 +298,7 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
     )
     timer.start()
     try:
-        return fn(*args)
+        return _exec()
     finally:
         timer.cancel()
 

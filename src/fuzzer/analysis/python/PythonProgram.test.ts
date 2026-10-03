@@ -756,14 +756,40 @@ def decorated(value: int) -> str:
 
   it("finds typed async functions", () => {
     // The analyzer extracts the inner function definition from `async def`.
-    const fn = ProgramFactory.fromSource(
+    const fns = ProgramFactory.fromSource(
       () => `async def fetch_name(url: str) -> str:
-    return url`,
-      "python"
-    ).functionsExported["fetch_name"];
+    return url
 
-    expect(fn.getArgDefs()[0].getType()).toEqual(ArgTag.STRING);
-    expect(fn.getReturnType()?.type?.type).toEqual(ArgTag.STRING);
+async def async_void(msg: str) -> None:
+    print(msg)
+
+async def async_bare_void():
+    pass
+
+def sync_fn(x: int) -> int:
+    return x * 2
+
+lam = lambda: 42`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["fetch_name"].isAsync()).toBeTrue();
+    expect(fns["fetch_name"].isVoid()).toBeFalse();
+    expect(fns["fetch_name"].getArgDefs()[0].getType()).toEqual(ArgTag.STRING);
+    expect(fns["fetch_name"].getReturnType()?.type?.type).toEqual(
+      ArgTag.STRING
+    );
+
+    expect(fns["async_void"].isAsync()).toBeTrue();
+    expect(fns["async_void"].isVoid()).toBeTrue();
+
+    expect(fns["async_bare_void"].isAsync()).toBeTrue();
+    expect(fns["async_bare_void"].isVoid()).toBeTrue();
+
+    expect(fns["sync_fn"].isAsync()).toBeFalse();
+    expect(fns["sync_fn"].isVoid()).toBeFalse();
+
+    expect(fns["lam"].isAsync()).toBeFalse();
   });
 
   it("ignores PEP 695 aliases declared inside a function", () => {
