@@ -87,7 +87,7 @@ export async function resolveMatchingModel(
     vendor: selected.vendor,
     model: selected.family || selected.id || selected.name,
   };
-}
+} // fn: resolveMatchingModel
 
 /**
  * Language model tool for discovering exported functions and type signatures.
@@ -145,6 +145,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
       seed,
       model,
       vendor,
+      inputs,
     } = options.input;
 
     const resolved = await resolveMatchingModel(vendor, model);
@@ -159,6 +160,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         seed,
         model: resolved.model,
         vendor: resolved.vendor,
+        inputs,
         enableCopilotAi: true,
       },
       () => token.isCancellationRequested
@@ -195,7 +197,7 @@ export function registerLmTools(context: {
   }
 
   return disposables;
-}
+} // fn: registerLmTools
 
 // -------------------------------------------------------------------------- //
 // Type Definitions
@@ -220,4 +222,5 @@ export type FuzzFunctionInput = {
   seed?: string;
   model?: string;
   vendor?: string;
+  inputs?: (Record<string, unknown> | unknown[])[];
 };

@@ -135,6 +135,31 @@ describe("VscodeLmAdapter", () => {
     );
   });
 
+  it("fuzz: invoke with concrete seed inputs", async () => {
+    const tool = new FuzzFunctionTool();
+    const token = new vscode.CancellationTokenSource().token;
+    const result = await tool.invoke(
+      {
+        input: {
+          filePath: tsFixture,
+          functionName: "testAsyncGreeting",
+          inputs: [{ name: "boom" }],
+          maxTests: 1,
+          timeoutMs: 3000,
+        },
+        toolInvocationToken: undefined,
+      },
+      token
+    );
+
+    expect(result).toBeDefined();
+    expect(result.content.length).toBeGreaterThan(0);
+    expect(getTextContent(result)).toContain(
+      "❌ NaNofuzz Counterexample Discovered"
+    );
+    expect(getTextContent(result)).toContain("boom");
+  });
+
   it("resolveMatchingModel: exact and fuzzy", async () => {
     const res1 = await resolveMatchingModel("google", "gemini-3.7-flash");
     expect(res1.vendor).toBe("google");

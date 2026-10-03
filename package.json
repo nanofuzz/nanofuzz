@@ -122,6 +122,22 @@
             "seed": {
               "type": "string",
               "description": "Optional pseudo-random generator seed for deterministic fuzzing runs."
+            },
+            "inputs": {
+              "type": "array",
+              "description": "Optional list of concrete seed inputs to test, expressed either as objects mapping parameter names to argument values (e.g. [{\"name\": \"Alice\", \"age\": 30}]) or as arrays of positional argument values (e.g. [[\"Alice\", 30]]). Useful for targeting specific uncovered branches or edge cases.",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "description": "Object mapping parameter names to argument values."
+                  },
+                  {
+                    "type": "array",
+                    "description": "Positional argument values."
+                  }
+                ]
+              }
             }
           },
           "required": [

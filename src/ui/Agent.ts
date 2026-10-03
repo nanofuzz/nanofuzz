@@ -7,6 +7,8 @@ import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
 import { getToolVersion } from "../ToolVersion";
 import { isError, normalizePathForKey } from "../fuzzer/Util";
+import { isKeyedObject } from "../Util";
+import { isArgValueType } from "../fuzzer/analysis/Util";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
@@ -93,7 +95,7 @@ export function resolveFilePath(filePath: string): string {
   }
 
   return cwdCandidate;
-}
+} // fn: resolveFilePath
 
 /**
  * Discovers and lists all fuzzable exported functions in a source file (sync and async).
@@ -166,7 +168,7 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
     functions,
     unsupportedFunctions,
   };
-}
+} // fn: listTargets
 
 /**
  * Runs a fuzzing session on a given target function (synchronous or asynchronous) in headless agent mode.
@@ -227,8 +229,47 @@ export async function runFuzz(
       normalizedOptions
     );
 
+    const argDefs = tester.env.function.getArgDefs();
+    const convertedInputs: FuzzPinnedTest[] = [];
+    if (options.inputs && Array.isArray(options.inputs)) {
+      for (const item of options.inputs) {
+        if (item === null || item === undefined) continue;
+        if (Array.isArray(item)) {
+          convertedInputs.push({
+            input: argDefs.map((def, idx) => {
+              const rawVal = item[idx];
+              return {
+                name: def.getName(),
+                offset: idx,
+                value: isArgValueType(rawVal) ? rawVal : undefined,
+                origin: { type: "user" },
+              };
+            }),
+            output: [],
+            pinned: true,
+          });
+        } else if (isKeyedObject(item)) {
+          convertedInputs.push({
+            input: argDefs.map((def, idx) => {
+              const rawVal = item[def.getName()];
+              return {
+                name: def.getName(),
+                offset: idx,
+                value: isArgValueType(rawVal) ? rawVal : undefined,
+                origin: { type: "user" },
+              };
+            }),
+            output: [],
+            pinned: true,
+          });
+        }
+      }
+    }
+
+    const allInjected = [...convertedInputs, ...(options.injectTests ?? [])];
+
     const rawResults = await tester.testSync(
-      options.injectTests ?? [],
+      allInjected,
       { gen: true },
       updateFn,
       cancelFn
@@ -292,14 +333,14 @@ export async function runFuzz(
       Config.override("nanofuzz.ai.vendor", currentVendor);
     }
   }
-}
+} // fn: runFuzz
 
 /**
  * Returns the configured display name of the tool (e.g., "NaNofuzz").
  */
 export function getToolName(): string {
   return Config.get("nanofuzz.name", "NaNofuzz");
-}
+} // fn: getToolName
 
 /**
  * Returns default FuzzOptions for agent headless runs.
@@ -339,7 +380,7 @@ export function getDefaultFuzzOptions(): FuzzOptions {
       },
     },
   };
-}
+} // fn: getDefaultFuzzOptions
 
 /**
  * Normalizes user-specified agent fuzz options into full FuzzOptions.
@@ -368,7 +409,7 @@ export function normalizeAgentFuzzOptions(
       ? { ...dft.measures, ...options.measures }
       : dft.measures,
   };
-}
+} // fn: normalizeAgentFuzzOptions
 
 // -------------------------------------------------------------------------- //
 // Helper Functions
@@ -401,7 +442,7 @@ export function isCounterexample(result: FuzzTestResult): boolean {
     return true;
   }
   return false;
-}
+} // fn: isCounterexample
 
 /**
  * Maps a single FuzzTestResult to an AgentCounterexample.
@@ -450,7 +491,7 @@ export function mapToAgentCounterexample(
     shrinkSteps: result.shrinkStep,
     origin,
   };
-}
+} // fn: mapToAgentCounterexample
 
 /**
  * Synthesizes an executable test suite / reproducer using NaNofuzz test adapters (Jest or Pytest).
@@ -505,7 +546,7 @@ export function synthesizeReproducer(
       .join(", ");
     return `// Reproducer test for ${functionName}\n${functionName}(${inputVals});\n`;
   }
-}
+} // fn: synthesizeReproducer
 
 /**
  * Computes coverage summary statistics from FuzzTestResults.
@@ -572,7 +613,31 @@ export async function getCoverageSummary(
   } catch (_e) {
     return undefined;
   }
-}
+} // fn: getCoverageSummary
+
+/**
+ * Formats an array of line numbers into concise range strings (e.g. "1-3, 5, 8-10").
+ */
+export function formatLineRanges(lines: number[]): string {
+  if (!lines || lines.length === 0) return "";
+  const sorted = Array.from(new Set(lines)).sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const curr = sorted[i];
+    if (curr === prev + 1) {
+      prev = curr;
+    } else {
+      ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+      start = curr;
+      prev = curr;
+    }
+  }
+  ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+  return ranges.join(", ");
+} // fn: formatLineRanges
 
 /**
  * Builds a formatted Markdown summary string for an AgentFuzzResult.
@@ -678,6 +743,23 @@ export function buildSummaryMarkdown(
       `- Statement Coverage: **${cov.statementCoveragePercent}%** (${cov.statementsCovered}/${cov.statementsTotal} statements)`,
       `- Branch Coverage: **${cov.branchCoveragePercent}%** (${cov.branchesCovered}/${cov.branchesTotal} branches)`
     );
+
+    if (cov.uncoveredLinesByFile) {
+      const fileEntries = Object.entries(cov.uncoveredLinesByFile).filter(
+        ([, lines]) => lines.length > 0
+      );
+      if (fileEntries.length > 0) {
+        parts.push(`- **Uncovered Lines**:`);
+        for (const [filePath, lines] of fileEntries) {
+          const displayPath = path.isAbsolute(filePath)
+            ? path.relative(process.cwd(), filePath) || filePath
+            : filePath;
+          parts.push(
+            `  - \`${displayPath}\`: line(s) ${formatLineRanges(lines)}`
+          );
+        }
+      }
+    }
   }
 
   if (result.diagnostics && result.diagnostics.length > 0) {
@@ -688,7 +770,7 @@ export function buildSummaryMarkdown(
   }
 
   return parts.join("\n");
-}
+} // fn: buildSummaryMarkdown
 
 /**
  * Formats a raw FuzzTestResults object into a comprehensive AgentFuzzResult.
@@ -798,7 +880,7 @@ export async function formatFuzzResult(
     ...resultBase,
     summaryText,
   };
-}
+} // fn: formatFuzzResult
 
 /**
  * Formats a human-readable argument type string from an ArgDef instance.
@@ -812,7 +894,7 @@ export function formatArgDefType(argDef: ArgDef): string {
   }
   const tag = argDef.getType();
   return `${tag}${suffix}`;
-}
+} // fn: formatArgDefType
 
 /**
  * Formats a function signature string from a FunctionDef.
@@ -843,7 +925,7 @@ export function formatFunctionSignature(
       : "";
   const prefix = isAsync ? "async function" : "function";
   return `${prefix} ${name}(${argParts.join(", ")})${retStr}`;
-}
+} // fn: formatFunctionSignature
 
 // -------------------------------------------------------------------------- //
 // Type Definitions
@@ -909,6 +991,7 @@ export type AgentFuzzOptions = {
   measures?: Partial<FuzzOptions["measures"]>;
   argDefaults?: Partial<ArgOptions>;
   injectTests?: FuzzPinnedTest[];
+  inputs?: (Record<string, unknown> | unknown[])[];
   enableCopilotAi?: boolean;
 };
 

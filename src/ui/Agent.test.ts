@@ -11,6 +11,7 @@ import {
   normalizeAgentFuzzOptions,
   synthesizeReproducer,
   buildSummaryMarkdown,
+  formatLineRanges,
   getToolName,
   synthesizeValidator,
   synthesizeTransformer,
@@ -288,6 +289,37 @@ describe("Agent", () => {
     expect(result.totalTests).toBeGreaterThan(0);
   });
 
+  it("runFuzz: with injected concrete inputs (object and array)", async () => {
+    // 1. Injected failing object input
+    const resultObj = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testAsyncGreeting",
+      inputs: [{ name: "boom" }],
+      maxTests: 1,
+      suiteTimeout: 3000,
+    });
+
+    expect(resultObj.status).toBe("counterexample_found");
+    expect(resultObj.exceptions).toBeGreaterThan(0);
+    expect(
+      resultObj.primaryCounterexample?.input[0].value === "boom"
+    ).toBeTrue();
+
+    // 2. Injected failing array positional input
+    const resultArr = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testAsyncGreeting",
+      inputs: [["boom"]],
+      maxTests: 1,
+      suiteTimeout: 3000,
+    });
+
+    expect(resultArr.status).toBe("counterexample_found");
+    expect(
+      resultArr.primaryCounterexample?.input[0].value === "boom"
+    ).toBeTrue();
+  });
+
   it("runFuzz: cancel", async () => {
     let cancelCalled = false;
     const result = await runFuzz(
@@ -456,5 +488,48 @@ describe("Agent", () => {
     expect(transSkel.skeleton).toContain(
       "testStandardVoidReturnUndefinedTransformer1"
     );
+  });
+
+  it("formatLineRanges: formats individual and grouped lines", () => {
+    expect(formatLineRanges([])).toBe("");
+    expect(formatLineRanges([5])).toBe("5");
+    expect(formatLineRanges([1, 2, 3, 5, 8, 9, 10])).toBe("1-3, 5, 8-10");
+    expect(formatLineRanges([10, 2, 1, 3, 9, 8, 5])).toBe("1-3, 5, 8-10");
+  });
+
+  it("summary: coverage details including uncovered lines", () => {
+    const summary = buildSummaryMarkdown({
+      status: "success",
+      filePath: tsFixture,
+      functionName: "testFn",
+      language: "typescript",
+      toolVersion: "NaNofuzz v0.4.0",
+      totalTests: 10,
+      passedTests: 10,
+      failedTests: 0,
+      erroredTests: 0,
+      timeouts: 0,
+      exceptions: 0,
+      counterexamples: [],
+      coverage: {
+        statementsTotal: 20,
+        statementsCovered: 15,
+        statementCoveragePercent: 75,
+        branchesTotal: 4,
+        branchesCovered: 3,
+        branchCoveragePercent: 75,
+        functionsTotal: 2,
+        functionsCovered: 2,
+        functionCoveragePercent: 100,
+        uncoveredLinesByFile: {
+          [tsFixture]: [12, 13, 14, 25, 30],
+        },
+      },
+    });
+
+    expect(summary).toContain("Code Coverage Summary");
+    expect(summary).toContain("Statement Coverage: **75%**");
+    expect(summary).toContain("Uncovered Lines");
+    expect(summary).toContain("12-14, 25, 30");
   });
 });
