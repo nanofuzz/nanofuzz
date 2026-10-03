@@ -13,7 +13,7 @@ describe("fuzzer: study examples 8-14", () => {
           "nanofuzz-study/examples/8.ts",
           "minSalary",
           intOptions
-        ).testSync()
+        ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
   });
@@ -25,7 +25,7 @@ describe("fuzzer: study examples 8-14", () => {
           "nanofuzz-study/examples/9.ts",
           "getOffsetOrDefault",
           intOptions
-        ).testSync()
+        ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
   });
@@ -38,7 +38,7 @@ describe("fuzzer: study examples 8-14", () => {
           "nanofuzz-study/examples/10.ts",
           "gramSchmidt",
           intOptions
-        ).testSync()
+        ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
   });
@@ -50,7 +50,7 @@ describe("fuzzer: study examples 8-14", () => {
           "nanofuzz-study/examples/11.ts",
           "idMatrix",
           intOptions
-        ).testSync()
+        ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
   });
@@ -62,7 +62,7 @@ describe("fuzzer: study examples 8-14", () => {
           "nanofuzz-study/examples/12.ts",
           "levenshtein",
           intOptions
-        ).testSync()
+        ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
   });
@@ -74,7 +74,7 @@ describe("fuzzer: study examples 8-14", () => {
           "nanofuzz-study/examples/13.ts",
           "isSteady",
           intOptions
-        ).testSync()
+        ).test()
       ).stats.outcomes.total
     ).toBeGreaterThan(0);
   });
@@ -87,7 +87,7 @@ describe("fuzzer: study examples 8-14", () => {
         ...intOptions,
         suiteTimeout: 3000,
       }
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.timeouts).toBeGreaterThan(0);

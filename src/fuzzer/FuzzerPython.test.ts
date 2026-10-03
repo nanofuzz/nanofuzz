@@ -18,7 +18,7 @@ describe("fuzzer: python targets", () => {
         useProperty: true,
         suiteTimeout: 3000,
       }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toEqual(
@@ -67,7 +67,7 @@ describe("fuzzer: python targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.py",
       "timeouts",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
@@ -79,7 +79,7 @@ describe("fuzzer: python targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.py",
       "throws",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
@@ -91,7 +91,7 @@ describe("fuzzer: python targets", () => {
       "./test_fixtures/Fuzzer.testfixtures2.py",
       "valid",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.exceptions).toEqual(
@@ -105,7 +105,7 @@ describe("fuzzer: python targets", () => {
         "./test_fixtures/Fuzzer.testfixtures2.py",
         "invalid",
         intOptions
-      ).testSync();
+      ).test();
     }).toThrowError();
   });
 
@@ -114,7 +114,7 @@ describe("fuzzer: python targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.py",
       "issue301",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(1);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.fail).toEqual(1);
@@ -145,7 +145,7 @@ describe("fuzzer: python targets", () => {
         ...intOptions,
         maxTests: 200, // Make sure we generate enough tests to hit n = 5
       }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => {
+    ).test([], { gen: true }, undefined, undefined, (r) => {
       if (r.category === "skip") skips.push(r);
     });
 
@@ -165,7 +165,7 @@ describe("fuzzer: python targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed",
       intOptions
-    ).testSync([], { gen: true }, undefined, undefined, (r) => {
+    ).test([], { gen: true }, undefined, undefined, (r) => {
       if (r.category === "skip") skips.push(r);
       if (r.category === "ok") passed.push(r);
     });
@@ -228,7 +228,7 @@ describe("fuzzer: python targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed",
       { ...intOptions, maxTests: 0 }
-    ).testSync([injectedInput], { gen: true }, undefined, undefined, (r) =>
+    ).test([injectedInput], { gen: true }, undefined, undefined, (r) =>
       results.push(r)
     );
 
@@ -254,7 +254,7 @@ describe("fuzzer: python targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed_exception",
       intOptions
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
@@ -276,7 +276,7 @@ describe("fuzzer: python targets", () => {
         ...intOptions,
         maxTests: 2,
       }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.failure).toEqual(

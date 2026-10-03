@@ -42,7 +42,7 @@ describe("fuzzer: coverageOneFile benchmark", () => {
             },
           },
         }
-      ).testSync([], { gen: true }, undefined, undefined, (r) =>
+      ).test([], { gen: true }, undefined, undefined, (r) =>
         capturedResults.push(r)
       );
 

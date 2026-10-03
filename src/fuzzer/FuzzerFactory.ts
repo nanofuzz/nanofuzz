@@ -26,22 +26,13 @@ export interface IFuzzer {
     options: FuzzOptions
   ): CompilerStaleness | "optionschanged" | "crashed";
 
-  testSync(
+  test(
     injectTests?: FuzzPinnedTest[],
     mode?: FuzzMode,
     updateFn?: FuzzStatusUpdater,
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults>;
-
-  testAsync(
-    injectTests?: FuzzPinnedTest[],
-    mode?: FuzzMode,
-    callbackFn?: (result: FuzzTestResults | Error) => void,
-    statusFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean,
-    onResultFn?: FuzzResultCallback
-  ): Promise<void>;
 
   getInputGeneratorDiagnostics(): string[];
 }

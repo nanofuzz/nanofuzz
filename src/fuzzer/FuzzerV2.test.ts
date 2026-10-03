@@ -1,4 +1,4 @@
-import { Tester as TesterV1, FuzzStopReason, FuzzTestResults } from "./Fuzzer";
+import { Tester as TesterV1, FuzzStopReason } from "./Fuzzer";
 import { FuzzerV2 as TesterV2 } from "./FuzzerV2";
 import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
@@ -49,7 +49,7 @@ describe("fuzzer V2: general & parity tests", () => {
         "nanofuzz-study/examples/1.ts",
         "minValue",
         { ...intOptions, maxTests: 1, outputFile }
-      ).testSync();
+      ).test();
       const persisted = JSONN.parse(fs.readFileSync(outputFile, "utf8"));
 
       expect(results.toolVersion).toBe(getToolVersion());
@@ -86,13 +86,13 @@ describe("fuzzer V2: general & parity tests", () => {
       "nanofuzz-study/examples/1.ts",
       "minValue",
       options
-    ).testSync();
+    ).test();
 
     const resultsV2 = await new TesterV2(
       "nanofuzz-study/examples/1.ts",
       "minValue",
       options
-    ).testSync();
+    ).test();
 
     expect(resultsV2.stopReason).toBe(resultsV1.stopReason);
     expect(resultsV2.stats.outcomes.total).toBe(resultsV1.stats.outcomes.total);
@@ -114,7 +114,7 @@ describe("fuzzer V2: general & parity tests", () => {
       "nanofuzz-study/examples/1.ts",
       "minValue",
       options
-    ).testSync();
+    ).test();
 
     expect(results.stopReason).toBe(FuzzStopReason.NOMOREINPUTS);
   });
@@ -151,13 +151,13 @@ describe("fuzzer V2: general & parity tests", () => {
       "nanofuzz-study/examples/1.ts",
       "minValue",
       options
-    ).testSync(injected);
+    ).test(injected);
 
     const resultsV2 = await new TesterV2(
       "nanofuzz-study/examples/1.ts",
       "minValue",
       options
-    ).testSync(injected);
+    ).test(injected);
 
     expect(resultsV2.stats.counters.inputsInjected).toBe(1);
     expect(resultsV1.stats.counters.inputsInjected).toBe(1);
@@ -166,7 +166,7 @@ describe("fuzzer V2: general & parity tests", () => {
     expect<unknown>(resultsV2.results[0].input[1].value).toBe(99);
   });
 
-  it("async test run with callback", async () => {
+  it("test execution with status updates", async () => {
     const options = {
       ...intOptions,
       maxTests: 15,
@@ -179,18 +179,13 @@ describe("fuzzer V2: general & parity tests", () => {
       options
     );
 
-    const completed = new Promise<FuzzTestResults>((resolve, reject) => {
-      tester.testAsync([], { gen: true }, (res) => {
-        if (res instanceof Error) {
-          reject(res);
-        } else {
-          resolve(res);
-        }
-      });
+    const updates: string[] = [];
+    const results = await tester.test([], { gen: true }, (payload) => {
+      updates.push(payload.msg);
     });
 
-    const results = await completed;
     expect(results.stats.outcomes.total).toBe(15);
     expect(results.stopReason).toBe(FuzzStopReason.MAXTESTS);
+    expect(updates.length).toBeGreaterThan(0);
   });
 });

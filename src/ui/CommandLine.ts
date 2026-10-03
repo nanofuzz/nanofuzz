@@ -634,7 +634,7 @@ export async function runCliInProcess(
         },
       },
       { engine: options["engine"] }
-    ).testSync(injectTests, undefined, updateFn, () => isCancelled);
+    ).test(injectTests, undefined, updateFn, () => isCancelled);
 
     process.removeListener("SIGINT", sigintListener);
 

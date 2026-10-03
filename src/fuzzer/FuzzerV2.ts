@@ -255,7 +255,7 @@ export class FuzzerV2 {
   } // fn: state
 
   /**
-   * Executes the fuzzing run synchronously, returning the results once the run is complete.
+   * Executes the fuzzing run and returns the finalized results.
    *
    * @param injectTests An array of pinned tests to inject into the fuzzing run.
    * @param mode The fuzzing mode to use for this run.
@@ -264,7 +264,7 @@ export class FuzzerV2 {
    * @param onResultFn Optional callback function to receive individual test results.
    * @returns A promise that resolves with the fuzz test results.
    */
-  public async testSync(
+  public async test(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: FuzzStatusUpdater,
@@ -284,71 +284,7 @@ export class FuzzerV2 {
       }
       throw e;
     }
-  } // fn: testSync
-
-  /**
-   * Executes the fuzzing run asynchronously, invoking the provided callback function with the results or errors as they become available.
-   *
-   * @param injectTests An array of pinned tests to inject into the fuzzing run.
-   * @param mode The fuzzing mode to use for this run.
-   * @param callbackFn Callback function to receive fuzz test results or errors.
-   * @param statusFn Optional callback function to receive status updates.
-   * @param cancelFn Optional function to determine if the fuzzing run should be canceled.
-   * @param onResultFn Optional callback function to receive individual test results.
-   */
-  public async testAsync(
-    injectTests: FuzzPinnedTest[] = [],
-    mode: FuzzMode = { gen: true },
-    callbackFn: (result: FuzzTestResults | Error) => void,
-    statusFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean,
-    onResultFn?: FuzzResultCallback
-  ): Promise<void> {
-    this._runBatchAsync(
-      callbackFn,
-      this._run(injectTests, mode, statusFn, cancelFn, onResultFn)
-    );
-  } // fn: testAsync
-
-  /**
-   * Processes a batch of fuzz test results asynchronously, invoking the callback function for each result or error.
-   *
-   * @param callbackFn Callback function to receive fuzz test results or errors.
-   * @param run The async generator representing the fuzzing run.
-   * @returns A promise that resolves when the batch processing is complete.
-   */
-  protected async _runBatchAsync(
-    callbackFn: (result: FuzzTestResults | Error) => void,
-    run: ReturnType<typeof this._run>
-  ): Promise<void> {
-    let result: FuzzTestResults | undefined;
-    const timer = performance.now();
-
-    while (!result && performance.now() - timer < 100) {
-      try {
-        result = (await run.next()).value;
-        if (result) {
-          callbackFn(result);
-          return;
-        }
-      } catch (e) {
-        if (this._state === "running") {
-          this._state = "crashed";
-        }
-        callbackFn(
-          isError(e)
-            ? e
-            : { name: "unknown error", message: JSONN.stringify(e) }
-        );
-        return;
-      }
-    }
-    if (!result) {
-      setTimeout(() => {
-        this._runBatchAsync(callbackFn, run);
-      });
-    }
-  } // fn: _runBatchAsync
+  } // fn: test
 
   /**
    * Executes the fuzzing run with the specified parameters.

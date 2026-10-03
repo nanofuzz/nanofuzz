@@ -376,7 +376,7 @@ export class Tester {
    * @param `onResultFn` callback called for each test result produced
    * @returns `FuzzTestResults`
    */
-  public async testSync(
+  public async test(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: FuzzStatusUpdater,
@@ -396,70 +396,7 @@ export class Tester {
       }
       throw e;
     }
-  } // fn: testSync
-
-  /**
-   * Runs the tester in async mode and returns its results
-   * via `callbackFn`.
-   *
-   * @param `injectTests` tests to inject
-   * @param `mode` testing mode
-   * @param `callbackFn` called when testing completes
-   * @param `statusFn` called to report status updates
-   * @param `cancelFn` called to check cancel status
-   * @param `onResultFn` callback called for each test result produced
-   */
-  public async testAsync(
-    injectTests: FuzzPinnedTest[] = [],
-    mode: FuzzMode = { gen: true },
-    callbackFn: (result: FuzzTestResults | Error) => void,
-    statusFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean,
-    onResultFn?: FuzzResultCallback
-  ): Promise<void> {
-    this._runBatchAsync(
-      callbackFn,
-      this._run(injectTests, mode, statusFn, cancelFn, onResultFn)
-    );
-  } // fn: testAsync
-
-  /**
-   * Runs the tester in batch async mode
-   *
-   * @param `callbackFn` called when testing completes
-   * @param `run` generator function
-   */
-  protected async _runBatchAsync(
-    callbackFn: (result: FuzzTestResults | Error) => void,
-    run: ReturnType<typeof this._run>
-  ): Promise<void> {
-    let result: FuzzTestResults | undefined;
-    const timer = performance.now();
-
-    while (!result && performance.now() - timer < 100) {
-      try {
-        result = (await run.next()).value;
-        if (result) {
-          callbackFn(result);
-          return;
-        }
-      } catch (e) {
-        if (this._state === "running") {
-          this._state = "crashed";
-        }
-        callbackFn(
-          isError(e)
-            ? e
-            : { name: "unknown error", message: JSONN.stringify(e) }
-        );
-        return;
-      }
-    }
-    if (!result)
-      setTimeout(() => {
-        this._runBatchAsync(callbackFn, run);
-      });
-  } // fn: _runBatchAsync
+  } // fn: test
 
   /**
    * Generates and returns new test results
