@@ -142,8 +142,8 @@ describe("VscodeLmAdapter", () => {
       {
         input: {
           filePath: tsFixture,
-          functionName: "testAsyncGreeting",
-          inputs: [{ name: "boom" }],
+          functionName: "testStandardVoidReturnException",
+          inputs: [{ _x: 42 }],
           maxTests: 1,
           timeoutMs: 3000,
         },
@@ -157,7 +157,38 @@ describe("VscodeLmAdapter", () => {
     expect(getTextContent(result)).toContain(
       "❌ NaNofuzz Counterexample Discovered"
     );
-    expect(getTextContent(result)).toContain("boom");
+    expect(getTextContent(result)).toContain("42");
+  });
+
+  it("fuzz: invoke with expected output test specifications", async () => {
+    const tool = new FuzzFunctionTool();
+    const token = new vscode.CancellationTokenSource().token;
+    const result = await tool.invoke(
+      {
+        input: {
+          filePath: tsFixture,
+          functionName: "testAsyncGreeting",
+          tests: [
+            {
+              input: { name: "Alice" },
+              expectedOutput: "Goodbye Alice",
+            },
+          ],
+          maxTests: 1,
+          timeoutMs: 3000,
+        },
+        toolInvocationToken: undefined,
+      },
+      token
+    );
+
+    expect(result).toBeDefined();
+    expect(result.content.length).toBeGreaterThan(0);
+    const content = getTextContent(result);
+    expect(content).toContain("❌ NaNofuzz Counterexample Discovered");
+    expect(content).toContain("Actual Output");
+    expect(content).toContain("Expected Output");
+    expect(content).toContain("Goodbye Alice");
   });
 
   it("resolveMatchingModel: exact and fuzzy", async () => {

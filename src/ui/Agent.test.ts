@@ -293,31 +293,68 @@ describe("Agent", () => {
     // 1. Injected failing object input
     const resultObj = await runFuzz({
       filePath: tsFixture,
-      functionName: "testAsyncGreeting",
-      inputs: [{ name: "boom" }],
+      functionName: "testStandardVoidReturnException",
+      inputs: [{ _x: 42 }],
       maxTests: 1,
       suiteTimeout: 3000,
     });
 
     expect(resultObj.status).toBe("counterexample_found");
     expect(resultObj.exceptions).toBeGreaterThan(0);
-    expect(
-      resultObj.primaryCounterexample?.input[0].value === "boom"
-    ).toBeTrue();
+    expect(resultObj.primaryCounterexample?.input[0].value === 42).toBeTrue();
 
     // 2. Injected failing array positional input
     const resultArr = await runFuzz({
       filePath: tsFixture,
-      functionName: "testAsyncGreeting",
-      inputs: [["boom"]],
+      functionName: "testStandardVoidReturnException",
+      inputs: [[42]],
       maxTests: 1,
       suiteTimeout: 3000,
     });
 
     expect(resultArr.status).toBe("counterexample_found");
-    expect(
-      resultArr.primaryCounterexample?.input[0].value === "boom"
-    ).toBeTrue();
+    expect(resultArr.primaryCounterexample?.input[0].value === 42).toBeTrue();
+  });
+
+  it("runFuzz: with expected output and expected exception tests", async () => {
+    // 1. Expected output matches actual output -> passes
+    const passRes = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testAsyncGreeting",
+      tests: [{ input: { name: "Alice" }, expectedOutput: "Hello Alice" }],
+      maxTests: 1,
+      suiteTimeout: 3000,
+    });
+    expect(passRes.status).toBe("success");
+    expect(passRes.totalTests).toBeGreaterThan(0);
+
+    // 2. Expected output mismatch -> counterexample found and direct reproducer synthesized
+    const mismatchRes = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testAsyncGreeting",
+      tests: [{ input: { name: "Alice" }, expectedOutput: "Goodbye Alice" }],
+      maxTests: 1,
+      suiteTimeout: 3000,
+    });
+    expect(mismatchRes.status).toBe("counterexample_found");
+    expect(["badValue", "disagree"]).toContain(
+      mismatchRes.primaryCounterexample?.category ?? "ok"
+    );
+    expect(mismatchRes.summaryText).toContain("Actual Output");
+    expect(mismatchRes.summaryText).toContain("Hello Alice");
+    expect(mismatchRes.summaryText).toContain("Expected Output");
+    expect(mismatchRes.summaryText).toContain("Goodbye Alice");
+    expect(mismatchRes.reproducerCode).toContain("Goodbye Alice");
+
+    // 3. Expected exception matches thrown exception -> passes
+    const expectExcPass = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testAsyncGreeting",
+      tests: [{ input: { name: "boom" }, expectedException: true }],
+      maxTests: 1,
+      suiteTimeout: 3000,
+    });
+    expect(expectExcPass.status).toBe("success");
   });
 
   it("runFuzz: cancel", async () => {

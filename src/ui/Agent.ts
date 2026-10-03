@@ -20,6 +20,7 @@ import {
   ProgramLanguage,
 } from "../fuzzer/analysis/Types";
 import {
+  FuzzIoElement,
   FuzzOptions,
   FuzzPinnedTest,
   FuzzResultCategory,
@@ -230,42 +231,12 @@ export async function runFuzz(
     );
 
     const argDefs = tester.env.function.getArgDefs();
-    const convertedInputs: FuzzPinnedTest[] = [];
-    if (options.inputs && Array.isArray(options.inputs)) {
-      for (const item of options.inputs) {
-        if (item === null || item === undefined) continue;
-        if (Array.isArray(item)) {
-          convertedInputs.push({
-            input: argDefs.map((def, idx) => {
-              const rawVal = item[idx];
-              return {
-                name: def.getName(),
-                offset: idx,
-                value: isArgValueType(rawVal) ? rawVal : undefined,
-                origin: { type: "user" },
-              };
-            }),
-            output: [],
-            pinned: true,
-          });
-        } else if (isKeyedObject(item)) {
-          convertedInputs.push({
-            input: argDefs.map((def, idx) => {
-              const rawVal = item[def.getName()];
-              return {
-                name: def.getName(),
-                offset: idx,
-                value: isArgValueType(rawVal) ? rawVal : undefined,
-                origin: { type: "user" },
-              };
-            }),
-            output: [],
-            pinned: true,
-          });
-        }
-      }
-    }
-
+    const inputItems: (AgentTestCase | Record<string, unknown> | unknown[])[] =
+      [...(options.inputs ?? []), ...(options.tests ?? [])];
+    const convertedInputs = convertAgentInputsToPinnedTests(
+      inputItems,
+      argDefs
+    );
     const allInjected = [...convertedInputs, ...(options.injectTests ?? [])];
 
     const rawResults = await tester.testSync(
@@ -422,8 +393,8 @@ export function isCounterexample(result: FuzzTestResult): boolean {
   if (result.skipped) {
     return false;
   }
-  if (result.exception || result.timeout) {
-    return true;
+  if (result.category === "ok") {
+    return false;
   }
   if (
     result.category === "badValue" ||
@@ -441,8 +412,103 @@ export function isCounterexample(result: FuzzTestResult): boolean {
   ) {
     return true;
   }
+  if (result.exception || result.timeout) {
+    return true;
+  }
   return false;
 } // fn: isCounterexample
+
+/**
+ * Converts user-provided agent input and test case items into internal FuzzPinnedTest format.
+ */
+export function convertAgentInputsToPinnedTests(
+  items: (AgentTestCase | Record<string, unknown> | unknown[])[],
+  argDefs: ArgDef[]
+): FuzzPinnedTest[] {
+  const pinnedTests: FuzzPinnedTest[] = [];
+
+  for (const item of items) {
+    if (item === null || item === undefined) continue;
+
+    let inputData: unknown = item;
+    let expectedOutput: FuzzIoElement[] | undefined = undefined;
+
+    if (
+      isKeyedObject(item) &&
+      "input" in item &&
+      (isKeyedObject(item.input) || Array.isArray(item.input))
+    ) {
+      inputData = item.input;
+      if (item.expectedException === true) {
+        expectedOutput = [
+          {
+            name: "0",
+            offset: 0,
+            isException: true,
+            value: undefined,
+            origin: { type: "user" },
+          },
+        ];
+      } else if (item.expectedTimeout === true) {
+        expectedOutput = [
+          {
+            name: "0",
+            offset: 0,
+            isTimeout: true,
+            value: undefined,
+            origin: { type: "user" },
+          },
+        ];
+      } else if ("expectedOutput" in item) {
+        const rawExp = item.expectedOutput;
+        expectedOutput = [
+          {
+            name: "0",
+            offset: 0,
+            value: isArgValueType(rawExp) ? rawExp : undefined,
+            origin: { type: "user" },
+          },
+        ];
+      }
+    }
+
+    if (Array.isArray(inputData)) {
+      const arr = inputData;
+      pinnedTests.push({
+        input: argDefs.map((def, idx) => {
+          const rawVal = arr[idx];
+          return {
+            name: def.getName(),
+            offset: idx,
+            value: isArgValueType(rawVal) ? rawVal : undefined,
+            origin: { type: "user" },
+          };
+        }),
+        output: [],
+        pinned: true,
+        expectedOutput,
+      });
+    } else if (isKeyedObject(inputData)) {
+      const obj = inputData;
+      pinnedTests.push({
+        input: argDefs.map((def, idx) => {
+          const rawVal = obj[def.getName()];
+          return {
+            name: def.getName(),
+            offset: idx,
+            value: isArgValueType(rawVal) ? rawVal : undefined,
+            origin: { type: "user" },
+          };
+        }),
+        output: [],
+        pinned: true,
+        expectedOutput,
+      });
+    }
+  }
+
+  return pinnedTests;
+} // fn: convertAgentInputsToPinnedTests
 
 /**
  * Maps a single FuzzTestResult to an AgentCounterexample.
@@ -468,6 +534,13 @@ export function mapToAgentCounterexample(
       value: e.value,
     })),
     output: result.output.map((e) => ({
+      name: e.name,
+      offset: e.offset,
+      value: e.value,
+      isException: e.isException,
+      isTimeout: e.isTimeout,
+    })),
+    expectedOutput: result.expectedOutput?.map((e) => ({
       name: e.name,
       offset: e.offset,
       value: e.value,
@@ -731,6 +804,21 @@ export function buildSummaryMarkdown(
       if (ce.exception && ce.exceptionMessage) {
         parts.push(`**Exception Raised**: \`${ce.exceptionMessage}\``);
       }
+      if (ce.output && ce.output.length > 0 && !ce.exception && !ce.timeout) {
+        const outVal = ce.output[0].value;
+        parts.push(`**Actual Output**: \`${JSONN.stringify(outVal)}\``);
+      }
+      if (ce.expectedOutput && ce.expectedOutput.length > 0) {
+        if (ce.expectedOutput[0].isException) {
+          parts.push(`**Expected Outcome**: \`[Exception]\``);
+        } else if (ce.expectedOutput[0].isTimeout) {
+          parts.push(`**Expected Outcome**: \`[Timeout]\``);
+        } else {
+          parts.push(
+            `**Expected Output**: \`${JSONN.stringify(ce.expectedOutput[0].value)}\``
+          );
+        }
+      }
       if (ce.origin) {
         parts.push(`**Input Source**: \`${ce.origin}\``);
       }
@@ -870,8 +958,7 @@ export async function formatFuzzResult(
   const passedTests = executedResults.filter(
     (r) =>
       r.category === "ok" &&
-      !r.exception &&
-      !r.timeout &&
+      !isCounterexample(r) &&
       r.passedImplicit !== "fail" &&
       r.passedHuman !== "fail" &&
       r.passedValidator !== "fail"
@@ -1046,6 +1133,16 @@ export type TargetListResult = {
 };
 
 /**
+ * Test case specification for an agent with optional expected outcome
+ */
+export type AgentTestCase = {
+  input: Record<string, unknown> | unknown[];
+  expectedOutput?: unknown;
+  expectedException?: boolean;
+  expectedTimeout?: boolean;
+};
+
+/**
  * Options for executing a fuzzing job via Agent
  */
 export type AgentFuzzOptions = {
@@ -1068,6 +1165,7 @@ export type AgentFuzzOptions = {
   argDefaults?: Partial<ArgOptions>;
   injectTests?: FuzzPinnedTest[];
   inputs?: (Record<string, unknown> | unknown[])[];
+  tests?: (AgentTestCase | Record<string, unknown> | unknown[])[];
   enableCopilotAi?: boolean;
 };
 
@@ -1077,6 +1175,13 @@ export type AgentFuzzOptions = {
 export type AgentCounterexample = {
   input: { name: string; offset: number; value: ArgValueType }[];
   output?: {
+    name: string;
+    offset: number;
+    value: ArgValueType;
+    isException?: boolean;
+    isTimeout?: boolean;
+  }[];
+  expectedOutput?: {
     name: string;
     offset: number;
     value: ArgValueType;

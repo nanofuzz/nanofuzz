@@ -130,6 +130,33 @@
                 "type": "object",
                 "description": "Object mapping parameter names to argument values."
               }
+            },
+            "tests": {
+              "type": "array",
+              "description": "Optional list of unit test specifications with inputs and expected outcomes. Each test specifies 'input' (parameter object or argument array), plus optional 'expectedOutput' (expected return value), 'expectedException' (boolean), or 'expectedTimeout' (boolean). When expected outcomes are provided, NaNofuzz validates them with its Example Oracle and synthesizes direct unit assertions in reproducer tests.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "object",
+                    "description": "Object mapping parameter names to argument values."
+                  },
+                  "expectedOutput": {
+                    "description": "The expected return value of the function for these inputs."
+                  },
+                  "expectedException": {
+                    "type": "boolean",
+                    "description": "True if an exception or error is expected to be thrown for these inputs."
+                  },
+                  "expectedTimeout": {
+                    "type": "boolean",
+                    "description": "True if a timeout is expected for these inputs."
+                  }
+                },
+                "required": [
+                  "input"
+                ]
+              }
             }
           },
           "required": [

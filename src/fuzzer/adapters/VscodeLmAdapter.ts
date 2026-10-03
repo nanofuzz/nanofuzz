@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
 import * as JSONN from "../../Jsonn";
-import { getToolName, listTargets, runFuzz } from "../../ui/Agent";
+import {
+  getToolName,
+  listTargets,
+  runFuzz,
+  AgentTestCase,
+} from "../../ui/Agent";
 
 // -------------------------------------------------------------------------- //
 // Tool Implementations & Helpers
@@ -146,6 +151,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
       model,
       vendor,
       inputs,
+      tests,
     } = options.input;
 
     const resolved = await resolveMatchingModel(vendor, model);
@@ -161,6 +167,7 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         model: resolved.model,
         vendor: resolved.vendor,
         inputs,
+        tests,
         enableCopilotAi: true,
       },
       () => token.isCancellationRequested
@@ -223,4 +230,5 @@ export type FuzzFunctionInput = {
   model?: string;
   vendor?: string;
   inputs?: (Record<string, unknown> | unknown[])[];
+  tests?: (AgentTestCase | Record<string, unknown> | unknown[])[];
 };
