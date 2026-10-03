@@ -242,3 +242,23 @@ export function testValidatorExceptionOnPutTimeoutValidator(
 ): "pass" | "fail" | "unknown" {
   throw new Error("Validator crashed when evaluating timeout result");
 }
+
+/**
+ * Async fuzz targets
+ */
+export async function testAsyncGreeting(name: string): Promise<string> {
+  await new Promise((r) => setTimeout(r, 5));
+  if (name === "boom") {
+    throw new Error("async error");
+  }
+  return "Hello " + name;
+}
+export async function testAsyncGreetingValidator(
+  r: FuzzTestResult
+): Promise<"pass" | "fail" | "unknown"> {
+  await new Promise((r) => setTimeout(r, 2));
+  if (r.exception) return "pass";
+  return typeof r.out === "string" && r.out.startsWith("Hello ")
+    ? "pass"
+    : "fail";
+}
