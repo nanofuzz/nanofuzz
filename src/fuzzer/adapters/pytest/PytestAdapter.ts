@@ -73,10 +73,15 @@ export class PytestAdapter extends AbstractTestAdapter {
       `    result['exception'] = True`,
       `  elapsedTime = time.time() - startElapsedTime # stop timer`,
       `  result['timeout'] = elapsedTime > timeout`,
-      `  res = validFn(result)`,
-      `  if inspect.iscoroutine(res):`,
-      `    res = asyncio.run(res)`,
-      `  return res`,
+      `  try:`,
+      `    res = validFn(result)`,
+      `    if inspect.iscoroutine(res):`,
+      `      res = asyncio.run(res)`,
+      `    return res`,
+      `  except Exception as e:`,
+      `    if e.__class__.__name__ == 'UnsatisfiedAssumption':`,
+      `      return 'unknown'`,
+      `    raise e`,
       ``
     );
 
