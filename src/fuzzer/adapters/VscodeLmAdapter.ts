@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import * as JSONN from "../Jsonn";
-import { getToolName, listTargets, runFuzz } from "./Agent";
+import * as JSONN from "../../Jsonn";
+import { getToolName, listTargets, runFuzz } from "../../ui/Agent";
 
 // -------------------------------------------------------------------------- //
 // Tool Implementations & Helpers

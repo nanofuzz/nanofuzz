@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as fp from "./ui/FuzzPanelController";
 import * as tm from "./telemetry/Telemetry";
 import * as Parser from "./fuzzer/adapters/ParserAdapter";
-import { registerLmTools } from "./ui/LmTools";
+import { registerLmTools } from "./fuzzer/adapters/VscodeLmAdapter";
 
 const disposables: vscode.Disposable[] = []; // Keep track of disposables
 

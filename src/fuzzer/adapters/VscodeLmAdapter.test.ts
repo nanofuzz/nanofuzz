@@ -1,13 +1,13 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import * as Config from "../Config";
-import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
+import * as Config from "../../Config";
+import * as ParserAdapter from "./ParserAdapter";
 import {
   ListTargetsTool,
   FuzzFunctionTool,
   registerLmTools,
   resolveMatchingModel,
-} from "./LmTools";
+} from "./VscodeLmAdapter";
 
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
 
@@ -24,10 +24,10 @@ function getTextContent(result: vscode.LanguageModelToolResult): string {
   return "";
 }
 
-describe("LmTools", () => {
+describe("VscodeLmAdapter", () => {
   const tsFixture = path.resolve(
     __dirname,
-    "../fuzzer/test_fixtures/Fuzzer.testfixtures.ts"
+    "../test_fixtures/Fuzzer.testfixtures.ts"
   );
   const originalName = Config.get("nanofuzz.name", "NaNofuzz");
 
