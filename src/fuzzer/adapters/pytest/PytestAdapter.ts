@@ -54,6 +54,8 @@ export class PytestAdapter extends AbstractTestAdapter {
       `import pytest`,
       `import pytest_timeout`,
       `import time`,
+      `import asyncio`,
+      `import inspect`,
       `${this.implicitOracle};`,
       ``,
       `def run_property_validator(input, testFn, validFn, timeout):`,
@@ -62,13 +64,19 @@ export class PytestAdapter extends AbstractTestAdapter {
       `  result['out'] = None`,
       `  startElapsedTime = time.time() # start timer`,
       `  try:`,
-      `    result['out'] = testFn()`,
+      `    out = testFn()`,
+      `    if inspect.iscoroutine(out):`,
+      `      out = asyncio.run(out)`,
+      `    result['out'] = out`,
       `    result['exception'] = False`,
       `  except Exception as e:`,
       `    result['exception'] = True`,
       `  elapsedTime = time.time() - startElapsedTime # stop timer`,
       `  result['timeout'] = elapsedTime > timeout`,
-      `  return validFn(result)`,
+      `  res = validFn(result)`,
+      `  if inspect.iscoroutine(res):`,
+      `    res = asyncio.run(res)`,
+      `  return res`,
       ``
     );
 
@@ -76,6 +84,7 @@ export class PytestAdapter extends AbstractTestAdapter {
     for (const fn in this._testSet.functions) {
       const thisFn = this._testSet.functions[fn];
       const timeout = thisFn.options.fnTimeout;
+      const isAsync = thisFn.isAsync === true;
       let i = -1;
       for (const testId in thisFn.tests) {
         const thisTest = thisFn.tests[testId];
@@ -86,6 +95,10 @@ export class PytestAdapter extends AbstractTestAdapter {
         const inputArrStr = `[${thisTest.input
           .map((e) => ValueMapper.toLang("python", e.value))
           .join(",")}]`;
+
+        const callStr = isAsync
+          ? `asyncio.run(themodule.${fn}(*${inputArrStr}))`
+          : `themodule.${fn}(*${inputArrStr})`;
 
         // Human-annotated expected output - if human validation is turned on
         const expectedOutput = thisTest.expectedOutput;
@@ -104,7 +117,7 @@ export class PytestAdapter extends AbstractTestAdapter {
               `def test_${fn}_${i}_expect():`,
               `  # Expect raised exception`,
               `  with pytest.raises(Exception):`,
-              `     themodule.${fn}(*${inputArrStr})`,
+              `     ${callStr}`,
               ``
             );
           } else {
@@ -112,7 +125,7 @@ export class PytestAdapter extends AbstractTestAdapter {
               `@pytest.mark.timeout(${timeout} / 1000)`,
               `def test_${fn}_${i}_expect():`,
               `  # Expect output value`,
-              `  assert themodule.${fn}(*${inputArrStr}) == ${ValueMapper.toLang("python", expectedOutput[0].value)}`,
+              `  assert ${callStr} == ${ValueMapper.toLang("python", expectedOutput[0].value)}`,
               ``
             );
           }
@@ -142,7 +155,7 @@ export class PytestAdapter extends AbstractTestAdapter {
               `@pytest.mark.timeout(${timeout} / 1000)`,
               `def test_${fn}_${i}_heuristic():`,
               `  # As a void function, expect only None and no timeout or exception`,
-              `  assert themodule.${fn}(*${inputArrStr}) == None`,
+              `  assert ${callStr} == None`,
               ``
             );
           } else {
@@ -150,7 +163,7 @@ export class PytestAdapter extends AbstractTestAdapter {
               `@pytest.mark.timeout(${timeout} / 1000)`,
               `def test_${fn}_${i}_heuristic():`,
               `  # Expect no timeout, exception, NaN, None, or infinity`,
-              `  assert implicit_oracle(themodule.${fn}(*${inputArrStr})) != "fail"`,
+              `  assert implicit_oracle(${callStr}) != "fail"`,
               ``
             );
           }
