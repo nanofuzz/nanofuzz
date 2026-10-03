@@ -26,14 +26,17 @@ describe("Agent", () => {
     __dirname,
     "../fuzzer/test_fixtures/Fuzzer.testfixtures.py"
   );
-  const originalName = Config.get("nanofuzz.name", "NaNofuzz");
 
   beforeAll(async () => {
     await ParserAdapter.init();
   });
 
+  beforeEach(() => {
+    Config.clearOverrides();
+  });
+
   afterEach(() => {
-    Config.override("nanofuzz.name", originalName);
+    Config.clearOverrides();
   });
 
   it("listTargets: ts", async () => {

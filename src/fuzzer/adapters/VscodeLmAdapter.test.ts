@@ -29,14 +29,17 @@ describe("VscodeLmAdapter", () => {
     __dirname,
     "../test_fixtures/Fuzzer.testfixtures.ts"
   );
-  const originalName = Config.get("nanofuzz.name", "NaNofuzz");
 
   beforeAll(async () => {
     await ParserAdapter.init();
   });
 
+  beforeEach(() => {
+    Config.clearOverrides();
+  });
+
   afterEach(() => {
-    Config.override("nanofuzz.name", originalName);
+    Config.clearOverrides();
   });
 
   it("list: prepare", () => {
