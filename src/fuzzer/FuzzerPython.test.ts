@@ -288,4 +288,45 @@ describe("fuzzer: python targets", () => {
       expect(r.category).toBe("failure");
     });
   });
+
+  it("Python async fuzz target with property validator and coverage", async () => {
+    const results: FuzzTestResult[] = [];
+    const fuzzResult = await new Tester(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "async_greeting",
+      {
+        ...intOptions,
+        useProperty: true,
+        maxTests: 10,
+        suiteTimeout: 5000,
+      }
+    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(results.length).toBeGreaterThan(0);
+
+    results.forEach((r) => {
+      expect(r.output.length).toBeGreaterThan(0);
+      if (!r.exception) {
+        expect(typeof r.output[0].value).toBe("string");
+        expect(String(r.output[0].value).startsWith("Hello ")).toBeTrue();
+      }
+      expect(r.passedValidator).toBe("pass");
+    });
+
+    const covStats = await fuzzResult.stats.measures.CodeCoverageMeasure?.();
+    expect(covStats).toBeDefined();
+    if (covStats && covStats.files.length) {
+      const fileStats = covStats.files[0];
+      const coveredFnNames = Object.keys(fileStats.fileMap.f).map(
+        (idx) => fileStats.fileMap.fnMap[idx]?.name
+      );
+      expect(coveredFnNames).toContain("async_greeting");
+      expect(
+        coveredFnNames.some(
+          (name) => name && name.includes("async_greetingValidator")
+        )
+      ).toBeTrue();
+    }
+  });
 });

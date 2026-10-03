@@ -80,6 +80,21 @@ export class JestAdapter extends AbstractTestAdapter {
       `  return validFn({...result});`,
       `}`,
       ``,
+      `// @ts-ignore`,
+      `const runAsyncPropertyValidator = async (input, testFn, validFn, timeout) => {`,
+      `  const result = {...${ValueMapper.toLang("typescript", result)}, out: undefined, in: input};`,
+      `  const startElapsedTime = performance.now(); // start timer`,
+      `  try {`,
+      `    result.out = await testFn();`,
+      `    result.exception = false;`,
+      `  } catch(_e: unknown) {`,
+      `    result.exception = true;`,
+      `  }`,
+      `  const elapsedTime = performance.now() - startElapsedTime; // stop timer`,
+      `  result.timeout = elapsedTime > timeout;`,
+      `  return await validFn({...result});`,
+      `}`,
+      ``,
       `describe("${moduleName}", () => {`
     );
 
@@ -87,6 +102,7 @@ export class JestAdapter extends AbstractTestAdapter {
     for (const fn in this._testSet.functions) {
       const thisFn = this._testSet.functions[fn];
       const timeout = thisFn.options.fnTimeout;
+      const isAsync = thisFn.isAsync === true;
       let i = -1;
       for (const testId in thisFn.tests) {
         const thisTest = thisFn.tests[testId];
@@ -115,35 +131,67 @@ export class JestAdapter extends AbstractTestAdapter {
               `Expected timeouts not currently supported in ${this.toolname} format`
             );
           } else if (expectedOutput[0].isException) {
-            jestData.push(
-              `  // Expect exception`,
-              `  it("${fn}.${i}.expect", () => {expect(() => {themodule.${fn}(${inputStr})}).toThrow();},${timeout});`,
-              ``
-            );
+            if (isAsync) {
+              jestData.push(
+                `  // Expect exception`,
+                `  it("${fn}.${i}.expect", async () => {await expect(themodule.${fn}(${inputStr})).rejects.toThrow();},${timeout});`,
+                ``
+              );
+            } else {
+              jestData.push(
+                `  // Expect exception`,
+                `  it("${fn}.${i}.expect", () => {expect(() => {themodule.${fn}(${inputStr})}).toThrow();},${timeout});`,
+                ``
+              );
+            }
           } else {
-            jestData.push(
-              `  // Expect output value`,
-              `  it("${fn}.${i}.expect", () => {expect(themodule.${fn}(${inputStr})).toEqual(${ValueMapper.toLang(
-                "typescript",
-                expectedOutput[0].value
-              )});},${timeout});`,
-              ``
-            );
+            if (isAsync) {
+              jestData.push(
+                `  // Expect output value`,
+                `  it("${fn}.${i}.expect", async () => {expect(await themodule.${fn}(${inputStr})).toEqual(${ValueMapper.toLang(
+                  "typescript",
+                  expectedOutput[0].value
+                )});},${timeout});`,
+                ``
+              );
+            } else {
+              jestData.push(
+                `  // Expect output value`,
+                `  it("${fn}.${i}.expect", () => {expect(themodule.${fn}(${inputStr})).toEqual(${ValueMapper.toLang(
+                  "typescript",
+                  expectedOutput[0].value
+                )});},${timeout});`,
+                ``
+              );
+            }
           }
         }
         // Property validators
         if (thisFn.options.useProperty) {
           for (const validator of thisFn.validators) {
-            jestData.push(
-              `  // Expect property validator to not return "fail"`,
-              `  it("${fn}.${i}.prop.${validator.slice(fn.length)}", () => {`,
-              `    expect(runPropertyValidator( ${ValueMapper.toLang(
-                "typescript",
-                thisTest.input.map((e) => e.value)
-              )}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toEqual("fail");`,
-              `  });`,
-              ``
-            );
+            if (isAsync) {
+              jestData.push(
+                `  // Expect property validator to not return "fail"`,
+                `  it("${fn}.${i}.prop.${validator.slice(fn.length)}", async () => {`,
+                `    expect(await runAsyncPropertyValidator( ${ValueMapper.toLang(
+                  "typescript",
+                  thisTest.input.map((e) => e.value)
+                )}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toEqual("fail");`,
+                `  });`,
+                ``
+              );
+            } else {
+              jestData.push(
+                `  // Expect property validator to not return "fail"`,
+                `  it("${fn}.${i}.prop.${validator.slice(fn.length)}", () => {`,
+                `    expect(runPropertyValidator( ${ValueMapper.toLang(
+                  "typescript",
+                  thisTest.input.map((e) => e.value)
+                )}, () => themodule.${fn}(${inputStr}), themodule.${validator}, ${thisFn.options.fnTimeout})).not.toEqual("fail");`,
+                `  });`,
+                ``
+              );
+            }
           }
         }
 
@@ -154,17 +202,33 @@ export class JestAdapter extends AbstractTestAdapter {
           !(thisFn.options.useHuman && expectedOutput)
         ) {
           if (thisFn.isVoid) {
-            jestData.push(
-              `  // As a void function, expect only undefined and no timeout or exception`,
-              `  it("${fn}.${i}.heuristic", () => {expect(themodule.${fn}(${inputStr})).toBeUndefined();},${timeout});`,
-              ``
-            );
+            if (isAsync) {
+              jestData.push(
+                `  // As a void function, expect only undefined and no timeout or exception`,
+                `  it("${fn}.${i}.heuristic", async () => {expect(await themodule.${fn}(${inputStr})).toBeUndefined();},${timeout});`,
+                ``
+              );
+            } else {
+              jestData.push(
+                `  // As a void function, expect only undefined and no timeout or exception`,
+                `  it("${fn}.${i}.heuristic", () => {expect(themodule.${fn}(${inputStr})).toBeUndefined();},${timeout});`,
+                ``
+              );
+            }
           } else {
-            jestData.push(
-              `  // Expect no timeout, exception, NaN, null, undefined, or infinity`,
-              `  it("${fn}.${i}.heuristic", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);},${timeout});`,
-              ``
-            );
+            if (isAsync) {
+              jestData.push(
+                `  // Expect no timeout, exception, NaN, null, undefined, or infinity`,
+                `  it("${fn}.${i}.heuristic", async () => {expect(implicitOracle(await themodule.${fn}(${inputStr}))).toBe(true);},${timeout});`,
+                ``
+              );
+            } else {
+              jestData.push(
+                `  // Expect no timeout, exception, NaN, null, undefined, or infinity`,
+                `  it("${fn}.${i}.heuristic", () => {expect(implicitOracle(themodule.${fn}(${inputStr}))).toBe(true);},${timeout});`,
+                ``
+              );
+            }
           }
         }
       }
