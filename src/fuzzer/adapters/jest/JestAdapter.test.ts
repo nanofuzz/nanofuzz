@@ -482,4 +482,35 @@ export function asyncPropValidator(result: { out: number }): string {
       }
     }
   });
+
+  it("handles UnsatisfiedAssumption in property validators without failing test", () => {
+    const tests: FuzzTests = {
+      version: "0.0.0",
+      functions: {
+        myFn: {
+          options: makeOptions({ useProperty: true }),
+          validators: ["myFnValidator"],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "x",
+                  offset: 0,
+                  value: 1,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+            },
+          },
+          isVoid: false,
+        },
+      },
+    };
+
+    const out = new JestAdapter(tests, "mymodule.ts").toString();
+    expect(out).toContain("UnsatisfiedAssumption");
+    expect(out).toContain("return 'unknown';");
+  });
 });
