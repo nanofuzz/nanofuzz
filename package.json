@@ -61,7 +61,7 @@
       {
         "name": "nanofuzz_listTargets",
         "displayName": "List NaNofuzz Targets",
-        "modelDescription": "Discovers and lists all exported functions, type signatures, and parameter structures in a TypeScript or Python source file that can be targeted for structure-aware fuzzing and property testing.",
+        "modelDescription": "Discovers and lists all exported functions (synchronous and asynchronous), type signatures, and parameter structures in a TypeScript or Python source file that can be targeted for structure-aware fuzzing and property testing. If a target function is not exported or uses unsupported signature types, you can write an exported wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "listTargets",
         "icon": "$(symbol-method)",
@@ -81,7 +81,7 @@
       {
         "name": "nanofuzz_fuzzFunction",
         "displayName": "Fuzz Target with NaNofuzz",
-        "modelDescription": "Runs coverage-guided, structure-aware property fuzzing on a target function in TypeScript or Python. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest or Pytest) and branch coverage metrics.",
+        "modelDescription": "Runs coverage-guided, structure-aware property fuzzing on a target function (synchronous or asynchronous) in TypeScript or Python. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest or Pytest) and branch coverage metrics. If a target function is not exported, is a class method, or uses unsupported signature types, you can write an exported wrapper function with type annotations in its signature that calls the target, and fuzz that wrapper function instead.",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "fuzzFunction",
         "icon": "$(beaker)",

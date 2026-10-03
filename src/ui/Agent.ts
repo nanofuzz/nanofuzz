@@ -91,7 +91,7 @@ export function resolveFilePath(filePath: string): string {
 }
 
 /**
- * Discovers and lists all fuzzable exported functions in a source file.
+ * Discovers and lists all fuzzable exported functions in a source file (sync and async).
  *
  * @param filePath Path to the target source file (TypeScript or Python)
  * @returns TargetListResult containing exported functions and their signatures
@@ -126,6 +126,7 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       args,
       returnType: fnDef.getReturnType()?.name,
       isVoid: fnDef.isVoid(),
+      ...(fnDef.isAsync() ? { isAsync: true } : {}),
       startOffset: fnDef.getStartOffset(),
       endOffset: fnDef.getEndOffset(),
       comment: fnDef.getCmt(),
@@ -150,7 +151,7 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
 }
 
 /**
- * Runs a fuzzing session on a given target function in headless agent mode.
+ * Runs a fuzzing session on a given target function (synchronous or asynchronous) in headless agent mode.
  *
  * @param options Fuzzing parameters (filePath, functionName, timeouts, etc.)
  * @param cancelFn Optional callback to poll for cancellation
@@ -804,6 +805,7 @@ export function formatFunctionSignature(
 ): string {
   const name = fnDef.getName();
   const args = fnDef.getArgDefs();
+  const isAsync = fnDef.isAsync();
   const argParts = args.map((arg) => {
     const opt = arg.isOptional() ? "?" : "";
     const typeStr = formatArgDefType(arg);
@@ -813,14 +815,16 @@ export function formatFunctionSignature(
   const returnType = fnDef.getReturnType()?.name;
   if (lang === "python") {
     const retStr = returnType ? ` -> ${returnType}` : "";
-    return `def ${name}(${argParts.join(", ")})${retStr}`;
+    const prefix = isAsync ? "async def" : "def";
+    return `${prefix} ${name}(${argParts.join(", ")})${retStr}`;
   }
   const retStr = returnType
     ? `: ${returnType}`
     : fnDef.isVoid()
       ? ": void"
       : "";
-  return `function ${name}(${argParts.join(", ")})${retStr}`;
+  const prefix = isAsync ? "async function" : "function";
+  return `${prefix} ${name}(${argParts.join(", ")})${retStr}`;
 }
 
 // -------------------------------------------------------------------------- //
@@ -847,6 +851,7 @@ export type TargetFunction = {
   args: TargetFunctionArg[];
   returnType?: string;
   isVoid: boolean;
+  isAsync?: boolean;
   startOffset: number;
   endOffset: number;
   comment?: string;

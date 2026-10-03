@@ -60,6 +60,11 @@ describe("Agent", () => {
     expect(changeInputFn).toBeDefined();
     expect(changeInputFn!.args.length).toBe(1);
     expect(changeInputFn!.args[0].name).toBe("obj");
+
+    const asyncFn = fnMap.get("testAsyncGreeting");
+    expect(asyncFn).toBeDefined();
+    expect(asyncFn!.isAsync).toBe(true);
+    expect(asyncFn!.signature).toContain("async function testAsyncGreeting");
   });
 
   it("listTargets: py", async () => {
@@ -75,6 +80,11 @@ describe("Agent", () => {
     expect(greetingFn.args.length).toBe(1);
     expect(greetingFn.args[0].name).toBe("name");
     expect(greetingFn.signature).toContain("def greeting(name: a)");
+
+    const asyncFn = fnMap.get("async_greeting");
+    expect(asyncFn).toBeDefined();
+    expect(asyncFn!.isAsync).toBe(true);
+    expect(asyncFn!.signature).toContain("async def async_greeting");
   });
 
   it("listTargets: missing file", async () => {
@@ -228,6 +238,34 @@ describe("Agent", () => {
     expect(result.summaryText).toContain(
       "❌ NaNofuzz Counterexample Discovered"
     );
+  });
+
+  it("runFuzz: ts async function", async () => {
+    const result = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testAsyncGreeting",
+      maxTests: 5,
+      suiteTimeout: 3000,
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.functionName).toBe("testAsyncGreeting");
+    expect(result.language).toBe("typescript");
+    expect(result.totalTests).toBeGreaterThan(0);
+  });
+
+  it("runFuzz: py async function", async () => {
+    const result = await runFuzz({
+      filePath: pyFixture,
+      functionName: "async_greeting",
+      maxTests: 5,
+      suiteTimeout: 3000,
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.functionName).toBe("async_greeting");
+    expect(result.language).toBe("python");
+    expect(result.totalTests).toBeGreaterThan(0);
   });
 
   it("runFuzz: cancel", async () => {
