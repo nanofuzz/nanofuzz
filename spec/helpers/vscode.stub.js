@@ -89,6 +89,65 @@ module.exports = {
   },
   lm: {
     registerTool: (_name, _tool) => ({ dispose: () => {} }),
-    selectChatModels: async (_selector) => [],
+    selectChatModels: async (selector) => {
+      const mockModels = [
+        {
+          id: "copilot-claude-3.5-sonnet",
+          name: "Claude 3.5 Sonnet",
+          vendor: "copilot",
+          family: "claude-3.5-sonnet",
+          version: "1.0",
+          maxInputTokens: 8192,
+          sendRequest: async (_messages) => ({
+            text: (async function* () {
+              yield '{"programInputs":[]}';
+            })(),
+          }),
+        },
+        {
+          id: "copilot-gemini-2.0-flash",
+          name: "Gemini 2.0 Flash",
+          vendor: "copilot",
+          family: "gemini-2.0-flash",
+          version: "1.0",
+          maxInputTokens: 8192,
+          sendRequest: async (_messages) => ({
+            text: (async function* () {
+              yield '{"programInputs":[]}';
+            })(),
+          }),
+        },
+        {
+          id: "google-gemini-3.7-flash",
+          name: "Gemini 3.7 Flash",
+          vendor: "google",
+          family: "gemini-3.7-flash",
+          version: "1.0",
+          maxInputTokens: 8192,
+          sendRequest: async (_messages) => ({
+            text: (async function* () {
+              yield '{"programInputs":[]}';
+            })(),
+          }),
+        },
+        {
+          id: "copilot-gpt-4o",
+          name: "GPT-4o",
+          vendor: "copilot",
+          family: "gpt-4o",
+          version: "1.0",
+          maxInputTokens: 8192,
+          sendRequest: async (_messages) => ({
+            text: (async function* () {
+              yield '{"programInputs":[]}';
+            })(),
+          }),
+        },
+      ];
+      if (selector && selector.family) {
+        return mockModels.filter((m) => m.family === selector.family);
+      }
+      return mockModels;
+    },
   },
 };

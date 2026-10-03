@@ -2,7 +2,12 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import * as Config from "../Config";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
-import { ListTargetsTool, FuzzFunctionTool, registerLmTools } from "./LmTools";
+import {
+  ListTargetsTool,
+  FuzzFunctionTool,
+  registerLmTools,
+  resolveMatchingModel,
+} from "./LmTools";
 
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
 
@@ -91,6 +96,8 @@ describe("LmTools", () => {
           functionName: "testStandardVoidReturnUndefined",
           maxTests: 10,
           timeoutMs: 2000,
+          model: "gemini-3.7-flash",
+          vendor: "google",
         },
         toolInvocationToken: undefined,
       },
@@ -123,6 +130,22 @@ describe("LmTools", () => {
     expect(getTextContent(result)).toContain(
       "❌ NaNofuzz Counterexample Discovered"
     );
+  });
+
+  it("resolveMatchingModel: exact and fuzzy", async () => {
+    const res1 = await resolveMatchingModel("google", "gemini-3.7-flash");
+    expect(res1.vendor).toBe("google");
+    expect(res1.model).toBe("gemini-3.7-flash");
+
+    const res2 = await resolveMatchingModel(
+      "fictional-corp",
+      "gemini-3.7-flash"
+    );
+    expect(res2.model).toBe("gemini-3.7-flash");
+
+    const res3 = await resolveMatchingModel("copilot", "fictional-model-999");
+    expect(res3.vendor).toBe("copilot");
+    expect(res3.model).toBeDefined();
   });
 
   it("register: success", () => {

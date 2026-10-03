@@ -174,13 +174,19 @@ export async function runFuzz(
     "nanofuzz.ai.provider",
     "disabled"
   );
-  const shouldAutoEnableCopilot =
-    Boolean(options.enableCopilotAi) &&
-    (currentProvider === "disabled" || currentProvider === "copilot");
+  const currentModel = Config.get<string>("nanofuzz.ai.model", "");
+  const currentVendor = Config.get<string>("nanofuzz.ai.vendor", "");
+  const shouldAutoEnableCopilot = Boolean(options.enableCopilotAi);
 
   try {
     if (shouldAutoEnableCopilot) {
       Config.override("nanofuzz.ai.provider", "copilot");
+    }
+    if (options.model) {
+      Config.override("nanofuzz.ai.model", options.model);
+    }
+    if (options.vendor) {
+      Config.override("nanofuzz.ai.vendor", options.vendor);
     }
 
     const effectiveGenerators = {
@@ -259,6 +265,12 @@ export async function runFuzz(
   } finally {
     if (shouldAutoEnableCopilot) {
       Config.override("nanofuzz.ai.provider", currentProvider);
+    }
+    if (options.model) {
+      Config.override("nanofuzz.ai.model", currentModel);
+    }
+    if (options.vendor) {
+      Config.override("nanofuzz.ai.vendor", currentVendor);
     }
   }
 }
@@ -862,6 +874,8 @@ export type AgentFuzzOptions = {
   fnTimeout?: number;
   suiteTimeout?: number;
   seed?: string;
+  model?: string;
+  vendor?: string;
   useImplicit?: boolean;
   useHuman?: boolean;
   useProperty?: boolean;

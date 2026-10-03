@@ -320,18 +320,25 @@ describe("Agent", () => {
     expect(summary).toContain("AI (copilot)");
   });
 
-  it("runFuzz: enableCopilotAi", async () => {
-    Config.override("nanofuzz.ai.provider", "disabled");
+  it("runFuzz: enableCopilotAi with custom vendor and model", async () => {
+    Config.override("nanofuzz.ai.provider", "anthropic");
+    Config.override("nanofuzz.ai.model", "claude-3-opus");
+    Config.override("nanofuzz.ai.vendor", "anthropic");
+
     const result = await runFuzz({
       filePath: tsFixture,
       functionName: "testStandardVoidReturnUndefined",
       maxTests: 5,
       suiteTimeout: 2000,
       enableCopilotAi: true,
+      model: "gemini-3.7-flash",
+      vendor: "google",
     });
 
     expect(result.status).toBe("success");
-    expect(Config.get("nanofuzz.ai.provider", "disabled")).toBe("disabled");
+    expect(Config.get("nanofuzz.ai.provider", "disabled")).toBe("anthropic");
+    expect(Config.get("nanofuzz.ai.model", "")).toBe("claude-3-opus");
+    expect(Config.get("nanofuzz.ai.vendor", "")).toBe("anthropic");
   });
 
   it("resolveFilePath: relative and file URI", () => {

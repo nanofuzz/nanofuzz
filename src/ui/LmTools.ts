@@ -3,8 +3,91 @@ import * as JSONN from "../Jsonn";
 import { getToolName, listTargets, runFuzz } from "./Agent";
 
 // -------------------------------------------------------------------------- //
-// Tool Implementations
+// Tool Implementations & Helpers
 // -------------------------------------------------------------------------- //
+
+/**
+ * Resolves the best-matching VS Code Language Model for a requested vendor and model name.
+ * Handles fuzzy matching, non-existent model fallbacks, and vendor filtering.
+ *
+ * @param vendor Optional vendor name provided by the calling agent (e.g. 'google', 'copilot')
+ * @param model Optional model name provided by the calling agent (e.g. 'gemini-3.7-flash')
+ * @returns Object with the resolved vendor and model family/id
+ */
+export async function resolveMatchingModel(
+  vendor?: string,
+  model?: string
+): Promise<{ vendor?: string; model?: string }> {
+  if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
+    return { vendor, model };
+  }
+
+  const allModels = await vscode.lm.selectChatModels();
+  if (!allModels || allModels.length === 0) {
+    return { vendor, model };
+  }
+
+  let candidates = allModels;
+
+  // 1. If vendor is specified, attempt vendor filtering
+  if (vendor) {
+    const vNorm = vendor.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const vendorMatches = allModels.filter((m) => {
+      const v = (m.vendor || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const id = (m.id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      return v.includes(vNorm) || vNorm.includes(v) || id.startsWith(vNorm);
+    });
+    if (vendorMatches.length > 0) {
+      candidates = vendorMatches;
+    }
+  }
+
+  // 2. If model is specified, attempt model name/family/id matching
+  let selected = candidates[0];
+  if (model) {
+    const mNorm = model.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const matched = candidates.find((m) => {
+      const f = (m.family || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const n = (m.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const i = (m.id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+      return (
+        f.includes(mNorm) ||
+        n.includes(mNorm) ||
+        i.includes(mNorm) ||
+        mNorm.includes(f) ||
+        mNorm.includes(n) ||
+        mNorm.includes(i)
+      );
+    });
+
+    if (matched) {
+      selected = matched;
+    } else if (candidates !== allModels) {
+      // Check across all vendors if the vendor filter was too restrictive
+      const globalMatch = allModels.find((m) => {
+        const f = (m.family || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const n = (m.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const i = (m.id || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        return (
+          f.includes(mNorm) ||
+          n.includes(mNorm) ||
+          i.includes(mNorm) ||
+          mNorm.includes(f) ||
+          mNorm.includes(n) ||
+          mNorm.includes(i)
+        );
+      });
+      if (globalMatch) {
+        selected = globalMatch;
+      }
+    }
+  }
+
+  return {
+    vendor: selected.vendor,
+    model: selected.family || selected.id || selected.name,
+  };
+}
 
 /**
  * Language model tool for discovering exported functions and type signatures.
@@ -53,8 +136,18 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
     options: vscode.LanguageModelToolInvocationOptions<FuzzFunctionInput>,
     token: vscode.CancellationToken
   ): Promise<vscode.LanguageModelToolResult> {
-    const { filePath, functionName, maxTests, timeoutMs, maxFailures, seed } =
-      options.input;
+    const {
+      filePath,
+      functionName,
+      maxTests,
+      timeoutMs,
+      maxFailures,
+      seed,
+      model,
+      vendor,
+    } = options.input;
+
+    const resolved = await resolveMatchingModel(vendor, model);
 
     const result = await runFuzz(
       {
@@ -64,6 +157,8 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         suiteTimeout: timeoutMs,
         maxFailures,
         seed,
+        model: resolved.model,
+        vendor: resolved.vendor,
         enableCopilotAi: true,
       },
       () => token.isCancellationRequested
@@ -123,4 +218,6 @@ export type FuzzFunctionInput = {
   timeoutMs?: number;
   maxFailures?: number;
   seed?: string;
+  model?: string;
+  vendor?: string;
 };

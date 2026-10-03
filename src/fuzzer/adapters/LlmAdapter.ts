@@ -158,7 +158,9 @@ export class LlmAdapter {
   public get id(): string | undefined {
     const cfg = LlmAdapter.getConfig();
     if (cfg.provider === "copilot") {
-      return `v=copilot,n=${cfg.modelName || "default"}`;
+      const v = cfg.vendor || "copilot";
+      const m = cfg.modelName || "default";
+      return `v=${v},n=${m}`;
     }
     return `v=${this._backend?.provider?.id},n=${cfg.modelName}`;
   } // getter: id
@@ -258,8 +260,9 @@ export class LlmAdapter {
   ): Promise<LlmQueryResult> {
     LlmAdapter._handleDebug();
 
-    const provider = LlmAdapter.getConfig().provider;
-    const modelName = LlmAdapter.getConfig().modelName;
+    const cfg = LlmAdapter.getConfig();
+    const provider = cfg.provider;
+    const modelName = cfg.modelName;
     const schemaJson = schema
       ? JSON.stringify(zod.toJSONSchema(schema))
       : undefined;
@@ -298,23 +301,30 @@ export class LlmAdapter {
             );
           }
 
-          const selector = modelName
-            ? { family: modelName }
-            : { vendor: "copilot" };
-          let models = await vscode.lm.selectChatModels(selector);
+          const selector: vscode.LanguageModelChatSelector = {};
+          if (cfg.vendor) {
+            selector.vendor = cfg.vendor;
+          }
+          if (modelName) {
+            selector.family = modelName;
+          }
+
+          let models = await vscode.lm.selectChatModels(
+            Object.keys(selector).length > 0 ? selector : undefined
+          );
           if (!models || models.length === 0) {
             models = await vscode.lm.selectChatModels();
           }
           if (!models || models.length === 0) {
             throw new Error(
-              "No Copilot Language Models available. Ensure GitHub Copilot is installed and active in VS Code."
+              "No Language Models available in VS Code. Ensure a model provider is installed and active in VS Code."
             );
           }
 
           const model = models[0];
           if (LlmAdapter.isDebugConfigured()) {
             console.log(
-              `[NaNofuzz Copilot AI] Sending query (${model.name || model.id || "copilot"}):\n${prompt.join("\n")}`
+              `[NaNofuzz Copilot AI] Sending query (${model.vendor}/${model.name || model.id || "copilot"}):\n${prompt.join("\n")}`
             );
           }
 
@@ -436,6 +446,7 @@ export class LlmAdapter {
   public static getConfig(): {
     provider: string;
     modelName: string;
+    vendor: string;
     apiKey: string;
     cacheMode: LlmCacheMode;
     cacheFile: string;
@@ -444,6 +455,7 @@ export class LlmAdapter {
     return {
       provider: LlmAdapter._getConfigValue("provider", "disabled"),
       modelName: LlmAdapter._getConfigValue("model", ""),
+      vendor: LlmAdapter._getConfigValue("vendor", ""),
       apiKey: LlmAdapter._getConfigValue("apiKey", ""),
       cacheMode: LlmAdapter._getConfigValue<LlmCacheMode>(
         "cacheMode",

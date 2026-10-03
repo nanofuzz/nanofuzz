@@ -96,6 +96,14 @@
               "type": "string",
               "description": "The exact name of the exported function to test."
             },
+            "model": {
+              "type": "string",
+              "description": "The language model name or family currently used by the calling agent (e.g. 'gemini-2.0-flash', 'gemini-3.7-flash', 'claude-3.5-sonnet', 'gpt-4o'). Always pass your own model name or family here so NaNofuzz uses the same AI model for input generation."
+            },
+            "vendor": {
+              "type": "string",
+              "description": "The language model vendor/provider identifier currently used by the calling agent (e.g. 'google', 'copilot', 'gemini', 'openai'). Always pass your active vendor/provider so NaNofuzz routes queries to the exact same provider account and billing."
+            },
             "maxTests": {
               "type": "integer",
               "minimum": 1,
@@ -240,6 +248,16 @@
             "order": 20,
             "type": "string",
             "description": "Provider's model name (e.g., gemini-flash-lite-latest)",
+            "tags": [
+              "usesOnlineServices"
+            ]
+          },
+          "nanofuzz.ai.vendor": {
+            "title": "Model vendor / provider (for VS Code Language Models)",
+            "order": 25,
+            "type": "string",
+            "default": "",
+            "description": "Optional vendor identifier for VS Code Language Models (e.g., 'copilot', 'google', 'openai') to route queries to a specific provider account.",
             "tags": [
               "usesOnlineServices"
             ]
