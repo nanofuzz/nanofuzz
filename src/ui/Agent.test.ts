@@ -78,6 +78,14 @@ describe("Agent", () => {
       'export function testStandardVoidReturnUndefinedValidator(r: FuzzTestResult): "pass" | "fail" | "unknown"'
     );
     expect(voidFn.validatorTemplate).toContain("const _x: number = r.in[0];");
+
+    expect(voidFn.transformerTemplate).toBeDefined();
+    expect(voidFn.transformerTemplate).toContain(
+      'import { assume, UnsatisfiedAssumption } from "@nanofuzz/runtime";'
+    );
+    expect(voidFn.transformerTemplate).toContain(
+      "export function testStandardVoidReturnUndefinedTransformer"
+    );
   });
 
   it("listTargets: py", async () => {
@@ -101,6 +109,12 @@ describe("Agent", () => {
       'def greetingValidator1(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:'
     );
     expect(greetingFn.validatorTemplate).toContain("name: a = r['in'][0]");
+
+    expect(greetingFn.transformerTemplate).toBeDefined();
+    expect(greetingFn.transformerTemplate).toContain(
+      "from nanofuzz_runtime import UnsatisfiedAssumption, assume"
+    );
+    expect(greetingFn.transformerTemplate).toContain("def greetingTransformer");
 
     const asyncFn = fnMap.get("async_greeting");
     expect(asyncFn).toBeDefined();

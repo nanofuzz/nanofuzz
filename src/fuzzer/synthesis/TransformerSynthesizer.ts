@@ -58,25 +58,44 @@ export function synthesizeTransformer(
           ? `(${argDestructuring},)`
           : `(${argDestructuring})`;
 
-    const skeleton = `\n\ndef ${transformerName}(${pyParams}) -> ${pyTupleType}:\n  # 'raise UnsatisfiedAssumption(message)' to skip this input\n  # Otherwise, return the transformed inputs\n  return ${pyReturnTuple}\n`;
+    const imports = [
+      {
+        name: "assume",
+        stmt: `from nanofuzz_runtime import UnsatisfiedAssumption, assume\n`,
+      },
+    ];
+
+    const skeleton = `\n\ndef ${transformerName}(${pyParams}) -> ${pyTupleType}:\n  # Use assume(condition) or raise UnsatisfiedAssumption("msg") to filter out-of-domain inputs\n  # Otherwise, return the transformed inputs\n  return ${pyReturnTuple}\n`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
     return {
       name: transformerName,
       skeleton,
-      imports: [],
-      fullTemplate: skeleton.trimStart(),
+      imports,
+      fullTemplate,
     };
   } else {
     // TypeScript
     const tsDestructuring =
       inArgs.length === 0 ? "" : `  const [${argDestructuring}] = args;\n`;
-    const skeleton = `\n\nexport function ${transformerName}(...args: Parameters<typeof ${fn.getName()}>): Parameters<typeof ${inputsTypeName}> {\n${tsDestructuring}  // 'throw new UnsatisfiedAssumption(message)' to skip this input\n  // Otherwise, return the transformed inputs\n  return [${argDestructuring}];\n}`;
+
+    const imports = [
+      {
+        name: "assume",
+        stmt: `import { assume, UnsatisfiedAssumption } from "@nanofuzz/runtime";\n`,
+      },
+    ];
+
+    const skeleton = `\n\nexport function ${transformerName}(...args: Parameters<typeof ${fn.getName()}>): Parameters<typeof ${inputsTypeName}> {\n${tsDestructuring}  // Use assume(condition) or throw new UnsatisfiedAssumption("msg") to filter out-of-domain inputs\n  // Otherwise, return the transformed inputs\n  return [${argDestructuring}];\n}`;
+    const importData = imports.map((i) => i.stmt).join("");
+    const fullTemplate = `${importData}${skeleton.trimStart()}`;
 
     return {
       name: transformerName,
       skeleton,
-      imports: [],
-      fullTemplate: skeleton.trimStart(),
+      imports,
+      fullTemplate,
     };
   }
 } // fn: synthesizeTransformer

@@ -1096,11 +1096,11 @@ export class FuzzPanel {
       return;
     }
 
-    const { name: transformerName, skeleton } = synthesizeTransformer(
-      fn,
-      program.lang,
-      Object.keys(program.functions)
-    );
+    const {
+      name: transformerName,
+      skeleton,
+      imports,
+    } = synthesizeTransformer(fn, program.lang, Object.keys(program.functions));
 
     // Save the editor
     for (const editor of vscode.window.visibleTextEditors) {
@@ -1111,9 +1111,36 @@ export class FuzzPanel {
 
     // Append the code skeleton to the source file
     try {
-      const fd = fs.openSync(module, "as+");
-      fs.writeFileSync(fd, skeleton);
-      fs.closeSync(fd);
+      let importData = "";
+      imports.forEach((i) => {
+        // If there is no import, then add it
+        if (!Object.keys(program.imports).some((e) => e === i.name)) {
+          importData += i.stmt;
+        }
+      });
+
+      if (importData.length) {
+        // Pre-pend the import & append the transformer
+        const fileData = fs.readFileSync(module);
+        const importStmt = Buffer.from(importData);
+        const transformerFn = Buffer.from(skeleton);
+        const fd = fs.openSync(module, "w+");
+
+        fs.writeSync(fd, importStmt, 0, importStmt.length, 0);
+        fs.writeSync(fd, fileData, 0, fileData.length, importStmt.length);
+        fs.writeSync(
+          fd,
+          transformerFn,
+          0,
+          transformerFn.length,
+          importStmt.length + fileData.length
+        );
+        fs.closeSync(fd);
+      } else {
+        const fd = fs.openSync(module, "as+");
+        fs.writeFileSync(fd, skeleton);
+        fs.closeSync(fd);
+      }
 
       // Change focus to the generated transformer
       try {
