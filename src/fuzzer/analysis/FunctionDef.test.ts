@@ -1,5 +1,6 @@
 import { FunctionRef, ArgTag } from "./Types";
 import { ArgDef } from "./ArgDef";
+import { FunctionDef } from "./FunctionDef";
 import * as ProgramFactory from "./ProgramFactory";
 import { makeArgDef, makeTypeRef } from "./TestUtils";
 
@@ -1424,5 +1425,28 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
         ]
       ),
     ]);
+  });
+
+  it("isAsync returns true for async functions and false otherwise", () => {
+    const fnSync = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "syncFn",
+      args: [],
+    });
+    const fnAsync = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "asyncFn",
+      isAsync: true,
+      args: [],
+    });
+    const fnDefault = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "defaultFn",
+      args: [],
+    });
+
+    expect(fnSync.isAsync()).toBeFalse();
+    expect(fnAsync.isAsync()).toBeTrue();
+    expect(fnDefault.isAsync()).toBeFalse();
   });
 });

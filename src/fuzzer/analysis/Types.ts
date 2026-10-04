@@ -46,6 +46,7 @@ export type FunctionRef = {
   endOffset: number; // Ending offset of the function in the source file
   isExported: boolean; // True if the function is exported; false, otherwise
   isVoid: boolean; // True if the function is void; false, otherwise
+  isAsync?: true; // True if the function is async / returns a promise; false/omitted, otherwise
   args?: TypeRef[]; // Array of argument types
   returnType?: TypeRef; // Return type of the function
   cmt?: string; // Docstring comment of the function

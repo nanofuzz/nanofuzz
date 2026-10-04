@@ -91,6 +91,7 @@ export type FuzzTestsFunction = {
   validators: string[]; // validator functions
   tests: Record<string, FuzzPinnedTest>; // pinned tests
   isVoid: boolean; // is the function return type void?
+  isAsync?: true; // is the function async?
 };
 
 /**

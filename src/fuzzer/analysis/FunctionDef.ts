@@ -194,6 +194,15 @@ export class FunctionDef {
   } // fn: isVoid()
 
   /**
+   * Returns true if the function is async; false, otherwise.
+   *
+   * @returns true if the function is async; false, otherwise.
+   */
+  public isAsync(): boolean {
+    return this._ref.isAsync === true;
+  } // fn: isAsync()
+
+  /**
    * Returns true if the function is a validator; false, otherwise.
    *
    * @returns true if the function is a validator; false, otherwise.

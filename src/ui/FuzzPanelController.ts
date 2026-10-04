@@ -774,6 +774,9 @@ export class FuzzPanel {
           validators: this._fuzzEnv.validators.map((ref) => ref.name),
           tests: {},
           isVoid: this._fuzzEnv.function.isVoid(),
+          ...(this._fuzzEnv.function.isAsync()
+            ? { isAsync: true as const }
+            : {}),
         },
       },
     };
@@ -1892,6 +1895,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     testSet.argOverrides = this._argOverrides;
     testSet.sortColumns = this._sortColumns;
     testSet.isVoid = this._fuzzEnv.function.isVoid();
+    if (this._fuzzEnv.function.isAsync()) {
+      testSet.isAsync = true;
+    } else {
+      delete testSet.isAsync;
+    }
     this._putFuzzTestsForThisFn(testSet);
   } // fn: _updateFuzzTests
 

@@ -33,7 +33,7 @@ To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuz
 
 ## What's new in v0.4
 
-- **Python targets**: Test Python functions and export the saved tests to `pytest` for use in CI.
+- **Python**: Test Python functions and export the saved tests to `pytest` for use in CI.
 - **Input transformers**: Programatically modify or skip inputs before they are dispatched for test execution.
 - **More types**: Tuples, Unions, `Map`s, `Set`s, unique Arrays/`List`s, dictionaries, regex strings, `null`s, binary data like `Uint8Array`/`bytes`, and select Typescript utility types, like `Record<K,V>`, `Required<T>` and `Partial<T>`.
 - **Composite input generation**: Random-, mutation-, human-, and an opt-in ai input generator are coordinated automatically, so you can get better testing results with a single button click.
@@ -58,10 +58,10 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
  - **Python**: pytest
 
 The following are not yet supported:
- - Generating inputs of deconstructed, `enum`, generic, intersection, utility (e.g., TypeScript `Omit<T1,T2>`), `bigint`s, implicit `any`, `unknown`, and function types as well `NaN` and `Infinity`
+ - Generating inputs of deconstructed, `enum`, generic, intersection, some utility (e.g., TypeScript `Omit<T1,T2>`) types, `bigint`s, implicit `any`, `unknown`, and function types as well `NaN` and `Infinity`
  - Testing class and object methods (write a test harness for these)
  - Compiling to module formats other than CommonJS (related to [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
- - Stateful, flaky, async, or non-deterministic tests
+ - Stateful, flaky, or non-deterministic tests
  - Sandboxing external side-effects of the program under test, mocks, or stubs 
  - Custom generators and input filters
 

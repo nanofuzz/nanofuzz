@@ -68,6 +68,20 @@ def py_transformed_exceptionTransformer(n: int) -> Union[List[int], None]:
     raise Exception("Python transformer error")
 
 
+async def async_greeting(name: str) -> str:
+    import asyncio
+    await asyncio.sleep(0.005)
+    if name == "boom":
+        raise ValueError("async boom")
+    return "Hello " + name
+
+
+def async_greetingValidator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:
+    if r['exception']:
+        return "pass"
+    return "pass" if str(r['out']).startswith("Hello ") else "fail"
+
+
 def py_transformed_timeout(n: int) -> int:
     return n
 

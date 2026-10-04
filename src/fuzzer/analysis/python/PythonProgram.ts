@@ -1290,6 +1290,9 @@ export class PythonProgram extends AbstractProgram {
     const bodyNode = defNode.node.childForFieldName("body");
     const bodyIsVoid =
       !!bodyNode && PythonProgram._isFunctionBodyVoid(bodyNode);
+    const isAsync = defNode.node.children.some(
+      (c) => c.type === "async" || c.text === "async"
+    );
     try {
       if (typeNode) {
         isVoid = typeNode.node.namedChild(0)?.type === "none";
@@ -1315,6 +1318,7 @@ export class PythonProgram extends AbstractProgram {
       endOffset: defNode.node.endIndex,
       isExported: true,
       isVoid,
+      ...(isAsync ? { isAsync: true } : {}),
       args: finalArgs,
       returnType,
       cmt,

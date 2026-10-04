@@ -1220,6 +1220,147 @@ def x(val: int) -> int:
       }
     }
   });
+
+  it("async coroutine: resolves value", async () => {
+    const tmpDir = getTmpDir("nanofuzz-async-py-");
+    const pyPath = path.join(tmpDir, "async_test.py");
+    const pyCode = `import asyncio
+
+async def async_add(a: int, b: int) -> int:
+    await asyncio.sleep(0.01)
+    return a + b
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+async def async_add(a: int, b: int) -> int:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["async_add"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "async_add", env, 2000);
+      await runner.onRunStart();
+
+      const res = await runner.run([12, 30], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(42);
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("async coroutine: raises exception", async () => {
+    const tmpDir = getTmpDir("nanofuzz-async-err-py-");
+    const pyPath = path.join(tmpDir, "async_err_test.py");
+    const pyCode = `import asyncio
+
+async def async_fail(msg: str):
+    await asyncio.sleep(0.01)
+    raise ValueError("async error: " + msg)
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+async def async_fail(msg: str):
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["async_fail"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "async_fail", env, 2000);
+      await runner.onRunStart();
+
+      const res = await runner.run(["boom"], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("error");
+      if (res.result.tag === "error") {
+        expect(res.result.message).toContain("async error: boom");
+        expect(res.result.source).toBe("put");
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("async coroutine: timeout triggers", async () => {
+    const tmpDir = getTmpDir("nanofuzz-async-timeout-py-");
+    const pyPath = path.join(tmpDir, "async_timeout_test.py");
+    const pyCode = `import asyncio
+
+async def async_hang():
+    await asyncio.sleep(10)
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+async def async_hang():
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["async_hang"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "async_hang", env, 100);
+      await runner.onRunStart();
+
+      const res = await runner.run([], 100);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("timeout");
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
 });
 
 /**
