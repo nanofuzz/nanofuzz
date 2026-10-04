@@ -26,7 +26,7 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
-import { formatFailureBlock, formatRunStatsSummary } from "./Fuzzer";
+import { formatFailureBlock, formatRunStatsSummary } from "./FuzzTextFormatter";
 import { getTransformers, getValidators, isOptionValid } from "./analysis/Util";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
