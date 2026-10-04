@@ -523,7 +523,7 @@ describe("fuzzer: typescript targets", () => {
         maxTests: 10,
         suiteTimeout: 5000,
       }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(results.length).toBeGreaterThan(0);
