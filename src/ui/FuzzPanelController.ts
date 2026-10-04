@@ -1591,87 +1591,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       try {
         this._tester.options = this._fuzzEnv.options;
         this._pauseTesting = false;
+
         // Test the function & store the results
-        this._tester.testAsync(
+        const result = await this._tester.test(
           testsToInject,
           { gen: mode.gen },
-          async (result: fuzzer.FuzzTestResults | Error) => {
-            if (isError(result)) {
-              /* Error */
-              // Transition to error state
-              this._setErrorFromException(result);
-              this._state = FuzzPanelState.error;
-              this._retestingReason = false;
-
-              // Log the end of fuzzing
-              vscode.commands.executeCommand(
-                telemetry.commands.logTelemetry.name,
-                new telemetry.LoggerEntry(
-                  "FuzzPanel.fuzz.error",
-                  "Fuzzing failed. Target: %s. Message: %s. Stack: %s.",
-                  [
-                    this.getFnRefKey(),
-                    this._errorMessage ?? "unknown error",
-                    this._errorStack ?? "<no stack>",
-                  ]
-                )
-              );
-
-              // Update the UI
-              this._updateHtml();
-            } else {
-              /* Success */
-              this._results = result;
-
-              // If we added a test, give the new result UI focus
-              if (
-                testToAdd &&
-                result.results.length &&
-                JSONN.stringify(
-                  result.results[result.results.length - 1].input
-                ) === JSONN.stringify(testToAdd.input)
-              ) {
-                // Give focus to the newInput
-                this._focusInput = [
-                  result.results[result.results.length - 1].category,
-                  result.results.length - 1,
-                ];
-              }
-
-              // Transition to done state
-              this._errorMessage = undefined;
-              this._errorStack = undefined;
-              this._state = FuzzPanelState.done;
-              this._retestingReason = false;
-
-              // Log the end of fuzzing
-              vscode.commands.executeCommand(
-                telemetry.commands.logTelemetry.name,
-                new telemetry.LoggerEntry(
-                  "FuzzPanel.fuzz.done",
-                  "Fuzzing completed successfully. Target: %s. Results: %s",
-                  [this.getFnRefKey(), JSONN.stringify(this._results)]
-                )
-              );
-
-              // Persist the fuzz test run settings (!!!!!!! validation)
-              this._updateFuzzTests();
-
-              // Get coverage data
-              this._coverageStats = this._results.stats.measures
-                .CodeCoverageMeasure
-                ? await this._results.stats.measures.CodeCoverageMeasure()
-                : undefined;
-
-              // Update the UI
-              const message: FuzzPanelMessageToWebView = {
-                command: "busy.ending",
-              };
-              this._panel.webview.postMessage(message);
-              this._updateHtml();
-              this._focusInput = undefined;
-            }
-          },
           // Fn that provides test status feedback to the panel => {
           (payload: fuzzer.FuzzBusyStatusMessage): void => {
             const message: FuzzPanelMessageToWebView = {
@@ -1683,8 +1607,58 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
           // Fn to cancel testing
           () => this._pauseTesting
         );
+
+        /* Success */
+        this._results = result;
+
+        // If we added a test, give the new result UI focus
+        if (
+          testToAdd &&
+          result.results.length &&
+          JSONN.stringify(result.results[result.results.length - 1].input) ===
+            JSONN.stringify(testToAdd.input)
+        ) {
+          // Give focus to the newInput
+          this._focusInput = [
+            result.results[result.results.length - 1].category,
+            result.results.length - 1,
+          ];
+        }
+
+        // Transition to done state
+        this._errorMessage = undefined;
+        this._errorStack = undefined;
+        this._state = FuzzPanelState.done;
+        this._retestingReason = false;
+
+        // Log the end of fuzzing
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "FuzzPanel.fuzz.done",
+            "Fuzzing completed successfully. Target: %s. Results: %s",
+            [this.getFnRefKey(), JSONN.stringify(this._results)]
+          )
+        );
+
+        // Persist the fuzz test run settings (!!!!!!! validation)
+        this._updateFuzzTests();
+
+        // Get coverage data
+        this._coverageStats = this._results.stats.measures.CodeCoverageMeasure
+          ? await this._results.stats.measures.CodeCoverageMeasure()
+          : undefined;
+
+        // Update the UI
+        const message: FuzzPanelMessageToWebView = {
+          command: "busy.ending",
+        };
+        this._panel.webview.postMessage(message);
+        this._updateHtml();
+        this._focusInput = undefined;
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
+        this._retestingReason = false;
         const [errorMessage, errorStack] = this._setErrorFromException(e);
         vscode.commands.executeCommand(
           telemetry.commands.logTelemetry.name,

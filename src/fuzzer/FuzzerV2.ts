@@ -271,42 +271,6 @@ export class FuzzerV2 {
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
-    let result: FuzzTestResults | undefined;
-    try {
-      const run = this._run(injectTests, mode, updateFn, cancelFn, onResultFn);
-      while (!result) {
-        result = (await run.next()).value;
-      }
-      return result;
-    } catch (e: unknown) {
-      if (this._state === "running") {
-        this._state = "crashed";
-      }
-      throw e;
-    }
-  } // fn: test
-
-  /**
-   * Executes the fuzzing run with the specified parameters.
-   *
-   * @param injectTests An array of pinned tests to inject into the fuzzing run.
-   * @param mode The fuzzing mode to use for this run.
-   * @param updateFn Optional callback function to receive status updates.
-   * @param cancelFn Optional function to determine if the fuzzing run should be canceled.
-   * @param onResultFn Optional callback function to receive individual test results.
-   * @returns An async generator yielding fuzz test results as they become available.
-   */
-  protected async *_run(
-    injectTests: FuzzPinnedTest[] = [],
-    mode: FuzzMode = { gen: true },
-    updateFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean,
-    onResultFn?: FuzzResultCallback
-  ): AsyncGenerator<
-    FuzzTestResults | undefined,
-    FuzzTestResults,
-    FuzzTestResults | undefined
-  > {
     const state = this.state;
     if (!(state === "init" || state === "paused")) {
       throw new Error(
@@ -476,8 +440,27 @@ export class FuzzerV2 {
           }
         }
 
+        // Notify front-end / status update before executing the test
+        const currentStopCondition = this._stats!.shouldStop(
+          this._options,
+          this._compositeInputGenerator.nextable() !== false,
+          stillInjecting,
+          injectTests.length,
+          Boolean(cancelFn && cancelFn()),
+          this._fuzzerFocus.mode,
+          Boolean(mode.gen),
+          {
+            generated: this._compositeInputGenerator.inputsGenerated,
+            dupes: this._compositeInputGenerator.dupesGenerated,
+            sequentialDupes: this._compositeInputGenerator.dupesSequential,
+          }
+        );
+        const currentPct =
+          typeof currentStopCondition === "number" ? currentStopCondition : 100;
+        this._notify(candidate, currentPct, update, cancelFn, stillInjecting);
+
         // Execute single test pipeline: Run -> Oracles -> Measures -> Feedback
-        const execution = await this._executor.execute(
+        const execution = await this._executor!.execute(
           candidate,
           genTime,
           this._compositeInputGenerator,
@@ -505,14 +488,16 @@ export class FuzzerV2 {
         // Cooperative shrinking step
         this._shrink(result);
 
-        // Notify front-end / status update
+        // Notify result callback
         if (onResultFn) {
           onResultFn(deepFreeze(result));
         }
-        this._notify(result, stopCondition, update, cancelFn, stillInjecting);
-
-        yield undefined;
       }
+    } catch (e: unknown) {
+      if (this._state === "running") {
+        this._state = "crashed";
+      }
+      throw e;
     } finally {
       this._exitShrink();
       if (periodicTimer !== undefined) {
@@ -523,7 +508,7 @@ export class FuzzerV2 {
         await this._executor.stop();
       }
     }
-  } // fn: _run
+  } // fn: test
 
   /**
    * Initializes the fuzz executor with the given pinned tests, fuzzing mode, and status updaters.
@@ -716,36 +701,41 @@ export class FuzzerV2 {
   } // fn: _exitShrink
 
   /**
-   * Notifies the status updater about the current test result and progress.
+   * Notifies the status updater about the upcoming test and progress.
    *
-   * @param result The current fuzz test result.
-   * @param stopCondition The reason for stopping or the current progress percentage.
+   * @param candidate The candidate input about to be tested.
+   * @param pct The current progress percentage.
    * @param update The status updater function to report progress and msgs.
    * @param cancelFn Optional function to check if the run should be cancelled.
    * @param stillInjecting Indicates if the fuzzer is still injecting inputs.
    */
   protected _notify(
-    result: FuzzTestResult,
-    stopCondition: FuzzStopReason | number,
+    candidate: TransformedInputAndSource,
+    pct: number,
     update: FuzzStatusUpdater,
     cancelFn?: () => boolean,
     stillInjecting: boolean = false
   ): void {
+    const isNodeCli = process.env.BUILD_TARGET === "node-cli";
     const lang = this._function.getLang();
     const runStats = this._stats!.currentRun;
     const isCancelled = cancelFn ? cancelFn() : false;
 
+    const msg = isNodeCli
+      ? ""
+      : `${isCancelled && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} input# ${
+          runStats.counters.passedTests +
+          runStats.counters.failedTests +
+          runStats.counters.erroredTests +
+          1
+        }: ${this._function.getName()}(${candidate.value
+          .map((i) => ValueMapper.toLang(lang, i.value))
+          .join(",")})${formatRunStatsSummary(runStats)}`;
+
     update({
-      msg: `${isCancelled && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} input# ${
-        runStats.counters.passedTests +
-        runStats.counters.failedTests +
-        runStats.counters.erroredTests +
-        1
-      }: ${this._function.getName()}(${result.input
-        .map((i) => ValueMapper.toLang(lang, i.value))
-        .join(",")})${formatRunStatsSummary(runStats)}`,
+      msg,
       channel: "update",
-      pct: typeof stopCondition === "number" ? stopCondition : 100,
+      pct,
     });
   } // fn: _notify
 
