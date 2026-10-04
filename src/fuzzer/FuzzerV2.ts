@@ -8,7 +8,6 @@ import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import { Instrumenter } from "./compilers/Instrumenter";
 import * as ProgramFactory from "./analysis/ProgramFactory";
-import * as ValueMapper from "./mappers/ValueMapper";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
   BaseMeasureConfig,
@@ -26,7 +25,10 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
-import { formatRunStatsSummary } from "./FuzzTextFormatter";
+import {
+  formatCandidateStatus,
+  formatWaitingStatus,
+} from "./FuzzTextFormatter";
 import { getTransformers, getValidators, isOptionValid } from "./analysis/Util";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
@@ -384,15 +386,12 @@ export class FuzzerV2 {
                     (performance.now() - this._stats!.startGenTime)
                 )
               : undefined;
-          const pendingGens =
-            this._compositeInputGenerator.getPendingGeneratorNames();
-          const pendingLabel = pendingGens.length
-            ? pendingGens.join(", ") + " "
-            : "";
+          const msg = formatWaitingStatus(
+            this._compositeInputGenerator.getPendingGeneratorNames(),
+            this._stats!.currentRun
+          );
           update({
-            msg: `Waiting for ${pendingLabel}input generator...${formatRunStatsSummary(
-              this._stats!.currentRun
-            )}`,
+            msg,
             channel: "update",
             pct: typeof stopCondition === "number" ? stopCondition : 0,
           });
@@ -702,20 +701,16 @@ export class FuzzerV2 {
     stillInjecting: boolean = false
   ): void {
     const isNodeCli = process.env.BUILD_TARGET === "node-cli";
-    const lang = this._function.getLang();
-    const runStats = this._stats!.currentRun;
-    const isCancelled = cancelFn ? cancelFn() : false;
-
     const msg = isNodeCli
       ? ""
-      : `${isCancelled && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} input# ${
-          runStats.counters.passedTests +
-          runStats.counters.failedTests +
-          runStats.counters.erroredTests +
-          1
-        }: ${this._function.getName()}(${candidate.value
-          .map((i) => ValueMapper.toLang(lang, i.value))
-          .join(",")})${formatRunStatsSummary(runStats)}`;
+      : formatCandidateStatus(
+          this._function.getName(),
+          this._function.getLang(),
+          candidate.value.map((i) => i.value),
+          this._stats!.currentRun,
+          stillInjecting,
+          Boolean(cancelFn && cancelFn())
+        );
 
     update({
       msg,

@@ -8,7 +8,6 @@ import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import { Instrumenter } from "./compilers/Instrumenter";
 import * as ProgramFactory from "./analysis/ProgramFactory";
-import * as ValueMapper from "./mappers/ValueMapper";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
   FuzzPinnedTest,
@@ -39,7 +38,10 @@ import {
   isArgValueType,
   isOptionValid,
 } from "./analysis/Util";
-import { formatRunStatsSummary } from "./FuzzTextFormatter";
+import {
+  formatCandidateStatus,
+  formatWaitingStatus,
+} from "./FuzzTextFormatter";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
@@ -763,15 +765,12 @@ export class Tester {
                     (performance.now() - runStats.timers.startGenTime)
                 )
               : undefined;
-          const pendingGens =
-            this._compositeInputGenerator.getPendingGeneratorNames();
-          const pendingLabel = pendingGens.length
-            ? pendingGens.join(", ") + " "
-            : "";
+          const msg = formatWaitingStatus(
+            this._compositeInputGenerator.getPendingGeneratorNames(),
+            runStats
+          );
           update({
-            msg: `Waiting for ${pendingLabel}input generator...${formatRunStatsSummary(
-              runStats
-            )}`,
+            msg,
             channel: "update",
             pct: typeof stopCondition === "number" ? stopCondition : 0,
           });
@@ -904,14 +903,14 @@ export class Tester {
 
         // Front-end status update
         update({
-          msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} input# ${
-            runStats.counters.passedTests +
-            runStats.counters.failedTests +
-            runStats.counters.erroredTests +
-            1
-          }: ${this._function.getName()}(${result.input
-            .map((i) => ValueMapper.toLang(lang, i.value))
-            .join(",")})${formatRunStatsSummary(runStats)}`,
+          msg: formatCandidateStatus(
+            this._function.getName(),
+            lang,
+            result.input.map((i) => i.value),
+            runStats,
+            stillInjecting,
+            Boolean(cancelFn && cancelFn())
+          ),
           channel: "update",
           pct: typeof stopCondition === "number" ? stopCondition : 100,
         });

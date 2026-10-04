@@ -320,3 +320,57 @@ export function formatRunStatsSummary(runStats: CurrentRunStats): string {
       : ""
   }`;
 } // fn: formatRunStatsSummary
+
+/**
+ * Formats a live candidate test execution message for status notifications.
+ *
+ * @param targetFnName Name of the function under test.
+ * @param lang Language of the module.
+ * @param inputValues Raw argument values of the test candidate.
+ * @param runStats Current run stats.
+ * @param stillInjecting True if still injecting pinned inputs.
+ * @param isCancelled True if cancellation has been requested.
+ * @returns Formatted message string for status updates.
+ */
+export function formatCandidateStatus(
+  targetFnName: string,
+  lang: ProgramLanguage,
+  inputValues: unknown[],
+  runStats: CurrentRunStats,
+  stillInjecting: boolean = false,
+  isCancelled: boolean = false
+): string {
+  const totalExecuted =
+    runStats.counters.passedTests +
+    runStats.counters.failedTests +
+    runStats.counters.erroredTests +
+    1;
+  const args = inputValues.map((v) => ValueMapper.toLang(lang, v)).join(",");
+  const prefix =
+    isCancelled && stillInjecting
+      ? "Interrupt pending retest of prior inputs.\r\n"
+      : "";
+  const action = stillInjecting ? "Retesting prior" : "Testing new";
+  return `${prefix}${action} input# ${totalExecuted}: ${targetFnName}(${args})${formatRunStatsSummary(
+    runStats
+  )}`;
+} // fn: formatCandidateStatus
+
+/**
+ * Formats a generator waiting message for status notifications.
+ *
+ * @param pendingGeneratorNames Names of generators currently producing inputs asynchronously.
+ * @param runStats Current run stats.
+ * @returns Formatted message string for generator wait status.
+ */
+export function formatWaitingStatus(
+  pendingGeneratorNames: string[],
+  runStats: CurrentRunStats
+): string {
+  const pendingLabel = pendingGeneratorNames.length
+    ? pendingGeneratorNames.join(", ") + " "
+    : "";
+  return `Waiting for ${pendingLabel}input generator...${formatRunStatsSummary(
+    runStats
+  )}`;
+} // fn: formatWaitingStatus
