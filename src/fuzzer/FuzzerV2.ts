@@ -26,7 +26,7 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
-import { formatFailureBlock, formatRunStatsSummary } from "./FuzzTextFormatter";
+import { formatRunStatsSummary } from "./FuzzTextFormatter";
 import { getTransformers, getValidators, isOptionValid } from "./analysis/Util";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
@@ -747,7 +747,6 @@ export class FuzzerV2 {
     cancelFn?: () => boolean
   ): Promise<FuzzTestResults> {
     const results = this._stats!.finalize(stopReason);
-    const runStats = this._stats!.currentRun;
 
     results.interesting.inputs =
       this._compositeInputGenerator.getInterestingInputs();
@@ -766,63 +765,6 @@ export class FuzzerV2 {
       await this._executor.stop();
     }
 
-    update({
-      msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-      channel: "update",
-      pct: 100,
-    });
-
-    const diagnostics = this._compositeInputGenerator.getDiagnostics();
-    if (diagnostics.length) {
-      update({
-        msg: ` - Input generator warnings:`,
-        channel: "summary",
-      });
-      diagnostics.forEach((diag) => {
-        update({
-          msg: `   - ${diag}`,
-          channel: "summary",
-        });
-      });
-    }
-
-    update({
-      msg: ` - Executed ${
-        results.stats.outcomes.total
-      } and skipped ${runStats.counters.inputsSkipped} tests in ${(
-        performance.now() - runStats.timers.startTime
-      ).toFixed(0)} ms this run. Stopped for reason: ${results.stopReason}.`,
-      channel: "summary",
-    });
-    update({
-      msg: ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`,
-      channel: "summary",
-    });
-    update({
-      msg: ` - Total tests with exceptions: ${
-        results.stats.outcomes.exceptions
-      }, timeouts: ${results.stats.outcomes.timeouts}, errors: ${results.stats.counters.erroredTests}`,
-      channel: "summary",
-    });
-    update({
-      msg: ` - Total tests where human validator passed: ${
-        results.stats.outcomes.oracles.human.pass
-      }, failed: ${results.stats.outcomes.oracles.human.fail}`,
-      channel: "summary",
-    });
-    update({
-      msg: ` - Total tests where property validator passed: ${
-        results.stats.outcomes.oracles.property.pass
-      }, failed: ${results.stats.outcomes.oracles.property.fail}`,
-      channel: "summary",
-    });
-    update({
-      msg: ` - Total tests where heuristic validator passed: ${
-        results.stats.outcomes.oracles.heuristic.pass
-      }, failed: ${results.stats.outcomes.oracles.heuristic.fail}`,
-      channel: "summary",
-    });
-
     if (this._options.outputFile) {
       JSONN.toFile(
         this._options.outputFile,
@@ -834,29 +776,12 @@ export class FuzzerV2 {
               ? { current: v.current }
               : v
       );
-      update({
-        msg: ` - Test results: ${this._options.outputFile}`,
-        channel: "summary",
-      });
-    }
-
-    const firstFailing = results.stats.outcomes.firstFailure;
-    if (firstFailing) {
-      update({
-        msg: formatFailureBlock(
-          this._function.getName(),
-          firstFailing,
-          this._function.getLang(),
-          this._validators,
-          this._options.fnTimeout
-        ),
-        channel: "summary",
-      });
     }
 
     update({
       msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-      channel: "milestone",
+      channel: "update",
+      pct: 100,
     });
 
     this._state = "paused";

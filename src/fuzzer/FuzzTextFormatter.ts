@@ -1,6 +1,75 @@
 import { FunctionRef, ProgramLanguage } from "./analysis/Types";
 import * as ValueMapper from "./mappers/ValueMapper";
-import { CurrentRunStats, FuzzTestResult } from "./Types";
+import { CurrentRunStats, FuzzTestResult, FuzzTestResults } from "./Types";
+
+/**
+ * Formats full execution results and outcome metrics into summary lines for display.
+ */
+export function formatRunSummary(
+  results: FuzzTestResults,
+  diagnostics: string[] = [],
+  isCancelled: boolean = false
+): string {
+  const lines: string[] = [];
+  const stats = results.stats;
+  const outcomes = stats.outcomes;
+  const counters = stats.counters;
+
+  if (diagnostics.length) {
+    lines.push(" - Input generator warnings:");
+    diagnostics.forEach((diag) => {
+      lines.push(`   - ${diag}`);
+    });
+  }
+
+  lines.push(
+    ` - Executed ${outcomes.total} and skipped ${
+      counters.inputsSkipped
+    } tests in ${stats.timers.total.toFixed(0)} ms this run. Stopped for reason: ${
+      results.stopReason
+    }.`
+  );
+  lines.push(
+    ` - Injected ${counters.inputsInjected} and generated ${
+      counters.inputsGenerated
+    } inputs (${counters.dupesGenerated} were dupes) this run.`
+  );
+  lines.push(
+    ` - Total tests with exceptions: ${outcomes.exceptions}, timeouts: ${
+      outcomes.timeouts
+    }, errors: ${counters.erroredTests}`
+  );
+  lines.push(
+    ` - Total tests where human validator passed: ${outcomes.oracles.human.pass}, failed: ${outcomes.oracles.human.fail}`
+  );
+  lines.push(
+    ` - Total tests where property validator passed: ${outcomes.oracles.property.pass}, failed: ${outcomes.oracles.property.fail}`
+  );
+  lines.push(
+    ` - Total tests where heuristic validator passed: ${outcomes.oracles.heuristic.pass}, failed: ${outcomes.oracles.heuristic.fail}`
+  );
+
+  if (results.env.options.outputFile) {
+    lines.push(` - Test results: ${results.env.options.outputFile}`);
+  }
+
+  const firstFailing = outcomes.firstFailure;
+  if (firstFailing) {
+    lines.push(
+      formatFailureBlock(
+        results.env.function.getName(),
+        firstFailing,
+        results.env.function.getLang(),
+        results.env.validators,
+        results.env.options.fnTimeout
+      )
+    );
+  }
+
+  lines.push(`Testing ${isCancelled ? "interrupted" : "finished"}.`);
+
+  return lines.join("\n");
+} // fn: formatRunSummary
 
 /**
  * Formats a single failing result into a terminal-width failure block.

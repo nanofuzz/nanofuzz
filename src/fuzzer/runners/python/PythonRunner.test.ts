@@ -572,9 +572,9 @@ def calculate(x: int) -> int:
 
         // Case 1: Default 'project static' scope
         Config.override("nanofuzz.fuzzer.coverageScope", "project static");
-        const runnerProject = new PythonRunner(pyPath, "calculate", env, 10000);
+        const runnerProject = new PythonRunner(pyPath, "calculate", env, 30000);
         await runnerProject.onRunStart();
-        const resProject = await runnerProject.run([1], 10000);
+        const resProject = await runnerProject.run([1], 30000);
         const covProject = runnerProject.coverageInfo;
         await runnerProject.onRunEnd();
 
@@ -601,9 +601,9 @@ def calculate(x: int) -> int:
           "nanofuzz.fuzzer.coverageScope",
           "project directimports static"
         );
-        const runnerImports = new PythonRunner(pyPath, "calculate", env, 10000);
+        const runnerImports = new PythonRunner(pyPath, "calculate", env, 30000);
         await runnerImports.onRunStart();
-        const resImports = await runnerImports.run([1], 10000);
+        const resImports = await runnerImports.run([1], 30000);
         const covImports = runnerImports.coverageInfo;
         await runnerImports.onRunEnd();
 

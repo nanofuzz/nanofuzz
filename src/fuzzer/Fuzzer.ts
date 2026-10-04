@@ -39,7 +39,7 @@ import {
   isArgValueType,
   isOptionValid,
 } from "./analysis/Util";
-import { formatFailureBlock, formatRunStatsSummary } from "./FuzzTextFormatter";
+import { formatRunStatsSummary } from "./FuzzTextFormatter";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
@@ -709,63 +709,6 @@ export class Tester {
             ].filter((e) => e !== undefined)
           );
 
-          update({
-            msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-            channel: "update",
-            pct: 100,
-          });
-          const diagnostics = this._compositeInputGenerator.getDiagnostics();
-          if (diagnostics.length) {
-            update({
-              msg: ` - Input generator warnings:`,
-              channel: "summary",
-            });
-            this._compositeInputGenerator.getDiagnostics().forEach((diag) => {
-              update({
-                msg: `   - ${diag}`,
-                channel: "summary",
-              });
-            });
-          }
-          update({
-            msg: ` - Executed ${
-              this._results.stats.outcomes.total
-            } and skipped ${runStats.counters.inputsSkipped} tests in ${(
-              performance.now() - runStats.timers.startTime
-            ).toFixed(
-              0
-            )} ms this run. Stopped for reason: ${this._results.stopReason}.`,
-            channel: "summary",
-          });
-          update({
-            msg: ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`,
-            channel: "summary",
-          });
-          update({
-            msg: ` - Total tests with exceptions: ${
-              this._results.stats.outcomes.exceptions
-            }, timeouts: ${this._results.stats.outcomes.timeouts}, errors: ${this._results.stats.counters.erroredTests}`,
-            channel: "summary",
-          });
-          update({
-            msg: ` - Total tests where human validator passed: ${
-              this._results.stats.outcomes.oracles.human.pass
-            }, failed: ${this._results.stats.outcomes.oracles.human.fail}`,
-            channel: "summary",
-          });
-          update({
-            msg: ` - Total tests where property validator passed: ${
-              this._results.stats.outcomes.oracles.property.pass
-            }, failed: ${this._results.stats.outcomes.oracles.property.fail}`,
-            channel: "summary",
-          });
-          update({
-            msg: ` - Total tests where heuristic validator passed: ${
-              this._results.stats.outcomes.oracles.heuristic.pass
-            }, failed: ${this._results.stats.outcomes.oracles.heuristic.fail}`,
-            channel: "summary",
-          });
-
           // Persist to outfile, if requested
           if (this._options.outputFile) {
             JSONN.toFile(
@@ -778,28 +721,12 @@ export class Tester {
                     ? { current: v.current }
                     : v
             );
-            update({
-              msg: ` - Test results: ${this._options.outputFile}`,
-              channel: "summary",
-            });
           }
 
-          const firstFailing = this._results.stats.outcomes.firstFailure;
-          if (firstFailing) {
-            update({
-              msg: formatFailureBlock(
-                this._function.getName(),
-                firstFailing,
-                lang,
-                this._validators,
-                this._options.fnTimeout
-              ),
-              channel: "summary",
-            });
-          }
           update({
             msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-            channel: "milestone",
+            channel: "update",
+            pct: 100,
           });
 
           this._state = "paused";

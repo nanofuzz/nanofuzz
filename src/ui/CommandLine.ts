@@ -12,6 +12,7 @@ import * as fs from "node:fs";
 import { SingleBar, Presets } from "cli-progress";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import { ArgDef, FuzzBusyStatusMessage } from "../fuzzer/Fuzzer";
+import { formatRunSummary } from "../fuzzer/FuzzTextFormatter";
 import { FuzzerEngineVersion, FuzzerFactory } from "../fuzzer/FuzzerFactory";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
@@ -572,7 +573,7 @@ export async function runCliInProcess(
       }
     }
 
-    const results = await FuzzerFactory(
+    const fuzzer = FuzzerFactory(
       filename,
       fnname,
       {
@@ -634,9 +635,24 @@ export async function runCliInProcess(
         },
       },
       { engine: options["engine"] }
-    ).test(injectTests, undefined, updateFn, () => isCancelled);
+    );
+
+    const results = await fuzzer.test(
+      injectTests,
+      undefined,
+      updateFn,
+      () => isCancelled
+    );
 
     process.removeListener("SIGINT", sigintListener);
+
+    if (!lastWasMilestone) {
+      bar.stop();
+      lastWasMilestone = true;
+    }
+
+    const diagnostics = fuzzer.getInputGeneratorDiagnostics();
+    console.log(formatRunSummary(results, diagnostics, isCancelled));
 
     if (isCancelled) {
       return USER_CANCELLED;
