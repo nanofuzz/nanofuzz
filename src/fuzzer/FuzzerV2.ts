@@ -30,15 +30,13 @@ import {
   getValidators,
   getTransformers,
   isOptionValid,
-  isSameJudgments,
-  getIoKey,
   formatFailureBlock,
   formatRunStatsSummary,
 } from "./Fuzzer";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { isError } from "./Util";
+import { getIoKey, isError, isSameJudgments } from "./Util";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner } from "./runners/AbstractRunner";

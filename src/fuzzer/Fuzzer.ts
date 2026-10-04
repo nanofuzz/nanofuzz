@@ -11,10 +11,8 @@ import * as ProgramFactory from "./analysis/ProgramFactory";
 import * as ValueMapper from "./mappers/ValueMapper";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
-  FuzzIoElement,
   FuzzPinnedTest,
   FuzzTestResult,
-  FuzzResultCategory,
   FuzzResultCategoryValues,
   FuzzStopReason,
   FuzzStatusUpdater,
@@ -34,9 +32,8 @@ import {
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { isError } from "./Util";
+import { categorizeResult, getIoKey, isError, isSameJudgments } from "./Util";
 import { isArgValueType } from "./analysis/Util";
-import { CompositeOracle } from "./oracles/CompositeOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
@@ -1520,107 +1517,6 @@ export function getTransformers(
 } // fn: getTransformers()
 
 /**
- * Returns true if all oracle judgments of two test results are identical without allocating arrays or stringifying.
- */
-export function isSameJudgments(a: FuzzTestResult, b: FuzzTestResult): boolean {
-  if (a.passedImplicit !== b.passedImplicit) {
-    return false;
-  }
-  if (a.passedHuman !== b.passedHuman) {
-    return false;
-  }
-  const aVals = a.passedValidators;
-  const bVals = b.passedValidators;
-  if (aVals.length !== bVals.length) {
-    return false;
-  }
-  for (let i = 0; i < aVals.length; i++) {
-    if (aVals[i] !== bVals[i]) {
-      return false;
-    }
-  }
-  return true;
-} // fn: isSameJudgments()
-
-/**
- * Categorizes the result of a fuzz test according to the available
- * categories defined in ResultType.
- * @param result of the test
- * @returns the category of the result
- */
-export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
-  if (result.harnessErrors.length > 0) {
-    return "failure"; // Validator or transformer failed
-  }
-  if (result.skipped) {
-    return "skip";
-  }
-
-  // Returns the type of bad value: execption, timeout, or badvalue
-  const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
-    if (result.exception) {
-      return "exception"; // PUT threw exception
-    } else if (result.timeout) {
-      return "timeout"; // PUT timedout
-    } else {
-      return "badValue"; // PUT returned bad value
-    }
-  };
-
-  // Use the Composite Oracle to render a single judgment from among
-  // the various oracles. We describe this in the TerzoN paper:
-  //
-  // TerzoN: Human-in-the-Loop Software Testing with a Composite Oracle
-  // https://doi.org/10.1145/3580446
-  //
-  // Subsequently, map the judgment to a FuzzResultCategory
-  switch (
-    CompositeOracle.judge([
-      [result.passedValidator, result.passedHuman],
-      [result.passedImplicit],
-    ])
-  ) {
-    case "pass":
-      return "ok";
-    case "fail":
-      return getBadValueType(result);
-    case "unknown":
-      return "disagree";
-  }
-} // fn: categorizeResult()
-
-/**
- * Gets the input key as a string from an array of `FuzzIoElement`s
- *
- * @param `io` array of `FuzzIoElements`
- * @returns string representation of input key
- */
-export function getIoKey(io: FuzzIoElement[]): string {
-  return JSONN.stringify(
-    io.map((input) => {
-      return { value: input.value };
-    })
-  );
-} // fn: getIoKey
-
-/**
- * Gets the langiage-specific input key as a string from an array of `FuzzIoElement`s
- *
- * @param `lang` programming language
- * @param `io` array of `FuzzIoElements`
- * @returns string representation array of inputs in `lang` format
- */
-export function getLangIoKey(
-  lang: ProgramLanguage,
-  io: FuzzIoElement[]
-): string {
-  return ValueMapper.toLang(
-    lang,
-    io.map((i) => i.value)
-  );
-} // fn: getLangIoKey
-
-/**
  * Formats a single failing result into a terminal-width failure block.
  */
 export function formatFailureBlock(
@@ -1875,3 +1771,4 @@ export * from "./analysis/FunctionDef";
 export * from "./analysis/ArgDef";
 export * from "./analysis/Types";
 export * from "./Types";
+export * from "./Util";

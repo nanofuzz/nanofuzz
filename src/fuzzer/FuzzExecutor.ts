@@ -14,8 +14,7 @@ import {
   FuzzTestResult,
   TransformedInputAndSource,
 } from "./Types";
-import { categorizeResult, getIoKey } from "./Fuzzer";
-import { isError } from "./Util";
+import { categorizeResult, getIoKey, isError } from "./Util";
 
 export type FuzzExecutionOutput = {
   result: FuzzTestResult;
