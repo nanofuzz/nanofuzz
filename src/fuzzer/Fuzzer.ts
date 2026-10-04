@@ -3,7 +3,7 @@ import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
 import { deepFreeze, isKeyedObject } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
-import { FunctionRef, ProgramLanguage } from "./analysis/Types";
+import { FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import { Instrumenter } from "./compilers/Instrumenter";
@@ -11,10 +11,8 @@ import * as ProgramFactory from "./analysis/ProgramFactory";
 import * as ValueMapper from "./mappers/ValueMapper";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
-  FuzzIoElement,
   FuzzPinnedTest,
   FuzzTestResult,
-  FuzzResultCategory,
   FuzzResultCategoryValues,
   FuzzStopReason,
   FuzzStatusUpdater,
@@ -23,21 +21,25 @@ import {
   FuzzBusyStatusMessage,
   FuzzerFocus,
   TransformedInputAndSource,
+  InputAndSource,
+  FuzzOptions,
+  FuzzEnv,
+  FuzzMode,
+  FuzzTestResults,
+  FuzzTestStats,
+  CurrentRunStats,
 } from "./Types";
-import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
+import { categorizeResult, getIoKey, isError, isSameJudgments } from "./Util";
 import {
-  InputGeneratorStatsAi,
-  NextableStatus,
-  ScoredInput,
-} from "./generators/Types";
-import { InputSchedulerType } from "./schedulers/Types";
-import { isError } from "./Util";
-import { isArgValueType } from "./analysis/Util";
-import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
-import { CompositeOracle } from "./oracles/CompositeOracle";
+  getTransformers,
+  getValidators,
+  isArgValueType,
+  isOptionValid,
+} from "./analysis/Util";
+import { formatFailureBlock, formatRunStatsSummary } from "./FuzzTextFormatter";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
@@ -376,7 +378,7 @@ export class Tester {
    * @param `onResultFn` callback called for each test result produced
    * @returns `FuzzTestResults`
    */
-  public async testSync(
+  public async test(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: FuzzStatusUpdater,
@@ -396,70 +398,7 @@ export class Tester {
       }
       throw e;
     }
-  } // fn: testSync
-
-  /**
-   * Runs the tester in async mode and returns its results
-   * via `callbackFn`.
-   *
-   * @param `injectTests` tests to inject
-   * @param `mode` testing mode
-   * @param `callbackFn` called when testing completes
-   * @param `statusFn` called to report status updates
-   * @param `cancelFn` called to check cancel status
-   * @param `onResultFn` callback called for each test result produced
-   */
-  public async testAsync(
-    injectTests: FuzzPinnedTest[] = [],
-    mode: FuzzMode = { gen: true },
-    callbackFn: (result: FuzzTestResults | Error) => void,
-    statusFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean,
-    onResultFn?: FuzzResultCallback
-  ): Promise<void> {
-    this._runBatchAsync(
-      callbackFn,
-      this._run(injectTests, mode, statusFn, cancelFn, onResultFn)
-    );
-  } // fn: testAsync
-
-  /**
-   * Runs the tester in batch async mode
-   *
-   * @param `callbackFn` called when testing completes
-   * @param `run` generator function
-   */
-  protected async _runBatchAsync(
-    callbackFn: (result: FuzzTestResults | Error) => void,
-    run: ReturnType<typeof this._run>
-  ): Promise<void> {
-    let result: FuzzTestResults | undefined;
-    const timer = performance.now();
-
-    while (!result && performance.now() - timer < 100) {
-      try {
-        result = (await run.next()).value;
-        if (result) {
-          callbackFn(result);
-          return;
-        }
-      } catch (e) {
-        if (this._state === "running") {
-          this._state = "crashed";
-        }
-        callbackFn(
-          isError(e)
-            ? e
-            : { name: "unknown error", message: JSONN.stringify(e) }
-        );
-        return;
-      }
-    }
-    if (!result)
-      setTimeout(() => {
-        this._runBatchAsync(callbackFn, run);
-      });
-  } // fn: _runBatchAsync
+  } // fn: test
 
   /**
    * Generates and returns new test results
@@ -1085,7 +1024,7 @@ export class Tester {
             exeOutput = await runner.runWithInterrupt(
               () =>
                 runner.run(
-                  deepFreeze(result.input.map((e) => e.value)),
+                  result.input.map((e) => e.value),
                   Math.max(this._options.fnTimeout, 0)
                 ),
               getRemainingSuiteTime(),
@@ -1375,10 +1314,7 @@ export class Tester {
         {
           const startMeasureTime = performance.now(); // start timer
           const measurements = this._measures.map((e) =>
-            e.measure(
-              deepFreeze(result.inputGenerated),
-              deepFreeze({ ...result })
-            )
+            e.measure(result.inputGenerated, result)
           );
 
           // Provide measures feedback to the composite input generator
@@ -1464,7 +1400,7 @@ const _checkStopCondition = (
   gen: boolean,
   fuzzerFocusMode: "gen" | "shrink" = "gen"
 ): FuzzStopReason | number => {
-  const pcts: number[] = [0];
+  let maxPct = 0;
   const now = performance.now();
 
   // End testing if the user cancels but not yet if still injecting
@@ -1479,30 +1415,26 @@ const _checkStopCondition = (
     if (now - stats.timers.startGenTime >= options.suiteTimeout) {
       return FuzzStopReason.MAXTIME;
     }
-    pcts.push((now - stats.timers.startGenTime) / options.suiteTimeout);
+    const timePct = (now - stats.timers.startGenTime) / options.suiteTimeout;
+    if (timePct > maxPct) maxPct = timePct;
   }
 
   // End testing if we exceed the maximum number of tests
-  if (
-    stats.counters.inputsInjected +
-      (gen
-        ? stats.counters.inputsGenerated -
-          stats.counters.dupesGenerated -
-          stats.counters.inputsSkipped
-        : 0) >=
-    injectCount + (gen ? options.maxTests : 0)
-  ) {
+  const executedNonInjected = gen
+    ? stats.counters.inputsGenerated -
+      stats.counters.dupesGenerated -
+      stats.counters.inputsSkipped
+    : 0;
+  const totalInputsCount = stats.counters.inputsInjected + executedNonInjected;
+  const targetCount = injectCount + (gen ? options.maxTests : 0);
+
+  if (totalInputsCount >= targetCount) {
     return FuzzStopReason.MAXTESTS;
   }
-  pcts.push(
-    (stats.counters.inputsInjected +
-      (gen
-        ? stats.counters.inputsGenerated -
-          stats.counters.dupesGenerated -
-          stats.counters.inputsSkipped
-        : 0)) /
-      (injectCount + (gen ? options.maxTests : 0))
-  );
+  if (targetCount > 0) {
+    const testsPct = totalInputsCount / targetCount;
+    if (testsPct > maxPct) maxPct = testsPct;
+  }
 
   // End testing if we exceed the maximum number of failures & are done injecting inputs
   if (options.maxFailures > 0 && !injecting && fuzzerFocusMode !== "shrink") {
@@ -1511,7 +1443,8 @@ const _checkStopCondition = (
     if (totalFailures >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
-    pcts.push(totalFailures / options.maxFailures);
+    const failuresPct = totalFailures / options.maxFailures;
+    if (failuresPct > maxPct) maxPct = failuresPct;
   }
 
   // End testing if we exceed the maximum number of sequential duplicates generated
@@ -1526,560 +1459,14 @@ const _checkStopCondition = (
   }
 
   // No stop condition found; return pct complete
-  return Math.max(0, Math.floor(Math.max(...pcts) * 100));
+  return Math.max(0, Math.floor(maxPct * 100));
 }; // fn: _checkStopCondition()
-
-/**
- * Checks whether the given option set is valid.
- *
- * @param options fuzzer option set
- * @returns true if the options are valid, false otherwise
- */
-const isOptionValid = (options: FuzzOptions): boolean => {
-  return (
-    options.maxTests >= 0 &&
-    options.maxDupeInputs >= 0 &&
-    options.maxFailures >= 0 &&
-    (options.outputResults === undefined ||
-      ["all", "failures", "none"].includes(options.outputResults)) &&
-    ArgDef.isOptionValid(options.argDefaults) &&
-    typeof options.generators === "object" &&
-    "RandomInputGenerator" in options.generators &&
-    "enabled" in options.generators.RandomInputGenerator &&
-    typeof options.measures === "object"
-  );
-}; // fn: isOptionValid()
-
-/**
- * Returns a list of validator FunctionRefs found within the ProgramDef
- * associated with a FunctionDef
- *
- * @param program the ProgramDef to search
- * @returns an array of validator FunctionRefs
- */
-export function getValidators(
-  program: AbstractProgram,
-  fnUnderTest: FunctionDef
-): FunctionRef[] {
-  const fnUnderTestName = fnUnderTest.getName();
-  return Object.values(program.functionsExported)
-    .filter(
-      (fn) =>
-        fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName
-    )
-    .map((fn) => fn.getRef());
-} // fn: getValidators()
-
-/**
- * Returns a list of input transformer functions for the function under test.
- *
- * @param program the program to search
- * @param fnUnderTest the function under test
- * @returns an array of transformer FunctionRefs
- */
-export function getTransformers(
-  program: AbstractProgram,
-  fnUnderTest: FunctionDef
-): FunctionRef[] {
-  return Object.values(program.functionsExported)
-    .filter(
-      (fn) =>
-        fn.isTransformer() && fn.getName().startsWith(fnUnderTest.getName())
-    )
-    .map((fn) => fn.getRef());
-} // fn: getTransformers()
-
-/**
- * Returns true if all oracle judgments of two test results are identical without allocating arrays or stringifying.
- */
-function isSameJudgments(a: FuzzTestResult, b: FuzzTestResult): boolean {
-  if (a.passedImplicit !== b.passedImplicit) {
-    return false;
-  }
-  if (a.passedHuman !== b.passedHuman) {
-    return false;
-  }
-  const aVals = a.passedValidators;
-  const bVals = b.passedValidators;
-  if (aVals.length !== bVals.length) {
-    return false;
-  }
-  for (let i = 0; i < aVals.length; i++) {
-    if (aVals[i] !== bVals[i]) {
-      return false;
-    }
-  }
-  return true;
-} // fn: isSameJudgments()
-
-/**
- * Categorizes the result of a fuzz test according to the available
- * categories defined in ResultType.
- * @param result of the test
- * @returns the category of the result
- */
-export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
-  if (result.harnessErrors.length > 0) {
-    return "failure"; // Validator or transformer failed
-  }
-  if (result.skipped) {
-    return "skip";
-  }
-
-  // Returns the type of bad value: execption, timeout, or badvalue
-  const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
-    if (result.exception) {
-      return "exception"; // PUT threw exception
-    } else if (result.timeout) {
-      return "timeout"; // PUT timedout
-    } else {
-      return "badValue"; // PUT returned bad value
-    }
-  };
-
-  // Use the Composite Oracle to render a single judgment from among
-  // the various oracles. We describe this in the TerzoN paper:
-  //
-  // TerzoN: Human-in-the-Loop Software Testing with a Composite Oracle
-  // https://doi.org/10.1145/3580446
-  //
-  // Subsequently, map the judgment to a FuzzResultCategory
-  switch (
-    CompositeOracle.judge([
-      [result.passedValidator, result.passedHuman],
-      [result.passedImplicit],
-    ])
-  ) {
-    case "pass":
-      return "ok";
-    case "fail":
-      return getBadValueType(result);
-    case "unknown":
-      return "disagree";
-  }
-} // fn: categorizeResult()
-
-/**
- * Gets the input key as a string from an array of `FuzzIoElement`s
- *
- * @param `io` array of `FuzzIoElements`
- * @returns string representation of input key
- */
-export function getIoKey(io: FuzzIoElement[]): string {
-  return JSONN.stringify(
-    io.map((input) => {
-      return { value: input.value };
-    })
-  );
-} // fn: getIoKey
-
-/**
- * Gets the langiage-specific input key as a string from an array of `FuzzIoElement`s
- *
- * @param `lang` programming language
- * @param `io` array of `FuzzIoElements`
- * @returns string representation array of inputs in `lang` format
- */
-export function getLangIoKey(
-  lang: ProgramLanguage,
-  io: FuzzIoElement[]
-): string {
-  return ValueMapper.toLang(
-    lang,
-    io.map((i) => i.value)
-  );
-} // fn: getLangIoKey
-
-/**
- * Fuzzer Environment required to fuzz a function.
- */
-export type FuzzEnv = {
-  options: FuzzOptions; // fuzzer options
-  function: FunctionDef; // the function to fuzz
-  validators: FunctionRef[]; // list of the module's validator functions
-  transformers: FunctionRef[]; // list of the module's input transformer functions
-};
-
-/**
- * Fuzzer Test Result
- */
-export type FuzzTestResults = {
-  toolVersion: string; // NaNofuzz name and version that generated the results
-  env: FuzzEnv; // fuzzer environment
-  stopReason: FuzzStopReason; // why the fuzzer stopped
-  stats: FuzzTestStats; // fuzzer statistics
-  interesting: {
-    inputs: ScoredInput[]; // interesting inputs
-  };
-  results: FuzzTestResult[]; // fuzzing test results
-};
-
-/**
- * Fuzzer Test Stats
- */
-export type FuzzGeneratorStatsBase = {
-  counters: {
-    inputsGenerated: number; // number of inputs generated, including dupes
-    dupesGenerated: number; // number of duplicate inputs generated
-    dupeTicks: number[]; // ticks in which the generator produced a duplicate input
-  };
-  timers: {
-    run: number; // elapsed time the PUT ran
-    val: number; // elapsed time to categorize outputs
-    gen: number; // elapsed time to generate inputs
-    measure: number; // elapsed time to measure
-    transform: number; // elapsed time to transform inputs
-  };
-};
-export type FuzzOutcomeStats = {
-  total: number; // number of tests actually executed (pass + fail + error, excluding skipped)
-  exceptions: number; // total tests that encountered exceptions
-  timeouts: number; // total tests that timed out
-  categories: Record<FuzzResultCategory, number>; // total counts per category
-  oracles: {
-    heuristic: Record<Judgment, number>;
-    human: Record<Judgment, number>;
-    property: Record<Judgment, number>;
-  };
-  firstFailure?: FuzzTestResult;
-};
-
-export type FuzzTestStats = {
-  timers: {
-    total: number; // elapsed time the fuzzer ran
-    compile: number; // elapsed time to compile & instrument PUT
-    instrument: number; // elapsed time to instrument PUT
-    put: number; // elapsed time the PUT ran
-    val: number; // elapsed time to categorize outputs
-    gen: number; // elapsed time to generate inputs
-    transform: number; // elapsed time to transform inputs
-    measure: number; // elapsed time to measure
-  };
-  counters: {
-    testingRuns: number; // number of test runs
-    inputsGenerated: number; // number of inputs generated, including dupes
-    dupesGenerated: number; // number of duplicate inputs generated
-    inputsInjected: number; // number of inputs pinned
-    erroredTests: number; // number of tests with internal errors
-    passedTests: number; // number of passed tests
-    inputsSkipped: number; // number of skipped tests
-    failedTests: number; // number of failed tests
-  };
-  outcomes: FuzzOutcomeStats;
-  generators: {
-    RandomInputGenerator: FuzzGeneratorStatsBase;
-    MutationInputGenerator: FuzzGeneratorStatsBase;
-    AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
-    CompositeInputGenerator?: {
-      config?: {
-        scheduler: InputSchedulerType;
-        lookbackWindow: number;
-        chunkSize: number;
-        explorationChance: number;
-        initialFocus: number;
-        focusDecay: number;
-      };
-      checkpoints: {
-        tick: number; // tick of the checkpoint
-        gens: Record<
-          string,
-          {
-            active: boolean; // subgen is active
-            nextable: NextableStatus; // subgen is active and nextable
-            productivity: number; // current productivity[g] for this input generator
-            cost: number; // current cost[g] for this input generator
-            selected?: true; // subgen was selected for this chunk
-          }
-        >;
-        scheduler: InputSchedulerType;
-      }[];
-    };
-  };
-  measures: {
-    CodeCoverageMeasure?: () => Promise<CodeCoverageMeasureStats>;
-  };
-};
-
-/**
- * Current run statistics
- */
-type CurrentRunStats = {
-  counters: {
-    inputsInjected: number; // number of inputs injected for testing
-    inputsGenerated: number; // number of inputs generated so far
-    dupesGenerated: number; // number of duplicate inputs generated so far
-    dupesSequential: number; // current number of duplicate inputs generated in a row
-    erroredTests: number; // number of tests with internal errors so far
-    failedTests: number; // number of failed tests so far
-    passedTests: number; // number of passed tests so far
-    inputsSkipped: number; // number of skipped tests so far
-  };
-  outcomes: FuzzOutcomeStats;
-  timers: {
-    startTime: number; // time the tester started in this run
-    startGenTime: number; // time the tester started generating new inputs
-  };
-};
-
-/**
- * Formats a single failing result into a terminal-width failure block.
- */
-function formatFailureBlock(
-  targetFnName: string,
-  result: FuzzTestResult,
-  lang: ProgramLanguage,
-  validators: FunctionRef[],
-  fnTimeout: number = 200,
-  termWidth: number = process.stdout.columns && process.stdout.columns > 0
-    ? process.stdout.columns
-    : 80
-): string {
-  const border = "=".repeat(termWidth);
-  const dashBorder = " -".repeat(Math.floor(termWidth / 2));
-  const lines: string[] = [border];
-
-  const argStr = result.input
-    .map((i) => ValueMapper.toLang(lang, i.value))
-    .join(", ");
-
-  const origArgStr = result.inputGenerated?.value
-    ? result.inputGenerated.value
-        .map((v) => ValueMapper.toLang(lang, v.value))
-        .join(", ")
-    : argStr;
-
-  const fnCall = `${targetFnName}(${argStr})`;
-
-  const isPinned = result.inputGenerated?.injected;
-  const shrinkStep = result.shrinkStep ?? 0;
-  const shrinkSuffix = isPinned
-    ? " \x1b[2m(Pinned Test)\x1b[0m"
-    : shrinkStep > 0
-      ? ` \x1b[2m(Shrunk in ${shrinkStep} step${shrinkStep === 1 ? "" : "s"})\x1b[0m`
-      : "";
-
-  const getFailedValidatorsStr = (): string => {
-    const failedNames: string[] = [];
-    if (result.passedValidators) {
-      result.passedValidators.forEach((j, i) => {
-        if (j === "fail" && validators[i]) {
-          failedNames.push(validators[i].name);
-        }
-      });
-    }
-    if (failedNames.length > 0) {
-      const pl = failedNames.length > 1 ? "s" : "";
-      return `Property Validator${pl} (${failedNames.join(", ")})`;
-    }
-    if (result.passedHuman === "fail") return "Example Oracle";
-    if (result.passedImplicit === "fail") return "Heuristic Validator";
-    return "Unknown Validator";
-  };
-
-  switch (result.category) {
-    case "badValue": {
-      lines.push(`❌ FAILED by ${getFailedValidatorsStr()}:`);
-      lines.push(`   - Failing test input     : ${argStr}${shrinkSuffix}`);
-      lines.push(
-        `   - Test output            : ${ValueMapper.toLang(
-          lang,
-          result.output[0]?.value
-        )}`
-      );
-      if (
-        result.passedHuman === "fail" &&
-        result.expectedOutput &&
-        result.expectedOutput.length > 0
-      ) {
-        const exp = result.expectedOutput[0];
-        const expStr = exp.isTimeout
-          ? "(timeout)"
-          : exp.isException
-            ? "(exception)"
-            : ValueMapper.toLang(lang, exp.value);
-        lines.push(`   - Expected output        : ${expStr}`);
-      }
-      break;
-    }
-
-    case "exception": {
-      lines.push(`❌ EXCEPTION:`);
-      lines.push(`   - Failing test input     : ${argStr}${shrinkSuffix}`);
-      lines.push(`   - Test output            : (none)`);
-      lines.push(`   - Failed Validator(s)    : Heuristic Validator`);
-
-      const { excLine, stackLines } = formatExceptionAndStack(
-        result.exceptionMessage,
-        result.stack
-      );
-
-      if (excLine || stackLines.length > 0) {
-        lines.push(dashBorder);
-        if (excLine) {
-          lines.push(excLine);
-        }
-        if (stackLines.length > 0) {
-          lines.push(stackLines.join("\n"));
-        }
-      }
-      break;
-    }
-
-    case "timeout": {
-      lines.push(`❌ TIMEOUT failed by Heuristic Validator:`);
-      lines.push(`   - Failing test input     : ${argStr}${shrinkSuffix}`);
-      lines.push(`   - Timeout after          : ${fnTimeout} ms`);
-      break;
-    }
-
-    case "disagree": {
-      lines.push(`❌ DISAGREEMENT: ${fnCall}`);
-      lines.push(`   - Test input             : ${argStr}`);
-      lines.push(
-        `   - Test output            : ${ValueMapper.toLang(
-          lang,
-          result.output[0]?.value
-        )}`
-      );
-      const propFailed = getFailedValidatorsStr();
-      lines.push(
-        `   - Oracle Judgments       : ${propFailed} => "fail", Example Oracle => "pass"`
-      );
-      lines.push(
-        `   - Diagnosis              : Property validator disagreed with the expected output. Check validator function for bugs.`
-      );
-      break;
-    }
-
-    case "failure": {
-      if (result.harnessErrors.length > 0) {
-        const err = result.harnessErrors[0];
-        const isTransformer = err.stage === "transformer";
-        const typeLabel = isTransformer
-          ? "Input transformer"
-          : "Property validator";
-        const isTimeout = err.kind === "timeout";
-        const headerText = isTimeout
-          ? `${typeLabel} timed out`
-          : `${typeLabel} threw an exception`;
-
-        const testOutputStr = isTransformer
-          ? "(not executed)"
-          : result.output.length > 0
-            ? ValueMapper.toLang(lang, result.output[0]?.value)
-            : result.exception
-              ? `(exception${result.exceptionMessage ? `: ${result.exceptionMessage}` : ""})`
-              : result.timeout
-                ? `(timeout after ${fnTimeout} ms)`
-                : "(none)";
-
-        lines.push(`❌ TESTING ERROR: ${headerText}`);
-        lines.push(
-          `   - ${
-            isTransformer
-              ? "Transformer Function   "
-              : "Validator Function     "
-          }: ${err.fnName}`
-        );
-        lines.push(
-          `   - ${isTransformer ? "Was transforming:" : "Was validating:"}`
-        );
-        lines.push(
-          `     - ${
-            isTransformer ? "Test input (generated)" : "Test input           "
-          }: ${isTransformer ? origArgStr : argStr}`
-        );
-        lines.push(`     - Test output          : ${testOutputStr}`);
-
-        const { excLine, stackLines } = formatExceptionAndStack(
-          isTimeout ? `Timeout exceeding ${fnTimeout} ms` : err.message,
-          err.kind === "exception" ? err.stack : undefined
-        );
-
-        if (excLine || stackLines.length > 0) {
-          lines.push(dashBorder);
-          if (excLine) {
-            lines.push(excLine);
-          }
-          if (stackLines.length > 0) {
-            lines.push(stackLines.join("\n"));
-          }
-        }
-      }
-      break;
-    }
-
-    case "ok":
-    case "skip":
-      break;
-  }
-
-  lines.push(border);
-  return lines.join("\n");
-}
-
-/**
- * Extracts and formats exception header and stack trace lines for failure blocks.
- */
-function formatExceptionAndStack(
-  message?: string,
-  stack?: string,
-  defaultName: string = "Error"
-): { excLine: string; stackLines: string[] } {
-  let excLine = "";
-  if (message) {
-    const formattedMsg =
-      message.startsWith("Error:") || message.includes(":")
-        ? message
-        : `${defaultName}: ${message}`;
-    excLine = ` ${formattedMsg}`;
-  }
-
-  const stackLines: string[] = [];
-  if (stack) {
-    const rawLines = stack
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-
-    for (const line of rawLines) {
-      if (/^\s*(at\s|File\s|Traceback\b)/.test(line)) {
-        stackLines.push(`   \x1b[2m${line}\x1b[0m`);
-      } else if (!excLine) {
-        excLine = ` ${line}`;
-      }
-    }
-  }
-
-  return { excLine, stackLines };
-}
-
-/**
- * Formats passed, failed, errored, and skipped test counts for update messages.
- */
-function formatRunStatsSummary(runStats: CurrentRunStats): string {
-  return `\r\n  Passed: ${runStats.counters.passedTests}\r\n  Failed: ${
-    runStats.counters.failedTests
-  }${
-    runStats.counters.erroredTests
-      ? `\r\n Errored: ${runStats.counters.erroredTests}`
-      : ""
-  }${
-    runStats.counters.inputsSkipped
-      ? `\r\n Skipped: ${runStats.counters.inputsSkipped}`
-      : ""
-  }`;
-}
-
-/**
- * Fuzzer mode
- */
-export type FuzzMode = {
-  gen?: true;
-};
 
 export * from "./analysis/typescript/TypescriptProgram";
 export * from "./analysis/FunctionDef";
 export * from "./analysis/ArgDef";
 export * from "./analysis/Types";
+export * from "./analysis/Util";
 export * from "./Types";
+export * from "./Util";
+export * from "./FuzzTextFormatter";

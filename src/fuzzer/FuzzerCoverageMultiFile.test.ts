@@ -11,7 +11,7 @@ describe("fuzzer: coverageMultiFile benchmark", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testCoverageMultiFile",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(

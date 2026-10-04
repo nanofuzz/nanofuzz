@@ -2,9 +2,18 @@ import {
   ArgOptions,
   ArgValueType,
   ArgValueTypeWrapped,
+  FunctionRef,
 } from "./analysis/Types";
+import { FunctionDef } from "./analysis/FunctionDef";
 import { Judgment as _Judgment } from "./oracles/Types";
 import { RunnerResult } from "./runners/AbstractRunner";
+import {
+  ScoredInput,
+  NextableStatus,
+  InputGeneratorStatsAi,
+} from "./generators/Types";
+import { InputSchedulerType } from "./schedulers/Types";
+import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
 
 /**
  * Error occurring in test harness (property validator or input transformer)
@@ -386,3 +395,139 @@ export class UnsatisfiedAssumption extends Error {
 }
 
 export type Judgment = _Judgment;
+
+/**
+ * Fuzzer Environment required to fuzz a function.
+ */
+export type FuzzEnv = {
+  options: FuzzOptions; // fuzzer options
+  function: FunctionDef; // the function to fuzz
+  validators: FunctionRef[]; // list of the module's validator functions
+  transformers: FunctionRef[]; // list of the module's input transformer functions
+};
+
+/**
+ * Fuzzer mode
+ */
+export type FuzzMode = {
+  gen?: true;
+};
+
+/**
+ * Fuzzer Test Result collection
+ */
+export type FuzzTestResults = {
+  toolVersion: string; // NaNofuzz name and version that generated the results
+  env: FuzzEnv; // fuzzer environment
+  stopReason: FuzzStopReason; // why the fuzzer stopped
+  stats: FuzzTestStats; // fuzzer statistics
+  interesting: {
+    inputs: ScoredInput[]; // interesting inputs
+  };
+  results: FuzzTestResult[]; // fuzzing test results
+};
+
+export type FuzzGeneratorStatsBase = {
+  counters: {
+    inputsGenerated: number; // number of inputs generated, including dupes
+    dupesGenerated: number; // number of duplicate inputs generated
+    dupeTicks: number[]; // ticks in which the generator produced a duplicate input
+  };
+  timers: {
+    run: number; // elapsed time the PUT ran
+    val: number; // elapsed time to categorize outputs
+    gen: number; // elapsed time to generate inputs
+    measure: number; // elapsed time to measure
+    transform: number; // elapsed time to transform inputs
+  };
+};
+
+export type FuzzOutcomeStats = {
+  total: number; // number of tests actually executed (pass + fail + error, excluding skipped)
+  exceptions: number; // total tests that encountered exceptions
+  timeouts: number; // total tests that timed out
+  categories: Record<FuzzResultCategory, number>; // total counts per category
+  oracles: {
+    heuristic: Record<Judgment, number>;
+    human: Record<Judgment, number>;
+    property: Record<Judgment, number>;
+  };
+  firstFailure?: FuzzTestResult;
+};
+
+export type FuzzTestStats = {
+  timers: {
+    total: number; // elapsed time the fuzzer ran
+    compile: number; // elapsed time to compile & instrument PUT
+    instrument: number; // elapsed time to instrument PUT
+    put: number; // elapsed time the PUT ran
+    val: number; // elapsed time to categorize outputs
+    gen: number; // elapsed time to generate inputs
+    transform: number; // elapsed time to transform inputs
+    measure: number; // elapsed time to measure
+  };
+  counters: {
+    testingRuns: number; // number of test runs
+    inputsGenerated: number; // number of inputs generated, including dupes
+    dupesGenerated: number; // number of duplicate inputs generated
+    inputsInjected: number; // number of inputs pinned
+    erroredTests: number; // number of tests with internal errors
+    passedTests: number; // number of passed tests
+    inputsSkipped: number; // number of skipped tests
+    failedTests: number; // number of failed tests
+  };
+  outcomes: FuzzOutcomeStats;
+  generators: {
+    RandomInputGenerator: FuzzGeneratorStatsBase;
+    MutationInputGenerator: FuzzGeneratorStatsBase;
+    AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
+    CompositeInputGenerator?: {
+      config?: {
+        scheduler: InputSchedulerType;
+        lookbackWindow: number;
+        chunkSize: number;
+        explorationChance: number;
+        initialFocus: number;
+        focusDecay: number;
+      };
+      checkpoints: {
+        tick: number; // tick of the checkpoint
+        gens: Record<
+          string,
+          {
+            active: boolean; // subgen is active
+            nextable: NextableStatus; // subgen is active and nextable
+            productivity: number; // current productivity[g] for this input generator
+            cost: number; // current cost[g] for this input generator
+            selected?: true; // subgen was selected for this chunk
+          }
+        >;
+        scheduler: InputSchedulerType;
+      }[];
+    };
+  };
+  measures: {
+    CodeCoverageMeasure?: () => Promise<CodeCoverageMeasureStats>;
+  };
+};
+
+/**
+ * Current run statistics
+ */
+export type CurrentRunStats = {
+  counters: {
+    inputsInjected: number; // number of inputs injected for testing
+    inputsGenerated: number; // number of inputs generated so far
+    dupesGenerated: number; // number of duplicate inputs generated so far
+    dupesSequential: number; // current number of duplicate inputs generated in a row
+    erroredTests: number; // number of tests with internal errors so far
+    failedTests: number; // number of failed tests so far
+    passedTests: number; // number of passed tests so far
+    inputsSkipped: number; // number of skipped tests so far
+  };
+  outcomes: FuzzOutcomeStats;
+  timers: {
+    startTime: number; // time the tester started in this run
+    startGenTime: number; // time the tester started generating new inputs
+  };
+};

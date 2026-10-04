@@ -2,9 +2,6 @@ import { ArgDef } from "./Fuzzer";
 import { FuzzOptions } from "./Types";
 import * as Parser from "./adapters/ParserAdapter";
 
-// Extend default test timeout to 60s
-jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
-
 /**
  * Fuzzer option for enabling all Measures
  */

@@ -86,16 +86,6 @@ async function runCli(
 
 describe("cli: ai cache", () => {
   let tmpDir: string;
-  let originalTimeout: number;
-
-  beforeAll(() => {
-    originalTimeout = jasmine.DEFAULT_TIMEOUT_INTERVAL;
-    jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
-  });
-
-  afterAll(() => {
-    jasmine.DEFAULT_TIMEOUT_INTERVAL = originalTimeout;
-  });
 
   beforeEach(() => {
     Config.clearOverrides();

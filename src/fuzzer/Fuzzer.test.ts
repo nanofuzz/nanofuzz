@@ -20,7 +20,7 @@ describe("fuzzer: general", () => {
         "nanofuzz-study/examples/1.ts",
         "minValue",
         { ...intOptions, maxTests: 1, outputFile }
-      ).testSync();
+      ).test();
       const persisted = JSONN.parse(fs.readFileSync(outputFile, "utf8"));
 
       expect(results.toolVersion).toBe(getToolVersion());
@@ -56,7 +56,7 @@ describe("fuzzer: general", () => {
       "nanofuzz-study/examples/1.ts",
       "minValue",
       options
-    ).testSync();
+    ).test();
 
     expect(results.stats.outcomes.total).toBeGreaterThan(0);
     expect(results.stopReason).toBe("maxTests");
@@ -77,7 +77,7 @@ describe("fuzzer: general", () => {
       "nanofuzz-study/examples/1.ts",
       "minValue",
       options
-    ).testSync();
+    ).test();
 
     expect(results.stopReason).toBe("noMoreInputs");
   });
@@ -102,7 +102,7 @@ describe("fuzzer: general", () => {
         ...intOptions,
         maxTests: 2,
         fnTimeout: 1000,
-      }).testSync(undefined, { gen: true }, (payload) => {
+      }).test(undefined, { gen: true }, (payload) => {
         updates.push({ ...payload });
       });
 
@@ -168,7 +168,7 @@ describe("fuzzer: general", () => {
     spyOn(cig, "getPendingGeneratorNames").and.returnValue(["AI"]);
 
     try {
-      await tester.testSync(undefined, { gen: true }, (payload) => {
+      await tester.test(undefined, { gen: true }, (payload) => {
         updates.push({ ...payload });
       });
 
@@ -222,7 +222,7 @@ describe("fuzzer: general", () => {
         fnTimeout: 10000,
       });
 
-      const res = await tester.testSync(
+      const res = await tester.test(
         undefined,
         { gen: true },
         undefined,

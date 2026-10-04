@@ -20,7 +20,6 @@ import * as os from "os";
 describe("fuzzer/runners/PythonRunner", () => {
   beforeAll(async () => {
     await Parser.init();
-    jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
   });
 
   afterEach(() => {

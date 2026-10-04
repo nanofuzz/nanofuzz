@@ -399,10 +399,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    * Throws an exception if any interval's min>max.
    */
   public setDefaultIntervals(options: ArgOptions): void {
-    const intervals = ArgDef.getDefaultIntervals(
-      this.type,
-      options
-    );
+    const intervals = ArgDef.getDefaultIntervals(this.type, options);
     if (
       intervals.some(
         (e) =>
@@ -531,7 +528,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    */
   public setStrCharSet(strcharset: string): void {
     this.options.strCharset = strcharset;
-  }
+  } // fn: setStrCharSet()
 
   /**
    * Returns the argument's children.
@@ -558,59 +555,92 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
   } // fn: getChildrenFlat()
 
   /**
+   * Cached default options to avoid repetitive configuration lookups during fuzzing.
+   */
+  protected static _cachedDefaultOptions?: ArgOptions;
+  static {
+    Config.onConfigChange(() => {
+      ArgDef._cachedDefaultOptions = undefined;
+    });
+  }
+
+  /**
+   * Clears the cached default options.
+   */
+  public static clearCache(): void {
+    ArgDef._cachedDefaultOptions = undefined;
+  } // fn: clearCache()
+
+  /**
    * Returns the default option set.
    *
    * @returns the default option set
    */
   public static getDefaultOptions(): ArgOptions {
-    return {
-      // String defaults
-      strCharset: Config.get("nanofuzz.argdef.strCharset", DFT_STR_CHARSET),
-      strLength: {
-        min: Config.get("nanofuzz.argdef.strLength.min", DFT_STR_LENGTH.min),
-        max: Config.get("nanofuzz.argdef.strLength.max", DFT_STR_LENGTH.max),
-      },
-      strRegex: undefined,
+    if (!ArgDef._cachedDefaultOptions) {
+      ArgDef._cachedDefaultOptions = Object.freeze({
+        // String defaults
+        strCharset: Config.get("nanofuzz.argdef.strCharset", DFT_STR_CHARSET),
+        strLength: Object.freeze({
+          min: Config.get("nanofuzz.argdef.strLength.min", DFT_STR_LENGTH.min),
+          max: Config.get("nanofuzz.argdef.strLength.max", DFT_STR_LENGTH.max),
+        }),
+        strRegex: undefined,
 
-      // Byte array defaults
-      byteLength: {
-        min: Config.get("nanofuzz.argdef.byteLength.min", DFT_BYTE_LENGTH.min),
-        max: Config.get("nanofuzz.argdef.byteLength.max", DFT_BYTE_LENGTH.max),
-      },
+        // Byte array defaults
+        byteLength: Object.freeze({
+          min: Config.get(
+            "nanofuzz.argdef.byteLength.min",
+            DFT_BYTE_LENGTH.min
+          ),
+          max: Config.get(
+            "nanofuzz.argdef.byteLength.max",
+            DFT_BYTE_LENGTH.max
+          ),
+        }),
 
-      // Dictionary defaults
-      dictLength: {
-        min: Config.get("nanofuzz.argdef.dictLength.min", DFT_DICT_LENGTH.min),
-        max: Config.get("nanofuzz.argdef.dictLength.max", DFT_DICT_LENGTH.max),
-      },
+        // Dictionary defaults
+        dictLength: Object.freeze({
+          min: Config.get(
+            "nanofuzz.argdef.dictLength.min",
+            DFT_DICT_LENGTH.min
+          ),
+          max: Config.get(
+            "nanofuzz.argdef.dictLength.max",
+            DFT_DICT_LENGTH.max
+          ),
+        }),
 
-      // Set defaults
-      setLength: {
-        min: Config.get("nanofuzz.argdef.setLength.min", DFT_SET_LENGTH.min),
-        max: Config.get("nanofuzz.argdef.setLength.max", DFT_SET_LENGTH.max),
-      },
+        // Set defaults
+        setLength: Object.freeze({
+          min: Config.get("nanofuzz.argdef.setLength.min", DFT_SET_LENGTH.min),
+          max: Config.get("nanofuzz.argdef.setLength.max", DFT_SET_LENGTH.max),
+        }),
 
-      // Numeric defaults
-      numInteger: Config.get<boolean>("nanofuzz.argdef.numInteger", true),
+        // Numeric defaults
+        numInteger: Config.get<boolean>("nanofuzz.argdef.numInteger", true),
 
-      // `Any` defaults
-      anyType: Config.get("nanofuzz.argdef.anyType", ArgTag.NUMBER),
-      anyDims: Config.get("nanofuzz.argdef.anyDims", 0),
+        // `Any` defaults
+        anyType: Config.get("nanofuzz.argdef.anyType", ArgTag.NUMBER),
+        anyDims: Config.get("nanofuzz.argdef.anyDims", 0),
 
-      // Dimensions
-      dftDimLength: {
-        min: Config.get(
-          "nanofuzz.argdef.dftDimLength.min",
-          DFT_DIMENSION_LENGTH.min
-        ),
-        max: Config.get(
-          "nanofuzz.argdef.dftDimLength.max",
-          DFT_DIMENSION_LENGTH.max
-        ),
-      },
-      dimLength: [],
-      dimsUnique: false,
-    };
+        // Dimensions
+        dftDimLength: Object.freeze({
+          min: Config.get(
+            "nanofuzz.argdef.dftDimLength.min",
+            DFT_DIMENSION_LENGTH.min
+          ),
+          max: Config.get(
+            "nanofuzz.argdef.dftDimLength.max",
+            DFT_DIMENSION_LENGTH.max
+          ),
+        }),
+        dimLength: [],
+        dimsUnique: false,
+      });
+    }
+
+    return { ...ArgDef._cachedDefaultOptions, dimLength: [] };
   } // fn: getDefaultOptions()
 
   /**
@@ -622,7 +652,7 @@ export class ArgDef<Tag extends ArgTag = ArgTag> {
    */
   public static normalizeOptions(options?: Partial<ArgOptions>): ArgOptions {
     const dft = ArgDef.getDefaultOptions();
-    if (!options) return dft;
+    if (!options) return { ...dft, dimLength: [] };
     return {
       ...dft,
       ...options,

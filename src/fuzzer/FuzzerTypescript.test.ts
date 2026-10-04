@@ -32,7 +32,7 @@ describe("fuzzer: typescript targets", () => {
     expect(args[1].getDim()).toBe(3);
 
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await tester.testSync(
+    const fuzzResult = await tester.test(
       [],
       { gen: true },
       undefined,
@@ -78,7 +78,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testChangeInput",
       intOptions
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(results.length).not.toBe(0);
@@ -100,7 +100,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnNumber",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
@@ -110,7 +110,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnNumber",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
@@ -125,7 +125,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnUndefined",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
@@ -135,7 +135,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnUndefined",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
@@ -150,7 +150,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnException",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
@@ -163,7 +163,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnException",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
@@ -181,7 +181,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidLiteralArgs",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
@@ -191,7 +191,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidLiteralArgs",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
@@ -205,7 +205,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardUnionArgs",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
@@ -215,7 +215,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowUnionArgs",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
@@ -230,7 +230,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testBoolean",
       intOptions
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBe(3);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(3);
@@ -267,7 +267,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "issue301",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(1);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.fail).toEqual(1);
@@ -294,7 +294,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testCoverageOneFile",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
   });
@@ -306,7 +306,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformed",
       { ...intOptions, maxTests: 200 }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => {
+    ).test([], { gen: true }, undefined, undefined, (r) => {
       if (r.category === "skip") skips.push(r);
       if (r.category === "ok") passed.push(r);
     });
@@ -360,7 +360,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformed",
       { ...intOptions, maxTests: 0 }
-    ).testSync([injectedInput], { gen: true }, undefined, undefined, (r) =>
+    ).test([injectedInput], { gen: true }, undefined, undefined, (r) =>
       results.push(r)
     );
 
@@ -386,7 +386,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testBoolean",
       { ...intOptions, maxTests: 50 }
-    ).testSync();
+    ).test();
 
     const randomGenStats = fuzzResult.stats.generators.RandomInputGenerator;
     expect(randomGenStats.counters.dupeTicks).toBeDefined();
@@ -403,7 +403,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformedException",
       intOptions
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
@@ -422,7 +422,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformedTimeout",
       { ...intOptions, maxTests: 2 }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
@@ -441,7 +441,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformedDupeCheck",
       { ...intOptions, maxTests: 50 }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     // There are only 2 booleans (true/false).
     // The transformer throws if called more than twice.
@@ -461,7 +461,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformedCollapsing",
       { ...intOptions, maxTests: 50 }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     // Transformer maps all inputs to 42. Post-transformer dupe check should ensure
     // only 1 unique test output result exists despite generating many inputs.
@@ -476,7 +476,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetValidatorException",
       { ...intOptions, useProperty: true, maxTests: 2 }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
@@ -498,7 +498,7 @@ describe("fuzzer: typescript targets", () => {
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetValidatorTimeout",
       { ...intOptions, useProperty: true, maxTests: 2 }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.failure).toEqual(
@@ -523,7 +523,7 @@ describe("fuzzer: typescript targets", () => {
         maxTests: 10,
         suiteTimeout: 5000,
       }
-    ).testSync([], { gen: true }, undefined, undefined, (r) => results.push(r));
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(results.length).toBeGreaterThan(0);

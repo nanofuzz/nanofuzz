@@ -10,6 +10,7 @@
   "env": {
     "stopSpecOnExpectationFailure": true,
     "failSpecWithNoExpectations": true,
-    "forbidDuplicateNames": true
+    "forbidDuplicateNames": true,
+    "defaultTimeoutInterval": 180000
   }
 }

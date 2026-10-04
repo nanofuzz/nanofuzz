@@ -11,7 +11,8 @@ import * as Config from "../Config";
 import * as fs from "node:fs";
 import { SingleBar, Presets } from "cli-progress";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
-import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
+import { ArgDef, FuzzBusyStatusMessage } from "../fuzzer/Fuzzer";
+import { FuzzerEngineVersion, FuzzerFactory } from "../fuzzer/FuzzerFactory";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { FuzzOptions } from "../fuzzer/Types";
@@ -111,6 +112,12 @@ function createProgram(): Commander.Command {
       `Output results mode: 'failures' (default), 'all', 'none'`,
       parseOutputResults,
       "failures"
+    )
+    .option(
+      `--engine <v1|v2>`,
+      `Fuzzer engine version: 'v1' (classic) or 'v2' (refactored)`,
+      (val: string): FuzzerEngineVersion => (val === "v2" ? "v2" : "v1"),
+      "v2"
     )
 
     // ------------------------------- Transformers ------------------------------ //
@@ -565,60 +572,69 @@ export async function runCliInProcess(
       }
     }
 
-    const results = await new Tester(filename, fnname, {
-      argDefaults: ArgDef.getDefaultOptions(),
-      maxTests: getEffectiveOption("maxTests", "maxTests", options["maxTests"]),
-      fnTimeout: getEffectiveOption(
-        "fnTimeout",
-        "fnTimeout",
-        options["fnTimeout"]
-      ),
-      suiteTimeout: getEffectiveOption(
-        "maxRuntime",
-        "suiteTimeout",
-        options["maxRuntime"]
-      ),
-      seed: options["seed"],
-      maxDupeInputs: getEffectiveOption(
-        "maxDupeInputs",
-        "maxDupeInputs",
-        options["maxDupeInputs"]
-      ),
-      maxFailures: getEffectiveOption(
-        "maxFailures",
-        "maxFailures",
-        options["maxFailures"]
-      ),
-      useTransformer: options["transformer"],
-      useImplicit: options["heuristicOracle"],
-      useHuman: options["exampleOracle"],
-      useProperty: options["propertyOracle"],
-      outputResults: getEffectiveOption(
-        "outputResults",
-        "outputResults",
-        options["outputResults"] ?? "failures"
-      ),
-      outputFile: outfile,
-      measures: {
-        CoverageMeasure: {
-          enabled: options["coverageMeasure"],
-          weight: 1,
+    const results = await FuzzerFactory(
+      filename,
+      fnname,
+      {
+        argDefaults: ArgDef.getDefaultOptions(),
+        maxTests: getEffectiveOption(
+          "maxTests",
+          "maxTests",
+          options["maxTests"]
+        ),
+        fnTimeout: getEffectiveOption(
+          "fnTimeout",
+          "fnTimeout",
+          options["fnTimeout"]
+        ),
+        suiteTimeout: getEffectiveOption(
+          "maxRuntime",
+          "suiteTimeout",
+          options["maxRuntime"]
+        ),
+        seed: options["seed"],
+        maxDupeInputs: getEffectiveOption(
+          "maxDupeInputs",
+          "maxDupeInputs",
+          options["maxDupeInputs"]
+        ),
+        maxFailures: getEffectiveOption(
+          "maxFailures",
+          "maxFailures",
+          options["maxFailures"]
+        ),
+        useTransformer: options["transformer"],
+        useImplicit: options["heuristicOracle"],
+        useHuman: options["exampleOracle"],
+        useProperty: options["propertyOracle"],
+        outputResults: getEffectiveOption(
+          "outputResults",
+          "outputResults",
+          options["outputResults"] ?? "failures"
+        ),
+        outputFile: outfile,
+        measures: {
+          CoverageMeasure: {
+            enabled: options["coverageMeasure"],
+            weight: 1,
+          },
+          FailedTestMeasure: {
+            enabled: options["failedTestMeasure"],
+            weight: 1,
+          },
         },
-        FailedTestMeasure: {
-          enabled: options["failedTestMeasure"],
-          weight: 1,
+        generators: {
+          AiInputGenerator: { enabled: options["aiInputGenerator"] },
+          MutationInputGenerator: {
+            enabled: options["mutationInputGenerator"],
+          },
+          RandomInputGenerator: {
+            enabled: options["randomInputGenerator"],
+          },
         },
       },
-      generators: {
-        AiInputGenerator: { enabled: options["aiInputGenerator"] },
-        MutationInputGenerator: {
-          enabled: options["mutationInputGenerator"],
-        },
-        RandomInputGenerator: {
-          enabled: options["randomInputGenerator"],
-        },
-      },
-    }).testSync(injectTests, undefined, updateFn, () => isCancelled);
+      { engine: options["engine"] }
+    ).test(injectTests, undefined, updateFn, () => isCancelled);
 
     process.removeListener("SIGINT", sigintListener);
 
