@@ -1022,7 +1022,7 @@ export class Tester {
             exeOutput = await runner.runWithInterrupt(
               () =>
                 runner.run(
-                  deepFreeze(result.input.map((e) => e.value)),
+                  result.input.map((e) => e.value),
                   Math.max(this._options.fnTimeout, 0)
                 ),
               getRemainingSuiteTime(),
@@ -1312,10 +1312,7 @@ export class Tester {
         {
           const startMeasureTime = performance.now(); // start timer
           const measurements = this._measures.map((e) =>
-            e.measure(
-              deepFreeze(result.inputGenerated),
-              deepFreeze({ ...result })
-            )
+            e.measure(result.inputGenerated, result)
           );
 
           // Provide measures feedback to the composite input generator
@@ -1401,7 +1398,7 @@ const _checkStopCondition = (
   gen: boolean,
   fuzzerFocusMode: "gen" | "shrink" = "gen"
 ): FuzzStopReason | number => {
-  const pcts: number[] = [0];
+  let maxPct = 0;
   const now = performance.now();
 
   // End testing if the user cancels but not yet if still injecting
@@ -1416,30 +1413,26 @@ const _checkStopCondition = (
     if (now - stats.timers.startGenTime >= options.suiteTimeout) {
       return FuzzStopReason.MAXTIME;
     }
-    pcts.push((now - stats.timers.startGenTime) / options.suiteTimeout);
+    const timePct = (now - stats.timers.startGenTime) / options.suiteTimeout;
+    if (timePct > maxPct) maxPct = timePct;
   }
 
   // End testing if we exceed the maximum number of tests
-  if (
-    stats.counters.inputsInjected +
-      (gen
-        ? stats.counters.inputsGenerated -
-          stats.counters.dupesGenerated -
-          stats.counters.inputsSkipped
-        : 0) >=
-    injectCount + (gen ? options.maxTests : 0)
-  ) {
+  const executedNonInjected = gen
+    ? stats.counters.inputsGenerated -
+      stats.counters.dupesGenerated -
+      stats.counters.inputsSkipped
+    : 0;
+  const totalInputsCount = stats.counters.inputsInjected + executedNonInjected;
+  const targetCount = injectCount + (gen ? options.maxTests : 0);
+
+  if (totalInputsCount >= targetCount) {
     return FuzzStopReason.MAXTESTS;
   }
-  pcts.push(
-    (stats.counters.inputsInjected +
-      (gen
-        ? stats.counters.inputsGenerated -
-          stats.counters.dupesGenerated -
-          stats.counters.inputsSkipped
-        : 0)) /
-      (injectCount + (gen ? options.maxTests : 0))
-  );
+  if (targetCount > 0) {
+    const testsPct = totalInputsCount / targetCount;
+    if (testsPct > maxPct) maxPct = testsPct;
+  }
 
   // End testing if we exceed the maximum number of failures & are done injecting inputs
   if (options.maxFailures > 0 && !injecting && fuzzerFocusMode !== "shrink") {
@@ -1448,7 +1441,8 @@ const _checkStopCondition = (
     if (totalFailures >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
-    pcts.push(totalFailures / options.maxFailures);
+    const failuresPct = totalFailures / options.maxFailures;
+    if (failuresPct > maxPct) maxPct = failuresPct;
   }
 
   // End testing if we exceed the maximum number of sequential duplicates generated
@@ -1463,7 +1457,7 @@ const _checkStopCondition = (
   }
 
   // No stop condition found; return pct complete
-  return Math.max(0, Math.floor(Math.max(...pcts) * 100));
+  return Math.max(0, Math.floor(maxPct * 100));
 }; // fn: _checkStopCondition()
 
 /**

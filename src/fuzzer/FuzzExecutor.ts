@@ -1,4 +1,3 @@
-import { deepFreeze } from "../Util";
 import { FunctionDef } from "./analysis/FunctionDef";
 import { FunctionRef } from "./analysis/Types";
 import { isArgValueType } from "./analysis/Util";
@@ -122,7 +121,7 @@ export class FuzzExecutor {
         exeOutput = await this._runner.runWithInterrupt(
           () =>
             this._runner.run(
-              deepFreeze(result.input.map((e) => e.value)),
+              result.input.map((e) => e.value),
               Math.max(this._options.fnTimeout, 0)
             ),
           this._getRemainingSuiteTime(),
@@ -181,7 +180,7 @@ export class FuzzExecutor {
     // 6. Take measurements & feed back to generator
     const startMeasureFeedbackTime = performance.now();
     const measurements = this._measures.map((e) =>
-      e.measure(deepFreeze(result.inputGenerated), deepFreeze({ ...result }))
+      e.measure(result.inputGenerated, result)
     );
 
     result.interestingReasons = generator.onInputFeedback(

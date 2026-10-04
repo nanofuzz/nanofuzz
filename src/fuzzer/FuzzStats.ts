@@ -191,7 +191,7 @@ export class FuzzStats {
     this._currentRun.counters.dupesGenerated = dupeStats.dupes;
     this._currentRun.counters.dupesSequential = dupeStats.sequentialDupes;
 
-    const pcts: number[] = [0];
+    let maxPct = 0;
     const now = performance.now();
 
     // End testing if the user cancels (unless still injecting pinned inputs)
@@ -205,7 +205,8 @@ export class FuzzStats {
       if (elapsed >= options.suiteTimeout) {
         return FuzzStopReason.MAXTIME;
       }
-      pcts.push(elapsed / options.suiteTimeout);
+      const timePct = elapsed / options.suiteTimeout;
+      if (timePct > maxPct) maxPct = timePct;
     }
 
     // Max Tests limit
@@ -222,7 +223,8 @@ export class FuzzStats {
       return FuzzStopReason.MAXTESTS;
     }
     if (targetCount > 0) {
-      pcts.push(totalInputsCount / targetCount);
+      const testsPct = totalInputsCount / targetCount;
+      if (testsPct > maxPct) maxPct = testsPct;
     }
 
     // Max Failures limit (inactive during injection or shrinking)
@@ -233,7 +235,8 @@ export class FuzzStats {
       if (totalFailures >= options.maxFailures) {
         return FuzzStopReason.MAXFAILURES;
       }
-      pcts.push(totalFailures / options.maxFailures);
+      const failuresPct = totalFailures / options.maxFailures;
+      if (failuresPct > maxPct) maxPct = failuresPct;
     }
 
     // Max Sequential Duplicates
@@ -246,7 +249,7 @@ export class FuzzStats {
       return FuzzStopReason.NOMOREINPUTS;
     }
 
-    return Math.max(0, Math.floor(Math.max(...pcts) * 100));
+    return Math.max(0, Math.floor(maxPct * 100));
   } // fn: shouldStop
 
   /**

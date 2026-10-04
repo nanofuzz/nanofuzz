@@ -13,7 +13,7 @@ export function makeCanonicalSet<T>(elements: Iterable<T>): Set<T> {
     return strA < strB ? -1 : strA > strB ? 1 : 0;
   });
   return new Set(items);
-}
+} // fn: makeCanonicalSet
 
 /**
  * Type guard function that returns true if `obj` has keys
@@ -56,7 +56,7 @@ export function deepFreeze<T>(obj: T): T {
     }
   }
   return obj;
-}
+} // fn: deepFreeze
 
 /**
  * Unwraps transformer origins to return the underlying base origin.
@@ -71,7 +71,7 @@ export function getBaseOrigin(
     return getBaseOrigin(origin.basis.source);
   }
   return origin;
-}
+} // fn: getBaseOrigin
 
 /**
  * Removes tick metadata from a MutationInputGenerator origin,
@@ -99,7 +99,7 @@ export function removeTickFromOrigin(origin: FuzzValueOrigin): FuzzValueOrigin {
     };
   }
   return { ...origin };
-}
+} // fn: removeTickFromOrigin
 
 /**
  * Encodes control characters and backslashes in a string to printable escape sequences
@@ -131,7 +131,7 @@ export function encodeEscapeSequences(str: string): string {
     }
   }
   return result;
-}
+} // fn: encodeEscapeSequences
 
 /**
  * Decodes printable escape sequences in a string back to their raw character equivalents
@@ -200,7 +200,7 @@ export function decodeEscapeSequences(str: string): string {
     }
   }
   return result;
-}
+} // fn: decodeEscapeSequences
 
 /**
  * Type guard for Uint8Array or Buffer across Node and Webview environments.
@@ -210,7 +210,7 @@ export function isBufferOrUint8Array(val: unknown): val is Uint8Array {
     val instanceof Uint8Array ||
     (typeof Buffer !== "undefined" && Buffer.isBuffer(val))
   );
-}
+} // fn: isBufferOrUint8Array
 
 /**
  * Converts a hex string to a Uint8Array in both Node and Webview environments.
@@ -225,7 +225,7 @@ export function hexToBytes(hex: string): Uint8Array {
     bytes[i] = parseInt(cleanHex.substring(i * 2, i * 2 + 2), 16);
   }
   return bytes;
-}
+} // fn: hexToBytes
 
 /**
  * Converts a base64 string to a Uint8Array in both Node and Webview environments.
@@ -240,7 +240,7 @@ export function base64ToBytes(b64: string): Uint8Array {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
-}
+} // fn: base64ToBytes
 
 /**
  * Converts a Uint8Array to a base64 string in both Node and Webview environments.
@@ -255,4 +255,4 @@ export function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
-}
+} // fn: bytesToBase64
