@@ -11,6 +11,10 @@ import {
   ArgValueTypeWrapped,
 } from "./Types";
 
+const DEFAULT_INT_OPTIONS: { readonly numInteger: boolean } = Object.freeze({
+  numInteger: true,
+});
+
 /**
  * Pseudo-randomly generates example values that conform to an ArgDef spec.
  */
@@ -135,7 +139,7 @@ function generateRandomInputFn(
           prng,
           0,
           children.length - 1,
-          ArgDef.getDefaultOptions() // use defaults for union member selection
+          DEFAULT_INT_OPTIONS // use defaults for union member selection
         );
         return generateRandomInputFn(children[rn], prng)();
       };
@@ -322,7 +326,7 @@ function generateRandomInputFn(
           prng,
           0,
           intervals.length - 1,
-          ArgDef.getDefaultOptions() // use defaults for interval selection
+          DEFAULT_INT_OPTIONS // use defaults for interval selection
         )
       ];
     return randFn(prng, interval.min, interval.max, options);
@@ -357,7 +361,7 @@ function generateRandomInputFn(
           prng,
           i,
           constantLeaves.length - 1,
-          ArgDef.getDefaultOptions()
+          DEFAULT_INT_OPTIONS
         );
         const temp = indices[i];
         indices[i] = indices[j];
@@ -405,7 +409,7 @@ const getRandomNumber = (
   prng: seedrandom.prng,
   min: ArgValueType,
   max: ArgValueType,
-  options: ArgOptions
+  options: { numInteger?: boolean } | ArgOptions
 ): number => {
   if (typeof min !== "number" || typeof max !== "number")
     throw new Error("Min and max must be numbers");
@@ -526,7 +530,6 @@ const getRandomString: PrivateRandFn = (
     throw new Error("Min and max must be strings");
 
   const charSet = Array.from(options.strCharset);
-  const intOptions = ArgDef.getDefaultOptions(); // use default for integer selection
 
   // This generator does not currently support min and max, but we don't make
   // that option available in the UI anyway. Find the old code in v0.3.2 and fix
@@ -543,7 +546,9 @@ const getRandomString: PrivateRandFn = (
   const charSetLen = charSet.length - 1;
   const outChars: string[] = [];
   for (let i = 0; i < strLen; i++) {
-    outChars.push(charSet[getRandomNumber(prng, 0, charSetLen, intOptions)]);
+    outChars.push(
+      charSet[getRandomNumber(prng, 0, charSetLen, DEFAULT_INT_OPTIONS)]
+    );
   }
 
   return outChars.join("");
@@ -564,7 +569,6 @@ const getRandomBytes: PrivateRandFn = (
   _max: ArgValueType,
   options: ArgOptions
 ): Uint8Array => {
-  const intOptions = ArgDef.getDefaultOptions();
   const bytesLen = sampleLength(
     prng,
     options.byteLength.min,
@@ -572,7 +576,7 @@ const getRandomBytes: PrivateRandFn = (
   );
   const outBytes = new Uint8Array(bytesLen);
   for (let i = 0; i < bytesLen; i++) {
-    outBytes[i] = getRandomNumber(prng, 0, 255, intOptions);
+    outBytes[i] = getRandomNumber(prng, 0, 255, DEFAULT_INT_OPTIONS);
   }
   return outBytes;
 }; // fn: getRandomBytes
@@ -656,7 +660,7 @@ export const sampleNumberHeuristic = (
   prng: seedrandom.prng,
   min: ArgValueType,
   max: ArgValueType,
-  options: ArgOptions
+  options: { numInteger?: boolean } | ArgOptions
 ): number => {
   if (typeof min !== "number" || typeof max !== "number") {
     throw new Error("Min and max must be numbers");
