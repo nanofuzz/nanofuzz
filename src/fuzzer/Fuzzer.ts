@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
-import { deepFreeze, isKeyedObject } from "../Util";
+import { deepFreeze } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
@@ -694,12 +694,6 @@ export class Tester {
           });
           await this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
 
-          const covStats =
-            typeof this._results.stats.measures.CodeCoverageMeasure ===
-            "function"
-              ? await this._results.stats.measures.CodeCoverageMeasure()
-              : undefined;
-
           // Shut down runners
           await Promise.all(
             [
@@ -708,20 +702,6 @@ export class Tester {
               ...propRunners.map((p) => p.onRunEnd()),
             ].filter((e) => e !== undefined)
           );
-
-          // Persist to outfile, if requested
-          if (this._options.outputFile) {
-            JSONN.toFile(
-              this._options.outputFile,
-              this._results,
-              (k: string, v: unknown) =>
-                k === "CodeCoverageMeasure"
-                  ? covStats
-                  : k === "coverageMeasure" && isKeyedObject(v)
-                    ? { current: v.current }
-                    : v
-            );
-          }
 
           update({
             msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,

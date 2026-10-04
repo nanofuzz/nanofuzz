@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
-import { deepFreeze, isKeyedObject } from "../Util";
+import { deepFreeze } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
@@ -756,26 +756,8 @@ export class FuzzerV2 {
     });
     await this._compositeInputGenerator.onRunEnd(results);
 
-    const covStats =
-      typeof results.stats.measures.CodeCoverageMeasure === "function"
-        ? await results.stats.measures.CodeCoverageMeasure()
-        : undefined;
-
     if (this._executor) {
       await this._executor.stop();
-    }
-
-    if (this._options.outputFile) {
-      JSONN.toFile(
-        this._options.outputFile,
-        results,
-        (k: string, v: unknown) =>
-          k === "CodeCoverageMeasure"
-            ? covStats
-            : k === "coverageMeasure" && isKeyedObject(v)
-              ? { current: v.current }
-              : v
-      );
     }
 
     update({

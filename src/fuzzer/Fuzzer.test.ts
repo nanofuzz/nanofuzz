@@ -4,41 +4,20 @@ import { getToolVersion } from "../ToolVersion";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as JSONN from "../Jsonn";
 
 describe("fuzzer: general", () => {
   beforeAll(async () => {
     await initParser();
   });
 
-  it("includes the tool version in initialized and persisted results", async () => {
-    const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-version-"));
-    const outputFile = path.join(tmpdir, "results.json5");
+  it("includes the tool version in initialized results", async () => {
+    const results = await new Tester(
+      "nanofuzz-study/examples/1.ts",
+      "minValue",
+      { ...intOptions, maxTests: 1 }
+    ).test();
 
-    try {
-      const results = await new Tester(
-        "nanofuzz-study/examples/1.ts",
-        "minValue",
-        { ...intOptions, maxTests: 1, outputFile }
-      ).test();
-      const persisted = JSONN.parse(fs.readFileSync(outputFile, "utf8"));
-
-      expect(results.toolVersion).toBe(getToolVersion());
-      expect(persisted).toEqual(
-        jasmine.objectContaining({ toolVersion: getToolVersion() })
-      );
-    } finally {
-      try {
-        fs.rmSync(tmpdir, {
-          recursive: true,
-          force: true,
-          maxRetries: 10,
-          retryDelay: 100,
-        });
-      } catch {
-        // Ignore residual Windows file lock cleanup errors
-      }
-    }
+    expect(results.toolVersion).toBe(getToolVersion());
   });
 
   it("mutation-only fuzzing", async () => {

@@ -21,6 +21,7 @@ import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import * as JSONN from "../Jsonn";
 import { isError } from "../fuzzer/Util";
+import { isKeyedObject } from "../Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
 import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
@@ -645,6 +646,20 @@ export async function runCliInProcess(
     );
 
     process.removeListener("SIGINT", sigintListener);
+
+    if (outfile) {
+      const covStats =
+        typeof results.stats.measures.CodeCoverageMeasure === "function"
+          ? await results.stats.measures.CodeCoverageMeasure()
+          : undefined;
+      JSONN.toFile(outfile, results, (k: string, v: unknown) =>
+        k === "CodeCoverageMeasure"
+          ? covStats
+          : k === "coverageMeasure" && isKeyedObject(v)
+            ? { current: v.current }
+            : v
+      );
+    }
 
     if (!lastWasMilestone) {
       bar.stop();

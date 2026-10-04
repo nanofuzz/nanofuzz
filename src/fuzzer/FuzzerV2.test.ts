@@ -3,10 +3,6 @@ import { FuzzerV2 as TesterV2 } from "./FuzzerV2";
 import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import * as JSONN from "../Jsonn";
 
 describe("fuzzer V2: general & parity tests", () => {
   beforeAll(async () => {
@@ -38,36 +34,14 @@ describe("fuzzer V2: general & parity tests", () => {
     expect(testerV2 instanceof TesterV2).toBe(true);
   });
 
-  it("includes the tool version in initialized and persisted results", async () => {
-    const tmpdir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nanofuzz-v2-version-")
-    );
-    const outputFile = path.join(tmpdir, "results.json5");
+  it("includes the tool version in initialized results", async () => {
+    const results = await new TesterV2(
+      "nanofuzz-study/examples/1.ts",
+      "minValue",
+      { ...intOptions, maxTests: 1 }
+    ).test();
 
-    try {
-      const results = await new TesterV2(
-        "nanofuzz-study/examples/1.ts",
-        "minValue",
-        { ...intOptions, maxTests: 1, outputFile }
-      ).test();
-      const persisted = JSONN.parse(fs.readFileSync(outputFile, "utf8"));
-
-      expect(results.toolVersion).toBe(getToolVersion());
-      expect(persisted).toEqual(
-        jasmine.objectContaining({ toolVersion: getToolVersion() })
-      );
-    } finally {
-      try {
-        fs.rmSync(tmpdir, {
-          recursive: true,
-          force: true,
-          maxRetries: 10,
-          retryDelay: 100,
-        });
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
+    expect(results.toolVersion).toBe(getToolVersion());
   });
 
   it("mutation-only fuzzing parity", async () => {
