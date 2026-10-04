@@ -33,7 +33,12 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { categorizeResult, getIoKey, isError, isSameJudgments } from "./Util";
-import { isArgValueType } from "./analysis/Util";
+import {
+  getTransformers,
+  getValidators,
+  isArgValueType,
+  isOptionValid,
+} from "./analysis/Util";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
@@ -1457,66 +1462,6 @@ const _checkStopCondition = (
 }; // fn: _checkStopCondition()
 
 /**
- * Checks whether the given option set is valid.
- *
- * @param options fuzzer option set
- * @returns true if the options are valid, false otherwise
- */
-export const isOptionValid = (options: FuzzOptions): boolean => {
-  return (
-    options.maxTests >= 0 &&
-    options.maxDupeInputs >= 0 &&
-    options.maxFailures >= 0 &&
-    (options.outputResults === undefined ||
-      ["all", "failures", "none"].includes(options.outputResults)) &&
-    ArgDef.isOptionValid(options.argDefaults) &&
-    typeof options.generators === "object" &&
-    "RandomInputGenerator" in options.generators &&
-    "enabled" in options.generators.RandomInputGenerator &&
-    typeof options.measures === "object"
-  );
-}; // fn: isOptionValid()
-
-/**
- * Returns a list of validator FunctionRefs found within the ProgramDef
- * associated with a FunctionDef
- *
- * @param program the ProgramDef to search
- * @returns an array of validator FunctionRefs
- */
-export function getValidators(
-  program: AbstractProgram,
-  fnUnderTest: FunctionDef
-): FunctionRef[] {
-  const fnUnderTestName = fnUnderTest.getName();
-  return Object.values(program.functionsExported)
-    .filter(
-      (fn) =>
-        fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName
-    )
-    .map((fn) => fn.getRef());
-} // fn: getValidators()
-
-/**
- * Returns a list of input transformer functions for the function under test.
- *
- * @param program the program to search
- * @param fnUnderTest the function under test
- * @returns an array of transformer FunctionRefs
- */
-export function getTransformers(
-  program: AbstractProgram,
-  fnUnderTest: FunctionDef
-): FunctionRef[] {
-  return Object.values(program.functionsExported)
-    .filter(
-      (fn) =>
-        fn.isTransformer() && fn.getName().startsWith(fnUnderTest.getName())
-    )
-    .map((fn) => fn.getRef());
-} // fn: getTransformers()
-
-/**
  * Formats a single failing result into a terminal-width failure block.
  */
 export function formatFailureBlock(
@@ -1770,5 +1715,6 @@ export * from "./analysis/typescript/TypescriptProgram";
 export * from "./analysis/FunctionDef";
 export * from "./analysis/ArgDef";
 export * from "./analysis/Types";
+export * from "./analysis/Util";
 export * from "./Types";
 export * from "./Util";
