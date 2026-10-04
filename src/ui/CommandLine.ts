@@ -638,6 +638,9 @@ export async function runCliInProcess(
       { engine: options["engine"] }
     );
 
+    console.log(`Target: ${fnname} of ${filename}`);
+    console.log(`Target ready to test.`);
+
     const results = await fuzzer.test(
       injectTests,
       undefined,

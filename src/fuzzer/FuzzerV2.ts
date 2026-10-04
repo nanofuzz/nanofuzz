@@ -297,14 +297,6 @@ export class FuzzerV2 {
       }
     };
 
-    if (!updateFn && process.env.BUILD_TARGET !== "node-cli") {
-      console.log("\r\n\r\n");
-    }
-    update({
-      msg: `Target: ${this._function.getName()} of ${this._function.getModule()}`,
-      channel: "milestone",
-    });
-
     this._executor = await this._initExecutor(
       injectTests,
       mode,
@@ -313,9 +305,9 @@ export class FuzzerV2 {
     );
 
     let stillInjecting = injectTests.length > 0;
-
-    update({ msg: `Target ready to test.`, channel: "milestone" });
     this._state = "ready";
+    lastUpdateMsg = undefined;
+    lastUpdateTimestamp = performance.now();
 
     const checkPeriodicUpdate = () => {
       if (

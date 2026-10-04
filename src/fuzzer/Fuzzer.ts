@@ -483,13 +483,6 @@ export class Tester {
       },
     };
 
-    if (!updateFn && process.env.BUILD_TARGET !== "node-cli")
-      console.log("\r\n\r\n");
-    update({
-      msg: `Target: ${this._function.getName()} of ${this._function.getModule()}`,
-      channel: "milestone",
-    });
-
     const argDefs = this._function.getArgDefs();
     const lang = this._function.getLang();
 
@@ -571,9 +564,9 @@ export class Tester {
 
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
-
-    update({ msg: `Target ready to test.`, channel: "milestone" });
     this._state = "ready";
+    lastUpdateMsg = undefined;
+    lastUpdateTimestamp = performance.now();
 
     const checkPeriodicUpdate = () => {
       if (
