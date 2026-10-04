@@ -13,20 +13,20 @@ import { FunctionDef } from "./analysis/FunctionDef";
 import {
   BaseMeasureConfig,
   FuzzBusyStatusMessage,
+  FuzzEnv,
+  FuzzMode,
   FuzzOptions,
   FuzzPinnedTest,
   FuzzResultCallback,
   FuzzStatusUpdater,
   FuzzStopReason,
   FuzzTestResult,
+  FuzzTestResults,
   FuzzerFocus,
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
 import {
-  FuzzEnv,
-  FuzzMode,
-  FuzzTestResults,
   getValidators,
   getTransformers,
   isOptionValid,

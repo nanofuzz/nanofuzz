@@ -9,7 +9,7 @@ import { AbstractRunner } from "../runners/AbstractRunner";
  * Abstract class of an input generator
  */
 export abstract class AbstractInputGenerator {
-  protected _specs; // ArgDef specs that describe inputs.
+  protected _specs: ArgDef[]; // ArgDef specs that describe inputs.
   protected _prng; // pseudo random number generator
   protected _pendingPromise?: Promise<boolean>; // Pending promise for async input generation
 

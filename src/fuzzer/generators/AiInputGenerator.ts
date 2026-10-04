@@ -328,7 +328,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
           }
 
           // Process the inputs
-          const specMap = new Map(
+          const specMap = new Map<string, ArgDef>(
             this._specs.map((arg) => [arg.getName(), arg])
           );
           inputs.programInputs.forEach((input) => {

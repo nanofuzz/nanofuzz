@@ -1,17 +1,15 @@
 import * as Config from "../Config";
 import { CompilerStaleness } from "./compilers/Types";
+import { Tester as FuzzerV1 } from "./Fuzzer";
+import { FuzzerV2 } from "./FuzzerV2";
 import {
   FuzzEnv,
   FuzzMode,
-  FuzzTestResults,
-  Tester as FuzzerV1,
-} from "./Fuzzer";
-import { FuzzerV2 } from "./FuzzerV2";
-import {
   FuzzOptions,
   FuzzPinnedTest,
   FuzzResultCallback,
   FuzzStatusUpdater,
+  FuzzTestResults,
 } from "./Types";
 
 /**

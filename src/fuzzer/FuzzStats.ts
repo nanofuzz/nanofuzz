@@ -1,11 +1,13 @@
 import { getToolVersion } from "../ToolVersion";
 import { FunctionDef } from "./analysis/FunctionDef";
 import { FunctionRef } from "./analysis/Types";
-import { CurrentRunStats, FuzzStopReason, FuzzTestResults } from "./Fuzzer";
 import {
+  CurrentRunStats,
   FuzzOptions,
   FuzzResultCategoryValues,
+  FuzzStopReason,
   FuzzTestResult,
+  FuzzTestResults,
   TransformedInputAndSource,
 } from "./Types";
 
