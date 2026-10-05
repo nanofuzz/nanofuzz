@@ -297,6 +297,9 @@ function setup() {
     stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
   });
 
+  // Ignore SIGINT in runner host; lifecycle is managed exclusively by the parent process
+  process.on("SIGINT", () => {});
+
   process.on("unhandledRejection", (reason) => {
     // Prevent unhandled promise rejections in background tasks from crashing the host
     console.error("Unhandled promise rejection:", reason);
