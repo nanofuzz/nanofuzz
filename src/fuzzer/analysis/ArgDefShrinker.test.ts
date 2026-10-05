@@ -27,6 +27,8 @@ function makeArgDef(
   isOptional: boolean,
   children: ArgDef[] = []
 ): ArgDef {
+  const intervals =
+    type === ArgTag.BIGINT ? [{ min: 0n, max: 100n }] : [{ min: 0, max: 100 }];
   return new ArgDef(
     name,
     offset,
@@ -34,7 +36,7 @@ function makeArgDef(
     options,
     dim,
     isOptional,
-    [{ min: 0, max: 100 }],
+    intervals,
     children
   );
 }
@@ -104,6 +106,34 @@ describe("ArgDefShrinker", () => {
     expect(names).toContain("number-divTwo");
     expect(names).not.toContain("number-timesTwo");
     expect(names).not.toContain("number-plusOne");
+  });
+
+  it("shrink bigints towards zero", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "bigIntArg",
+      0,
+      ArgTag.BIGINT,
+      argOptions,
+      0,
+      false
+    );
+    const input: ArgValueTypeWrapped[] = [
+      {
+        tag: "ArgValueTypeWrapped",
+        value: 100n,
+      },
+    ];
+    const prng = seedrandom("shrinkerBigInt");
+    const shrinkers = ArgDefShrinker.getShrinkers([spec], input, prng);
+
+    expect(shrinkers.every((s) => s.simplifies === true)).toBeTrue();
+    const names = shrinkers.map((s) => s.name);
+    expect(names).toContain("bigint-setToZero");
+    expect(names).toContain("bigint-divTwo");
+    expect(names).toContain("bigint-minusOne");
+    expect(names).not.toContain("bigint-timesTwo");
+    expect(names).not.toContain("bigint-plusOne");
   });
 
   it("shrinks strings to shorter strings", () => {

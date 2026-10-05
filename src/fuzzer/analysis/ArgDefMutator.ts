@@ -39,14 +39,6 @@ export class ArgDefMutator {
     }
 
     // Running list of mutator functions
-    type MutationProposal = {
-      name: string;
-      value: ArgValueType;
-      path: (string | number)[];
-      deleteProperty?: boolean;
-      objectKeyOrder?: string[];
-      simplifies?: boolean;
-    };
     const mutations: MutationProposal[] = [];
     type UniqueDimensionContext = {
       siblings: ArgValueType[];
@@ -358,129 +350,27 @@ export class ArgDefMutator {
                 )}`
               );
             }
-            const max = interval.max;
-            const min = interval.min;
             addMutations(
-              [
-                {
-                  name: "bigint-plusOne",
-                  value: value + BigInt(1),
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "bigint-minusOne",
-                  value: value - BigInt(1),
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "bigint-negate",
-                  value: value * BigInt(-1),
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "bigint-timesTwo",
-                  value: value * BigInt(2),
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "bigint-timesThree",
-                  value: value * BigInt(3),
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "bigint-divTwo",
-                  value: value / BigInt(2),
-                  path: [...subInput.subPath],
-                },
-                {
-                  name: "bigint-divThree",
-                  value: value / BigInt(3),
-                  path: [...subInput.subPath],
-                },
-              ].filter(
-                (e) => e.value !== value && e.value <= max && e.value >= min
+              getNumericMutations(
+                value,
+                interval.min,
+                interval.max,
+                subInput.subPath,
+                bigIntNumericOps
               )
             );
             break;
           }
           case ArgTag.NUMBER: {
             const value = Number(subInput.subElement);
-            const numProposals: (MutationProposal & { value: number })[] = [];
-
-            if (
-              value !== 0 &&
-              0 <= Number(spec.getIntervals()[0].max) &&
-              0 >= Number(spec.getIntervals()[0].min)
-            ) {
-              numProposals.push({
-                name: "number-setToZero",
-                value: 0,
-                path: [...subInput.subPath],
-                simplifies: true,
-              });
-            }
-
-            const plusOneVal = value + 1;
-            numProposals.push({
-              name: "number-plusOne",
-              value: plusOneVal,
-              path: [...subInput.subPath],
-              simplifies: Math.abs(plusOneVal) < Math.abs(value),
-            });
-
-            const minusOneVal = value - 1;
-            numProposals.push({
-              name: "number-minusOne",
-              value: minusOneVal,
-              path: [...subInput.subPath],
-              simplifies: Math.abs(minusOneVal) < Math.abs(value),
-            });
-
-            numProposals.push({
-              name: "number-negate",
-              value: value * -1,
-              path: [...subInput.subPath],
-            });
-
-            numProposals.push({
-              name: "number-timesTwo",
-              value: value * 2,
-              path: [...subInput.subPath],
-            });
-
-            numProposals.push({
-              name: "number-timesThree",
-              value: value * 3,
-              path: [...subInput.subPath],
-            });
-
-            const divTwoVal = options.numInteger
-              ? Math.round(value / 2)
-              : value / 2;
-            numProposals.push({
-              name: "number-divTwo",
-              value: divTwoVal,
-              path: [...subInput.subPath],
-              simplifies: Math.abs(divTwoVal) < Math.abs(value),
-            });
-
-            const divThreeVal = options.numInteger
-              ? Math.round(value / 3)
-              : value / 3;
-            numProposals.push({
-              name: "number-divThree",
-              value: divThreeVal,
-              path: [...subInput.subPath],
-              simplifies: Math.abs(divThreeVal) < Math.abs(value),
-            });
-
+            const interval = spec.getIntervals()[0];
             addMutations(
-              numProposals.filter(
-                (e) =>
-                  e.value !== value &&
-                  e.value <= Number(spec.getIntervals()[0].max) &&
-                  e.value >= Number(spec.getIntervals()[0].min) &&
-                  (Number.isInteger(e.value) || !options.numInteger)
+              getNumericMutations(
+                value,
+                Number(interval.min),
+                Number(interval.max),
+                subInput.subPath,
+                getNumberNumericOps(options.numInteger)
               )
             );
             break;
@@ -1428,6 +1318,142 @@ export type mutatorFn = {
   simplifies?: boolean; // true if mutator simplifies/shrinks input complexity
   fn: () => ArgValueType; // mutator function
 };
+
+/**
+ * Type describing a proposed mutation before filtering and conversion to mutatorFn
+ */
+export type MutationProposal = {
+  name: string;
+  value: ArgValueType;
+  path: (string | number)[];
+  deleteProperty?: boolean;
+  objectKeyOrder?: string[];
+  simplifies?: boolean;
+};
+
+/**
+ * Operations table for numeric types (number and bigint)
+ */
+interface NumericOps<T extends number | bigint> {
+  prefix: "number" | "bigint";
+  zero: T;
+  add: (a: T, b: number) => T;
+  mul: (a: T, b: number) => T;
+  div: (a: T, b: number) => T;
+  abs: (a: T) => T;
+  compare: (a: T, b: T) => number;
+  isInteger: (a: T) => boolean;
+}
+
+const bigIntNumericOps: NumericOps<bigint> = {
+  prefix: "bigint",
+  zero: 0n,
+  add: (a, b) => a + BigInt(b),
+  mul: (a, b) => a * BigInt(b),
+  div: (a, b) => a / BigInt(b),
+  abs: (a) => (a < 0n ? -a : a),
+  compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+  isInteger: () => true,
+};
+
+function getNumberNumericOps(numInteger: boolean): NumericOps<number> {
+  return {
+    prefix: "number",
+    zero: 0,
+    add: (a, b) => a + b,
+    mul: (a, b) => a * b,
+    div: (a, b) => (numInteger ? Math.round(a / b) : a / b),
+    abs: Math.abs,
+    compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+    isInteger: (a) => Number.isInteger(a) || !numInteger,
+  };
+} // fn: getNumberNumericOps
+
+/**
+ * Generates numeric mutations (and shrinks) for number and bigint values.
+ */
+function getNumericMutations<T extends number | bigint>(
+  value: T,
+  min: T,
+  max: T,
+  path: (string | number)[],
+  ops: NumericOps<T>
+): MutationProposal[] {
+  const proposals: MutationProposal[] = [];
+
+  if (
+    value !== ops.zero &&
+    ops.compare(ops.zero, max) <= 0 &&
+    ops.compare(ops.zero, min) >= 0
+  ) {
+    proposals.push({
+      name: `${ops.prefix}-setToZero`,
+      value: ops.zero,
+      path: [...path],
+      simplifies: true,
+    });
+  }
+
+  const absVal = ops.abs(value);
+
+  const plusOneVal = ops.add(value, 1);
+  proposals.push({
+    name: `${ops.prefix}-plusOne`,
+    value: plusOneVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(plusOneVal), absVal) < 0,
+  });
+
+  const minusOneVal = ops.add(value, -1);
+  proposals.push({
+    name: `${ops.prefix}-minusOne`,
+    value: minusOneVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(minusOneVal), absVal) < 0,
+  });
+
+  proposals.push({
+    name: `${ops.prefix}-negate`,
+    value: ops.mul(value, -1),
+    path: [...path],
+  });
+
+  proposals.push({
+    name: `${ops.prefix}-timesTwo`,
+    value: ops.mul(value, 2),
+    path: [...path],
+  });
+
+  proposals.push({
+    name: `${ops.prefix}-timesThree`,
+    value: ops.mul(value, 3),
+    path: [...path],
+  });
+
+  const divTwoVal = ops.div(value, 2);
+  proposals.push({
+    name: `${ops.prefix}-divTwo`,
+    value: divTwoVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(divTwoVal), absVal) < 0,
+  });
+
+  const divThreeVal = ops.div(value, 3);
+  proposals.push({
+    name: `${ops.prefix}-divThree`,
+    value: divThreeVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(divThreeVal), absVal) < 0,
+  });
+
+  return proposals.filter(
+    (e) =>
+      e.value !== value &&
+      ops.compare(e.value as T, max) <= 0 &&
+      ops.compare(e.value as T, min) >= 0 &&
+      ops.isInteger(e.value as T)
+  );
+} // fn: getNumericMutations
 
 /**
  * Converts a path array to a fast lookup string key.
