@@ -14,7 +14,7 @@ import {
   InputAndSource,
   FuzzTestResult,
   FuzzTestResults,
-} from "../Fuzzer";
+} from "../Types";
 import { normalizePathForKey } from "../Util";
 import { AbstractRunner } from "../runners/AbstractRunner";
 import * as fs from "fs";

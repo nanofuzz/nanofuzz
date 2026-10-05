@@ -1,5 +1,5 @@
-import { Tester, FuzzStopReason } from "./Fuzzer";
-import { FuzzBusyStatusMessage } from "./Types";
+import { Tester } from "./Fuzzer";
+import { FuzzBusyStatusMessage, FuzzStopReason } from "./Types";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
 import * as fs from "node:fs";

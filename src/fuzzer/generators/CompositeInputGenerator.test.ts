@@ -1,11 +1,16 @@
 import { CompositeInputGenerator } from "./CompositeInputGenerator";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { Leaderboard } from "./Leaderboard";
-import { FuzzStopReason, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
+import {
+  FuzzOptions,
+  FuzzStopReason,
+  FuzzTestResults,
+  FuzzTestStats,
+  InputAndSource,
+} from "../Types";
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
-import { FuzzOptions, InputAndSource } from "../Types";
 import { NextableStatus } from "./Types";
 import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
 import * as Config from "../../Config";

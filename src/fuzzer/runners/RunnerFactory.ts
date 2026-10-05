@@ -1,5 +1,5 @@
 import { PythonProgram } from "../analysis/python/PythonProgram";
-import { FuzzEnv } from "../Fuzzer";
+import { FuzzEnv } from "../Types";
 import { AbstractRunner } from "./AbstractRunner";
 import { JavascriptRunner } from "./javascript/JavascriptRunner";
 import { PythonRunner } from "./python/PythonRunner";

@@ -1,5 +1,5 @@
 import * as Config from "../../../Config";
-import { FuzzTests } from "../../Fuzzer";
+import { FuzzTests } from "../../Types";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as fs from "node:fs";
 import * as os from "os";

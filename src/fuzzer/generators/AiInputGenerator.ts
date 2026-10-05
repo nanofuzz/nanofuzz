@@ -8,12 +8,9 @@ import {
 import * as JSONN from "../../Jsonn";
 import * as ValueMapper from "../mappers/ValueMapper";
 import { LlmAdapter } from "../adapters/LlmAdapter";
-import {
-  ArgDef,
-  FunctionDef,
-  FuzzTestResults,
-  InputAndSource,
-} from "../Fuzzer";
+import { ArgDef } from "../analysis/ArgDef";
+import { FunctionDef } from "../analysis/FunctionDef";
+import { FuzzTestResults, InputAndSource } from "../Types";
 import { NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefTokenEstimator } from "../analysis/ArgDefTokenEstimator";

@@ -1,6 +1,6 @@
 import seedrandom from "seedrandom";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
-import { FuzzTestResults } from "../Fuzzer";
+import { FuzzTestResults } from "../Types";
 import { InputSchedulerNextContext, InputSchedulerType } from "./Types";
 
 /**

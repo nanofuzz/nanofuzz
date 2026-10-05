@@ -1,19 +1,20 @@
 import * as vscode from "vscode";
-
-export type Listener = {
-  register: () => vscode.Disposable;
-};
-
-function createListener<T>(
-  event: vscode.Event<T>,
-  fn: (e: T) => void
-): Listener {
-  return { register: () => event(fn) };
-}
 import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
-import * as fuzzer from "../fuzzer/Fuzzer";
+import * as fuzzer from "../fuzzer/Types";
+import { ArgDef } from "../fuzzer/analysis/ArgDef";
+import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
+import { TypescriptProgram } from "../fuzzer/analysis/typescript/TypescriptProgram";
+import {
+  ArgOptions,
+  ArgTag,
+  ArgValueTypeWrapped,
+  FunctionRef,
+  Interval,
+} from "../fuzzer/analysis/Types";
+import { getTransformers, getValidators } from "../fuzzer/analysis/Util";
+import { getIoKey } from "../fuzzer/Util";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
@@ -690,7 +691,7 @@ export class FuzzPanel {
               const oldTestSet = thisFn.tests;
               thisFn.tests = {};
               for (const oldKey in oldTestSet) {
-                const newKey = fuzzer.getIoKey(oldTestSet[oldKey].input);
+                const newKey = getIoKey(oldTestSet[oldKey].input);
                 const thisTest = (thisFn.tests[newKey] = oldTestSet[oldKey]);
                 for (const input of thisTest.input) {
                   input.origin = {
@@ -879,7 +880,7 @@ export class FuzzPanel {
    * @param `test` test case to update
    */
   private _updateFuzzTestsForThisFn(test: fuzzer.FuzzPinnedTest): void {
-    const currInputsJson = fuzzer.getIoKey(test.input);
+    const currInputsJson = getIoKey(test.input);
     const testSet = this._getFuzzTestsForThisFn();
 
     // If input is already in pinnedSet, is not pinned, and does not have
@@ -1017,13 +1018,13 @@ export class FuzzPanel {
     // vvvvvvv Language-specific logic vvvvvvv
     const skelGenerators = {
       typescript: {
-        inputMapper: (argDef: fuzzer.ArgDef, i: number) => {
-          return `  const ${argDef.getName()}: ${fuzzer.TypescriptProgram.getTypeAnnotation(argDef)} = ${
+        inputMapper: (argDef: ArgDef, i: number) => {
+          return `  const ${argDef.getName()}: ${TypescriptProgram.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
           }.in[${i}];`;
         },
         outputMapper: (
-          inArgs: fuzzer.ArgDef[],
+          inArgs: ArgDef[],
           resultArgName: string,
           returnType?: string
         ): string => {
@@ -1057,16 +1058,16 @@ ${inArgConsts}
 
   return "pass";
 }`,
-        getTypeAnnotation: fuzzer.TypescriptProgram.getTypeAnnotation,
+        getTypeAnnotation: TypescriptProgram.getTypeAnnotation,
       },
       python: {
-        inputMapper: (argDef: fuzzer.ArgDef, i: number) => {
+        inputMapper: (argDef: ArgDef, i: number) => {
           return `  ${argDef.getName()}: ${PythonProgram.getTypeAnnotation(argDef)} = ${
             validatorArgs.resultArgName
           }['in'][${i}]`;
         },
         outputMapper: (
-          inArgs: fuzzer.ArgDef[],
+          inArgs: ArgDef[],
           resultArgName: string,
           returnType?: string
         ): string => {
@@ -1215,7 +1216,7 @@ ${inArgConsts}
     }
 
     // If a transformer already exists, navigate to it rather than creating a new one
-    const existingTransformers = fuzzer.getTransformers(program, fn);
+    const existingTransformers = getTransformers(program, fn);
     if (existingTransformers.length > 0) {
       this._fuzzEnv.transformers = existingTransformers;
       const fnDef =
@@ -1340,7 +1341,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
    */
   private _getIdentifierNameAvoidingConflicts(
     // The input arguments
-    inArgs: fuzzer.ArgDef[],
+    inArgs: ArgDef[],
     // The candidate names to choose from
     candidateNames: string[],
     // The maximum suffix to use when generating a new name
@@ -1383,7 +1384,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
    * @param inArgs The input arguments
    * @returns An object containing the above information
    */
-  private _getValidatorArgs(inArgs: fuzzer.ArgDef[]): {
+  private _getValidatorArgs(inArgs: ArgDef[]): {
     str: string;
     resultArgName: string;
   } {
@@ -1426,13 +1427,13 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     const oldValidatorNames = JSONN.stringify(
       this._fuzzEnv.validators.map((e) => e.name)
     );
-    const newValidators = fuzzer.getValidators(program, fn);
+    const newValidators = getValidators(program, fn);
     const newValidatorNames = JSONN.stringify(newValidators.map((e) => e.name));
 
     // Only send the validators message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
       // Update the Fuzzer Environment
-      this._fuzzEnv.validators = fuzzer.getValidators(program, fn);
+      this._fuzzEnv.validators = getValidators(program, fn);
 
       // Notify webview about the change
       const message: FuzzPanelMessageToWebView = {
@@ -1446,7 +1447,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     const oldTransformerNames = JSONN.stringify(
       this._fuzzEnv.transformers.map((e) => e.name)
     );
-    const newTransformers = fuzzer.getTransformers(program, fn);
+    const newTransformers = getTransformers(program, fn);
     const newTransformerNames = JSONN.stringify(
       newTransformers.map((e) => e.name)
     );
@@ -1525,7 +1526,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         : needNewTester
           ? this._results.results.map((i) => {
               // Inject any prior inputs into the new tester, including persisted test details
-              const inputKey = fuzzer.getIoKey(i.input);
+              const inputKey = getIoKey(i.input);
               if (inputKey in savedTests) {
                 return savedTests[inputKey];
               } else {
@@ -3184,11 +3185,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
    * @returns html string of the argument definition form
    */
   private _argDefToHtmlForm(
-    arg: fuzzer.ArgDef,
+    arg: ArgDef,
     counter: { id: number }, // pass counter by reference
     beginSep: string,
     endSep: string,
-    parentTag?: fuzzer.ArgTag
+    parentTag?: ArgTag
   ): string {
     const id = counter.id++; // unique id for each argument
     const idBase = `argDef-${id}`; // base HTML id for this argument
@@ -3212,28 +3213,28 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       typeString = htmlEscape(argType.toLowerCase());
 
       switch (argType) {
-        case fuzzer.ArgTag.OBJECT:
+        case ArgTag.OBJECT:
           typeString = "Object";
           break;
-        case fuzzer.ArgTag.DICTIONARY:
+        case ArgTag.DICTIONARY:
           typeString = "Dict";
           break;
-        case fuzzer.ArgTag.SET:
+        case ArgTag.SET:
           typeString = "Set";
           break;
-        case fuzzer.ArgTag.LITERAL:
+        case ArgTag.LITERAL:
           if (arg.isConstant()) {
             const constantValue = arg.getConstantValue();
             typeString = htmlEscape(ValueMapper.toLang(lang, constantValue));
           }
           break;
-        case fuzzer.ArgTag.NUMBER:
-        case fuzzer.ArgTag.STRING:
-        case fuzzer.ArgTag.BOOLEAN:
-        case fuzzer.ArgTag.UNION:
-        case fuzzer.ArgTag.TUPLE:
-        case fuzzer.ArgTag.UNRESOLVED:
-        case fuzzer.ArgTag.BYTES:
+        case ArgTag.NUMBER:
+        case ArgTag.STRING:
+        case ArgTag.BOOLEAN:
+        case ArgTag.UNION:
+        case ArgTag.TUPLE:
+        case ArgTag.UNRESOLVED:
+        case ArgTag.BYTES:
           break;
       }
     }
@@ -3254,25 +3255,25 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
     let sep: string;
     switch (argType) {
-      case fuzzer.ArgTag.LITERAL:
+      case ArgTag.LITERAL:
         sep = endSep;
         break;
-      case fuzzer.ArgTag.UNION:
+      case ArgTag.UNION:
         sep = ":";
         break;
-      case fuzzer.ArgTag.SET:
-      case fuzzer.ArgTag.OBJECT:
-      case fuzzer.ArgTag.DICTIONARY:
+      case ArgTag.SET:
+      case ArgTag.OBJECT:
+      case ArgTag.DICTIONARY:
         sep = ` = {` + htmlEllipsis;
         break;
-      case fuzzer.ArgTag.TUPLE:
+      case ArgTag.TUPLE:
         sep = ` = [` + htmlEllipsis;
         break;
-      case fuzzer.ArgTag.NUMBER:
-      case fuzzer.ArgTag.STRING:
-      case fuzzer.ArgTag.BOOLEAN:
-      case fuzzer.ArgTag.UNRESOLVED:
-      case fuzzer.ArgTag.BYTES:
+      case ArgTag.NUMBER:
+      case ArgTag.STRING:
+      case ArgTag.BOOLEAN:
+      case ArgTag.UNRESOLVED:
+      case ArgTag.BYTES:
         sep = " = " + htmlEllipsis;
         break;
     }
@@ -3283,8 +3284,8 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
     // Give the option of suppressing generation of optional members
     if (
-      parentTag === fuzzer.ArgTag.UNION ||
-      (parentTag === fuzzer.ArgTag.OBJECT && arg.isOptional())
+      parentTag === ArgTag.UNION ||
+      (parentTag === ArgTag.OBJECT && arg.isOptional())
     ) {
       // prettier-ignore
       html += /*html*/ `
@@ -3311,7 +3312,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     // Argument options
     switch (arg.getType()) {
       // Number-specific Options
-      case fuzzer.ArgTag.NUMBER: {
+      case ArgTag.NUMBER: {
         // TODO: validate for ints and floats !!!
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
           Number(arg.getIntervals()[0].min).toString()
@@ -3335,7 +3336,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       }
 
       // String-specific Options
-      case fuzzer.ArgTag.STRING: {
+      case ArgTag.STRING: {
         // TODO: validate for ints > 0 !!!
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().strLength.min.toString()
@@ -3356,7 +3357,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       }
 
       // Bytes-specific Options
-      case fuzzer.ArgTag.BYTES: {
+      case ArgTag.BYTES: {
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minByteLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().byteLength.min.toString()
         )}">Min length</vscode-text-field>`;
@@ -3368,7 +3369,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       }
 
       // Dictionary-specific Options
-      case fuzzer.ArgTag.DICTIONARY: {
+      case ArgTag.DICTIONARY: {
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minDictLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().dictLength.min.toString()
         )}">Min entries</vscode-text-field>`;
@@ -3401,7 +3402,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       }
 
       // Set-specific Options
-      case fuzzer.ArgTag.SET: {
+      case ArgTag.SET: {
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minSetLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().setLength.min.toString()
         )}">Min entries</vscode-text-field>`;
@@ -3427,7 +3428,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       }
 
       // Boolean-specific Options
-      case fuzzer.ArgTag.BOOLEAN: {
+      case ArgTag.BOOLEAN: {
         let intervals = arg.getIntervals();
         if (intervals.length === 0) {
           intervals = [{ min: false, max: true }];
@@ -3450,7 +3451,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       }
 
       // Union-specific Options
-      case fuzzer.ArgTag.UNION: {
+      case ArgTag.UNION: {
         // Output the array form prior to the child arguments.
         // This seems odd, but the screen reads better to the user this way.
         html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
@@ -3472,7 +3473,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       }
 
       // Object-specific Options
-      case fuzzer.ArgTag.OBJECT: {
+      case ArgTag.OBJECT: {
         // Output the array form prior to the child arguments.
         // This seems odd, but the screen reads better to the user this way.
         html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
@@ -3492,12 +3493,12 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         break;
       }
 
-      case fuzzer.ArgTag.LITERAL:
+      case ArgTag.LITERAL:
         // A literal typed input has only one possible value
         break;
 
       // Tuple-specific Options
-      case fuzzer.ArgTag.TUPLE: {
+      case ArgTag.TUPLE: {
         // Output the array form prior to the child arguments.
         // This seems odd, but the screen reads better to the user this way.
         html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
@@ -3518,7 +3519,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         break;
       }
 
-      case fuzzer.ArgTag.UNRESOLVED:
+      case ArgTag.UNRESOLVED:
         throw new Error(
           `Cannot render an unresolved argument definition as an HTML form.`
         );
@@ -3526,11 +3527,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
     // For composite types: array settings were already output prior to children
     if (
-      argType !== fuzzer.ArgTag.OBJECT &&
-      argType !== fuzzer.ArgTag.UNION &&
-      argType !== fuzzer.ArgTag.TUPLE &&
-      argType !== fuzzer.ArgTag.DICTIONARY &&
-      argType !== fuzzer.ArgTag.SET
+      argType !== ArgTag.OBJECT &&
+      argType !== ArgTag.UNION &&
+      argType !== ArgTag.TUPLE &&
+      argType !== ArgTag.DICTIONARY &&
+      argType !== ArgTag.SET
     ) {
       html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
     }
@@ -3538,12 +3539,12 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     html += `</div>`;
     // For container types: output end character ("}" or "]") here
     if (
-      argType === fuzzer.ArgTag.OBJECT ||
-      argType === fuzzer.ArgTag.TUPLE ||
-      argType === fuzzer.ArgTag.DICTIONARY ||
-      argType === fuzzer.ArgTag.SET
+      argType === ArgTag.OBJECT ||
+      argType === ArgTag.TUPLE ||
+      argType === ArgTag.DICTIONARY ||
+      argType === ArgTag.SET
     ) {
-      const closeChar = argType === fuzzer.ArgTag.TUPLE ? "]" : "}";
+      const closeChar = argType === ArgTag.TUPLE ? "]" : "}";
       html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close">${closeChar}${endSep}</div>`;
     }
     html += `</div>`;
@@ -3561,7 +3562,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
    * @returns html string representing an argument's array form
    */
   private _argDefArrayToHtmlForm(
-    arg: fuzzer.ArgDef,
+    arg: ArgDef,
     idBase: string,
     disabledFlag: string
   ): string {
@@ -3771,9 +3772,9 @@ export async function handleFuzzWithValidatorCommand(
  * @returns The associated FUT, or undefined if not found
  */
 function findFunctionUnderTest(
-  validator: fuzzer.FunctionDef,
-  allFunctions: fuzzer.FunctionDef[]
-): fuzzer.FunctionDef | undefined {
+  validator: FunctionDef,
+  allFunctions: FunctionDef[]
+): FunctionDef | undefined {
   const validatorTarget = validator.getValidatorTargetName();
   for (const fn of allFunctions) {
     if (fn.getName() === validatorTarget) {
@@ -3792,7 +3793,7 @@ function findFunctionUnderTest(
  */
 function createStandardCodeLens(
   document: vscode.TextDocument,
-  fn: fuzzer.FunctionDef
+  fn: FunctionDef
 ): vscode.CodeLens {
   return new vscode.CodeLens(
     new vscode.Range(
@@ -3817,8 +3818,8 @@ function createStandardCodeLens(
  */
 function createFutTestCodeLens(
   document: vscode.TextDocument,
-  validator: fuzzer.FunctionDef,
-  fut: fuzzer.FunctionDef | undefined
+  validator: FunctionDef,
+  fut: FunctionDef | undefined
 ): vscode.CodeLens {
   let title;
   let argument;
@@ -3856,7 +3857,7 @@ function createFutTestCodeLens(
  */
 function createValidatorTestCodeLens(
   document: vscode.TextDocument,
-  validator: fuzzer.FunctionDef
+  validator: FunctionDef
 ): vscode.CodeLens {
   return new vscode.CodeLens(
     new vscode.Range(
@@ -3949,9 +3950,9 @@ export function provideCodeLenses(
  * @param argOverrides Overrides for default argument options
  */
 function _applyArgOverrides(
-  fn: fuzzer.FunctionDef,
+  fn: FunctionDef,
   argOverrides: fuzzer.FuzzArgOverride[],
-  argDefaults: fuzzer.ArgOptions
+  argDefaults: ArgOptions
 ) {
   // Get the flattened list of function arguments
   const argsFlat = fn.getArgDefsFlat();
@@ -3966,14 +3967,14 @@ function _applyArgOverrides(
   // Apply argument option changes
   for (const i in argOverrides) {
     const thisOverride = argOverrides[i];
-    const thisArg: fuzzer.ArgDef = argsFlat[i];
+    const thisArg: ArgDef = argsFlat[i];
     if (Number(i) + 1 > argsFlat.length) {
       break; // exit the for loop
     }
 
     // Min and max values
     switch (thisArg.getType()) {
-      case fuzzer.ArgTag.NUMBER:
+      case ArgTag.NUMBER:
         if (thisOverride.number) {
           // Min / Max
           thisArg.setIntervals([
@@ -3988,7 +3989,7 @@ function _applyArgOverrides(
           });
         }
         break;
-      case fuzzer.ArgTag.BOOLEAN:
+      case ArgTag.BOOLEAN:
         if (thisOverride.boolean) {
           // Min / Max
           thisArg.setIntervals([
@@ -3999,7 +4000,7 @@ function _applyArgOverrides(
           ]);
         }
         break;
-      case fuzzer.ArgTag.STRING:
+      case ArgTag.STRING:
         if (thisOverride.string) {
           // String length
           thisArg.setOptions({
@@ -4016,7 +4017,7 @@ function _applyArgOverrides(
           });
         }
         break;
-      case fuzzer.ArgTag.BYTES:
+      case ArgTag.BYTES:
         if (thisOverride.bytes) {
           thisArg.setOptions({
             byteLength: {
@@ -4026,7 +4027,7 @@ function _applyArgOverrides(
           });
         }
         break;
-      case fuzzer.ArgTag.DICTIONARY:
+      case ArgTag.DICTIONARY:
         if (thisOverride.dictionary) {
           thisArg.setOptions({
             dictLength: {
@@ -4036,7 +4037,7 @@ function _applyArgOverrides(
           });
         }
         break;
-      case fuzzer.ArgTag.SET:
+      case ArgTag.SET:
         if (thisOverride.set) {
           thisArg.setOptions({
             setLength: {
@@ -4046,11 +4047,11 @@ function _applyArgOverrides(
           });
         }
         break;
-      case fuzzer.ArgTag.OBJECT:
-      case fuzzer.ArgTag.LITERAL:
-      case fuzzer.ArgTag.UNION:
-      case fuzzer.ArgTag.TUPLE:
-      case fuzzer.ArgTag.UNRESOLVED:
+      case ArgTag.OBJECT:
+      case ArgTag.LITERAL:
+      case ArgTag.UNION:
+      case ArgTag.TUPLE:
+      case ArgTag.UNRESOLVED:
         break;
     }
 
@@ -4061,7 +4062,7 @@ function _applyArgOverrides(
 
     // Array dimensions
     if (thisOverride.array) {
-      thisOverride.array.dimLength.forEach((e: fuzzer.Interval<number>) => {
+      thisOverride.array.dimLength.forEach((e: Interval<number>) => {
         if (!(typeof e === "object" && "min" in e && "max" in e)) {
           throw new Error(
             `Invalid interval for array dimensions: ${JSONN.stringify(e)}`
@@ -4084,7 +4085,7 @@ function _applyArgOverrides(
 export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
   return {
     outputResults: "all",
-    argDefaults: fuzzer.ArgDef.getDefaultOptions(),
+    argDefaults: ArgDef.getDefaultOptions(),
     maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
     fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 100),
     suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
@@ -4133,7 +4134,7 @@ export const normalizeFuzzOptions = (
     ...dft,
     ...options,
     outputResults: options.outputResults ?? "all",
-    argDefaults: fuzzer.ArgDef.normalizeOptions(options.argDefaults),
+    argDefaults: ArgDef.normalizeOptions(options.argDefaults),
     generators: options.generators
       ? { ...dft.generators, ...options.generators }
       : dft.generators,
@@ -4255,6 +4256,20 @@ export function deinit(): void {
 } // fn: deinit
 
 /**
+ * Creates a listener object wrapping an event subscription.
+ *
+ * @param event The VS Code event to listen to
+ * @param fn The callback function to execute on event
+ * @returns A Listener object
+ */
+function createListener<T>(
+  event: vscode.Event<T>,
+  fn: (e: T) => void
+): Listener {
+  return { register: () => event(fn) };
+} // fn: createListener()
+
+/**
  * Export this module's listeners to the extension.
  */
 export const listeners: Listener[] = [
@@ -4349,11 +4364,18 @@ export enum FuzzPanelState {
 }
 
 /**
+ * Event listener registration wrapper
+ */
+export type Listener = {
+  register: () => vscode.Disposable;
+};
+
+/**
  * The serialized state of a FuzzPanel
  */
 export type FuzzPanelStateSerialized = {
   tag: string;
-  fnRef: fuzzer.FunctionRef;
+  fnRef: FunctionRef;
   options: fuzzer.FuzzOptions;
 };
 
@@ -4362,7 +4384,7 @@ export type FuzzPanelStateSerialized = {
  */
 export type FunctionMatch = {
   document: vscode.TextDocument;
-  ref: fuzzer.FunctionRef;
+  ref: FunctionRef;
 };
 
 /**
@@ -4370,8 +4392,8 @@ export type FunctionMatch = {
  */
 export type ValidatorMatch = {
   document: vscode.TextDocument;
-  validator: fuzzer.FunctionRef;
-  fut: fuzzer.FunctionRef;
+  validator: FunctionRef;
+  fut: FunctionRef;
 };
 
 /**
@@ -4381,7 +4403,7 @@ export type FuzzPanelFuzzRunMessage = {
   fuzzer: Omit<fuzzer.FuzzOptions, "argDefaults">;
   args: fuzzer.FuzzArgOverride[];
   lastTab?: fuzzer.FuzzResultTab;
-  input?: fuzzer.ArgValueTypeWrapped[];
+  input?: ArgValueTypeWrapped[];
 };
 
 /**

@@ -1,9 +1,9 @@
-import { Tester as TesterV1, FuzzStopReason } from "./Fuzzer";
+import { Tester as TesterV1 } from "./Fuzzer";
 import { FuzzerV2 as TesterV2 } from "./FuzzerV2";
 import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
-import { FuzzBusyStatusMessage } from "./Types";
+import { FuzzBusyStatusMessage, FuzzStopReason } from "./Types";
 
 describe("fuzzer V2: general & parity tests", () => {
   beforeAll(async () => {

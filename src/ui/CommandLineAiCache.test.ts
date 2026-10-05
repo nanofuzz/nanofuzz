@@ -4,7 +4,7 @@ import * as os from "node:os";
 import JSON5 from "json5";
 import * as zod from "zod/v4";
 import * as Config from "../Config";
-import { FuzzTestResults } from "../fuzzer/Fuzzer";
+import { FuzzTestResults } from "../fuzzer/Types";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AiInputGenerator } from "../fuzzer/generators/AiInputGenerator";
 import { createCacheKey } from "../fuzzer/adapters/LlmCacheManager";

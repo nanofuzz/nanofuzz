@@ -58,7 +58,7 @@ export class FuzzerV2 {
 
   protected _compositeInputGenerator: CompositeInputGenerator;
   protected _executor?: FuzzExecutor;
-  protected _stats?: FuzzStats;
+  protected _stats: FuzzStats;
   protected _lastCompiler?: ReturnType<
     (typeof CompilerFactory)["fromSourcefile"]
   >;
@@ -268,12 +268,6 @@ export class FuzzerV2 {
       );
     }
 
-    this._stats = new FuzzStats(
-      this._options,
-      this._function,
-      this._validators,
-      this._transformers
-    );
     this._stats.startRun();
 
     let lastUpdateTimestamp = 0;
@@ -358,6 +352,9 @@ export class FuzzerV2 {
           return await this._finalizeRun(stopCondition, update, cancelFn);
         }
 
+        // Prepare measures for next test execution (before transformers & runners execute)
+        const initMeasTime = this._executor!.prepareMeasures();
+
         // If non-injected generation has begun, record startGenTime
         const startGenTime = performance.now();
         if (!stillInjecting && this._stats!.startGenTime === 0) {
@@ -437,7 +434,8 @@ export class FuzzerV2 {
           () => {
             if (!cancelFn) return undefined;
             return () => !stillInjecting && cancelFn();
-          }
+          },
+          initMeasTime
         );
 
         if (!execution) {

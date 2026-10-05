@@ -11,7 +11,8 @@ import * as Config from "../Config";
 import * as fs from "node:fs";
 import { SingleBar, Presets } from "cli-progress";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
-import { ArgDef, FuzzBusyStatusMessage } from "../fuzzer/Fuzzer";
+import { ArgDef } from "../fuzzer/analysis/ArgDef";
+import { FuzzBusyStatusMessage, FuzzOptions } from "../fuzzer/Types";
 import {
   formatCompilingStatus,
   formatInstrumentingStatus,
@@ -20,7 +21,6 @@ import {
 import { FuzzerEngineVersion, FuzzerFactory } from "../fuzzer/FuzzerFactory";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
-import { FuzzOptions } from "../fuzzer/Types";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import * as JSONN from "../Jsonn";
