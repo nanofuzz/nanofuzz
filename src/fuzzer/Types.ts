@@ -3,6 +3,7 @@ import {
   ArgValueType,
   ArgValueTypeWrapped,
   FunctionRef,
+  ProgramLanguage,
 } from "./analysis/Types";
 import { FunctionDef } from "./analysis/FunctionDef";
 import { Judgment as _Judgment } from "./oracles/Types";
@@ -343,18 +344,72 @@ export type FuzzerFocus =
 export type GetFuzzerFocusFn = () => FuzzerFocus;
 
 /**
- * Message about how busy the fuzzer is
+ * Emitted when a source module is being compiled.
+ */
+export type FuzzCompilingMessage = {
+  type: "compiling";
+  file: string;
+};
+
+/**
+ * Emitted when a source module is being instrumented.
+ */
+export type FuzzInstrumentingMessage = {
+  type: "instrumenting";
+  file: string;
+};
+
+/**
+ * Emitted when a specific test input is being tested against the PUT.
+ */
+export type FuzzTestingMessage = {
+  type: "testing";
+  fnName: string;
+  lang: ProgramLanguage;
+  inputs: ArgValueType[];
+  stats: CurrentRunStats;
+  pct: number;
+  stillInjecting: boolean;
+  isCancelled: boolean;
+};
+
+/**
+ * Emitted when waiting for an asynchronous generator (e.g., AI/LLM).
+ */
+export type FuzzWaitingForGeneratorMessage = {
+  type: "waiting-for-generator";
+  pendingGenerators: string[];
+  stats: CurrentRunStats;
+  pct: number;
+};
+
+/**
+ * Emitted periodically during idle or long pauses to update progress and timers.
+ */
+export type FuzzProgressTickMessage = {
+  type: "progress-tick";
+  pct: number;
+};
+
+/**
+ * Emitted when the fuzzing run finishes or is interrupted.
+ */
+export type FuzzTestingCompleteMessage = {
+  type: "testing-complete";
+  cancelled: boolean;
+  pct: number;
+};
+
+/**
+ * Union of all structured status messages emitted by the fuzzer.
  */
 export type FuzzBusyStatusMessage =
-  | {
-      msg: string;
-      channel: "milestone" | "summary";
-    }
-  | {
-      msg: string;
-      channel: "update";
-      pct: number;
-    };
+  | FuzzCompilingMessage
+  | FuzzInstrumentingMessage
+  | FuzzTestingMessage
+  | FuzzWaitingForGeneratorMessage
+  | FuzzProgressTickMessage
+  | FuzzTestingCompleteMessage;
 
 /**
  * Fuzzer status update callback
