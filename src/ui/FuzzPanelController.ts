@@ -13,7 +13,11 @@ import {
   FunctionRef,
   Interval,
 } from "../fuzzer/analysis/Types";
-import { getTransformers, getValidators } from "../fuzzer/analysis/Util";
+import {
+  bigIntOrThrow,
+  getTransformers,
+  getValidators,
+} from "../fuzzer/analysis/Util";
 import { getIoKey } from "../fuzzer/Util";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
@@ -3228,6 +3232,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             typeString = htmlEscape(ValueMapper.toLang(lang, constantValue));
           }
           break;
+        case ArgTag.BIGINT:
         case ArgTag.NUMBER:
         case ArgTag.STRING:
         case ArgTag.BOOLEAN:
@@ -3273,6 +3278,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       case ArgTag.STRING:
       case ArgTag.BOOLEAN:
       case ArgTag.UNRESOLVED:
+      case ArgTag.BIGINT:
       case ArgTag.BYTES:
         sep = " = " + htmlEllipsis;
         break;
@@ -3336,7 +3342,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       }
 
       // BigInt-specific Options
-      case fuzzer.ArgTag.BIGINT: {
+      case ArgTag.BIGINT: {
         // Note: bigints use their own control ids so that the front-end can
         // tell them apart from numbers, which it parses with `Number()`.
         // A bigint is always integral, so there is no Integer/Float choice.
@@ -4172,23 +4178,6 @@ export const normalizeFuzzOptions = (
       : dft.measures,
   };
 }; // fn: normalizeFuzzOptions()
-
-/**
- * Returns the given interval bound as a bigint.
- *
- * @param value interval bound of a bigint ArgDef
- * @returns the bound as a bigint
- *
- * Throws an exception if the bound is not a bigint
- */
-function bigIntOrThrow(value: fuzzer.ArgType): bigint {
-  if (typeof value !== "bigint") {
-    throw new Error(
-      `Invalid interval bound for bigint type: ${JSON.stringify(String(value))}`
-    );
-  }
-  return value;
-} // fn: bigIntOrThrow()
 
 /**
  * Accepts an array of strings and returns a prettier list including

@@ -928,6 +928,7 @@ export class PythonProgram extends AbstractProgram {
       case ArgTag.BYTES:
       case ArgTag.STRING:
       case ArgTag.BOOLEAN:
+      case ArgTag.BIGINT:
       case ArgTag.NUMBER: {
         thisType.type = {
           dims: dims,
@@ -995,8 +996,7 @@ export class PythonProgram extends AbstractProgram {
         break;
       }
       case ArgTag.OBJECT:
-      case ArgTag.BIGINT:
-        throw new Error(`Unexpected type ${type} in Python annotation`);
+        throw new Error(`Unexpected object type in Python annotation`);
     }
     return thisType;
   }
@@ -3219,7 +3219,7 @@ export class PythonProgram extends AbstractProgram {
         return "bytes";
 
       case ArgTag.BIGINT:
-        throw new Error(`Internal error: Python doesn't have bigint`);
+        return "int";
 
       case ArgTag.UNRESOLVED:
         throw new Error(`Internal error: unresolved types cannot be annotated`);

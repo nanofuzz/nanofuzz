@@ -817,8 +817,6 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
       return "bytes";
 
     case ArgTag.BIGINT:
-      throw new Error(`Internal error: Python doesn't have bigint`);
-
     case ArgTag.NUMBER:
       return "number";
     case ArgTag.DICTIONARY: {
