@@ -41,6 +41,7 @@ export abstract class AbstractHost {
     this._proc = this._spawn();
 
     this._proc.on("error", this._onError);
+    this._proc.stdin.on("error", this._onError);
     this._proc.stdout.on("data", this._onStdout);
     this._proc.stdout.on("error", this._onError);
     this._proc.stderr.on("data", this._onStderr);
