@@ -329,4 +329,37 @@ describe("fuzzer: python targets", () => {
       ).toBeTrue();
     }
   });
+
+  it("Python BigInt target with property validator and pin", async () => {
+    const results: FuzzTestResult[] = [];
+    const pinned: FuzzPinnedTest = {
+      input: [
+        {
+          name: "n",
+          offset: 0,
+          value: 42n,
+          origin: { type: "user" },
+        },
+      ],
+      output: [],
+      pinned: true,
+    };
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "test_bigint_target",
+      {
+        ...intOptions,
+        useProperty: true,
+        maxTests: 10,
+      }
+    ).test([pinned], { gen: true }, undefined, undefined, (r) =>
+      results.push(r)
+    );
+
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(results.length).toBeGreaterThan(0);
+    const pinnedRes = results.find((r) => Number(r.input[0].value) === 42);
+    expect(pinnedRes).toBeDefined();
+    expect(pinnedRes?.exception).toBeTrue();
+  });
 });

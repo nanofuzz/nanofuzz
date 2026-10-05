@@ -58,6 +58,24 @@ export class ArgDefValidator {
       }
     } else {
       switch (spec.getType()) {
+        case ArgTag.BIGINT: {
+          const interval = spec.getIntervals()[0];
+          if (
+            typeof interval.min !== "bigint" ||
+            typeof interval.max !== "bigint"
+          ) {
+            throw new Error(
+              `Invalid interval bounds for bigint type: ${JSONN.stringify(
+                interval
+              )}`
+            );
+          }
+          return (
+            typeof value === "bigint" &&
+            value <= interval.max &&
+            value >= interval.min
+          );
+        }
         case ArgTag.NUMBER: {
           return (
             typeof value === "number" &&
@@ -246,6 +264,12 @@ export class ArgDefValidator {
 
         case ArgTag.UNION: {
           const children = spec.getChildren().filter((c) => !c.isNoInput());
+          if (!children.length) {
+            // A union with no active members has no values to generate, so
+            // `undefined` is its only inhabitant. See ArgDefGenerator, which
+            // returns `undefined` for exactly this case.
+            return value === undefined;
+          }
           for (const c of children) {
             if (ArgDefValidator.validate(value, c)) {
               return true; // validated against one of the union specs

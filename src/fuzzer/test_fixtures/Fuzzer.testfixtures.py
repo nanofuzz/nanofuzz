@@ -89,3 +89,15 @@ def py_transformed_timeout(n: int) -> int:
 def py_transformed_timeoutTransformer(n: int) -> Union[List[int], None]:
     while True:
         pass
+
+
+def test_bigint_target(n: int) -> int:
+    if n == 42:
+        raise ValueError("Target crashed on 42")
+    return n * 2
+
+
+def test_bigint_targetValidator(r: FuzzTestResult) -> Literal["pass", "fail", "unknown"]:
+    if r['exception']:
+        return "pass"
+    return "pass" if r['out'] == r['in'][0] * 2 else "fail"
