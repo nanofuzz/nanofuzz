@@ -1,5 +1,5 @@
 import * as Config from "../../../Config";
-import { FuzzTests, Result } from "../../Fuzzer";
+import { FuzzTests, Result } from "../../Types";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as os from "os";
 import * as path from "path";

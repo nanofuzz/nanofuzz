@@ -13,6 +13,7 @@ import {
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
+  FuzzTestResults,
   FuzzValueOrigin,
   isFuzzResultTab,
   Judgment,
@@ -22,9 +23,8 @@ import * as Parser from "../fuzzer/adapters/ParserAdapter";
 import {
   ArgValueType,
   ArgValueTypeWrapped,
-  FuzzTestResults,
   ProgramLanguage,
-} from "../fuzzer/Fuzzer";
+} from "../fuzzer/analysis/Types";
 import {
   FuzzPanelFuzzRunMessage,
   FuzzPanelMessageToWebView,

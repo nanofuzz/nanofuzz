@@ -14,8 +14,6 @@ import {
 } from "./TypescriptCoverageMeasure";
 import { CodeCoverageMeasureStats } from "./AbstractCoverageMeasure";
 import {
-  ArgDef,
-  FunctionDef,
   FuzzEnv,
   FuzzGeneratorStatsBase,
   FuzzStopReason,
@@ -23,7 +21,9 @@ import {
   FuzzTestResults,
   InputAndSource,
   VmGlobals,
-} from "../Fuzzer";
+} from "../Types";
+import { ArgDef } from "../analysis/ArgDef";
+import { FunctionDef } from "../analysis/FunctionDef";
 import { normalizePathForKey } from "../Util";
 import {
   linearSource as jsSrcLinear,

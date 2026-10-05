@@ -6,7 +6,7 @@ import { ArgDefMutator } from "../analysis/ArgDefMutator";
 import { ArgDefShrinker } from "../analysis/ArgDefShrinker";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefGenerator } from "../analysis/ArgDefGenerator";
-import { FuzzGeneratorStatsBase } from "../Fuzzer";
+import { FuzzGeneratorStatsBase } from "../Types";
 import { NextableStatus } from "./Types";
 
 /**

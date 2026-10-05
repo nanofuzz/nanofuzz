@@ -1,4 +1,4 @@
-import { ProgramLanguage } from "../Fuzzer";
+import { ProgramLanguage } from "../analysis/Types";
 import * as PythonValueMapper from "./python/PythonValueMapper";
 import * as TypescriptValueMapper from "./typescript/TypescriptValueMapper";
 

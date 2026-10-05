@@ -1,12 +1,12 @@
 import { PythonRunner } from "./PythonRunner";
 import {
-  FunctionDef,
   FuzzEnv,
   FuzzGeneratorStatsBase,
   FuzzStopReason,
   FuzzTestResult,
   FuzzTestResults,
-} from "../../Fuzzer";
+} from "../../Types";
+import { FunctionDef } from "../../analysis/FunctionDef";
 import { PythonCoverageMeasure } from "../../measures/PythonCoverageMeasure";
 import { normalizePathForKey } from "../../Util";
 import { ArgDef } from "../../analysis/ArgDef";

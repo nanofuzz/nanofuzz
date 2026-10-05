@@ -6,12 +6,14 @@ import { ScoredInput } from "./Types";
 import {
   FuzzOptions,
   FuzzPinnedTest,
+  FuzzTestResults,
+  FuzzTestStats,
   GetFuzzerFocusFn,
   InputAndSource,
   TransformedInputAndSource,
 } from "./../Types";
 import { NextableStatus } from "./Types";
-import { FunctionDef, FuzzTestResults, FuzzTestStats } from "../Fuzzer";
+import { FunctionDef } from "../analysis/FunctionDef";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
 import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
 import * as ValueMapper from "../mappers/ValueMapper";
