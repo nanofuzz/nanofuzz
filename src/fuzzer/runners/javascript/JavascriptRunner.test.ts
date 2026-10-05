@@ -528,6 +528,7 @@ export function x(
 
       if (res.result.tag === "value") {
         const testResult: FuzzTestResult = {
+          testId: 0,
           pinned: false,
           inputGenerated: {
             tick: 0,
@@ -576,6 +577,7 @@ export function x(
       };
 
       const resultsStub: FuzzTestResults = {
+        runId: "run-0",
         toolVersion: "0.0.0",
         env: {
           options: {
@@ -751,6 +753,7 @@ export function x(
               },
             },
             {
+              testId: tick,
               pinned: false,
               inputGenerated: {
                 tick,
@@ -912,6 +915,7 @@ export function x(): number {
 
       if (res.result.tag === "value") {
         const testResult: FuzzTestResult = {
+          testId: 0,
           pinned: false,
           inputGenerated: {
             tick: 0,
@@ -955,6 +959,7 @@ export function x(): number {
       };
 
       const resultsStub: FuzzTestResults = {
+        runId: "run-0",
         toolVersion: "0.0.0",
         env: {
           options: {

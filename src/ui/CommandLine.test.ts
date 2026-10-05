@@ -332,7 +332,7 @@ describe("cli:", () => {
     expect(res.status).toBe(3); // Exit code 3 when 0 tests run
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -1542,7 +1542,7 @@ export function myPutTransformer(x: number): [number] {
       })[];
     };
 
-    const outputData = JSON5.parse<OutputDataWithCoverage>(
+    const outputData = JSONN.parse<OutputDataWithCoverage>(
       fs.readFileSync(outputFile, "utf8")
     );
 
