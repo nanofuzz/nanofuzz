@@ -1379,7 +1379,7 @@ function getNumericMutations<T extends number | bigint>(
   path: (string | number)[],
   ops: NumericOps<T>
 ): MutationProposal[] {
-  const proposals: MutationProposal[] = [];
+  const proposals: (MutationProposal & { value: T })[] = [];
 
   if (
     value !== ops.zero &&
@@ -1449,9 +1449,9 @@ function getNumericMutations<T extends number | bigint>(
   return proposals.filter(
     (e) =>
       e.value !== value &&
-      ops.compare(e.value as T, max) <= 0 &&
-      ops.compare(e.value as T, min) >= 0 &&
-      ops.isInteger(e.value as T)
+      ops.compare(e.value, max) <= 0 &&
+      ops.compare(e.value, min) >= 0 &&
+      ops.isInteger(e.value)
   );
 } // fn: getNumericMutations
 
