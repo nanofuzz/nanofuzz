@@ -417,9 +417,32 @@ const getRandomBigint: PrivateRandFn = (
     throw new Error("Min and max must be bigints");
 
   const range = max - min;
-  // TODO: might not sample uniformly
-  return BigInt(Math.round(prng() * Number(range))) + min;
-};
+  if (range <= 0n) return min;
+
+  // Single-step uniform sampling for small ranges
+  if (range <= BigInt(Number.MAX_SAFE_INTEGER)) {
+    const rangeInt = Number(range);
+    return BigInt(Math.floor(prng() * (rangeInt + 1))) + min;
+  }
+
+  // Bitwise chunking with rejection sampling for arbitrary precision.
+  // We use 48 bits per chunk (Math.floor(prng() * 0x1000000000000)) because
+  // it was faster than 8-bit, 30-bit, or string-based approaches.
+  const bitLength = getBigIntBitLength(range);
+  const mask = (1n << bitLength) - 1n;
+
+  while (true) {
+    let candidate = 0n;
+    for (let bits = 0n; bits < bitLength; bits += 48n) {
+      const chunk = BigInt(Math.floor(prng() * 0x1000000000000));
+      candidate = (candidate << 48n) | chunk;
+    }
+    candidate &= mask;
+    if (candidate <= range) {
+      return candidate + min;
+    }
+  }
+}; // fn: getRandomBigint
 
 /**
  * Returns a random number >= min and <= max
@@ -933,3 +956,19 @@ const FLOAT_SPECIALS: readonly number[] = Object.freeze([
   -Number.MAX_VALUE,
   -Number.EPSILON,
 ]);
+
+/**
+ * Returns the exact bit length of a non-negative BigInt without string allocation.
+ */
+function getBigIntBitLength(n: bigint): bigint {
+  let bits = 0n;
+  let temp = n;
+  while (temp >= 0x100000000n) {
+    bits += 32n;
+    temp >>= 32n;
+  }
+  if (temp > 0n) {
+    bits += BigInt(32 - Math.clz32(Number(temp)));
+  }
+  return bits;
+} // fn: getBigIntBitLength

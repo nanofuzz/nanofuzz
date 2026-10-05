@@ -447,6 +447,106 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(new Set(generated).size).toEqual(5);
   });
 
+  it("generates random bigints across large 128-bit signed ranges with exact bounds", () => {
+    const min = -1000000000000000000000000000000000000n; // < -2^120
+    const max = 2000000000000000000000000000000000000n; // > 2^120
+    const spec = makeArgDef(
+      dummyModule,
+      "largeBigInt",
+      0,
+      ArgTag.BIGINT,
+      argOptions,
+      0
+    );
+    spec.setIntervals([{ min, max }]);
+
+    const prng = seedrandom("largeBigIntSeed");
+    for (let i = 0; i < 50; i++) {
+      const val = ArgDefGenerator.gen(spec, prng);
+      expect(typeof val).toBe("bigint");
+      if (typeof val === "bigint") {
+        expect(val >= min).toBeTrue();
+        expect(val <= max).toBeTrue();
+      }
+      expect(ArgDefValidator.validate(val, spec)).toBeTrue();
+    }
+  });
+
+  it("fuzzes getRandomBigint across 100 random intervals from 0 to 256 bits", () => {
+    const prng = seedrandom("bigintIntervalFuzz");
+    for (let i = 0; i < 100; i++) {
+      // Pick random bit lengths and signs
+      const bitLen1 = Math.floor(prng() * 256);
+      const bitLen2 = Math.floor(prng() * 256);
+      let v1 = BigInt(Math.floor(prng() * 1000000)) << BigInt(bitLen1);
+      let v2 = BigInt(Math.floor(prng() * 1000000)) << BigInt(bitLen2);
+      if (prng() < 0.5) v1 = -v1;
+      if (prng() < 0.5) v2 = -v2;
+
+      const min = v1 < v2 ? v1 : v2;
+      const max = v1 < v2 ? v2 : v1;
+
+      const spec = makeArgDef(
+        dummyModule,
+        "fuzzedBigInt",
+        0,
+        ArgTag.BIGINT,
+        argOptions,
+        0
+      );
+      spec.setIntervals([{ min, max }]);
+
+      for (let j = 0; j < 30; j++) {
+        const val = ArgDefGenerator.gen(spec, prng);
+        expect(typeof val).toBe("bigint");
+        if (typeof val === "bigint") {
+          expect(val >= min).toBeTrue();
+          expect(val <= max).toBeTrue();
+        }
+        expect(ArgDefValidator.validate(val, spec)).toBeTrue();
+      }
+    }
+  });
+
+  it("verifies uniform distribution and endpoint reachability for BigInt generator", () => {
+    const min = -2n;
+    const max = 2n;
+    const spec = makeArgDef(
+      dummyModule,
+      "uniformBigInt",
+      0,
+      ArgTag.BIGINT,
+      argOptions,
+      0
+    );
+    spec.setIntervals([{ min, max }]);
+
+    const prng = seedrandom("uniformBigIntTest");
+    const counts: Record<string, number> = {
+      "-2": 0,
+      "-1": 0,
+      "0": 0,
+      "1": 0,
+      "2": 0,
+    };
+    const iterations = 5000;
+    for (let i = 0; i < iterations; i++) {
+      const val = ArgDefGenerator.gen(spec, prng);
+      if (typeof val === "bigint") {
+        counts[val.toString()] = (counts[val.toString()] ?? 0) + 1;
+      }
+    }
+
+    // Expected ~1000 per bin (20%). Assert each bin is between 15% and 25% (750 to 1250)
+    for (const key of Object.keys(counts)) {
+      expect(counts[key]).toBeGreaterThan(750);
+      expect(counts[key]).toBeLessThan(1250);
+    }
+    // Assert endpoints are hit
+    expect(counts["-2"]).toBeGreaterThan(0);
+    expect(counts["2"]).toBeGreaterThan(0);
+  });
+
   it("dimsUnique: can give up at the minimum dimension length", () => {
     const spec = makeArgDef(
       dummyModule,

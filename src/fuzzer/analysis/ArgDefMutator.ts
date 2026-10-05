@@ -362,7 +362,13 @@ export class ArgDefMutator {
             break;
           }
           case ArgTag.NUMBER: {
-            const value = Number(subInput.subElement);
+            const rawValue = subInput.subElement;
+            // an optional number with no value has nothing to mutate
+            // and we want to avoid converting undefined to NaN
+            if (rawValue === undefined && spec.isOptional()) {
+              break;
+            }
+            const value = Number(rawValue);
             const interval = spec.getIntervals()[0];
             addMutations(
               getNumericMutations(
@@ -376,7 +382,13 @@ export class ArgDefMutator {
             break;
           }
           case ArgTag.STRING: {
-            const value = String(subInput.subElement);
+            const rawValue = subInput.subElement;
+            // an optional string with no value has nothing to mutate
+            // and we want to avoid converting undefined to `undefined`
+            if (rawValue === undefined && spec.isOptional()) {
+              break;
+            }
+            const value = String(rawValue);
             if (options.strRegex !== undefined) {
               const regenerated = RegexStringBuilder.create(
                 options.strRegex,
