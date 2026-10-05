@@ -1,4 +1,5 @@
 import vscode from "vscode";
+import seedrandom from "seedrandom";
 import * as Config from "../../Config";
 import { ArgValueType } from "../analysis/Types";
 import * as JSONN from "../../Jsonn";
@@ -9,6 +10,7 @@ import * as telemetry from "../../telemetry/Telemetry";
 import * as zod from "zod/v4";
 import { zodOutputFormat } from "./AnthropicUtils";
 import { LlmCacheManager } from "./LlmCacheManager";
+import { LlmDelayCalculator } from "./LlmDelayCalculator";
 import {
   LlmCacheMode,
   LlmCacheStats,
@@ -57,7 +59,7 @@ export class LlmAdapter {
   protected _cacheManager: LlmCacheManager; // Cache manager
   protected _cfgString: string; // LLM config; for detecting config changes
 
-  public constructor() {
+  public constructor(prng?: seedrandom.prng) {
     LlmAdapter._handleDebug();
 
     const cfg = LlmAdapter.getConfig();
@@ -111,8 +113,16 @@ export class LlmAdapter {
 
     // Create the model backend
     this._backend = nodellm.createLLM(this._modelConfig);
-    this._cacheManager = new LlmCacheManager(cfg.cacheMode, cfg.cacheFile);
-  } // constructor
+    const delayConfig = cfg.cacheDelay
+      ? LlmDelayCalculator.parse(cfg.cacheDelay)
+      : undefined;
+    this._cacheManager = new LlmCacheManager(
+      cfg.cacheMode,
+      cfg.cacheFile,
+      delayConfig,
+      prng
+    );
+  }
 
   /**
    * Creates a fresh, stateless LLM chat session for a single query.
@@ -157,6 +167,11 @@ export class LlmAdapter {
    *
    * @param `fn` function for which inputs should be generated
    * @param `schema` optional Zod or JSON schema of the function's inputs
+   * @param `directives` formatting directives for input schema
+   * @param `allInputs` map of previously generated inputs
+   * @param `moduleSrc` full module source code
+   * @param `numRequested` number of inputs requested
+   * @param `reqSeqNum` optional 1-indexed sequence number of this request in the session
    * @returns a set of inputs, stats, and error information
    */
   public async genInputs(
@@ -165,7 +180,8 @@ export class LlmAdapter {
     directives: string[],
     allInputs: Map<string, unknown>,
     moduleSrc: string,
-    numRequested: number
+    numRequested: number,
+    reqSeqNum?: number
   ): Promise<{
     programInputs: { [k: string]: ArgValueType }[];
     stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
@@ -174,7 +190,16 @@ export class LlmAdapter {
     let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
     try {
       response = await this._query(
-        [prompt.genInputs(fn, directives, allInputs, moduleSrc, numRequested)],
+        [
+          prompt.genInputs(
+            fn,
+            directives,
+            allInputs,
+            moduleSrc,
+            numRequested,
+            reqSeqNum
+          ),
+        ],
         schema
       );
       const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
@@ -336,6 +361,7 @@ export class LlmAdapter {
     apiKey: string;
     cacheMode: LlmCacheMode;
     cacheFile: string;
+    cacheDelay: string;
   } {
     return {
       provider: LlmAdapter._getConfigValue("provider", "disabled"),
@@ -349,6 +375,7 @@ export class LlmAdapter {
         "cacheFile",
         ".nanofuzz-llm-cache.json"
       ),
+      cacheDelay: LlmAdapter._getConfigValue<string>("cacheDelay", "1x"),
     };
   } // fn: getConfig
 
@@ -392,16 +419,19 @@ export const prompt = {
     directives: string[],
     allInputs: Map<string, unknown>,
     moduleSrc: string,
-    numRequested: number
+    numRequested: number,
+    reqSeqNum: number = 1
   ): string => {
     const fnRef = fn.getRef();
     const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
     const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
     const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
 
-    let inputs = Config.get<boolean>("nanofuzz.ai.backfeedPriorInputs", true)
-      ? Array.from(allInputs.keys())
-      : [];
+    const backfeed = Config.get<boolean>(
+      "nanofuzz.ai.backfeedPriorInputs",
+      true
+    );
+    let inputs = backfeed ? Array.from(allInputs.keys()) : [];
     // draw a line at 10k inputs
     if (inputs.length > 10000) {
       inputs = inputs.slice(-10000);
@@ -432,8 +462,13 @@ ${fnSrc}
 
 ${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
 
-${inputs.length ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}` : ""}
-`;
+${
+  backfeed
+    ? inputs.length
+      ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}`
+      : ""
+    : `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`
+}`;
   },
 };
 

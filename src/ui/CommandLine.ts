@@ -1,16 +1,38 @@
+// Enable Node.js compile cache if supported by Node runtime (Node 22.8+)
+import moduleApi from "node:module";
+if (
+  "enableCompileCache" in moduleApi &&
+  typeof moduleApi.enableCompileCache === "function"
+) {
+  moduleApi.enableCompileCache();
+}
 import * as Commander from "commander";
 import * as Config from "../Config";
 import * as fs from "node:fs";
 import { SingleBar, Presets } from "cli-progress";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
-import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
+import { ArgDef } from "../fuzzer/analysis/ArgDef";
+import { FuzzBusyStatusMessage, FuzzOptions } from "../fuzzer/Types";
+import {
+  formatCompilingStatus,
+  formatInstrumentingStatus,
+  formatRunSummary,
+} from "./FuzzTextFormatter";
+import { FuzzerEngineVersion, FuzzerFactory } from "../fuzzer/FuzzerFactory";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
-import { FuzzOptions } from "../fuzzer/Types";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
+import * as JSONN from "../Jsonn";
 import { isError } from "../fuzzer/Util";
+import { isKeyedObject } from "../Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
+import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
+import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
+import { InputSchedulerType } from "../fuzzer/schedulers/Types";
+import pkg from "../../package.json";
+
+const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
 
 /**
  * Command line interface for NaNofuzz.
@@ -37,7 +59,7 @@ function createProgram(): Commander.Command {
   const program = new Commander.Command();
   program
     .name("nanofuzz")
-    .version(`NaNofuzz ${process.env.NANOFUZZ_VERSION}`)
+    .version(`NaNofuzz ${nanofuzzVersion}`)
     .argument(`<filename>`, `The Python or Typescript module to test`)
     .argument(`<function>`, `The entrypoint function to test`)
 
@@ -84,6 +106,25 @@ function createProgram(): Commander.Command {
       10000
     )
     .option(`--seed <string>`, `Seed for pseudo-random number generator`)
+    .option(`--no-shrink`, `Disable shrinking failing test inputs`)
+    .option(
+      `--max-shrink-time <integer>`,
+      `Maximum time in ms allowed for shrinking failing test inputs (0=no limit)`,
+      parseIntArgGeZero,
+      2000
+    )
+    .option(
+      `--output-results <all|failures|none>`,
+      `Output results mode: 'failures' (default), 'all', 'none'`,
+      parseOutputResults,
+      "failures"
+    )
+    .option(
+      `--engine <v1|v2>`,
+      `Fuzzer engine version: 'v1' (classic) or 'v2' (refactored)`,
+      (val: string): FuzzerEngineVersion => (val === "v2" ? "v2" : "v1"),
+      "v2"
+    )
 
     // ------------------------------- Transformers ------------------------------ //
 
@@ -121,26 +162,89 @@ function createProgram(): Commander.Command {
       parseAiCacheMode
     )
     .option(`--ai-cache-file <path>`, `Path to LLM cache file`)
+    .option(
+      `--ai-cache-delay <spec>`,
+      `Replay latency rule: '0' (instant), '500ms' (fixed), '0.5x' (scale), '+50ms' (offset), '100..500ms' (window), '~20%' or '~50ms' (jitter), '[50..500ms]' (clamp), or composed '0.5x ~20% [50..500ms]'`,
+      parseAiCacheDelay
+    )
+    .option(
+      `--no-ai-input-backfeed`,
+      `Disable backfeeding prior inputs to the AI model`
+    )
 
     // ------------------------ Composite Input Generator ------------------------ //
 
     .option(
-      `--cig-input-lookback <integer>`,
-      `Lookback window when choosing the next input generator`,
+      `--cig-scheduler <mab|random|round-robin|ucb1|thompson|ewma|mopt>`,
+      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin, ucb1, thompson, ewma, mopt)`,
+      parseCigScheduler,
+      "mab"
+    )
+    .option(
+      `--cig-scheduler-ucb1-exploration <float>`,
+      `Exploration constant (c) for UCB1 scheduler`,
+      parseFloatArgGeZero,
+      1.414
+    )
+    .option(
+      `--cig-scheduler-thompson-prior-variance <float>`,
+      `Prior variance for Thompson Sampling scheduler`,
+      parseFloatArgGeZero,
+      1.0
+    )
+    .option(
+      `--cig-scheduler-ewma-alpha <float>`,
+      `Smoothing factor (alpha) for EWMA scheduler`,
+      parseFloatArgZeroToOne,
+      0.2
+    )
+    .option(
+      `--cig-scheduler-ewma-exploration <float>`,
+      `Exploration chance (epsilon) for EWMA scheduler`,
+      parseFloatArgZeroToOne,
+      0.1
+    )
+    .option(
+      `--cig-scheduler-mopt-swarm-size <integer>`,
+      `Swarm size (number of particles) for MOpt scheduler`,
+      parseIntArgGeOne,
+      5
+    )
+    .option(
+      `--cig-scheduler-mopt-period <integer>`,
+      `Pilot evaluation period length for MOpt scheduler`,
+      parseIntArgGeOne,
+      50
+    )
+    .option(
+      `--cig-scheduler-mopt-inertia <float>`,
+      `Inertia weight (w) for MOpt scheduler`,
+      parseFloatArgZeroToOne,
+      0.7
+    )
+    .option(
+      `--cig-scheduler-mopt-exploration <float>`,
+      `Minimum generator probability for MOpt scheduler`,
+      parseFloatArgZeroToOne,
+      0.05
+    )
+    .option(
+      `--cig-scheduler-mab-lookback <integer>`,
+      `Lookback window when choosing the next input generator in MAB`,
       parseIntArgGeOne,
       500
+    )
+    .option(
+      `--cig-scheduler-mab-exploration <float>`,
+      `Chance of choosing the next input generator randomly in MAB`,
+      parseFloatArgZeroToOne,
+      0.1
     )
     .option(
       `--cig-input-chunk-size <integer>`,
       `Inputs to generate before choosing the next input generator`,
       parseIntArgGeOne,
       20
-    )
-    .option(
-      `--cig-randomness <float>`,
-      `Chance of choosing the next input generator randomly`,
-      parseFloatArgZeroToOne,
-      0.1
     )
     .option(
       `--cig-input-focus <integer>`,
@@ -185,10 +289,15 @@ export async function runCliInProcess(
   try {
     program.parse(args, { from: "user" });
   } catch (_e: unknown) {
+    // Commander throws a CommanderError with exitCode = 0 when handling --help or --version.
+    // In exitOverride() mode, catch this and return EXIT_OK (0) instead of treating it as a usage error.
+    if (_e instanceof Commander.CommanderError && _e.exitCode === 0) {
+      return EXIT_OK;
+    }
     return ERROR_USAGE; // command line usage error
   }
 
-  console.info(`NaNofuzz v${process.env.NANOFUZZ_VERSION}`);
+  console.info(`NaNofuzz v${nanofuzzVersion}`);
 
   if (program.args.length < 2) {
     console.error("Error: missing required arguments <filename> <function>");
@@ -245,28 +354,44 @@ export async function runCliInProcess(
   process.on("SIGINT", sigintListener);
 
   const updateFn = (payload: FuzzBusyStatusMessage) => {
-    if (!isCancelled) {
-      switch (payload.channel) {
-        case "summary":
-        case "milestone": {
-          if (!lastWasMilestone) {
-            bar.stop();
-          }
-          console.log(payload.msg);
-          break;
+    if (isCancelled) return;
+    switch (payload.type) {
+      case "compiling": {
+        if (!lastWasMilestone) {
+          bar.stop();
         }
-        case "update": {
-          if (lastWasMilestone) {
-            bar.start(100, 0);
-          }
-          if (payload.pct) {
-            bar.update(Math.max(0, Math.min(payload.pct, 100)));
-          }
-          break;
+        console.log(formatCompilingStatus(payload));
+        lastWasMilestone = true;
+        break;
+      }
+      case "instrumenting": {
+        if (!lastWasMilestone) {
+          bar.stop();
         }
+        console.log(formatInstrumentingStatus(payload));
+        lastWasMilestone = true;
+        break;
+      }
+      case "testing":
+      case "waiting-for-generator":
+      case "progress-tick": {
+        if (lastWasMilestone) {
+          bar.start(100, 0);
+          lastWasMilestone = false;
+        }
+        if (typeof payload.pct === "number") {
+          bar.update(Math.max(0, Math.min(payload.pct, 100)));
+        }
+        break;
+      }
+      case "testing-complete": {
+        if (!lastWasMilestone) {
+          bar.stop();
+          lastWasMilestone = true;
+        }
+        break;
       }
     }
-    lastWasMilestone = payload.channel !== "update" || isCancelled;
   };
 
   // infrastructure options
@@ -274,6 +399,13 @@ export async function runCliInProcess(
     "nanofuzz.fuzzer.hostStartupTimeout",
     options["hostStartupTimeout"]
   );
+
+  if (options["shrink"] !== undefined) {
+    Config.override("nanofuzz.fuzzer.shrinkFailures", options["shrink"]);
+  }
+  if (options["maxShrinkTime"] !== undefined) {
+    Config.override("nanofuzz.fuzzer.maxShrinkTime", options["maxShrinkTime"]);
+  }
 
   // measure options
   if (options["coverageScope"] !== undefined) {
@@ -296,19 +428,86 @@ export async function runCliInProcess(
   if (options["aiCacheFile"] !== undefined) {
     Config.override("nanofuzz.ai.cacheFile", options["aiCacheFile"]);
   }
+  if (options["aiCacheDelay"] !== undefined) {
+    Config.override("nanofuzz.ai.cacheDelay", options["aiCacheDelay"]);
+  }
+  if (options["aiInputBackfeed"] !== undefined) {
+    Config.override(
+      "nanofuzz.ai.backfeedPriorInputs",
+      options["aiInputBackfeed"]
+    );
+  }
 
   // composite input generator config options
-  Config.override(
-    "nanofuzz.generators.compositeLookbackWindow",
-    options["cigInputLookback"]
-  );
+  if (options["cigScheduler"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.impl",
+      options["cigScheduler"]
+    );
+  }
+  if (options["cigSchedulerUcb1Exploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.ucb1.exploration",
+      options["cigSchedulerUcb1Exploration"]
+    );
+  }
+  if (options["cigSchedulerThompsonPriorVariance"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.thompson.priorVariance",
+      options["cigSchedulerThompsonPriorVariance"]
+    );
+  }
+  if (options["cigSchedulerEwmaAlpha"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.ewma.alpha",
+      options["cigSchedulerEwmaAlpha"]
+    );
+  }
+  if (options["cigSchedulerEwmaExploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.ewma.exploration",
+      options["cigSchedulerEwmaExploration"]
+    );
+  }
+  if (options["cigSchedulerMoptSwarmSize"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mopt.swarmSize",
+      options["cigSchedulerMoptSwarmSize"]
+    );
+  }
+  if (options["cigSchedulerMoptPeriod"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mopt.period",
+      options["cigSchedulerMoptPeriod"]
+    );
+  }
+  if (options["cigSchedulerMoptInertia"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mopt.inertia",
+      options["cigSchedulerMoptInertia"]
+    );
+  }
+  if (options["cigSchedulerMoptExploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mopt.exploration",
+      options["cigSchedulerMoptExploration"]
+    );
+  }
+  if (options["cigSchedulerMabLookback"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mab.lookback",
+      options["cigSchedulerMabLookback"]
+    );
+  }
+  if (options["cigSchedulerMabExploration"] !== undefined) {
+    Config.override(
+      "nanofuzz.generators.scheduler.mab.exploration",
+      options["cigSchedulerMabExploration"]
+    );
+  }
   Config.override(
     "nanofuzz.generators.compositeChunkSize",
     options["cigInputChunkSize"]
-  );
-  Config.override(
-    "nanofuzz.generators.compositeExplorationChance",
-    options["cigRandomness"]
   );
   Config.override(
     "nanofuzz.generators.leaderboardInitialFocus",
@@ -372,74 +571,146 @@ export async function runCliInProcess(
       return cliValue;
     }
 
-    const results = await new Tester(filename, fnname, {
-      argDefaults: ArgDef.getDefaultOptions(),
-      maxTests: getEffectiveOption("maxTests", "maxTests", options["maxTests"]),
-      fnTimeout: getEffectiveOption(
-        "fnTimeout",
-        "fnTimeout",
-        options["fnTimeout"]
-      ),
-      suiteTimeout: getEffectiveOption(
-        "maxRuntime",
-        "suiteTimeout",
-        options["maxRuntime"]
-      ),
-      seed: options["seed"],
-      maxDupeInputs: getEffectiveOption(
-        "maxDupeInputs",
-        "maxDupeInputs",
-        options["maxDupeInputs"]
-      ),
-      maxFailures: getEffectiveOption(
-        "maxFailures",
-        "maxFailures",
-        options["maxFailures"]
-      ),
-      useTransformer: options["transformer"],
-      useImplicit: options["heuristicOracle"],
-      useHuman: options["exampleOracle"],
-      useProperty: options["propertyOracle"],
-      outputFile: outfile,
-      measures: {
-        CoverageMeasure: {
-          enabled: options["coverageMeasure"],
-          weight: 1,
+    // TODO: There is no upgrade logic here like in FuzzPanel:
+    //       We need to re-factor the nano file logic out of
+    //       FuzzPanel so that we can call it here.
+    let injectTests: FuzzPinnedTest[] = [];
+    const nanoJsonFile = fs.existsSync(filename + ".nano.json5")
+      ? filename + ".nano.json5"
+      : fs.existsSync(filenameIn + ".nano.json5")
+        ? filenameIn + ".nano.json5"
+        : undefined;
+    if (nanoJsonFile && fs.existsSync(nanoJsonFile)) {
+      try {
+        const fullSet = JSONN.parse<FuzzTests>(
+          fs.readFileSync(nanoJsonFile, "utf8")
+        );
+        const fnSet = fullSet.functions?.[fnname];
+        if (fnSet && fnSet.tests) {
+          injectTests = Object.values(fnSet.tests);
+        }
+      } catch {
+        // Ignore read or parse errors
+      }
+    }
+
+    const fuzzer = FuzzerFactory(
+      filename,
+      fnname,
+      {
+        argDefaults: ArgDef.getDefaultOptions(),
+        maxTests: getEffectiveOption(
+          "maxTests",
+          "maxTests",
+          options["maxTests"]
+        ),
+        fnTimeout: getEffectiveOption(
+          "fnTimeout",
+          "fnTimeout",
+          options["fnTimeout"]
+        ),
+        suiteTimeout: getEffectiveOption(
+          "maxRuntime",
+          "suiteTimeout",
+          options["maxRuntime"]
+        ),
+        seed: options["seed"],
+        maxDupeInputs: getEffectiveOption(
+          "maxDupeInputs",
+          "maxDupeInputs",
+          options["maxDupeInputs"]
+        ),
+        maxFailures: getEffectiveOption(
+          "maxFailures",
+          "maxFailures",
+          options["maxFailures"]
+        ),
+        useTransformer: options["transformer"],
+        useImplicit: options["heuristicOracle"],
+        useHuman: options["exampleOracle"],
+        useProperty: options["propertyOracle"],
+        outputResults: getEffectiveOption(
+          "outputResults",
+          "outputResults",
+          options["outputResults"] ?? "failures"
+        ),
+        outputFile: outfile,
+        measures: {
+          CoverageMeasure: {
+            enabled: options["coverageMeasure"],
+            weight: 1,
+          },
+          FailedTestMeasure: {
+            enabled: options["failedTestMeasure"],
+            weight: 1,
+          },
         },
-        FailedTestMeasure: {
-          enabled: options["failedTestMeasure"],
-          weight: 1,
+        generators: {
+          AiInputGenerator: { enabled: options["aiInputGenerator"] },
+          MutationInputGenerator: {
+            enabled: options["mutationInputGenerator"],
+          },
+          RandomInputGenerator: {
+            enabled: options["randomInputGenerator"],
+          },
         },
       },
-      generators: {
-        AiInputGenerator: { enabled: options["aiInputGenerator"] },
-        MutationInputGenerator: {
-          enabled: options["mutationInputGenerator"],
-        },
-        RandomInputGenerator: {
-          enabled: options["randomInputGenerator"],
-        },
-      },
-    }).testSync(undefined, undefined, updateFn, () => isCancelled);
+      { engine: options["engine"] }
+    );
+
+    console.log(`Target: ${fnname} of ${filename}`);
+    console.log(`Target ready to test.`);
+
+    const results = await fuzzer.test(
+      injectTests,
+      undefined,
+      updateFn,
+      () => isCancelled
+    );
 
     process.removeListener("SIGINT", sigintListener);
+
+    if (outfile) {
+      const covStats =
+        typeof results.stats.measures.CodeCoverageMeasure === "function"
+          ? await results.stats.measures.CodeCoverageMeasure()
+          : undefined;
+      JSONN.toFile(outfile, results, (k: string, v: unknown) =>
+        k === "CodeCoverageMeasure"
+          ? covStats
+          : k === "coverageMeasure" && isKeyedObject(v)
+            ? { current: v.current }
+            : v
+      );
+    }
+
+    if (!lastWasMilestone) {
+      bar.stop();
+      lastWasMilestone = true;
+    }
+
+    const diagnostics = fuzzer.getInputGeneratorDiagnostics();
+    console.log(formatRunSummary(results, diagnostics, isCancelled));
 
     if (isCancelled) {
       return USER_CANCELLED;
     }
 
-    const someTestsRan =
-      results.stats.counters.passedTests + results.stats.counters.failedTests;
-    const someTestsFailed = results.stats.counters.failedTests;
+    const totalTestsRan =
+      results.stats.counters.passedTests +
+      results.stats.counters.failedTests +
+      results.stats.counters.erroredTests;
+    const totalTestsFailed =
+      results.stats.counters.failedTests + results.stats.counters.erroredTests;
 
-    if (someTestsRan && !results.stats.counters.erroredTests) {
-      if (someTestsFailed) {
+    if (totalTestsRan > 0) {
+      if (totalTestsFailed > 0) {
         return ERROR_TEST_FAILURE; // tests ran and some failed
       } else {
-        return EXIT_OK; // tests ran and none failed);
+        return EXIT_OK; // tests ran and none failed
       }
     } else {
-      return ERROR_INTERNAL; // internal error
+      return ERROR_INTERNAL; // internal error (0 tests ran)
     }
   } catch (e: unknown) {
     process.removeListener("SIGINT", sigintListener);
@@ -474,6 +745,40 @@ function parseFloatArgGeZero(value: string, _previous: number): number {
   return parsedValue;
 } // fn: parseFloatArgGeZero
 
+function isInputSchedulerType(val: string): val is InputSchedulerType {
+  return (
+    val === "mab" ||
+    val === "random" ||
+    val === "round-robin" ||
+    val === "ucb1" ||
+    val === "thompson" ||
+    val === "ewma" ||
+    val === "mopt"
+  );
+}
+
+function parseCigScheduler(
+  value: string,
+  _previous: string
+): InputSchedulerType {
+  if (isInputSchedulerType(value)) {
+    return value;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid cig scheduler '${value}'. Allowed: mab, random, round-robin, ucb1, thompson, ewma, mopt`
+  );
+} // fn: parseCigScheduler
+
+function parseOutputResults(value: string, _previous: string): string {
+  const allowed = ["all", "failures", "none"];
+  if (!allowed.includes(value)) {
+    throw new Commander.InvalidArgumentError(
+      `Invalid output results mode '${value}'. Allowed: ${allowed.join(", ")}`
+    );
+  }
+  return value;
+} // fn: parseOutputResults
+
 function parseAiCacheMode(value: string, _previous: string): string {
   const allowed = [
     "passthrough",
@@ -489,6 +794,18 @@ function parseAiCacheMode(value: string, _previous: string): string {
   }
   return value;
 } // fn: parseAiCacheMode
+
+function parseAiCacheDelay(value: string, _previous: string): string {
+  try {
+    LlmDelayCalculator.parse(value);
+    return value;
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Commander.InvalidArgumentError(
+      `Invalid ai cache delay '${value}': ${msg}`
+    );
+  }
+} // fn: parseAiCacheDelay
 
 function parseCoverageScopeOption(value: string, _previous: string): string {
   try {

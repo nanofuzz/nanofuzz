@@ -1,4 +1,3 @@
-import * as JSONN from "../../Jsonn";
 import { createInstrumenter } from "istanbul-lib-instrument";
 import { createSourceMapStore, MapStore } from "istanbul-lib-source-maps";
 import { RawSourceMap } from "source-map";
@@ -6,6 +5,7 @@ import {
   CoverageMap,
   CoverageMapData,
   createCoverageMap,
+  createFileCoverage,
   FileCoverage,
   FileCoverageData,
 } from "istanbul-lib-coverage";
@@ -14,7 +14,7 @@ import {
   InputAndSource,
   FuzzTestResult,
   FuzzTestResults,
-} from "../Fuzzer";
+} from "../Types";
 import { normalizePathForKey } from "../Util";
 import { AbstractRunner } from "../runners/AbstractRunner";
 import * as fs from "fs";
@@ -65,10 +65,7 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     });
 
     if (Object.keys(this._coverageData).length > 0) {
-      AbstractCoverageMeasure.better_merge(
-        this._globalCoverageMap,
-        this._snapshot()
-      );
+      AbstractCoverageMeasure.merge(this._globalCoverageMap, this._snapshot());
       this._coverageData = this._snapshotZero();
     }
   } // fn: onRunStart
@@ -271,7 +268,7 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     while (nextPred) {
       if (!nextPred.pred) {
         accumBefore = this._toNumber(nextPred.meas.coverageMeasure.accum);
-        AbstractCoverageMeasure.better_merge(
+        AbstractCoverageMeasure.merge(
           nextPred.meas.coverageMeasure.accum,
           currentCoverageData
         );
@@ -282,10 +279,7 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
 
     // Merge the current coverage into the global coverage map
     const globalBefore = this._toNumber(this._globalCoverageMap);
-    AbstractCoverageMeasure.better_merge(
-      this._globalCoverageMap,
-      currentCoverageData
-    );
+    AbstractCoverageMeasure.merge(this._globalCoverageMap, currentCoverageData);
 
     // Build the measurement object
     const meas = {
@@ -298,10 +292,7 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
           this._toNumber(this._globalCoverageMap) - globalBefore
         ),
         // Python version does not have _snapshot, so this is to keep consistency with Python
-        accum: AbstractCoverageMeasure.better_merge(
-          createCoverageMap({}),
-          currentCoverageData
-        ),
+        accum: createCoverageMap(currentCoverageData),
         accumDelta: Math.max(0, accumAfter - accumBefore),
       },
     };
@@ -425,8 +416,8 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
             const fileSummary = tsCoverageMap
               .fileCoverageFor(filePath)
               .toSummary();
-            const fileMap = JSONN.parse<FileCoverage>(
-              JSONN.stringify(tsCoverageMap.fileCoverageFor(filePath))
+            const fileMap = createFileCoverage(
+              structuredClone(tsCoverageMap.fileCoverageFor(filePath).data)
             );
             // Omit functions and branches with no hits
             for (const k of Object.keys(fileMap.f)) {

@@ -63,11 +63,6 @@ export function stringify(
   return text;
 }
 
-function cast<T>(val: unknown): T;
-function cast(val: unknown): unknown {
-  return val;
-} // fn: cast()
-
 /**
  * Parses a JSONN string and constructing a JavaScript value or object
  * described by the string.
@@ -119,133 +114,316 @@ export function parse<T>(
   return cast<T>(result);
 } // fn: parse()
 
+// -----------------------------------------------------------------------------
+// Core Binary Packing and Unpacking
+// -----------------------------------------------------------------------------
+
 /**
  * Packs a value into a MsgPack Uint8Array after sanitizing custom types.
  *
  * @param value The value to pack into MsgPack binary format.
+ * @param replacer An optional replacer function to filter or transform
+ *        properties in the same pass prior to serialization.
  * @returns Uint8Array containing MsgPack binary data.
  */
-export function pack(value: unknown): Uint8Array {
-  return msgpackEncode(jsonnReplacerMsgpack(value));
+export function pack(
+  value: unknown,
+  replacer?:
+    | ((this: unknown, key: string, value: unknown) => unknown)
+    | null
+    | undefined
+): Uint8Array {
+  const sanitized = jsonnReplacerMsgpack({ "": value }, "", value, replacer);
+  return msgpackEncode(sanitized);
 } // fn: pack()
+
+/**
+ * Packs a value into a binary string for fast ephemeral equality and Set
+ * uniqueness checks.
+ *
+ * @param value The value to pack into binary string format.
+ * @param replacer Optional replacer function to filter or transform
+ *        properties prior to packing.
+ * @returns Binary string representation of the packed value.
+ */
+export function packString(
+  value: unknown,
+  replacer?:
+    | ((this: unknown, key: string, value: unknown) => unknown)
+    | null
+    | undefined
+): string {
+  const packed = pack(value, replacer);
+  return Buffer.from(
+    packed.buffer,
+    packed.byteOffset,
+    packed.byteLength
+  ).toString("binary");
+} // fn: packString()
 
 /**
  * Unpacks a MsgPack binary buffer back into a JavaScript value.
  *
  * @param buffer The MsgPack binary buffer to decode.
+ * @param reviver Optional reviver function to transform parsed values in the
+ *        same pass after decoding.
  * @returns The unpacked JavaScript value.
  */
-export function unpack<T>(buffer: Uint8Array | ArrayBuffer | Buffer): T {
+export function unpack<T>(
+  buffer: Uint8Array | ArrayBuffer | Buffer,
+  reviver?:
+    | ((this: unknown, key: string, value: unknown) => unknown)
+    | null
+    | undefined
+): T {
   const decoded = msgpackDecode(buffer);
-  return cast<T>(jsonnReviverMsgpack(decoded));
+  return cast<T>(jsonnReviverMsgpack({ "": decoded }, "", decoded, reviver));
 } // fn: unpack()
+
+// -----------------------------------------------------------------------------
+// File I/O
+// -----------------------------------------------------------------------------
+
+function getFs(): typeof import("node:fs") {
+  const req = typeof require !== "undefined" ? require : undefined;
+  if (!req) {
+    throw new Error("File I/O is not supported in this environment");
+  }
+  const mod = "fs";
+  return req(mod);
+}
+
+function getPath(): typeof import("node:path") {
+  const req = typeof require !== "undefined" ? require : undefined;
+  if (!req) {
+    throw new Error("File I/O is not supported in this environment");
+  }
+  const mod = "path";
+  return req(mod);
+}
+
+/**
+ * Serializes and writes a JavaScript value to disk, automatically selecting
+ * human-readable text (JSONN formatted with indentation) or binary MsgPack
+ * based on the file extension. Creates parent directories if needed.
+ *
+ * @param filePath Path to the file to write.
+ * @param value The JavaScript value to serialize and write.
+ * @param replacer Optional replacer function for serialization.
+ * @param space Indentation spaces for text format (default: 2).
+ */
+export function toFile(
+  filePath: string,
+  value: unknown,
+  replacer?:
+    | ((this: unknown, key: string, value: unknown) => unknown)
+    | null
+    | undefined,
+  space: string | number = 0
+): void {
+  const nodeFs = getFs();
+  const nodePath = getPath();
+  const dir = nodePath.dirname(filePath);
+  if (!nodeFs.existsSync(dir)) {
+    nodeFs.mkdirSync(dir, { recursive: true });
+  }
+
+  if (isTextFilename(filePath)) {
+    nodeFs.writeFileSync(filePath, stringify(value, replacer, space), "utf-8");
+  } else {
+    nodeFs.writeFileSync(filePath, pack(value, replacer));
+  }
+} // fn: toFile()
+
+/**
+ * Reads and deserializes a file from disk into a JavaScript value,
+ * automatically detecting whether to parse as text (JSONN/JSON/JSON5/TXT)
+ * or decode as binary (MsgPack) based on the file extension.
+ *
+ * @param filePath Path to the file to read.
+ * @param reviver Optional custom reviver function for text parsing.
+ * @returns Deserialized JavaScript value.
+ */
+export function fromFile<T = unknown>(
+  filePath: string,
+  reviver?: (this: unknown, key: string, value: unknown) => unknown
+): T {
+  const nodeFs = getFs();
+  if (isTextFilename(filePath)) {
+    const raw = nodeFs.readFileSync(filePath, "utf-8");
+    return parse<T>(raw, reviver);
+  } else {
+    const raw = nodeFs.readFileSync(filePath);
+    return unpack<T>(raw, reviver);
+  }
+} // fn: fromFile()
+
+// -----------------------------------------------------------------------------
+// Helper and Utility Functions
+// -----------------------------------------------------------------------------
+
+/**
+ * Returns true if the file path has a human-readable text-based extension
+ * (.json, .json5, .jsonn, .txt, .text), indicating it should be formatted
+ * as text rather than MessagePack binary.
+ *
+ * @param filePath The file path or filename to check.
+ * @returns true if text format; false for binary (e.g. .msgpack, .mpk, .jsonnb).
+ */
+export function isTextFilename(filePath: string): boolean {
+  return /\.(json|json5|jsonn|txt|text)$/i.test(filePath);
+}
+
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+} // fn: cast()
 
 /**
  * Recursively converts Sets, Maps, BigInts, and undefined values in an object structure
- * to MsgPack-serializable placeholders or native binary formats.
+ * to MsgPack-serializable placeholders, applying any user-provided replacer in the
+ * same single pass.
  *
- * @param val The value to sanitize
- * @returns Sanitized value suitable for MsgPack encoding
+ * @param holder The container object holding the property.
+ * @param key The key or index in the container.
+ * @param value The value to sanitize.
+ * @param replacer Optional replacer function to filter or transform values.
+ * @returns Sanitized value suitable for MsgPack encoding.
  */
-function jsonnReplacerMsgpack(value: unknown): unknown {
-  if (isBufferOrUint8Array(value)) {
-    return value;
+function jsonnReplacerMsgpack(
+  holder: unknown,
+  key: string,
+  value: unknown,
+  replacer?:
+    | ((this: unknown, key: string, value: unknown) => unknown)
+    | null
+    | undefined
+): unknown {
+  const current = replacer ? replacer.call(holder, key, value) : value;
+
+  if (isBufferOrUint8Array(current)) {
+    return current;
   }
-  if (value instanceof Map) {
+  if (current instanceof Map) {
     return {
-      [PlaceHolderMapKey]: Array.from(value.entries()).map(([k, v]) => [
-        jsonnReplacerMsgpack(k),
-        jsonnReplacerMsgpack(v),
+      [PlaceHolderMapKey]: Array.from(current.entries()).map(([k, v]) => [
+        jsonnReplacerMsgpack(current, String(k), k, replacer),
+        jsonnReplacerMsgpack(current, String(k), v, replacer),
       ]),
     };
   }
-  if (value instanceof Set) {
-    const canonical = makeCanonicalSet(Array.from(value.values()));
+  if (current instanceof Set) {
+    const canonical = makeCanonicalSet(Array.from(current.values()));
     return {
-      [PlaceHolderSetKey]: Array.from(canonical.values()).map(
-        jsonnReplacerMsgpack
+      [PlaceHolderSetKey]: Array.from(canonical.values()).map((v) =>
+        jsonnReplacerMsgpack(current, "", v, replacer)
       ),
     };
   }
-  if (typeof value === "undefined") {
+  if (typeof current === "undefined") {
     return {
       [PlaceHolderValueKey]: UndefinedValue,
     };
   }
-  if (typeof value === "bigint") {
+  if (typeof current === "bigint") {
     return {
-      [PlaceHolderBigIntKey]: value.toString(),
+      [PlaceHolderBigIntKey]: current.toString(),
     };
   }
-  if (Array.isArray(value)) {
-    return value.map(jsonnReplacerMsgpack);
+  if (Array.isArray(current)) {
+    return current.map((item, index) =>
+      jsonnReplacerMsgpack(current, String(index), item, replacer)
+    );
   }
-  if (value !== null && typeof value === "object") {
+  if (current !== null && typeof current === "object") {
     const obj: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      obj[k] = jsonnReplacerMsgpack(v);
+    for (const [k, v] of Object.entries(current)) {
+      obj[k] = jsonnReplacerMsgpack(current, k, v, replacer);
     }
     return obj;
   }
-  return value;
+  return current;
 } // fn: jsonnReplacerMsgpack()
 
 /**
- * Recursively revives JSONN placeholders after MsgPack decoding.
+ * Recursively revives JSONN placeholders after MsgPack decoding, applying any
+ * user-provided reviver function in the same single bottom-up pass.
  *
- * @param value The value decoded from MsgPack
- * @returns Revived JavaScript value with original types
+ * @param holder The container object holding the property.
+ * @param key The key or index in the container.
+ * @param value The value decoded from MsgPack.
+ * @param reviver Optional reviver function to transform revived values.
+ * @returns Revived JavaScript value with original types.
  */
-function jsonnReviverMsgpack(value: unknown): unknown {
+function jsonnReviverMsgpack(
+  holder: unknown,
+  key: string,
+  value: unknown,
+  reviver?:
+    | ((this: unknown, key: string, value: unknown) => unknown)
+    | null
+    | undefined
+): unknown {
+  let revived: unknown = value;
+
   if (isBufferOrUint8Array(value)) {
-    return value;
-  }
-  if (value !== null && typeof value === "object") {
+    revived = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  } else if (value !== null && typeof value === "object") {
     if (isKeyedObject(value) && value[PlaceHolderValueKey] === UndefinedValue) {
-      return undefined;
-    }
-    if (
+      revived = undefined;
+    } else if (
       isKeyedObject(value) &&
       typeof value[PlaceHolderBigIntKey] === "string"
     ) {
-      return BigInt(String(value[PlaceHolderBigIntKey]));
-    }
-    if (
+      revived = BigInt(String(value[PlaceHolderBigIntKey]));
+    } else if (
       isKeyedObject(value) &&
       Array.isArray(value[PlaceHolderUint8ArrayKey])
     ) {
       const arr = value[PlaceHolderUint8ArrayKey];
-      return new Uint8Array(
+      revived = new Uint8Array(
         arr.filter((e): e is number => typeof e === "number")
       );
-    }
-    if (isKeyedObject(value) && Array.isArray(value[PlaceHolderMapKey])) {
+    } else if (
+      isKeyedObject(value) &&
+      Array.isArray(value[PlaceHolderMapKey])
+    ) {
       const rawEntries = value[PlaceHolderMapKey];
       const entries: Array<[unknown, unknown]> = [];
       for (const entry of rawEntries) {
         if (Array.isArray(entry) && entry.length === 2) {
           entries.push([
-            jsonnReviverMsgpack(entry[0]),
-            jsonnReviverMsgpack(entry[1]),
+            jsonnReviverMsgpack(rawEntries, "", entry[0], reviver),
+            jsonnReviverMsgpack(rawEntries, "", entry[1], reviver),
           ]);
         }
       }
-      return new Map(entries);
+      revived = new Map(entries);
+    } else if (
+      isKeyedObject(value) &&
+      Array.isArray(value[PlaceHolderSetKey])
+    ) {
+      const rawValues = value[PlaceHolderSetKey].map((v) =>
+        jsonnReviverMsgpack(value, "", v, reviver)
+      );
+      revived = makeCanonicalSet(rawValues);
+    } else if (Array.isArray(value)) {
+      revived = value.map((item, index) =>
+        jsonnReviverMsgpack(value, String(index), item, reviver)
+      );
+    } else {
+      const obj = isKeyedObject(value) ? value : {};
+      for (const [k, v] of Object.entries(value)) {
+        obj[k] = jsonnReviverMsgpack(value, k, v, reviver);
+      }
+      revived = obj;
     }
-    if (isKeyedObject(value) && Array.isArray(value[PlaceHolderSetKey])) {
-      const rawValues = value[PlaceHolderSetKey].map(jsonnReviverMsgpack);
-      return makeCanonicalSet(rawValues);
-    }
-    if (Array.isArray(value)) {
-      return value.map(jsonnReviverMsgpack);
-    }
-    const obj: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      obj[k] = jsonnReviverMsgpack(v);
-    }
-    return obj;
   }
-  return value;
+
+  if (typeof reviver === "function") {
+    return reviver.call(holder, key, revived);
+  }
+  return revived;
 } // fn: jsonnReviverMsgpack()
 
 /**

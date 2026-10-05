@@ -1,7 +1,25 @@
+// Enable Node.js compile cache if supported by Node runtime (Node 22.8+)
+const moduleApi = require("node:module");
+if (
+  "enableCompileCache" in moduleApi &&
+  typeof moduleApi.enableCompileCache === "function"
+) {
+  moduleApi.enableCompileCache();
+}
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { spawn } = require("child_process");
+
+// Clean up any stale compiler output once before running tests
+try {
+  const tmpTsc = path.join(fs.realpathSync(os.tmpdir()), "nanofuzz", "tsc");
+  if (fs.existsSync(tmpTsc)) {
+    fs.rmSync(tmpTsc, { recursive: true, force: true });
+  }
+} catch {
+  // Ignore cleanup errors
+}
 
 const isVerbose = process.argv.includes("--verbose");
 

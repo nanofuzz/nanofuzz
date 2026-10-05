@@ -1,7 +1,14 @@
+// Enable Node.js compile cache if supported by Node runtime (Node 22.8+)
+import * as moduleApi from "node:module";
+if (
+  "enableCompileCache" in moduleApi &&
+  typeof moduleApi.enableCompileCache === "function"
+) {
+  moduleApi.enableCompileCache();
+}
 import * as JSONN from "../../../Jsonn";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import * as moduleApi from "node:module";
 import vm from "node:vm";
 import { Worker } from "node:worker_threads";
 import { serialize, deserialize } from "node:v8";
@@ -21,6 +28,15 @@ main().catch((err) => {
 
 function isStringArray(val: unknown): val is string[] {
   return Array.isArray(val) && val.every((item) => typeof item === "string");
+}
+
+function isPromiseLike(val: unknown): val is PromiseLike<unknown> {
+  return (
+    val !== null &&
+    (typeof val === "object" || typeof val === "function") &&
+    "then" in val &&
+    typeof Reflect.get(val, "then") === "function"
+  );
 }
 
 function getGlobalPaths(): string[] {
@@ -134,10 +150,39 @@ async function main() {
         i < typeHints.length ? transformArg(arg, typeHints[i]) : arg
       );
 
+      const startExecTime = performance.now();
       if (input.timeout && input.timeout > 0) {
         value = functionTimeout(fnToExec)(input.timeout, ...hydratedArgs);
       } else {
         value = fnToExec(...hydratedArgs);
+      }
+
+      if (isPromiseLike(value)) {
+        if (input.timeout && input.timeout > 0) {
+          const elapsed = performance.now() - startExecTime;
+          const remainingTimeout = Math.max(1, input.timeout - elapsed);
+          let timer: NodeJS.Timeout | undefined;
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              const err = new Error("Script execution timed out");
+              Reflect.set(err, "code", "ERR_SCRIPT_EXECUTION_TIMEOUT");
+              reject(err);
+            }, remainingTimeout);
+            if (typeof timer.unref === "function") {
+              timer.unref();
+            }
+          });
+
+          try {
+            value = await Promise.race([value, timeoutPromise]);
+          } finally {
+            if (timer !== undefined) {
+              clearTimeout(timer);
+            }
+          }
+        } else {
+          value = await value;
+        }
       }
     } catch (e: unknown) {
       const isTimeout =
@@ -218,17 +263,10 @@ function setupNodePath() {
 
 /**
  * Sets up the environment for the JavascriptRunnerHost process, including
- * redirecting console output to stderr and enabling Node.js compile cache,
- * if available.
+ * setting up NODE_PATH and redirecting console output to stderr.
  */
 function setup() {
   setupNodePath();
-
-  // Activate Node.js compile cache if available (Node 22+)
-  const enableCache = Reflect.get(moduleApi, "enableCompileCache");
-  if (typeof enableCache === "function") {
-    enableCache();
-  }
 
   // Redirect all console output away from stdout so IPC stdout is 100% clean
   const toStderr = (...args: unknown[]) => {
@@ -257,6 +295,14 @@ function setup() {
 
   process.stdin.on("data", (chunk: Buffer) => {
     stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
+  });
+
+  // Ignore SIGINT in runner host; lifecycle is managed exclusively by the parent process
+  process.on("SIGINT", () => {});
+
+  process.on("unhandledRejection", (reason) => {
+    // Prevent unhandled promise rejections in background tasks from crashing the host
+    console.error("Unhandled promise rejection:", reason);
   });
 } // fn: setup
 

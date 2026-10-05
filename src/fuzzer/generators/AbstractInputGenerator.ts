@@ -1,14 +1,14 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "../analysis/ArgDef";
-import { InputAndSource } from "./../Types";
-import { FuzzTestResults } from "../Fuzzer";
+import { FuzzPinnedTest, FuzzTestResults, InputAndSource } from "./../Types";
 import { InputGeneratorStats, NextableStatus } from "./Types";
+import { AbstractRunner } from "../runners/AbstractRunner";
 
 /**
  * Abstract class of an input generator
  */
 export abstract class AbstractInputGenerator {
-  protected _specs; // ArgDef specs that describe inputs.
+  protected _specs: ArgDef[]; // ArgDef specs that describe inputs.
   protected _prng; // pseudo random number generator
   protected _pendingPromise?: Promise<boolean>; // Pending promise for async input generation
 
@@ -62,7 +62,8 @@ export abstract class AbstractInputGenerator {
         break;
       }
     }
-    if (this.nextable() === "now") {
+    const status = this.nextable();
+    if (status === "now" || status === "now!") {
       return this.next();
     }
     throw new Error(
@@ -80,7 +81,13 @@ export abstract class AbstractInputGenerator {
   /**
    * Executes any tasks when the test run begins
    */
-  public onRunStart(_active: boolean): void {
+  public onRunStart(
+    _active: boolean,
+    _injectedInputs: (FuzzPinnedTest | Omit<InputAndSource, "tick">)[] = [],
+    _transformRunner?: AbstractRunner,
+    _fnTimeout: number = 0,
+    _maxDupeInputs: number = 0
+  ): void {
     return;
   } // fn: onRunStart
 

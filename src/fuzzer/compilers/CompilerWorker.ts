@@ -1,3 +1,11 @@
+// Enable Node.js compile cache if supported by Node runtime (Node 22.8+)
+import moduleApi from "node:module";
+if (
+  "enableCompileCache" in moduleApi &&
+  typeof moduleApi.enableCompileCache === "function"
+) {
+  moduleApi.enableCompileCache();
+}
 import { parentPort } from "worker_threads";
 import type {
   CompilerMessageToWorker,
@@ -23,8 +31,8 @@ function processMessage(message: CompilerMessageToWorker): void {
           throw new Error(`No compiler found for module: ${message.module}`);
         }
         const mod = compiler.compileSync((msg) => {
-          if (msg.channel === "milestone") {
-            console.log(msg.msg);
+          if (msg.type === "compiling") {
+            console.log(` - Compile...: ${msg.file}`);
           }
         });
 
@@ -41,8 +49,8 @@ function processMessage(message: CompilerMessageToWorker): void {
             measures,
             compiler.options.tmpDir,
             (msg) => {
-              if (msg.channel === "milestone") {
-                console.log(msg.msg);
+              if (msg.type === "instrumenting") {
+                console.log(` - Instrument: ${msg.file}`);
               }
             }
           );

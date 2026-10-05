@@ -8,12 +8,9 @@ import {
 import * as JSONN from "../../Jsonn";
 import * as ValueMapper from "../mappers/ValueMapper";
 import { LlmAdapter } from "../adapters/LlmAdapter";
-import {
-  ArgDef,
-  FunctionDef,
-  FuzzTestResults,
-  InputAndSource,
-} from "../Fuzzer";
+import { ArgDef } from "../analysis/ArgDef";
+import { FunctionDef } from "../analysis/FunctionDef";
+import { FuzzTestResults, InputAndSource } from "../Types";
 import { NextableStatus } from "./Types";
 import { ArgDefValidator } from "../analysis/ArgDefValidator";
 import { ArgDefTokenEstimator } from "../analysis/ArgDefTokenEstimator";
@@ -152,7 +149,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
 
     // Create new back-end if configured but not yet loaded
     if (active && !this._llm && LlmAdapter.isConfigured()) {
-      this._llm = new LlmAdapter();
+      this._llm = new LlmAdapter(this._prng);
       this._inputQueue = []; // empty the queue to avoid user confusion
     }
 
@@ -273,7 +270,8 @@ export class AiInputGenerator extends AbstractInputGenerator {
           directives,
           this._allInputs,
           this._moduleSrc,
-          numRequested
+          numRequested,
+          this._stats.calls.sent
         )
         .then((inputs) => {
           // Update tokens received stats
@@ -327,7 +325,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
           }
 
           // Process the inputs
-          const specMap = new Map(
+          const specMap = new Map<string, ArgDef>(
             this._specs.map((arg) => [arg.getName(), arg])
           );
           inputs.programInputs.forEach((input) => {
@@ -500,23 +498,32 @@ export class AiInputGenerator extends AbstractInputGenerator {
         }
         case ArgTag.STRING: {
           const charSet = argOptions.strCharset;
-          const desc = `string length must be >= ${argOptions.strLength.min} && <= ${argOptions.strLength.max}; the string may contain only the following characters: ${charSet}`;
+          const maxDesc = Number.isFinite(argOptions.strLength.max)
+            ? ` && <= ${argOptions.strLength.max}`
+            : "";
+          const desc = `string length must be >= ${argOptions.strLength.min}${maxDesc}; the string may contain only the following characters: ${charSet}`;
           directives.push(`${path}: ${desc}}`);
-          return zod
-            .string()
-            .min(argOptions.strLength.min)
-            .max(argOptions.strLength.max)
+          let schema = zod.string().min(argOptions.strLength.min);
+          if (Number.isFinite(argOptions.strLength.max)) {
+            schema = schema.max(argOptions.strLength.max);
+          }
+          return schema
             .refine((s) => [...s].every((char) => charSet.includes(char)))
             .describe(desc);
         }
         case ArgTag.BYTES: {
-          const desc = `array of byte integers (0-255) with length >= ${argOptions.byteLength.min} && <= ${argOptions.byteLength.max}`;
+          const maxDesc = Number.isFinite(argOptions.byteLength.max)
+            ? ` && <= ${argOptions.byteLength.max}`
+            : "";
+          const desc = `array of byte integers (0-255) with length >= ${argOptions.byteLength.min}${maxDesc}`;
           directives.push(`${path}: ${desc}`);
-          return zod
+          let schema = zod
             .array(zod.number().int().min(0).max(255))
-            .min(argOptions.byteLength.min)
-            .max(argOptions.byteLength.max)
-            .describe(desc);
+            .min(argOptions.byteLength.min);
+          if (Number.isFinite(argOptions.byteLength.max)) {
+            schema = schema.max(argOptions.byteLength.max);
+          }
+          return schema.describe(desc);
         }
         case ArgTag.LITERAL: {
           const literalValue = arg.getConstantValue();
@@ -649,11 +656,16 @@ export class AiInputGenerator extends AbstractInputGenerator {
     // Dimensions
     argOptions.dimLength.forEach((dim, idx) => {
       const isUnique = idx === 0 && argOptions.dimsUnique;
-      const desc = `array length must be >= ${dim.min} && <= ${dim.max}${
+      const maxDesc = Number.isFinite(dim.max) ? ` && <= ${dim.max}` : "";
+      const desc = `array length must be >= ${dim.min}${maxDesc}${
         isUnique ? "; all elements in the array must be unique" : ""
       }`;
       directives.push(`${path}: ${desc}`);
-      zodArg = zod.array(zodArg).min(dim.min).max(dim.max).describe(desc);
+      let arrSchema = zod.array(zodArg).min(dim.min);
+      if (Number.isFinite(dim.max)) {
+        arrSchema = arrSchema.max(dim.max);
+      }
+      zodArg = arrSchema.describe(desc);
     });
     return zodArg;
   } // fn: _argDefToSchema
@@ -662,7 +674,7 @@ export class AiInputGenerator extends AbstractInputGenerator {
    * Return stats about the AI input generation process
    */
   public get stats(): InputGeneratorStatsAi {
-    const res: InputGeneratorStatsAi = JSON.parse(JSON.stringify(this._stats));
+    const res: InputGeneratorStatsAi = structuredClone(this._stats);
     if (this._llm) {
       res.cache = this._llm.cacheStats;
     }

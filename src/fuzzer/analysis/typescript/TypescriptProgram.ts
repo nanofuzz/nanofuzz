@@ -13,6 +13,7 @@ import {
   Identifier,
   TSPropertySignature,
   Node,
+  Noop,
   TypeAnnotation,
   VariableDeclarator,
   FunctionDeclaration,
@@ -1126,6 +1127,78 @@ export class TypescriptProgram extends AbstractProgram {
   } // fn: _findFunctions()
 
   /**
+   * Helper to extract the return type, isVoid, and isAsync status for a function.
+   *
+   * @param typeNode The return type annotation AST node, if present
+   * @param bodyIsVoid Whether the function body statically returns void
+   * @param parentNode The parent AST node of the return type
+   * @param isAsyncKeyword Whether the function is declared with the async keyword
+   * @returns An object containing returnType, isVoid, and isAsync
+   */
+  protected _extractFunctionReturnInfo(
+    typeNode: TypeAnnotation | TSTypeAnnotation | Noop | null | undefined,
+    bodyIsVoid: boolean,
+    parentNode: Node,
+    isAsyncKeyword: boolean
+  ): {
+    returnType: TypeRef | undefined;
+    isVoid: boolean;
+    isAsync: boolean;
+  } {
+    let returnType: TypeRef | undefined = undefined;
+    let isVoid = false;
+    let isAsync = isAsyncKeyword;
+
+    try {
+      if (typeNode && typeNode.type !== "Noop") {
+        const annot =
+          typeNode.type === "TSTypeAnnotation"
+            ? typeNode.typeAnnotation
+            : typeNode;
+
+        const typeRefName =
+          annot.type === "TSTypeReference"
+            ? getIdentifierName(annot.typeName)
+            : undefined;
+
+        if (
+          annot.type === "TSVoidKeyword" ||
+          annot.type === "TSUndefinedKeyword"
+        ) {
+          isVoid = true;
+        } else if (typeRefName === "Promise" || typeRefName === "PromiseLike") {
+          isAsync = true;
+          if (
+            annot.type === "TSTypeReference" &&
+            annot.typeParameters &&
+            annot.typeParameters.params.length > 0
+          ) {
+            const innerParam = annot.typeParameters.params[0];
+            if (
+              innerParam.type === "TSVoidKeyword" ||
+              innerParam.type === "TSUndefinedKeyword"
+            ) {
+              isVoid = true;
+            } else {
+              returnType = this._getTypeRefFromAstNode(innerParam, parentNode);
+            }
+          }
+        } else {
+          returnType = this._getTypeRefFromAstNode(typeNode, parentNode);
+        }
+      } else {
+        isVoid = bodyIsVoid;
+      }
+    } catch {
+      if (!isVoid) {
+        isVoid = bodyIsVoid;
+      }
+    }
+
+    return { returnType, isVoid, isAsync };
+  } // fn: _extractFunctionReturnInfo()
+
+  /**
    * Returns a FunctionRef for the given node if it is a supported function.
    * If the node is an unsupported function, throws an error.
    * If the node is not a function, returns undefined.
@@ -1150,28 +1223,17 @@ export class TypescriptProgram extends AbstractProgram {
       path.node.id.type === "Identifier" &&
       !isBlockScoped(path) // ignore inner functions
     ) {
-      // ReturnType is not as important for fuzzing, so we don't throw an error
-      // if we encounter something we don't support.
-      let returnType = undefined;
-      let isVoid = false;
-      const typeNode = path.node.init.returnType;
       const bodyIsVoid = TypescriptProgram._isFunctionBodyVoid(
         path.get("init.body")
       );
-      try {
-        if (typeNode && typeNode.type !== "Noop") {
-          isVoid = typeNode.typeAnnotation.type === "TSVoidKeyword";
-          if (!isVoid) {
-            returnType = this._getTypeRefFromAstNode(typeNode, path.node.init);
-          }
-        } else {
-          isVoid = bodyIsVoid;
-        }
-      } catch {
-        if (!isVoid) {
-          isVoid = bodyIsVoid;
-        }
-      }
+      const isAsyncKeyword = Boolean(path.node.init.async);
+      const { returnType, isVoid, isAsync } = this._extractFunctionReturnInfo(
+        path.node.init.returnType,
+        bodyIsVoid,
+        path.node.init,
+        isAsyncKeyword
+      );
+
       const init = path.node.init;
       if (!path.node.range) {
         throw new Error("Source code ranges missing in AST");
@@ -1189,6 +1251,7 @@ export class TypescriptProgram extends AbstractProgram {
         ),
         returnType,
         isVoid,
+        ...(isAsync ? { isAsync: true } : {}),
         cmt: this._getFunctionComment(path),
       };
     } else if (
@@ -1196,30 +1259,19 @@ export class TypescriptProgram extends AbstractProgram {
       path.isFunctionDeclaration() &&
       !isBlockScoped(path) // ignore inner functions
     ) {
-      // ReturnType is not as important for fuzzing, so we don't throw an error
-      // if we encounter something we don't support.
-      let returnType = undefined;
-      let isVoid = false;
-      const typeNode = path.node.returnType;
       const bodyIsVoid = TypescriptProgram._isFunctionBodyVoid(
         path.get("body")
       );
+      const isAsyncKeyword = Boolean(path.node.async);
+      const { returnType, isVoid, isAsync } = this._extractFunctionReturnInfo(
+        path.node.returnType,
+        bodyIsVoid,
+        path.node,
+        isAsyncKeyword
+      );
+
       if (!path.node.range) {
         throw new Error("Source code ranges missing in AST");
-      }
-      try {
-        if (typeNode && typeNode.type !== "Noop") {
-          isVoid = typeNode.typeAnnotation.type === "TSVoidKeyword";
-          if (!isVoid) {
-            returnType = this._getTypeRefFromAstNode(typeNode, path.node);
-          }
-        } else {
-          isVoid = bodyIsVoid;
-        }
-      } catch {
-        if (!isVoid) {
-          isVoid = bodyIsVoid;
-        }
       }
       return {
         name,
@@ -1234,6 +1286,7 @@ export class TypescriptProgram extends AbstractProgram {
         ),
         returnType,
         isVoid,
+        ...(isAsync ? { isAsync: true } : {}),
         cmt: this._getFunctionComment(path),
       };
     }

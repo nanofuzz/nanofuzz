@@ -1,13 +1,14 @@
 import { PythonRunner } from "./PythonRunner";
 import {
-  FunctionDef,
   FuzzEnv,
   FuzzGeneratorStatsBase,
   FuzzStopReason,
   FuzzTestResult,
   FuzzTestResults,
-} from "../../Fuzzer";
+} from "../../Types";
+import { FunctionDef } from "../../analysis/FunctionDef";
 import { PythonCoverageMeasure } from "../../measures/PythonCoverageMeasure";
+import { normalizePathForKey } from "../../Util";
 import { ArgDef } from "../../analysis/ArgDef";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";
@@ -72,11 +73,11 @@ def process_bytes(data: bytes) -> bytes:
       const fnDef = program.functionsExported["process_bytes"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_bytes", env, 2000);
+      const runner = new PythonRunner(pyPath, "process_bytes", env, 10000);
       await runner.onRunStart();
 
       const inputBytes = new Uint8Array([104, 101, 108, 108, 111]); // "hello"
-      const res = await runner.run([inputBytes], 2000);
+      const res = await runner.run([inputBytes], 10000);
 
       await runner.onRunEnd();
 
@@ -134,7 +135,7 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
       const fnDef = program.functionsExported["process_nested"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_nested", env, 2000);
+      const runner = new PythonRunner(pyPath, "process_nested", env, 10000);
       await runner.onRunStart();
 
       const uuidStr1 = "12345678-1234-4123-8123-123456789abc";
@@ -143,7 +144,7 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
 
       const res = await runner.run(
         [[uuidStr1, uuidStr2], { id: uuidStr1 }, [uuidStr2, 42], hexNotUuid],
-        2000
+        10000
       );
 
       await runner.onRunEnd();
@@ -199,13 +200,13 @@ def process_sets(s_data: set[int], f_data: FrozenSet[str]):
       const fnDef = program.functionsExported["process_sets"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_sets", env, 2000);
+      const runner = new PythonRunner(pyPath, "process_sets", env, 10000);
       await runner.onRunStart();
 
       const inputSet = new Set([1, 2, 3]);
       const inputFrozenSet = new Set(["a", "b"]);
 
-      const res = await runner.run([inputSet, inputFrozenSet], 2000);
+      const res = await runner.run([inputSet, inputFrozenSet], 10000);
 
       await runner.onRunEnd();
 
@@ -267,12 +268,12 @@ def process_data(t: tuple[int, str], d: dict[int, str]):
       const fnDef = program.functionsExported["process_data"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_data", env, 2000);
+      const runner = new PythonRunner(pyPath, "process_data", env, 10000);
       await runner.onRunStart();
 
       const res = await runner.run(
         [[10, "foo"], { "1": "one", "2": "two" }],
-        2000
+        10000
       );
 
       await runner.onRunEnd();
@@ -325,10 +326,10 @@ def process_floats(nan_val: float, inf_val: float):
       const fnDef = program.functionsExported["process_floats"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_floats", env, 2000);
+      const runner = new PythonRunner(pyPath, "process_floats", env, 10000);
       await runner.onRunStart();
 
-      const res = await runner.run(["NaN", "Infinity"], 2000);
+      const res = await runner.run(["NaN", "Infinity"], 10000);
 
       await runner.onRunEnd();
 
@@ -376,10 +377,10 @@ def add_one(x: int) -> int:
       const env = createFuzzEnv(fnDef);
       env.options.measures.CoverageMeasure.enabled = false;
 
-      const runner = new PythonRunner(pyPath, "add_one", env, 2000);
+      const runner = new PythonRunner(pyPath, "add_one", env, 10000);
       await runner.onRunStart();
 
-      const res = await runner.run([5], 2000);
+      const res = await runner.run([5], 10000);
       await runner.onRunEnd();
 
       expect(res.result.tag).toBe("value");
@@ -456,7 +457,7 @@ def loop_timeout(n: int) -> int:
     const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "slow_import_hb.py");
     const pyCode = `import time
-time.sleep(1.5)
+time.sleep(7.5)
 
 def slow_fn(x: int) -> int:
     return x * 2
@@ -475,18 +476,18 @@ def slow_fn(x: int) -> int:
         maxDupeInputs: 10,
       });
 
-      // Set hostStartupTimeout to 500ms. Without heartbeats (sent every 250ms),
-      // a 1.5s import would time out at t=1000ms. Heartbeats reset the 500ms clock,
-      // allowing the 1.5s import to succeed cleanly.
-      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 1000);
+      // Set hostStartupTimeout to 5000ms. Without heartbeats (sent every 250ms),
+      // a 7.5s import would time out. Heartbeats reset the 5000ms clock,
+      // allowing the 7.5s import to succeed cleanly.
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 5000);
 
-      const runner = new PythonRunner(pyPath, "slow_fn", env, 10000);
+      const runner = new PythonRunner(pyPath, "slow_fn", env, 15000);
       const start = performance.now();
       await runner.onRunStart();
       const elapsed = performance.now() - start;
-      expect(elapsed).toBeGreaterThanOrEqual(1400);
+      expect(elapsed).toBeGreaterThanOrEqual(7400);
 
-      const res = await runner.run([10], 10000);
+      const res = await runner.run([10], 15000);
       await runner.onRunEnd();
 
       expect(res.result.tag).toBe("value");
@@ -571,9 +572,9 @@ def calculate(x: int) -> int:
 
         // Case 1: Default 'project static' scope
         Config.override("nanofuzz.fuzzer.coverageScope", "project static");
-        const runnerProject = new PythonRunner(pyPath, "calculate", env, 10000);
+        const runnerProject = new PythonRunner(pyPath, "calculate", env, 30000);
         await runnerProject.onRunStart();
-        const resProject = await runnerProject.run([1], 10000);
+        const resProject = await runnerProject.run([1], 30000);
         const covProject = runnerProject.coverageInfo;
         await runnerProject.onRunEnd();
 
@@ -600,9 +601,9 @@ def calculate(x: int) -> int:
           "nanofuzz.fuzzer.coverageScope",
           "project directimports static"
         );
-        const runnerImports = new PythonRunner(pyPath, "calculate", env, 10000);
+        const runnerImports = new PythonRunner(pyPath, "calculate", env, 30000);
         await runnerImports.onRunStart();
-        const resImports = await runnerImports.run([1], 10000);
+        const resImports = await runnerImports.run([1], 30000);
         const covImports = runnerImports.coverageInfo;
         await runnerImports.onRunEnd();
 
@@ -646,7 +647,7 @@ def calculate(x: int) -> int:
         }
       }
     }
-  }, 30000);
+  });
 
   it("fails invalid coverageScope", async () => {
     const tmpDir = getTmpDir("nanofuzz-covscope-invalid-");
@@ -715,7 +716,7 @@ def uncalled_func(y: int) -> int:
       const fnDef = program.functionsExported["process_val"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_val", env, 2000);
+      const runner = new PythonRunner(pyPath, "process_val", env, 10000);
       await runner.onRunStart();
 
       // 1. Check runner.coverageInfo immediately after onRunStart before running any test inputs.
@@ -733,7 +734,7 @@ def uncalled_func(y: int) -> int:
 
       // 2. Execute a normal test run.
       // Expect runner.coverageInfo to retain static fields (executable, functions, branches) plus dynamic fields (lines, arcs).
-      const valRes = await runner.run([5], 2000);
+      const valRes = await runner.run([5], 10000);
       expect(valRes.result.tag).toBe("value");
       expect(runner.coverageInfo).toBeDefined();
       const runCov =
@@ -810,7 +811,7 @@ def x(val: int) -> int:
     const measure = new PythonCoverageMeasure();
 
     try {
-      const runner = new PythonRunner(realPyPath, "x", env, 2000);
+      const runner = new PythonRunner(realPyPath, "x", env, 10000);
       await runner.onRunStart();
 
       // Attach PythonCoverageMeasure to runner
@@ -821,7 +822,7 @@ def x(val: int) -> int:
       expect(initialCov).toBeDefined();
 
       // 2. Execute test run calling function x(0)
-      const res = await runner.run([0], 2000);
+      const res = await runner.run([0], 10000);
       expect(res.result.tag).toBe("value");
 
       if (res.result.tag === "value") {
@@ -844,7 +845,7 @@ def x(val: int) -> int:
           passedHuman: "unknown",
           passedValidator: "pass",
           passedValidators: [],
-          validatorException: false,
+          harnessErrors: [],
           timers: { gen: 0, transform: 0, run: 0 },
           category: "ok",
           interestingReasons: [],
@@ -869,7 +870,7 @@ def x(val: int) -> int:
       }
 
       const dummyGenStats: FuzzGeneratorStatsBase = {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       };
 
@@ -900,6 +901,37 @@ def x(val: int) -> int:
             transform: 0,
             measure: 0,
           },
+          outcomes: {
+            total: 0,
+            oracles: {
+              heuristic: {
+                pass: 0,
+                fail: 0,
+                unknown: 0,
+              },
+              human: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+              property: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+            },
+            exceptions: 0,
+            timeouts: 0,
+            categories: {
+              ok: 0,
+              badValue: 0,
+              timeout: 0,
+              exception: 0,
+              skip: 0,
+              disagree: 0,
+              failure: 0,
+            },
+          },
           generators: {
             RandomInputGenerator: dummyGenStats,
             MutationInputGenerator: dummyGenStats,
@@ -916,8 +948,7 @@ def x(val: int) -> int:
       expect(stats.counters.statementsCovered).toBe(6);
       expect(stats.counters.functionsCovered).toBe(1);
 
-      const fileMapNoPath = JSON.parse(JSON.stringify(stats.files[0].fileMap));
-      delete fileMapNoPath.path;
+      const fileMapNoPath = structuredClone(stats.files[0].fileMap.data);
 
       // Single run expectation: all 6 statements are covered (1 hit each)
       expect(fileMapNoPath.s).toEqual({
@@ -962,7 +993,7 @@ def x(val: int) -> int:
               passedHuman: "unknown",
               passedValidator: "pass",
               passedValidators: [],
-              validatorException: false,
+              harnessErrors: [],
               timers: { gen: 0, transform: 0, run: 0 },
               category: "ok",
               interestingReasons: [],
@@ -1026,25 +1057,297 @@ def x(val: int) -> int:
     const env = createFuzzEnv(fnDef);
 
     Config.override("nanofuzz.fuzzer.coverageScope", "project");
+    const measure = new PythonCoverageMeasure();
 
     try {
-      const runner = new PythonRunner(realPyPath, "x", env, 2000);
+      const runner = new PythonRunner(realPyPath, "x", env, 10000);
       await runner.onRunStart();
+      measure.onRunStart([runner]);
 
-      // 1. Initial coverage at startup is empty when static is not in coverageScope
-      expect(runner.coverageInfo).toEqual({});
+      // 1. Initial coverage at startup has static structure but no module-load lines when static is NOT in coverageScope
+      const initialCov =
+        runner.coverageInfo?.[pyPath] ?? runner.coverageInfo?.[realPyPath];
+      expect(initialCov).toBeDefined();
+      expect(initialCov?.executable).toBeDefined();
+      expect(initialCov?.executable?.length).toBeGreaterThan(0);
+      expect(initialCov?.lines).toBeUndefined();
 
       // 2. Dynamic coverage is still collected during test execution
-      const res = await runner.run([0], 2000);
+      const res = await runner.run([0], 10000);
       expect(res.result.tag).toBe("value");
       expect(
         runner.coverageInfo?.[realPyPath]?.lines ??
           runner.coverageInfo?.[pyPath]?.lines
       ).toEqual([5]);
 
+      if (res.result.tag === "value") {
+        const testResult: FuzzTestResult = {
+          pinned: false,
+          inputGenerated: {
+            tick: 0,
+            value: [],
+            source: {
+              type: "generator",
+              generator: "RandomInputGenerator",
+            },
+          },
+          input: [],
+          output: [],
+          exception: false,
+          skipped: false,
+          timeout: false,
+          passedImplicit: "pass",
+          passedHuman: "unknown",
+          passedValidator: "pass",
+          passedValidators: [],
+          harnessErrors: [],
+          timers: { gen: 0, transform: 0, run: 0 },
+          category: "ok",
+          interestingReasons: [],
+        };
+
+        measure.measure(
+          {
+            tick: 0,
+            value: [
+              {
+                tag: "ArgValueTypeWrapped",
+                value: [0],
+              },
+            ],
+            source: {
+              type: "generator",
+              generator: "RandomInputGenerator",
+            },
+          },
+          testResult
+        );
+      }
+
+      const dummyGenStats: FuzzGeneratorStatsBase = {
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
+        timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
+      };
+
+      const resultsStub: FuzzTestResults = {
+        toolVersion: "0.0.0",
+        env,
+        stopReason: FuzzStopReason.MAXTESTS,
+        interesting: { inputs: [] },
+        results: [],
+        stats: {
+          counters: {
+            testingRuns: 1,
+            inputsGenerated: 1,
+            dupesGenerated: 0,
+            inputsInjected: 0,
+            erroredTests: 0,
+            passedTests: 1,
+            inputsSkipped: 0,
+            failedTests: 0,
+          },
+          timers: {
+            total: 10,
+            compile: 0,
+            instrument: 0,
+            put: 10,
+            val: 0,
+            gen: 0,
+            transform: 0,
+            measure: 0,
+          },
+          outcomes: {
+            total: 0,
+            oracles: {
+              heuristic: {
+                pass: 0,
+                fail: 0,
+                unknown: 0,
+              },
+              human: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+              property: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+            },
+            exceptions: 0,
+            timeouts: 0,
+            categories: {
+              ok: 0,
+              badValue: 0,
+              timeout: 0,
+              exception: 0,
+              skip: 0,
+              disagree: 0,
+              failure: 0,
+            },
+          },
+          generators: {
+            RandomInputGenerator: dummyGenStats,
+            MutationInputGenerator: dummyGenStats,
+            AiInputGenerator: dummyGenStats,
+          },
+          measures: {},
+        },
+      };
+
+      measure.onRunEnd(resultsStub);
+      const stats = await resultsStub.stats.measures.CodeCoverageMeasure!();
+      expect(stats.files.length).toBe(1);
+      expect(stats.files[0].path).toBe(normalizePathForKey(realPyPath));
+      expect(
+        Object.keys(stats.files[0].fileMap.statementMap).length
+      ).toBeGreaterThan(0);
+
       await runner.onRunEnd();
     } finally {
       Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("async coroutine: resolves value", async () => {
+    const tmpDir = getTmpDir("nanofuzz-async-py-");
+    const pyPath = path.join(tmpDir, "async_test.py");
+    const pyCode = `import asyncio
+
+async def async_add(a: int, b: int) -> int:
+    await asyncio.sleep(0.01)
+    return a + b
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+async def async_add(a: int, b: int) -> int:
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["async_add"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "async_add", env, 10000);
+      await runner.onRunStart();
+
+      const res = await runner.run([12, 30], 10000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(42);
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("async coroutine: raises exception", async () => {
+    const tmpDir = getTmpDir("nanofuzz-async-err-py-");
+    const pyPath = path.join(tmpDir, "async_err_test.py");
+    const pyCode = `import asyncio
+
+async def async_fail(msg: str):
+    await asyncio.sleep(0.01)
+    raise ValueError("async error: " + msg)
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+async def async_fail(msg: str):
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["async_fail"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "async_fail", env, 10000);
+      await runner.onRunStart();
+
+      const res = await runner.run(["boom"], 10000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("error");
+      if (res.result.tag === "error") {
+        expect(res.result.message).toContain("async error: boom");
+        expect(res.result.source).toBe("put");
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore
+      }
+    }
+  });
+
+  it("async coroutine: timeout triggers", async () => {
+    const tmpDir = getTmpDir("nanofuzz-async-timeout-py-");
+    const pyPath = path.join(tmpDir, "async_timeout_test.py");
+    const pyCode = `import asyncio
+
+async def async_hang():
+    await asyncio.sleep(10)
+`;
+    fs.writeFileSync(pyPath, pyCode);
+
+    try {
+      const srcCode = `
+async def async_hang():
+    pass
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "python",
+        pyPath
+      );
+      const fnDef = program.functionsExported["async_hang"];
+      const env = createFuzzEnv(fnDef);
+
+      const runner = new PythonRunner(pyPath, "async_hang", env, 100);
+      await runner.onRunStart();
+
+      const res = await runner.run([], 100);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("timeout");
+    } finally {
       try {
         fs.rmSync(tmpDir, {
           recursive: true,

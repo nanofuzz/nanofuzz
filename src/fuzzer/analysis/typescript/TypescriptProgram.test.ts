@@ -510,11 +510,17 @@ export const returnsValueArrow = () => "hello";
     const fn = prog.functionsExported["testMap"];
     const args = fn.getArgDefs();
 
-    expect(TypescriptProgram.getTypeAnnotation(args[0])).toEqual("Map<string, number>");
+    expect(TypescriptProgram.getTypeAnnotation(args[0])).toEqual(
+      "Map<string, number>"
+    );
     expect(TypescriptProgram.getTypeAnnotation(args[1])).toEqual("AliasMap");
 
-    expect(TypescriptProgram.getTypeAnnotation(args[0], {})).toEqual("Map<string, number>");
-    expect(TypescriptProgram.getTypeAnnotation(args[1], {})).toEqual("Map<string, number>");
+    expect(TypescriptProgram.getTypeAnnotation(args[0], {})).toEqual(
+      "Map<string, number>"
+    );
+    expect(TypescriptProgram.getTypeAnnotation(args[1], {})).toEqual(
+      "Map<string, number>"
+    );
   });
 
   it("chains of type refs over Set, Map, Record w/dims", () => {
@@ -667,5 +673,74 @@ export const returnsValueArrow = () => "hello";
       "typescript"
     );
     expect(prog.functionsExported["testMixed"]).toBeUndefined();
+  });
+
+  it("detects async functions and unwraps Promise return types", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `
+      export async function fetchUser(id: number): Promise<string> {
+        return "user_" + id;
+      }
+
+      export async function asyncVoid(): Promise<void> {
+        console.log("done");
+      }
+
+      export async function asyncBareVoid() {
+        console.log("done");
+      }
+
+      export async function asyncImplicitReturn(x: number) {
+        return x * 2;
+      }
+
+      export const asyncArrow = async (name: string): Promise<boolean> => {
+        return name.length > 0;
+      };
+
+      export const asyncArrowVoid = async (): Promise<void> => {
+        // no-op
+      };
+
+      export function syncReturningPromise(): Promise<void> {
+        return Promise.resolve();
+      }
+
+      export function regularSync(a: number, b: number): number {
+        return a + b;
+      }
+      `,
+      "typescript"
+    );
+
+    const fns = prog.functionsExported;
+
+    expect(fns["fetchUser"].isAsync()).toBeTrue();
+    expect(fns["fetchUser"].isVoid()).toBeFalse();
+    expect(fns["fetchUser"].getReturnType()?.type?.type).toEqual(ArgTag.STRING);
+
+    expect(fns["asyncVoid"].isAsync()).toBeTrue();
+    expect(fns["asyncVoid"].isVoid()).toBeTrue();
+
+    expect(fns["asyncBareVoid"].isAsync()).toBeTrue();
+    expect(fns["asyncBareVoid"].isVoid()).toBeTrue();
+
+    expect(fns["asyncImplicitReturn"].isAsync()).toBeTrue();
+    expect(fns["asyncImplicitReturn"].isVoid()).toBeFalse();
+
+    expect(fns["asyncArrow"].isAsync()).toBeTrue();
+    expect(fns["asyncArrow"].isVoid()).toBeFalse();
+    expect(fns["asyncArrow"].getReturnType()?.type?.type).toEqual(
+      ArgTag.BOOLEAN
+    );
+
+    expect(fns["asyncArrowVoid"].isAsync()).toBeTrue();
+    expect(fns["asyncArrowVoid"].isVoid()).toBeTrue();
+
+    expect(fns["syncReturningPromise"].isAsync()).toBeTrue();
+    expect(fns["syncReturningPromise"].isVoid()).toBeTrue();
+
+    expect(fns["regularSync"].isAsync()).toBeFalse();
+    expect(fns["regularSync"].isVoid()).toBeFalse();
   });
 });

@@ -2,12 +2,18 @@ import * as JSONN from "../Jsonn";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./Util";
 import {
+  formatTestingStatus,
+  formatWaitingStatus,
+  formatTestingCompleteStatus,
+} from "./FuzzTextFormatter";
+import {
   FuzzArgOverride,
   FuzzIoElement,
   FuzzPinnedTest,
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
+  FuzzTestResults,
   FuzzValueOrigin,
   isFuzzResultTab,
   Judgment,
@@ -17,9 +23,8 @@ import * as Parser from "../fuzzer/adapters/ParserAdapter";
 import {
   ArgValueType,
   ArgValueTypeWrapped,
-  FuzzTestResults,
   ProgramLanguage,
-} from "../fuzzer/Fuzzer";
+} from "../fuzzer/analysis/Types";
 import {
   FuzzPanelFuzzRunMessage,
   FuzzPanelMessageToWebView,
@@ -195,16 +200,17 @@ async function main() {
     handleAddTestInput
   );
 
-  document
-    .getElementById("fuzz.addTestInput")
-    ?.addEventListener("click", handleAddTestInput);
   for (let i = 0; document.getElementById(`addInputArg-${i}-value`); i++) {
-    getElementByIdOrThrow(`addInputArg-${i}-value`).addEventListener(
-      "change",
-      () => {
-        getInputValues();
+    const inputField = getElementByIdOrThrow(`addInputArg-${i}-value`);
+    inputField.addEventListener("change", () => {
+      getInputValues();
+    });
+    inputField.addEventListener("keydown", (e) => {
+      if (e instanceof KeyboardEvent && e.key === "Enter") {
+        e.preventDefault();
+        handleAddTestInput();
       }
-    );
+    });
   }
 
   // Add event listeners for the fuzz.coverage buttons
@@ -465,19 +471,44 @@ async function main() {
         break;
       case "config.updated": {
         getElementByIdOrThrow("llm-model").innerText =
-          data.config.ai.provider === "disabled" ||
-          data.config.ai.model === undefined
+          data.config.ai.provider === "disabled" || !data.config.ai.model
             ? "disabled"
             : data.config.ai.model;
         break;
       }
       case "busy.message": {
+        const msg = data.message;
         const nonMilestone = getElementByIdOrThrow(
           "fuzzBusyMessageNonMilestone"
         );
-        nonMilestone.innerHTML = htmlEscape(data.message.msg);
-        if (data.message.channel === "update") {
-          const pct = Math.max(0.1, Math.min(data.message.pct, 100));
+        let displayText: string | undefined = undefined;
+
+        switch (msg.type) {
+          case "compiling":
+            displayText = `Compiling: ${msg.file}`;
+            break;
+          case "instrumenting":
+            displayText = `Instrumenting: ${msg.file}`;
+            break;
+          case "testing":
+            displayText = formatTestingStatus(msg);
+            break;
+          case "waiting-for-generator":
+            displayText = formatWaitingStatus(msg);
+            break;
+          case "testing-complete":
+            displayText = formatTestingCompleteStatus(msg);
+            break;
+          case "progress-tick":
+            break;
+        }
+
+        if (displayText !== undefined) {
+          nonMilestone.innerHTML = htmlEscape(displayText);
+        }
+
+        if ("pct" in msg && typeof msg.pct === "number") {
+          const pct = Math.max(0.1, Math.min(msg.pct, 100));
           const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
           progressBar.style.width = pct + "%";
           if (pct > 0) {
@@ -657,10 +688,10 @@ async function main() {
             ? "undefined"
             : ValueMapper.toLang(lang, o.value);
       });
-      if (e.validatorException) {
+      if (e.harnessErrors && e.harnessErrors.length > 0) {
+        const err = e.harnessErrors[0];
         outputs[`output`] =
-          e.validatorExceptionDisplay ??
-          `(${e.validatorExceptionFunction} exception) ${e.validatorExceptionMessage}`;
+          err.display ?? `(${err.fnName} ${err.kind}) ${err.message}`;
       } else if (e.exception) {
         outputs[`output`] =
           e.exceptionDisplay ?? "(exception) " + e.exceptionMessage;

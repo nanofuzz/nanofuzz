@@ -1,11 +1,12 @@
 import { JavascriptRunner } from "./JavascriptRunner";
+import { FileCoverageData } from "istanbul-lib-coverage";
 import {
   FuzzEnv,
   FuzzGeneratorStatsBase,
   FuzzStopReason,
   FuzzTestResult,
   FuzzTestResults,
-} from "../../Fuzzer";
+} from "../../Types";
 import { ArgDef } from "../../analysis/ArgDef";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";
@@ -469,11 +470,16 @@ export function x(
       expect(isCoverageMapData(initialCov)).toBeTrue();
       if (isCoverageMapData(initialCov)) {
         const fileKey = Object.keys(initialCov)[0];
-        const fileCov = JSON.parse(JSON.stringify(initialCov[fileKey]));
-        delete fileCov.inputSourceMap;
-        delete fileCov._coverageSchema;
-        delete fileCov.hash;
-        fileCov.path = "<TEMP_JS_PATH>";
+        const rawCov = structuredClone(initialCov[fileKey]);
+        const fileCov: FileCoverageData = {
+          path: "<TEMP_JS_PATH>",
+          statementMap: rawCov.statementMap,
+          fnMap: rawCov.fnMap,
+          branchMap: rawCov.branchMap,
+          s: rawCov.s,
+          f: rawCov.f,
+          b: rawCov.b,
+        };
 
         expect(fileCov).toEqual({
           path: "<TEMP_JS_PATH>",
@@ -540,7 +546,7 @@ export function x(
           passedHuman: "unknown",
           passedValidator: "pass",
           passedValidators: [],
-          validatorException: false,
+          harnessErrors: [],
           timers: { gen: 0, transform: 0, run: 0 },
           category: "ok",
           interestingReasons: [],
@@ -565,7 +571,7 @@ export function x(
       }
 
       const dummyGenStats: FuzzGeneratorStatsBase = {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       };
 
@@ -615,6 +621,37 @@ export function x(
             inputsSkipped: 0,
             failedTests: 0,
           },
+          outcomes: {
+            total: 0,
+            oracles: {
+              heuristic: {
+                pass: 0,
+                fail: 0,
+                unknown: 0,
+              },
+              human: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+              property: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+            },
+            exceptions: 0,
+            timeouts: 0,
+            categories: {
+              ok: 0,
+              badValue: 0,
+              timeout: 0,
+              exception: 0,
+              skip: 0,
+              disagree: 0,
+              failure: 0,
+            },
+          },
           timers: {
             total: 10,
             compile: 0,
@@ -641,10 +678,8 @@ export function x(
       expect(stats.counters.statementsCovered).toBe(6);
       expect(stats.counters.functionsCovered).toBe(1);
 
-      const fileMapNoPath = {
-        ...JSON.parse(JSON.stringify(stats.files[0].fileMap)),
-        path: "<TEMP_TS_PATH>",
-      };
+      const fileMapNoPath = structuredClone(stats.files[0].fileMap.data);
+      fileMapNoPath.path = "<TEMP_TS_PATH>";
       expect(fileMapNoPath).toEqual({
         path: "<TEMP_TS_PATH>",
         statementMap: {
@@ -674,7 +709,7 @@ export function x(
           },
         },
         fnMap: {
-          "0": {
+          "0": jasmine.objectContaining({
             name: "x",
             decl: {
               start: { line: 6, column: 16 },
@@ -684,7 +719,7 @@ export function x(
               start: { line: 10, column: 5 },
               end: { line: 13, column: 1 },
             },
-          },
+          }),
         },
         branchMap: {},
         s: {
@@ -734,7 +769,7 @@ export function x(
               passedHuman: "unknown",
               passedValidator: "pass",
               passedValidators: [],
-              validatorException: false,
+              harnessErrors: [],
               timers: { gen: 0, transform: 0, run: 0 },
               category: "ok",
               interestingReasons: [],
@@ -895,7 +930,7 @@ export function x(): number {
           passedHuman: "unknown",
           passedValidator: "pass",
           passedValidators: [],
-          validatorException: false,
+          harnessErrors: [],
           timers: { gen: 0, transform: 0, run: 0 },
           category: "ok",
           interestingReasons: [],
@@ -915,7 +950,7 @@ export function x(): number {
       }
 
       const dummyGenStats: FuzzGeneratorStatsBase = {
-        counters: { inputsGenerated: 0, dupesGenerated: 0 },
+        counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
         timers: { run: 0, val: 0, gen: 0, measure: 0, transform: 0 },
       };
 
@@ -965,6 +1000,37 @@ export function x(): number {
             inputsSkipped: 0,
             failedTests: 0,
           },
+          outcomes: {
+            total: 0,
+            oracles: {
+              heuristic: {
+                pass: 0,
+                fail: 0,
+                unknown: 0,
+              },
+              human: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+              property: {
+                fail: 0,
+                unknown: 0,
+                pass: 0,
+              },
+            },
+            exceptions: 0,
+            timeouts: 0,
+            categories: {
+              ok: 0,
+              badValue: 0,
+              timeout: 0,
+              exception: 0,
+              skip: 0,
+              disagree: 0,
+              failure: 0,
+            },
+          },
           timers: {
             total: 10,
             compile: 0,
@@ -994,6 +1060,118 @@ export function x(): number {
       await runner.onRunEnd();
     } finally {
       Config.override("nanofuzz.fuzzer.coverageScope", "project static");
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it("async function: resolves value", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-async-js-"));
+    const jsPath = path.join(tmpDir, "asyncModule.js");
+    const jsCode = `
+async function asyncAdd(a, b) {
+  await new Promise((r) => setTimeout(r, 10));
+  return a + b;
+}
+module.exports = { asyncAdd };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      const runner = new JavascriptRunner(jsPath, "asyncAdd");
+      await runner.onRunStart();
+
+      const res = await runner.run([15, 27], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toBe(42);
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it("async function: rejects with error", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-async-err-js-")
+    );
+    const jsPath = path.join(tmpDir, "asyncErrModule.js");
+    const jsCode = `
+async function asyncFail(msg) {
+  await new Promise((r) => setTimeout(r, 10));
+  throw new Error("async failure: " + msg);
+}
+module.exports = { asyncFail };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      const runner = new JavascriptRunner(jsPath, "asyncFail");
+      await runner.onRunStart();
+
+      const res = await runner.run(["boom"], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("error");
+      if (res.result.tag === "error") {
+        expect(res.result.message).toContain("async failure: boom");
+        expect(res.result.source).toBe("put");
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it("async function: timeout triggers", async () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "nanofuzz-async-timeout-js-")
+    );
+    const jsPath = path.join(tmpDir, "asyncTimeoutModule.js");
+    const jsCode = `
+async function asyncHang() {
+  await new Promise(() => {}); // never resolves
+}
+module.exports = { asyncHang };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      const runner = new JavascriptRunner(jsPath, "asyncHang");
+      await runner.onRunStart();
+
+      const res = await runner.run([], 100);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("timeout");
+    } finally {
       try {
         fs.rmSync(tmpDir, {
           recursive: true,

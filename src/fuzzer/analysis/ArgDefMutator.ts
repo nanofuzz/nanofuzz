@@ -52,6 +52,7 @@ export class ArgDefMutator {
       siblings: ArgValueType[];
       index: number;
       pathFromOuter: (string | number)[];
+      otherSiblingStrings?: Set<string>;
     };
     const mutationContexts = new Map<
       string,
@@ -101,20 +102,20 @@ export class ArgDefMutator {
     // Reject proposals that duplicate an element in this or any enclosing
     // dimsUnique array tracked while descending through mutateArray.
     function preservesUniqueDimensions(mutation: MutationProposal): boolean {
-      const context = mutationContexts.get(JSONN.stringify(mutation.path));
+      const context = mutationContexts.get(toPathKey(mutation.path));
       if (!context) return true;
 
       if (context.requiresUniqueElements) {
         if (mutation.value instanceof Set) {
           const serializedValues = Array.from(mutation.value.values()).map(
-            (element) => JSONN.stringify(element)
+            (element) => JSONN.packString(element)
           );
           if (new Set(serializedValues).size !== serializedValues.length) {
             return false;
           }
         } else if (Array.isArray(mutation.value)) {
           const serializedValues = mutation.value.map((element) =>
-            JSONN.stringify(element)
+            JSONN.packString(element)
           );
           if (new Set(serializedValues).size !== serializedValues.length) {
             return false;
@@ -132,11 +133,14 @@ export class ArgDefMutator {
           mutation.deleteProperty,
           mutation.objectKeyOrder
         );
-        const serializedOuterElement = JSONN.stringify(outerElement);
+        const serializedOuterElement = JSONN.packString(outerElement);
+        if (uniqueContext.otherSiblingStrings) {
+          return !uniqueContext.otherSiblingStrings.has(serializedOuterElement);
+        }
         return !uniqueContext.siblings.some(
           (sibling, index) =>
             index !== uniqueContext.index &&
-            JSONN.stringify(sibling) === serializedOuterElement
+            JSONN.packString(sibling) === serializedOuterElement
         );
       });
     }
@@ -155,7 +159,7 @@ export class ArgDefMutator {
       uniqueContexts: UniqueDimensionContext[] = []
     ): void => {
       const options = spec.getOptions();
-      mutationContexts.set(JSONN.stringify(path), {
+      mutationContexts.set(toPathKey(path), {
         uniqueContexts,
         requiresUniqueElements: level === 1 && options.dimsUnique,
       });
@@ -225,10 +229,17 @@ export class ArgDefMutator {
           pathFromOuter: [...context.pathFromOuter, index],
         }));
         if (level === 1 && options.dimsUnique) {
+          const otherSiblingStrings = new Set<string>();
+          for (let j = 0; j < a.length; j++) {
+            if (j !== index) {
+              otherSiblingStrings.add(JSONN.packString(a[j]));
+            }
+          }
           childUniqueContexts.push({
             siblings: a,
             index,
             pathFromOuter: [],
+            otherSiblingStrings,
           });
         }
         addMutations(
@@ -307,7 +318,7 @@ export class ArgDefMutator {
       const subInput = subInputs[i];
       const spec = subInput.subSpec;
       const options = spec.getOptions();
-      mutationContexts.set(JSONN.stringify(subInput.subPath), {
+      mutationContexts.set(toPathKey(subInput.subPath), {
         uniqueContexts: subInput.uniqueContexts,
         requiresUniqueElements: false,
       });
@@ -678,7 +689,7 @@ export class ArgDefMutator {
                     pathFromOuter: [...context.pathFromOuter, name],
                   })
                 );
-                mutationContexts.set(JSONN.stringify(childPath), {
+                mutationContexts.set(toPathKey(childPath), {
                   uniqueContexts: childUniqueContexts,
                   requiresUniqueElements: false,
                 });
@@ -920,7 +931,7 @@ export class ArgDefMutator {
               const [elemSpec] = spec.getChildren();
               const setLen = options.setLength;
 
-              mutationContexts.set(JSONN.stringify(subInput.subPath), {
+              mutationContexts.set(toPathKey(subInput.subPath), {
                 uniqueContexts: subInput.uniqueContexts,
                 requiresUniqueElements: true,
               });
@@ -1129,7 +1140,7 @@ export class ArgDefMutator {
                     pathFromOuter: [...context.pathFromOuter, i],
                   })
                 );
-                mutationContexts.set(JSONN.stringify(childPath), {
+                mutationContexts.set(toPathKey(childPath), {
                   uniqueContexts: childUniqueContexts,
                   requiresUniqueElements: false,
                 });
@@ -1417,3 +1428,10 @@ export type mutatorFn = {
   simplifies?: boolean; // true if mutator simplifies/shrinks input complexity
   fn: () => ArgValueType; // mutator function
 };
+
+/**
+ * Converts a path array to a fast lookup string key.
+ */
+function toPathKey(path: (string | number)[]): string {
+  return path.join("\0");
+} // fn: toPathKey

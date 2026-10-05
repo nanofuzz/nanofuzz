@@ -1,5 +1,22 @@
-import importlib.util
 import sys
+import signal
+
+# Ignore SIGINT in child runner host; lifecycle is managed exclusively by parent process
+try:
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+except Exception:
+    pass
+
+# Send an immediate heartbeat as early as possible during startup
+# so parent process timeout timer is reset while modules load.
+if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
+    try:
+        sys.__stdout__.buffer.write(b'\x00\x00\x00\x06\xa5HEART')
+        sys.__stdout__.buffer.flush()
+    except Exception:
+        pass
+
+import importlib.util
 import os
 import io
 import json
@@ -11,8 +28,53 @@ import uuid
 import ctypes
 import threading
 import sysconfig
+import inspect
+import asyncio
 from contextlib import redirect_stdout, contextmanager
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
+
+_HEARTBEAT_BYTES = b'\x00\x00\x00\x06\xa5HEART'
+
+
+def _send_heartbeat_byte() -> None:
+    if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
+        try:
+            sys.__stdout__.buffer.write(_HEARTBEAT_BYTES)
+            sys.__stdout__.buffer.flush()
+        except Exception:
+            pass
+
+
+class HostHeartbeat:
+    """Sends periodic startup heartbeat messages to the parent process.
+    Capped at max_heartbeats (default 1000).
+    Runs as a daemon thread and stops when stop() is called.
+    """
+
+    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = 1000):
+        self.interval = interval_sec
+        self.max_heartbeats = max_heartbeats
+        self.heartbeat_count = 0
+        self.stop_event = threading.Event()
+        self.thread = None
+
+    def start(self):
+        def _worker():
+            while not self.stop_event.wait(timeout=self.interval):
+                if self.heartbeat_count >= self.max_heartbeats:
+                    break
+                self.heartbeat_count += 1
+                _send_heartbeat_byte()
+
+        self.thread = threading.Thread(target=_worker, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+
+
+_startup_hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=1000)
+_startup_hb.start()
 
 # ---------------------------------------------------------------------------
 # Bootstrap NaNofuzz Vendor Dependencies (_nanofuzz_python)
@@ -154,54 +216,50 @@ real_stdout = (
     else sys.stdout.buffer
 )
 
-
-MAX_HEARTBEATS = 1000
-_HEARTBEAT_BYTES = struct.pack('>I', len(
-    cast(bytes, msgpack.packb("HEART")))) + cast(bytes, msgpack.packb("HEART"))
-
-
-def send_heartbeat() -> None:
-    real_stdout.write(_HEARTBEAT_BYTES)
-    real_stdout.flush()
-
-
-class HostHeartbeat:
-    """Sends periodic startup heartbeat messages to the parent process.
-    Capped at max_heartbeats (default MAX_HEARTBEATS).
-    Runs as a daemon thread and stops when stop() is called.
-    """
-
-    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = MAX_HEARTBEATS):
-        self.interval = interval_sec
-        self.max_heartbeats = max_heartbeats
-        self.heartbeat_count = 0
-        self.stop_event = threading.Event()
-        self.thread = None
-
-    def start(self):
-        def _worker():
-            while not self.stop_event.wait(timeout=self.interval):
-                if self.heartbeat_count >= self.max_heartbeats:
-                    logging.debug(
-                        f"[{pid}] Max heartbeats ({self.max_heartbeats}) reached during startup")
-                    break
-                self.heartbeat_count += 1
-                try:
-                    send_heartbeat()
-                except Exception as e:
-                    logging.debug(f"[{pid}] Heartbeat send error: {e}")
-                    break
-
-        self.thread = threading.Thread(target=_worker, daemon=True)
-        self.thread.start()
-
-    def stop(self):
-        self.stop_event.set()
+_tracer_running = False
 
 
 class PutTimeoutException(Exception):
     """Raised in the main thread when a test execution times out."""
     pass
+
+
+_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def get_event_loop() -> asyncio.AbstractEventLoop:
+    global _loop
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_loop)
+    return _loop
+
+
+def run_coroutine_with_timeout(coro: Any, timeout_ms: int) -> Any:
+    """Runs a coroutine to completion in the event loop with timeout handling and cleanup."""
+    loop = get_event_loop()
+
+    async def _waiter():
+        if timeout_ms > 0:
+            return await asyncio.wait_for(coro, timeout=timeout_ms / 1000.0)
+        return await coro
+
+    try:
+        return loop.run_until_complete(_waiter())
+    except (asyncio.TimeoutError, TimeoutError, asyncio.CancelledError):
+        raise PutTimeoutException("Coroutine execution timed out")
+    finally:
+        # Cancel any orphan background tasks created during coroutine execution
+        try:
+            pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+            if pending:
+                for task in pending:
+                    task.cancel()
+                loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
+        except Exception:
+            pass
 
 
 def _raise_async_exception(target_thread_id: int, exception_cls: type) -> None:
@@ -217,9 +275,16 @@ def _raise_async_exception(target_thread_id: int, exception_cls: type) -> None:
 
 
 def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
-    """Executes fn(*args) with an in-process timeout across Mac, Linux, and Windows."""
+    """Executes fn(*args) with an in-process timeout across Mac, Linux, and Windows, supporting async coroutines."""
+    if inspect.iscoroutinefunction(fn):
+        coro = fn(*args)
+        return run_coroutine_with_timeout(coro, timeout_ms)
+
     if not timeout_ms or timeout_ms <= 0:
-        return fn(*args)
+        res = fn(*args)
+        if inspect.iscoroutine(res):
+            return run_coroutine_with_timeout(res, timeout_ms)
+        return res
 
     main_thread_id = threading.get_ident()
     timer = threading.Timer(
@@ -229,7 +294,11 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
     )
     timer.start()
     try:
-        return fn(*args)
+        res = fn(*args)
+        if inspect.iscoroutine(res):
+            timer.cancel()
+            return run_coroutine_with_timeout(res, timeout_ms)
+        return res
     finally:
         timer.cancel()
 
@@ -317,27 +386,46 @@ def unwrap_jsonn(val: Any) -> Any:
     return val
 
 
+_input_buf = bytearray()
+
+
 def get_inputs() -> RunnerInput:
+    global _input_buf
     logging.debug(f"[{pid}] Waiting for input")
     while True:
-        # Read the 4-byte length header
-        header = sys.stdin.buffer.read(4)
-        if not header:
+        if len(_input_buf) >= 4:
+            length = struct.unpack('>I', _input_buf[:4])[0]
+            if len(_input_buf) >= 4 + length:
+                payload = bytes(_input_buf[4:4 + length])
+                del _input_buf[:4 + length]
+                raw_input: RunnerInput = msgpack.unpackb(payload, raw=False)
+                input_data = unwrap_jsonn(raw_input)
+                logging.debug(f"[{pid}]  - Parsed ok")
+                return input_data
+
+        chunk = getattr(sys.stdin.buffer, "read1")(65536)
+        if not chunk:
             break
-        length = struct.unpack('>I', header)[0]
-        logging.debug(f"[{pid}]  - Incoming input of length {length}")
+        _input_buf.extend(chunk)
 
-        # Read exactly that many bytes
-        payload = sys.stdin.buffer.read(length)
-        logging.debug(f"[{pid}]  - Read {len(payload)} bytes")
+    raise Exception("stdin closed")
 
-        # De-serialize arguments for calling the function
-        raw_input: RunnerInput = msgpack.unpackb(payload, raw=False)
-        input_data = unwrap_jsonn(raw_input)
-        logging.debug(f"[{pid}]  - Parsed ok")
 
-        return input_data
-    raise Exception("Unreachable path")
+_norm_path_cache: dict[str, str] = {}
+
+
+def get_norm_path(path_str: str) -> str:
+    """Memoizes os.path.normcase(os.path.realpath(path_str)) to avoid repeated stat() calls."""
+    if path_str not in _norm_path_cache:
+        try:
+            _norm_path_cache[path_str] = os.path.normcase(
+                os.path.realpath(path_str))
+        except Exception:
+            _norm_path_cache[path_str] = path_str
+    return _norm_path_cache[path_str]
+
+
+_measured_key_cache: dict[str, Union[str, None]] = {}
 
 
 def measured_key(data, filename: str) -> Union[str, None]:
@@ -349,12 +437,21 @@ def measured_key(data, filename: str) -> Union[str, None]:
     `filename` does not exactly match the recorded key, so fall back to
     matching against the measured files by resolved path.
     """
-    if filename in data.measured_files():
+    if filename in _measured_key_cache:
+        return _measured_key_cache[filename]
+
+    measured = data.measured_files()
+    if filename in measured:
+        _measured_key_cache[filename] = filename
         return filename
-    target = os.path.normcase(os.path.realpath(filename))
-    for measured in data.measured_files():
-        if os.path.normcase(os.path.realpath(measured)) == target:
-            return measured
+
+    target = get_norm_path(filename)
+    for m in measured:
+        if get_norm_path(m) == target:
+            _measured_key_cache[filename] = m
+            return m
+
+    _measured_key_cache[filename] = None
     return None
 
 
@@ -460,49 +557,54 @@ def static_branches(entry: dict) -> List[dict]:
 
 def static_coverage(cov: coverage.Coverage, filename: str) -> dict:
     """
-    Returns the PUT's static coverage structure: every executable line, every
-    function, and every branch point. These are the denominators for coverage
+    Single-file wrapper for static_coverage_all.
+    """
+    res = static_coverage_all(cov, [filename])
+    return res.get(filename, {"executable": [], "functions": [], "branches": []})
+
+
+def static_coverage_all(cov: coverage.Coverage, filenames: List[str]) -> dict[str, dict]:
+    """
+    Returns the PUT's static coverage structure for all filenames: every executable line,
+    every function, and every branch point. These are the denominators for coverage
     and are stable for the whole run, so the caller sends them once rather than
     with every result.
 
-    This comes from coverage.py's own JSON report, which reports branch arcs
-    and per-function line attribution directly. It gives each of those as an
-    `executed_*`/`missing_*` pair whose union is the full static set; no test
-    has run yet, so in practice everything lands in `missing_*`.
+    Analyzes all files in a single batched json_report call for maximum performance.
     """
-    # coverage.py reports branch data only once its data is arc-flavored, which
-    # normally happens when the first arcs are recorded. Nothing has run yet at
-    # startup, so mark the data explicitly, or the report omits all branches.
-    # `run_put` erases this before measuring the first test.
-    cov.get_data().add_arcs({filename: set()})
-
     empty = {"executable": [], "functions": [], "branches": []}
+    if not filenames:
+        return {}
 
-    # `json_report` writes to a path rather than returning the report, and
-    # stdout is reserved for the protocol, so route it through a temp file.
+    # coverage.py reports branch data only once its data is arc-flavored, which
+    # normally happens when the first arcs are recorded. Mark all filenames explicitly.
+    cov.get_data().add_arcs({f: set() for f in filenames})
+
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             outfile = os.path.join(tmpdir, "coverage.json")
-            cov.json_report(morfs=[filename], outfile=outfile)
+            cov.json_report(morfs=filenames, outfile=outfile)
             with open(outfile, encoding="utf-8") as f:
                 report = json.load(f)
     except coverage.CoverageException as e:
-        logging.debug(f"[{pid}] coverage.py could not analyze {filename}: {e}")
-        return empty
+        logging.debug(f"[{pid}] coverage.py could not analyze files: {e}")
+        return {f: dict(empty) for f in filenames}
 
-    # Only `filename` was reported, so there is at most one entry
     files = report.get("files", {})
-    if not files:
-        logging.debug(
-            f"[{pid}] coverage.py reported no coverage data for {filename}")
-        return empty
-    entry = next(iter(files.values()))
+    files_by_norm = {get_norm_path(k): v for k, v in files.items()}
 
-    return {
-        "executable": report_lines(entry),
-        "functions": static_functions(entry),
-        "branches": static_branches(entry),
-    }
+    res = {}
+    for f in filenames:
+        entry = files.get(f) or files_by_norm.get(get_norm_path(f))
+        if entry:
+            res[f] = {
+                "executable": report_lines(entry),
+                "functions": static_functions(entry),
+                "branches": static_branches(entry),
+            }
+        else:
+            res[f] = dict(empty)
+    return res
 
 
 VALID_COVERAGE_SCOPES = ("project", "project directimports")
@@ -714,7 +816,25 @@ def default_serializer(obj: Any) -> Any:
         f"Object of type {type(obj).__name__} is not serializable")
 
 
-def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]]) -> RunnerResult:
+_file_to_idx: dict[str, int] = {}
+
+
+def init_file_to_idx(pgm_files: List[str]) -> None:
+    """Initializes the cached file-path-to-index mapping dictionary (_file_to_idx)
+    using both raw paths and normalized realpaths for fast O(1) index lookups.
+    """
+    global _file_to_idx
+    _file_to_idx = {f: i for i, f in enumerate(pgm_files)}
+    for i, f in enumerate(pgm_files):
+        try:
+            _file_to_idx[get_norm_path(f)] = i
+        except Exception:
+            pass
+
+
+def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: coverage.Coverage, covInfo: dict[str, dict[str, List]], pgm_files: List[str]) -> RunnerResult:
+    global _tracer_running
+
     collect_options = input.get("collect")
     if collect_options is None:
         coverage_enabled = True
@@ -736,9 +856,14 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
     timeout_ms = input.get("timeout", 0)
 
     if coverage_enabled:
-        # cov.erase() is too expensive. Seems like only erasing the data works too
         cov.get_data().erase()
-        cov.start()
+        if not _tracer_running:
+            cov.start()
+            _tracer_running = True
+    else:
+        if _tracer_running:
+            cov.stop()
+            _tracer_running = False
 
     error = None
     skip = None
@@ -769,20 +894,31 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             skip = e
         else:
             error = e
-    finally:
-        if coverage_enabled:
-            cov.stop()
 
-    # Read coverage after stopping: a failing or timing out input still covers lines
+    # Read coverage after execution: a failing or timing out input still covers lines
     coverageData = {}
     coverageArcs = {}
     if coverage_enabled:
-        for file in covInfo:
-            lines = coverage_lines(cov, file)
-            if not lines:
-                continue
-            coverageData[file] = lines
-            coverageArcs[file] = coverage_arcs(cov, file)
+        data = cov.get_data()
+        measured = data.measured_files()
+        for file in measured:
+            idx = _file_to_idx.get(file)
+            if idx is None:
+                try:
+                    norm_file = get_norm_path(file)
+                    idx = _file_to_idx.get(norm_file)
+                    if idx is not None:
+                        _file_to_idx[file] = idx
+                except Exception:
+                    pass
+            if idx is not None:
+                lines = data.lines(file)
+                if lines:
+                    coverageData[idx] = sorted(lines)
+                    arcs = data.arcs(file)
+                    if arcs:
+                        coverageArcs[idx] = sorted(
+                            [src, dest] for src, dest in arcs)
 
     if is_timeout:
         return RunnerTimeoutResult(
@@ -790,7 +926,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     if skip is not None:
@@ -800,7 +935,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     if error is not None:
@@ -813,7 +947,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
             seq=input["seq"],
             coverageData=coverageData,
             coverageArcs=coverageArcs,
-            staticCoverage=covInfo if coverage_enabled else {}
         )
 
     return RunnerValueResult(
@@ -822,7 +955,6 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         seq=input["seq"],
         coverageData=coverageData,
         coverageArcs=coverageArcs,
-        staticCoverage=covInfo if coverage_enabled else {}
     )
 
 
@@ -858,10 +990,6 @@ if __name__ == "__main__":
 
     # Change cwd from the extension to that of the Python script
     os.chdir(os.path.dirname(filename))
-
-    # Start heartbeat thread during coverage initialization, module import, and static analysis
-    hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=MAX_HEARTBEATS)
-    hb.start()
 
     try:
         coverage_scope = sys.argv[4] if len(sys.argv) > 4 else "project"
@@ -909,7 +1037,7 @@ if __name__ == "__main__":
 
             # Static analysis of the program: the executable lines, functions, and
             # branches of every file it is made of.
-            covInfo = {file: static_coverage(cov, file) for file in pgm_files}
+            covInfo = static_coverage_all(cov, pgm_files)
 
             # Initial coverage structure sent at startup includes top-level lines executed at module load
             initialCoverage = {}
@@ -937,11 +1065,13 @@ if __name__ == "__main__":
             cov = coverage.Coverage(
                 include=pgm_files, branch=True, data_file=None)
 
-            covInfo = {file: static_coverage(cov, file) for file in pgm_files}
-            initialCoverage = {}
+            covInfo = static_coverage_all(cov, pgm_files)
+            initialCoverage = {file: dict(covInfo[file]) for file in pgm_files}
 
         logging.debug(
             f"[{pid}] Analyzed {len(covInfo)} file(s) of the program under test")
+
+        init_file_to_idx(pgm_files)
 
         # Pre-warm the coverage machinery. The first `cov.start()` installs the
         # tracer, which costs far more than a steady-state call and can push the
@@ -959,14 +1089,14 @@ if __name__ == "__main__":
         cov.get_data().erase()
         logging.debug(f"[{pid}] Pre-warmed coverage tracer")
     finally:
-        hb.stop()
+        _startup_hb.stop()
 
     # Ready for inputs
     send_msg("READY")
     logging.debug(f"[{pid}] Sent READY message")
 
     # Send the initial coverage info once
-    send_msg(initialCoverage)
+    send_msg({"covInfo": initialCoverage, "files": pgm_files})
     logging.debug(
         f"[{pid}] Sent initialCoverage for {len(initialCoverage)} file(s)")
 
@@ -975,7 +1105,7 @@ if __name__ == "__main__":
         logging.debug(f"[{pid}] Top of main loop")
         if (loadError == None):
             put_result(run_put(get_inputs(), filename, fnname, fn,
-                       cov, covInfo))  # Call the put
+                       cov, covInfo, pgm_files))  # Call the put
         else:
             get_inputs()
             put_result(loadError)  # Return the load error

@@ -182,6 +182,27 @@ export function targetTransformedTimeoutTransformer(
   }
 }
 
+let transformedDupeCallCount = 0;
+export function targetTransformedDupeCheck(b: boolean): boolean {
+  return b;
+}
+export function targetTransformedDupeCheckTransformer(b: boolean): [boolean] {
+  transformedDupeCallCount++;
+  if (transformedDupeCallCount > 2) {
+    throw new Error(
+      `Transformer called too many times: ${transformedDupeCallCount}`
+    );
+  }
+  return [b];
+}
+
+export function targetTransformedCollapsing(n: number): number {
+  return n;
+}
+export function targetTransformedCollapsingTransformer(_n: number): [number] {
+  return [42];
+}
+
 export function targetValidatorTimeout(n: number): number {
   return n;
 }
@@ -200,4 +221,44 @@ export function targetValidatorExceptionValidator(
   _r: FuzzTestResult
 ): "pass" | "fail" | "unknown" {
   throw new Error("Validator error message");
+}
+
+export function testValidatorExceptionOnPutException(_n: number): number {
+  throw new Error("Division by zero");
+}
+export function testValidatorExceptionOnPutExceptionValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  throw new Error("Validator crashed when evaluating exception result");
+}
+
+export function testValidatorExceptionOnPutTimeout(_n: number): number {
+  while (true) {
+    /* noop */
+  }
+}
+export function testValidatorExceptionOnPutTimeoutValidator(
+  _r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  throw new Error("Validator crashed when evaluating timeout result");
+}
+
+/**
+ * Async fuzz targets
+ */
+export async function testAsyncGreeting(name: string): Promise<string> {
+  await new Promise((r) => setTimeout(r, 5));
+  if (name === "boom") {
+    throw new Error("async error");
+  }
+  return "Hello " + name;
+}
+export async function testAsyncGreetingValidator(
+  r: FuzzTestResult
+): Promise<"pass" | "fail" | "unknown"> {
+  await new Promise((r) => setTimeout(r, 2));
+  if (r.exception) return "pass";
+  return typeof r.out === "string" && r.out.startsWith("Hello ")
+    ? "pass"
+    : "fail";
 }

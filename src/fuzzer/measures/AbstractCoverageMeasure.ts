@@ -10,6 +10,9 @@ import { InputAndSource } from "../Types";
 import { normalizePathForKey } from "../Util";
 import { AbstractMeasure, BaseMeasurement } from "./AbstractMeasure";
 
+/**
+ * Abstract base class for code coverage measures
+ */
 export abstract class AbstractCoverageMeasure extends AbstractMeasure {
   /**
    * Returns the measure's name.
@@ -58,35 +61,141 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
       b[bKey] = [...fileData.b[bKey]];
     }
     return { ...fileData, s: { ...fileData.s }, f: { ...fileData.f }, b };
-  }
+  } // fn: file_snapshot
 
-  protected static better_merge(
+  /**
+   * Performs an in-place merge of statement, function, and branch coverage
+   * from `new_cov` into `accum` and calculates the number of newly covered elements (delta).
+   *
+   * @param accum target coverage map to merge into
+   * @param new_cov incoming coverage map or coverage map data
+   * @param activeFiles optional set or array of file paths to limit merging to
+   * @returns count of newly covered statements, functions, and branches (delta)
+   */
+  protected static merge(
     accum: CoverageMap,
-    new_cov: CoverageMap | CoverageMapData
-  ): CoverageMap {
-    const other = createCoverageMap(new_cov);
+    new_cov: CoverageMap | CoverageMapData,
+    activeFiles?: Set<string> | string[]
+  ): number {
+    const other = isCoverageMap(new_cov) ? new_cov : createCoverageMap(new_cov);
+    let delta = 0;
+
     const existingNormPaths = new Map<string, string>();
     for (const file of accum.files()) {
       existingNormPaths.set(normalizePathForKey(file), file);
     }
 
-    Object.values(other.data).forEach((fc) => {
+    const filesToMerge = activeFiles ? Array.from(activeFiles) : other.files();
+
+    for (const filePath of filesToMerge) {
+      let fc: FileCoverage;
+      try {
+        fc = other.fileCoverageFor(filePath);
+      } catch {
+        continue;
+      }
+
       const normPath = normalizePathForKey(fc.path);
       const existingPath = existingNormPaths.get(normPath);
 
       if (existingPath) {
-        const fcNorm = AbstractCoverageMeasure.file_snapshot(fc);
-        fcNorm.path = existingPath;
-        accum.addFileCoverage(fcNorm);
+        const targetFc = accum.fileCoverageFor(existingPath);
+        // Merge statements
+        if (fc.s && targetFc.s) {
+          for (const k of Object.keys(fc.s)) {
+            const val = fc.s[k];
+            if (val > 0) {
+              if (!targetFc.s[k]) {
+                targetFc.s[k] = val;
+                delta++;
+              } else {
+                targetFc.s[k] += val;
+              }
+            }
+          }
+        }
+        // Merge functions
+        if (fc.f && targetFc.f) {
+          for (const k of Object.keys(fc.f)) {
+            const val = fc.f[k];
+            if (val > 0) {
+              if (!targetFc.f[k]) {
+                targetFc.f[k] = val;
+                delta++;
+              } else {
+                targetFc.f[k] += val;
+              }
+            }
+          }
+        }
+        // Merge branches
+        if (fc.b && targetFc.b) {
+          for (const k of Object.keys(fc.b)) {
+            const srcArr = fc.b[k];
+            const targetArr = targetFc.b[k];
+            if (srcArr && targetArr) {
+              for (let j = 0; j < srcArr.length; j++) {
+                const val = srcArr[j];
+                if (val > 0) {
+                  if (!targetArr[j]) {
+                    targetArr[j] = val;
+                    delta++;
+                  } else {
+                    targetArr[j] += val;
+                  }
+                }
+              }
+            }
+          }
+        }
       } else {
+        // New file not yet in accum
         const snapshot = AbstractCoverageMeasure.file_snapshot(fc);
         accum.addFileCoverage(snapshot);
         existingNormPaths.set(normPath, fc.path);
+
+        if (fc.s) {
+          for (const k of Object.keys(fc.s)) {
+            if (fc.s[k] > 0) delta++;
+          }
+        }
+        if (fc.f) {
+          for (const k of Object.keys(fc.f)) {
+            if (fc.f[k] > 0) delta++;
+          }
+        }
+        if (fc.b) {
+          for (const k of Object.keys(fc.b)) {
+            if (fc.b[k]) {
+              for (let j = 0; j < fc.b[k].length; j++) {
+                if (fc.b[k][j] > 0) delta++;
+              }
+            }
+          }
+        }
       }
-    });
-    return accum;
-  }
-}
+    }
+
+    return delta;
+  } // fn: mergeCoverageIntoAccum
+} // class: AbstractCoverageMeasure
+
+/**
+ * Type guard function that returns true if `obj` is a CoverageMap object.
+ *
+ * @param obj object or coverage data to test
+ * @returns true if `obj` is a CoverageMap instance
+ */
+function isCoverageMap(obj: CoverageMap | CoverageMapData): obj is CoverageMap {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "files" in obj &&
+    typeof obj.files === "function" &&
+    "fileCoverageFor" in obj &&
+    typeof obj.fileCoverageFor === "function"
+  );
+} // fn: isCoverageMap
 
 /**
  * Extends BaseMeasurement with code coverage details

@@ -1,36 +1,46 @@
 import * as fs from "fs";
+import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
-import { isKeyedObject } from "../Util";
+import { deepFreeze } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
-import { FunctionRef, ProgramLanguage } from "./analysis/Types";
+import { FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import { Instrumenter } from "./compilers/Instrumenter";
 import * as ProgramFactory from "./analysis/ProgramFactory";
-import * as ValueMapper from "./mappers/ValueMapper";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
-  FuzzIoElement,
   FuzzPinnedTest,
   FuzzTestResult,
-  FuzzResultCategory,
+  FuzzResultCategoryValues,
   FuzzStopReason,
   FuzzStatusUpdater,
+  FuzzResultCallback,
   BaseMeasureConfig,
-  FuzzBusyStatusMessage,
+  FuzzerFocus,
+  TransformedInputAndSource,
+  InputAndSource,
+  FuzzOptions,
+  FuzzEnv,
+  FuzzMode,
+  FuzzTestResults,
+  FuzzTestStats,
+  CurrentRunStats,
 } from "./Types";
-import { InputAndSource, FuzzOptions } from "./Types";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { InputGeneratorStatsAi, ScoredInput } from "./generators/Types";
-import { isError } from "./Util";
-import { isArgValueType } from "./analysis/Util";
-import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
-import { CompositeOracle } from "./oracles/CompositeOracle";
+import { categorizeResult, getIoKey, isError, isSameJudgments } from "./Util";
+import {
+  getTransformers,
+  getValidators,
+  isArgValueType,
+  isOptionValid,
+} from "./analysis/Util";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
+import { Judgment } from "./oracles/Types";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { CompilerStaleness } from "./compilers/Types";
@@ -56,6 +66,14 @@ export class Tester {
   >; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
+
+  protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
+  protected _failingResultToShrink?: FuzzTestResult;
+  protected _shrinkStartTime = 0;
+  protected _savedGeneratorOptions?: FuzzOptions["generators"];
+  protected getFuzzerFocus(): FuzzerFocus {
+    return this._fuzzerFocus;
+  }
 
   constructor(
     module: string,
@@ -137,7 +155,8 @@ export class Tester {
       this._leaderboard, // leaderboard
       this._results.stats.generators, // generator stats
       this._allInputs, // running list of dupe-checked inputs
-      this._program.src // enclosing module source code
+      this._program.src, // enclosing module source code
+      this.getFuzzerFocus.bind(this)
     );
 
     // Start a background compilation if precompile mode is active
@@ -227,6 +246,26 @@ export class Tester {
           inputsSkipped: 0, // updated later
           failedTests: 0, // updated later
         },
+        outcomes: {
+          total: 0,
+          exceptions: 0,
+          timeouts: 0,
+          categories: {
+            ok: 0,
+            badValue: 0,
+            timeout: 0,
+            exception: 0,
+            skip: 0,
+            disagree: 0,
+            failure: 0,
+          },
+          oracles: {
+            heuristic: { pass: 0, fail: 0, unknown: 0 },
+            human: { pass: 0, fail: 0, unknown: 0 },
+            property: { pass: 0, fail: 0, unknown: 0 },
+          },
+          firstFailure: undefined,
+        },
         generators: {
           RandomInputGenerator: {
             timers: {
@@ -239,6 +278,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
           MutationInputGenerator: {
@@ -252,6 +292,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
           AiInputGenerator: {
@@ -265,6 +306,7 @@ export class Tester {
             counters: {
               dupesGenerated: 0, // updated later
               inputsGenerated: 0, // updated later
+              dupeTicks: [],
             },
           },
         },
@@ -328,17 +370,21 @@ export class Tester {
    *
    * @param `injectTests` tests to inject
    * @param `mode` testing mode
+   * @param `updateFn` status update callback
+   * @param `cancelFn` cancel checking callback
+   * @param `onResultFn` callback called for each test result produced
    * @returns `FuzzTestResults`
    */
-  public async testSync(
+  public async test(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean
+    cancelFn?: () => boolean,
+    onResultFn?: FuzzResultCallback
   ): Promise<FuzzTestResults> {
     let result: FuzzTestResults | undefined;
     try {
-      const run = this._run(injectTests, mode, updateFn, cancelFn);
+      const run = this._run(injectTests, mode, updateFn, cancelFn, onResultFn);
       while (!result) {
         result = (await run.next()).value;
       }
@@ -349,68 +395,7 @@ export class Tester {
       }
       throw e;
     }
-  } // fn: testSync
-
-  /**
-   * Runs the tester in async mode and returns its results
-   * via `callbackFn`.
-   *
-   * @param `injectTests` tests to inject
-   * @param `mode` testing mode
-   * @param `callbackFn` called when testing completes
-   * @param `statusFn` called to report status updates
-   * @param `cancelFn` called to check cancel status
-   */
-  public async testAsync(
-    injectTests: FuzzPinnedTest[] = [],
-    mode: FuzzMode = { gen: true },
-    callbackFn: (result: FuzzTestResults | Error) => void,
-    statusFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean
-  ): Promise<void> {
-    this._runBatchAsync(
-      callbackFn,
-      this._run(injectTests, mode, statusFn, cancelFn)
-    );
-  } // fn: testAsync
-
-  /**
-   * Runs the tester in batch async mode
-   *
-   * @param `callbackFn` called when testing completes
-   * @param `run` generator function
-   */
-  protected async _runBatchAsync(
-    callbackFn: (result: FuzzTestResults | Error) => void,
-    run: ReturnType<typeof this._run>
-  ): Promise<void> {
-    let result: FuzzTestResults | undefined;
-    const timer = performance.now();
-
-    while (!result && performance.now() - timer < 100) {
-      try {
-        result = (await run.next()).value;
-        if (result) {
-          callbackFn(result);
-          return;
-        }
-      } catch (e) {
-        if (this._state === "running") {
-          this._state = "crashed";
-        }
-        callbackFn(
-          isError(e)
-            ? e
-            : { name: "unknown error", message: JSONN.stringify(e) }
-        );
-        return;
-      }
-    }
-    if (!result)
-      setTimeout(() => {
-        this._runBatchAsync(callbackFn, run);
-      });
-  } // fn: _runBatchAsync
+  } // fn: test
 
   /**
    * Generates and returns new test results
@@ -419,13 +404,15 @@ export class Tester {
    * @param `mode` tester mode
    * @param `updateFn` called to report status updates
    * @param `cancelFn` called to check cancel status
+   * @param `onResultFn` called for each test result produced
    * @returns test results
    */
   protected async *_run(
     injectTests: FuzzPinnedTest[] = [],
     mode: FuzzMode = { gen: true },
     updateFn?: FuzzStatusUpdater,
-    cancelFn?: () => boolean
+    cancelFn?: () => boolean,
+    onResultFn?: FuzzResultCallback
   ): AsyncGenerator<
     FuzzTestResults | undefined,
     FuzzTestResults,
@@ -439,21 +426,17 @@ export class Tester {
     }
     this._results.stats.counters.testingRuns++;
 
-    let lastUpdateMsg: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
     let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
     const update: FuzzStatusUpdater = (payload) => {
-      lastUpdateMsg = payload;
       lastUpdateTimestamp = performance.now();
-      if (payload.channel !== "update" && periodicTimer !== undefined) {
+      if (payload.type === "testing-complete" && periodicTimer !== undefined) {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
       }
       if (updateFn) {
         updateFn({ ...payload });
-      } else if (payload.channel !== "update") {
-        console.log(payload.msg);
       }
     };
     const runStats: CurrentRunStats = {
@@ -467,38 +450,33 @@ export class Tester {
         passedTests: 0, // number of passed tests encountered so far
         inputsSkipped: 0, // number of skipped tests so far
       },
+      outcomes: {
+        total: 0,
+        exceptions: 0,
+        timeouts: 0,
+        categories: {
+          ok: 0,
+          badValue: 0,
+          timeout: 0,
+          exception: 0,
+          skip: 0,
+          disagree: 0,
+          failure: 0,
+        },
+        oracles: {
+          heuristic: { pass: 0, fail: 0, unknown: 0 },
+          human: { pass: 0, fail: 0, unknown: 0 },
+          property: { pass: 0, fail: 0, unknown: 0 },
+        },
+        firstFailure: undefined,
+      },
       timers: {
         startTime: performance.now(), // time the tester started in this run
         startGenTime: 0, // time the tester started generating inputs in this run
       },
     };
 
-    if (!updateFn && process.env.BUILD_TARGET !== "node-cli")
-      console.log("\r\n\r\n");
-    update({
-      msg: `Target: ${this._function.getName()} of ${this._function.getModule()}`,
-      channel: "milestone",
-    });
-
     const argDefs = this._function.getArgDefs();
-    const lang = this._function.getLang();
-
-    // Inject pinned tests into the composite generator so that they generate
-    // first: we want the composite generator to know about these inputs so that
-    // any "interesting" inputs might be further used by other generators.
-    this._compositeInputGenerator.inject(
-      injectTests.map((t): Omit<InputAndSource, "tick"> => {
-        return {
-          value: t.input.map((i) => {
-            return {
-              tag: "ArgValueTypeWrapped",
-              value: i.value,
-            };
-          }),
-          source: t.input.length ? t.input[0].origin : { type: "unknown" },
-        };
-      })
-    );
 
     // Only generate new inputs if running in input generation mode
     if (mode.gen) {
@@ -506,9 +484,6 @@ export class Tester {
     } else {
       this._compositeInputGenerator.suppressGenerators();
     }
-
-    // Indicate the start of the run
-    this._compositeInputGenerator.onRunStart(!!mode.gen);
 
     // Compile the target, if required (currently only Typescript)
     const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
@@ -550,6 +525,15 @@ export class Tester {
       await transformRunner.onRunStart();
     }
 
+    // Indicate the start of the run for the composite input generator
+    this._compositeInputGenerator.onRunStart(
+      !!mode.gen,
+      injectTests,
+      transformRunner,
+      this._options.fnTimeout,
+      this._options.maxDupeInputs
+    );
+
     // Build runners for the property validators
     // Assumed: property validators are in the same module
     const propRunners = this._validators.map((vFnRef) =>
@@ -567,19 +551,26 @@ export class Tester {
       m.onRunStart(runners);
     });
 
+    // Injected tests lookup map
+    const injectMap = new Map(injectTests.map((t) => [getIoKey(t.input), t]));
+
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
-
-    update({ msg: `Target ready to test.`, channel: "milestone" });
     this._state = "ready";
+    lastUpdateTimestamp = performance.now();
 
     const checkPeriodicUpdate = () => {
       if (
-        lastUpdateMsg &&
-        lastUpdateMsg.channel === "update" &&
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
+        runStats.counters.inputsGenerated =
+          this._compositeInputGenerator.inputsGenerated;
+        runStats.counters.dupesGenerated =
+          this._compositeInputGenerator.dupesGenerated;
+        runStats.counters.dupesSequential =
+          this._compositeInputGenerator.dupesSequential;
+
         const stopCondition = _checkStopCondition(
           this._options,
           this._compositeInputGenerator.nextable() !== false,
@@ -587,11 +578,12 @@ export class Tester {
           injectTests.length,
           !!cancelFn && cancelFn(),
           runStats,
-          !!mode.gen
+          !!mode.gen,
+          this._fuzzerFocus.mode
         );
         const pct = typeof stopCondition === "number" ? stopCondition : 100;
         update({
-          ...lastUpdateMsg,
+          type: "progress-tick",
           pct,
         });
       }
@@ -604,6 +596,13 @@ export class Tester {
       while (true) {
         this._state = "running";
         checkPeriodicUpdate();
+        runStats.counters.inputsGenerated =
+          this._compositeInputGenerator.inputsGenerated;
+        runStats.counters.dupesGenerated =
+          this._compositeInputGenerator.dupesGenerated;
+        runStats.counters.dupesSequential =
+          this._compositeInputGenerator.dupesSequential;
+
         // End the testing run when we encounter a stop condition
         const stopCondition = _checkStopCondition(
           this._options,
@@ -612,9 +611,18 @@ export class Tester {
           injectTests.length,
           !!cancelFn && cancelFn(),
           runStats,
-          !!mode.gen
+          !!mode.gen,
+          this._fuzzerFocus.mode
         );
         if (typeof stopCondition !== "number") {
+          if (this._fuzzerFocus.mode === "shrink") {
+            this._fuzzerFocus = deepFreeze({ mode: "gen" });
+            if (this._savedGeneratorOptions) {
+              this._compositeInputGenerator.options =
+                this._savedGeneratorOptions;
+            }
+            continue;
+          }
           // Calculate final stats
           this._results.stopReason = stopCondition;
           this._results.stats.timers.total +=
@@ -634,6 +642,30 @@ export class Tester {
           this._results.stats.counters.failedTests +=
             runStats.counters.failedTests;
 
+          this._results.stats.outcomes.total += runStats.outcomes.total;
+          this._results.stats.outcomes.exceptions +=
+            runStats.outcomes.exceptions;
+          this._results.stats.outcomes.timeouts += runStats.outcomes.timeouts;
+          for (const cat of FuzzResultCategoryValues) {
+            this._results.stats.outcomes.categories[cat] +=
+              runStats.outcomes.categories[cat];
+          }
+          for (const j of ["pass", "fail", "unknown"] as const) {
+            this._results.stats.outcomes.oracles.heuristic[j] +=
+              runStats.outcomes.oracles.heuristic[j];
+            this._results.stats.outcomes.oracles.human[j] +=
+              runStats.outcomes.oracles.human[j];
+            this._results.stats.outcomes.oracles.property[j] +=
+              runStats.outcomes.oracles.property[j];
+          }
+          if (
+            !this._results.stats.outcomes.firstFailure &&
+            runStats.outcomes.firstFailure
+          ) {
+            this._results.stats.outcomes.firstFailure =
+              runStats.outcomes.firstFailure;
+          }
+
           // Update interesting inputs
           this._results.interesting.inputs =
             this._compositeInputGenerator.getInterestingInputs();
@@ -643,12 +675,6 @@ export class Tester {
             e.onRunEnd(this._results);
           });
           await this._compositeInputGenerator.onRunEnd(this._results); // also handles shutdown for subgens
-
-          const covStats =
-            typeof this._results.stats.measures.CodeCoverageMeasure ===
-            "function"
-              ? await this._results.stats.measures.CodeCoverageMeasure()
-              : undefined;
 
           // Shut down runners
           await Promise.all(
@@ -660,97 +686,9 @@ export class Tester {
           );
 
           update({
-            msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-            channel: "update",
+            type: "testing-complete",
+            cancelled: Boolean(cancelFn && cancelFn()),
             pct: 100,
-          });
-          const diagnostics = this._compositeInputGenerator.getDiagnostics();
-          if (diagnostics.length) {
-            update({
-              msg: ` - Input generator warnings:`,
-              channel: "summary",
-            });
-            this._compositeInputGenerator.getDiagnostics().forEach((diag) => {
-              update({
-                msg: `   - ${diag}`,
-                channel: "summary",
-              });
-            });
-          }
-          update({
-            msg: ` - Executed ${
-              runStats.counters.passedTests +
-              runStats.counters.failedTests +
-              runStats.counters.erroredTests
-            } and skipped ${runStats.counters.inputsSkipped} tests in ${(
-              performance.now() - runStats.timers.startTime
-            ).toFixed(
-              0
-            )} ms this run. Stopped for reason: ${this._results.stopReason}.`,
-            channel: "summary",
-          });
-          update({
-            msg: ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`,
-            channel: "summary",
-          });
-          update({
-            msg: ` - Total tests with exceptions: ${
-              this._results.results.filter((e) => e.exception).length
-            }, timeouts: ${this._results.results.filter((e) => e.timeout).length}, errors: ${this._results.stats.counters.erroredTests}`,
-            channel: "summary",
-          });
-          update({
-            msg: ` - Total tests where human validator passed: ${
-              this._results.results.filter((e) => e.passedHuman === "pass")
-                .length
-            }, failed: ${
-              this._results.results.filter((e) => e.passedHuman === "fail")
-                .length
-            }`,
-            channel: "summary",
-          });
-          update({
-            msg: ` - Total tests where property validator passed: ${
-              this._results.results.filter((e) => e.passedValidator === "pass")
-                .length
-            }, failed: ${
-              this._results.results.filter((e) => e.passedValidator === "fail")
-                .length
-            }`,
-            channel: "summary",
-          });
-          update({
-            msg: ` - Total tests where heuristic validator passed: ${
-              this._results.results.filter((e) => e.passedImplicit === "pass")
-                .length
-            }, failed: ${
-              this._results.results.filter((e) => e.passedImplicit === "fail")
-                .length
-            }`,
-            channel: "summary",
-          });
-
-          // Persist to outfile, if requested
-          if (this._options.outputFile) {
-            fs.writeFileSync(
-              this._options.outputFile,
-              JSONN.stringify(this._results, (k, v) =>
-                k === "CodeCoverageMeasure"
-                  ? covStats
-                  : k === "coverageMeasure" && isKeyedObject(v)
-                    ? { current: v.current }
-                    : v
-              )
-            );
-            update({
-              msg: ` - Test results: ${this._options.outputFile}`,
-              channel: "summary",
-            });
-          }
-
-          update({
-            msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-            channel: "milestone",
           });
 
           this._state = "paused";
@@ -773,7 +711,7 @@ export class Tester {
           input: [],
           output: [],
           exception: false,
-          validatorException: false,
+          harnessErrors: [],
           timeout: false,
           skipped: false,
           passedImplicit: "unknown",
@@ -814,16 +752,11 @@ export class Tester {
                     (performance.now() - runStats.timers.startGenTime)
                 )
               : undefined;
-          const pendingGens =
-            this._compositeInputGenerator.getPendingGeneratorNames();
-          const pendingLabel = pendingGens.length
-            ? pendingGens.join(", ") + " "
-            : "";
           update({
-            msg: `Waiting for ${pendingLabel}input generator...${formatRunStatsSummary(
-              runStats
-            )}`,
-            channel: "update",
+            type: "waiting-for-generator",
+            pendingGenerators:
+              this._compositeInputGenerator.getPendingGeneratorNames(),
+            stats: runStats,
             pct: typeof stopCondition === "number" ? stopCondition : 0,
           });
           await this._compositeInputGenerator.waitForNextInput(
@@ -833,16 +766,82 @@ export class Tester {
 
         if (
           this._compositeInputGenerator.nextable() !== "now" &&
+          this._compositeInputGenerator.nextable() !== "now!" &&
           !stillInjecting
         ) {
           continue;
         }
 
-        result.inputGenerated = this._compositeInputGenerator.next();
+        const getRemainingSuiteTime = (): number => {
+          const timeSinceGenStart =
+            runStats.timers.startGenTime > 0
+              ? performance.now() - runStats.timers.startGenTime
+              : 0;
+          return this._options.suiteTimeout > 0 &&
+            runStats.timers.startGenTime > 0
+            ? Math.max(0, this._options.suiteTimeout - timeSinceGenStart)
+            : Infinity;
+        };
+
+        const getEffectiveCancelFn = (): (() => boolean) | undefined => {
+          if (!cancelFn) return undefined;
+          return () => !stillInjecting && cancelFn();
+        };
+
+        if (transformRunner) {
+          let transformedInput: TransformedInputAndSource;
+          try {
+            transformedInput =
+              await this._compositeInputGenerator.nextTransformed();
+          } catch {
+            continue; // stopReason checked at top of loop
+          }
+          result.inputGenerated = transformedInput;
+
+          // Process transformer result if candidate was skipped/errored by transformer
+          if (transformedInput.transformerResult) {
+            const transformerResult = transformedInput.transformerResult;
+            switch (transformerResult.result.tag) {
+              case "skip":
+                result.skipped = true;
+                result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
+                break;
+
+              case "timeout":
+                result.harnessErrors.push({
+                  kind: "timeout",
+                  stage: "transformer",
+                  fnName: transformRunner.name,
+                  message: `Timeout exceeding ${this._options.fnTimeout} ms`,
+                  display: `(${transformRunner.name} timeout)`,
+                });
+                break;
+
+              case "error":
+                result.harnessErrors.push({
+                  kind: "exception",
+                  stage: "transformer",
+                  fnName: transformRunner.name,
+                  message: transformerResult.result.message,
+                  display: `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`,
+                  stack: transformerResult.result.stack ?? "<no stack>",
+                });
+                break;
+
+              case "value":
+                break;
+            }
+          }
+        } else {
+          try {
+            result.inputGenerated = this._compositeInputGenerator.next();
+          } catch {
+            continue; // stopReason checked at top of loop
+          }
+        }
         result.timers.gen = performance.now() - startGenTime; // total time: input generation
 
         // Map the generated inputs to the result object
-        // (the transformer might modify these)
         result.input = result.inputGenerated.value.map((e, i) => {
           return {
             name: argDefs[i]?.getName() ?? "?",
@@ -852,100 +851,21 @@ export class Tester {
           };
         });
 
-        // Apply input transformers to generated inputs (before dedup)
-        const startTransformTime = performance.now(); // start time: input transformation
-        if (!result.inputGenerated.injected && transformRunner) {
-          const transformerResult = await transformRunner.run(
-            structuredClone(result.inputGenerated.value.map((e) => e.value)),
-            Math.max(this._options.fnTimeout, 1)
-          );
-
-          // If transformer returns null, then input was rejected so skip this input
-          switch (transformerResult.result.tag) {
-            case "skip":
-              result.skipped = true;
-              result.skipReason = `(${transformRunner.name}) ${transformerResult.result.message}`;
-              break;
-            case "timeout":
-              result.validatorException = true;
-              result.validatorExceptionDisplay = `(${transformRunner.name} timeout)`;
-              result.validatorExceptionFunction = transformRunner.name;
-              result.validatorExceptionMessage = `timeout`;
-              break;
-            case "error":
-              // TODO: These need their own place in the results
-              result.validatorException = true;
-              result.validatorExceptionDisplay = `(${transformRunner.name} ${transformerResult.result.name}) ${transformerResult.result.message}`;
-              result.validatorExceptionFunction = transformRunner.name;
-              result.validatorExceptionMessage =
-                transformerResult.result.message;
-              break;
-            case "value": {
-              const values = transformerResult.result.value;
-              if (Array.isArray(values)) {
-                result.inputGenerated.value.forEach((e, i) => {
-                  if (i < values.length) {
-                    const oldValue = result.input[i].value;
-                    const newValue = values[i];
-                    result.input[i].value = newValue;
-
-                    if (
-                      JSONN.stringify(oldValue) !== JSONN.stringify(newValue)
-                    ) {
-                      result.input[i].origin = {
-                        type: "transformer",
-                        transformer: transformRunner.name,
-                        basis: {
-                          value: structuredClone(result.inputGenerated.value),
-                          source: structuredClone(result.inputGenerated.source),
-                        },
-                      };
-                    }
-                  }
-                });
-              } else {
-                // TODO: These need their own place in the results (see above)
-                result.validatorException = true;
-                result.validatorExceptionFunction = transformRunner.name;
-                result.validatorExceptionMessage = `Transformer returned non-array value: ${JSONN.stringify(transformerResult.result.value)}`;
-                break;
-              }
-            }
-          }
-        }
-        result.timers.transform = performance.now() - startTransformTime; // total time: input transformation
-
         // Pointer to generator stats for this input, if not injected
         let genStats:
           | FuzzTestStats["generators"]["RandomInputGenerator"]
           | undefined = undefined;
 
-        // Handle injected and generated tests differently, e.g.,
-        // we need to retain any saved details for injected tests.
+        // Handle injected and generated tests
         if (result.inputGenerated.injected) {
-          // Ensure the injected inputs are in the expected order
-          const expectedInput = JSONN.stringify(
-            injectTests[runStats.counters.inputsInjected].input.map(
-              (i) => i.value
-            )
-          );
-          const returnedInput = JSONN.stringify(
-            result.input.map((i) => i.value)
-          );
-          if (expectedInput !== returnedInput) {
-            throw new Error(
-              `Injected inputs in unexpected order at injected input# ${runStats.counters.inputsInjected}. Expected: "${expectedInput}". Got: "${returnedInput}".` +
-                JSONN.stringify(injectTests, null, 3)
-            );
+          const pinnedTest = injectMap.get(getIoKey(result.input));
+          if (pinnedTest) {
+            result.pinned = !!pinnedTest.pinned;
+            if (pinnedTest.expectedOutput) {
+              result.expectedOutput = pinnedTest.expectedOutput;
+            }
           }
-
-          // Map the injected test information to the new result
-          const pinnedTest = injectTests[runStats.counters.inputsInjected];
-          result.pinned = !!pinnedTest.pinned;
-          if (pinnedTest.expectedOutput) {
-            result.expectedOutput = pinnedTest.expectedOutput;
-          }
-          runStats.counters.inputsInjected++; // increment the number of pinned tests injected
+          runStats.counters.inputsInjected++;
         } else {
           // Update generator stats
           if (result.inputGenerated.source.type === "generator") {
@@ -957,14 +877,6 @@ export class Tester {
             genStats.timers.gen += result.timers.gen;
             this._results.stats.timers.gen += result.timers.gen;
 
-            // Add transform times to the stats
-            genStats.timers.transform += result.timers.transform;
-            this._results.stats.timers.transform += result.timers.transform;
-
-            // Increment the number of inputs generated
-            runStats.counters.inputsGenerated++;
-            genStats.counters.inputsGenerated++;
-
             // Log the generation start time
             if (runStats.timers.startGenTime === 0) {
               runStats.timers.startGenTime = startGenTime;
@@ -974,52 +886,37 @@ export class Tester {
           stillInjecting = false;
         }
 
-        // If the function accepts inputs, check if the input is a dupe
-        if (this._function.getArgDefs().length) {
-          // Skip tests if we previously processed the input
-          // Note the our hash value is language specific
-          const inputHash = getLangIoKey(lang, result.input);
-          if (this._allInputs.has(inputHash)) {
-            runStats.counters.dupesSequential++; // increment the sequential dupe counter
-            runStats.counters.dupesGenerated++; // incremement the total run dupe counter
-            this._compositeInputGenerator.onInputFeedback(
-              [],
-              result.timers.gen
-            ); // return empty input generator feedback
-            if (genStats) {
-              genStats.counters.dupesGenerated++; // increment the generator's dupe counter
-            }
-            continue; // skip this test
-          } else {
-            runStats.counters.dupesSequential = 0; // reset the sequential duplicate count
-            this._allInputs.set(inputHash, true);
-          }
-        }
-
         // Front-end status update
         update({
-          msg: `${cancelFn && cancelFn() && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} example# ${
-            runStats.counters.passedTests +
-            runStats.counters.failedTests +
-            runStats.counters.erroredTests +
-            1
-          }: ${this._function.getName()}(${result.input
-            .map((i) => ValueMapper.toLang(lang, i.value))
-            .join(",")})${formatRunStatsSummary(runStats)}`,
-          channel: "update",
+          type: "testing",
+          fnName: this._fnName,
+          lang: this._program.lang,
+          inputs: result.input.map((i) => i.value),
+          stats: runStats,
           pct: typeof stopCondition === "number" ? stopCondition : 100,
+          stillInjecting,
+          isCancelled: Boolean(cancelFn && cancelFn()),
         });
 
         // Call the PUT via its runner
-        if (!result.skipped && !result.validatorException) {
+        if (!result.skipped && result.harnessErrors.length === 0) {
           const startRunTime = performance.now(); // start timer
           let exeOutput: RunnerResult;
           try {
-            exeOutput = await runner.run(
-              structuredClone(result.input.map((e) => e.value)),
-              Math.max(this._options.fnTimeout, 1)
+            exeOutput = await runner.runWithInterrupt(
+              () =>
+                runner.run(
+                  result.input.map((e) => e.value),
+                  Math.max(this._options.fnTimeout, 0)
+                ),
+              getRemainingSuiteTime(),
+              getEffectiveCancelFn()
             );
           } catch (e: unknown) {
+            if (isError(e) && e.message === "runnerInterrupted") {
+              continue;
+            }
+
             if (isError(e)) {
               exeOutput = {
                 result: {
@@ -1102,8 +999,9 @@ export class Tester {
             // PROPERTY ORACLE --------------------------------------------
             // If a property validator is selected, call it to evaluate the result
             if (this._options.useProperty) {
-              (
-                await propertyOracle.judge(
+              let validatorJudgments: (Judgment | Error)[] = [];
+              try {
+                validatorJudgments = await propertyOracle.judge(
                   Object.freeze({
                     in: result.input.map((i) => i.value), // inputs
                     out:
@@ -1113,19 +1011,39 @@ export class Tester {
                     exception: result.exception,
                     timeout: result.timeout,
                   }),
-                  Math.max(this._options.fnTimeout, 1)
-                )
-              ).forEach((j, i) => {
+                  Math.max(this._options.fnTimeout, 0),
+                  getRemainingSuiteTime(),
+                  getEffectiveCancelFn()
+                );
+              } catch (e: unknown) {
+                if (isError(e) && e.message === "runnerInterrupted") {
+                  continue;
+                }
+                throw e;
+              }
+
+              validatorJudgments.forEach((j, i) => {
                 if (isError(j)) {
                   result.passedValidators.push("unknown");
-                  result.validatorException = true;
-                  result.validatorExceptionDisplay =
-                    j.name === "PropertyValidatorTimeout"
-                      ? `(${this._validators[i].name} timeout)`
-                      : `(${this._validators[i].name} ${j.name}) ${j.message}`;
-                  result.validatorExceptionMessage = j.message;
-                  result.validatorExceptionFunction = this._validators[i].name;
-                  result.validatorExceptionStack = j.stack;
+                  const fnName = this._validators[i].name;
+                  if (j.name === "PropertyValidatorTimeout") {
+                    result.harnessErrors.push({
+                      kind: "timeout",
+                      stage: "validator",
+                      fnName,
+                      message: `Timeout exceeding ${this._options.fnTimeout} ms`,
+                      display: `(${fnName} timeout)`,
+                    });
+                  } else {
+                    result.harnessErrors.push({
+                      kind: "exception",
+                      stage: "validator",
+                      fnName,
+                      message: j.message,
+                      display: `(${fnName} ${j.name}) ${j.message}`,
+                      stack: j.stack ?? "<no stack>",
+                    });
+                  }
                 } else {
                   result.passedValidators.push(j);
                 }
@@ -1149,7 +1067,113 @@ export class Tester {
         // (Re-)categorize the result
         result.category = categorizeResult(result);
 
-        // Increment the test counters
+        // --- SHRINKING LOGIC ---
+        if (
+          this._fuzzerFocus.mode === "shrink" &&
+          this._failingResultToShrink
+        ) {
+          const targetFailure = this._failingResultToShrink;
+
+          // Check if candidate input reproduced the exact same failure
+          const sameJudgments = isSameJudgments(result, targetFailure);
+          const sameCategory = result.category === targetFailure.category;
+          const sameException =
+            !targetFailure.exceptionMessage ||
+            result.exceptionMessage === targetFailure.exceptionMessage;
+
+          if (sameJudgments && sameCategory && sameException) {
+            // Adopt smaller input as new shrink target
+            this._fuzzerFocus = deepFreeze({
+              mode: "shrink",
+              target: result.inputGenerated,
+            });
+            targetFailure.input = result.input;
+            targetFailure.output = result.output;
+            targetFailure.shrinkStep = (targetFailure.shrinkStep ?? 0) + 1;
+          }
+
+          // Check shrink exit conditions
+          const maxShrinkTime = Config.get(
+            "nanofuzz.fuzzer.maxShrinkTime",
+            2000
+          );
+          const shrinkTimeElapsed = performance.now() - this._shrinkStartTime;
+          const timeExceeded =
+            maxShrinkTime > 0 && shrinkTimeElapsed >= maxShrinkTime;
+          const stepCapExceeded = (targetFailure.shrinkStep ?? 0) >= 100;
+          const noMoreShrinks =
+            this._compositeInputGenerator.nextable() === false;
+
+          if (timeExceeded || stepCapExceeded || noMoreShrinks) {
+            this._fuzzerFocus = deepFreeze({ mode: "gen" });
+            if (this._savedGeneratorOptions) {
+              this._compositeInputGenerator.options =
+                this._savedGeneratorOptions;
+            }
+          }
+        } else {
+          // --- NORMAL GENERATION MODE: TRIGGER SHRINKING ON FAILURE ---
+          const isFailingResult =
+            result.category === "badValue" ||
+            result.category === "exception" ||
+            result.category === "timeout";
+
+          const shouldShrinkTrigger =
+            isFailingResult &&
+            this._options.maxFailures === 1 &&
+            Config.get("nanofuzz.fuzzer.shrinkFailures", true) &&
+            !result.inputGenerated.injected &&
+            this._function.getArgDefs().length > 0;
+
+          if (shouldShrinkTrigger) {
+            this._failingResultToShrink = result;
+            this._failingResultToShrink.shrinkStep = 0;
+            this._shrinkStartTime = performance.now();
+            this._savedGeneratorOptions = structuredClone(
+              this._options.generators
+            );
+
+            this._fuzzerFocus = deepFreeze({
+              mode: "shrink",
+              target: result.inputGenerated,
+            });
+
+            this._compositeInputGenerator.options = {
+              RandomInputGenerator: { enabled: false },
+              MutationInputGenerator: { enabled: true },
+              AiInputGenerator: { enabled: false },
+            };
+          }
+        }
+
+        // Increment the test counters and outcome statistics
+        runStats.outcomes.categories[result.category]++;
+        if (result.exception) {
+          runStats.outcomes.exceptions++;
+        }
+        if (result.timeout) {
+          runStats.outcomes.timeouts++;
+        }
+        if (result.passedImplicit in runStats.outcomes.oracles.heuristic) {
+          runStats.outcomes.oracles.heuristic[result.passedImplicit]++;
+        }
+        if (result.passedHuman in runStats.outcomes.oracles.human) {
+          runStats.outcomes.oracles.human[result.passedHuman]++;
+        }
+        if (result.passedValidator in runStats.outcomes.oracles.property) {
+          runStats.outcomes.oracles.property[result.passedValidator]++;
+        }
+        if (result.category !== "skip") {
+          runStats.outcomes.total++;
+        }
+        if (
+          result.category !== "ok" &&
+          result.category !== "skip" &&
+          !runStats.outcomes.firstFailure
+        ) {
+          runStats.outcomes.firstFailure = result;
+        }
+
         switch (result.category) {
           case "ok":
             runStats.counters.passedTests++;
@@ -1168,17 +1192,11 @@ export class Tester {
             break;
         }
 
-        // Store the result for this iteration
-        this._results.results.push(result);
-
         // Take measurements for this test run
         {
           const startMeasureTime = performance.now(); // start timer
           const measurements = this._measures.map((e) =>
-            e.measure(
-              structuredClone(result.inputGenerated),
-              structuredClone(result)
-            )
+            e.measure(result.inputGenerated, result)
           );
 
           // Provide measures feedback to the composite input generator
@@ -1196,9 +1214,29 @@ export class Tester {
           }
         }
 
+        // Store the result for this iteration
+        const retention = this._options.outputResults ?? "all";
+        const shouldRetain =
+          retention === "all" ||
+          Boolean(result.inputGenerated?.injected) ||
+          (retention === "failures" &&
+            result.category !== "ok" &&
+            result.category !== "skip");
+
+        if (shouldRetain) {
+          this._results.results.push(result);
+        }
+        if (onResultFn) {
+          onResultFn(deepFreeze(result));
+        }
+
         yield undefined;
       } // for: Main test loop
     } finally {
+      this._fuzzerFocus = deepFreeze({ mode: "gen" });
+      if (this._savedGeneratorOptions) {
+        this._compositeInputGenerator.options = this._savedGeneratorOptions;
+      }
       if (periodicTimer !== undefined) {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
@@ -1241,9 +1279,10 @@ const _checkStopCondition = (
   injectCount: number,
   userCancel: boolean,
   stats: CurrentRunStats,
-  gen: boolean
+  gen: boolean,
+  fuzzerFocusMode: "gen" | "shrink" = "gen"
 ): FuzzStopReason | number => {
-  const pcts: number[] = [0];
+  let maxPct = 0;
   const now = performance.now();
 
   // End testing if the user cancels but not yet if still injecting
@@ -1258,37 +1297,36 @@ const _checkStopCondition = (
     if (now - stats.timers.startGenTime >= options.suiteTimeout) {
       return FuzzStopReason.MAXTIME;
     }
-    pcts.push((now - stats.timers.startGenTime) / options.suiteTimeout);
+    const timePct = (now - stats.timers.startGenTime) / options.suiteTimeout;
+    if (timePct > maxPct) maxPct = timePct;
   }
 
   // End testing if we exceed the maximum number of tests
-  if (
-    stats.counters.inputsInjected +
-      (gen
-        ? stats.counters.inputsGenerated -
-          stats.counters.dupesGenerated -
-          stats.counters.inputsSkipped
-        : 0) >=
-    injectCount + (gen ? options.maxTests : 0)
-  ) {
+  const executedNonInjected = gen
+    ? stats.counters.inputsGenerated -
+      stats.counters.dupesGenerated -
+      stats.counters.inputsSkipped
+    : 0;
+  const totalInputsCount = stats.counters.inputsInjected + executedNonInjected;
+  const targetCount = injectCount + (gen ? options.maxTests : 0);
+
+  if (totalInputsCount >= targetCount) {
     return FuzzStopReason.MAXTESTS;
   }
-  pcts.push(
-    (stats.counters.inputsInjected +
-      (gen
-        ? stats.counters.inputsGenerated -
-          stats.counters.dupesGenerated -
-          stats.counters.inputsSkipped
-        : 0)) /
-      (injectCount + (gen ? options.maxTests : 0))
-  );
+  if (targetCount > 0) {
+    const testsPct = totalInputsCount / targetCount;
+    if (testsPct > maxPct) maxPct = testsPct;
+  }
 
   // End testing if we exceed the maximum number of failures & are done injecting inputs
-  if (options.maxFailures > 0 && !injecting) {
-    if (stats.counters.failedTests >= options.maxFailures) {
+  if (options.maxFailures > 0 && !injecting && fuzzerFocusMode !== "shrink") {
+    const totalFailures =
+      stats.counters.failedTests + stats.counters.erroredTests;
+    if (totalFailures >= options.maxFailures) {
       return FuzzStopReason.MAXFAILURES;
     }
-    pcts.push(stats.counters.failedTests / options.maxFailures);
+    const failuresPct = totalFailures / options.maxFailures;
+    if (failuresPct > maxPct) maxPct = failuresPct;
   }
 
   // End testing if we exceed the maximum number of sequential duplicates generated
@@ -1303,283 +1341,5 @@ const _checkStopCondition = (
   }
 
   // No stop condition found; return pct complete
-  return Math.max(0, Math.floor(Math.max(...pcts) * 100));
+  return Math.max(0, Math.floor(maxPct * 100));
 }; // fn: _checkStopCondition()
-
-/**
- * Checks whether the given option set is valid.
- *
- * @param options fuzzer option set
- * @returns true if the options are valid, false otherwise
- */
-const isOptionValid = (options: FuzzOptions): boolean => {
-  return (
-    options.maxTests >= 0 &&
-    options.maxDupeInputs >= 0 &&
-    options.maxFailures >= 0 &&
-    ArgDef.isOptionValid(options.argDefaults) &&
-    typeof options.generators === "object" &&
-    "RandomInputGenerator" in options.generators &&
-    "enabled" in options.generators.RandomInputGenerator &&
-    typeof options.measures === "object"
-  );
-}; // fn: isOptionValid()
-
-/**
- * Returns a list of validator FunctionRefs found within the ProgramDef
- * associated with a FunctionDef
- *
- * @param program the ProgramDef to search
- * @returns an array of validator FunctionRefs
- */
-export function getValidators(
-  program: AbstractProgram,
-  fnUnderTest: FunctionDef
-): FunctionRef[] {
-  const fnUnderTestName = fnUnderTest.getName();
-  return Object.values(program.functionsExported)
-    .filter(
-      (fn) =>
-        fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName
-    )
-    .map((fn) => fn.getRef());
-} // fn: getValidators()
-
-/**
- * Returns a list of input transformer functions for the function under test.
- *
- * @param program the program to search
- * @param fnUnderTest the function under test
- * @returns an array of transformer FunctionRefs
- */
-export function getTransformers(
-  program: AbstractProgram,
-  fnUnderTest: FunctionDef
-): FunctionRef[] {
-  return Object.values(program.functionsExported)
-    .filter(
-      (fn) =>
-        fn.isTransformer() && fn.getName().startsWith(fnUnderTest.getName())
-    )
-    .map((fn) => fn.getRef());
-} // fn: getTransformers()
-
-/**
- * Categorizes the result of a fuzz test according to the available
- * categories defined in ResultType.
- * @param result of the test
- * @returns the category of the result
- */
-export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
-  if (result.validatorException) {
-    return "failure"; // Validator or transformer failed
-  }
-  if (result.skipped) {
-    return "skip";
-  }
-
-  // Returns the type of bad value: execption, timeout, or badvalue
-  const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
-    if (result.exception) {
-      return "exception"; // PUT threw exception
-    } else if (result.timeout) {
-      return "timeout"; // PUT timedout
-    } else {
-      return "badValue"; // PUT returned bad value
-    }
-  };
-
-  // Use the Composite Oracle to render a single judgment from among
-  // the various oracles. We describe this in the TerzoN paper:
-  //
-  // TerzoN: Human-in-the-Loop Software Testing with a Composite Oracle
-  // https://doi.org/10.1145/3580446
-  //
-  // Subsequently, map the judgment to a FuzzResultCategory
-  switch (
-    CompositeOracle.judge([
-      [result.passedValidator, result.passedHuman],
-      [result.passedImplicit],
-    ])
-  ) {
-    case "pass":
-      return "ok";
-    case "fail":
-      return getBadValueType(result);
-    case "unknown":
-      return "disagree";
-  }
-} // fn: categorizeResult()
-
-/**
- * Gets the input key as a string from an array of `FuzzIoElement`s
- *
- * @param `io` array of `FuzzIoElements`
- * @returns string representation of input key
- */
-export function getIoKey(io: FuzzIoElement[]): string {
-  return JSONN.stringify(
-    io.map((input) => {
-      return { value: input.value };
-    })
-  );
-} // fn: getIoKey
-
-/**
- * Gets the langiage-specific input key as a string from an array of `FuzzIoElement`s
- *
- * @param `lang` programming language
- * @param `io` array of `FuzzIoElements`
- * @returns string representation array of inputs in `lang` format
- */
-export function getLangIoKey(
-  lang: ProgramLanguage,
-  io: FuzzIoElement[]
-): string {
-  return ValueMapper.toLang(
-    lang,
-    io.map((i) => i.value)
-  );
-} // fn: getLangIoKey
-
-/**
- * Fuzzer Environment required to fuzz a function.
- */
-export type FuzzEnv = {
-  options: FuzzOptions; // fuzzer options
-  function: FunctionDef; // the function to fuzz
-  validators: FunctionRef[]; // list of the module's validator functions
-  transformers: FunctionRef[]; // list of the module's input transformer functions
-};
-
-/**
- * Fuzzer Test Result
- */
-export type FuzzTestResults = {
-  toolVersion: string; // NaNofuzz name and version that generated the results
-  env: FuzzEnv; // fuzzer environment
-  stopReason: FuzzStopReason; // why the fuzzer stopped
-  stats: FuzzTestStats; // fuzzer statistics
-  interesting: {
-    inputs: ScoredInput[]; // interesting inputs
-  };
-  results: FuzzTestResult[]; // fuzzing test results
-};
-
-/**
- * Fuzzer Test Stats
- */
-export type FuzzGeneratorStatsBase = {
-  counters: {
-    inputsGenerated: number; // number of inputs generated, including dupes
-    dupesGenerated: number; // number of duplicate inputs generated
-  };
-  timers: {
-    run: number; // elapsed time the PUT ran
-    val: number; // elapsed time to categorize outputs
-    gen: number; // elapsed time to generate inputs
-    measure: number; // elapsed time to measure
-    transform: number; // elapsed time to transform inputs
-  };
-};
-export type FuzzTestStats = {
-  timers: {
-    total: number; // elapsed time the fuzzer ran
-    compile: number; // elapsed time to compile & instrument PUT
-    instrument: number; // elapsed time to instrument PUT
-    put: number; // elapsed time the PUT ran
-    val: number; // elapsed time to categorize outputs
-    gen: number; // elapsed time to generate inputs
-    transform: number; // elapsed time to transform inputs
-    measure: number; // elapsed time to measure
-  };
-  counters: {
-    testingRuns: number; // number of test runs
-    inputsGenerated: number; // number of inputs generated, including dupes
-    dupesGenerated: number; // number of duplicate inputs generated
-    inputsInjected: number; // number of inputs pinned
-    erroredTests: number; // number of tests with internal errors
-    passedTests: number; // number of passed tests
-    inputsSkipped: number; // number of skipped tests
-    failedTests: number; // number of failed tests
-  };
-  generators: {
-    RandomInputGenerator: FuzzGeneratorStatsBase;
-    MutationInputGenerator: FuzzGeneratorStatsBase;
-    AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
-    CompositeInputGenerator?: {
-      config?: {
-        lookbackWindow: number;
-        chunkSize: number;
-        explorationChance: number;
-        initialFocus: number;
-        focusDecay: number;
-      };
-      checkpoints: {
-        tick: number; // tick of the checkpoint
-        gens: Record<
-          string,
-          {
-            active: boolean; // subgen is active
-            nextable: boolean; // subgen is active and nextable
-            productivity: number; // current productivity[g] for this input generator
-            cost: number; // current cost[g] for this input generator
-          }
-        >;
-      }[];
-    };
-  };
-  measures: {
-    CodeCoverageMeasure?: () => Promise<CodeCoverageMeasureStats>;
-  };
-};
-
-/**
- * Current run statistics
- */
-type CurrentRunStats = {
-  counters: {
-    inputsInjected: number; // number of inputs injected for testing
-    inputsGenerated: number; // number of inputs generated so far
-    dupesGenerated: number; // number of duplicate inputs generated so far
-    dupesSequential: number; // current number of duplicate inputs generated in a row
-    erroredTests: number; // number of tests with internal errors so far
-    failedTests: number; // number of failed tests so far
-    passedTests: number; // number of passed tests so far
-    inputsSkipped: number; // number of skipped tests so far
-  };
-  timers: {
-    startTime: number; // time the tester started in this run
-    startGenTime: number; // time the tester started generating new inputs
-  };
-};
-
-/**
- * Formats passed, failed, errored, and skipped test counts for update messages.
- */
-function formatRunStatsSummary(runStats: CurrentRunStats): string {
-  return `\r\n  Passed: ${runStats.counters.passedTests}\r\n  Failed: ${
-    runStats.counters.failedTests
-  }${
-    runStats.counters.erroredTests
-      ? `\r\n Errored: ${runStats.counters.erroredTests}`
-      : ""
-  }${
-    runStats.counters.inputsSkipped
-      ? `\r\n Skipped: ${runStats.counters.inputsSkipped}`
-      : ""
-  }`;
-}
-
-/**
- * Fuzzer mode
- */
-export type FuzzMode = {
-  gen?: true;
-};
-
-export * from "./analysis/typescript/TypescriptProgram";
-export * from "./analysis/FunctionDef";
-export * from "./analysis/ArgDef";
-export * from "./analysis/Types";
-export * from "./Types";
