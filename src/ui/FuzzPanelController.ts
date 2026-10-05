@@ -415,6 +415,18 @@ export class FuzzPanel {
   // ----------------------- Message Handling ----------------------- //
 
   /**
+   * Posts a message to the webview serialized using JSONN to safely
+   * transport BigInt, Uint8Array, Set, Map, and undefined across the VS Code boundary.
+   *
+   * @param message The message to send to the webview.
+   */
+  private _postToView(message: FuzzPanelMessageToWebView): void {
+    if (!this._isDisposed) {
+      this._panel.webview.postMessage({ jsonn: JSONN.stringify(message) });
+    }
+  } // fn: _postToView()
+
+  /**
    * Registers the message handler that allows the client side of
    * the WebView to communicate back with this extension.
    *
@@ -422,7 +434,10 @@ export class FuzzPanel {
    */
   private _setWebviewMessageListener(webview: vscode.Webview) {
     webview.onDidReceiveMessage(
-      async (message: FuzzPanelMessageFromWebView) => {
+      async (rawMessage: FuzzPanelMessageFromWebView | { jsonn: string }) => {
+        const message: FuzzPanelMessageFromWebView = isJsonnEnvelope(rawMessage)
+          ? JSONN.parse(rawMessage.jsonn)
+          : rawMessage;
         this._wasShowingCoverage = this._showingCoverage;
         switch (message.command) {
           case "fuzz.run":
@@ -989,7 +1004,7 @@ export class FuzzPanel {
     const message: FuzzPanelMessageToWebView = {
       command: "coverage.stale",
     };
-    this._panel.webview.postMessage(message);
+    this._postToView(message);
   } // fn: _doStaleNotify
 
   /**
@@ -1444,7 +1459,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         command: "validator.list",
         validators: newValidators.map((e) => e.name),
       };
-      this._panel.webview.postMessage(message);
+      this._postToView(message);
     }
 
     // Transformers
@@ -1466,7 +1481,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         command: "transformer.list",
         transformers: newTransformers.map((e) => e.name),
       };
-      this._panel.webview.postMessage(message);
+      this._postToView(message);
     }
   } // fn: _doGetValidatorsAndTransformers()
 
@@ -1610,7 +1625,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               command: "busy.message",
               message: payload,
             };
-            this._panel.webview.postMessage(message);
+            this._postToView(message);
           },
           // Fn to cancel testing
           () => this._pauseTesting
@@ -1661,7 +1676,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         const message: FuzzPanelMessageToWebView = {
           command: "busy.ending",
         };
-        this._panel.webview.postMessage(message);
+        this._postToView(message);
         this._updateHtml();
         this._focusInput = undefined;
       } catch (e: unknown) {
@@ -1749,7 +1764,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       const message: FuzzPanelMessageToWebView = {
         command: "coverage.hidden",
       };
-      this._panel.webview.postMessage(message);
+      this._postToView(message);
     }
 
     // Telemetry
@@ -1921,7 +1936,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         },
       },
     };
-    this._panel.webview.postMessage(message);
+    this._postToView(message);
   } //fn: onDidChangeConfiguration
 
   /**
@@ -4194,6 +4209,21 @@ function toPrettyList(inList: string[]): string {
         (a, b, i, array) => a + (i < array.length - 1 ? ", " : ", and ") + b
       );
 } // fn: toPrettyList()
+
+/**
+ * Type guard function that returns true if `obj` is a JSONN envelope
+ *
+ * @param obj object to check
+ * @returns true if `obj` is a JSONN envelope
+ */
+function isJsonnEnvelope(obj: unknown): obj is { jsonn: string } {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "jsonn" in obj &&
+    typeof obj.jsonn === "string"
+  );
+} // fn: isJsonnEnvelope()
 
 /**
  * Returns the number of sequential failues with the same message from
