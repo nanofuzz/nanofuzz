@@ -1,4 +1,5 @@
 import { Tester, FuzzStopReason } from "./Fuzzer";
+import { FuzzBusyStatusMessage } from "./Types";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
 import * as fs from "node:fs";
@@ -75,7 +76,7 @@ describe("fuzzer: general", () => {
       `
     );
 
-    const updates: { msg: string; channel: string; pct?: number }[] = [];
+    const updates: FuzzBusyStatusMessage[] = [];
     try {
       await new Tester(tsFile, "slowFn", {
         ...intOptions,
@@ -85,14 +86,11 @@ describe("fuzzer: general", () => {
         updates.push({ ...payload });
       });
 
-      const statusUpdates = updates.filter((u) => u.channel === "update");
-      expect(statusUpdates.length).toBeGreaterThan(2);
-
-      const example1Updates = statusUpdates.filter((u) =>
-        u.msg.includes("input# 1")
+      const statusUpdates = updates.filter(
+        (u) => u.type === "testing" || u.type === "progress-tick"
       );
-      expect(example1Updates.length).toBeGreaterThanOrEqual(2);
-      expect(example1Updates[0].msg).toEqual(example1Updates[1].msg);
+      expect(statusUpdates.length).toBeGreaterThan(2);
+      expect(statusUpdates.every((u) => typeof u.pct === "number")).toBeTrue();
     } finally {
       try {
         fs.rmSync(tmpdir, {
@@ -107,7 +105,7 @@ describe("fuzzer: general", () => {
     }
   });
 
-  it("includes test counts in waiting msg", async () => {
+  it("emits progress updates when waiting for async input generator", async () => {
     class TestableTester extends Tester {
       public get compositeInputGenerator() {
         return this._compositeInputGenerator;
@@ -127,7 +125,7 @@ describe("fuzzer: general", () => {
       `
     );
 
-    const updates: { msg: string; channel: string; pct?: number }[] = [];
+    const updates: FuzzBusyStatusMessage[] = [];
     const tester = new TestableTester(tsFile, "dummyFn", {
       ...intOptions,
       maxTests: 5,
@@ -152,13 +150,10 @@ describe("fuzzer: general", () => {
       });
 
       const waitUpdates = updates.filter(
-        (u) =>
-          u.channel === "update" &&
-          u.msg.includes("Waiting for AI input generator...")
+        (u) => u.type === "waiting-for-generator"
       );
       expect(waitUpdates.length).toBeGreaterThan(0);
-      expect(waitUpdates[0].msg).toContain("Passed: 0");
-      expect(waitUpdates[0].msg).toContain("Failed: 0");
+      expect(waitUpdates.every((u) => typeof u.pct === "number")).toBeTrue();
     } finally {
       try {
         fs.rmSync(tmpdir, {

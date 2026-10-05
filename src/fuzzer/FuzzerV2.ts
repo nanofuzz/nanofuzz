@@ -11,7 +11,6 @@ import * as ProgramFactory from "./analysis/ProgramFactory";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
   BaseMeasureConfig,
-  FuzzBusyStatusMessage,
   FuzzEnv,
   FuzzMode,
   FuzzOptions,
@@ -25,10 +24,6 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
-import {
-  formatCandidateStatus,
-  formatWaitingStatus,
-} from "./FuzzTextFormatter";
 import { getTransformers, getValidators, isOptionValid } from "./analysis/Util";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
@@ -281,21 +276,17 @@ export class FuzzerV2 {
     );
     this._stats.startRun();
 
-    let lastUpdateMsg: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
     let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
     const update: FuzzStatusUpdater = (payload) => {
-      lastUpdateMsg = payload;
       lastUpdateTimestamp = performance.now();
-      if (payload.channel !== "update" && periodicTimer !== undefined) {
+      if (payload.type === "testing-complete" && periodicTimer !== undefined) {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
       }
       if (updateFn) {
         updateFn({ ...payload });
-      } else if (payload.channel !== "update") {
-        console.log(payload.msg);
       }
     };
 
@@ -308,13 +299,10 @@ export class FuzzerV2 {
 
     let stillInjecting = injectTests.length > 0;
     this._state = "ready";
-    lastUpdateMsg = undefined;
     lastUpdateTimestamp = performance.now();
 
     const checkPeriodicUpdate = () => {
       if (
-        lastUpdateMsg &&
-        lastUpdateMsg.channel === "update" &&
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
@@ -334,7 +322,7 @@ export class FuzzerV2 {
         );
         const pct = typeof stopCondition === "number" ? stopCondition : 100;
         update({
-          ...lastUpdateMsg,
+          type: "progress-tick",
           pct,
         });
       }
@@ -386,13 +374,11 @@ export class FuzzerV2 {
                     (performance.now() - this._stats!.startGenTime)
                 )
               : undefined;
-          const msg = formatWaitingStatus(
-            this._compositeInputGenerator.getPendingGeneratorNames(),
-            this._stats!.currentRun
-          );
           update({
-            msg,
-            channel: "update",
+            type: "waiting-for-generator",
+            pendingGenerators:
+              this._compositeInputGenerator.getPendingGeneratorNames(),
+            stats: this._stats!.currentRun,
             pct: typeof stopCondition === "number" ? stopCondition : 0,
           });
           await this._compositeInputGenerator.waitForNextInput(
@@ -700,22 +686,15 @@ export class FuzzerV2 {
     cancelFn?: () => boolean,
     stillInjecting: boolean = false
   ): void {
-    const isNodeCli = process.env.BUILD_TARGET === "node-cli";
-    const msg = isNodeCli
-      ? ""
-      : formatCandidateStatus(
-          this._function.getName(),
-          this._function.getLang(),
-          candidate.value.map((i) => i.value),
-          this._stats!.currentRun,
-          stillInjecting,
-          Boolean(cancelFn && cancelFn())
-        );
-
     update({
-      msg,
-      channel: "update",
+      type: "testing",
+      fnName: this._function.getName(),
+      lang: this._function.getLang(),
+      inputs: candidate.value.map((i) => i.value),
+      stats: this._stats!.currentRun,
       pct,
+      stillInjecting,
+      isCancelled: Boolean(cancelFn && cancelFn()),
     });
   } // fn: _notify
 
@@ -748,8 +727,8 @@ export class FuzzerV2 {
     }
 
     update({
-      msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-      channel: "update",
+      type: "testing-complete",
+      cancelled: Boolean(cancelFn && cancelFn()),
       pct: 100,
     });
 

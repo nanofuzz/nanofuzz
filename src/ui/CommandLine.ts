@@ -12,7 +12,11 @@ import * as fs from "node:fs";
 import { SingleBar, Presets } from "cli-progress";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import { ArgDef, FuzzBusyStatusMessage } from "../fuzzer/Fuzzer";
-import { formatRunSummary } from "../fuzzer/FuzzTextFormatter";
+import {
+  formatCompilingStatus,
+  formatInstrumentingStatus,
+  formatRunSummary,
+} from "./FuzzTextFormatter";
 import { FuzzerEngineVersion, FuzzerFactory } from "../fuzzer/FuzzerFactory";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
@@ -350,28 +354,44 @@ export async function runCliInProcess(
   process.on("SIGINT", sigintListener);
 
   const updateFn = (payload: FuzzBusyStatusMessage) => {
-    if (!isCancelled) {
-      switch (payload.channel) {
-        case "summary":
-        case "milestone": {
-          if (!lastWasMilestone) {
-            bar.stop();
-          }
-          console.log(payload.msg);
-          break;
+    if (isCancelled) return;
+    switch (payload.type) {
+      case "compiling": {
+        if (!lastWasMilestone) {
+          bar.stop();
         }
-        case "update": {
-          if (lastWasMilestone) {
-            bar.start(100, 0);
-          }
-          if (payload.pct) {
-            bar.update(Math.max(0, Math.min(payload.pct, 100)));
-          }
-          break;
+        console.log(formatCompilingStatus(payload));
+        lastWasMilestone = true;
+        break;
+      }
+      case "instrumenting": {
+        if (!lastWasMilestone) {
+          bar.stop();
         }
+        console.log(formatInstrumentingStatus(payload));
+        lastWasMilestone = true;
+        break;
+      }
+      case "testing":
+      case "waiting-for-generator":
+      case "progress-tick": {
+        if (lastWasMilestone) {
+          bar.start(100, 0);
+          lastWasMilestone = false;
+        }
+        if (typeof payload.pct === "number") {
+          bar.update(Math.max(0, Math.min(payload.pct, 100)));
+        }
+        break;
+      }
+      case "testing-complete": {
+        if (!lastWasMilestone) {
+          bar.stop();
+          lastWasMilestone = true;
+        }
+        break;
       }
     }
-    lastWasMilestone = payload.channel !== "update" || isCancelled;
   };
 
   // infrastructure options

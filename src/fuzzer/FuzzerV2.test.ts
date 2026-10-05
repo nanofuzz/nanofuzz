@@ -3,6 +3,7 @@ import { FuzzerV2 as TesterV2 } from "./FuzzerV2";
 import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
+import { FuzzBusyStatusMessage } from "./Types";
 
 describe("fuzzer V2: general & parity tests", () => {
   beforeAll(async () => {
@@ -153,13 +154,16 @@ describe("fuzzer V2: general & parity tests", () => {
       options
     );
 
-    const updates: string[] = [];
+    const updates: FuzzBusyStatusMessage[] = [];
     const results = await tester.test([], { gen: true }, (payload) => {
-      updates.push(payload.msg);
+      updates.push(payload);
     });
 
     expect(results.stats.outcomes.total).toBe(15);
     expect(results.stopReason).toBe(FuzzStopReason.MAXTESTS);
     expect(updates.length).toBeGreaterThan(0);
+    expect(
+      updates.some((u) => u.type === "testing" && typeof u.pct === "number")
+    ).toBeTrue();
   });
 });

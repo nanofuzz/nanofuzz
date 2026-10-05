@@ -2,6 +2,11 @@ import * as JSONN from "../Jsonn";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./Util";
 import {
+  formatTestingStatus,
+  formatWaitingStatus,
+  formatTestingCompleteStatus,
+} from "./FuzzTextFormatter";
+import {
   FuzzArgOverride,
   FuzzIoElement,
   FuzzPinnedTest,
@@ -472,12 +477,38 @@ async function main() {
         break;
       }
       case "busy.message": {
+        const msg = data.message;
         const nonMilestone = getElementByIdOrThrow(
           "fuzzBusyMessageNonMilestone"
         );
-        nonMilestone.innerHTML = htmlEscape(data.message.msg);
-        if (data.message.channel === "update") {
-          const pct = Math.max(0.1, Math.min(data.message.pct, 100));
+        let displayText: string | undefined = undefined;
+
+        switch (msg.type) {
+          case "compiling":
+            displayText = `Compiling: ${msg.file}`;
+            break;
+          case "instrumenting":
+            displayText = `Instrumenting: ${msg.file}`;
+            break;
+          case "testing":
+            displayText = formatTestingStatus(msg);
+            break;
+          case "waiting-for-generator":
+            displayText = formatWaitingStatus(msg);
+            break;
+          case "testing-complete":
+            displayText = formatTestingCompleteStatus(msg);
+            break;
+          case "progress-tick":
+            break;
+        }
+
+        if (displayText !== undefined) {
+          nonMilestone.innerHTML = htmlEscape(displayText);
+        }
+
+        if ("pct" in msg && typeof msg.pct === "number") {
+          const pct = Math.max(0.1, Math.min(msg.pct, 100));
           const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
           progressBar.style.width = pct + "%";
           if (pct > 0) {

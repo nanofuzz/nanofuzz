@@ -1,6 +1,15 @@
-import { FunctionRef, ProgramLanguage } from "./analysis/Types";
-import * as ValueMapper from "./mappers/ValueMapper";
-import { CurrentRunStats, FuzzTestResult, FuzzTestResults } from "./Types";
+import { FunctionRef, ProgramLanguage } from "../fuzzer/analysis/Types";
+import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
+import {
+  CurrentRunStats,
+  FuzzCompilingMessage,
+  FuzzInstrumentingMessage,
+  FuzzTestingCompleteMessage,
+  FuzzTestingMessage,
+  FuzzTestResult,
+  FuzzTestResults,
+  FuzzWaitingForGeneratorMessage,
+} from "../fuzzer/Types";
 
 /**
  * Formats full execution results and outcome metrics into summary lines for display.
@@ -80,7 +89,10 @@ export function formatFailureBlock(
   lang: ProgramLanguage,
   validators: FunctionRef[],
   fnTimeout: number = 200,
-  termWidth: number = process.stdout.columns && process.stdout.columns > 0
+  termWidth: number = typeof process !== "undefined" &&
+  process.stdout &&
+  process.stdout.columns &&
+  process.stdout.columns > 0
     ? process.stdout.columns
     : 80
 ): string {
@@ -322,55 +334,104 @@ export function formatRunStatsSummary(runStats: CurrentRunStats): string {
 } // fn: formatRunStatsSummary
 
 /**
- * Formats a live candidate test execution message for status notifications.
+ * Formats a live test execution message for status notifications.
  *
- * @param targetFnName Name of the function under test.
- * @param lang Language of the module.
- * @param inputValues Raw argument values of the test candidate.
- * @param runStats Current run stats.
- * @param stillInjecting True if still injecting pinned inputs.
- * @param isCancelled True if cancellation has been requested.
+ * @param msg The testing message containing function details, inputs, and stats.
  * @returns Formatted message string for status updates.
  */
-export function formatCandidateStatus(
-  targetFnName: string,
-  lang: ProgramLanguage,
-  inputValues: unknown[],
-  runStats: CurrentRunStats,
-  stillInjecting: boolean = false,
-  isCancelled: boolean = false
-): string {
+export function formatTestingStatus(msg: FuzzTestingMessage): string {
   const totalExecuted =
-    runStats.counters.passedTests +
-    runStats.counters.failedTests +
-    runStats.counters.erroredTests +
+    msg.stats.counters.passedTests +
+    msg.stats.counters.failedTests +
+    msg.stats.counters.erroredTests +
     1;
-  const args = inputValues.map((v) => ValueMapper.toLang(lang, v)).join(",");
+  const args = msg.inputs.map((v) => ValueMapper.toLang(msg.lang, v)).join(",");
   const prefix =
-    isCancelled && stillInjecting
+    msg.isCancelled && msg.stillInjecting
       ? "Interrupt pending retest of prior inputs.\r\n"
       : "";
-  const action = stillInjecting ? "Retesting prior" : "Testing new";
-  return `${prefix}${action} input# ${totalExecuted}: ${targetFnName}(${args})${formatRunStatsSummary(
-    runStats
+  const action = msg.stillInjecting ? "Retesting prior" : "Testing new";
+  return `${prefix}${action} input# ${totalExecuted}: ${msg.fnName}(${args})${formatRunStatsSummary(
+    msg.stats
   )}`;
-} // fn: formatCandidateStatus
+} // fn: formatTestingStatus
 
 /**
  * Formats a generator waiting message for status notifications.
  *
- * @param pendingGeneratorNames Names of generators currently producing inputs asynchronously.
- * @param runStats Current run stats.
+ * @param msg The waiting message containing pending generators and stats.
  * @returns Formatted message string for generator wait status.
  */
 export function formatWaitingStatus(
-  pendingGeneratorNames: string[],
-  runStats: CurrentRunStats
+  msg: FuzzWaitingForGeneratorMessage
 ): string {
-  const pendingLabel = pendingGeneratorNames.length
-    ? pendingGeneratorNames.join(", ") + " "
+  const pendingLabel = msg.pendingGenerators.length
+    ? msg.pendingGenerators.join(", ") + " "
     : "";
   return `Waiting for ${pendingLabel}input generator...${formatRunStatsSummary(
-    runStats
+    msg.stats
   )}`;
 } // fn: formatWaitingStatus
+
+/**
+ * Formats a compilation message for display.
+ *
+ * @param msg The compilation message.
+ * @returns Formatted message string.
+ */
+export function formatCompilingStatus(msg: FuzzCompilingMessage): string {
+  return ` - Compile...: ${msg.file}`;
+} // fn: formatCompilingStatus
+
+/**
+ * Formats an instrumentation message for display.
+ *
+ * @param msg The instrumentation message.
+ * @returns Formatted message string.
+ */
+export function formatInstrumentingStatus(
+  msg: FuzzInstrumentingMessage
+): string {
+  return ` - Instrument: ${msg.file}`;
+} // fn: formatInstrumentingStatus
+
+/**
+ * Formats a test completion message for display.
+ *
+ * @param msg The test complete message.
+ * @returns Formatted message string.
+ */
+export function formatTestingCompleteStatus(
+  msg: FuzzTestingCompleteMessage
+): string {
+  return `Testing ${msg.cancelled ? "interrupted" : "finished"}.`;
+} // fn: formatTestingCompleteStatus
+
+/**
+ * Normalizes a temporary compilation/instrumentation file path to a clean user-facing path.
+ *
+ * @param cleanPath Clean source path under tmpDir
+ * @param tmpDir Temporary compilation directory
+ * @returns Cleaned normalized display path
+ */
+export function normalizeDisplayPath(
+  cleanPath: string,
+  tmpDir: string
+): string {
+  const normClean = cleanPath.replace(/\\/g, "/");
+  const normTmp = tmpDir.replace(/\\/g, "/");
+  let displayPath = normClean.startsWith(normTmp)
+    ? normClean.slice(normTmp.length).replace(/^\/+/, "")
+    : normClean;
+  displayPath = displayPath.replace(/^inst-[^/]+\/?/, "");
+  if (typeof process !== "undefined" && process.platform === "win32") {
+    if (/^[a-zA-Z]\//.test(displayPath)) {
+      displayPath = displayPath.charAt(0) + ":" + displayPath.substring(1);
+    }
+  } else {
+    if (!displayPath.startsWith("/")) {
+      displayPath = "/" + displayPath;
+    }
+  }
+  return displayPath;
+} // fn: normalizeDisplayPath

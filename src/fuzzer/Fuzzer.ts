@@ -17,7 +17,6 @@ import {
   FuzzStatusUpdater,
   FuzzResultCallback,
   BaseMeasureConfig,
-  FuzzBusyStatusMessage,
   FuzzerFocus,
   TransformedInputAndSource,
   InputAndSource,
@@ -38,10 +37,6 @@ import {
   isArgValueType,
   isOptionValid,
 } from "./analysis/Util";
-import {
-  formatCandidateStatus,
-  formatWaitingStatus,
-} from "./FuzzTextFormatter";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
@@ -431,21 +426,17 @@ export class Tester {
     }
     this._results.stats.counters.testingRuns++;
 
-    let lastUpdateMsg: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
     let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
     const update: FuzzStatusUpdater = (payload) => {
-      lastUpdateMsg = payload;
       lastUpdateTimestamp = performance.now();
-      if (payload.channel !== "update" && periodicTimer !== undefined) {
+      if (payload.type === "testing-complete" && periodicTimer !== undefined) {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
       }
       if (updateFn) {
         updateFn({ ...payload });
-      } else if (payload.channel !== "update") {
-        console.log(payload.msg);
       }
     };
     const runStats: CurrentRunStats = {
@@ -486,7 +477,6 @@ export class Tester {
     };
 
     const argDefs = this._function.getArgDefs();
-    const lang = this._function.getLang();
 
     // Only generate new inputs if running in input generation mode
     if (mode.gen) {
@@ -567,13 +557,10 @@ export class Tester {
     // Are we currently injecting inputs?
     let stillInjecting = !!injectTests.length;
     this._state = "ready";
-    lastUpdateMsg = undefined;
     lastUpdateTimestamp = performance.now();
 
     const checkPeriodicUpdate = () => {
       if (
-        lastUpdateMsg &&
-        lastUpdateMsg.channel === "update" &&
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
@@ -596,7 +583,7 @@ export class Tester {
         );
         const pct = typeof stopCondition === "number" ? stopCondition : 100;
         update({
-          ...lastUpdateMsg,
+          type: "progress-tick",
           pct,
         });
       }
@@ -699,8 +686,8 @@ export class Tester {
           );
 
           update({
-            msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-            channel: "update",
+            type: "testing-complete",
+            cancelled: Boolean(cancelFn && cancelFn()),
             pct: 100,
           });
 
@@ -765,13 +752,11 @@ export class Tester {
                     (performance.now() - runStats.timers.startGenTime)
                 )
               : undefined;
-          const msg = formatWaitingStatus(
-            this._compositeInputGenerator.getPendingGeneratorNames(),
-            runStats
-          );
           update({
-            msg,
-            channel: "update",
+            type: "waiting-for-generator",
+            pendingGenerators:
+              this._compositeInputGenerator.getPendingGeneratorNames(),
+            stats: runStats,
             pct: typeof stopCondition === "number" ? stopCondition : 0,
           });
           await this._compositeInputGenerator.waitForNextInput(
@@ -903,16 +888,14 @@ export class Tester {
 
         // Front-end status update
         update({
-          msg: formatCandidateStatus(
-            this._function.getName(),
-            lang,
-            result.input.map((i) => i.value),
-            runStats,
-            stillInjecting,
-            Boolean(cancelFn && cancelFn())
-          ),
-          channel: "update",
+          type: "testing",
+          fnName: this._fnName,
+          lang: this._program.lang,
+          inputs: result.input.map((i) => i.value),
+          stats: runStats,
           pct: typeof stopCondition === "number" ? stopCondition : 100,
+          stillInjecting,
+          isCancelled: Boolean(cancelFn && cancelFn()),
         });
 
         // Call the PUT via its runner
@@ -1368,4 +1351,3 @@ export * from "./analysis/Types";
 export * from "./analysis/Util";
 export * from "./Types";
 export * from "./Util";
-export * from "./FuzzTextFormatter";

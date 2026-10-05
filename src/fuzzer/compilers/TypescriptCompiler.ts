@@ -383,16 +383,9 @@ export class TypescriptCompiler {
 
     // Provide feedback that we are compiling
     updateFn({
-      msg: ` - Compile...: ${module.filename}`,
-      channel: "milestone",
+      type: "compiling",
+      file: module.filename,
     });
-    if (process.env.BUILD_TARGET !== "node-cli") {
-      updateFn({
-        msg: `Compiling: ${module.filename}`,
-        channel: "update",
-        pct: 0.1,
-      });
-    }
 
     // Construct tsc args
     const argv = [
@@ -462,9 +455,6 @@ export class TypescriptCompiler {
     const proc = merge(merge({}, process), {
       argv: compact(argv),
       exit: function (code: number) {
-        if (code !== 0) {
-          console.error("Fatal Error. Unable to compile TypeScript file.");
-        }
         exitCode = code;
       },
       // Wrap stdout.write() for this context
