@@ -1,6 +1,15 @@
 import * as JSONN from "../Jsonn";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
-import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./Util";
+import {
+  getElementByIdOrThrow,
+  getElementByIdWithTypeOrThrow,
+  hide,
+  htmlEscape,
+  htmlUnescape,
+  isHidden,
+  show,
+  toggleHidden,
+} from "./Util";
 import {
   formatTestingStatus,
   formatWaitingStatus,
@@ -19,6 +28,14 @@ import {
 } from "../fuzzer/Types";
 import { getBaseOrigin } from "../Util";
 import * as Parser from "../fuzzer/adapters/ParserAdapter";
+
+declare global {
+  interface Window {
+    hljs?: {
+      highlightAll: () => void;
+    };
+  }
+}
 import {
   ArgValueType,
   ArgValueTypeWrapped,
@@ -30,7 +47,8 @@ import {
   FuzzPanelMessageToWebView,
   FuzzPanelMessageFromWebView,
   FuzzPanelPinMessage,
-} from "./FuzzPanelController";
+} from "../../src/ui/FuzzPanelController";
+import { IdeasPanelView } from "./IdeasPanelView";
 
 const vscode = acquireVsCodeApi();
 
@@ -111,7 +129,13 @@ export type FuzzPanelViewRow = {
   src?: string;
   pinned?: boolean;
   expectedOutput?: FuzzIoElement[];
-  [key: string]: unknown;
+  [key: string]:
+    | FuzzIoElement[]
+    | Judgment
+    | boolean
+    | number
+    | string
+    | undefined;
 };
 
 // Results grouped by type (filled by main during load event)
@@ -136,6 +160,9 @@ let lastResultsTableShown: Element | undefined = undefined;
 
 // Coverage Heatmap Status
 let coverageHeatmapIsStale = false;
+
+// Ideas Panel
+let ideasGrid: IdeasPanelView | undefined;
 
 /**
  * Sets up the UI when the page is loaded, including setting up
@@ -533,6 +560,20 @@ async function main() {
           show(getElementByIdOrThrow("fuzzWarnings.coverage.stale"));
         }
         break;
+      case "ideas.updated": {
+        const ideas: Required<typeof data>["ideas"] = JSONN.parse(
+          data.ideasSerialized
+        );
+        if (ideasGrid) {
+          ideasGrid.update(ideas);
+        } else {
+          console.error(
+            `No IdeasGrid present for ${data.command}; discarding ${ideas.length} ideas.`
+          );
+        }
+        window.hljs?.highlightAll(); // !!!!!!!!!!
+        break;
+      }
     }
   });
 
@@ -590,11 +631,10 @@ async function main() {
     }
 
     // Loop over each result
-    let idx = 0;
     for (const e of resultsData.results) {
       // Indicate which tests are pinned
       const pinned = { [pinnedLabel]: !!e.pinned };
-      const id = { [idLabel]: idx++ };
+      const id = { [idLabel]: e.testId };
 
       // Input Source
       const inputSrc: Exclude<FuzzValueOrigin, { type: "transformer" }> =
@@ -610,6 +650,9 @@ async function main() {
         case "put":
           src = { [srcLabel]: "pgm" };
           break;
+        case "mutator":
+          src = { [srcLabel]: "mtr" }; // should not happen
+          break;
         case "generator":
           switch (inputSrc.generator) {
             case "AiInputGenerator":
@@ -623,7 +666,7 @@ async function main() {
               break;
             default:
               throw new Error(
-                `Unexpected FuzzValueOrigin generator at input# ${idx}: ${JSONN.stringify(
+                `Unexpected FuzzValueOrigin generator at input# ${e.testId}: ${JSONN.stringify(
                   inputSrc
                 )}`
               );
@@ -631,7 +674,7 @@ async function main() {
           break;
         default:
           throw new Error(
-            `Unexpected FuzzValueOrigin at input# ${idx}: ${JSONN.stringify(
+            `Unexpected FuzzValueOrigin at input# ${e.testId}: ${JSONN.stringify(
               inputSrc
             )}`
           );
@@ -643,7 +686,7 @@ async function main() {
         : {};
 
       // Human validation expectation and result
-      const passedHuman = resultsData.env.options.useHuman
+      const exampleOracle = resultsData.env.options.useHuman
         ? { [correctLabel]: e.passedHuman }
         : {};
       const expectedOutput = resultsData.env.options.useHuman
@@ -655,12 +698,7 @@ async function main() {
         ? { [validatorLabel]: e.passedValidator }
         : {};
 
-      // Array of all property validator results (array of bools, each is true if passed)
-      // const allValidators = resultsData.env.options.useProperty
-      //   ? { [allValidatorsLabel]: e.passedValidators }
-      //   : {};
-
-      // Result for each property validator ("pass"" if passed)
+      // Result for each property validator ("pass" if passed)
       const validatorFns: Record<string, Judgment> = {};
       e.passedValidators.forEach((j, i) => {
         validatorFns[validators[i]] = j;
@@ -720,7 +758,7 @@ async function main() {
           ...passedImplicit,
           ...passedValidator,
           ...validatorFns,
-          ...passedHuman,
+          ...exampleOracle,
           ...pinned,
           ...expectedOutput,
         });
@@ -787,7 +825,7 @@ async function main() {
                     ? "Property validator"
                     : "Property validator summary"
                 }">
-                  <span class="codicon codicon-hubot"></span>
+                  <span class="codicon codicon-robot"></span>
                 </span>`;
               cell.id = type + "-" + k;
               cell.addEventListener("click", () => {
@@ -821,7 +859,7 @@ async function main() {
               cell.classList.add("colorColumn", "clickable");
               cell.innerHTML = /* html */ `
                 <span class="tooltipped tooltipped-sw" aria-label="${k}">
-                  <span class="codicon codicon-hubot" style="font-size: 1em;"></span> <!-- small -->
+                  <span class="codicon codicon-robot" style="font-size: 1em;"></span> <!-- small -->
                 </span>`;
               cell.id = type + "-" + k;
               cell.style.paddingLeft = "0px";
@@ -946,6 +984,20 @@ async function main() {
       }
     }
   } // if we have results data
+
+  // Create the IdeasGrid
+  try {
+    ideasGrid = new IdeasPanelView(
+      vscode,
+      JSONN.parse<string[]>(
+        getElementByIdOrThrow("fuzzFnInputNames").innerText
+      ),
+      getElementByIdOrThrow("tab-ideas"),
+      getElementByIdOrThrow("fuzzResultsGrid-ideas")
+    );
+  } catch (_e: unknown) {
+    // this is exepected to fail in some modes
+  }
 } // fn: main()
 
 /**
@@ -1418,7 +1470,7 @@ function toggleExpandColumn(type: FuzzResultCategory) {
 
 /**
  * Syncs the tabs and panels so that only the pane for the
- * selected tab is shown. are displaying
+ * selected tab is shown.
  *
  * @param `clickedTab` the tab clicked
  */
@@ -1504,7 +1556,10 @@ function handleColumnSort(
     let first = rowA;
     let second = rowB;
     const sortOrder = columnSortOrders[type][thisCol];
-    if (sortOrder !== FuzzSortOrder.desc && sortOrder !== FuzzSortOrder.asc) {
+    if (
+      (sortOrder !== FuzzSortOrder.desc && sortOrder !== FuzzSortOrder.asc) ||
+      hiddenColumns.includes(thisCol) // don't sort by hidden columns
+    ) {
       return 0; // no need to sort
     } else if (sortOrder === FuzzSortOrder.desc) {
       first = rowB;
@@ -1704,6 +1759,7 @@ function drawTableBody({
   data[type].forEach((e) => {
     let id = -1;
     const row = tbody.appendChild(document.createElement("tr"));
+    row.classList.add("lineAbove");
     Object.keys(e).forEach((k) => {
       if (k === idLabel) {
         id = parseInt(String(e[k] ?? 0));
@@ -1848,7 +1904,12 @@ function drawTableBody({
         });
 
         // Update the front-end buttons to match the back-end state
-        switch (e[k] ?? "unknown") {
+        const val = e[k];
+        const judgmentVal: Judgment =
+          val === "pass" || val === "fail" || val === "unknown"
+            ? val
+            : "unknown";
+        switch (judgmentVal) {
           case "unknown":
             break;
           case "pass":
@@ -2685,47 +2746,6 @@ function handleGetListOfValidators() {
 } // fn: handleGetListOfValidators()
 
 /**
- * Returns true if the DOM node is hidden using the 'hidden' class.
- *
- * @param e The DOM node to check for the 'hidden' class
- * @returns true if the DOM node is hidden; false otherwise
- */
-function isHidden(e: HTMLElement) {
-  return e.classList.contains("hidden");
-} // fn: isHidden()
-
-/**
- * Toggles whether an element is hidden or not
- *
- * @param e DOM element to toggle
- */
-function toggleHidden(e: Element) {
-  if (e.classList.contains("hidden")) {
-    e.classList.remove("hidden");
-  } else {
-    e.classList.add("hidden");
-  }
-} // fn: toggleHidden()
-
-/**
- * Hides a DOM element
- *
- * @param e DOM element to hide
- */
-function hide(e: Element) {
-  e.classList.add("hidden");
-} // fn: hide()
-
-/**
- * Shows a DOM element
- *
- * @param e DOM element to hide
- */
-function show(e: Element) {
-  e.classList.remove("hidden");
-} // fn: show()
-
-/**
  * Returns the number of columns in a table
  *
  * @param type Table type key
@@ -2792,37 +2812,3 @@ function listForValidatorFnTooltip(validatorList: string[]) {
 function getIdBase(i: number) {
   return "argDef-" + i;
 } // fn: getIdBase()
-
-/**
- * Adapted from: escape-goat/index.js
- *
- * Unescapes an HTML string.
- *
- * @param html HTML to unescape
- * @returns unescaped string
- */
-function htmlUnescape(html: string) {
-  return html
-    .replace(/&gt;/g, ">")
-    .replace(/&lt;/g, "<")
-    .replace(/&#0?39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&");
-} // fn: htmlUnescape()
-
-/**
- * Adapted from: escape-goat/index.js
- *
- * Escapes a string for use in HTML.
- *
- * @param str string to escape
- * @returns escaped string
- */
-function htmlEscape(str: string) {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-} // fn: htmlEscape()

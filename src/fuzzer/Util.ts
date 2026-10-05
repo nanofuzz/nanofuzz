@@ -2,6 +2,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as JSONN from "../Jsonn";
 import { CompositeOracle } from "./oracles/CompositeOracle";
+import { NamedJudgment } from "./oracles/Types";
 import { FuzzIoElement, FuzzResultCategory, FuzzTestResult } from "./Types";
 import { ProgramLanguage } from "./analysis/Types";
 import * as ValueMapper from "./mappers/ValueMapper";
@@ -180,12 +181,31 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
   // https://doi.org/10.1145/3580446
   //
   // Subsequently, map the judgment to a FuzzResultCategory
-  switch (
-    CompositeOracle.judge([
-      [result.passedValidator, result.passedHuman],
-      [result.passedImplicit],
-    ])
-  ) {
+  const namedValidator: NamedJudgment = {
+    name: "PropertyOracle",
+    judgment: result.passedValidator,
+    trace: [],
+    deciders: [],
+  };
+  const namedHuman: NamedJudgment = {
+    name: "ExampleOracle",
+    judgment: result.passedHuman,
+    trace: [],
+    deciders: [],
+  };
+  const namedImplicit: NamedJudgment = {
+    name: "ImplicitOracle",
+    judgment: result.passedImplicit,
+    trace: [],
+    deciders: [],
+  };
+
+  const compositeJudgment = CompositeOracle.judge([
+    [namedValidator, namedHuman],
+    [namedImplicit],
+  ]);
+
+  switch (compositeJudgment.judgment) {
     case "pass":
       return "ok";
     case "fail":

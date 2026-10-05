@@ -145,7 +145,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -190,7 +190,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const pyOutputData = JSON5.parse<FuzzTestResults>(
+    const pyOutputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -288,7 +288,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -332,7 +332,7 @@ describe("cli:", () => {
     expect(res.status).toBe(3); // Exit code 3 when 0 tests run
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -423,7 +423,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -460,7 +460,7 @@ describe("cli:", () => {
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -742,7 +742,7 @@ describe("cli:", () => {
     expect(res.status).toBe(1);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -1542,7 +1542,7 @@ export function myPutTransformer(x: number): [number] {
       })[];
     };
 
-    const outputData = JSON5.parse<OutputDataWithCoverage>(
+    const outputData = JSONN.parse<OutputDataWithCoverage>(
       fs.readFileSync(outputFile, "utf8")
     );
 
@@ -1649,7 +1649,7 @@ export function myPutTransformer(x: number): [number] {
     expect(res2.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
 
-    const outputData = JSON5.parse<FuzzTestResults>(
+    const outputData = JSONN.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")
     );
     expect(outputData.results.length).toBeGreaterThan(0);

@@ -15,6 +15,7 @@ import {
   FuzzResultCategoryValues,
   FuzzStopReason,
   FuzzStatusUpdater,
+  FuzzBusyStatusMessage,
   FuzzResultCallback,
   BaseMeasureConfig,
   FuzzerFocus,
@@ -66,6 +67,7 @@ export class Tester {
   >; // last compiler object used
 
   protected _results: FuzzTestResults; // test results
+  protected _testId = 0; // next test id
 
   protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
   protected _failingResultToShrink?: FuzzTestResult;
@@ -217,6 +219,7 @@ export class Tester {
    */
   protected _getInitializedResults(): FuzzTestResults {
     return {
+      runId: crypto.randomUUID(),
       toolVersion: getToolVersion(),
       env: {
         options: structuredClone(this._options),
@@ -364,6 +367,20 @@ export class Tester {
   public get state(): typeof this._state {
     return this._state;
   } // property: get state
+
+  /**
+   * Returns the current module and compiles it if necessary
+   */
+  public getModule(
+    update: (payload: FuzzBusyStatusMessage) => void = () => {}
+  ): string {
+    const fqSrcFile = fs.realpathSync(this._function.getModule()); // Help the module loader
+    this._lastCompiler = CompilerFactory.fromSourcefile(fqSrcFile);
+    if (!this._lastCompiler) {
+      throw new Error(`Unable to create compiler for ${fqSrcFile}`);
+    }
+    return this._lastCompiler.compileSync(update);
+  } // property: get module
 
   /**
    * Runs the tester and returns its results.
