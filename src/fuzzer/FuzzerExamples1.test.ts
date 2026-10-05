@@ -13,9 +13,9 @@ describe("fuzzer: study examples 1-7", () => {
           "nanofuzz-study/examples/1.ts",
           "minValue",
           intOptions
-        ).testSync()
-      ).results.length
-    ).not.toBe(0);
+        ).test()
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 02 - getSortSetting", async () => {
@@ -25,9 +25,9 @@ describe("fuzzer: study examples 1-7", () => {
           "nanofuzz-study/examples/2.ts",
           "getSortSetting",
           intOptions
-        ).testSync()
-      ).results.length
-    ).not.toBe(0);
+        ).test()
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 03 - totalDinnerExpenses", async () => {
@@ -37,9 +37,9 @@ describe("fuzzer: study examples 1-7", () => {
           "nanofuzz-study/examples/3.ts",
           "totalDinnerExpenses",
           floatOptions
-        ).testSync()
-      ).results.length
-    ).not.toBe(0);
+        ).test()
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 04 - maxOfArray", async () => {
@@ -48,9 +48,9 @@ describe("fuzzer: study examples 1-7", () => {
         await new Tester("nanofuzz-study/examples/4.ts", "maxOfArray", {
           ...intOptions,
           argDefaults: { ...intOptions.argDefaults, anyDims: 1 },
-        }).testSync()
-      ).results.length
-    ).not.toBe(0);
+        }).test()
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 05 - getRandomNumber", async () => {
@@ -60,9 +60,9 @@ describe("fuzzer: study examples 1-7", () => {
           "nanofuzz-study/examples/5.ts",
           "getRandomNumber",
           intOptions
-        ).testSync()
-      ).results.length
-    ).not.toBe(0);
+        ).test()
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 06 - getZero", async () => {
@@ -72,9 +72,9 @@ describe("fuzzer: study examples 1-7", () => {
           "nanofuzz-study/examples/6.ts",
           "getZero",
           intOptions
-        ).testSync()
-      ).results.length
-    ).not.toBe(0);
+        ).test()
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 
   it("Fuzz example 07 - sortByWinLoss", async () => {
@@ -84,8 +84,8 @@ describe("fuzzer: study examples 1-7", () => {
           "nanofuzz-study/examples/7.ts",
           "sortByWinLoss",
           intOptions
-        ).testSync()
-      ).results.length
-    ).not.toBe(0);
+        ).test()
+      ).stats.outcomes.total
+    ).toBeGreaterThan(0);
   });
 });

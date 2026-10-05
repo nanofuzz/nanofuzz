@@ -9,7 +9,7 @@ import * as path from "path";
 import * as Parser from "../../adapters/ParserAdapter";
 
 class InspectablePythonProgram extends PythonProgram {
-  public get unsupportedFunctions() {
+  public get functionsNotSupported() {
     return this._functions.unsupported;
   }
 }
@@ -664,7 +664,7 @@ from .schemas import *`,
       // Pydantic request objects are not a supported fuzz-input shape yet;
       // the analyzer must report this endpoint as unsupported, not crash.
       expect(program.functionsExported["create_prediction"]).toBeUndefined();
-      expect(program.unsupportedFunctions["create_prediction"]).toEqual(
+      expect(program.functionsNotSupported["create_prediction"]).toEqual(
         jasmine.objectContaining({ argument: "payload" })
       );
       expect(console.debug).toHaveBeenCalled();
@@ -713,7 +713,7 @@ from .schemas import *`,
     );
 
     expect(program.functionsExported["x"]).toBeUndefined();
-    expect(program.unsupportedFunctions["x"]).toEqual(
+    expect(program.functionsNotSupported["x"]).toEqual(
       jasmine.objectContaining({
         reason: jasmine.stringMatching("Missing type annotation"),
       })
@@ -756,14 +756,40 @@ def decorated(value: int) -> str:
 
   it("finds typed async functions", () => {
     // The analyzer extracts the inner function definition from `async def`.
-    const fn = ProgramFactory.fromSource(
+    const fns = ProgramFactory.fromSource(
       () => `async def fetch_name(url: str) -> str:
-    return url`,
-      "python"
-    ).functionsExported["fetch_name"];
+    return url
 
-    expect(fn.getArgDefs()[0].getType()).toEqual(ArgTag.STRING);
-    expect(fn.getReturnType()?.type?.type).toEqual(ArgTag.STRING);
+async def async_void(msg: str) -> None:
+    print(msg)
+
+async def async_bare_void():
+    pass
+
+def sync_fn(x: int) -> int:
+    return x * 2
+
+lam = lambda: 42`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["fetch_name"].isAsync()).toBeTrue();
+    expect(fns["fetch_name"].isVoid()).toBeFalse();
+    expect(fns["fetch_name"].getArgDefs()[0].getType()).toEqual(ArgTag.STRING);
+    expect(fns["fetch_name"].getReturnType()?.type?.type).toEqual(
+      ArgTag.STRING
+    );
+
+    expect(fns["async_void"].isAsync()).toBeTrue();
+    expect(fns["async_void"].isVoid()).toBeTrue();
+
+    expect(fns["async_bare_void"].isAsync()).toBeTrue();
+    expect(fns["async_bare_void"].isVoid()).toBeTrue();
+
+    expect(fns["sync_fn"].isAsync()).toBeFalse();
+    expect(fns["sync_fn"].isVoid()).toBeFalse();
+
+    expect(fns["lam"].isAsync()).toBeFalse();
   });
 
   it("ignores PEP 695 aliases declared inside a function", () => {
@@ -796,7 +822,7 @@ def create_item(item_id: int, db: Session = Depends(get_db)) -> str:
     );
 
     expect(program.functions["create_item"]).toBeUndefined();
-    expect(program.unsupportedFunctions["create_item"]).toEqual(
+    expect(program.functionsNotSupported["create_item"]).toEqual(
       jasmine.objectContaining({ argument: "db" })
     );
   });
@@ -1010,6 +1036,72 @@ def test_special_chars(s: str):
     expect(args[0].getOptions().strCharset).toEqual("abcdefghijklmnop \n\t");
   });
 
+  it("hypothesis @given default st.text and st.characters Unicode strRegex", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+from hypothesis import strategies as st
+
+@given(
+  t=st.text(),
+  c=st.characters(),
+  t_alpha=st.text(alphabet="abc")
+)
+def test_defaults(t, c, t_alpha):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_defaults"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().strRegex).toEqual("\\A(?:.)*\\Z");
+    expect(args[0].getOptions().strLength).toEqual({
+      min: 0,
+      max: Number.POSITIVE_INFINITY,
+    });
+    expect(args[0].getOptions().strCharset).toBeDefined();
+    expect(args[0].getOptions().strCharset?.length).toBeGreaterThan(0);
+
+    expect(args[1].getOptions().strRegex).toEqual("\\A(?:.)*\\Z");
+    expect(args[1].getOptions().strLength).toEqual({ min: 1, max: 1 });
+    expect(args[1].getOptions().strCharset).toBeDefined();
+    expect(args[1].getOptions().strCharset?.length).toBeGreaterThan(0);
+
+    expect(args[2].getOptions().strCharset).toEqual("abc");
+    expect(args[2].getOptions().strLength).toEqual({
+      min: 0,
+      max: Number.POSITIVE_INFINITY,
+    });
+  });
+
+  it("hypothesis @given unbounded dft st.integers and st.floats", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+from hypothesis import strategies as st
+
+@given(
+  i_default=st.integers(),
+  i_min=st.integers(min_value=10),
+  i_max=st.integers(max_value=100),
+  f_default=st.floats(),
+  f_min=st.floats(min_value=0.0),
+  f_max=st.floats(max_value=50.0)
+)
+def test_numeric_defaults(i_default, i_min, i_max, f_default, f_min, f_max):
+  pass
+      `,
+      "python"
+    ).functionsExported["test_numeric_defaults"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getIntervals()).toEqual([{ min: -Infinity, max: Infinity }]);
+    expect(args[1].getIntervals()).toEqual([{ min: 10, max: Infinity }]);
+    expect(args[2].getIntervals()).toEqual([{ min: -Infinity, max: 100 }]);
+
+    expect(args[3].getIntervals()).toEqual([{ min: -Infinity, max: Infinity }]);
+    expect(args[4].getIntervals()).toEqual([{ min: 0.0, max: Infinity }]);
+    expect(args[5].getIntervals()).toEqual([{ min: -Infinity, max: 50.0 }]);
+  });
+
   it("hypothesis @settings `max_examples`", () => {
     const program = ProgramFactory.fromSource(
       () => `
@@ -1040,6 +1132,65 @@ def test_without_settings(x):
 
     const fn3 = program.functionsExported["test_without_settings"];
     expect(fn3.getRef().fuzzOptions).toBeUndefined();
+  });
+
+  it("hypothesis @settings `deadline`", () => {
+    const program = ProgramFactory.fromSource(
+      () => `
+DEADLINE_REF = None
+DEADLINE_NUM = 1200
+
+@settings(max_examples=500, deadline=None)
+@given(x=st.integers())
+def test_deadline_none(x):
+    pass
+
+@settings(deadline=None)
+@given(x=st.integers())
+def test_only_deadline_none(x):
+    pass
+
+@hypothesis.settings(max_examples=250, deadline=DEADLINE_REF)
+@given(x=st.integers())
+def test_referenced_deadline_none(x):
+    pass
+
+@settings(max_examples=500, deadline=500)
+@given(x=st.integers())
+def test_deadline_numeric(x):
+    pass
+
+@settings(deadline=DEADLINE_NUM)
+@given(x=st.integers())
+def test_deadline_numeric_ref(x):
+    pass
+      `,
+      "python"
+    );
+
+    const fn1 = program.functionsExported["test_deadline_none"];
+    expect(fn1.getRef().fuzzOptions).toEqual({
+      maxTests: 500,
+      fnTimeout: 0,
+    });
+
+    const fn2 = program.functionsExported["test_only_deadline_none"];
+    expect(fn2.getRef().fuzzOptions).toEqual({ fnTimeout: 0 });
+
+    const fn3 = program.functionsExported["test_referenced_deadline_none"];
+    expect(fn3.getRef().fuzzOptions).toEqual({
+      maxTests: 250,
+      fnTimeout: 0,
+    });
+
+    const fn4 = program.functionsExported["test_deadline_numeric"];
+    expect(fn4.getRef().fuzzOptions).toEqual({
+      maxTests: 500,
+      fnTimeout: 500,
+    });
+
+    const fn5 = program.functionsExported["test_deadline_numeric_ref"];
+    expect(fn5.getRef().fuzzOptions).toEqual({ fnTimeout: 1200 });
   });
 
   it("hypothesis @given `from_regex` strategy", () => {
@@ -1087,6 +1238,10 @@ def test_binary(data1, data2):
 
     expect(args[0].getName()).toEqual("data1");
     expect(args[0].getType()).toEqual(ArgTag.BYTES);
+    expect(args[0].getOptions().byteLength).toEqual({
+      min: 0,
+      max: Infinity,
+    });
 
     expect(args[1].getName()).toEqual("data2");
     expect(args[1].getType()).toEqual(ArgTag.BYTES);
@@ -1162,6 +1317,28 @@ def test_dates(year, month):
     expect(args[1].getIntervals()).toEqual([{ min: 1, max: 12 }]);
   });
 
+  it("hypothesis @given positional arguments (comments)", () => {
+    const pgm = ProgramFactory.fromSource(
+      () => `
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+@settings(max_examples=500, deadline=None)
+@given(
+    st.integers(min_value=2, max_value=5),  # number of lines where name appears
+    st.text(alphabet=st.characters(whitelist_categories=['Ll']), min_size=1, max_size=8),
+)
+def test_bug2_used_names_occurrence_order(n_lines, name_base):
+    pass
+`,
+      "python"
+    );
+    const fn = pgm.functionsExported["test_bug2_used_names_occurrence_order"];
+    expect(fn).toBeDefined();
+    const args = fn.getArgDefs();
+    expect(args.length).toBe(2);
+  });
+
   it("hypothesis @given negative numeric values", () => {
     const fn = ProgramFactory.fromSource(
       () => `
@@ -1178,6 +1355,30 @@ def test_bounds(integer, decimal):
     const args = fn.getArgDefs();
     expect(args[0].getIntervals()).toEqual([{ min: -10, max: 200 }]);
     expect(args[1].getIntervals()).toEqual([{ min: -1.5, max: 2.5 }]);
+  });
+
+  it("hypothesis @given constant expressions (powers, bitwise, binary arithmetic)", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    seconds=st.integers(min_value=2**30, max_value=2**34 - 1),
+    nanoseconds=st.integers(min_value=1, max_value=10**9 - 1),
+    flags=st.integers(min_value=1 << 4, max_value=(1 << 8) - 1),
+    buffer_size=st.integers(min_value=64 * 1024, max_value=128 * 1024)
+)
+def test_expressions(seconds, nanoseconds, flags, buffer_size):
+    pass
+        `,
+      "python"
+    ).functionsExported["test_expressions"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getIntervals()).toEqual([
+      { min: 1073741824, max: 17179869183 },
+    ]);
+    expect(args[1].getIntervals()).toEqual([{ min: 1, max: 999999999 }]);
+    expect(args[2].getIntervals()).toEqual([{ min: 16, max: 255 }]);
+    expect(args[3].getIntervals()).toEqual([{ min: 65536, max: 131072 }]);
   });
 
   it("hypothesis @given `lists` nested and fixed_dictionaries", () => {
@@ -1264,6 +1465,23 @@ def test_sampled(status):
     expect(
       arg.getChildren().every((c) => c.getType() === ArgTag.LITERAL)
     ).toBeTrue();
+  });
+
+  it("never creates a union with zero members for unresolved `sampled_from` sequences", () => {
+    const pgm = ProgramFactory.fromSource(
+      () => `
+UNKNOWN_SEQ = some_func()
+@given(
+    status=st.sampled_from(UNKNOWN_SEQ)
+)
+def test_sampled_unresolved(status):
+    pass
+        `,
+      "python"
+    );
+
+    expect(pgm.functionsExported["test_sampled_unresolved"]).toBeUndefined();
+    expect(pgm.functionsNotSupported["test_sampled_unresolved"]).toBeDefined();
   });
 
   it("hypothesis @given `sampled_from` module-level constants", () => {
@@ -1469,6 +1687,32 @@ def test_popitem_returns_key_value_pair(pairs):
     expect(children[1].getIntervals()).toEqual([{ min: 0, max: 200 }]);
 
     expect(arg.getOptions().dictLength).toEqual({ min: 3, max: 20 });
+  });
+
+  it("hypothesis @given unbounded dft st.lists, st.sets, and st.dictionaries", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+from hypothesis import strategies as st
+
+@given(
+    l_dft=st.lists(st.integers()),
+    s_dft=st.sets(st.integers()),
+    d_dft=st.dictionaries(st.text(), st.integers())
+)
+def test_unbounded_collections(l_dft, s_dft, d_dft):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_unbounded_collections"];
+
+    const args = fn.getArgDefs();
+    expect(args[0].getOptions().dimLength).toEqual([{ min: 0, max: Infinity }]);
+
+    expect(args[1].getType()).toEqual(ArgTag.SET);
+    expect(args[1].getOptions().setLength).toEqual({ min: 0, max: Infinity });
+
+    expect(args[2].getType()).toEqual(ArgTag.DICTIONARY);
+    expect(args[2].getOptions().dictLength).toEqual({ min: 0, max: Infinity });
   });
 
   it("hypothesis @given takes precedence over native type annotations", () => {

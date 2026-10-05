@@ -1,4 +1,5 @@
 import vscode from "vscode";
+import seedrandom from "seedrandom";
 import * as Config from "../../Config";
 import * as JSONN from "../../Jsonn";
 import * as nodellm from "@node-llm/core";
@@ -10,6 +11,7 @@ import { getPropertyTestSkeleton } from "../analysis/Util";
 import * as zod from "zod/v4";
 import { zodOutputFormat } from "./AnthropicUtils";
 import { LlmCacheManager } from "./LlmCacheManager";
+import { LlmDelayCalculator } from "./LlmDelayCalculator";
 import {
   LlmCacheMode,
   LlmCacheStats,
@@ -58,10 +60,10 @@ export class LlmAdapter {
   protected _cacheManager: LlmCacheManager; // Cache manager
   protected _cfgString: string; // LLM config; for detecting config changes
 
-  public constructor() {
+  public constructor(prng?: seedrandom.prng) {
     LlmAdapter._handleDebug();
 
-    const cfg = LlmAdapter._getConfig();
+    const cfg = LlmAdapter.getConfig();
     this._cfgString = JSONN.stringify(cfg);
 
     if (!LlmAdapter.isConfigured()) {
@@ -112,8 +114,16 @@ export class LlmAdapter {
 
     // Create the model backend
     this._backend = nodellm.createLLM(this._modelConfig);
-    this._cacheManager = new LlmCacheManager(cfg.cacheMode, cfg.cacheFile);
-  } // constructor
+    const delayConfig = cfg.cacheDelay
+      ? LlmDelayCalculator.parse(cfg.cacheDelay)
+      : undefined;
+    this._cacheManager = new LlmCacheManager(
+      cfg.cacheMode,
+      cfg.cacheFile,
+      delayConfig,
+      prng
+    );
+  }
 
   /**
    * Creates a fresh, stateless LLM chat session for a single query.
@@ -121,7 +131,7 @@ export class LlmAdapter {
    * @returns a new nodellm.Chat instance
    */
   protected _createChat(): nodellm.Chat {
-    const cfg = LlmAdapter._getConfig();
+    const cfg = LlmAdapter.getConfig();
     return this._backend.chat(cfg.modelName, {
       systemPrompt: prompt.system(),
     });
@@ -133,7 +143,7 @@ export class LlmAdapter {
    * @returns `true` if the LLM config has changed since instantiation
    */
   public isStale(): boolean {
-    return JSONN.stringify(LlmAdapter._getConfig()) !== this._cfgString;
+    return JSONN.stringify(LlmAdapter.getConfig()) !== this._cfgString;
   } // fn: isStale
 
   /**
@@ -142,7 +152,7 @@ export class LlmAdapter {
    * @returns a string indicating the configured provider and model id
    */
   public get id(): string | undefined {
-    return `v=${this._backend.provider?.id},n=${LlmAdapter._getConfig().modelName}`;
+    return `v=${this._backend.provider?.id},n=${LlmAdapter.getConfig().modelName}`;
   } // getter: id
 
   public get cacheStats(): LlmCacheStats {
@@ -158,13 +168,21 @@ export class LlmAdapter {
    *
    * @param `fn` function for which inputs should be generated
    * @param `schema` optional Zod or JSON schema of the function's inputs
+   * @param `directives` formatting directives for input schema
+   * @param `allInputs` map of previously generated inputs
+   * @param `moduleSrc` full module source code
+   * @param `numRequested` number of inputs requested
+   * @param `reqSeqNum` optional 1-indexed sequence number of this request in the session
    * @returns a set of inputs, stats, and error information
    */
   public async genInputs(
     fn: FunctionDef,
     schema: zod.ZodType,
     directives: string[],
-    allInputs: Map<string, unknown>
+    allInputs: Map<string, unknown>,
+    moduleSrc: string,
+    numRequested: number,
+    reqSeqNum?: number
   ): Promise<{
     programInputs: { [k: string]: ArgValueType }[];
     stats?: Awaited<ReturnType<LlmAdapter["_query"]>>["stats"];
@@ -173,7 +191,16 @@ export class LlmAdapter {
     let response: Awaited<ReturnType<LlmAdapter["_query"]>>;
     try {
       response = await this._query(
-        [prompt.genInputs(fn, directives, allInputs)],
+        [
+          prompt.genInputs(
+            fn,
+            directives,
+            allInputs,
+            moduleSrc,
+            numRequested,
+            reqSeqNum
+          ),
+        ],
         schema
       );
       const inputs: { programInputs: { [k: string]: ArgValueType }[] } =
@@ -290,8 +317,8 @@ export class LlmAdapter {
   ): Promise<LlmQueryResult> {
     LlmAdapter._handleDebug();
 
-    const provider = LlmAdapter._getConfig().provider;
-    const modelName = LlmAdapter._getConfig().modelName;
+    const provider = LlmAdapter.getConfig().provider;
+    const modelName = LlmAdapter.getConfig().modelName;
     const schemaJson = schema
       ? JSON.stringify(zod.toJSONSchema(schema))
       : undefined;
@@ -324,11 +351,13 @@ export class LlmAdapter {
         const schemaObj = jsonSchemaObj
           ? nodellm.Schema.fromJson("output", cleanJsonSchema(jsonSchemaObj))
           : undefined;
-        let chat = (
-          schemaObj ? baseChat.withSchema(schemaObj) : baseChat
-        ).withRequestOptions({
-          responseFormat: { type: "json_object" },
-        });
+        let chat = (schemaObj ? baseChat.withSchema(schemaObj) : baseChat)
+          .withRequestOptions({
+            responseFormat: { type: "json_object" },
+          })
+          .withParams({
+            max_tokens: undefined, // Overrides default 4096 with undefined
+          });
 
         // Provider specific settings
         if (provider === "anthropic") {
@@ -372,21 +401,35 @@ export class LlmAdapter {
    * @returns `true` if the LLM is configured to be active, `false` otherwise
    */
   public static isConfigured(): boolean {
-    const cfg = LlmAdapter._getConfig();
+    const cfg = LlmAdapter.getConfig();
     return cfg.provider !== "disabled" && cfg.modelName !== "";
   } // fn: isConfigured
+
+  /**
+   * Returns the maximum output token count supported by the configured model,
+   * or a default fallback if unlisted or unconfigured.
+   */
+  public static getMaxOutputTokens(): number {
+    const cfg = LlmAdapter.getConfig();
+    const maxTokens = nodellm.ModelRegistry.getMaxOutputTokens(
+      cfg.modelName,
+      cfg.provider
+    );
+    return maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  } // fn: getMaxOutputTokens
 
   /**
    * Gets the key elements of the LLM configuration
    *
    * @returns provider, modelName, and apiKey
    */
-  protected static _getConfig(): {
+  public static getConfig(): {
     provider: string;
     modelName: string;
     apiKey: string;
     cacheMode: LlmCacheMode;
     cacheFile: string;
+    cacheDelay: string;
   } {
     return {
       provider: LlmAdapter._getConfigValue("provider", "disabled"),
@@ -400,8 +443,9 @@ export class LlmAdapter {
         "cacheFile",
         ".nanofuzz-llm-cache.json"
       ),
+      cacheDelay: LlmAdapter._getConfigValue<string>("cacheDelay", "1x"),
     };
-  } // fn: _getConfig
+  } // fn: getConfig
 
   /**
    * Returns a vscode extension configuration element
@@ -441,18 +485,38 @@ export const prompt = {
   genInputs: (
     fn: FunctionDef,
     directives: string[],
-    allInputs: Map<string, unknown>
+    allInputs: Map<string, unknown>,
+    moduleSrc: string,
+    numRequested: number,
+    reqSeqNum: number = 1
   ): string => {
     const fnRef = fn.getRef();
-    const spec = fn.getCmt() ?? "";
-    let inputs = Config.get<boolean>("nanofuzz.ai.backfeedPriorInputs", true)
-      ? Array.from(allInputs.keys())
-      : [];
+    const spec = (fn.getCmt() ?? "").replaceAll("```", "\\`\\`\\`");
+    const fnSrc = fnRef.src.replaceAll("```", "\\`\\`\\`");
+    const escapedModuleSrc = moduleSrc.replaceAll("```", "\\`\\`\\`");
+
+    const backfeed = Config.get<boolean>(
+      "nanofuzz.ai.backfeedPriorInputs",
+      true
+    );
+    let inputs = backfeed ? Array.from(allInputs.keys()) : [];
     // draw a line at 10k inputs
     if (inputs.length > 10000) {
       inputs = inputs.slice(-10000);
     }
-    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate 25 program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+
+    const moduleContext = escapedModuleSrc
+      ? `The full module source code containing "${fnRef.name}":
+\`\`\`${fnRef.lang}
+${escapedModuleSrc}
+\`\`\`
+
+`
+      : "";
+
+    return `To evaluate whether the following ${fnRef.lang} program "${fnRef.name}" behaves correctly relative to its specification, generate ${numRequested} program inputs that are important to determine whether the program satisfies its specification. Each program input includes all the arguments needed to call the program.
+
+Format your response as a single minified JSON object without unnecessary whitespace, newlines, or formatting indentation.
 
 The specification for the "${fnRef.name}" program:
 \`\`\`
@@ -461,13 +525,18 @@ ${spec ? spec : `(no specification was found. try to infer the spec from the pro
 
 The "${fnRef.name}" program:
 \`\`\`${fnRef.lang}
-${fnRef.src}
+${fnSrc}
 \`\`\`
 
-${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
+${moduleContext}${directives.length ? `Important details about the program's inputs:\n${directives.map((d) => ` - ${d}\n`).join("")}` : ""} 
 
-${inputs.length ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}` : ""}
-`;
+${
+  backfeed
+    ? inputs.length
+      ? `The following inputs were previously generated and tested, so don't generate these again:\n${inputs.map((u) => ` - ${u}\n`).join("")}`
+      : ""
+    : `This is request number ${reqSeqNum ?? 1} for this testing session. Don't repeat inputs previously generated in this session.\n`
+}`;
   },
   genProps: (vars: ReturnType<LlmAdapter["_getPromptVars"]>): string => {
     return `To evaluate whether the following TypeScript program "${vars.fnName}" behaves correctly relative to its specification, write 15 to 20 property tests that determine whether the program satisfies its specification. 
@@ -497,3 +566,9 @@ ${vars.fnSource}
 `;
   },
 };
+
+/**
+ * Fallback maximum output token limit used when a model's max output token capacity
+ * is not specified in the model registry or when no model is configured.
+ */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;

@@ -1,22 +1,6 @@
 import seedrandom from "seedrandom";
 import { ArgOptions } from "./Types";
 
-type RegexNode =
-  | { type: "chars"; chars: readonly string[] }
-  | { type: "sequence"; nodes: RegexNode[] }
-  | { type: "choice"; nodes: RegexNode[] }
-  | { type: "repeat"; node: RegexNode; min: number; max: number }
-  | { type: "assertion"; kind: "wordBoundary" | "nonWordBoundary" }
-  | { type: "lookahead"; negative: boolean; node: RegexNode };
-
-type LengthBounds = { min: number; max: number };
-
-const DIGIT_CHARS: readonly string[] = Object.freeze("0123456789".split(""));
-const WORD_CHARS: readonly string[] = Object.freeze(
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_".split("")
-);
-const SPACE_CHARS: readonly string[] = Object.freeze([" ", "\t", "\n", "\r"]);
-
 /**
  * Builds a structural string generator for the supported regular-expression
  * subset. Unsupported constructs throw before any client input is made.
@@ -235,8 +219,7 @@ export const create = (
       const escapedChars = parseEscapeSequence();
       return { type: "chars", chars: escapedChars };
     }
-    if (char === ".")
-      return { type: "chars", chars: Array.from(options.strCharset) };
+    if (char === ".") return { type: "unicodeWildcard" };
     if ("^$|)*+?{}]".includes(char)) fail(`token '${char}'`);
     return { type: "chars", chars: [char] };
   };
@@ -299,6 +282,7 @@ export const create = (
   const boundsFor = (node: RegexNode): LengthBounds => {
     switch (node.type) {
       case "chars":
+      case "unicodeWildcard":
         return { min: 1, max: 1 };
       case "assertion":
       case "lookahead":
@@ -353,6 +337,8 @@ export const create = (
     switch (node.type) {
       case "chars":
         return node.chars[Math.floor(prng() * node.chars.length)];
+      case "unicodeWildcard":
+        return getRandomUnicodeChar(prng);
       case "sequence": {
         const currentTarget = { ...target };
         const parts: string[] = [];
@@ -418,10 +404,11 @@ export const create = (
           }
         }
 
-        const range = effMax - effMin + 1;
         // Favor shorter expansions so several unbounded repetitions can still
         // fit within the effective string-length range.
-        const count = effMin + Math.floor(prng() * prng() * range);
+        const count = !Number.isFinite(effMax)
+          ? effMin + Math.floor(-Math.log(1 - prng() * 0.999) * 10)
+          : effMin + Math.floor(prng() * prng() * (effMax - effMin + 1));
 
         const currentTarget = { ...target };
         const parts: string[] = [];
@@ -461,4 +448,65 @@ export const create = (
       `Regex generator could not satisfy the effective length range ${effectiveBounds.min}-${effectiveBounds.max} for '${regex}'`
     );
   };
-};
+}; // fn: RegexStringBuilder
+
+/**
+ * Samples a random Unicode character using a weighted distribution across
+ * ASCII, Latin-1, multilingual BMP scripts, Unicode edge cases, and the full plane,
+ * excluding surrogate code points (0xD800 - 0xDFFF).
+ */
+export const getRandomUnicodeChar = (
+  prng: seedrandom.prng,
+  minCp = 0,
+  maxCp = 0x10ffff
+): string => {
+  const r = prng();
+  let cp: number;
+
+  if (r < 0.45) {
+    // 45% ASCII (0x00 - 0x7F)
+    cp = Math.floor(prng() * 128);
+  } else if (r < 0.65) {
+    // 20% Latin-1 & Extended ASCII (0x80 - 0xFF)
+    cp = 128 + Math.floor(prng() * 128);
+  } else if (r < 0.85) {
+    // 20% Multilingual BMP & Common scripts / Emojis
+    cp =
+      prng() < 0.5
+        ? 0x0100 + Math.floor(prng() * (0xd7ff - 0x0100))
+        : 0x1f300 + Math.floor(prng() * (0x1f9ff - 0x1f300));
+  } else if (r < 0.95) {
+    // 10% Unicode Edge Cases (zero-width, directional, BOM, max codepoint)
+    cp = UNICODE_SPECIALS[Math.floor(prng() * UNICODE_SPECIALS.length)];
+  } else {
+    // 5% Uniform across valid full range
+    cp = minCp + Math.floor(prng() * (maxCp - minCp + 1));
+  }
+
+  // Skip surrogate code points (0xD800 - 0xDFFF)
+  if (cp >= 0xd800 && cp <= 0xdfff) {
+    cp = 0x0020;
+  }
+  return String.fromCodePoint(Math.min(Math.max(cp, minCp), maxCp));
+}; // fn: getRandomUnicodeChar
+
+type RegexNode =
+  | { type: "chars"; chars: readonly string[] }
+  | { type: "unicodeWildcard" }
+  | { type: "sequence"; nodes: RegexNode[] }
+  | { type: "choice"; nodes: RegexNode[] }
+  | { type: "repeat"; node: RegexNode; min: number; max: number }
+  | { type: "assertion"; kind: "wordBoundary" | "nonWordBoundary" }
+  | { type: "lookahead"; negative: boolean; node: RegexNode };
+
+type LengthBounds = { min: number; max: number };
+
+const DIGIT_CHARS: readonly string[] = Object.freeze("0123456789".split(""));
+const WORD_CHARS: readonly string[] = Object.freeze(
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_".split("")
+);
+const SPACE_CHARS: readonly string[] = Object.freeze([" ", "\t", "\n", "\r"]);
+
+const UNICODE_SPECIALS: readonly number[] = Object.freeze([
+  0x0000, 0x200b, 0x200c, 0x200d, 0x202a, 0x202e, 0xfeff, 0xfffd, 0x10ffff,
+]);

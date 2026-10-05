@@ -8,6 +8,7 @@ class MockRunner extends AbstractRunner {
       env: {},
     };
   }
+  public killHost(): void {}
 }
 
 describe("fuzzer.oracles.CompositeJudgmentDiff", () => {

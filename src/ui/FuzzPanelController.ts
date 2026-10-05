@@ -23,12 +23,13 @@ import {
   getErrorMessageOrJson,
   normalizePathForKey,
 } from "../fuzzer/Util";
+import { parseCoverageScope } from "../fuzzer/measures/Util";
 import {
   removeTickFromOrigin,
   encodeEscapeSequences,
   decodeEscapeSequences,
 } from "../Util";
-import { Tester } from "../fuzzer/Fuzzer";
+import { FuzzerFactory, IFuzzer } from "../fuzzer/FuzzerFactory";
 import {
   applyCoverageHeatmapToEditor,
   clearCoverageHeatmapFromEditor,
@@ -90,7 +91,7 @@ export class FuzzPanel {
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
   private _focusInput?: [fuzzer.FuzzResultCategory, number]; // Newly-added input to receive UI focus
   private _lastTab: fuzzer.FuzzResultTab | undefined; // Last tab id that had focus
-  private _tester: fuzzer.Tester; // The test generator
+  private _tester: IFuzzer; // The test generator
   private _showingCoverage = false; // Currently showing code coverage?
   private _wasShowingCoverage = false; // Was showing coverage on the prior run?
   private _coverageStats: CodeCoverageMeasureStats | undefined; // Code coverage stats
@@ -151,7 +152,7 @@ export class FuzzPanel {
       return new FuzzPanel(
         panel,
         extensionUri,
-        new Tester(moduleFile, fnName, normalizeFuzzOptions(options), {
+        FuzzerFactory(moduleFile, fnName, normalizeFuzzOptions(options), {
           precompile: true,
         })
       );
@@ -211,7 +212,7 @@ export class FuzzPanel {
         const localFuzzPanel = new FuzzPanel(
           panel,
           extensionUri,
-          new fuzzer.Tester(
+          FuzzerFactory(
             state.fnRef.module,
             state.fnRef.name,
             normalizeFuzzOptions(state.options),
@@ -300,7 +301,7 @@ export class FuzzPanel {
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
-    tester: fuzzer.Tester
+    tester: IFuzzer
   ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
@@ -375,7 +376,7 @@ export class FuzzPanel {
    */
   private resultsAreStale(
     options: fuzzer.FuzzOptions
-  ): ReturnType<fuzzer.Tester["isStale"]> {
+  ): ReturnType<IFuzzer["isStale"]> {
     return this._tester.isStale(options);
   } // fn: resultsAreStale
 
@@ -688,7 +689,7 @@ export class FuzzPanel {
               ) {
                 thisOpt.maxDupeInputs = Config.get(
                   "nanofuzz.fuzzer.maxDupeInputs",
-                  1000
+                  500
                 );
               }
             }
@@ -795,6 +796,9 @@ export class FuzzPanel {
           validators: this._fuzzEnv.validators.map((ref) => ref.name),
           tests: {},
           isVoid: this._fuzzEnv.function.isVoid(),
+          ...(this._fuzzEnv.function.isAsync()
+            ? { isAsync: true as const }
+            : {}),
         },
       },
     };
@@ -914,9 +918,11 @@ export class FuzzPanel {
         ...test,
         output: [],
         input: test.input.map((i) => {
-          const i2 = { ...i };
-          removeTickFromOrigin(i2.origin);
-          return i2;
+          return {
+            ...i,
+            // ticks are tester-specific
+            origin: removeTickFromOrigin(i.origin),
+          };
         }),
       };
     }
@@ -1523,7 +1529,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     // Create a new tester if the current one is stale
     if (needNewTester) {
       try {
-        this._tester = new fuzzer.Tester(
+        this._tester = FuzzerFactory(
           this._fuzzEnv.function.getModule(),
           this._fuzzEnv.function.getName(),
           this._fuzzEnv.options
@@ -1554,10 +1560,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               } else {
                 return {
                   input: i.input.map((e) => {
-                    const e2 = structuredClone(e);
-                    // ticks are tester-specific
-                    removeTickFromOrigin(e2.origin);
-                    return e2;
+                    return {
+                      ...e,
+                      // ticks are tester-specific
+                      origin: removeTickFromOrigin(e.origin),
+                    };
                   }),
                   output: [],
                   pinned: false,
@@ -1616,102 +1623,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       try {
         this._tester.options = this._fuzzEnv.options;
         this._pauseTesting = false;
+
         // Test the function & store the results
-        this._tester.testAsync(
+        const result = await this._tester.test(
           testsToInject,
           { gen: mode.gen },
-          async (result: fuzzer.FuzzTestResults | Error) => {
-            if (isError(result)) {
-              /* Error */
-              // Transition to error state
-              this._setErrorFromException(result);
-              this._state = FuzzPanelState.error;
-              this._retestingReason = false;
-
-              // Log the end of fuzzing
-              vscode.commands.executeCommand(
-                telemetry.commands.logTelemetry.name,
-                new telemetry.LoggerEntry(
-                  "FuzzPanel.fuzz.error",
-                  "Fuzzing failed. Target: %s. Message: %s. Stack: %s.",
-                  [
-                    this.getFnRefKey(),
-                    this._errorMessage ?? "unknown error",
-                    this._errorStack ?? "<no stack>",
-                  ]
-                )
-              );
-
-              // Update the UI
-              this._updateHtml();
-            } else {
-              /* Success */
-              this._results = result;
-
-              // If we added a test, give the new result UI focus
-              if (
-                testToAdd &&
-                result.results.length &&
-                JSONN.stringify(
-                  result.results[result.results.length - 1].input
-                ) === JSONN.stringify(testToAdd.input)
-              ) {
-                // Give focus to the newInput
-                this._focusInput = [
-                  result.results[result.results.length - 1].category,
-                  result.results.length - 1,
-                ];
-              }
-
-              // Transition to done state
-              this._errorMessage = undefined;
-              this._errorStack = undefined;
-              this._state = FuzzPanelState.done;
-              this._retestingReason = false;
-
-              // Log the end of fuzzing
-              vscode.commands.executeCommand(
-                telemetry.commands.logTelemetry.name,
-                new telemetry.LoggerEntry(
-                  "FuzzPanel.fuzz.done",
-                  "Fuzzing completed successfully. Target: %s. Results: %s",
-                  [this.getFnRefKey(), JSONN.stringify(this._results)]
-                )
-              );
-
-              // Persist the fuzz test run settings (!!!!!!! validation)
-              this._updateFuzzTests();
-
-              // Get coverage data
-              this._coverageStats = this._results.stats.measures
-                .CodeCoverageMeasure
-                ? await this._results.stats.measures.CodeCoverageMeasure()
-                : undefined;
-
-              // Update the UI
-              const message: FuzzPanelMessageToWebView = {
-                command: "busy.ending",
-              };
-              this._panel.webview.postMessage(message);
-              this._updateHtml();
-              this._focusInput = undefined;
-
-              setTimeout(() => {
-                if (!this._ideasPanel) {
-                  this._ideasPanel = new IdeasPanelController({
-                    webview: this._panel.webview,
-                    module: this._tester.getModule(),
-                    fn: this._fuzzEnv.function,
-                    results: result,
-                    prng: seedrandom(),
-                    panel: this,
-                  });
-                } else {
-                  this._ideasPanel.refresh(); // !!!!!!!!!!
-                }
-              }, 0);
-            }
-          },
           // Fn that provides test status feedback to the panel => {
           (payload: fuzzer.FuzzBusyStatusMessage): void => {
             const message: FuzzPanelMessageToWebView = {
@@ -1723,8 +1639,73 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
           // Fn to cancel testing
           () => this._pauseTesting
         );
+
+        /* Success */
+        this._results = result;
+
+        // If we added a test, give the new result UI focus
+        if (
+          testToAdd &&
+          result.results.length &&
+          JSONN.stringify(result.results[result.results.length - 1].input) ===
+            JSONN.stringify(testToAdd.input)
+        ) {
+          // Give focus to the newInput
+          this._focusInput = [
+            result.results[result.results.length - 1].category,
+            result.results.length - 1,
+          ];
+        }
+
+        // Transition to done state
+        this._errorMessage = undefined;
+        this._errorStack = undefined;
+        this._state = FuzzPanelState.done;
+        this._retestingReason = false;
+
+        // Log the end of fuzzing
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "FuzzPanel.fuzz.done",
+            "Fuzzing completed successfully. Target: %s. Results: %s",
+            [this.getFnRefKey(), JSONN.stringify(this._results)]
+          )
+        );
+
+        // Persist the fuzz test run settings (!!!!!!! validation)
+        this._updateFuzzTests();
+
+        // Get coverage data
+        this._coverageStats = this._results.stats.measures.CodeCoverageMeasure
+          ? await this._results.stats.measures.CodeCoverageMeasure()
+          : undefined;
+
+        // Update the UI
+        const message: FuzzPanelMessageToWebView = {
+          command: "busy.ending",
+        };
+        this._panel.webview.postMessage(message);
+        this._updateHtml();
+        this._focusInput = undefined;
+
+        setTimeout(() => {
+          if (!this._ideasPanel) {
+            this._ideasPanel = new IdeasPanelController({
+              webview: this._panel.webview,
+              module: this._fuzzEnv.function.getModule(),
+              fn: this._fuzzEnv.function,
+              results: result,
+              prng: seedrandom(),
+              panel: this,
+            });
+          } else {
+            this._ideasPanel.refresh(); // !!!!!!!!!!
+          }
+        }, 0);
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
+        this._retestingReason = false;
         const [errorMessage, errorStack] = this._setErrorFromException(e);
         vscode.commands.executeCommand(
           telemetry.commands.logTelemetry.name,
@@ -1754,7 +1735,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
   private _testClear(json: string): void {
     // Start over with a new tester
     try {
-      this._tester = new fuzzer.Tester(
+      this._tester = FuzzerFactory(
         this._fuzzEnv.function.getModule(),
         this._fuzzEnv.function.getName(),
         this._fuzzEnv.options
@@ -1959,6 +1940,11 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     testSet.argOverrides = this._argOverrides;
     testSet.sortColumns = this._sortColumns;
     testSet.isVoid = this._fuzzEnv.function.isVoid();
+    if (this._fuzzEnv.function.isAsync()) {
+      testSet.isAsync = true;
+    } else {
+      delete testSet.isAsync;
+    }
     this._putFuzzTestsForThisFn(testSet);
   } // fn: _updateFuzzTests
 
@@ -2077,11 +2063,23 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         ? `Heuristic validator (for void functions). Fails: timeout, exception, values!==${heuristicFailValues}`
         : `Heuristic validator. Fails: timeout, exception, ${heuristicFailValues}`;
 
+      const aiProvider = Config.get<string>("nanofuzz.ai.provider", "disabled");
+      const aiModel = Config.get<string>("nanofuzz.ai.model", "");
+      const aiModelDisplay =
+        aiProvider === "disabled" || !aiModel ? "disabled" : aiModel;
+
       // If fuzzer results are available, calculate how many tests passed, failed, etc.
       if (this._state === FuzzPanelState.done && this._results !== undefined) {
-        this._results.results.forEach((result) => {
-          resultSummary[result.category]++;
-        });
+        if (this._results.stats.outcomes.categories) {
+          for (const cat of fuzzer.FuzzResultCategoryValues) {
+            resultSummary[cat] =
+              this._results.stats.outcomes.categories[cat] ?? 0;
+          }
+        } else {
+          this._results.results.forEach((result) => {
+            resultSummary[result.category]++;
+          });
+        }
       } // if: results are available
 
       // Prettier abhorrently butchers this HTML, so disable prettier here
@@ -2227,9 +2225,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                     Generate inputs:
                   </p>
                   <div class="fuzzInputControlGroup">
-                    <vscode-checkbox disabled id="fuzz-gen-RandomInputGenerator-enabled" checked>
+                    <vscode-checkbox ${disabledFlag} id="fuzz-gen-RandomInputGenerator-enabled" ${this._fuzzEnv.options.generators.RandomInputGenerator.enabled ? "checked" : ""}>
                       <span> 
-                        Randomly (always enabled)
+                        Randomly
                       </span>
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-MutationInputGenerator-enabled" ${this._fuzzEnv.options.generators.MutationInputGenerator.enabled ? "checked" : ""}>
@@ -2239,7 +2237,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                     </vscode-checkbox>                    
                     <vscode-checkbox ${disabledFlag} id="fuzz-gen-AiInputGenerator-enabled" ${this._fuzzEnv.options.generators.AiInputGenerator.enabled ? "checked" : ""}>
                       <span> 
-                        With an LLM (<span class="editorFont" id="llm-model">...</span>)
+                        With AI (<span class="editorFont" id="llm-model">${htmlEscape(aiModelDisplay)}</span>)
                         <vscode-link id="open.settings.ai">change</vscode-link>
                       </span>
                     </vscode-checkbox>
@@ -2479,22 +2477,17 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               <p>No property validators were found, so the property validator column is blank.</p>
             </div>`;
 
-      const { count: sequentialFailures, message: latestFailureMessage } =
-        this._results && this._results.stats.generators.AiInputGenerator.gen
-          ? getSequentialFailures(
-              this._results.stats.generators.AiInputGenerator.gen.calls.history
-            )
-          : { count: 0 };
-      html += /*html*/ `
-            <div class="fuzzWarnings${
-              this._state === FuzzPanelState.done &&
-              this._fuzzEnv.options.generators.AiInputGenerator.enabled &&
-              sequentialFailures
-                ? ""
-                : " hidden"
-            }">
-              <p>The last ${sequentialFailures === 1 ? `` : `${sequentialFailures}`} LLM response${sequentialFailures === 1 ? "" : "s"} failed: <span class="editorFont">${latestFailureMessage ?? "n/a"}</span></p>
+      const generatorDiagnostics =
+        this._state === FuzzPanelState.done && this._tester
+          ? this._tester.getInputGeneratorDiagnostics()
+          : [];
+
+      for (const diag of generatorDiagnostics) {
+        html += /*html*/ `
+            <div class="fuzzWarnings">
+              <p><span class="editorFont">${diag}</span></p>
             </div>`;
+      }
 
       html += /*html*/ `
             <!-- Fuzzer Info -->
@@ -2669,6 +2662,9 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               aiGenStats.gen.calls.invalid -
               aiGenStats.gen.calls.failed;
 
+            const { count: sequentialFailures, message: latestFailureMessage } =
+              getSequentialFailures(aiGenStats.gen.calls.history);
+
             // Call details
             aiGeneratorText.push(
               `The ai input generator sent ${aiGenStats.gen.calls.sent} request${aiGenStats.gen.calls.sent === 1 ? "" : "s"} to the LLM, of which`
@@ -2749,6 +2745,21 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
           // Build code coverage information
           const fmtPct = (n: number, d: number) =>
             d === 0 ? "na%" : ((n * 100) / d).toFixed(0).toString() + "%";
+          const coverageScopeRaw = Config.get<unknown>(
+            "nanofuzz.fuzzer.coverageScope",
+            "project static"
+          );
+          const scopeConfig = parseCoverageScope(coverageScopeRaw);
+          const scopeItems = ["dynamic executions"];
+          if (scopeConfig.collectStaticCoverage) {
+            scopeItems.push("static loads");
+          }
+          if (scopeConfig.target.includes("directimports")) {
+            scopeItems.push("direct imports");
+          }
+          const scopeText = `The scope of coverage instrumentation included ${toPrettyList(
+            scopeItems
+          )}.`;
           const coverageText =
             this._coverageStats === undefined
               ? ""
@@ -2775,7 +2786,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                   this._coverageStats.counters.branchesTotal
                 )}) in the ${this._coverageStats.files.length} source file${
                   this._coverageStats.files.length === 1 ? "" : "s"
-                } executed.`;
+                } executed. ${scopeText}`;
 
           // Build the list of validators used/not used
           const validatorsUsed: string[] = [];
@@ -2813,6 +2824,16 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             validatorsUsedText = `${toolName} did not use any validators in this test. This means that all tests were categorized as passed.`;
           }
 
+          const totalReported =
+            this._results.stats.outcomes.total !== undefined
+              ? this._results.stats.outcomes.total +
+                this._results.stats.counters.inputsSkipped
+              : this._results.results.length;
+          const executedInputs =
+            this._results.stats.outcomes.total ||
+            this._results.results.length ||
+            1;
+
           // Add the run info tab to the panel
           tabs.push({
             id: "runInfo",
@@ -2838,10 +2859,8 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
                 this._results.stats.counters.dupesGenerated !== 1
                   ? "were duplicates"
                   : "was a duplicate"
-              } previously tested), and reported ${
-                this._results.results.length
-              } test result${
-                this._results.results.length !== 1 ? "s" : ""
+              } previously tested), and reported ${totalReported} test result${
+                totalReported !== 1 ? "s" : ""
               } before testing ended.
             </p>
 
@@ -2861,10 +2880,10 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
             <div class="fuzzResultHeading">What was returned?</div>
             <p>
-              ${toolName} returned ${this._results.results.length} test result${
-                this._results.results.length === 1 ? "" : "s"
+              ${toolName} returned ${totalReported} test result${
+                totalReported === 1 ? "" : "s"
               }${
-                this._results.results.length
+                totalReported
                   ? (this._results.stats.counters.inputsSkipped
                       ? `, including ${this._results.stats.counters.inputsSkipped} skipped input${this._results.stats.counters.inputsSkipped === 1 ? "" : "s"}`
                       : ``) + `, which you can view in the other tabs.`
@@ -2944,18 +2963,17 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               )} ms, executing the program used ${Math.round(
                 this._results.stats.timers.put
               )} ms (${(
-                this._results.stats.timers.put / this._results.results.length
+                this._results.stats.timers.put / executedInputs
               ).toFixed(2)} ms/input),
               validating outputs used ${Math.round(
                 this._results.stats.timers.val
               )} ms (${(
-                this._results.stats.timers.val / this._results.results.length
+                this._results.stats.timers.val / executedInputs
               ).toFixed(2)} ms/input),
               and measuring execution results used ${Math.round(
                 this._results.stats.timers.measure
               )} ms (${(
-                this._results.stats.timers.measure /
-                this._results.results.length
+                this._results.stats.timers.measure / executedInputs
               ).toFixed(2)} ms/input).
               ${coverageText}
             </p>
@@ -3268,7 +3286,6 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     } else {
       typeString = htmlEscape(argType.toLowerCase());
 
-      // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
       switch (argType) {
         case fuzzer.ArgTag.OBJECT:
           typeString = "Object";
@@ -3284,6 +3301,14 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             const constantValue = arg.getConstantValue();
             typeString = htmlEscape(ValueMapper.toLang(lang, constantValue));
           }
+          break;
+        case fuzzer.ArgTag.NUMBER:
+        case fuzzer.ArgTag.STRING:
+        case fuzzer.ArgTag.BOOLEAN:
+        case fuzzer.ArgTag.UNION:
+        case fuzzer.ArgTag.TUPLE:
+        case fuzzer.ArgTag.UNRESOLVED:
+        case fuzzer.ArgTag.BYTES:
           break;
       }
     }
@@ -3303,7 +3328,6 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
     }
 
     let sep: string;
-    // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
     switch (argType) {
       case fuzzer.ArgTag.LITERAL:
         sep = endSep;
@@ -3319,8 +3343,13 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       case fuzzer.ArgTag.TUPLE:
         sep = ` = [` + htmlEllipsis;
         break;
-      default:
+      case fuzzer.ArgTag.NUMBER:
+      case fuzzer.ArgTag.STRING:
+      case fuzzer.ArgTag.BOOLEAN:
+      case fuzzer.ArgTag.UNRESOLVED:
+      case fuzzer.ArgTag.BYTES:
         sep = " = " + htmlEllipsis;
+        break;
     }
 
     html += /*html*/ `
@@ -3775,9 +3804,9 @@ export async function handleFuzzWithValidatorCommand(
   const fuzzOptions = getDefaultFuzzOptions();
   fuzzOptions.useProperty = true; // Enable property oracle by default
 
-  let tester: fuzzer.Tester;
+  let tester: IFuzzer;
   try {
-    tester = new fuzzer.Tester(srcFile, fnName, fuzzOptions);
+    tester = FuzzerFactory(srcFile, fnName, fuzzOptions);
   } catch (e: unknown) {
     const msg = getErrorMessageOrJson(e);
     vscode.window.showErrorMessage(
@@ -4018,7 +4047,6 @@ function _applyArgOverrides(
     }
 
     // Min and max values
-    // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
     switch (thisArg.getType()) {
       case fuzzer.ArgTag.NUMBER:
         if (thisOverride.number) {
@@ -4093,6 +4121,12 @@ function _applyArgOverrides(
           });
         }
         break;
+      case fuzzer.ArgTag.OBJECT:
+      case fuzzer.ArgTag.LITERAL:
+      case fuzzer.ArgTag.UNION:
+      case fuzzer.ArgTag.TUPLE:
+      case fuzzer.ArgTag.UNRESOLVED:
+        break;
     }
 
     // isNoInput
@@ -4124,11 +4158,12 @@ function _applyArgOverrides(
  */
 export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
   return {
+    outputResults: "all",
     argDefaults: fuzzer.ArgDef.getDefaultOptions(),
     maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
     fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 100),
     suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
-    maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 1000),
+    maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 500),
     maxFailures: Config.get("nanofuzz.fuzzer.maxFailures", 0),
     useTransformer: true,
     useHuman: true,
@@ -4172,6 +4207,7 @@ export const normalizeFuzzOptions = (
   return {
     ...dft,
     ...options,
+    outputResults: options.outputResults ?? "all",
     argDefaults: fuzzer.ArgDef.normalizeOptions(options.argDefaults),
     generators: options.generators
       ? { ...dft.generators, ...options.generators }
@@ -4201,6 +4237,15 @@ function toPrettyList(inList: string[]): string {
 /**
  * Returns the number of sequential failues with the same message from
  * an AiInputGenerator call history.
+ *
+ * @param `history` from InputGeneratorStatsAi.calls.history
+ * @returns {
+ *  `count`: number of most-recent sequential failures
+ *  `message`: error messge for those sequential failures (if count > 0)
+ * }
+ */
+/**
+ * Helper function that counts the number of most-recent sequential failures in the LLM call history.
  *
  * @param `history` from InputGeneratorStatsAi.calls.history
  * @returns {

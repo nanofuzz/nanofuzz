@@ -107,8 +107,8 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
           }),
           source: deepFreeze({
             type: "test",
-            runId: this._basis.results.runId,
-            testId: r.testId,
+            runId: this._basis.results.runId ?? "",
+            testId: r.testId ?? 0,
           }),
           judgments: deepFreeze({
             implicit: {
@@ -315,8 +315,8 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
                 example: m,
                 source: deepFreeze({
                   type: "mutation",
-                  runId: this._basis.results.runId,
-                  testId: r.testId,
+                  runId: this._basis.results.runId ?? "",
+                  testId: r.testId ?? 0,
                 }),
                 judgments: deepFreeze({
                   implicit: implicitJudgment,
@@ -355,7 +355,7 @@ export class PropertyIdeaModel extends AbstractIdeaModel {
     }
 
     const differ = new JudgmentDiffer(
-      this._basis.results.runId,
+      this._basis.results.runId ?? "",
       [...concreteExamples, ...mutatedExamples],
       propRunners
     );

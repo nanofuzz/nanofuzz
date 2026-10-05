@@ -1,10 +1,19 @@
+// Enable Node.js compile cache if supported by Node runtime (Node 22.8+)
+import * as moduleApi from "node:module";
+if (
+  "enableCompileCache" in moduleApi &&
+  typeof moduleApi.enableCompileCache === "function"
+) {
+  moduleApi.enableCompileCache();
+}
 import * as JSONN from "../../../Jsonn";
 import * as path from "node:path";
-import * as moduleApi from "node:module";
+import * as fs from "node:fs";
 import vm from "node:vm";
 import { Worker } from "node:worker_threads";
 import { serialize, deserialize } from "node:v8";
 import { RunnerInput, TypeHint } from "../AbstractRunner";
+import { MAX_HEARTBEATS } from "../AbstractHost";
 import { isError } from "../../Util";
 
 const realStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -17,6 +26,24 @@ main().catch((err) => {
   process.exit(1);
 });
 
+function isStringArray(val: unknown): val is string[] {
+  return Array.isArray(val) && val.every((item) => typeof item === "string");
+}
+
+function isPromiseLike(val: unknown): val is PromiseLike<unknown> {
+  return (
+    val !== null &&
+    (typeof val === "object" || typeof val === "function") &&
+    "then" in val &&
+    typeof Reflect.get(val, "then") === "function"
+  );
+}
+
+function getGlobalPaths(): string[] {
+  const paths = Reflect.get(moduleApi, "globalPaths");
+  return isStringArray(paths) ? paths : [];
+}
+
 /**
  * Main entry point for the JavascriptRunnerHost process.
  * This function reads RunnerInput messages from stdin, executes
@@ -25,6 +52,8 @@ main().catch((err) => {
 async function main() {
   const initialFilename = process.argv[2];
   const initialFnName = process.argv[3];
+  const collectStatic =
+    process.argv[5] !== undefined ? process.argv[5] === "true" : true;
 
   const loadedModules: Record<string, unknown> = {};
 
@@ -32,7 +61,15 @@ async function main() {
     filenameToLoad: string,
     fnNameToLoad: string
   ): ((...args: unknown[]) => unknown) => {
-    const resolvedPath = path.resolve(filenameToLoad);
+    let resolvedPath = path.resolve(filenameToLoad);
+    try {
+      if (fs.existsSync(resolvedPath)) {
+        resolvedPath = fs.realpathSync(resolvedPath);
+      }
+    } catch {
+      // ignore
+    }
+    addOriginalNodeModulePaths(resolvedPath);
     if (!(resolvedPath in loadedModules) || !require.cache[resolvedPath]) {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       loadedModules[resolvedPath] = require(resolvedPath);
@@ -72,8 +109,11 @@ async function main() {
   sendMsg("READY");
 
   // Send initial coverage info
-  const initialCoverage = getGlobalCoverageData() ?? {};
-  sendMsg(initialCoverage);
+  const rawCoverage = getGlobalCoverageData() ?? {};
+  if (!collectStatic) {
+    resetCoverageCounters(rawCoverage);
+  }
+  sendMsg(rawCoverage);
 
   // Main loop
   while (true) {
@@ -88,7 +128,7 @@ async function main() {
     const payloadBuf = await readBytes(length);
     const input: RunnerInput & { timeout?: number } = deserialize(payloadBuf);
 
-    resetCoverageCounters(getGlobalCoverageData());
+    resetCoverageCounters(Reflect.get(globalThis, "__coverage__"));
 
     const targetFilename = input.filename ?? initialFilename;
     const targetFnName = input.fnName ?? initialFnName;
@@ -110,10 +150,39 @@ async function main() {
         i < typeHints.length ? transformArg(arg, typeHints[i]) : arg
       );
 
+      const startExecTime = performance.now();
       if (input.timeout && input.timeout > 0) {
         value = functionTimeout(fnToExec)(input.timeout, ...hydratedArgs);
       } else {
         value = fnToExec(...hydratedArgs);
+      }
+
+      if (isPromiseLike(value)) {
+        if (input.timeout && input.timeout > 0) {
+          const elapsed = performance.now() - startExecTime;
+          const remainingTimeout = Math.max(1, input.timeout - elapsed);
+          let timer: NodeJS.Timeout | undefined;
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              const err = new Error("Script execution timed out");
+              Reflect.set(err, "code", "ERR_SCRIPT_EXECUTION_TIMEOUT");
+              reject(err);
+            }, remainingTimeout);
+            if (typeof timer.unref === "function") {
+              timer.unref();
+            }
+          });
+
+          try {
+            value = await Promise.race([value, timeoutPromise]);
+          } finally {
+            if (timer !== undefined) {
+              clearTimeout(timer);
+            }
+          }
+        } else {
+          value = await value;
+        }
       }
     } catch (e: unknown) {
       const isTimeout =
@@ -179,19 +248,25 @@ async function main() {
   }
 } // fn: main
 
+function setupNodePath() {
+  const globalPaths = getGlobalPaths();
+  const nodePath = process.env.NODE_PATH;
+  if (nodePath) {
+    const extraPaths = nodePath.split(path.delimiter).filter(Boolean);
+    for (const p of extraPaths) {
+      if (!globalPaths.includes(p)) {
+        globalPaths.push(p);
+      }
+    }
+  }
+}
+
 /**
  * Sets up the environment for the JavascriptRunnerHost process, including
- * redirecting console output to stderr and enabling Node.js compile cache,
- * if available.
+ * setting up NODE_PATH and redirecting console output to stderr.
  */
 function setup() {
-  // Activate Node.js compile cache if available (Node 22+)
-  if (
-    "enableCompileCache" in moduleApi &&
-    typeof moduleApi.enableCompileCache === "function"
-  ) {
-    moduleApi.enableCompileCache();
-  }
+  setupNodePath();
 
   // Redirect all console output away from stdout so IPC stdout is 100% clean
   const toStderr = (...args: unknown[]) => {
@@ -221,10 +296,17 @@ function setup() {
   process.stdin.on("data", (chunk: Buffer) => {
     stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
   });
+
+  // Ignore SIGINT in runner host; lifecycle is managed exclusively by the parent process
+  process.on("SIGINT", () => {});
+
+  process.on("unhandledRejection", (reason) => {
+    // Prevent unhandled promise rejections in background tasks from crashing the host
+    console.error("Unhandled promise rejection:", reason);
+  });
 } // fn: setup
 
 let heartbeatWorker: Worker | undefined;
-const MAX_HEARTBEATS = 240;
 
 /**
  * Start the heartbeat worker thread, sending heartbeat messages at the specified interval.
@@ -296,9 +378,21 @@ function functionTimeout(
 
   return (timeout: number | undefined, ...args: unknown[]): unknown => {
     const context: Record<string, unknown> = {
+      global: globalThis,
+      globalThis,
       returnValue: undefined,
       function_: () => fnToCall(...args),
     };
+    Object.defineProperty(context, "__coverage__", {
+      get() {
+        return Reflect.get(globalThis, "__coverage__");
+      },
+      set(v) {
+        Reflect.set(globalThis, "__coverage__", v);
+      },
+      configurable: true,
+      enumerable: true,
+    });
 
     script.runInNewContext(context, timeout ? { timeout } : {});
     return context.returnValue;
@@ -531,6 +625,7 @@ function extractDynamicCoverage(
       const fileCoverage = covData[fileKey];
       if (fileCoverage) {
         result[fileKey] = {
+          path: fileCoverage.path || fileKey,
           s: fileCoverage.s,
           f: fileCoverage.f,
           b: fileCoverage.b,
@@ -541,6 +636,60 @@ function extractDynamicCoverage(
 
   return result;
 } // fn: extractDynamicCoverage
+
+/**
+ * Adds original project node_modules search paths to moduleApi.globalPaths
+ * so dependencies (e.g. json5) installed in the target project workspace
+ * can be resolved even when code is executed from a temp instrumentation directory.
+ */
+function addOriginalNodeModulePaths(filename: string): void {
+  if (!filename) return;
+
+  let realPath = path.resolve(filename);
+
+  // Strip nanofuzz temp directory prefix if present
+  // Matches e.g. .../inst-<hash>/Users/... or .../tsc/<id>/Users/...
+  const match = realPath.match(/(?:inst-[a-f0-9]+|tsc[/\\]\d+)[/\\](.+)$/i);
+  if (match && match[1]) {
+    let candidate = match[1];
+    if (!path.isAbsolute(candidate)) {
+      if (process.platform === "win32" && candidate.match(/^[a-z][/\\]/i)) {
+        candidate = candidate.charAt(0) + ":" + candidate.substring(1);
+      } else {
+        candidate = "/" + candidate;
+      }
+    }
+    realPath = candidate;
+  }
+
+  const origDir = path.dirname(realPath);
+  const nodePaths = getNodeModulePaths(origDir);
+  const globalPaths = getGlobalPaths();
+
+  for (const p of nodePaths) {
+    if (!globalPaths.includes(p)) {
+      globalPaths.push(p);
+    }
+    if (!module.paths.includes(p)) {
+      module.paths.push(p);
+    }
+  }
+} // fn: addOriginalNodeModulePaths
+
+/**
+ * Returns node_modules directory paths from a starting directory up to root.
+ */
+function getNodeModulePaths(dir: string): string[] {
+  const paths: string[] = [];
+  let curr = path.resolve(dir);
+  while (true) {
+    paths.push(path.join(curr, "node_modules"));
+    const parent = path.dirname(curr);
+    if (parent === curr) break;
+    curr = parent;
+  }
+  return paths;
+}
 
 function isNumberArray(val: unknown[]): val is number[] {
   return val.every((x) => typeof x === "number");
@@ -565,6 +714,10 @@ function getGlobalCoverageData(): unknown {
 }
 
 type FileCoverageData = {
+  path?: string;
+  statementMap?: Record<string, unknown>;
+  fnMap?: Record<string, unknown>;
+  branchMap?: Record<string, unknown>;
   s?: Record<string, number>;
   f?: Record<string, number>;
   b?: Record<string, number[]>;

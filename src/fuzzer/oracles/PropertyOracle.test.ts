@@ -13,6 +13,10 @@ class MockPropRunner extends AbstractRunner {
   public override async run(): Promise<RunnerResult> {
     return this._runFn();
   }
+
+  public override killHost(): void {
+    // No-op for mock
+  }
 }
 
 describe("fuzzer.oracles.PropertyOracle", () => {

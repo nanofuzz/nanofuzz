@@ -1,7 +1,9 @@
 import { ArgDef } from "../analysis/ArgDef";
 import { RandomInputGenerator } from "./RandomInputGenerator";
+import { sampleLength } from "../analysis/ArgDefGenerator";
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import { ArgOptions, ArgValueType } from "../analysis/Types";
+import seedrandom from "seedrandom";
 
 /**
  * Provide a seed to ensure tests are deterministic.
@@ -61,6 +63,10 @@ describe("fuzzer/generator/GeneratorFactory:", () => {
     testRandomStringException("ABCDEF", "ABC", 6, 3);
   });
 
+  it(`Random String unbounded len 0-Infinity`, () => {
+    testRandomString("", "", 0, Infinity);
+  });
+
   // -------------------------------- Integers -------------------------------- //
 
   it(`Random Int >= 0 && <= 5`, () => {
@@ -69,6 +75,18 @@ describe("fuzzer/generator/GeneratorFactory:", () => {
 
   it(`Random Int >= -50 && <= 50`, () => {
     testRandomInt(-50, 50);
+  });
+
+  it(`Random Int unbounded [-Infinity, Infinity]`, () => {
+    testRandomInt(-Infinity, Infinity);
+  });
+
+  it(`Random Int one-sided [0, Infinity]`, () => {
+    testRandomInt(0, Infinity);
+  });
+
+  it(`Random Int one-sided [-Infinity, 0]`, () => {
+    testRandomInt(-Infinity, 0);
   });
 
   it(`Random Int >= 50 && <= -50 (invalid min/max reversal)`, () => {
@@ -83,6 +101,18 @@ describe("fuzzer/generator/GeneratorFactory:", () => {
 
   it(`Random Float >= -5.05 && <= 5.05`, () => {
     testRandomFloat(-5.05, 5.05);
+  });
+
+  it(`Random Float unbounded [-Infinity, Infinity]`, () => {
+    testRandomFloat(-Infinity, Infinity);
+  });
+
+  it(`Random Float one-sided [0.0, Infinity]`, () => {
+    testRandomFloat(0.0, Infinity);
+  });
+
+  it(`Random Float one-sided [-Infinity, 0.0]`, () => {
+    testRandomFloat(-Infinity, 0.0);
   });
 
   it(`Random Float >= 5.05 && <= -5.05 (invalid min/max reversal)`, () => {
@@ -101,6 +131,36 @@ describe("fuzzer/generator/GeneratorFactory:", () => {
 
   it(`Random Bool >= true && <= true`, () => {
     testRandomBool(true, true);
+  });
+
+  // ----------------------------- sampleLength ----------------------------- //
+
+  it("uniform sample of length when max is finite", () => {
+    const prng = seedrandom("finite-len-test");
+    const counts: Record<number, number> = { 0: 0, 1: 0, 2: 0 };
+    for (let i = 0; i < 3000; i++) {
+      const len = sampleLength(prng, 0, 2);
+      expect(len >= 0 && len <= 2).toBeTrue();
+      counts[len]++;
+    }
+    // With 3000 draws over [0, 2], each bin should receive roughly 1000 draws
+    expect(counts[0]).toBeGreaterThan(750);
+    expect(counts[1]).toBeGreaterThan(750);
+    expect(counts[2]).toBeGreaterThan(750);
+  });
+
+  it("geometric sample sample of length when max is infinite", () => {
+    const prng = seedrandom("infinite-len-test");
+    let minObserved = Infinity;
+    let maxObserved = -Infinity;
+    for (let i = 0; i < 1000; i++) {
+      const len = sampleLength(prng, 0, Infinity);
+      expect(len >= 0).toBeTrue();
+      if (len < minObserved) minObserved = len;
+      if (len > maxObserved) maxObserved = len;
+    }
+    expect(minObserved).toBe(0);
+    expect(maxObserved).toBeGreaterThan(15);
   });
 
   // !!!!!!! Need Composite Generator Tests Here

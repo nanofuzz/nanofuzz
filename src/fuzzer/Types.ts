@@ -2,13 +2,45 @@ import {
   ArgOptions,
   ArgValueType,
   ArgValueTypeWrapped,
+  FunctionRef,
+  ProgramLanguage,
 } from "./analysis/Types";
+import { FunctionDef } from "./analysis/FunctionDef";
+import { Judgment as _Judgment } from "./oracles/Types";
+import { RunnerResult } from "./runners/AbstractRunner";
+import {
+  ScoredInput,
+  NextableStatus,
+  InputGeneratorStatsAi,
+} from "./generators/Types";
+import { InputSchedulerType } from "./schedulers/Types";
+import { CodeCoverageMeasureStats } from "./measures/AbstractCoverageMeasure";
+
+/**
+ * Error occurring in test harness (property validator or input transformer)
+ */
+export type HarnessError =
+  | {
+      kind: "exception";
+      stage: "transformer" | "validator";
+      fnName: string;
+      message: string;
+      display?: string;
+      stack: string;
+    }
+  | {
+      kind: "timeout";
+      stage: "transformer" | "validator";
+      fnName: string;
+      message: string;
+      display?: string;
+    };
 
 /**
  * Single Fuzzer Test Result
  */
 export type FuzzTestResult = {
-  testId: number; // id of test (unique within a runId)
+  testId?: number; // id of test (unique within a runId)
   pinned: boolean; // true if the test was pinned (not randomly generated)
   inputGenerated: InputAndSource; // Raw generated input
   input: FuzzIoElement[]; // function input (may be transformed from inputGenerated)
@@ -22,11 +54,7 @@ export type FuzzTestResult = {
   passedHuman: Judgment; // "pass" if actual output matches human-expected output
   passedValidator: Judgment; // "pass" if passed all property oracles
   passedValidators: Judgment[]; // "pass" if passed all property oracles
-  validatorException: boolean; // true if validator threw an exception
-  validatorExceptionDisplay?: string; // display message for validator exception display
-  validatorExceptionMessage?: string; // validator exception message
-  validatorExceptionFunction?: string; // name of validator throwing exception
-  validatorExceptionStack?: string; // validator stack trace if exception was thrown
+  harnessErrors: HarnessError[]; // errors occurring in test harness (transformers/validators)
   timers: {
     gen: number; // time to generate the input in ms
     transform: number; // time to transform the input in ms
@@ -37,6 +65,7 @@ export type FuzzTestResult = {
   interestingReasons: string[]; // reasons (measures) this input may be "interesting"
   skipped?: boolean; // true if the test was skipped
   skipReason?: string; // skip reason message
+  shrinkStep?: number; // number of shrink steps taken if the input was shrunk
 };
 
 /**
@@ -91,6 +120,7 @@ export type FuzzTestsFunction = {
   validators: string[]; // validator functions
   tests: Record<string, FuzzPinnedTest>; // pinned tests
   isVoid: boolean; // is the function return type void?
+  isAsync?: true; // is the function async?
 };
 
 /**
@@ -126,6 +156,15 @@ export type InputAndSource = {
 };
 
 /**
+ * Transformed input values and their source, including transformer runner result if any
+ */
+export type TransformedInputAndSource = InputAndSource & {
+  transformerResult?: RunnerResult;
+};
+
+export type MutationMode = "mutate" | "shrink" | "boot";
+
+/**
  * Provenance of a test value (e.g., an input)
  */
 export type FuzzValueOrigin =
@@ -140,6 +179,12 @@ export type FuzzValueOrigin =
       type: "generator";
       generator: "MutationInputGenerator";
       tick?: number;
+      steps: {
+        taken: number;
+        max: number;
+        mode: MutationMode;
+        mutators: string[];
+      };
     }
   | {
       type: "generator";
@@ -204,8 +249,11 @@ export function isFuzzResultTab(obj: unknown): obj is FuzzResultTab {
 /**
  * Fuzzer Options that specify the fuzzing behavior
  */
+export type FuzzOutputResults = "all" | "failures" | "none";
+
 export type FuzzOptions = {
   outputFile?: string; // optional file to receive the fuzzing output (JSON format)
+  outputResults?: FuzzOutputResults; // test results retention mode
   argDefaults: ArgOptions; // default options for arguments
   seed?: string; // optional seed for pseudo-random number generator
   maxTests: number; // number of fuzzing tests to execute (>= 0)
@@ -315,23 +363,91 @@ export type SupportedInputGenerators =
 export type SupportedMeasures = "CoverageMeasure" | "FailedTestMeasure";
 
 /**
- * Message about how busy the fuzzer is
+ * Focus mode of the fuzzer (generation vs. shrinking)
+ */
+export type FuzzerFocus =
+  | { mode: "gen" }
+  | { mode: "shrink"; target: InputAndSource };
+
+export type GetFuzzerFocusFn = () => FuzzerFocus;
+
+/**
+ * Emitted when a source module is being compiled.
+ */
+export type FuzzCompilingMessage = {
+  type: "compiling";
+  file: string;
+};
+
+/**
+ * Emitted when a source module is being instrumented.
+ */
+export type FuzzInstrumentingMessage = {
+  type: "instrumenting";
+  file: string;
+};
+
+/**
+ * Emitted when a specific test input is being tested against the PUT.
+ */
+export type FuzzTestingMessage = {
+  type: "testing";
+  fnName: string;
+  lang: ProgramLanguage;
+  inputs: ArgValueType[];
+  stats: CurrentRunStats;
+  pct: number;
+  stillInjecting: boolean;
+  isCancelled: boolean;
+};
+
+/**
+ * Emitted when waiting for an asynchronous generator (e.g., AI/LLM).
+ */
+export type FuzzWaitingForGeneratorMessage = {
+  type: "waiting-for-generator";
+  pendingGenerators: string[];
+  stats: CurrentRunStats;
+  pct: number;
+};
+
+/**
+ * Emitted periodically during idle or long pauses to update progress and timers.
+ */
+export type FuzzProgressTickMessage = {
+  type: "progress-tick";
+  pct: number;
+};
+
+/**
+ * Emitted when the fuzzing run finishes or is interrupted.
+ */
+export type FuzzTestingCompleteMessage = {
+  type: "testing-complete";
+  cancelled: boolean;
+  pct: number;
+};
+
+/**
+ * Union of all structured status messages emitted by the fuzzer.
  */
 export type FuzzBusyStatusMessage =
-  | {
-      msg: string;
-      channel: "milestone" | "summary";
-    }
-  | {
-      msg: string;
-      channel: "update";
-      pct: number;
-    };
+  | FuzzCompilingMessage
+  | FuzzInstrumentingMessage
+  | FuzzTestingMessage
+  | FuzzWaitingForGeneratorMessage
+  | FuzzProgressTickMessage
+  | FuzzTestingCompleteMessage;
 
 /**
  * Fuzzer status update callback
  */
 export type FuzzStatusUpdater = (payload: FuzzBusyStatusMessage) => void;
+
+/**
+ * Callback called for each test result produced during fuzzing
+ */
+export type FuzzResultCallback = (result: FuzzTestResult) => void;
 
 /**
  * Exception class for TypeScript compiler errors
@@ -361,4 +477,141 @@ export class UnsatisfiedAssumption extends Error {
   }
 }
 
-export type Judgment = "pass" | "fail" | "unknown";
+export type Judgment = _Judgment;
+
+/**
+ * Fuzzer Environment required to fuzz a function.
+ */
+export type FuzzEnv = {
+  options: FuzzOptions; // fuzzer options
+  function: FunctionDef; // the function to fuzz
+  validators: FunctionRef[]; // list of the module's validator functions
+  transformers: FunctionRef[]; // list of the module's input transformer functions
+};
+
+/**
+ * Fuzzer mode
+ */
+export type FuzzMode = {
+  gen?: true;
+};
+
+/**
+ * Fuzzer Test Result collection
+ */
+export type FuzzTestResults = {
+  runId?: string; // fuzzer run id
+  toolVersion: string; // NaNofuzz name and version that generated the results
+  env: FuzzEnv; // fuzzer environment
+  stopReason: FuzzStopReason; // why the fuzzer stopped
+  stats: FuzzTestStats; // fuzzer statistics
+  interesting: {
+    inputs: ScoredInput[]; // interesting inputs
+  };
+  results: FuzzTestResult[]; // fuzzing test results
+};
+
+export type FuzzGeneratorStatsBase = {
+  counters: {
+    inputsGenerated: number; // number of inputs generated, including dupes
+    dupesGenerated: number; // number of duplicate inputs generated
+    dupeTicks: number[]; // ticks in which the generator produced a duplicate input
+  };
+  timers: {
+    run: number; // elapsed time the PUT ran
+    val: number; // elapsed time to categorize outputs
+    gen: number; // elapsed time to generate inputs
+    measure: number; // elapsed time to measure
+    transform: number; // elapsed time to transform inputs
+  };
+};
+
+export type FuzzOutcomeStats = {
+  total: number; // number of tests actually executed (pass + fail + error, excluding skipped)
+  exceptions: number; // total tests that encountered exceptions
+  timeouts: number; // total tests that timed out
+  categories: Record<FuzzResultCategory, number>; // total counts per category
+  oracles: {
+    heuristic: Record<Judgment, number>;
+    human: Record<Judgment, number>;
+    property: Record<Judgment, number>;
+  };
+  firstFailure?: FuzzTestResult;
+};
+
+export type FuzzTestStats = {
+  timers: {
+    total: number; // elapsed time the fuzzer ran
+    compile: number; // elapsed time to compile & instrument PUT
+    instrument: number; // elapsed time to instrument PUT
+    put: number; // elapsed time the PUT ran
+    val: number; // elapsed time to categorize outputs
+    gen: number; // elapsed time to generate inputs
+    transform: number; // elapsed time to transform inputs
+    measure: number; // elapsed time to measure
+  };
+  counters: {
+    testingRuns: number; // number of test runs
+    inputsGenerated: number; // number of inputs generated, including dupes
+    dupesGenerated: number; // number of duplicate inputs generated
+    inputsInjected: number; // number of inputs pinned
+    erroredTests: number; // number of tests with internal errors
+    passedTests: number; // number of passed tests
+    inputsSkipped: number; // number of skipped tests
+    failedTests: number; // number of failed tests
+  };
+  outcomes: FuzzOutcomeStats;
+  generators: {
+    RandomInputGenerator: FuzzGeneratorStatsBase;
+    MutationInputGenerator: FuzzGeneratorStatsBase;
+    AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
+    CompositeInputGenerator?: {
+      config?: {
+        scheduler: InputSchedulerType;
+        lookbackWindow: number;
+        chunkSize: number;
+        explorationChance: number;
+        initialFocus: number;
+        focusDecay: number;
+      };
+      checkpoints: {
+        tick: number; // tick of the checkpoint
+        gens: Record<
+          string,
+          {
+            active: boolean; // subgen is active
+            nextable: NextableStatus; // subgen is active and nextable
+            productivity: number; // current productivity[g] for this input generator
+            cost: number; // current cost[g] for this input generator
+            selected?: true; // subgen was selected for this chunk
+          }
+        >;
+        scheduler: InputSchedulerType;
+      }[];
+    };
+  };
+  measures: {
+    CodeCoverageMeasure?: () => Promise<CodeCoverageMeasureStats>;
+  };
+};
+
+/**
+ * Current run statistics
+ */
+export type CurrentRunStats = {
+  counters: {
+    inputsInjected: number; // number of inputs injected for testing
+    inputsGenerated: number; // number of inputs generated so far
+    dupesGenerated: number; // number of duplicate inputs generated so far
+    dupesSequential: number; // current number of duplicate inputs generated in a row
+    erroredTests: number; // number of tests with internal errors so far
+    failedTests: number; // number of failed tests so far
+    passedTests: number; // number of passed tests so far
+    inputsSkipped: number; // number of skipped tests so far
+  };
+  outcomes: FuzzOutcomeStats;
+  timers: {
+    startTime: number; // time the tester started in this run
+    startGenTime: number; // time the tester started generating new inputs
+  };
+};

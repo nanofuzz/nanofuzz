@@ -82,7 +82,8 @@ class TestPythonCoverageMeasure extends PythonCoverageMeasure {
     super();
     this._info = { ...staticInfo };
     this._coverage = { [file]: this._info };
-    this._runners = [new StubPythonRunner(this._coverage)];
+    const stubRunner = new StubPythonRunner(this._coverage);
+    this.onRunStart([stubRunner]);
   }
 
   public record(run: PythonRun): void {
@@ -128,6 +129,12 @@ function mutantAt(tick: number, from?: number): InputAndSource {
       type: "generator",
       generator: "MutationInputGenerator",
       tick: from,
+      steps: {
+        taken: 1,
+        max: 2,
+        mode: "mutate",
+        mutators: ["dummy-mutator"],
+      },
     },
   };
 } // fn: mutantAt
@@ -152,7 +159,7 @@ const anyResult: FuzzTestResult = {
   passedHuman: "unknown",
   passedValidator: "unknown",
   passedValidators: [],
-  validatorException: false,
+  harnessErrors: [],
   timers: { gen: 0, transform: 0, run: 0 },
   category: "ok",
   interestingReasons: [],
@@ -205,7 +212,7 @@ const anyEnv: FuzzEnv = {
  * Per-generator statistics for a run whose details do not matter here
  */
 const anyGeneratorStats = (): FuzzGeneratorStatsBase => ({
-  counters: { inputsGenerated: 0, dupesGenerated: 0 },
+  counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
   timers: { run: 0, transform: 0, val: 0, gen: 0, measure: 0 },
 });
 
@@ -276,13 +283,13 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
   it("onBeforeNextTestExecution does not disturb the runner's coverage report", () => {
     const measure = new TestPythonCoverageMeasure(twoPathStatic);
     measure.record(twoPathNegative);
-    const before = JSON.parse(JSON.stringify(measure.info));
+    const before = structuredClone(measure.info);
 
     measure.onBeforeNextTestExecution();
 
     // Both halves survive: the static structure sent once at host start, and
     // the lines and arcs of the call that just ran
-    expect(JSON.parse(JSON.stringify(measure.info))).toEqual(before);
+    expect(structuredClone(measure.info)).toEqual(before);
     expect(measure.info.executable).toEqual([1, 2, 3, 4]);
     expect(measure.info.lines).toEqual([2, 3]);
     expect(measure.info.arcs).toEqual([[2, 3]]);
@@ -675,9 +682,9 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       inputAt(0)
     ).coverageMeasure.current.fileCoverageFor(pyFileName);
     const maps = {
-      statementMap: JSON.parse(JSON.stringify(first.statementMap)),
-      fnMap: JSON.parse(JSON.stringify(first.fnMap)),
-      branchMap: JSON.parse(JSON.stringify(first.branchMap)),
+      statementMap: structuredClone(first.statementMap),
+      fnMap: structuredClone(first.fnMap),
+      branchMap: structuredClone(first.branchMap),
     };
     expect(first.b).toEqual({ 0: [1, 0] });
 
@@ -1167,6 +1174,37 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
           inputsSkipped: 0,
           failedTests: 0,
         },
+        outcomes: {
+          total: 0,
+          oracles: {
+            heuristic: {
+              pass: 0,
+              fail: 0,
+              unknown: 0,
+            },
+            human: {
+              fail: 0,
+              unknown: 0,
+              pass: 0,
+            },
+            property: {
+              fail: 0,
+              unknown: 0,
+              pass: 0,
+            },
+          },
+          exceptions: 0,
+          timeouts: 0,
+          categories: {
+            ok: 0,
+            badValue: 0,
+            timeout: 0,
+            exception: 0,
+            skip: 0,
+            disagree: 0,
+            failure: 0,
+          },
+        },
         timers: {
           total: 21,
           compile: 5,
@@ -1212,8 +1250,10 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       const results = resultsStub();
       const before = {
         results: results.results,
-        counters: { ...results.stats.counters },
-        timers: { ...results.stats.timers },
+        counters: structuredClone(results.stats.counters),
+        outcomes: structuredClone(results.stats.outcomes),
+        timers: structuredClone(results.stats.timers),
+        generators: structuredClone(results.stats.generators),
       };
 
       measure.onRunEnd(results);
@@ -1229,7 +1269,31 @@ describe("fuzzer/analysis/measures/PythonCoverageMeasure:", () => {
       ]);
       expect(results.results).toBe(before.results);
       expect(results.stats.counters).toEqual(before.counters);
+      expect(results.stats.outcomes).toEqual(before.outcomes);
       expect(results.stats.timers).toEqual(before.timers);
+      expect(results.stats.generators).toEqual(before.generators);
+    });
+
+    it("static coverage: reports total static statements, functions, and branches before and after test executions", async () => {
+      // multiFunctionStatic has 3 functions (abs_value, helper, never_called) and 6 executable lines
+      const measure = new TestPythonCoverageMeasure(multiFunctionStatic);
+
+      // 1. Before any test runs (0 test executions), stats thunk reports full static totals
+      let stats = await statsOf(measure);
+      expect(stats.counters.functionsTotal).toEqual(3);
+      expect(stats.counters.statementsTotal).toEqual(6);
+      expect(stats.counters.functionsCovered).toEqual(0);
+      expect(stats.counters.statementsCovered).toEqual(0);
+
+      // 2. Execute a single test input covering abs_value and helper
+      runTest(measure, multiFunctionRun, inputAt(0));
+
+      // 3. After test execution, totals remain equal to static totals and covered counts update
+      stats = await statsOf(measure);
+      expect(stats.counters.functionsTotal).toEqual(3);
+      expect(stats.counters.statementsTotal).toEqual(6);
+      expect(stats.counters.functionsCovered).toEqual(2);
+      expect(stats.counters.statementsCovered).toEqual(2);
     });
 
     // the stats should be the union of what the run's inputs covered

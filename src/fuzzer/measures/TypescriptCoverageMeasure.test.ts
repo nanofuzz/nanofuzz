@@ -124,6 +124,12 @@ function mutantAt(tick: number, from?: number): InputAndSource {
       type: "generator",
       generator: "MutationInputGenerator",
       tick: from,
+      steps: {
+        taken: 1,
+        max: 2,
+        mode: "mutate",
+        mutators: ["dummy-mutator"],
+      },
     },
   };
 } // fn: mutantAt
@@ -148,7 +154,7 @@ const anyResult: FuzzTestResult = {
   passedHuman: "unknown",
   passedValidator: "unknown",
   passedValidators: [],
-  validatorException: false,
+  harnessErrors: [],
   timers: { gen: 0, transform: 0, run: 0 },
   category: "ok",
   interestingReasons: [],
@@ -201,7 +207,7 @@ const anyEnv: FuzzEnv = {
  * Per-generator statistics for a run whose details do not matter here
  */
 const anyGeneratorStats = (): FuzzGeneratorStatsBase => ({
-  counters: { inputsGenerated: 0, dupesGenerated: 0 },
+  counters: { inputsGenerated: 0, dupesGenerated: 0, dupeTicks: [] },
   timers: { run: 0, transform: 0, val: 0, gen: 0, measure: 0 },
 });
 
@@ -870,9 +876,9 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       .measure(inputAt(0), anyResult)
       .coverageMeasure.current.fileCoverageFor(jsFileName);
     const maps = {
-      statementMap: JSON.parse(JSON.stringify(first.statementMap)),
-      fnMap: JSON.parse(JSON.stringify(first.fnMap)),
-      branchMap: JSON.parse(JSON.stringify(first.branchMap)),
+      statementMap: structuredClone(first.statementMap),
+      fnMap: structuredClone(first.fnMap),
+      branchMap: structuredClone(first.branchMap),
     };
     expect(first.b).toEqual({ 0: [1, 0] });
 
@@ -1216,7 +1222,16 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
     });
 
     afterAll(() => {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // Ignore residual Windows file lock cleanup errors
+      }
     });
 
     /**
@@ -1345,6 +1360,37 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
           inputsSkipped: 0,
           failedTests: 0,
         },
+        outcomes: {
+          total: 0,
+          oracles: {
+            heuristic: {
+              pass: 0,
+              fail: 0,
+              unknown: 0,
+            },
+            human: {
+              fail: 0,
+              unknown: 0,
+              pass: 0,
+            },
+            property: {
+              fail: 0,
+              unknown: 0,
+              pass: 0,
+            },
+          },
+          exceptions: 0,
+          timeouts: 0,
+          categories: {
+            ok: 0,
+            badValue: 0,
+            timeout: 0,
+            exception: 0,
+            skip: 0,
+            disagree: 0,
+            failure: 0,
+          },
+        },
         timers: {
           total: 21,
           compile: 5,
@@ -1390,8 +1436,10 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       const results = resultsStub();
       const before = {
         results: results.results,
-        counters: { ...results.stats.counters },
-        timers: { ...results.stats.timers },
+        counters: structuredClone(results.stats.counters),
+        outcomes: structuredClone(results.stats.outcomes),
+        timers: structuredClone(results.stats.timers),
+        generators: structuredClone(results.stats.generators),
       };
 
       measure.onRunEnd(results);
@@ -1407,7 +1455,49 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
       ]);
       expect(results.results).toBe(before.results);
       expect(results.stats.counters).toEqual(before.counters);
+      expect(results.stats.outcomes).toEqual(before.outcomes);
       expect(results.stats.timers).toEqual(before.timers);
+      expect(results.stats.generators).toEqual(before.generators);
+    });
+
+    it("static coverage: reports top-level statements as well as function statements", async () => {
+      const tsCode = `let z = 1;
+z++;
+let q = z;
+z = q;
+
+export function x(
+  obj: {
+    a?: 1;
+    b?: 1;
+  }[]
+): number {
+  return 1;
+}
+`;
+      const measure = new TestCoverageMeasure();
+      const program = compileTs(tsCode, "toplevelTest");
+      const [exports] = loadTs(measure, [program]);
+      const xFn = fnOf(exports, "x");
+
+      // 1. Static coverage on module load before any test runs:
+      // Static analysis registers all 6 statements and 1 function (0 covered before test runs)
+      let stats = await statsOf(measure);
+      expect(stats.counters.statementsTotal).toEqual(6);
+      expect(stats.counters.functionsTotal).toEqual(1);
+      expect(stats.counters.statementsCovered).toEqual(0);
+      expect(stats.counters.functionsCovered).toEqual(0);
+
+      // 2. First dynamic coverage execution (calling x([])):
+      runTest(measure, () => xFn(0), 0, inputAt(0));
+
+      // 3. Dynamic coverage after test run:
+      // Function statement inside x() is executed, reaching 1/6 statements and 1/1 functions
+      stats = await statsOf(measure);
+      expect(stats.counters.statementsTotal).toEqual(6);
+      expect(stats.counters.functionsTotal).toEqual(1);
+      expect(stats.counters.statementsCovered).toEqual(1);
+      expect(stats.counters.functionsCovered).toEqual(1);
     });
 
     // the stats should be the union of what the run's inputs covered

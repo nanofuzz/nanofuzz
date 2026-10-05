@@ -40,41 +40,6 @@ export function getErrorMessageOrJson(e: unknown): string {
 } // fn: getErrorMessageOrJson
 
 /**
- * Recursively freeze each non-primitive property (deep freeze) while also
- * checking for cycles to avoid infinite recursion.
- *
- * Adapted from MDN articles:
- *   https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/freeze
- *   https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WeakSet#detecting_circular_references
- *
- * @param o T object to deep freeze
- * @returns the same object, but now frozen
- */
-export function deepFreeze<T extends object>(o: T, _refs = new WeakSet()): T {
-  // Avoid infinite recursion
-  if (_refs.has(o)) {
-    return o;
-  }
-
-  // Retrieve the property names defined on object
-  const propNames = Reflect.ownKeys(o);
-
-  // Freeze properties before freezing self
-  let name: string | symbol;
-  for (name of propNames) {
-    const value = Reflect.get(o, name);
-
-    if ((value && typeof value === "object") || typeof value === "function") {
-      _refs.add(o);
-      deepFreeze(value);
-      _refs.delete(o);
-    }
-  }
-
-  return Object.freeze(o);
-}
-
-/**
  * Constructs a new JavaScript Set whose elements are sorted in canonical
  * order based on their stringified JSONN representation.
  */
@@ -86,7 +51,7 @@ export function makeCanonicalSet<T>(elements: Iterable<T>): Set<T> {
     return strA < strB ? -1 : strA > strB ? 1 : 0;
   });
   return new Set(items);
-}
+} // fn: makeCanonicalSet
 
 /**
  * Type guard function that returns true if `obj` has keys
@@ -104,6 +69,34 @@ export function isKeyedObject(obj: unknown): obj is Record<string, unknown> {
 } // fn: isKeyedObject
 
 /**
+ * Deeply freezes an object and its nested properties.
+ * Plain objects and arrays are frozen with Object.freeze.
+ * TypedArrays / Buffers / ArrayBuffers are preserved as native binary views
+ * so native binary serialization (MessagePack IPC) continues to work.
+ */
+export function deepFreeze<T>(obj: T): T {
+  if (
+    obj &&
+    typeof obj === "object" &&
+    !Object.isFrozen(obj) &&
+    !ArrayBuffer.isView(obj) &&
+    !(obj instanceof ArrayBuffer) &&
+    !(
+      typeof SharedArrayBuffer !== "undefined" &&
+      obj instanceof SharedArrayBuffer
+    )
+  ) {
+    Object.freeze(obj);
+    for (const val of Object.values(obj)) {
+      if (val && typeof val === "object") {
+        deepFreeze(val);
+      }
+    }
+  }
+  return obj;
+} // fn: deepFreeze
+
+/**
  * Unwraps transformer origins to return the underlying base origin.
  *
  * @param origin the FuzzValueOrigin to unwrap
@@ -116,24 +109,35 @@ export function getBaseOrigin(
     return getBaseOrigin(origin.basis.source);
   }
   return origin;
-}
+} // fn: getBaseOrigin
 
 /**
  * Removes tick metadata from a MutationInputGenerator origin,
  * unwrapping transformer origins as necessary.
  *
  * @param origin the FuzzValueOrigin from which to remove tick
+ * @returns a copy of the FuzzValueOrigin without tick metadata
  */
-export function removeTickFromOrigin(origin: FuzzValueOrigin): void {
+export function removeTickFromOrigin(origin: FuzzValueOrigin): FuzzValueOrigin {
   if (
     origin.type === "generator" &&
     origin.generator === "MutationInputGenerator"
   ) {
-    delete origin.tick;
-  } else if (origin.type === "transformer") {
-    removeTickFromOrigin(origin.basis.source);
+    const copy = { ...origin };
+    delete copy.tick;
+    return copy;
   }
-}
+  if (origin.type === "transformer") {
+    return {
+      ...origin,
+      basis: {
+        ...origin.basis,
+        source: removeTickFromOrigin(origin.basis.source),
+      },
+    };
+  }
+  return { ...origin };
+} // fn: removeTickFromOrigin
 
 /**
  * Encodes control characters and backslashes in a string to printable escape sequences
@@ -165,7 +169,7 @@ export function encodeEscapeSequences(str: string): string {
     }
   }
   return result;
-}
+} // fn: encodeEscapeSequences
 
 /**
  * Decodes printable escape sequences in a string back to their raw character equivalents
@@ -234,7 +238,7 @@ export function decodeEscapeSequences(str: string): string {
     }
   }
   return result;
-}
+} // fn: decodeEscapeSequences
 
 /**
  * Type guard for Uint8Array or Buffer across Node and Webview environments.
@@ -244,7 +248,7 @@ export function isBufferOrUint8Array(val: unknown): val is Uint8Array {
     val instanceof Uint8Array ||
     (typeof Buffer !== "undefined" && Buffer.isBuffer(val))
   );
-}
+} // fn: isBufferOrUint8Array
 
 /**
  * Converts a hex string to a Uint8Array in both Node and Webview environments.
@@ -259,7 +263,7 @@ export function hexToBytes(hex: string): Uint8Array {
     bytes[i] = parseInt(cleanHex.substring(i * 2, i * 2 + 2), 16);
   }
   return bytes;
-}
+} // fn: hexToBytes
 
 /**
  * Converts a base64 string to a Uint8Array in both Node and Webview environments.
@@ -274,7 +278,7 @@ export function base64ToBytes(b64: string): Uint8Array {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
-}
+} // fn: base64ToBytes
 
 /**
  * Converts a Uint8Array to a base64 string in both Node and Webview environments.
@@ -289,4 +293,4 @@ export function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
-}
+} // fn: bytesToBase64

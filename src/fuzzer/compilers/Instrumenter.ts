@@ -9,6 +9,30 @@ import { FuzzStatusUpdater } from "../Types";
  */
 export class Instrumenter {
   /**
+   * Normalizes a temporary compilation/instrumentation file path to a clean user-facing path.
+   */
+  public static normalizeDisplayPath(
+    cleanPath: string,
+    tmpDir: string
+  ): string {
+    const normClean = cleanPath.replace(/\\/g, "/");
+    const normTmp = tmpDir.replace(/\\/g, "/");
+    let displayPath = normClean.startsWith(normTmp)
+      ? normClean.slice(normTmp.length).replace(/^\/+/, "")
+      : normClean;
+    displayPath = displayPath.replace(/^inst-[^/]+\/?/, "");
+    if (typeof process !== "undefined" && process.platform === "win32") {
+      if (/^[a-zA-Z]\//.test(displayPath)) {
+        displayPath = displayPath.charAt(0) + ":" + displayPath.substring(1);
+      }
+    } else {
+      if (!displayPath.startsWith("/")) {
+        displayPath = "/" + displayPath;
+      }
+    }
+    return displayPath;
+  } // fn: normalizeDisplayPath()
+  /**
    * Computes a unique deterministic hash for a given set of active measures.
    */
   public static getMeasureHash(measures: AbstractMeasure[]): string {
@@ -67,33 +91,14 @@ export class Instrumenter {
         !fs.existsSync(instPath) || fs.statSync(instPath).mtimeMs < cleanMtime;
 
       if (isStale) {
-        // Compute clean user-facing path by stripping the temporary compilation directory prefix
-        let displayPath = path.relative(tmpDir, cleanPath);
-        displayPath = displayPath.replace(/^inst-[^/\\]+[/\\]?/, "");
-        if (process.platform === "win32") {
-          if (/^[a-zA-Z][/\\]/.test(displayPath)) {
-            displayPath =
-              displayPath.charAt(0) + ":" + displayPath.substring(1);
-          }
-        } else {
-          if (!displayPath.startsWith("/")) {
-            displayPath = "/" + displayPath;
-          }
-        }
-        displayPath = path.normalize(displayPath);
-
         // Provide feedback that we are instrumenting
         if (updateFn) {
           updateFn({
-            msg: ` - Instrument: ${displayPath}`,
-            channel: "milestone",
-          });
-          updateFn({
-            msg: `Instrumenting: ${displayPath}`,
-            channel: "update",
-            pct: 0.1,
+            type: "instrumenting",
+            file: Instrumenter.normalizeDisplayPath(cleanPath, tmpDir),
           });
         }
+
         fs.mkdirSync(path.dirname(instPath), { recursive: true });
 
         // Copy source map if present
