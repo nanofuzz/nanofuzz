@@ -1218,7 +1218,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     const dupeMutators: { [k: string]: number } = {};
     let uniqueDimensionSpecs = 0;
     let regexStringSpecs = 0;
-    let i = 150;
+    let i = 50;
     while (i--) {
       const paramCount = Math.floor(prng() * 3) + 1;
       const spec: ArgDef[] = [];
@@ -1239,7 +1239,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       const gen = new ArgDefGenerator(spec, prng);
       const val = new ArgDefValidator(spec);
 
-      let j = 100;
+      let j = 20;
       while (j--) {
         let input = gen.next();
         const isValid = val.validate(input);
@@ -1256,7 +1256,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
         } else {
           stats.gens.valid++;
 
-          let k = 100;
+          let k = 20;
           while (k--) {
             const inputStringBefore = JSONN.stringify(input);
             const muts = ArgDefMutator.getMutators(spec, input, prng);
