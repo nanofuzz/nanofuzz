@@ -1,18 +1,16 @@
 import * as fs from "fs";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
-import { deepFreeze, isKeyedObject } from "../Util";
+import { deepFreeze } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import { Instrumenter } from "./compilers/Instrumenter";
 import * as ProgramFactory from "./analysis/ProgramFactory";
-import * as ValueMapper from "./mappers/ValueMapper";
 import { FunctionDef } from "./analysis/FunctionDef";
 import {
   BaseMeasureConfig,
-  FuzzBusyStatusMessage,
   FuzzEnv,
   FuzzMode,
   FuzzOptions,
@@ -26,7 +24,6 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
-import { formatFailureBlock, formatRunStatsSummary } from "./FuzzTextFormatter";
 import { getTransformers, getValidators, isOptionValid } from "./analysis/Util";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
@@ -279,31 +276,19 @@ export class FuzzerV2 {
     );
     this._stats.startRun();
 
-    let lastUpdateMsg: FuzzBusyStatusMessage | undefined = undefined;
     let lastUpdateTimestamp = 0;
     let periodicTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
     const update: FuzzStatusUpdater = (payload) => {
-      lastUpdateMsg = payload;
       lastUpdateTimestamp = performance.now();
-      if (payload.channel !== "update" && periodicTimer !== undefined) {
+      if (payload.type === "testing-complete" && periodicTimer !== undefined) {
         clearInterval(periodicTimer);
         periodicTimer = undefined;
       }
       if (updateFn) {
         updateFn({ ...payload });
-      } else if (payload.channel !== "update") {
-        console.log(payload.msg);
       }
     };
-
-    if (!updateFn && process.env.BUILD_TARGET !== "node-cli") {
-      console.log("\r\n\r\n");
-    }
-    update({
-      msg: `Target: ${this._function.getName()} of ${this._function.getModule()}`,
-      channel: "milestone",
-    });
 
     this._executor = await this._initExecutor(
       injectTests,
@@ -313,14 +298,11 @@ export class FuzzerV2 {
     );
 
     let stillInjecting = injectTests.length > 0;
-
-    update({ msg: `Target ready to test.`, channel: "milestone" });
     this._state = "ready";
+    lastUpdateTimestamp = performance.now();
 
     const checkPeriodicUpdate = () => {
       if (
-        lastUpdateMsg &&
-        lastUpdateMsg.channel === "update" &&
         this._state === "running" &&
         performance.now() - lastUpdateTimestamp >= 100
       ) {
@@ -340,7 +322,7 @@ export class FuzzerV2 {
         );
         const pct = typeof stopCondition === "number" ? stopCondition : 100;
         update({
-          ...lastUpdateMsg,
+          type: "progress-tick",
           pct,
         });
       }
@@ -392,16 +374,11 @@ export class FuzzerV2 {
                     (performance.now() - this._stats!.startGenTime)
                 )
               : undefined;
-          const pendingGens =
-            this._compositeInputGenerator.getPendingGeneratorNames();
-          const pendingLabel = pendingGens.length
-            ? pendingGens.join(", ") + " "
-            : "";
           update({
-            msg: `Waiting for ${pendingLabel}input generator...${formatRunStatsSummary(
-              this._stats!.currentRun
-            )}`,
-            channel: "update",
+            type: "waiting-for-generator",
+            pendingGenerators:
+              this._compositeInputGenerator.getPendingGeneratorNames(),
+            stats: this._stats!.currentRun,
             pct: typeof stopCondition === "number" ? stopCondition : 0,
           });
           await this._compositeInputGenerator.waitForNextInput(
@@ -709,26 +686,15 @@ export class FuzzerV2 {
     cancelFn?: () => boolean,
     stillInjecting: boolean = false
   ): void {
-    const isNodeCli = process.env.BUILD_TARGET === "node-cli";
-    const lang = this._function.getLang();
-    const runStats = this._stats!.currentRun;
-    const isCancelled = cancelFn ? cancelFn() : false;
-
-    const msg = isNodeCli
-      ? ""
-      : `${isCancelled && stillInjecting ? "Interrupt pending retest of prior inputs.\r\n" : ""}${stillInjecting ? "Retesting prior" : "Testing new"} input# ${
-          runStats.counters.passedTests +
-          runStats.counters.failedTests +
-          runStats.counters.erroredTests +
-          1
-        }: ${this._function.getName()}(${candidate.value
-          .map((i) => ValueMapper.toLang(lang, i.value))
-          .join(",")})${formatRunStatsSummary(runStats)}`;
-
     update({
-      msg,
-      channel: "update",
+      type: "testing",
+      fnName: this._function.getName(),
+      lang: this._function.getLang(),
+      inputs: candidate.value.map((i) => i.value),
+      stats: this._stats!.currentRun,
       pct,
+      stillInjecting,
+      isCancelled: Boolean(cancelFn && cancelFn()),
     });
   } // fn: _notify
 
@@ -747,7 +713,6 @@ export class FuzzerV2 {
     cancelFn?: () => boolean
   ): Promise<FuzzTestResults> {
     const results = this._stats!.finalize(stopReason);
-    const runStats = this._stats!.currentRun;
 
     results.interesting.inputs =
       this._compositeInputGenerator.getInterestingInputs();
@@ -757,106 +722,14 @@ export class FuzzerV2 {
     });
     await this._compositeInputGenerator.onRunEnd(results);
 
-    const covStats =
-      typeof results.stats.measures.CodeCoverageMeasure === "function"
-        ? await results.stats.measures.CodeCoverageMeasure()
-        : undefined;
-
     if (this._executor) {
       await this._executor.stop();
     }
 
     update({
-      msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-      channel: "update",
+      type: "testing-complete",
+      cancelled: Boolean(cancelFn && cancelFn()),
       pct: 100,
-    });
-
-    const diagnostics = this._compositeInputGenerator.getDiagnostics();
-    if (diagnostics.length) {
-      update({
-        msg: ` - Input generator warnings:`,
-        channel: "summary",
-      });
-      diagnostics.forEach((diag) => {
-        update({
-          msg: `   - ${diag}`,
-          channel: "summary",
-        });
-      });
-    }
-
-    update({
-      msg: ` - Executed ${
-        results.stats.outcomes.total
-      } and skipped ${runStats.counters.inputsSkipped} tests in ${(
-        performance.now() - runStats.timers.startTime
-      ).toFixed(0)} ms this run. Stopped for reason: ${results.stopReason}.`,
-      channel: "summary",
-    });
-    update({
-      msg: ` - Injected ${runStats.counters.inputsInjected} and generated ${runStats.counters.inputsGenerated} inputs (${runStats.counters.dupesGenerated} were dupes) this run.`,
-      channel: "summary",
-    });
-    update({
-      msg: ` - Total tests with exceptions: ${
-        results.stats.outcomes.exceptions
-      }, timeouts: ${results.stats.outcomes.timeouts}, errors: ${results.stats.counters.erroredTests}`,
-      channel: "summary",
-    });
-    update({
-      msg: ` - Total tests where human validator passed: ${
-        results.stats.outcomes.oracles.human.pass
-      }, failed: ${results.stats.outcomes.oracles.human.fail}`,
-      channel: "summary",
-    });
-    update({
-      msg: ` - Total tests where property validator passed: ${
-        results.stats.outcomes.oracles.property.pass
-      }, failed: ${results.stats.outcomes.oracles.property.fail}`,
-      channel: "summary",
-    });
-    update({
-      msg: ` - Total tests where heuristic validator passed: ${
-        results.stats.outcomes.oracles.heuristic.pass
-      }, failed: ${results.stats.outcomes.oracles.heuristic.fail}`,
-      channel: "summary",
-    });
-
-    if (this._options.outputFile) {
-      JSONN.toFile(
-        this._options.outputFile,
-        results,
-        (k: string, v: unknown) =>
-          k === "CodeCoverageMeasure"
-            ? covStats
-            : k === "coverageMeasure" && isKeyedObject(v)
-              ? { current: v.current }
-              : v
-      );
-      update({
-        msg: ` - Test results: ${this._options.outputFile}`,
-        channel: "summary",
-      });
-    }
-
-    const firstFailing = results.stats.outcomes.firstFailure;
-    if (firstFailing) {
-      update({
-        msg: formatFailureBlock(
-          this._function.getName(),
-          firstFailing,
-          this._function.getLang(),
-          this._validators,
-          this._options.fnTimeout
-        ),
-        channel: "summary",
-      });
-    }
-
-    update({
-      msg: `Testing ${cancelFn && cancelFn() ? "interrupted" : "finished"}.`,
-      channel: "milestone",
     });
 
     this._state = "paused";

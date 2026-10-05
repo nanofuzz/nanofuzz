@@ -1,4 +1,11 @@
 import sys
+import signal
+
+# Ignore SIGINT in child runner host; lifecycle is managed exclusively by parent process
+try:
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+except Exception:
+    pass
 
 # Send an immediate heartbeat as early as possible during startup
 # so parent process timeout timer is reset while modules load.
@@ -246,7 +253,7 @@ def run_coroutine_with_timeout(coro: Any, timeout_ms: int) -> Any:
 
     try:
         return loop.run_until_complete(_waiter())
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, TimeoutError, asyncio.CancelledError):
         raise PutTimeoutException("Coroutine execution timed out")
     finally:
         # Cancel any orphan background tasks created during coroutine execution
@@ -277,18 +284,14 @@ def _raise_async_exception(target_thread_id: int, exception_cls: type) -> None:
 def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
     """Executes fn(*args) with an in-process timeout across Mac, Linux, and Windows, supporting async coroutines."""
     if inspect.iscoroutinefunction(fn):
-        def _exec():
-            coro = fn(*args)
-            return run_coroutine_with_timeout(coro, timeout_ms)
-    else:
-        def _exec():
-            res = fn(*args)
-            if inspect.iscoroutine(res):
-                return run_coroutine_with_timeout(res, timeout_ms)
-            return res
+        coro = fn(*args)
+        return run_coroutine_with_timeout(coro, timeout_ms)
 
     if not timeout_ms or timeout_ms <= 0:
-        return _exec()
+        res = fn(*args)
+        if inspect.iscoroutine(res):
+            return run_coroutine_with_timeout(res, timeout_ms)
+        return res
 
     main_thread_id = threading.get_ident()
     timer = threading.Timer(
@@ -298,7 +301,11 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
     )
     timer.start()
     try:
-        return _exec()
+        res = fn(*args)
+        if inspect.iscoroutine(res):
+            timer.cancel()
+            return run_coroutine_with_timeout(res, timeout_ms)
+        return res
     finally:
         timer.cancel()
 
