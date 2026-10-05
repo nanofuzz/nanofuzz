@@ -3,8 +3,6 @@ import * as fs from "node:fs";
 import * as JSONN from "../Jsonn";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { FuzzIoElement, FuzzResultCategory, FuzzTestResult } from "./Types";
-import { ProgramLanguage } from "./analysis/Types";
-import * as ValueMapper from "./mappers/ValueMapper";
 
 /**
  * Type guard function that returns true if the input object
@@ -208,20 +206,3 @@ export function getIoKey(io: FuzzIoElement[]): string {
     })
   );
 } // fn: getIoKey
-
-/**
- * Gets the langiage-specific input key as a string from an array of `FuzzIoElement`s
- *
- * @param `lang` programming language
- * @param `io` array of `FuzzIoElements`
- * @returns string representation array of inputs in `lang` format
- */
-export function getLangIoKey(
-  lang: ProgramLanguage,
-  io: FuzzIoElement[]
-): string {
-  return ValueMapper.toLang(
-    lang,
-    io.map((i) => i.value)
-  );
-} // fn: getLangIoKey
