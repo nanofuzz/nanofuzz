@@ -384,7 +384,8 @@ export class ArgDefMutator {
                 interval.min,
                 interval.max,
                 subInput.subPath,
-                bigIntNumericOps
+                bigIntNumericOps,
+                prng
               )
             );
             break;
@@ -398,7 +399,8 @@ export class ArgDefMutator {
                 Number(interval.min),
                 Number(interval.max),
                 subInput.subPath,
-                getNumberNumericOps(options.numInteger)
+                getNumberNumericOps(options.numInteger),
+                prng
               )
             );
             break;
@@ -1359,6 +1361,70 @@ export type MutationProposal = {
   simplifies?: boolean;
 };
 
+const BIGINT_BOUNDARIES: bigint[] = [
+  0n,
+  1n,
+  -1n,
+  2n,
+  -2n,
+  127n,
+  128n,
+  -128n,
+  -129n,
+  255n,
+  256n,
+  -256n,
+  32767n,
+  32768n,
+  -32768n,
+  -32769n,
+  65535n,
+  65536n,
+  2147483647n,
+  2147483648n,
+  -2147483648n,
+  -2147483649n,
+  4294967295n,
+  4294967296n,
+  BigInt(Number.MAX_SAFE_INTEGER),
+  -BigInt(Number.MAX_SAFE_INTEGER),
+  9223372036854775807n,
+  9223372036854775808n,
+  -9223372036854775808n,
+  -9223372036854775809n,
+  18446744073709551615n,
+  18446744073709551616n,
+];
+
+const NUMBER_BOUNDARIES: number[] = [
+  0,
+  1,
+  -1,
+  2,
+  -2,
+  127,
+  128,
+  -128,
+  -129,
+  255,
+  256,
+  -256,
+  32767,
+  32768,
+  -32768,
+  -32769,
+  65535,
+  65536,
+  2147483647,
+  2147483648,
+  -2147483648,
+  -2147483649,
+  4294967295,
+  4294967296,
+  Number.MAX_SAFE_INTEGER,
+  -Number.MAX_SAFE_INTEGER,
+];
+
 /**
  * Operations table for numeric types (number and bigint)
  */
@@ -1371,6 +1437,9 @@ interface NumericOps<T extends number | bigint> {
   abs: (a: T) => T;
   compare: (a: T, b: T) => number;
   isInteger: (a: T) => boolean;
+  flipBit: (a: T, bit: number) => T;
+  bitLength: (a: T) => number;
+  boundaries: T[];
 }
 
 const bigIntNumericOps: NumericOps<bigint> = {
@@ -1378,10 +1447,25 @@ const bigIntNumericOps: NumericOps<bigint> = {
   zero: 0n,
   add: (a, b) => a + BigInt(b),
   mul: (a, b) => a * BigInt(b),
-  div: (a, b) => a / BigInt(b),
+  div: (a, b) => (b === 0 ? 0n : a / BigInt(b)),
   abs: (a) => (a < 0n ? -a : a),
   compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
   isInteger: () => true,
+  flipBit: (a, bit) => a ^ (1n << BigInt(bit)),
+  bitLength: (a) => {
+    const positive = a < 0n ? -a : a;
+    let bits = 0;
+    let temp = positive;
+    while (temp >= 0x100000000n) {
+      bits += 32;
+      temp >>= 32n;
+    }
+    if (temp > 0n) {
+      bits += 32 - Math.clz32(Number(temp));
+    }
+    return Math.max(1, bits);
+  },
+  boundaries: BIGINT_BOUNDARIES,
 };
 
 function getNumberNumericOps(numInteger: boolean): NumericOps<number> {
@@ -1390,10 +1474,27 @@ function getNumberNumericOps(numInteger: boolean): NumericOps<number> {
     zero: 0,
     add: (a, b) => a + b,
     mul: (a, b) => a * b,
-    div: (a, b) => (numInteger ? Math.round(a / b) : a / b),
+    div: (a, b) => (b === 0 ? 0 : numInteger ? Math.round(a / b) : a / b),
     abs: Math.abs,
     compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
-    isInteger: (a) => Number.isInteger(a) || !numInteger,
+    isInteger: (a) =>
+      (Number.isInteger(a) && Number.isSafeInteger(a)) ||
+      (!numInteger && Number.isFinite(a)),
+    flipBit: (a, bit) => {
+      if (Number.isSafeInteger(a)) {
+        const bigVal = BigInt(Math.trunc(a));
+        const flipped = bigVal ^ (1n << BigInt(bit));
+        const asNum = Number(flipped);
+        return Number.isSafeInteger(asNum) ? asNum : a;
+      }
+      return a;
+    },
+    bitLength: (a) => {
+      const positive = Math.abs(a);
+      if (positive <= 0 || !Number.isFinite(positive)) return 1;
+      return Math.min(52, Math.floor(Math.log2(positive)) + 1);
+    },
+    boundaries: NUMBER_BOUNDARIES,
   };
 } // fn: getNumberNumericOps
 
@@ -1405,7 +1506,8 @@ function getNumericMutations<T extends number | bigint>(
   min: T,
   max: T,
   path: (string | number)[],
-  ops: NumericOps<T>
+  ops: NumericOps<T>,
+  prng?: seedrandom.prng
 ): MutationProposal[] {
   const proposals: (MutationProposal & { value: T })[] = [];
 
@@ -1424,6 +1526,7 @@ function getNumericMutations<T extends number | bigint>(
 
   const absVal = ops.abs(value);
 
+  // Micro-increments & decrements
   const plusOneVal = ops.add(value, 1);
   proposals.push({
     name: `${ops.prefix}-plusOne`,
@@ -1472,6 +1575,124 @@ function getNumericMutations<T extends number | bigint>(
     value: divThreeVal,
     path: [...path],
     simplifies: ops.compare(ops.abs(divThreeVal), absVal) < 0,
+  });
+
+  // 1. Boundary & Extremal Mutators
+  if (value !== min) {
+    proposals.push({
+      name: `${ops.prefix}-setToMin`,
+      value: min,
+      path: [...path],
+      simplifies: ops.compare(ops.abs(min), absVal) < 0,
+    });
+  }
+  if (value !== max) {
+    proposals.push({
+      name: `${ops.prefix}-setToMax`,
+      value: max,
+      path: [...path],
+      simplifies: ops.compare(ops.abs(max), absVal) < 0,
+    });
+  }
+
+  const minPlusOneVal = ops.add(min, 1);
+  if (ops.compare(minPlusOneVal, max) <= 0) {
+    proposals.push({
+      name: `${ops.prefix}-minPlusOne`,
+      value: minPlusOneVal,
+      path: [...path],
+      simplifies: ops.compare(ops.abs(minPlusOneVal), absVal) < 0,
+    });
+  }
+
+  const maxMinusOneVal = ops.add(max, -1);
+  if (ops.compare(maxMinusOneVal, min) >= 0) {
+    proposals.push({
+      name: `${ops.prefix}-maxMinusOne`,
+      value: maxMinusOneVal,
+      path: [...path],
+      simplifies: ops.compare(ops.abs(maxMinusOneVal), absVal) < 0,
+    });
+  }
+
+  if (prng) {
+    const validBoundaries = ops.boundaries.filter(
+      (b) =>
+        b !== value &&
+        ops.compare(b, max) <= 0 &&
+        ops.compare(b, min) >= 0 &&
+        ops.isInteger(b)
+    );
+    if (validBoundaries.length > 0) {
+      const chosenBoundary =
+        validBoundaries[Math.floor(prng() * validBoundaries.length)];
+      proposals.push({
+        name: `${ops.prefix}-boundary`,
+        value: chosenBoundary,
+        path: [...path],
+        simplifies: ops.compare(ops.abs(chosenBoundary), absVal) < 0,
+      });
+    }
+  }
+
+  // 2. Bitwise Mutation (AFL / libFuzzer style bit flips)
+  if (prng) {
+    const maxBits = Math.max(ops.bitLength(value), ops.bitLength(max), 1);
+    const bitToFlip = Math.floor(prng() * maxBits);
+    const flippedVal = ops.flipBit(value, bitToFlip);
+    proposals.push({
+      name: `${ops.prefix}-flipBit`,
+      value: flippedVal,
+      path: [...path],
+      simplifies: ops.compare(ops.abs(flippedVal), absVal) < 0,
+    });
+  }
+
+  // 3. Decadal & Exponential Scale Jumps
+  const plusTenVal = ops.add(value, 10);
+  proposals.push({
+    name: `${ops.prefix}-plusTen`,
+    value: plusTenVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(plusTenVal), absVal) < 0,
+  });
+
+  const minusTenVal = ops.add(value, -10);
+  proposals.push({
+    name: `${ops.prefix}-minusTen`,
+    value: minusTenVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(minusTenVal), absVal) < 0,
+  });
+
+  const plusHundredVal = ops.add(value, 100);
+  proposals.push({
+    name: `${ops.prefix}-plusHundred`,
+    value: plusHundredVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(plusHundredVal), absVal) < 0,
+  });
+
+  const minusHundredVal = ops.add(value, -100);
+  proposals.push({
+    name: `${ops.prefix}-minusHundred`,
+    value: minusHundredVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(minusHundredVal), absVal) < 0,
+  });
+
+  proposals.push({
+    name: `${ops.prefix}-timesTen`,
+    value: ops.mul(value, 10),
+    path: [...path],
+  });
+
+  const divTenVal = ops.div(value, 10);
+  proposals.push({
+    name: `${ops.prefix}-divTen`,
+    value: divTenVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(divTenVal), absVal) < 0,
   });
 
   return proposals.filter(
