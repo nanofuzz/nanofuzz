@@ -33,6 +33,49 @@ import asyncio
 from contextlib import redirect_stdout, contextmanager
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
 
+_HEARTBEAT_BYTES = b'\x00\x00\x00\x06\xa5HEART'
+
+
+def _send_heartbeat_byte() -> None:
+    if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
+        try:
+            sys.__stdout__.buffer.write(_HEARTBEAT_BYTES)
+            sys.__stdout__.buffer.flush()
+        except Exception:
+            pass
+
+
+class HostHeartbeat:
+    """Sends periodic startup heartbeat messages to the parent process.
+    Capped at max_heartbeats (default 1000).
+    Runs as a daemon thread and stops when stop() is called.
+    """
+
+    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = 1000):
+        self.interval = interval_sec
+        self.max_heartbeats = max_heartbeats
+        self.heartbeat_count = 0
+        self.stop_event = threading.Event()
+        self.thread = None
+
+    def start(self):
+        def _worker():
+            while not self.stop_event.wait(timeout=self.interval):
+                if self.heartbeat_count >= self.max_heartbeats:
+                    break
+                self.heartbeat_count += 1
+                _send_heartbeat_byte()
+
+        self.thread = threading.Thread(target=_worker, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+
+
+_startup_hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=1000)
+_startup_hb.start()
+
 # ---------------------------------------------------------------------------
 # Bootstrap NaNofuzz Vendor Dependencies (_nanofuzz_python)
 # ---------------------------------------------------------------------------
@@ -174,56 +217,6 @@ real_stdout = (
 )
 
 _tracer_running = False
-
-
-MAX_HEARTBEATS = 1000
-_HEARTBEAT_BYTES = struct.pack('>I', len(
-    cast(bytes, msgpack.packb("HEART")))) + cast(bytes, msgpack.packb("HEART"))
-
-
-def send_heartbeat() -> None:
-    real_stdout.write(_HEARTBEAT_BYTES)
-    real_stdout.flush()
-
-
-class HostHeartbeat:
-    """Sends periodic startup heartbeat messages to the parent process.
-    Capped at max_heartbeats (default MAX_HEARTBEATS).
-    Runs as a daemon thread and stops when stop() is called.
-    """
-
-    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = MAX_HEARTBEATS):
-        self.interval = interval_sec
-        self.max_heartbeats = max_heartbeats
-        self.heartbeat_count = 0
-        self.stop_event = threading.Event()
-        self.thread = None
-
-    def start(self):
-        def _worker():
-            try:
-                send_heartbeat()
-            except Exception as e:
-                logging.debug(f"[{pid}] Heartbeat send error: {e}")
-                return
-
-            while not self.stop_event.wait(timeout=self.interval):
-                if self.heartbeat_count >= self.max_heartbeats:
-                    logging.debug(
-                        f"[{pid}] Max heartbeats ({self.max_heartbeats}) reached during startup")
-                    break
-                self.heartbeat_count += 1
-                try:
-                    send_heartbeat()
-                except Exception as e:
-                    logging.debug(f"[{pid}] Heartbeat send error: {e}")
-                    break
-
-        self.thread = threading.Thread(target=_worker, daemon=True)
-        self.thread.start()
-
-    def stop(self):
-        self.stop_event.set()
 
 
 class PutTimeoutException(Exception):
@@ -998,10 +991,6 @@ if __name__ == "__main__":
     # Change cwd from the extension to that of the Python script
     os.chdir(os.path.dirname(filename))
 
-    # Start heartbeat thread during coverage initialization, module import, and static analysis
-    hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=MAX_HEARTBEATS)
-    hb.start()
-
     try:
         coverage_scope = sys.argv[4] if len(sys.argv) > 4 else "project"
         if coverage_scope not in VALID_COVERAGE_SCOPES:
@@ -1100,7 +1089,7 @@ if __name__ == "__main__":
         cov.get_data().erase()
         logging.debug(f"[{pid}] Pre-warmed coverage tracer")
     finally:
-        hb.stop()
+        _startup_hb.stop()
 
     # Ready for inputs
     send_msg("READY")

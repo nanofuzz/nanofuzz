@@ -1,6 +1,7 @@
 import { PytestAdapter } from "./PytestAdapter";
 import { FuzzOptions, FuzzTests } from "../../Types";
 import { ArgOptions, ArgTag } from "../../analysis/Types";
+import { PythonRunner } from "../../runners/python/PythonRunner";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -431,11 +432,24 @@ def asyncPropValidator(result):
     const testPath = adapter.filename;
     fs.writeFileSync(testPath, testCode);
 
+    const pyEnv = PythonRunner.envFor(modPath);
+
     try {
-      const res = spawnSync("pytest", [testPath], {
-        cwd: tmpDir,
-        encoding: "utf8",
-      });
+      const res = spawnSync(
+        pyEnv.interpreter,
+        [
+          "-m",
+          "pytest",
+          testPath,
+          "-o",
+          "cache_dir=" + path.join(tmpDir, ".pytest_cache"),
+        ],
+        {
+          cwd: tmpDir,
+          env: pyEnv.env,
+          encoding: "utf8",
+        }
+      );
       expect(res.status).toBe(0);
       expect(res.stdout).toContain("4 passed");
     } finally {

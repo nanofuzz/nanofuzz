@@ -457,7 +457,7 @@ def loop_timeout(n: int) -> int:
     const tmpDir = getTmpDir("nanofuzz-runner-");
     const pyPath = path.join(tmpDir, "slow_import_hb.py");
     const pyCode = `import time
-time.sleep(3.5)
+time.sleep(7.5)
 
 def slow_fn(x: int) -> int:
     return x * 2
@@ -476,18 +476,18 @@ def slow_fn(x: int) -> int:
         maxDupeInputs: 10,
       });
 
-      // Set hostStartupTimeout to 2000ms. Without heartbeats (sent every 250ms),
-      // a 3.5s import would time out. Heartbeats reset the 2000ms clock,
-      // allowing the 3.5s import to succeed cleanly.
-      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 2000);
+      // Set hostStartupTimeout to 5000ms. Without heartbeats (sent every 250ms),
+      // a 7.5s import would time out. Heartbeats reset the 5000ms clock,
+      // allowing the 7.5s import to succeed cleanly.
+      Config.override("nanofuzz.fuzzer.hostStartupTimeout", 5000);
 
-      const runner = new PythonRunner(pyPath, "slow_fn", env, 10000);
+      const runner = new PythonRunner(pyPath, "slow_fn", env, 15000);
       const start = performance.now();
       await runner.onRunStart();
       const elapsed = performance.now() - start;
-      expect(elapsed).toBeGreaterThanOrEqual(3400);
+      expect(elapsed).toBeGreaterThanOrEqual(7400);
 
-      const res = await runner.run([10], 10000);
+      const res = await runner.run([10], 15000);
       await runner.onRunEnd();
 
       expect(res.result.tag).toBe("value");
