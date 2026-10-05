@@ -1,4 +1,4 @@
-import { Tester } from "./Fuzzer";
+import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import * as ValueMapper from "./mappers/ValueMapper";
 import { FuzzPinnedTest, FuzzTestResult } from "./Types";
@@ -10,7 +10,7 @@ describe("fuzzer: python targets", () => {
 
   it("Python string input and property test", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "greeting",
       {
@@ -63,7 +63,7 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Python timeouts", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "timeouts",
       intOptions
@@ -75,7 +75,7 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Python exceptions", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "throws",
       intOptions
@@ -87,7 +87,7 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Python valid target in invalid file", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures2.py",
       "valid",
       intOptions
@@ -101,7 +101,7 @@ describe("fuzzer: python targets", () => {
 
   it("Python invalid target in invalid file", async () => {
     expect(() => {
-      new Tester(
+      FuzzerFactory(
         "./test_fixtures/Fuzzer.testfixtures2.py",
         "invalid",
         intOptions
@@ -110,7 +110,7 @@ describe("fuzzer: python targets", () => {
   });
 
   it("Issue #301 (Python) include object members if value is `None`", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "issue301",
       intOptions
@@ -138,7 +138,7 @@ describe("fuzzer: python targets", () => {
 
   it("Python assume statement (skipped tests)", async () => {
     const skips: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "with_assume",
       {
@@ -161,7 +161,7 @@ describe("fuzzer: python targets", () => {
   it("Python transformer input transformation, skips, and null return", async () => {
     const skips: FuzzTestResult[] = [];
     const passed: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed",
       intOptions
@@ -224,7 +224,7 @@ describe("fuzzer: python targets", () => {
     };
 
     const results: FuzzTestResult[] = [];
-    await new Tester(
+    await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed",
       { ...intOptions, maxTests: 0 }
@@ -250,7 +250,7 @@ describe("fuzzer: python targets", () => {
 
   it("Python transformer exception", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed_exception",
       intOptions
@@ -269,7 +269,7 @@ describe("fuzzer: python targets", () => {
 
   it("Python transformer timeout", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "py_transformed_timeout",
       {
@@ -291,7 +291,7 @@ describe("fuzzer: python targets", () => {
 
   it("Python async fuzz target with property validator and coverage", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.py",
       "async_greeting",
       {
