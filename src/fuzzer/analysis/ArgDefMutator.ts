@@ -315,6 +315,37 @@ export class ArgDefMutator {
         requiresUniqueElements: false,
       });
 
+      // For top-level optional arguments (not inside an object, tuple, or array),
+      // handle generating a concrete value if undefined, or deleting/setting undefined if present.
+      if (
+        spec.isOptional() &&
+        !subInput.inArray &&
+        subInput.subPath.length === 2
+      ) {
+        if (subInput.subElement === undefined) {
+          addMutations([
+            {
+              name: "optional-genValue",
+              value: ArgDefGenerator.gen(spec, prng, true, false),
+              path: subInput.subPath,
+            },
+          ]);
+          continue; // Nothing else to mutate on an undefined value
+        } else {
+          addMutations([
+            {
+              name: "optional-setUndefined",
+              value: undefined,
+              path: subInput.subPath,
+              simplifies: true,
+            },
+          ]);
+        }
+      } else if (subInput.subElement === undefined && spec.isOptional()) {
+        // Child optional element (e.g. in object or tuple) whose genMember was already handled
+        continue;
+      }
+
       // Handle array dimensions
       if (spec.getDim() && !subInput.inArray) {
         if (Array.isArray(subInput.subElement)) {
@@ -331,9 +362,6 @@ export class ArgDefMutator {
         switch (spec.getType()) {
           case ArgTag.BIGINT: {
             const value = subInput.subElement;
-            if (value === undefined && spec.isOptional()) {
-              break; // an optional arg with no value has nothing to mutate
-            }
             if (typeof value !== "bigint") {
               throw new Error(
                 `Expected bigint input, got ${JSONN.stringify(value)}`
@@ -362,13 +390,7 @@ export class ArgDefMutator {
             break;
           }
           case ArgTag.NUMBER: {
-            const rawValue = subInput.subElement;
-            // an optional number with no value has nothing to mutate
-            // and we want to avoid converting undefined to NaN
-            if (rawValue === undefined && spec.isOptional()) {
-              break;
-            }
-            const value = Number(rawValue);
+            const value = Number(subInput.subElement);
             const interval = spec.getIntervals()[0];
             addMutations(
               getNumericMutations(
@@ -382,13 +404,7 @@ export class ArgDefMutator {
             break;
           }
           case ArgTag.STRING: {
-            const rawValue = subInput.subElement;
-            // an optional string with no value has nothing to mutate
-            // and we want to avoid converting undefined to `undefined`
-            if (rawValue === undefined && spec.isOptional()) {
-              break;
-            }
-            const value = String(rawValue);
+            const value = String(subInput.subElement);
             if (options.strRegex !== undefined) {
               const regenerated = RegexStringBuilder.create(
                 options.strRegex,
