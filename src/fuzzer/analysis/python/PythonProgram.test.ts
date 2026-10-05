@@ -1889,6 +1889,39 @@ def test_lru_eviction_order_after_reads(capacity: int, ops: list):
     expect(opsArg?.getChildren().length).toBe(2);
   });
 
+  it("hypothesis @given `tuples` with inline comments inside `lists`", () => {
+    const fns = ProgramFactory.fromSource(
+      () => `from hypothesis import given
+from hypothesis import strategies as st
+
+@given(
+    n=st.integers(min_value=3),
+    op_choices=st.lists(
+        st.tuples(
+            st.booleans(),
+            st.integers(), # inline comment
+        ),
+        min_size=1,
+    ),
+)
+def test_indexedset(n, op_choices):
+    pass`,
+      "python"
+    ).functionsExported;
+
+    expect(fns["test_indexedset"]).toBeDefined();
+    const args = fns["test_indexedset"].getArgDefs();
+    expect(args.length).toEqual(2);
+    expect(args[0].getName()).toEqual("n");
+    expect(args[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(args[1].getName()).toEqual("op_choices");
+    expect(args[1].getDim()).toEqual(1);
+    expect(args[1].getType()).toEqual(ArgTag.TUPLE);
+    expect(args[1].getChildren().length).toEqual(2);
+    expect(args[1].getChildren()[0].getType()).toEqual(ArgTag.BOOLEAN);
+    expect(args[1].getChildren()[1].getType()).toEqual(ArgTag.NUMBER);
+  });
+
   it("isVoid===true for functions lacking return statements", () => {
     const fns = ProgramFactory.fromSource(
       () => `

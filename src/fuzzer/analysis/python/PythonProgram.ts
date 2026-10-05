@@ -143,7 +143,11 @@ export class PythonProgram extends AbstractProgram {
 
         // `from x import *` — whole-namespace, no concrete name (like a
         // TypeScript namespace import).
-        if (stmtNode.namedChildren.some((c) => c.type === "wildcard_import")) {
+        if (
+          Parser.getNamedChildrenNoComments(stmtNode).some(
+            (c) => c.type === "wildcard_import"
+          )
+        ) {
           const result = this._resolveImportModule(moduleRef);
           imports.identifiers[`*:${moduleRef}`] = {
             local: "*",
@@ -352,17 +356,17 @@ export class PythonProgram extends AbstractProgram {
     };
 
     // 1. Class-based TypedDict: class Foo(TypedDict): ...
-    for (const classNode of ast.rootNode.namedChildren.filter(
-      (node) => node.type === "class_definition"
-    )) {
+    for (const classNode of Parser.getNamedChildrenNoComments(
+      ast.rootNode
+    ).filter((node) => node.type === "class_definition")) {
       const superclasses = classNode.childForFieldName("superclasses");
       const inheritedFields =
-        superclasses?.namedChildren.flatMap((node) => {
+        Parser.getNamedChildrenNoComments(superclasses).flatMap((node) => {
           const base = types[node.text];
           return base?.type?.type === ArgTag.OBJECT ? base.type.children : [];
         }) ?? [];
       const isTypedDict =
-        superclasses?.namedChildren.some(isTypedDictBase) ||
+        Parser.getNamedChildrenNoComments(superclasses).some(isTypedDictBase) ||
         inheritedFields.length > 0;
       if (!isTypedDict) continue;
 
@@ -376,8 +380,8 @@ export class PythonProgram extends AbstractProgram {
       }
 
       const children: TypeRef[] = [...inheritedFields];
-      for (const statement of bodyNode.namedChildren) {
-        const assignment = statement.namedChildren.find(
+      for (const statement of Parser.getNamedChildrenNoComments(bodyNode)) {
+        const assignment = Parser.getNamedChildrenNoComments(statement).find(
           (node) => node.type === "assignment"
         );
         const fieldName = assignment?.childForFieldName("left");
@@ -405,9 +409,9 @@ export class PythonProgram extends AbstractProgram {
     }
 
     // 2. Functional-style TypedDict: Foo = TypedDict('Foo', {'in': int, 'out': str})
-    for (const expressionNode of ast.rootNode.namedChildren.filter(
-      (node) => node.type === "expression_statement"
-    )) {
+    for (const expressionNode of Parser.getNamedChildrenNoComments(
+      ast.rootNode
+    ).filter((node) => node.type === "expression_statement")) {
       for (const assignmentNode of expressionNode.children.filter(
         (node) => node.type === "assignment"
       )) {
@@ -431,7 +435,7 @@ export class PythonProgram extends AbstractProgram {
         if (!argumentsNode) continue;
 
         // The second argument of TypedDict('Name', {fields}) should be a dictionary
-        const dictArg = argumentsNode.namedChildren.find(
+        const dictArg = Parser.getNamedChildrenNoComments(argumentsNode).find(
           (node) => node.type === "dictionary"
         );
         if (!dictArg) continue;
@@ -443,7 +447,7 @@ export class PythonProgram extends AbstractProgram {
         }
 
         const children: TypeRef[] = [];
-        for (const pair of dictArg.namedChildren.filter(
+        for (const pair of Parser.getNamedChildrenNoComments(dictArg).filter(
           (node) => node.type === "pair"
         )) {
           const keyNode = pair.childForFieldName("key");
@@ -453,7 +457,7 @@ export class PythonProgram extends AbstractProgram {
           // Extract field name (handles both quoted strings and identifiers as keys)
           let fieldName = keyNode.text;
           if (keyNode.type === "string") {
-            const content = keyNode.namedChildren.find(
+            const content = Parser.getNamedChildrenNoComments(keyNode).find(
               (c) => c.type === "string_content"
             );
             fieldName = content?.text ?? fieldName.replace(/^['"]|['"]$/g, "");
@@ -489,12 +493,12 @@ export class PythonProgram extends AbstractProgram {
    */
   protected _getLiteralValueFromNode(node: Parser.SyntaxNode): ArgType {
     // generic_type -> type_parameter -> type -> <value>
-    const argsNode = node.namedChildren.find(
+    const argsNode = Parser.getNamedChildrenNoComments(node).find(
       (c) => c.type === "type_parameter"
     );
-    let valueNode = argsNode?.namedChildren[0];
+    let valueNode = Parser.getFirstNamedChildNoComments(argsNode);
     if (valueNode?.type === "type") {
-      valueNode = valueNode.firstNamedChild ?? undefined;
+      valueNode = Parser.getFirstNamedChildNoComments(valueNode);
     }
     if (!valueNode) {
       throw new Error(`Missing literal value in '${node.text}'`);
@@ -513,7 +517,7 @@ export class PythonProgram extends AbstractProgram {
       case "string": {
         // The unquoted text lives in `string_content`; an empty string
         // (`Literal[""]`) has no such child.
-        const content = valueNode.namedChildren.find(
+        const content = Parser.getNamedChildrenNoComments(valueNode).find(
           (c) => c.type === "string_content"
         );
         return content?.text ?? "";
@@ -539,7 +543,8 @@ export class PythonProgram extends AbstractProgram {
   ): [ArgTag, number, string?, ArgType?, ArgOptionOverride?] {
     switch (node.type) {
       case "type": {
-        const child = node.firstNamedChild ?? node.firstChild;
+        const child =
+          Parser.getFirstNamedChildNoComments(node) ?? node.firstChild;
         if (child) {
           return this._getTypeFromAstNode(child, options);
         } else {
@@ -551,7 +556,7 @@ export class PythonProgram extends AbstractProgram {
         if (node.text === "()" || node.text === "tuple()") {
           return [ArgTag.TUPLE, 0];
         }
-        const child = node.firstNamedChild;
+        const child = Parser.getFirstNamedChildNoComments(node);
         if (child) {
           return this._getTypeFromAstNode(child, options);
         }
@@ -665,7 +670,7 @@ export class PythonProgram extends AbstractProgram {
       case "splat_type":
       case "list_splat":
       case "starred_expression": {
-        const child = node.firstNamedChild;
+        const child = Parser.getFirstNamedChildNoComments(node);
         if (child) {
           return this._getTypeFromAstNode(child, options);
         }
@@ -713,15 +718,17 @@ export class PythonProgram extends AbstractProgram {
     args: Parser.SyntaxNode[];
   } {
     if (node.type === "generic_type") {
-      const base = node.namedChildren.find(
-        (child) => child.type === "identifier"
-      );
-      const parameters = node.namedChildren.find(
+      const children = Parser.getNamedChildrenNoComments(node);
+      const base = children.find((child) => child.type === "identifier");
+      const parameters = children.find(
         (child) => child.type === "type_parameter"
       );
       if (!base || !parameters)
         throw new Error(`Malformed generic type: ${node.text}`);
-      return { base: base.text, args: parameters.namedChildren };
+      return {
+        base: base.text,
+        args: Parser.getNamedChildrenNoComments(parameters),
+      };
     }
 
     const base = node.childForFieldName("value");
@@ -746,7 +753,7 @@ export class PythonProgram extends AbstractProgram {
     switch (node.type) {
       // Unwrap the `type` wrapper and recurse.
       case "type": {
-        const child = node.firstNamedChild;
+        const child = Parser.getFirstNamedChildNoComments(node);
         if (!child) {
           throw new Error(`Empty 'type' node in _getChildrenFromNode`);
         }
@@ -756,7 +763,7 @@ export class PythonProgram extends AbstractProgram {
       case "splat_type":
       case "list_splat":
       case "starred_expression": {
-        const child = node.firstNamedChild;
+        const child = Parser.getFirstNamedChildNoComments(node);
         if (child) {
           return this._getChildrenFromNode(child);
         }
@@ -775,7 +782,7 @@ export class PythonProgram extends AbstractProgram {
       // defensively. Keep every arm to match `Union[A, B]`, including None.
       case "binary_operator":
       case "union_type":
-        return node.namedChildren.map((arm) =>
+        return Parser.getNamedChildrenNoComments(node).map((arm) =>
           this._getTypeRefFromAstNode(arm)
         );
 
@@ -881,14 +888,15 @@ export class PythonProgram extends AbstractProgram {
         // `name` is the parameter (variable) name — the `identifier` child —
         // matching the TS backend, which sets `name` to the entity name, not
         // the type. The type itself comes from the `type` field.
-        const pattern = node.namedChildren.find(
+        const pattern = Parser.getNamedChildrenNoComments(node).find(
           (c) =>
             c.type === "list_splat_pattern" ||
             c.type === "dictionary_splat_pattern"
         );
         thisType.name =
-          node.namedChildren.find((c) => c.type === "identifier")?.text ??
-          pattern?.firstNamedChild?.text;
+          Parser.getNamedChildrenNoComments(node).find(
+            (c) => c.type === "identifier"
+          )?.text ?? Parser.getFirstNamedChildNoComments(pattern)?.text;
         typeNode = node.childForFieldName("type") ?? node;
         break;
       }
@@ -1008,10 +1016,10 @@ export class PythonProgram extends AbstractProgram {
     if (!nameNode || !defNode) {
       return undefined;
     }
-    const argsNode = defNode.node.namedChildren.find(
+    const argsNode = Parser.getNamedChildrenNoComments(defNode.node).find(
       (c) => c.type === "lambda_parameters" || c.type === "parameters"
     );
-    const bodyNode = defNode.node.lastNamedChild;
+    const bodyNode = Parser.getLastNamedChildNoComments(defNode.node);
     if (!bodyNode) {
       return undefined;
     }
@@ -1029,7 +1037,7 @@ export class PythonProgram extends AbstractProgram {
       isExported: true,
       isVoid,
       args: argsNode
-        ? argsNode.namedChildren
+        ? Parser.getNamedChildrenNoComments(argsNode)
             .filter(
               (arg) =>
                 arg.type === "identifier" ||
@@ -1064,10 +1072,12 @@ export class PythonProgram extends AbstractProgram {
     const hypothesisPositionalArgs: (TypeRef | undefined)[] = [];
     const currentNode: Parser.Node | null = defNode.node.parent;
     if (currentNode?.type === "decorated_definition") {
-      for (const child of currentNode.namedChildren) {
+      for (const child of Parser.getNamedChildrenNoComments(currentNode)) {
         if (child.type === "decorator") {
           // Check if decorator calls 'given'
-          const callNode = child.namedChildren.find((n) => n.type === "call");
+          const callNode = Parser.getNamedChildrenNoComments(child).find(
+            (n) => n.type === "call"
+          );
           const funcNode = callNode?.childForFieldName("function");
           const decoName = funcNode?.text.split(".").pop();
           if (decoName === "settings" && callNode) {
@@ -1092,13 +1102,9 @@ export class PythonProgram extends AbstractProgram {
           } else if (decoName === "given" && callNode) {
             const argsNode = callNode.childForFieldName("arguments");
             if (argsNode) {
-              for (const argChild of argsNode.namedChildren) {
-                if (
-                  argChild.type === "comment" ||
-                  argChild.type === "line_comment"
-                ) {
-                  continue;
-                }
+              for (const argChild of Parser.getNamedChildrenNoComments(
+                argsNode
+              )) {
                 if (argChild.type === "keyword_argument") {
                   const paramName = argChild.childForFieldName("name")?.text;
                   const strategyValue = argChild.childForFieldName("value");
@@ -1130,7 +1136,7 @@ export class PythonProgram extends AbstractProgram {
 
     // Extract native argument type refs
     const parameterNodes =
-      argsNode?.node.namedChildren.filter(
+      Parser.getNamedChildrenNoComments(argsNode?.node).filter(
         (arg) =>
           arg.type === "identifier" ||
           arg.type === "default_parameter" ||
@@ -1147,22 +1153,26 @@ export class PythonProgram extends AbstractProgram {
       if (paramNode.type === "identifier") {
         paramName = paramNode.text;
       } else {
-        const pattern = paramNode.namedChildren.find(
+        const pattern = Parser.getNamedChildrenNoComments(paramNode).find(
           (c) =>
             c.type === "list_splat_pattern" ||
             c.type === "dictionary_splat_pattern"
         );
         paramName =
-          paramNode.namedChildren.find((c) => c.type === "identifier")?.text ??
-          pattern?.firstNamedChild?.text ??
+          Parser.getNamedChildrenNoComments(paramNode).find(
+            (c) => c.type === "identifier"
+          )?.text ??
+          Parser.getFirstNamedChildNoComments(pattern)?.text ??
           (paramNode.type === "list_splat_pattern"
-            ? paramNode.firstNamedChild?.text
+            ? Parser.getFirstNamedChildNoComments(paramNode)?.text
             : undefined);
       }
 
       const isSplat =
         paramNode.type === "list_splat_pattern" ||
-        paramNode.namedChildren.some((c) => c.type === "list_splat_pattern");
+        Parser.getNamedChildrenNoComments(paramNode).some(
+          (c) => c.type === "list_splat_pattern"
+        );
 
       // If a hypothesis strategy exists for this parameter, use it.
       // Otherwise, parse the native type annotation
@@ -1268,13 +1278,14 @@ export class PythonProgram extends AbstractProgram {
     } // for: parameter AST node
 
     // Docstring extraction logic...
-    const docstringNode = defNode.node
-      .childForFieldName("body")
-      ?.namedChild(0)
-      ?.namedChild(0);
+    const bodyNamed = Parser.getNamedChildrenNoComments(
+      defNode.node.childForFieldName("body")
+    );
+    const docstringStmt = bodyNamed[0];
+    const docstringNode = Parser.getFirstNamedChildNoComments(docstringStmt);
     const stringNodes =
       docstringNode?.type === "concatenated_string"
-        ? docstringNode.namedChildren
+        ? Parser.getNamedChildrenNoComments(docstringNode)
         : docstringNode
           ? [docstringNode]
           : [];
@@ -1295,7 +1306,8 @@ export class PythonProgram extends AbstractProgram {
     );
     try {
       if (typeNode) {
-        isVoid = typeNode.node.namedChild(0)?.type === "none";
+        isVoid =
+          Parser.getFirstNamedChildNoComments(typeNode.node)?.type === "none";
         if (!isVoid) {
           returnType = this._getTypeRefFromAstNode(typeNode.node);
         }
@@ -1358,12 +1370,14 @@ export class PythonProgram extends AbstractProgram {
       visited.add(current.text);
 
       // Find the most recent prior assignment
-      for (const statement of this._ast.rootNode.namedChildren) {
+      for (const statement of Parser.getNamedChildrenNoComments(
+        this._ast.rootNode
+      )) {
         if (statement.startIndex >= current.startIndex) break;
         const assignment =
           statement.type === "assignment"
             ? statement
-            : statement.namedChildren.find(
+            : Parser.getNamedChildrenNoComments(statement).find(
                 (child) => child.type === "assignment"
               );
         const left = assignment?.childForFieldName("left");
@@ -1393,7 +1407,7 @@ export class PythonProgram extends AbstractProgram {
     if (!argsNode) return undefined;
 
     // 1. Look for a named keyword argument (e.g., min_size=5)
-    const kwdNode = argsNode.namedChildren.find(
+    const kwdNode = Parser.getNamedChildrenNoComments(argsNode).find(
       (child) =>
         child.type === "keyword_argument" &&
         child.childForFieldName("name")?.text === name
@@ -1432,7 +1446,8 @@ export class PythonProgram extends AbstractProgram {
           "dictionary_splat",
         ].includes(node.type);
 
-      const positionalArgs = argsNode.namedChildren.filter(isPositionalArg);
+      const positionalArgs =
+        Parser.getNamedChildrenNoComments(argsNode).filter(isPositionalArg);
       if (pos < positionalArgs.length) {
         return this._resolveReference(positionalArgs[pos]);
       }
@@ -1448,10 +1463,14 @@ export class PythonProgram extends AbstractProgram {
       return Number(valNode.text.replace(/_/g, ""));
     }
     if (valNode.type === "parenthesized_expression") {
-      return this._parseLiteral(valNode.firstNamedChild ?? undefined);
+      return this._parseLiteral(
+        Parser.getFirstNamedChildNoComments(valNode) ?? undefined
+      );
     }
     if (valNode.type === "unary_operator") {
-      const operand = this._parseLiteral(valNode.lastNamedChild ?? undefined);
+      const operand = this._parseLiteral(
+        Parser.getLastNamedChildNoComments(valNode) ?? undefined
+      );
       if (typeof operand === "number") {
         if (valNode.text.startsWith("-")) return -operand;
         if (valNode.text.startsWith("+")) return +operand;
@@ -1461,10 +1480,12 @@ export class PythonProgram extends AbstractProgram {
     }
     if (valNode.type === "binary_operator") {
       const left = this._parseLiteral(
-        valNode.childForFieldName("left") ?? valNode.namedChildren[0]
+        valNode.childForFieldName("left") ??
+          Parser.getNamedChildNoComments(valNode, 0)
       );
       const right = this._parseLiteral(
-        valNode.childForFieldName("right") ?? valNode.namedChildren[1]
+        valNode.childForFieldName("right") ??
+          Parser.getNamedChildNoComments(valNode, 1)
       );
       const op = valNode.children.find((c) => !c.isNamed)?.text;
 
@@ -1505,7 +1526,7 @@ export class PythonProgram extends AbstractProgram {
     if (valNode.type === "string") {
       const isRaw = /^[rR]/.test(valNode.text);
       const parts: string[] = [];
-      const children = valNode.namedChildren;
+      const children = Parser.getNamedChildrenNoComments(valNode);
       if (children.length > 0) {
         for (const child of children) {
           if (child.type === "string_content") {
@@ -1543,7 +1564,7 @@ export class PythonProgram extends AbstractProgram {
       resolved.type === "set"
     ) {
       const results: string[] = [];
-      for (const child of resolved.namedChildren) {
+      for (const child of Parser.getNamedChildrenNoComments(resolved)) {
         const val = this._parseLiteral(this._resolveReference(child));
         if (typeof val === "string") {
           results.push(val);
@@ -1821,7 +1842,7 @@ export class PythonProgram extends AbstractProgram {
         const argsNode = resolved.childForFieldName("arguments");
         const listArg =
           this._getKwdArg(resolved, "elements", 0) ??
-          argsNode?.namedChildren[0];
+          Parser.getFirstNamedChildNoComments(argsNode);
         return this._parseAlphabet(listArg);
       }
 
@@ -1901,7 +1922,8 @@ export class PythonProgram extends AbstractProgram {
         };
       }
       if (valueNode.type === "tuple") {
-        const children = valueNode.namedChildren.map(getSampledType);
+        const children =
+          Parser.getNamedChildrenNoComments(valueNode).map(getSampledType);
         if (children.every((child): child is TypeRef => child !== undefined)) {
           return {
             module: this._filename,
@@ -1919,7 +1941,7 @@ export class PythonProgram extends AbstractProgram {
       }
       if (valueNode.type === "dictionary") {
         const children: TypeRef[] = [];
-        for (const pair of valueNode.namedChildren) {
+        for (const pair of Parser.getNamedChildrenNoComments(valueNode)) {
           if (pair.type !== "pair") return undefined;
           const key = parseLiteral(pair.childForFieldName("key") ?? undefined);
           const value = pair.childForFieldName("value");
@@ -1959,13 +1981,14 @@ export class PythonProgram extends AbstractProgram {
         if (fnNode?.text.split(".").pop() === "range") {
           const argsNode = resolved.childForFieldName("arguments");
           if (argsNode) {
-            const posArgs = argsNode.namedChildren.filter((c) =>
-              [
-                "integer",
-                "unary_operator",
-                "identifier",
-                "binary_operator",
-              ].includes(c.type)
+            const posArgs = Parser.getNamedChildrenNoComments(argsNode).filter(
+              (c) =>
+                [
+                  "integer",
+                  "unary_operator",
+                  "identifier",
+                  "binary_operator",
+                ].includes(c.type)
             );
             const parsedArgs = posArgs
               .map((c) => parseLiteral(resolveReference(c)))
@@ -2032,7 +2055,7 @@ export class PythonProgram extends AbstractProgram {
         resolved.type === "set"
       ) {
         const elementTypes: TypeRef[] = [];
-        for (const item of resolved.namedChildren) {
+        for (const item of Parser.getNamedChildrenNoComments(resolved)) {
           const itemType = getSampledType(item);
           if (itemType !== undefined) {
             elementTypes.push(itemType);
@@ -2044,7 +2067,7 @@ export class PythonProgram extends AbstractProgram {
       // Handle dictionary
       if (resolved.type === "dictionary") {
         const elementTypes: TypeRef[] = [];
-        for (const pair of resolved.namedChildren.filter(
+        for (const pair of Parser.getNamedChildrenNoComments(resolved).filter(
           (n) => n.type === "pair"
         )) {
           const keyNode = pair.childForFieldName("key");
@@ -2289,7 +2312,7 @@ export class PythonProgram extends AbstractProgram {
 
       case "just": {
         const argsNode = node.childForFieldName("arguments");
-        const lit = parseLiteral(argsNode?.namedChildren[0]);
+        const lit = parseLiteral(Parser.getFirstNamedChildNoComments(argsNode));
         if (isArgType(lit)) {
           thisType.type = {
             type: ArgTag.LITERAL,
@@ -2408,7 +2431,7 @@ export class PythonProgram extends AbstractProgram {
         const children: TypeRef[] = [];
 
         if (argsNode) {
-          for (const argNode of argsNode.namedChildren) {
+          for (const argNode of Parser.getNamedChildrenNoComments(argsNode)) {
             // Check if the argument is another hypothesis strategy call
             const childTypeRef = this._getTypeRefFromStrategy(argNode);
             if (
@@ -2434,7 +2457,8 @@ export class PythonProgram extends AbstractProgram {
       case "sampled_from": {
         const argsNode = node.childForFieldName("arguments");
         const listArg =
-          getKwdArg(node, "elements", 0) ?? argsNode?.namedChildren[0];
+          getKwdArg(node, "elements", 0) ??
+          Parser.getFirstNamedChildNoComments(argsNode);
         const sampledTypes = getSequenceElementTypes(listArg);
 
         if (sampledTypes.length === 0) {
@@ -2460,7 +2484,8 @@ export class PythonProgram extends AbstractProgram {
       case "permutations": {
         const argsNode = node.childForFieldName("arguments");
         const valuesArgNode =
-          getKwdArg(node, "values", 0) ?? argsNode?.namedChildren[0];
+          getKwdArg(node, "values", 0) ??
+          Parser.getFirstNamedChildNoComments(argsNode);
         const permTypes = getSequenceElementTypes(valuesArgNode);
         const N = permTypes.length;
 
@@ -2526,7 +2551,7 @@ export class PythonProgram extends AbstractProgram {
 
         // Helper to parse a dictionary AST node into TypeRef children
         const parseDictArg = (dictArg: Parser.Node, isOptional: boolean) => {
-          for (const pair of dictArg.namedChildren.filter(
+          for (const pair of Parser.getNamedChildrenNoComments(dictArg).filter(
             (n) => n.type === "pair"
           )) {
             const keyNode = pair.childForFieldName("key");
@@ -2536,7 +2561,7 @@ export class PythonProgram extends AbstractProgram {
             // Extract field name (handles quoted strings or identifiers as keys)
             let fieldName = keyNode.text;
             if (keyNode.type === "string") {
-              const content = keyNode.namedChildren.find(
+              const content = Parser.getNamedChildrenNoComments(keyNode).find(
                 (c) => c.type === "string_content"
               );
               fieldName =
@@ -2573,7 +2598,7 @@ export class PythonProgram extends AbstractProgram {
         }; // fn: parseDictArg
 
         // Required mappings
-        const positionalDict = argsNode.namedChildren.find(
+        const positionalDict = Parser.getNamedChildrenNoComments(argsNode).find(
           (n) => n.type === "dictionary"
         );
         const keywordMapping = getKwdArg(node, "mapping", 0);
@@ -2680,7 +2705,7 @@ export class PythonProgram extends AbstractProgram {
         const children: TypeRef[] = [];
 
         if (argsNode) {
-          for (const argNode of argsNode.namedChildren) {
+          for (const argNode of Parser.getNamedChildrenNoComments(argsNode)) {
             const child = this._getTypeRefFromStrategy(argNode);
             if (
               child &&
@@ -2845,7 +2870,7 @@ export class PythonProgram extends AbstractProgram {
 
     // Check if ALL return statements return nothing or `None`
     for (const ret of returnStatements) {
-      const namedChildren = ret.namedChildren;
+      const namedChildren = Parser.getNamedChildrenNoComments(ret);
       if (namedChildren.length > 0) {
         const expr = namedChildren[0];
         // If any return statement returns something other than 'none', it is not void
