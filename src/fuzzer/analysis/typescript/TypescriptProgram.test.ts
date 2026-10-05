@@ -46,6 +46,26 @@ describe("fuzzer/analysis/typescript/ProgramDef:", () => {
     });
   });
 
+  it("Explicit default export bigint literal", () => {
+    expect(
+      ProgramFactory.fromSource(() => `export default 100n;`, "typescript")
+        .defaultExport
+    ).toEqual({
+      isExported: true,
+      optional: false,
+      dims: 0,
+      module: "",
+      name: "default",
+      type: {
+        type: ArgTag.LITERAL,
+        dims: 0,
+        children: [],
+        value: 100n,
+        resolved: true,
+      },
+    });
+  });
+
   it("Implicit default export type reference", () => {
     expect(
       ProgramFactory.fromSource(
@@ -414,6 +434,41 @@ export const returnsValueArrow = () => "hello";
       ["o", "{ k: null | number }"],
       ["u", "(null | number)[]"],
       ["t", "[null, null]"],
+    ]);
+  });
+
+  it("BigInt literals in parameter types and type aliases", () => {
+    const prog = ProgramFactory.fromSource(
+      () => `type Small = 0n | 1n;
+      type Neg = -42n;
+      export function bigintLiterals(x: 100n, y: Small, z: Neg): void {}`,
+      "typescript"
+    );
+    const fn = prog.functionsExported["bigintLiterals"];
+    expect(fn).toBeDefined();
+
+    expect(
+      fn
+        .getArgDefs()
+        .map((arg) => [arg.getName(), TypescriptProgram.getTypeAnnotation(arg)])
+    ).toEqual([
+      ["x", "100n"],
+      ["y", "Small"],
+      ["z", "Neg"],
+    ]);
+
+    // Also verify base type expansion without using type refs
+    expect(
+      fn
+        .getArgDefs()
+        .map((arg) => [
+          arg.getName(),
+          TypescriptProgram.getTypeAnnotation(arg, {}),
+        ])
+    ).toEqual([
+      ["x", "100n"],
+      ["y", "0n | 1n"],
+      ["z", "-42n"],
     ]);
   });
 
