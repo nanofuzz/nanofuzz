@@ -1,4 +1,4 @@
-import { ArgTag } from "./Types";
+import { ArgTag, ArgValueTypeWrapped } from "./Types";
 import { ArgDef } from "./ArgDef";
 import seedrandom from "seedrandom";
 import * as JSONN from "../../Jsonn";
@@ -1167,6 +1167,32 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
         expect(candidateVal.size).toBeGreaterThanOrEqual(2);
       }
     }
+  });
+
+  it("mutates top-level optional arguments with value undefined", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "optArg",
+      0,
+      ArgTag.BIGINT,
+      argOptions,
+      0,
+      true
+    );
+    const inputWithUndef: ArgValueTypeWrapped[] = [
+      {
+        tag: "ArgValueTypeWrapped",
+        value: undefined,
+      },
+    ];
+    const prng = seedrandom("topLevelOptionalGenValue");
+    const mutators = ArgDefMutator.getMutators([spec], inputWithUndef, prng);
+
+    expect(mutators.length).toBe(1);
+    expect(mutators[0].name).toBe("optional-genValue");
+    mutators[0].fn();
+    expect(typeof inputWithUndef[0].value).toBe("bigint");
+    expect(ArgDefValidator.validate(inputWithUndef[0].value, spec)).toBeTrue();
   });
 
   /**

@@ -332,4 +332,31 @@ describe("ArgDefShrinker", () => {
     clearShrinker?.fn();
     expect(JSONN.stringify(input[0].value)).toEqual("[]");
   });
+
+  it("shrinks top-level optional arguments to undefined", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "optArg",
+      0,
+      ArgTag.BIGINT,
+      argOptions,
+      0,
+      true
+    );
+    const inputWithValue: ArgValueTypeWrapped[] = [
+      {
+        tag: "ArgValueTypeWrapped",
+        value: 100n,
+      },
+    ];
+    const prng = seedrandom("topLevelOptionalShrink");
+    const shrinkers = ArgDefShrinker.getShrinkers([spec], inputWithValue, prng);
+    const setUndefShrinker = shrinkers.find(
+      (s) => s.name === "optional-setUndefined"
+    );
+
+    expect(setUndefShrinker).toBeDefined();
+    setUndefShrinker?.fn();
+    expect(inputWithValue[0].value).toBeUndefined();
+  });
 });
