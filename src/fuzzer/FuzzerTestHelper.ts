@@ -1,4 +1,4 @@
-import { ArgDef } from "./Fuzzer";
+import { ArgDef } from "./analysis/ArgDef";
 import { FuzzOptions } from "./Types";
 import * as Parser from "./adapters/ParserAdapter";
 

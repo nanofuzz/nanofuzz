@@ -1343,11 +1343,3 @@ const _checkStopCondition = (
   // No stop condition found; return pct complete
   return Math.max(0, Math.floor(maxPct * 100));
 }; // fn: _checkStopCondition()
-
-export * from "./analysis/typescript/TypescriptProgram";
-export * from "./analysis/FunctionDef";
-export * from "./analysis/ArgDef";
-export * from "./analysis/Types";
-export * from "./analysis/Util";
-export * from "./Types";
-export * from "./Util";

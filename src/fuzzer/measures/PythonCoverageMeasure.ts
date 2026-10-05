@@ -7,7 +7,7 @@ import {
   FileCoverageData,
   Range,
 } from "istanbul-lib-coverage";
-import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Fuzzer";
+import { FuzzTestResult, FuzzTestResults, InputAndSource } from "../Types";
 import { FullCoverage, PythonRunner } from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import { normalizePathForKey } from "../Util";

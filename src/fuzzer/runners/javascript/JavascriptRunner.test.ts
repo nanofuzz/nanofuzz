@@ -6,7 +6,7 @@ import {
   FuzzStopReason,
   FuzzTestResult,
   FuzzTestResults,
-} from "../../Fuzzer";
+} from "../../Types";
 import { ArgDef } from "../../analysis/ArgDef";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";

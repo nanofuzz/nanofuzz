@@ -1,5 +1,5 @@
 import * as TSWeb from "web-tree-sitter";
-import { ProgramLanguage } from "../Fuzzer";
+import { ProgramLanguage } from "../analysis/Types";
 
 /**
  * This shim provide a more consistent interface for consumers of

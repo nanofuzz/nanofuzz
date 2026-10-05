@@ -1,4 +1,4 @@
-import { Tester } from "./Fuzzer";
+import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { ArgDefValidator } from "./analysis/ArgDefValidator";
 import * as ValueMapper from "./mappers/ValueMapper";
@@ -15,7 +15,7 @@ describe("fuzzer: typescript targets", () => {
    * end-to-end test, this also tests the input generator.
    */
   it("Fuzz example 17 - dimensioned typerefs", async () => {
-    const tester = new Tester(
+    const tester = FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testDimensionedTypeRefs",
       {
@@ -74,7 +74,7 @@ describe("fuzzer: typescript targets", () => {
    */
   it("Fuzz target cannot change fuzzer input record", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testChangeInput",
       intOptions
@@ -96,7 +96,7 @@ describe("fuzzer: typescript targets", () => {
    * oracle in the case that they return values other than `undefined`
    */
   it("Standard fn void fuzz target fails if return is !==undefined", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnNumber",
       intOptions
@@ -106,7 +106,7 @@ describe("fuzzer: typescript targets", () => {
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
   });
   it("Arrow fn void fuzz target fails if return is !==undefined", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnNumber",
       intOptions
@@ -121,7 +121,7 @@ describe("fuzzer: typescript targets", () => {
    * oracle in the case that they only return `undefined`
    */
   it("Standard fn void fuzz target passes if return is undefined", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnUndefined",
       intOptions
@@ -131,7 +131,7 @@ describe("fuzzer: typescript targets", () => {
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
   });
   it("Arrow fn void fuzz target passes if return is undefined", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnUndefined",
       intOptions
@@ -146,7 +146,7 @@ describe("fuzzer: typescript targets", () => {
    * oracle when they throw an exception.
    */
   it("Standard fn void fuzz target fails if exception is thrown", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidReturnException",
       intOptions
@@ -159,7 +159,7 @@ describe("fuzzer: typescript targets", () => {
     );
   });
   it("Arrow fn void fuzz target fails if exception is thrown", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidReturnException",
       intOptions
@@ -177,7 +177,7 @@ describe("fuzzer: typescript targets", () => {
    * when they return undefined.
    */
   it("Standard void literal arg fuzz target", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardVoidLiteralArgs",
       intOptions
@@ -187,7 +187,7 @@ describe("fuzzer: typescript targets", () => {
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBeGreaterThan(0);
   });
   it("Arrow void literal arg fuzz target", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowVoidLiteralArgs",
       intOptions
@@ -201,7 +201,7 @@ describe("fuzzer: typescript targets", () => {
    * Test that we can fuzz functions with union arguments.
    */
   it("Standard union arg fuzz target", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testStandardUnionArgs",
       intOptions
@@ -211,7 +211,7 @@ describe("fuzzer: typescript targets", () => {
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(0);
   });
   it("Arrow union arg fuzz target", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testArrowUnionArgs",
       intOptions
@@ -226,7 +226,7 @@ describe("fuzzer: typescript targets", () => {
    */
   it("Optional boolean inputs", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testBoolean",
       intOptions
@@ -263,7 +263,7 @@ describe("fuzzer: typescript targets", () => {
   });
 
   it("Issue #301 (Typescript) include object members if value is `undefined`", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "issue301",
       intOptions
@@ -290,7 +290,7 @@ describe("fuzzer: typescript targets", () => {
   });
 
   it("TypeScript target importing a class from a parent module compiles and runs successfully", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testCoverageOneFile",
       intOptions
@@ -302,7 +302,7 @@ describe("fuzzer: typescript targets", () => {
   it("Typescript transformer skip and modify", async () => {
     const skips: FuzzTestResult[] = [];
     const passed: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformed",
       { ...intOptions, maxTests: 200 }
@@ -356,7 +356,7 @@ describe("fuzzer: typescript targets", () => {
     };
 
     const results: FuzzTestResult[] = [];
-    await new Tester(
+    await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformed",
       { ...intOptions, maxTests: 0 }
@@ -382,7 +382,7 @@ describe("fuzzer: typescript targets", () => {
 
   it("records dupeTicks in generator stats when duplicate inputs are generated", async () => {
     // Fuzz a function with small boolean input space to force duplicates
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testBoolean",
       { ...intOptions, maxTests: 50 }
@@ -399,7 +399,7 @@ describe("fuzzer: typescript targets", () => {
 
   it("TypeScript transformer exception", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformedException",
       intOptions
@@ -418,7 +418,7 @@ describe("fuzzer: typescript targets", () => {
 
   it("TypeScript transformer timeout", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformedTimeout",
       { ...intOptions, maxTests: 2 }
@@ -437,7 +437,7 @@ describe("fuzzer: typescript targets", () => {
 
   it("dupe check transformer inputs", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformedDupeCheck",
       { ...intOptions, maxTests: 50 }
@@ -457,7 +457,7 @@ describe("fuzzer: typescript targets", () => {
 
   it("deduplicates transformed inputs after transformer collapses distinct inputs", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetTransformedCollapsing",
       { ...intOptions, maxTests: 50 }
@@ -472,7 +472,7 @@ describe("fuzzer: typescript targets", () => {
 
   it("TypeScript validator exception", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetValidatorException",
       { ...intOptions, useProperty: true, maxTests: 2 }
@@ -494,7 +494,7 @@ describe("fuzzer: typescript targets", () => {
 
   it("TypeScript validator timeout", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "targetValidatorTimeout",
       { ...intOptions, useProperty: true, maxTests: 2 }
@@ -514,7 +514,7 @@ describe("fuzzer: typescript targets", () => {
 
   it("TypeScript async fuzz target with async property validator", async () => {
     const results: FuzzTestResult[] = [];
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testAsyncGreeting",
       {

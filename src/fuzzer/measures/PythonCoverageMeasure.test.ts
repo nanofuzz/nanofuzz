@@ -12,15 +12,15 @@ import {
   PythonRunner,
 } from "../runners/python/PythonRunner";
 import {
-  ArgDef,
-  FunctionDef,
   FuzzEnv,
   FuzzGeneratorStatsBase,
   FuzzStopReason,
   FuzzTestResult,
   FuzzTestResults,
   InputAndSource,
-} from "../Fuzzer";
+} from "../Types";
+import { ArgDef } from "../analysis/ArgDef";
+import { FunctionDef } from "../analysis/FunctionDef";
 import { normalizePathForKey } from "../Util";
 import {
   degenerateBranchRun,

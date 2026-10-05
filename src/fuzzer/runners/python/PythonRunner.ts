@@ -10,7 +10,7 @@ import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag, ProgramImport } from "../../analysis/Types";
 import { parseCoverageScope } from "../../measures/Util";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
-import { FuzzEnv } from "../../Fuzzer";
+import { FuzzEnv } from "../../Types";
 import * as JSONN from "../../../Jsonn";
 import DotEnv from "dotenv";
 import vscode from "vscode";

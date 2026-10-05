@@ -75,36 +75,44 @@ export class FuzzExecutor {
   } // get: runners
 
   /**
+   * Prepares measures before input generation / transformation begins.
+   *
+   * @returns elapsed preparation time in ms
+   */
+  public prepareMeasures(): number {
+    const startMeasTime = performance.now();
+    this._measures.forEach((m) => {
+      m.onBeforeNextTestExecution();
+    });
+    return performance.now() - startMeasTime;
+  } // fn: prepareMeasures
+
+  /**
    * Executes a single test input candidate through the pipeline:
-   * pre-measure -> transformer check -> PUT run -> oracles -> categorization -> measure feedback
+   * transformer check -> PUT run -> oracles -> categorization -> measure feedback
    *
    * @param candidate the transformed input and source
    * @param genTime time taken to generate the input
    * @param generator the composite input generator
    * @param getEffectiveCancelFn cancellation check function
+   * @param initMeasTime time spent preparing measures before generation
    * @returns FuzzExecutionOutput or undefined if interrupted
    */
   public async execute(
     candidate: TransformedInputAndSource,
     genTime: number,
     generator: CompositeInputGenerator,
-    getEffectiveCancelFn?: () => (() => boolean) | undefined
+    getEffectiveCancelFn?: () => (() => boolean) | undefined,
+    initMeasTime: number = 0
   ): Promise<FuzzExecutionOutput | undefined> {
     const result: FuzzTestResult = this._createInitialResult(
       candidate,
       genTime
     );
     let valTime = 0;
-    let measureTime = 0;
+    let measureTime = initMeasTime;
 
-    // 1. Prepare measures before test execution
-    const startMeasTime = performance.now();
-    this._measures.forEach((m) => {
-      m.onBeforeNextTestExecution();
-    });
-    measureTime += performance.now() - startMeasTime;
-
-    // 2. Handle transformer result if candidate was skipped/errored by transformer
+    // 1. Handle transformer result if candidate was skipped/errored by transformer
     if (candidate.transformerResult && this._transformRunner) {
       this._handleTransformerResult(candidate.transformerResult, result);
     }

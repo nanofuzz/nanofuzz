@@ -1,4 +1,4 @@
-import { Tester } from "./Fuzzer";
+import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 
 describe("fuzzer: study examples 8-14", () => {
@@ -9,7 +9,7 @@ describe("fuzzer: study examples 8-14", () => {
   it("Fuzz example 08 - minSalary", async () => {
     expect(
       (
-        await new Tester(
+        await FuzzerFactory(
           "nanofuzz-study/examples/8.ts",
           "minSalary",
           intOptions
@@ -21,7 +21,7 @@ describe("fuzzer: study examples 8-14", () => {
   it("Fuzz example 09 - getOffsetOrDefault", async () => {
     expect(
       (
-        await new Tester(
+        await FuzzerFactory(
           "nanofuzz-study/examples/9.ts",
           "getOffsetOrDefault",
           intOptions
@@ -34,7 +34,7 @@ describe("fuzzer: study examples 8-14", () => {
   it("Fuzz example 10 - gramSchmidt", async () => {
     expect(
       (
-        await new Tester(
+        await FuzzerFactory(
           "nanofuzz-study/examples/10.ts",
           "gramSchmidt",
           intOptions
@@ -46,7 +46,7 @@ describe("fuzzer: study examples 8-14", () => {
   it("Fuzz example 11 - idMatrix", async () => {
     expect(
       (
-        await new Tester(
+        await FuzzerFactory(
           "nanofuzz-study/examples/11.ts",
           "idMatrix",
           intOptions
@@ -58,7 +58,7 @@ describe("fuzzer: study examples 8-14", () => {
   it("Fuzz example 12 - levenshtein", async () => {
     expect(
       (
-        await new Tester(
+        await FuzzerFactory(
           "nanofuzz-study/examples/12.ts",
           "levenshtein",
           intOptions
@@ -70,7 +70,7 @@ describe("fuzzer: study examples 8-14", () => {
   it("Fuzz example 13 - isSteady", async () => {
     expect(
       (
-        await new Tester(
+        await FuzzerFactory(
           "nanofuzz-study/examples/13.ts",
           "isSteady",
           intOptions
@@ -80,7 +80,7 @@ describe("fuzzer: study examples 8-14", () => {
   });
 
   it("Fuzz example 14 - modInv", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "nanofuzz-study/examples/14.ts",
       "modInv",
       {

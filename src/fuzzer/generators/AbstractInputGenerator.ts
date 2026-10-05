@@ -1,7 +1,6 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "../analysis/ArgDef";
-import { FuzzPinnedTest, InputAndSource } from "./../Types";
-import { FuzzTestResults } from "../Fuzzer";
+import { FuzzPinnedTest, FuzzTestResults, InputAndSource } from "./../Types";
 import { InputGeneratorStats, NextableStatus } from "./Types";
 import { AbstractRunner } from "../runners/AbstractRunner";
 
