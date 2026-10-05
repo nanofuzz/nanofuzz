@@ -606,6 +606,7 @@ const getRandomString: PrivateRandFn = (
 
 /**
  * Generates a random byte array with a length constrained by the provided options.
+ * Uses 48-bit (6-byte) float chunking from the PRNG for high throughput.
  *
  * @param prng pseudo-random number generator
  * @param _min minimum value allowed (inclusive)
@@ -625,8 +626,35 @@ const getRandomBytes: PrivateRandFn = (
     options.byteLength.max
   );
   const outBytes = new Uint8Array(bytesLen);
-  for (let i = 0; i < bytesLen; i++) {
-    outBytes[i] = getRandomNumber(prng, 0, 255, DEFAULT_INT_OPTIONS);
+  let i = 0;
+  while (i + 6 <= bytesLen) {
+    const chunk = Math.floor(prng() * 0x1000000000000);
+    const lower = chunk >>> 0;
+    const upper = Math.floor(chunk / 0x100000000);
+    outBytes[i] = lower & 0xff;
+    outBytes[i + 1] = (lower >> 8) & 0xff;
+    outBytes[i + 2] = (lower >> 16) & 0xff;
+    outBytes[i + 3] = (lower >> 24) & 0xff;
+    outBytes[i + 4] = upper & 0xff;
+    outBytes[i + 5] = (upper >> 8) & 0xff;
+    i += 6;
+  }
+  if (i < bytesLen) {
+    const chunk = Math.floor(prng() * 0x1000000000000);
+    const lower = chunk >>> 0;
+    const upper = Math.floor(chunk / 0x100000000);
+    const remaining = [
+      lower & 0xff,
+      (lower >> 8) & 0xff,
+      (lower >> 16) & 0xff,
+      (lower >> 24) & 0xff,
+      upper & 0xff,
+      (upper >> 8) & 0xff,
+    ];
+    let remIdx = 0;
+    while (i < bytesLen) {
+      outBytes[i++] = remaining[remIdx++];
+    }
   }
   return outBytes;
 }; // fn: getRandomBytes
