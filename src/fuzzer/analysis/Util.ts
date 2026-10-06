@@ -141,3 +141,38 @@ export function getTransformers(
     )
     .map((fn) => fn.getRef());
 } // fn: getTransformers()
+
+/**
+ * Returns a list of user-provided input generator functions for the function under test.
+ *
+ * @param program the program to search
+ * @param fnUnderTest the function under test
+ * @returns an array of user generator FunctionRefs
+ */
+export function getUserGenerators(
+  program: AbstractProgram,
+  fnUnderTest: FunctionDef
+): FunctionRef[] {
+  const fnUnderTestName = fnUnderTest.getName();
+
+  const isUserGen = (name: string, isExported: boolean) =>
+    isExported &&
+    name.endsWith("Generator") &&
+    !name.endsWith("InputGenerator") &&
+    name !== fnUnderTestName &&
+    name.startsWith(fnUnderTestName);
+
+  const fromExported = Object.values(program.functionsExported)
+    .filter((fn) => isUserGen(fn.getName(), fn.isExported()))
+    .map((fn) => fn.getRef());
+
+  const fromUnsupported = Object.values(program.functionsNotSupported)
+    .filter(
+      (entry): entry is { reason: string; function: FunctionRef } =>
+        "function" in entry && entry.function !== undefined
+    )
+    .map((entry) => entry.function)
+    .filter((fnRef) => isUserGen(fnRef.name, fnRef.isExported));
+
+  return [...fromExported, ...fromUnsupported];
+} // fn: getUserGenerators()

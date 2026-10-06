@@ -27,6 +27,10 @@ export class HumanInputGenerator extends AbstractInputGenerator {
     return this._inputs.length > 0 ? "now!" : false;
   } // nextable()
 
+  public override get isTransformable(): boolean {
+    return false;
+  } // property: get isTransformable
+
   public override next(): InputAndSource {
     const item = this._inputs.shift();
     if (item === undefined) {
