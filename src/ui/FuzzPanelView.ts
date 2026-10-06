@@ -296,6 +296,10 @@ async function main() {
   if (userGenShowBtn) {
     userGenShowBtn.addEventListener("click", handleShowUserGenerator);
   }
+  const userGenRefreshBtn = document.getElementById("userGenerator.getList");
+  if (userGenRefreshBtn) {
+    userGenRefreshBtn.addEventListener("click", handleGetListOfUserGenerators);
+  }
 
   // Add event listeners for the pause button
   getElementByIdOrThrow("fuzz.pause").addEventListener("click", () => {
@@ -2730,7 +2734,7 @@ function refreshUserGenerators(userGeneratorList: string[]) {
  * Send message to back-end to open user input generator in source code
  */
 function handleShowUserGenerator() {
-  vscode.postMessage({
+  postToController({
     command: "userGenerator.show",
   });
 } // fn: handleShowUserGenerator()
@@ -2739,10 +2743,19 @@ function handleShowUserGenerator() {
  * Send message to back-end to add user input generator code skeleton
  */
 function handleAddUserGenerator() {
-  vscode.postMessage({
+  postToController({
     command: "userGenerator.add",
   });
 } // fn: handleAddUserGenerator()
+
+/**
+ * Send message to back-end to refresh the list of user input generators
+ */
+function handleGetListOfUserGenerators() {
+  postToController({
+    command: "userGenerator.getList",
+  });
+} // fn: handleGetListOfUserGenerators()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the

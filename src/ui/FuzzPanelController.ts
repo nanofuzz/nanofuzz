@@ -4,7 +4,6 @@ import * as Config from "../Config";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import * as fuzzer from "../fuzzer/Types";
 import { ArgDef } from "../fuzzer/analysis/ArgDef";
-import { ArgDefGenerator } from "../fuzzer/analysis/ArgDefGenerator";
 import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
 import {
   ArgOptions,
@@ -21,7 +20,6 @@ import {
 } from "../fuzzer/analysis/Util";
 import { getIoKey } from "../fuzzer/Util";
 import * as fs from "fs";
-import seedrandom from "seedrandom";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
@@ -44,11 +42,10 @@ import {
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
-import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
-import { getNextAvailableFnNumber } from "../fuzzer/synthesis/Util";
+import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -503,6 +500,7 @@ export class FuzzPanel {
           case "userGenerator.show":
             await this._doShowUserGeneratorCmd();
             break;
+          case "userGenerator.getList":
           case "validator.getList":
             this._doGetValidatorsAndTransformers();
             break;
@@ -1211,76 +1209,15 @@ export class FuzzPanel {
       return;
     }
 
-    const userGenPrefix = fn.getName() + "Generator";
-
-    // Determine the next available user generator name
-    const fnCounter = getNextAvailableFnNumber(
-      Object.keys(program.functions),
-      userGenPrefix
+    const {
+      name: userGenName,
+      skeleton,
+      imports,
+    } = synthesizeUserGenerator(
+      fn,
+      program.lang,
+      Object.keys(program.functions)
     );
-
-    const inArgs = fn.getArgDefs();
-    const userGenName = `${userGenPrefix}${fnCounter === 0 ? "" : fnCounter}`;
-
-    if (program.lang === "*") {
-      throw new Error("Internal error: program is of invalid language: *");
-    }
-
-    let skeleton: string;
-    let importData = "";
-    switch (program.lang) {
-      case "typescript": {
-        const tsDefaultArgs =
-          inArgs.length === 0
-            ? ""
-            : inArgs
-                .map((a) =>
-                  ValueMapper.toLang(
-                    "typescript",
-                    ArgDefGenerator.gen(a, seedrandom("skeleton"))
-                  )
-                )
-                .join(", ");
-        skeleton = `
-export function ${userGenName}(prng: () => number): Parameters<typeof ${fn.getName()}> | undefined {
-  // Return an argument tuple for ${fn.getName()}, or return undefined when exhausted
-  return [${tsDefaultArgs}];
-}`;
-        break;
-      }
-
-      case "python": {
-        const pyTupleType =
-          inArgs.length === 0
-            ? "tuple[()] | None"
-            : `tuple[${inArgs.map((a) => PythonProgram.getTypeAnnotation(a, { useTypeRefs: true })).join(", ")}] | None`;
-        const pyDefaultArgs =
-          inArgs.length === 0
-            ? ""
-            : inArgs.length === 1
-              ? `${ValueMapper.toLang("python", ArgDefGenerator.gen(inArgs[0], seedrandom("skeleton")))},`
-              : inArgs
-                  .map((a) =>
-                    ValueMapper.toLang(
-                      "python",
-                      ArgDefGenerator.gen(a, seedrandom("skeleton"))
-                    )
-                  )
-                  .join(", ");
-
-        if (!Object.keys(program.imports).some((e) => e === "Callable")) {
-          importData = "from typing import Callable\n";
-        }
-
-        skeleton = `
-
-def ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:
-  # Return an argument tuple for ${fn.getName()}, or return None when exhausted
-  return (${pyDefaultArgs})
-`;
-        break;
-      }
-    }
 
     // Save the editor
     for (const editor of vscode.window.visibleTextEditors) {
@@ -1291,6 +1228,14 @@ def ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:
 
     // Append the code skeleton to the source file
     try {
+      let importData = "";
+      imports.forEach((i) => {
+        // If there is no import, then add it
+        if (!Object.keys(program.imports).some((e) => e === i.name)) {
+          importData += i.stmt;
+        }
+      });
+
       if (importData.length) {
         const fileData = fs.readFileSync(module);
         const importStmt = Buffer.from(importData);
@@ -1316,11 +1261,22 @@ def ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:
       // Change focus to the generated user generator
       try {
         const pgm = ProgramFactory.fromFile(module);
-        const createdFn = pgm.functionsExported[userGenName];
-        this._navigateToSource(
-          createdFn.getModule(),
-          createdFn.getStartOffset()
-        );
+        const userGens = getUserGenerators(pgm, fn);
+        const targetGen =
+          userGens.find((g) => g.name === userGenName) ?? userGens[0];
+        if (targetGen && targetGen.startOffset !== undefined) {
+          this._navigateToSource(targetGen.module, targetGen.startOffset);
+        } else {
+          const fnDef =
+            pgm.functionsExported[userGenName] ?? pgm.functions[userGenName];
+          if (fnDef) {
+            this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
+          } else {
+            throw new Error(
+              `Unable to locate function '${userGenName}' in '${module}'`
+            );
+          }
+        }
       } catch (e: unknown) {
         this._setErrorFromException(e);
         vscode.window.showErrorMessage(
@@ -1356,11 +1312,15 @@ def ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:
     const existingUserGenerators = getUserGenerators(program, fn);
     if (existingUserGenerators.length > 0) {
       this._fuzzEnv.userGenerators = existingUserGenerators;
+      const targetGen = existingUserGenerators[0];
       const fnDef =
-        program.functionsExported[existingUserGenerators[0].name] ??
-        program.functions[existingUserGenerators[0].name];
+        program.functionsExported[targetGen.name] ??
+        program.functions[targetGen.name];
       if (fnDef) {
         this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
+        return;
+      } else if (targetGen.startOffset !== undefined) {
+        this._navigateToSource(targetGen.module, targetGen.startOffset);
         return;
       }
     } else if (this._fuzzEnv.userGenerators.length > 0) {
@@ -2209,6 +2169,11 @@ def ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:
                       <span id="userGenerator.add" class="${this._fuzzEnv.userGenerators.length > 0 ? "hidden " : ""}tooltipped tooltipped-nw clickable" aria-label="Create new custom generator">
                         <span ${disabledFlag} class="classAddRefreshValidator">
                           <span class="codicon codicon-add" style="padding-left:0.1em; padding-right:0.1em;"></span>
+                        </span>
+                      </span>
+                      <span id="userGenerator.getList" class="tooltipped tooltipped-nw clickable" aria-label="Refresh list">
+                        <span ${disabledFlag} class="classAddRefreshValidator">
+                          <span class="codicon codicon-refresh" style="padding-left:0.1em;"></span>
                         </span>
                       </span>
                     </span>
@@ -4395,6 +4360,7 @@ export type FuzzPanelMessageFromWebView =
         | "transformer.add"
         | "userGenerator.add"
         | "userGenerator.show"
+        | "userGenerator.getList"
         | "open.source"
         | "open.settings.ai";
     };
