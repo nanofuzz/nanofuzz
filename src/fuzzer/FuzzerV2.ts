@@ -219,7 +219,7 @@ export class FuzzerV2 {
     if (JSONN.stringify(this._options) !== JSONN.stringify(normalizedOptions)) {
       this._options = structuredClone(normalizedOptions);
       if (this._stats) {
-        this._stats.results.env.options = structuredClone(normalizedOptions);
+        this._stats.options = this._options;
       }
       this._compositeInputGenerator.options = this._options.generators;
     }
