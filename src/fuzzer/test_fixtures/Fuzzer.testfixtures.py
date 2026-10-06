@@ -1,4 +1,4 @@
-from typing import Any, Literal, List, TypedDict, Union
+from typing import Any, Callable, Literal, List, TypedDict, Union, Tuple
 
 
 type a = str
@@ -89,6 +89,46 @@ def py_transformed_timeout(n: int) -> int:
 def py_transformed_timeoutTransformer(n: int) -> Union[List[int], None]:
     while True:
         pass
+
+
+def py_user_gen(n: int, s: str) -> str:
+    return f"{s}:{n}"
+
+
+def py_user_genGenerator(prng: Callable[[], float]) -> Union[Tuple[int, str], None]:
+    n = int(prng() * 100) if callable(prng) else 42
+    return (n, "custom")
+
+
+py_user_gen_finite_count = 0
+
+
+def py_user_gen_finite(n: int) -> int:
+    return n * 2
+
+
+def py_user_gen_finiteGenerator(prng: Callable[[], float]) -> Union[Tuple[int], None]:
+    global py_user_gen_finite_count
+    py_user_gen_finite_count += 1
+    if py_user_gen_finite_count > 3:
+        return None
+    return (py_user_gen_finite_count * 10,)
+
+
+def py_user_gen_exception(n: int) -> int:
+    return n
+
+
+def py_user_gen_exceptionGenerator(prng: Callable[[], float]) -> Union[Tuple[int], None]:
+    raise Exception("Python user generator error")
+
+
+def py_user_gen_assumption(n: int) -> int:
+    return n
+
+
+def py_user_gen_assumptionGenerator(prng: Callable[[], float]) -> Union[Tuple[int], None]:
+    raise UnsatisfiedAssumption("Illegal assumption in generator")
 
 
 def test_bigint_target(n: int) -> int:

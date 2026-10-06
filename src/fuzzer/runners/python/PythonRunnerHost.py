@@ -22,6 +22,7 @@ import io
 import json
 import struct
 import logging
+import random
 import tempfile
 import traceback
 import uuid
@@ -696,8 +697,15 @@ def program_files(
 
 
 def transform_arg(val: Any, hint: Any) -> Any:
+    if isinstance(val, dict) and val.get("__nanofuzz_type") == "prng":
+        seed = val.get("seed")
+        return random.Random(seed).random if seed is not None else random.random
+
     if val is None:
         return None
+
+    if hint == "prng":
+        return random.Random(val).random if val is not None else random.random
 
     if hint == "uuid":
         if isinstance(val, str):
@@ -872,8 +880,9 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
 
     args = list(input["args"])
     type_hints = input.get("typeHints", [])
-    for i in range(min(len(args), len(type_hints))):
-        args[i] = transform_arg(args[i], type_hints[i])
+    for i in range(len(args)):
+        hint = type_hints[i] if i < len(type_hints) else None
+        args[i] = transform_arg(args[i], hint)
 
     try:
         with redirect_stdout(io.StringIO()) as f:

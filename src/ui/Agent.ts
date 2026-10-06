@@ -351,6 +351,9 @@ export function getDefaultFuzzOptions(): FuzzOptions {
       AiInputGenerator: {
         enabled: false,
       },
+      UserInputGenerator: {
+        enabled: false,
+      },
     },
   };
 } // fn: getDefaultFuzzOptions

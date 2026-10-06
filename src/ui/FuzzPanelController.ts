@@ -15,6 +15,7 @@ import {
 import {
   bigIntOrThrow,
   getTransformers,
+  getUserGenerators,
   getValidators,
 } from "../fuzzer/analysis/Util";
 import { getIoKey } from "../fuzzer/Util";
@@ -44,6 +45,7 @@ import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
+import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -491,6 +493,14 @@ export class FuzzPanel {
             await this._doAddTransformerCmd();
             this._doGetValidatorsAndTransformers();
             break;
+          case "userGenerator.add":
+            await this._doAddUserGeneratorCmd();
+            this._doGetValidatorsAndTransformers();
+            break;
+          case "userGenerator.show":
+            await this._doShowUserGeneratorCmd();
+            break;
+          case "userGenerator.getList":
           case "validator.getList":
             this._doGetValidatorsAndTransformers();
             break;
@@ -784,6 +794,7 @@ export class FuzzPanel {
           },
           argOverrides: this._argOverrides,
           validators: this._fuzzEnv.validators.map((ref) => ref.name),
+          userGenerators: this._fuzzEnv.userGenerators.map((ref) => ref.name),
           tests: {},
           isVoid: this._fuzzEnv.function.isVoid(),
           ...(this._fuzzEnv.function.isAsync()
@@ -1181,6 +1192,149 @@ export class FuzzPanel {
   } // fn: _doAddTransformerCmd()
 
   /**
+   * Add a user-provided input generator code skeleton to the source code
+   */
+  private async _doAddUserGeneratorCmd() {
+    const fn = this._fuzzEnv.function; // Function under test
+    const module = this._fuzzEnv.function.getModule();
+    let program: AbstractProgram;
+
+    try {
+      program = ProgramFactory.fromFile(module);
+    } catch (e: unknown) {
+      this._setErrorFromException(e);
+      vscode.window.showErrorMessage(
+        `Unable to add the user input generator. Source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
+      );
+      return;
+    }
+
+    const {
+      name: userGenName,
+      skeleton,
+      imports,
+    } = synthesizeUserGenerator(
+      fn,
+      program.lang,
+      Object.keys(program.functions)
+    );
+
+    // Save the editor
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (editor.document.fileName === module && editor.document.isDirty) {
+        await editor.document.save();
+      }
+    }
+
+    // Append the code skeleton to the source file
+    try {
+      let importData = "";
+      imports.forEach((i) => {
+        // If there is no import, then add it
+        if (!Object.keys(program.imports).some((e) => e === i.name)) {
+          importData += i.stmt;
+        }
+      });
+
+      if (importData.length) {
+        const fileData = fs.readFileSync(module);
+        const importStmt = Buffer.from(importData);
+        const userGenFn = Buffer.from(skeleton);
+        const fd = fs.openSync(module, "w+");
+
+        fs.writeSync(fd, importStmt, 0, importStmt.length, 0);
+        fs.writeSync(fd, fileData, 0, fileData.length, importStmt.length);
+        fs.writeSync(
+          fd,
+          userGenFn,
+          0,
+          userGenFn.length,
+          importStmt.length + fileData.length
+        );
+        fs.closeSync(fd);
+      } else {
+        const fd = fs.openSync(module, "as+");
+        fs.writeFileSync(fd, skeleton);
+        fs.closeSync(fd);
+      }
+
+      // Change focus to the generated user generator
+      try {
+        const pgm = ProgramFactory.fromFile(module);
+        const userGens = getUserGenerators(pgm, fn);
+        const targetGen =
+          userGens.find((g) => g.name === userGenName) ?? userGens[0];
+        if (targetGen && targetGen.startOffset !== undefined) {
+          this._navigateToSource(targetGen.module, targetGen.startOffset);
+        } else {
+          const fnDef =
+            pgm.functionsExported[userGenName] ?? pgm.functions[userGenName];
+          if (fnDef) {
+            this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
+          } else {
+            throw new Error(
+              `Unable to locate function '${userGenName}' in '${module}'`
+            );
+          }
+        }
+      } catch (e: unknown) {
+        this._setErrorFromException(e);
+        vscode.window.showErrorMessage(
+          `Unable to navigate to the created user input generator '${userGenName}' in '${fn.getModule()}'`
+        );
+        return;
+      }
+    } catch {
+      vscode.window.showErrorMessage(
+        `Unable to write user input generator code skeleton to source file`
+      );
+    }
+  } // fn: _doAddUserGeneratorCmd()
+
+  /**
+   * Navigate to the custom input generator in the source code
+   */
+  private async _doShowUserGeneratorCmd() {
+    const fn = this._fuzzEnv.function;
+    const module = this._fuzzEnv.function.getModule();
+    let program: AbstractProgram;
+
+    try {
+      program = ProgramFactory.fromFile(module);
+    } catch (e: unknown) {
+      this._setErrorFromException(e);
+      vscode.window.showErrorMessage(
+        `Unable to show the custom input generator. Source file cannot be parsed. ${this._fuzzEnv.function.getModule()}`
+      );
+      return;
+    }
+
+    const existingUserGenerators = getUserGenerators(program, fn);
+    if (existingUserGenerators.length > 0) {
+      this._fuzzEnv.userGenerators = existingUserGenerators;
+      const targetGen = existingUserGenerators[0];
+      const fnDef =
+        program.functionsExported[targetGen.name] ??
+        program.functions[targetGen.name];
+      if (fnDef) {
+        this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
+        return;
+      } else if (targetGen.startOffset !== undefined) {
+        this._navigateToSource(targetGen.module, targetGen.startOffset);
+        return;
+      }
+    } else if (this._fuzzEnv.userGenerators.length > 0) {
+      const userGen = this._fuzzEnv.userGenerators[0];
+      this._navigateToSource(userGen.module, userGen.startOffset);
+      return;
+    }
+
+    vscode.window.showInformationMessage(
+      `No custom input generator found for '${fn.getName()}'. Click + to create one.`
+    );
+  } // fn: _doShowUserGeneratorCmd()
+
+  /**
    * Message handler for the `validator.getList` command. Gets the list
    * of validators and transformers from the program source code and sends
    * it back to the front-end.
@@ -1243,6 +1397,28 @@ export class FuzzPanel {
         transformers: newTransformers.map((e) => e.name),
       };
       this._postToView(message);
+    }
+
+    // User Generators
+    const oldUserGeneratorNames = JSONN.stringify(
+      this._fuzzEnv.userGenerators.map((e) => e.name)
+    );
+    const newUserGenerators = getUserGenerators(program, fn);
+    const newUserGeneratorNames = JSONN.stringify(
+      newUserGenerators.map((e) => e.name)
+    );
+
+    // Only send the message if there has been a change
+    if (oldUserGeneratorNames !== newUserGeneratorNames) {
+      // Update the Fuzzer Environment
+      this._fuzzEnv.userGenerators = newUserGenerators;
+
+      // Notify webview about the change
+      const message: FuzzPanelMessageToWebView = {
+        command: "userGenerator.list",
+        userGenerators: newUserGenerators.map((e) => e.name),
+      };
+      this._panel.webview.postMessage(message);
     }
   } // fn: _doGetValidatorsAndTransformers()
 
@@ -1673,6 +1849,9 @@ export class FuzzPanel {
     const testSet = this._getFuzzTestsForThisFn();
     testSet.options = this._fuzzEnv.options;
     testSet.validators = this._fuzzEnv.validators.map((ref) => ref.name);
+    testSet.userGenerators = this._fuzzEnv.userGenerators.map(
+      (ref) => ref.name
+    );
     testSet.argOverrides = this._argOverrides;
     testSet.sortColumns = this._sortColumns;
     testSet.isVoid = this._fuzzEnv.function.isVoid();
@@ -1976,6 +2155,28 @@ export class FuzzPanel {
                         <vscode-link id="open.settings.ai">change</vscode-link>
                       </span>
                     </vscode-checkbox>
+                    <span style="display:inline-block;">
+                      <vscode-checkbox ${disabledFlag} id="fuzz-gen-UserInputGenerator-enabled" ${this._fuzzEnv.options.generators.UserInputGenerator?.enabled ? "checked" : ""}>
+                        <span> 
+                          With a custom input generator
+                        </span>
+                      </vscode-checkbox>
+                      <span id="userGenerator.show" class="${this._fuzzEnv.userGenerators.length > 0 ? "" : "hidden "}tooltipped tooltipped-nw clickable" aria-label="Open custom generator in editor">
+                        <span ${disabledFlag} class="classAddRefreshValidator">
+                          <span class="codicon codicon-go-to-file" style="padding-left:0.1em; padding-right:0.1em;"></span>
+                        </span>
+                      </span>
+                      <span id="userGenerator.add" class="${this._fuzzEnv.userGenerators.length > 0 ? "hidden " : ""}tooltipped tooltipped-nw clickable" aria-label="Create new custom generator">
+                        <span ${disabledFlag} class="classAddRefreshValidator">
+                          <span class="codicon codicon-add" style="padding-left:0.1em; padding-right:0.1em;"></span>
+                        </span>
+                      </span>
+                      <span id="userGenerator.getList" class="tooltipped tooltipped-nw clickable" aria-label="Refresh list">
+                        <span ${disabledFlag} class="classAddRefreshValidator">
+                          <span class="codicon codicon-refresh" style="padding-left:0.1em;"></span>
+                        </span>
+                      </span>
+                    </span>
                   </div>
                 </vscode-panel-view>
 
@@ -2917,6 +3118,13 @@ export class FuzzPanel {
             <div id="transformers" class="hidden">
               ${htmlEscape(
                 JSONN.stringify(this._fuzzEnv.transformers.map((e) => e.name))
+              )}
+            </div>
+
+            <!-- User Generator Functions: for the client script to process -->
+            <div id="userGenerators" class="hidden">
+              ${htmlEscape(
+                JSONN.stringify(this._fuzzEnv.userGenerators.map((e) => e.name))
               )}
             </div>
 
@@ -3926,6 +4134,9 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
       AiInputGenerator: {
         enabled: true,
       },
+      UserInputGenerator: {
+        enabled: true,
+      },
     },
   };
 }; // fn: getDefaultFuzzOptions()
@@ -4147,6 +4358,9 @@ export type FuzzPanelMessageFromWebView =
         | "validator.add"
         | "validator.getList"
         | "transformer.add"
+        | "userGenerator.add"
+        | "userGenerator.show"
+        | "userGenerator.getList"
         | "open.source"
         | "open.settings.ai";
     };
@@ -4223,6 +4437,10 @@ export type FuzzPanelMessageToWebView =
   | {
       command: "transformer.list";
       transformers: string[];
+    }
+  | {
+      command: "userGenerator.list";
+      userGenerators: string[];
     }
   | { command: "busy.message"; message: fuzzer.FuzzBusyStatusMessage }
   | { command: "busy.ending" }
