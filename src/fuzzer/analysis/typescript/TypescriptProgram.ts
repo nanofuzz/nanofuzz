@@ -836,6 +836,9 @@ export class TypescriptProgram extends AbstractProgram {
         }
         return [ArgTag.UNRESOLVED, 0, typeName];
       }
+      case "TSFunctionType": {
+        return [ArgTag.UNRESOLVED, 0, "Function"];
+      }
       default:
         throw new Error(
           "Unsupported type annotation: " +

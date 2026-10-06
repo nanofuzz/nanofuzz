@@ -90,6 +90,7 @@ export type FuzzTestsFunction = {
   argOverrides?: FuzzArgOverride[]; // argument overrides
   sortColumns?: FuzzSortColumns; // column sort order
   validators: string[]; // validator functions
+  userGenerators?: string[]; // user generator functions
   tests: Record<string, FuzzPinnedTest>; // pinned tests
   isVoid: boolean; // is the function return type void?
   isAsync?: true; // is the function async?
@@ -162,6 +163,11 @@ export type FuzzValueOrigin =
       type: "generator";
       generator: "AiInputGenerator";
       model: string;
+    }
+  | {
+      type: "generator";
+      generator: "UserInputGenerator";
+      fnName: string;
     }
   | {
       type: "transformer";
@@ -327,7 +333,8 @@ export type VmGlobals = Record<string, unknown>;
 export type SupportedInputGenerators =
   | "RandomInputGenerator"
   | "MutationInputGenerator"
-  | "AiInputGenerator";
+  | "AiInputGenerator"
+  | "UserInputGenerator";
 
 /**
  * List of supported input generators
@@ -459,6 +466,7 @@ export type FuzzEnv = {
   function: FunctionDef; // the function to fuzz
   validators: FunctionRef[]; // list of the module's validator functions
   transformers: FunctionRef[]; // list of the module's input transformer functions
+  userGenerators: FunctionRef[]; // list of the module's user-provided input generator functions
 };
 
 /**
@@ -536,6 +544,7 @@ export type FuzzTestStats = {
     RandomInputGenerator: FuzzGeneratorStatsBase;
     MutationInputGenerator: FuzzGeneratorStatsBase;
     AiInputGenerator: FuzzGeneratorStatsBase & { gen?: InputGeneratorStatsAi };
+    UserInputGenerator: FuzzGeneratorStatsBase;
     CompositeInputGenerator?: {
       config?: {
         scheduler: InputSchedulerType;

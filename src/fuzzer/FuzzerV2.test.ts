@@ -54,6 +54,7 @@ describe("fuzzer V2: general & parity tests", () => {
         RandomInputGenerator: { enabled: false },
         MutationInputGenerator: { enabled: true },
         AiInputGenerator: { enabled: false },
+        UserInputGenerator: { enabled: false },
       },
     };
 
@@ -82,6 +83,7 @@ describe("fuzzer V2: general & parity tests", () => {
         RandomInputGenerator: { enabled: false },
         MutationInputGenerator: { enabled: false },
         AiInputGenerator: { enabled: false },
+        UserInputGenerator: { enabled: false },
       },
     };
 
