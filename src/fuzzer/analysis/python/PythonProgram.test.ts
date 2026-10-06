@@ -718,6 +718,28 @@ from .schemas import *`,
         reason: jasmine.stringMatching("Missing type annotation"),
       })
     );
+    expect(console.debug).not.toHaveBeenCalled();
+  });
+
+  it("suppresses debug output when helper functions lack type annotations", () => {
+    spyOn(console, "debug");
+    const program = new InspectablePythonProgram(
+      () => `def _serialize(doc, **kwargs):
+    return ""
+
+def _fragment_serialize(html_str, **kwargs):
+    return ""
+
+@given(x=st.integers())
+def test_something(x: int):
+    pass`,
+      "helpers.py"
+    );
+
+    expect(program.functionsExported["test_something"]).toBeDefined();
+    expect(program.functionsExported["_serialize"]).toBeUndefined();
+    expect(program.functionsExported["_fragment_serialize"]).toBeUndefined();
+    expect(console.debug).not.toHaveBeenCalled();
   });
 
   it("keeps PEP 604 union members as function argument children", () => {
@@ -1785,6 +1807,219 @@ def test_add_overwrites_boundary_expired_item(key, old_value, new_value):
     expect(newChildren[1].getType()).toEqual(ArgTag.STRING);
     expect(newChildren[1].getOptions().strCharset).toEqual("abcdef");
     expect(newChildren[1].getOptions().strLength).toEqual({ min: 1, max: 10 });
+  });
+
+  it("hypothesis @given `one_of` accepts list, tuple, splatted, and literal arms", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+values_list = [st.integers(), st.text(alphabet="abc", min_size=1)]
+values_tuple = (st.booleans(), st.floats(min_value=0.0, max_value=1.0))
+
+@given(
+    a=st.one_of([st.integers(min_value=1, max_value=10), st.text()]),
+    b=st.one_of((st.booleans(), st.none())),
+    c=st.one_of(values_list),
+    d=st.one_of(*values_tuple),
+    e=st.one_of(st.just(0), st.just(None), st.floats(min_value=0.001)),
+    f=st.one_of(st.integers(), None, "literal"),
+    single=st.one_of(st.integers(min_value=5, max_value=50)),
+)
+def test_one_of_variants(a, b, c, d, e, f, single):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_one_of_variants"];
+
+    const args = fn.getArgDefs();
+    expect(args.length).toEqual(7);
+
+    // a (from list literal)
+    expect(args[0].getName()).toEqual("a");
+    expect(args[0].getType()).toEqual(ArgTag.UNION);
+    expect(args[0].getChildren().length).toEqual(2);
+    expect(args[0].getChildren()[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(args[0].getChildren()[1].getType()).toEqual(ArgTag.STRING);
+
+    // b (from tuple literal with none)
+    expect(args[1].getName()).toEqual("b");
+    expect(args[1].getType()).toEqual(ArgTag.UNION);
+    expect(args[1].getChildren().length).toEqual(2);
+    expect(args[1].getChildren()[0].getType()).toEqual(ArgTag.BOOLEAN);
+    expect(args[1].getChildren()[1].getType()).toEqual(ArgTag.LITERAL);
+
+    // c (from referenced list)
+    expect(args[2].getName()).toEqual("c");
+    expect(args[2].getType()).toEqual(ArgTag.UNION);
+    expect(args[2].getChildren().length).toEqual(2);
+
+    // d (from splatted tuple)
+    expect(args[3].getName()).toEqual("d");
+    expect(args[3].getType()).toEqual(ArgTag.UNION);
+    expect(args[3].getChildren().length).toEqual(2);
+
+    // e (from st.just with 0, None, float)
+    expect(args[4].getName()).toEqual("e");
+    expect(args[4].getType()).toEqual(ArgTag.UNION);
+    expect(args[4].getChildren().length).toEqual(3);
+
+    // f (with raw None and string literal)
+    expect(args[5].getName()).toEqual("f");
+    expect(args[5].getType()).toEqual(ArgTag.UNION);
+    expect(args[5].getChildren().length).toEqual(3);
+
+    // single (unwrapped when single arm)
+    expect(args[6].getName()).toEqual("single");
+    expect(args[6].getType()).toEqual(ArgTag.NUMBER);
+    expect(args[6].getIntervals()).toEqual([{ min: 5, max: 50 }]);
+  });
+
+  it("hypothesis @given pipe operator | strategy union", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    val=st.integers(min_value=0, max_value=10) | st.text(alphabet="abc", min_size=1) | st.none(),
+)
+def test_pipe_union(val):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_pipe_union"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getName()).toEqual("val");
+    expect(arg.getType()).toEqual(ArgTag.UNION);
+    const children = arg.getChildren();
+    expect(children.length).toEqual(3);
+    expect(children[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(children[1].getType()).toEqual(ArgTag.STRING);
+    expect(children[2].getType()).toEqual(ArgTag.LITERAL);
+  });
+
+  it("hypothesis @given st.frozensets and st.iterables", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    fs=st.frozensets(st.integers(min_value=1, max_value=10), min_size=1, max_size=5),
+    it=st.iterables(st.text(alphabet="abc", min_size=1), min_size=2, max_size=4),
+)
+def test_frozenset_and_iterables(fs, it):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_frozenset_and_iterables"];
+
+    const args = fn.getArgDefs();
+    expect(args.length).toEqual(2);
+
+    expect(args[0].getName()).toEqual("fs");
+    expect(args[0].getType()).toEqual(ArgTag.SET);
+    expect(args[0].getBaseTypeRef()).toEqual("frozenset");
+
+    expect(args[1].getName()).toEqual("it");
+    expect(args[1].getType()).toEqual(ArgTag.STRING);
+    expect(args[1].getDim()).toEqual(1);
+  });
+
+  it("hypothesis @given st.fixed_dictionaries with literal values and None", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    d=st.fixed_dictionaries(
+        {
+            "code": 200,
+            "status": "ok",
+            "active": True,
+            "extra": None,
+            "count": st.integers(min_value=1, max_value=100),
+        },
+        optional={
+            "tag": "beta",
+        }
+    )
+)
+def test_fixed_dict_literals(d):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_fixed_dict_literals"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getName()).toEqual("d");
+    expect(arg.getType()).toEqual(ArgTag.OBJECT);
+    const children = arg.getChildren();
+    expect(children.length).toEqual(6);
+
+    const code = children.find((c) => c.getName() === "code");
+    expect(code?.getType()).toEqual(ArgTag.LITERAL);
+    expect(code?.getIntervals()).toEqual([{ min: 200, max: 200 }]);
+
+    const status = children.find((c) => c.getName() === "status");
+    expect(status?.getType()).toEqual(ArgTag.LITERAL);
+
+    const active = children.find((c) => c.getName() === "active");
+    expect(active?.getType()).toEqual(ArgTag.LITERAL);
+
+    const extra = children.find((c) => c.getName() === "extra");
+    expect(extra?.getType()).toEqual(ArgTag.LITERAL);
+
+    const count = children.find((c) => c.getName() === "count");
+    expect(count?.getType()).toEqual(ArgTag.NUMBER);
+
+    const tag = children.find((c) => c.getName() === "tag");
+    expect(tag?.isOptional()).toBeTrue();
+    expect(tag?.getType()).toEqual(ArgTag.LITERAL);
+  });
+
+  it("hypothesis @given st.tuples with literals, None, and splatted strategies", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+extra_strats = (st.booleans(), st.text(alphabet="xy", min_size=1))
+
+@given(
+    t=st.tuples(
+        st.integers(min_value=1, max_value=10),
+        None,
+        "static_str",
+        42,
+        *extra_strats
+    )
+)
+def test_tuples_advanced(t):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_tuples_advanced"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getName()).toEqual("t");
+    expect(arg.getType()).toEqual(ArgTag.TUPLE);
+    const children = arg.getChildren();
+    expect(children.length).toEqual(6);
+    expect(children[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(children[1].getType()).toEqual(ArgTag.LITERAL); // None
+    expect(children[2].getType()).toEqual(ArgTag.LITERAL); // "static_str"
+    expect(children[3].getType()).toEqual(ArgTag.LITERAL); // 42
+    expect(children[4].getType()).toEqual(ArgTag.BOOLEAN); // extra_strats[0]
+    expect(children[5].getType()).toEqual(ArgTag.STRING); // extra_strats[1]
+  });
+
+  it("hypothesis @given st.sampled_from with None and mixed literals", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+@given(
+    choice=st.sampled_from([1, "a", None, True]),
+)
+def test_sampled_with_none(choice):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_sampled_with_none"];
+
+    const arg = fn.getArgDefs()[0];
+    expect(arg.getName()).toEqual("choice");
+    expect(arg.getType()).toEqual(ArgTag.UNION);
+    const children = arg.getChildren();
+    expect(children.length).toEqual(4);
   });
 
   it("hypothesis @given `lists` and `sets` uniqueness", () => {
