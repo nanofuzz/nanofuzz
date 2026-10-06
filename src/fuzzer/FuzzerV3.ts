@@ -41,36 +41,32 @@ import { Judgment } from "./oracles/Types";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { AbstractMeasure, BaseMeasurement } from "./measures/AbstractMeasure";
-import { FailedTestMeasure } from "./measures/FailedTestMeasure";
 import { CompilerStaleness } from "./compilers/Types";
 import { FuzzStats } from "./FuzzStats";
 
 /**
- * Represents a single test candidate transitioning through the 5 pipeline stages.
+ * Represents a single test candidate transitioning through pipeline stages.
  */
 export interface PipelineSlot {
   id: number;
   tick: number;
 
-  // Stage 1: Generated Input
+  // Generated Input
   candidate?: TransformedInputAndSource;
   genTime: number;
   injected: boolean;
-
-  // Stage 2: Transformer Output
-  transformedCandidate?: TransformedInputAndSource;
   transformTime: number;
 
-  // Stage 3: PUT Execution Output
+  // PUT Execution Output
   result?: FuzzTestResult;
   exeOutput?: RunnerResult;
   runTime: number;
   coverageMeasurements?: BaseMeasurement[];
 
-  // Stage 4: Validator & Oracle Output
+  // Validator & Oracle Output
   valTime: number;
 
-  // Stage 5: Measure & Feedback Output
+  // Measure & Feedback Output
   measureTime: number;
 
   // Control flags
@@ -78,13 +74,10 @@ export interface PipelineSlot {
 }
 
 /**
- * FuzzerV3 is a lockstep 5-stage pipelined fuzzer engine.
- * On every tick, it executes all active pipeline stages concurrently:
- *  - Stage 1: Fetch / Generate Input N+4
- *  - Stage 2: Transform Input N+3
- *  - Stage 3: Execute PUT N+2
- *  - Stage 4: Validate / Oracles N+1
- *  - Stage 5: Measure, Record & Feedback N
+ * FuzzerV3 is an adaptive pipelined fuzzer engine.
+ * It dynamically configures its pipeline topology:
+ *  - 2-Stage Overlap (Default: no property validators): Gen || (PUT -> Measure)
+ *  - 3-Stage Pipeline (With property validators): Gen || PUT || (Validate -> Measure)
  */
 export class FuzzerV3 {
   protected _module: string;
@@ -360,114 +353,19 @@ export class FuzzerV3 {
 
     periodicTimer = setInterval(checkPeriodicUpdate, 50);
 
-    // Pipeline Registers holding slots between ticks:
-    // s1: Output of Stage 1 (ready for Stage 2)
-    // s2: Output of Stage 2 (ready for Stage 3)
-    // s3: Output of Stage 3 (ready for Stage 4)
-    // s4: Output of Stage 4 (ready for Stage 5)
-    let s1: PipelineSlot | undefined = undefined;
-    let s2: PipelineSlot | undefined = undefined;
-    let s3: PipelineSlot | undefined = undefined;
-    let s4: PipelineSlot | undefined = undefined;
-
-    let isGenActive = true;
-    let finalStopReason: FuzzStopReason | undefined = undefined;
-
     try {
       this._state = "running";
 
-      while (isGenActive || s1 || s2 || s3 || s4) {
-        checkPeriodicUpdate();
-
-        const stopCondition = this._shouldGenStop(
-          injectTests.length,
-          Boolean(mode.gen),
-          Boolean(cancelFn && cancelFn())
-        );
-
-        if (typeof stopCondition !== "number") {
-          if (this._fuzzerFocus.mode === "shrink") {
-            this._exitShrink();
-          } else {
-            isGenActive = false;
-            if (!finalStopReason) {
-              finalStopReason = stopCondition;
-            }
-            if (
-              stopCondition === FuzzStopReason.PAUSE ||
-              stopCondition === FuzzStopReason.MAXTIME ||
-              stopCondition === FuzzStopReason.MAXFAILURES
-            ) {
-              s1 = undefined;
-              s2 = undefined;
-              s3 = undefined;
-              s4 = undefined;
-              break;
-            }
-          }
-        }
-
-        const stillInjecting = this._stage1InjectedCount < injectTests.length;
-
-        // Snapshot current inputs to stages for this tick
-        const currentS1Input: boolean = isGenActive;
-        const currentS2Input: PipelineSlot | undefined = s1;
-        const currentS3Input: PipelineSlot | undefined = s2;
-        const currentS4Input: PipelineSlot | undefined = s3;
-        const currentS5Input: PipelineSlot | undefined = s4;
-
-        // Execute all 5 discrete stages concurrently in parallel for this tick
-        const [outS1, outS2, outS3, outS4, outS5]: [
-          PipelineSlot | undefined,
-          PipelineSlot | undefined,
-          PipelineSlot | undefined,
-          PipelineSlot | undefined,
-          { triggeredShrink: boolean } | undefined,
-        ] = await Promise.all([
-          currentS1Input
-            ? this._stage1FetchAndGen(
-                update,
-                cancelFn,
-                stillInjecting,
-                stopCondition
-              )
-            : Promise.resolve(undefined),
-          currentS2Input
-            ? this._stage2Transform(currentS2Input, cancelFn)
-            : Promise.resolve(undefined),
-          currentS3Input
-            ? this._stage3ExecutePUT(currentS3Input, cancelFn)
-            : Promise.resolve(undefined),
-          currentS4Input
-            ? this._stage4Validate(currentS4Input, cancelFn)
-            : Promise.resolve(undefined),
-          currentS5Input
-            ? this._stage5MeasureAndRecord(currentS5Input, onResultFn)
-            : Promise.resolve(undefined),
-        ]);
-
-        // Handle Pipeline Flush if Stage 5 triggered cooperative shrinking
-        if (outS5?.triggeredShrink) {
-          s1 = undefined;
-          s2 = undefined;
-          s3 = undefined;
-          s4 = undefined;
-          isGenActive = true;
-          continue;
-        }
-
-        // Advance pipeline registers to next stage
-        s1 = outS1;
-        s2 = outS2;
-        s3 = outS3;
-        s4 = outS4;
-      }
-
-      return await this._finalizeRun(
-        finalStopReason ?? FuzzStopReason.NOMOREINPUTS,
+      const stopReason = await this._run2StagePipeline(
+        injectTests.length,
+        mode,
         update,
-        cancelFn
+        checkPeriodicUpdate,
+        cancelFn,
+        onResultFn
       );
+
+      return await this._finalizeRun(stopReason, update, cancelFn);
     } catch (e: unknown) {
       if (this._state === "running") {
         this._state = "crashed";
@@ -482,6 +380,87 @@ export class FuzzerV3 {
       await this._stopRunners();
     }
   } // fn: test
+
+  /**
+   * Runs the 2-stage overlapped pipeline: Gen || (ExecuteTest -> Measure)
+   */
+  protected async _run2StagePipeline(
+    injectCount: number,
+    mode: FuzzMode,
+    update: FuzzStatusUpdater,
+    checkPeriodicUpdate: () => void,
+    cancelFn?: () => boolean,
+    onResultFn?: FuzzResultCallback
+  ): Promise<FuzzStopReason> {
+    let sGenOut: PipelineSlot | undefined = undefined;
+    let isGenActive = true;
+    let finalStopReason: FuzzStopReason | undefined = undefined;
+
+    while (isGenActive || sGenOut) {
+      checkPeriodicUpdate();
+
+      const stopCondition = this._shouldGenStop(
+        injectCount,
+        Boolean(mode.gen),
+        Boolean(cancelFn && cancelFn())
+      );
+
+      if (typeof stopCondition !== "number") {
+        if (this._fuzzerFocus.mode === "shrink") {
+          this._exitShrink();
+        } else {
+          isGenActive = false;
+          if (!finalStopReason) {
+            finalStopReason = stopCondition;
+          }
+          if (
+            stopCondition === FuzzStopReason.PAUSE ||
+            stopCondition === FuzzStopReason.MAXTIME ||
+            stopCondition === FuzzStopReason.MAXFAILURES
+          ) {
+            break;
+          }
+        }
+      }
+
+      const stillInjecting = this._stage1InjectedCount < injectCount;
+      const currentGenInput: boolean = isGenActive;
+      const currentTestInput: PipelineSlot | undefined = sGenOut;
+
+      const [outGen, outTest]: [
+        PipelineSlot | undefined,
+        PipelineSlot | undefined,
+      ] = await Promise.all([
+        currentGenInput
+          ? this._stage1FetchAndGen(
+              update,
+              cancelFn,
+              stillInjecting,
+              stopCondition
+            )
+          : Promise.resolve(undefined),
+        currentTestInput
+          ? this._stage2ExecuteTest(currentTestInput, cancelFn)
+          : Promise.resolve(undefined),
+      ]);
+
+      if (outTest) {
+        const shrinkTriggered = await this._stageMeasureAndRecord(
+          outTest,
+          onResultFn
+        );
+        if (shrinkTriggered) {
+          sGenOut = undefined;
+          isGenActive = true;
+          continue;
+        }
+      }
+
+      sGenOut = outGen;
+    }
+
+    return finalStopReason ?? FuzzStopReason.NOMOREINPUTS;
+  } // fn: _run2StagePipeline
 
   /**
    * Retrieves diagnostic messages from the input generator.
@@ -520,14 +499,24 @@ export class FuzzerV3 {
                 (performance.now() - this._stats.startGenTime)
             )
           : undefined;
-      update({
-        type: "waiting-for-generator",
-        pendingGenerators:
-          this._compositeInputGenerator.getPendingGeneratorNames(),
-        stats: this._stats.currentRun,
-        pct: typeof stopCondition === "number" ? stopCondition : 0,
-      });
-      await this._compositeInputGenerator.waitForNextInput(remainingTimeout);
+      const waitTimer = setTimeout(() => {
+        update({
+          type: "waiting-for-generator",
+          pendingGenerators:
+            this._compositeInputGenerator.getPendingGeneratorNames(),
+          stats: this._stats.currentRun,
+          pct: typeof stopCondition === "number" ? stopCondition : 0,
+        });
+      }, 200);
+      try {
+        await this._compositeInputGenerator.waitForNextInput(remainingTimeout);
+      } catch (e: unknown) {
+        this._state = "crashed";
+        this._stats.results.stopReason = FuzzStopReason.CRASH;
+        throw e;
+      } finally {
+        clearTimeout(waitTimer);
+      }
     }
 
     if (
@@ -578,46 +567,27 @@ export class FuzzerV3 {
   } // fn: _stage1FetchAndGen
 
   /**
-   * STAGE 2: Transform Input (N+3)
+   * STAGE 2: Execute Test (PUT + Validators)
    */
-  protected async _stage2Transform(
-    slot: PipelineSlot,
-    _cancelFn?: () => boolean
-  ): Promise<PipelineSlot> {
-    if (!slot || slot.isBubble || !slot.candidate) {
-      return slot;
-    }
-
-    // Injected inputs or already transformed candidates pass through
-    slot.transformedCandidate = slot.candidate;
-    return slot;
-  } // fn: _stage2Transform
-
-  /**
-   * STAGE 3: Execute PUT (N+2)
-   */
-  protected async _stage3ExecutePUT(
+  protected async _stage2ExecuteTest(
     slot: PipelineSlot,
     cancelFn?: () => boolean
-  ): Promise<PipelineSlot> {
-    if (!slot || !slot.transformedCandidate || !this._runner) {
+  ): Promise<PipelineSlot | undefined> {
+    if (!slot || !slot.candidate || !this._runner) {
       return slot;
     }
 
     const result = this._createInitialResult(
-      slot.transformedCandidate,
+      slot.candidate,
       slot.genTime,
       slot.transformTime
     );
 
-    if (slot.transformedCandidate.transformerResult && this._transformRunner) {
-      this._handleTransformerResult(
-        slot.transformedCandidate.transformerResult,
-        result
-      );
+    if (slot.candidate.transformerResult && this._transformRunner) {
+      this._handleTransformerResult(slot.candidate.transformerResult, result);
     }
 
-    if (slot.isBubble || result.skipped || result.harnessErrors.length > 0) {
+    if (result.skipped || result.harnessErrors.length > 0) {
       slot.result = result;
       return slot;
     }
@@ -639,9 +609,7 @@ export class FuzzerV3 {
       );
     } catch (e: unknown) {
       if (isError(e) && e.message === "runnerInterrupted") {
-        slot.isBubble = true;
-        slot.result = result;
-        return slot;
+        return undefined;
       }
 
       if (isError(e)) {
@@ -672,55 +640,31 @@ export class FuzzerV3 {
     slot.runTime = result.timers.run;
 
     this._applyRunnerOutput(exeOutput, result);
+
+    if (!result.skipped) {
+      const startValTime = performance.now();
+      const cancelCheck = cancelFn && !slot.injected ? cancelFn : undefined;
+      const oracleSuccess = await this._evaluateOracles(result, cancelCheck);
+      if (!oracleSuccess) {
+        return undefined;
+      }
+      slot.valTime = performance.now() - startValTime;
+    }
+
     slot.result = result;
     slot.exeOutput = exeOutput;
-
-    // Snapshot coverage measures immediately while coverage data is fresh
-    slot.coverageMeasurements = this._measures
-      .filter((m) => !(m instanceof FailedTestMeasure))
-      .map((m) => m.measure(slot.transformedCandidate!, result));
-
     return slot;
-  } // fn: _stage3ExecutePUT
+  } // fn: _stage2ExecuteTest
 
   /**
-   * STAGE 4: Validate / Oracles (N+1)
+   * Final Measure, Record & Feedback
    */
-  protected async _stage4Validate(
-    slot: PipelineSlot,
-    cancelFn?: () => boolean
-  ): Promise<PipelineSlot> {
-    if (!slot || !slot.result) {
-      return slot;
-    }
-
-    if (
-      slot.isBubble ||
-      slot.result.skipped ||
-      slot.result.harnessErrors.length > 0
-    ) {
-      return slot;
-    }
-
-    const startValTime = performance.now();
-    const cancelCheck = cancelFn && !slot.injected ? cancelFn : undefined;
-    const oracleSuccess = await this._evaluateOracles(slot.result, cancelCheck);
-    if (!oracleSuccess) {
-      slot.isBubble = true;
-    }
-    slot.valTime = performance.now() - startValTime;
-    return slot;
-  } // fn: _stage4Validate
-
-  /**
-   * STAGE 5: Measure, Record & Feedback (N)
-   */
-  protected async _stage5MeasureAndRecord(
+  protected async _stageMeasureAndRecord(
     slot: PipelineSlot,
     onResultFn?: FuzzResultCallback
-  ): Promise<{ triggeredShrink: boolean } | undefined> {
-    if (!slot || !slot.result || !slot.transformedCandidate) {
-      return undefined;
+  ): Promise<boolean> {
+    if (!slot || !slot.result || !slot.candidate) {
+      return false;
     }
 
     const result = slot.result;
@@ -730,22 +674,14 @@ export class FuzzerV3 {
 
     // 2. Take measurements & feed back to generator
     const startMeasureFeedbackTime = performance.now();
-    const measurements =
-      slot.coverageMeasurements !== undefined
-        ? [
-            ...slot.coverageMeasurements,
-            ...this._measures
-              .filter((m) => m instanceof FailedTestMeasure)
-              .map((e) => e.measure(slot.transformedCandidate!, result)),
-          ]
-        : this._measures.map((e) =>
-            e.measure(slot.transformedCandidate!, result)
-          );
+    const measurements = this._measures.map((e) =>
+      e.measure(slot.candidate!, result)
+    );
 
     result.interestingReasons = this._compositeInputGenerator.onInputFeedback(
       measurements,
       result.timers.run + result.timers.gen,
-      slot.transformedCandidate
+      slot.candidate
     );
     const measureTime = performance.now() - startMeasureFeedbackTime;
     slot.measureTime = measureTime;
@@ -753,7 +689,7 @@ export class FuzzerV3 {
     // 3. Record stats and outcomes
     this._stats.record(
       result,
-      slot.transformedCandidate,
+      slot.candidate,
       slot.valTime,
       measureTime,
       this._fuzzerFocus.mode
@@ -771,8 +707,8 @@ export class FuzzerV3 {
       onResultFn(deepFreeze(result));
     }
 
-    return { triggeredShrink };
-  } // fn: _stage5MeasureAndRecord
+    return triggeredShrink;
+  } // fn: _stageMeasureAndRecord
 
   // ---------------------------------------------------------------------------
   // Internal Helpers

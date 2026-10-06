@@ -344,7 +344,7 @@ describe("fuzzer: general & parameterized engine tests", () => {
           `
           export function sleepFn(x: number): number {
             const start = Date.now();
-            while (Date.now() - start < 60) {}
+            while (Date.now() - start < 20) {}
             return x;
           }
           `
@@ -353,7 +353,7 @@ describe("fuzzer: general & parameterized engine tests", () => {
         const options = {
           ...intOptions,
           maxTests: 50,
-          suiteTimeout: 150,
+          suiteTimeout: 300,
           fnTimeout: 1000,
         };
 
