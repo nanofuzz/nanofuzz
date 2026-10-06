@@ -121,6 +121,10 @@ function createProgram(): Commander.Command {
       "failures"
     )
     .option(
+      `--no-config-file`,
+      `Don't load configuration and saved tests from .nano.json5 file`
+    )
+    .option(
       `--engine <v1|v2>`,
       `Fuzzer engine version: 'v1' (classic) or 'v2' (refactored)`,
       (val: string): FuzzerEngineVersion => (val === "v2" ? "v2" : "v1"),
@@ -557,7 +561,10 @@ export async function runCliInProcess(
     const fnFuzzOptions = fnRef?.fuzzOptions;
 
     // Load companion .nano.json5 configuration and pinned tests (with version upgrade and migration)
-    const fnConfig = FuzzConfigStore.loadForFunction(filename, fnname);
+    const useConfigFile = options["configFile"] !== false;
+    const fnConfig = useConfigFile
+      ? FuzzConfigStore.loadForFunction(filename, fnname)
+      : FuzzConfigStore.createDefaultFunctionConfig(fnname);
     const injectTests: FuzzPinnedTest[] = Object.values(fnConfig.tests ?? {});
 
     function getEffectiveOption<K extends keyof FuzzOptions>(
@@ -575,6 +582,7 @@ export async function runCliInProcess(
         return fnFuzzOptions[fuzzOptKey]!;
       }
       if (
+        useConfigFile &&
         isDefault &&
         fnConfig.options &&
         fnConfig.options[fuzzOptKey] !== undefined
@@ -650,6 +658,15 @@ export async function runCliInProcess(
       },
       { engine: options["engine"] }
     );
+
+    // Apply custom argument overrides from companion .nano.json5
+    if (useConfigFile && fnConfig.argOverrides?.length) {
+      FuzzConfigStore.applyArgOverrides(
+        fuzzer.env.function,
+        fnConfig.argOverrides,
+        fuzzer.env.options.argDefaults
+      );
+    }
 
     console.log(`Target: ${fnname} of ${filename}`);
     console.log(`Target ready to test.`);

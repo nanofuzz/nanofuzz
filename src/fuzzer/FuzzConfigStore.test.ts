@@ -1,8 +1,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as JSONN from "../Jsonn";
 import { FuzzConfigStore, CURR_FILE_FMT_VER } from "./FuzzConfigStore";
 import { FuzzPinnedTest, FuzzTests } from "./Types";
+import * as ProgramFactory from "./analysis/ProgramFactory";
 
 describe("FuzzConfigStore", () => {
   let tmpDir: string;
@@ -120,6 +122,148 @@ describe("FuzzConfigStore", () => {
     expect(
       upgraded.functions.foo.options.generators.UserInputGenerator.enabled
     ).toBe(true);
+  });
+
+  it("upgrades v0.3.3 file to v0.4.0 with options, argOverrides, and test origin metadata", () => {
+    const rawV033 = `{
+      version: '0.3.3',
+      functions: {
+        decodeRoman: {
+          options: {
+            argDefaults: {
+              strCharset: ' !"#$%&\\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\\\]^_\\\`abcdefghijklmnopqrstuvwxyz{|}~',
+              strLength: { min: 0, max: 10 },
+              numInteger: true,
+              numSigned: false,
+              anyType: 'number',
+              anyDims: 0,
+              dftDimLength: { min: 0, max: 4 },
+              dimLength: []
+            },
+            maxTests: 1000,
+            fnTimeout: 100,
+            suiteTimeout: 3000,
+            maxFailures: 0,
+            onlyFailures: false,
+            useHuman: true,
+            useImplicit: true,
+            useProperty: true
+          },
+          argOverrides: [{ string: { minStrLen: 0, maxStrLen: 10, strCharset: 'MCXVI' } }],
+          validators: ['decodeRoman_length'],
+          tests: {
+            "[{name:'str',offset:0,value:''}]": {
+              input: [{ name: 'str', offset: 0, value: '' }],
+              output: [{ name: '0', offset: 0, value: 0 }],
+              pinned: false,
+              expectedOutput: [{ name: '0', offset: 0, isException: true }]
+            }
+          }
+        },
+        toRoman: {
+          options: {
+            argDefaults: {
+              strCharset: ' !"#$%&\\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\\\]^_\\\`abcdefghijklmnopqrstuvwxyz{|}~',
+              strLength: { min: 0, max: 10 },
+              numInteger: true,
+              numSigned: false,
+              anyType: 'number',
+              anyDims: 0,
+              dftDimLength: { min: 0, max: 4 },
+              dimLength: []
+            },
+            maxTests: 1000,
+            fnTimeout: 100,
+            suiteTimeout: 3000,
+            maxFailures: 0,
+            onlyFailures: false,
+            useHuman: true,
+            useImplicit: true,
+            useProperty: true
+          },
+          argOverrides: [{ number: { numInteger: true, min: 0, max: 100 } }],
+          validators: ['toRoman_roundtrip'],
+          tests: {
+            "[{name:'n',offset:0,value:0}]": {
+              input: [{ name: 'n', offset: 0, value: 0 }],
+              output: [{ name: '0', offset: 0, value: '' }],
+              pinned: false,
+              expectedOutput: [{ name: '0', offset: 0, isException: true }]
+            }
+          }
+        }
+      }
+    }`;
+
+    const parsed = JSONN.parse(rawV033);
+    const upgraded = FuzzConfigStore.upgrade(parsed, "roman.nano.json5");
+
+    expect(upgraded.version).toBe(CURR_FILE_FMT_VER);
+    expect(upgraded.functions.decodeRoman).toBeDefined();
+    expect(upgraded.functions.toRoman).toBeDefined();
+
+    // 1. Verify decodeRoman options upgraded with generators, measures, useTransformer, and maxDupeInputs
+    const decodeFn = upgraded.functions.decodeRoman;
+    expect(decodeFn.options.maxDupeInputs).toBe(500);
+    expect(decodeFn.options.useTransformer).toBe(true);
+    expect(decodeFn.options.generators.RandomInputGenerator.enabled).toBe(true);
+    expect(decodeFn.options.generators.UserInputGenerator.enabled).toBe(true);
+    expect(decodeFn.options.measures.CoverageMeasure.enabled).toBe(true);
+    expect(decodeFn.options.measures.FailedTestMeasure.enabled).toBe(true);
+
+    // 2. Verify decodeRoman argOverrides preserved
+    expect(decodeFn.argOverrides?.length).toBe(1);
+    expect(decodeFn.argOverrides?.[0].string?.strCharset).toBe("MCXVI");
+
+    // 3. Verify decodeRoman tests converted and re-keyed with origin tagging
+    const decodeTests = Object.values(decodeFn.tests);
+    expect(decodeTests.length).toBe(1);
+    const decodeTest = decodeTests[0];
+    expect(decodeTest.input[0].origin).toEqual({
+      type: "generator",
+      generator: "RandomInputGenerator",
+    });
+    expect(decodeTest.output[0].origin).toEqual({ type: "put" });
+    expect(decodeTest.expectedOutput?.[0].origin).toEqual({ type: "user" });
+
+    // 4. Verify toRoman argOverrides and tests
+    const toRomanFn = upgraded.functions.toRoman;
+    expect(toRomanFn.argOverrides?.length).toBe(1);
+    expect(toRomanFn.argOverrides?.[0].number?.min).toBe(0);
+    expect(toRomanFn.argOverrides?.[0].number?.max).toBe(100);
+
+    const toRomanTests = Object.values(toRomanFn.tests);
+    expect(toRomanTests.length).toBe(1);
+    expect(toRomanTests[0].input[0].origin).toEqual({
+      type: "generator",
+      generator: "RandomInputGenerator",
+    });
+  });
+
+  it("applies argOverrides to function argument definitions", () => {
+    const srcFile = path.join(tmpDir, "argoverrides.ts");
+    fs.writeFileSync(
+      srcFile,
+      "export function testOverrides(s: string, n: number): boolean { return s.length > n; }"
+    );
+    const program = ProgramFactory.fromFile(srcFile);
+    const fnDef = program.functionsExported["testOverrides"];
+    expect(fnDef).toBeDefined();
+
+    FuzzConfigStore.applyArgOverrides(
+      fnDef,
+      [
+        { string: { minStrLen: 3, maxStrLen: 7, strCharset: "ABC" } },
+        { number: { min: 10, max: 20, numInteger: true } },
+      ],
+      FuzzConfigStore.getDefaultFuzzOptions().argDefaults
+    );
+
+    const args = fnDef.getArgDefs();
+    expect(args[0].getOptions().strLength).toEqual({ min: 3, max: 7 });
+    expect(args[0].getOptions().strCharset).toBe("ABC");
+    expect(args[1].getIntervals()).toEqual([{ min: 10, max: 20 }]);
+    expect(args[1].getOptions().numInteger).toBe(true);
   });
 
   it("throws error for unknown schema version", () => {

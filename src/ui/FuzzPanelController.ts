@@ -10,7 +10,6 @@ import {
   ArgTag,
   ArgValueTypeWrapped,
   FunctionRef,
-  Interval,
 } from "../fuzzer/analysis/Types";
 import {
   bigIntOrThrow,
@@ -28,11 +27,7 @@ import {
   normalizePathForKey,
 } from "../fuzzer/Util";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
-import {
-  removeTickFromOrigin,
-  encodeEscapeSequences,
-  decodeEscapeSequences,
-} from "../Util";
+import { removeTickFromOrigin, encodeEscapeSequences } from "../Util";
 import { FuzzerFactory, IFuzzer } from "../fuzzer/FuzzerFactory";
 import {
   applyCoverageHeatmapToEditor,
@@ -3750,129 +3745,7 @@ function _applyArgOverrides(
   }
 
   // Apply argument option changes
-  for (const i in argOverrides) {
-    const thisOverride = argOverrides[i];
-    const thisArg: ArgDef = argsFlat[i];
-    if (Number(i) + 1 > argsFlat.length) {
-      break; // exit the for loop
-    }
-
-    // Min and max values
-    switch (thisArg.getType()) {
-      case ArgTag.NUMBER:
-        if (thisOverride.number) {
-          // Min / Max
-          thisArg.setIntervals([
-            {
-              min: Number(thisOverride.number.min),
-              max: Number(thisOverride.number.max),
-            },
-          ]);
-          // Number is integer
-          thisArg.setOptions({
-            numInteger: !!thisOverride.number.numInteger,
-          });
-        }
-        break;
-
-      case ArgTag.BIGINT:
-        if (thisOverride.bigInt) {
-          // Min / Max
-          thisArg.setIntervals([
-            {
-              min: thisOverride.bigInt.min,
-              max: thisOverride.bigInt.max,
-            },
-          ]);
-        }
-        break;
-
-      case ArgTag.BOOLEAN:
-        if (thisOverride.boolean) {
-          // Min / Max
-          thisArg.setIntervals([
-            {
-              min: !!thisOverride.boolean.min,
-              max: !!thisOverride.boolean.max,
-            },
-          ]);
-        }
-        break;
-      case ArgTag.STRING:
-        if (thisOverride.string) {
-          // String length
-          thisArg.setOptions({
-            strLength: {
-              min: Number(thisOverride.string.minStrLen),
-              max: Number(thisOverride.string.maxStrLen),
-            },
-            // Character set. Note: empty sets are invalid
-            strCharset:
-              thisOverride.string.strCharset === ""
-                ? argDefaults.strCharset
-                : decodeEscapeSequences(thisOverride.string.strCharset),
-            strRegex: thisOverride.string.strRegex,
-          });
-        }
-        break;
-      case ArgTag.BYTES:
-        if (thisOverride.bytes) {
-          thisArg.setOptions({
-            byteLength: {
-              min: Number(thisOverride.bytes.minByteLen),
-              max: Number(thisOverride.bytes.maxByteLen),
-            },
-          });
-        }
-        break;
-      case ArgTag.DICTIONARY:
-        if (thisOverride.dictionary) {
-          thisArg.setOptions({
-            dictLength: {
-              min: Number(thisOverride.dictionary.minDictLen),
-              max: Number(thisOverride.dictionary.maxDictLen),
-            },
-          });
-        }
-        break;
-      case ArgTag.SET:
-        if (thisOverride.set) {
-          thisArg.setOptions({
-            setLength: {
-              min: Number(thisOverride.set.minSetLen),
-              max: Number(thisOverride.set.maxSetLen),
-            },
-          });
-        }
-        break;
-      case ArgTag.OBJECT:
-      case ArgTag.LITERAL:
-      case ArgTag.UNION:
-      case ArgTag.TUPLE:
-      case ArgTag.UNRESOLVED:
-        break;
-    }
-
-    // isNoInput
-    thisArg.setOptions({
-      isNoInput: thisOverride.isNoInput ?? false,
-    });
-
-    // Array dimensions
-    if (thisOverride.array) {
-      thisOverride.array.dimLength.forEach((e: Interval<number>) => {
-        if (!(typeof e === "object" && "min" in e && "max" in e)) {
-          throw new Error(
-            `Invalid interval for array dimensions: ${JSONN.stringify(e)}`
-          );
-        }
-      });
-      thisArg.setOptions({
-        dimLength: thisOverride.array.dimLength,
-        dimsUnique: !!thisOverride.array.dimsUnique,
-      });
-    }
-  } // for: each argument
+  FuzzConfigStore.applyArgOverrides(fn, argOverrides, argDefaults);
 } // fn: _applyArgOverrides()
 
 /**

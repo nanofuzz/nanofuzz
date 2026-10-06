@@ -1121,6 +1121,66 @@ export function myPut(x: number): number {
     expect(res.stdout).toContain("===============");
   });
 
+  it("--no-config-file: don't load saved tests and options from .nano.json5", async () => {
+    const tsFile = path.join(tmpDir, "noconfig_example.ts");
+    const jsonFile = path.join(tmpDir, "noconfig_example.ts.nano.json5");
+    fs.writeFileSync(
+      tsFile,
+      `
+export function myPut(x: number): number {
+  return x;
+}
+`,
+      "utf8"
+    );
+    fs.writeFileSync(
+      jsonFile,
+      JSON.stringify({
+        version: "0.4.0",
+        functions: {
+          myPut: {
+            options: {},
+            validators: [],
+            isVoid: false,
+            tests: {
+              '{"value":[5]}': {
+                input: [
+                  { name: "x", offset: 0, value: 5, origin: { type: "user" } },
+                ],
+                output: [],
+                pinned: true,
+                expectedOutput: [
+                  {
+                    name: "0",
+                    offset: 0,
+                    value: 999,
+                    origin: { type: "user" },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }),
+      "utf8"
+    );
+
+    const res = await runCli([
+      tsFile,
+      "myPut",
+      "--no-config-file",
+      "--max-tests",
+      "5",
+      "--seed",
+      "cli_seed_noconfig",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain("Testing finished.");
+    expect(res.stdout).toContain("Injected 0 and generated 5 inputs");
+    expect(res.stdout).not.toContain("FAILED by Example Oracle");
+  });
+
   it("--max-failures 1: exception via PUT exception with shrinking", async () => {
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
     const targetFn = "testStandardVoidReturnException";

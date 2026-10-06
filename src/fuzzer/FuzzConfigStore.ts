@@ -2,8 +2,13 @@ import * as fs from "node:fs";
 import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
 import { getIoKey } from "./Util";
-import { removeTickFromOrigin, isKeyedObject } from "../Util";
 import {
+  removeTickFromOrigin,
+  isKeyedObject,
+  decodeEscapeSequences,
+} from "../Util";
+import {
+  FuzzArgOverride,
   FuzzOptions,
   FuzzPinnedTest,
   FuzzTests,
@@ -11,6 +16,8 @@ import {
 } from "./Types";
 import * as TestAdapterFactory from "./adapters/TestAdapterFactory";
 import { ArgDef } from "./analysis/ArgDef";
+import { FunctionDef } from "./analysis/FunctionDef";
+import { ArgOptions, ArgTag, Interval } from "./analysis/Types";
 
 /**
  * Centralized store for reading, migrating, upgrading, updating, and saving
@@ -626,6 +633,142 @@ export class FuzzConfigStore {
 
     return FuzzConfigStore.saveForFunction(sourcePath, fnName, fnSet, options);
   } // fn: updatePinnedTest
+
+  /**
+   * Applies a set of argument overrides (e.g., from .nano.json5 or UI) to a
+   * function's argument definitions.
+   *
+   * @param fn Function under test
+   * @param argOverrides Overrides for default argument options
+   * @param argDefaults Default argument generation options
+   */
+  public static applyArgOverrides(
+    fn: FunctionDef,
+    argOverrides: FuzzArgOverride[] = [],
+    argDefaults: ArgOptions = ArgDef.getDefaultOptions()
+  ): void {
+    const argsFlat = fn.getArgDefsFlat();
+
+    for (const i in argOverrides) {
+      if (Number(i) >= argsFlat.length) {
+        break;
+      }
+      const thisOverride = argOverrides[i];
+      const thisArg: ArgDef = argsFlat[i];
+
+      switch (thisArg.getType()) {
+        case ArgTag.NUMBER:
+          if (thisOverride.number) {
+            thisArg.setIntervals([
+              {
+                min: Number(thisOverride.number.min),
+                max: Number(thisOverride.number.max),
+              },
+            ]);
+            thisArg.setOptions({
+              numInteger: Boolean(thisOverride.number.numInteger),
+            });
+          }
+          break;
+
+        case ArgTag.BIGINT:
+          if (thisOverride.bigInt) {
+            thisArg.setIntervals([
+              {
+                min: thisOverride.bigInt.min,
+                max: thisOverride.bigInt.max,
+              },
+            ]);
+          }
+          break;
+
+        case ArgTag.BOOLEAN:
+          if (thisOverride.boolean) {
+            thisArg.setIntervals([
+              {
+                min: Boolean(thisOverride.boolean.min),
+                max: Boolean(thisOverride.boolean.max),
+              },
+            ]);
+          }
+          break;
+
+        case ArgTag.STRING:
+          if (thisOverride.string) {
+            thisArg.setOptions({
+              strLength: {
+                min: Number(thisOverride.string.minStrLen),
+                max: Number(thisOverride.string.maxStrLen),
+              },
+              strCharset:
+                thisOverride.string.strCharset === ""
+                  ? argDefaults.strCharset
+                  : decodeEscapeSequences(thisOverride.string.strCharset),
+              strRegex: thisOverride.string.strRegex,
+            });
+          }
+          break;
+
+        case ArgTag.BYTES:
+          if (thisOverride.bytes) {
+            thisArg.setOptions({
+              byteLength: {
+                min: Number(thisOverride.bytes.minByteLen),
+                max: Number(thisOverride.bytes.maxByteLen),
+              },
+            });
+          }
+          break;
+
+        case ArgTag.DICTIONARY:
+          if (thisOverride.dictionary) {
+            thisArg.setOptions({
+              dictLength: {
+                min: Number(thisOverride.dictionary.minDictLen),
+                max: Number(thisOverride.dictionary.maxDictLen),
+              },
+            });
+          }
+          break;
+
+        case ArgTag.SET:
+          if (thisOverride.set) {
+            thisArg.setOptions({
+              setLength: {
+                min: Number(thisOverride.set.minSetLen),
+                max: Number(thisOverride.set.maxSetLen),
+              },
+            });
+          }
+          break;
+
+        case ArgTag.OBJECT:
+        case ArgTag.LITERAL:
+        case ArgTag.UNION:
+        case ArgTag.TUPLE:
+        case ArgTag.UNRESOLVED:
+          break;
+      }
+
+      thisArg.setOptions({
+        isNoInput: thisOverride.isNoInput ?? false,
+      });
+
+      if (thisOverride.array) {
+        thisOverride.array.dimLength.forEach((e: Interval<number>) => {
+          if (!(typeof e === "object" && "min" in e && "max" in e)) {
+            throw new Error(
+              `Invalid interval for array dimensions: ${JSONN.stringify(e)}`
+            );
+          }
+        });
+        thisArg.setOptions({
+          dimLength: thisOverride.array.dimLength,
+          dimsUnique: Boolean(thisOverride.array.dimsUnique),
+        });
+      }
+    }
+  } // fn: applyArgOverrides
 } // class: FuzzConfigStore
 
 // -------------------------------------------------------------------------- //

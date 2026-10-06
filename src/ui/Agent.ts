@@ -256,6 +256,15 @@ export async function runFuzz(
       normalizedOptions
     );
 
+    // Apply custom argument overrides from companion .nano.json5
+    if (fnConfig.argOverrides?.length) {
+      FuzzConfigStore.applyArgOverrides(
+        tester.env.function,
+        fnConfig.argOverrides,
+        tester.env.options.argDefaults
+      );
+    }
+
     const argDefs = tester.env.function.getArgDefs();
     const inputItems: (AgentTestCase | Record<string, unknown> | unknown[])[] =
       [...(options.inputs ?? []), ...(options.tests ?? [])];
