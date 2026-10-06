@@ -1974,6 +1974,14 @@ export class PythonProgram extends AbstractProgram {
           },
         };
       }
+      try {
+        const astType = this._getTypeRefFromAstNode(actualNode);
+        if (astType?.type && astType.type.type !== ArgTag.UNRESOLVED) {
+          return astType;
+        }
+      } catch {
+        // ignore
+      }
       return undefined;
     }
     node = actualNode;
@@ -3176,7 +3184,7 @@ export class PythonProgram extends AbstractProgram {
 
   public resolveTypeRef(typeRef: TypeRef): TypeRef {
     // Handle any resolved or partially-resolved type references
-    if (typeRef.type) {
+    if (typeRef.type && typeRef.type.type !== ArgTag.UNRESOLVED) {
       if (typeRef.type.resolved) {
         // Base case: We found a fully-resolved type reference
         return typeRef; // Return resolved type
@@ -3194,6 +3202,96 @@ export class PythonProgram extends AbstractProgram {
           typeRef
         )})`
       );
+    }
+
+    // Resolve standard builtin types
+    switch (typeRef.typeRefName) {
+      case "int":
+        typeRef.type = {
+          type: ArgTag.NUMBER,
+          dims: 0,
+          children: [],
+          options: { numInteger: true },
+          resolved: true,
+        };
+        return typeRef;
+      case "float":
+        typeRef.type = {
+          type: ArgTag.NUMBER,
+          dims: 0,
+          children: [],
+          options: { numInteger: false },
+          resolved: true,
+        };
+        return typeRef;
+      case "complex":
+        typeRef.type = {
+          type: ArgTag.NUMBER,
+          dims: 0,
+          children: [],
+          resolved: true,
+        };
+        return typeRef;
+      case "str":
+        typeRef.type = {
+          type: ArgTag.STRING,
+          dims: 0,
+          children: [],
+          resolved: true,
+        };
+        return typeRef;
+      case "bool":
+        typeRef.type = {
+          type: ArgTag.BOOLEAN,
+          dims: 0,
+          children: [],
+          resolved: true,
+        };
+        return typeRef;
+      case "bytes":
+      case "bytearray":
+        typeRef.type = {
+          type: ArgTag.BYTES,
+          dims: 0,
+          children: [],
+          resolved: true,
+        };
+        return typeRef;
+      case "None":
+      case "NoneType":
+      case "none":
+        typeRef.type = {
+          type: ArgTag.LITERAL,
+          dims: 0,
+          children: [],
+          value: undefined,
+          resolved: true,
+        };
+        return typeRef;
+      case "Any":
+        typeRef.type = {
+          type: this.options.anyType,
+          dims: this.options.anyDims,
+          children: [],
+          resolved: true,
+        };
+        return typeRef;
+      case "UUID":
+      case "uuid.UUID":
+        typeRef.typeRefName = "UUID";
+        typeRef.type = {
+          type: ArgTag.STRING,
+          dims: 0,
+          children: [],
+          options: {
+            strLength: { min: 36, max: 36 },
+            strCharset: "0123456789abcdefABCDEF-",
+            strRegex:
+              "\\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\Z",
+          },
+          resolved: true,
+        };
+        return typeRef;
     }
 
     // Type is not yet resolved. Look up and resolve the type reference
@@ -3220,32 +3318,6 @@ export class PythonProgram extends AbstractProgram {
       typeRef.optional = typeRef.optional || resolvedType.optional;
 
       return typeRef; // this._types[typeRef.typeRefName];
-    } else if (typeRef.typeRefName === "Any") {
-      typeRef.type = {
-        type: this.options.anyType,
-        dims: this.options.anyDims,
-        children: [],
-        resolved: true,
-      };
-      return typeRef;
-    } else if (
-      typeRef.typeRefName === "UUID" ||
-      typeRef.typeRefName === "uuid.UUID"
-    ) {
-      typeRef.typeRefName = "UUID";
-      typeRef.type = {
-        type: ArgTag.STRING,
-        dims: 0,
-        children: [],
-        options: {
-          strLength: { min: 36, max: 36 },
-          strCharset: "0123456789abcdefABCDEF-",
-          strRegex:
-            "\\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\Z",
-        },
-        resolved: true,
-      };
-      return typeRef;
     } else {
       // Follow the imported type reference
       // Split the local name into parts (e.g., "foo.bar" => ["foo", "bar"])
