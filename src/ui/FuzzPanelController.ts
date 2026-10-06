@@ -13,7 +13,11 @@ import {
   FunctionRef,
   Interval,
 } from "../fuzzer/analysis/Types";
-import { getTransformers, getValidators } from "../fuzzer/analysis/Util";
+import {
+  bigIntOrThrow,
+  getTransformers,
+  getValidators,
+} from "../fuzzer/analysis/Util";
 import { getIoKey } from "../fuzzer/Util";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
@@ -411,6 +415,18 @@ export class FuzzPanel {
   // ----------------------- Message Handling ----------------------- //
 
   /**
+   * Posts a message to the webview serialized using JSONN to safely
+   * transport BigInt, Uint8Array, Set, Map, and undefined across the VS Code boundary.
+   *
+   * @param message The message to send to the webview.
+   */
+  private _postToView(message: FuzzPanelMessageToWebView): void {
+    if (!this._isDisposed) {
+      this._panel.webview.postMessage({ jsonn: JSONN.stringify(message) });
+    }
+  } // fn: _postToView()
+
+  /**
    * Registers the message handler that allows the client side of
    * the WebView to communicate back with this extension.
    *
@@ -418,7 +434,10 @@ export class FuzzPanel {
    */
   private _setWebviewMessageListener(webview: vscode.Webview) {
     webview.onDidReceiveMessage(
-      async (message: FuzzPanelMessageFromWebView) => {
+      async (rawMessage: FuzzPanelMessageFromWebView | { jsonn: string }) => {
+        const message: FuzzPanelMessageFromWebView = isJsonnEnvelope(rawMessage)
+          ? JSONN.parse(rawMessage.jsonn)
+          : rawMessage;
         this._wasShowingCoverage = this._showingCoverage;
         switch (message.command) {
           case "fuzz.run":
@@ -985,7 +1004,7 @@ export class FuzzPanel {
     const message: FuzzPanelMessageToWebView = {
       command: "coverage.stale",
     };
-    this._panel.webview.postMessage(message);
+    this._postToView(message);
   } // fn: _doStaleNotify
 
   /**
@@ -1440,7 +1459,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         command: "validator.list",
         validators: newValidators.map((e) => e.name),
       };
-      this._panel.webview.postMessage(message);
+      this._postToView(message);
     }
 
     // Transformers
@@ -1462,7 +1481,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         command: "transformer.list",
         transformers: newTransformers.map((e) => e.name),
       };
-      this._panel.webview.postMessage(message);
+      this._postToView(message);
     }
   } // fn: _doGetValidatorsAndTransformers()
 
@@ -1606,7 +1625,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               command: "busy.message",
               message: payload,
             };
-            this._panel.webview.postMessage(message);
+            this._postToView(message);
           },
           // Fn to cancel testing
           () => this._pauseTesting
@@ -1657,7 +1676,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         const message: FuzzPanelMessageToWebView = {
           command: "busy.ending",
         };
-        this._panel.webview.postMessage(message);
+        this._postToView(message);
         this._updateHtml();
         this._focusInput = undefined;
       } catch (e: unknown) {
@@ -1745,7 +1764,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       const message: FuzzPanelMessageToWebView = {
         command: "coverage.hidden",
       };
-      this._panel.webview.postMessage(message);
+      this._postToView(message);
     }
 
     // Telemetry
@@ -1917,7 +1936,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         },
       },
     };
-    this._panel.webview.postMessage(message);
+    this._postToView(message);
   } //fn: onDidChangeConfiguration
 
   /**
@@ -3228,6 +3247,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             typeString = htmlEscape(ValueMapper.toLang(lang, constantValue));
           }
           break;
+        case ArgTag.BIGINT:
         case ArgTag.NUMBER:
         case ArgTag.STRING:
         case ArgTag.BOOLEAN:
@@ -3273,6 +3293,7 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
       case ArgTag.STRING:
       case ArgTag.BOOLEAN:
       case ArgTag.UNRESOLVED:
+      case ArgTag.BIGINT:
       case ArgTag.BYTES:
         sep = " = " + htmlEllipsis;
         break;
@@ -3332,6 +3353,22 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
               !arg.getOptions().numInteger ? " checked " : ""
             }>Float</vscode-radio>
           </vscode-radio-group>`;
+        break;
+      }
+
+      // BigInt-specific Options
+      case ArgTag.BIGINT: {
+        // Note: bigints use their own control ids so that the front-end can
+        // tell them apart from numbers, which it parses with `Number()`.
+        // A bigint is always integral, so there is no Integer/Float choice.
+        const interval = arg.getIntervals()[0];
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMin" name="${idBase}-bigIntMin" value="${htmlEscape(
+          bigIntOrThrow(interval.min).toString()
+        )}">Min value</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMax" name="${idBase}-bigIntMax" value="${htmlEscape(
+          bigIntOrThrow(interval.max).toString()
+        )}">Max value</vscode-text-field>`;
         break;
       }
 
@@ -3989,6 +4026,19 @@ function _applyArgOverrides(
           });
         }
         break;
+
+      case ArgTag.BIGINT:
+        if (thisOverride.bigInt) {
+          // Min / Max
+          thisArg.setIntervals([
+            {
+              min: thisOverride.bigInt.min,
+              max: thisOverride.bigInt.max,
+            },
+          ]);
+        }
+        break;
+
       case ArgTag.BOOLEAN:
         if (thisOverride.boolean) {
           // Min / Max
@@ -4159,6 +4209,21 @@ function toPrettyList(inList: string[]): string {
         (a, b, i, array) => a + (i < array.length - 1 ? ", " : ", and ") + b
       );
 } // fn: toPrettyList()
+
+/**
+ * Type guard function that returns true if `obj` is a JSONN envelope
+ *
+ * @param obj object to check
+ * @returns true if `obj` is a JSONN envelope
+ */
+function isJsonnEnvelope(obj: unknown): obj is { jsonn: string } {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "jsonn" in obj &&
+    typeof obj.jsonn === "string"
+  );
+} // fn: isJsonnEnvelope()
 
 /**
  * Returns the number of sequential failues with the same message from

@@ -936,6 +936,7 @@ export class PythonProgram extends AbstractProgram {
       case ArgTag.BYTES:
       case ArgTag.STRING:
       case ArgTag.BOOLEAN:
+      case ArgTag.BIGINT:
       case ArgTag.NUMBER: {
         thisType.type = {
           dims: dims,
@@ -3530,6 +3531,9 @@ export class PythonProgram extends AbstractProgram {
 
       case ArgTag.BYTES:
         return "bytes";
+
+      case ArgTag.BIGINT:
+        return "int";
 
       case ArgTag.UNRESOLVED:
         throw new Error(`Internal error: unresolved types cannot be annotated`);

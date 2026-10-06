@@ -107,6 +107,9 @@ function generateRandomInputFn(
 
   const argType = arg.getType();
   switch (argType) {
+    case ArgTag.BIGINT:
+      randFn = getRandomBigint;
+      break;
     case ArgTag.NUMBER:
       randFn = getRandomNumber;
       break;
@@ -395,6 +398,53 @@ function generateRandomInputFn(
 } // fn: generateRandomInput
 
 /**
+ * Returns a random bigint >= min and <= max
+ *
+ * @param `prng` pseudo-random number generator
+ * @param `min` minimum value allowed (inclusive)
+ * @param `max` maximum value allowed (inclusive)
+ * @param `options` argument option set
+ * @returns random bigint >= min and <= max
+ *
+ * Throws an exception if min and max are not bigints
+ */
+const getRandomBigint: PrivateRandFn = (
+  prng: seedrandom.prng,
+  min: ArgValueType,
+  max: ArgValueType
+): bigint => {
+  if (typeof min !== "bigint" || typeof max !== "bigint")
+    throw new Error("Min and max must be bigints");
+
+  const range = max - min;
+  if (range <= 0n) return min;
+
+  // Single-step uniform sampling for small ranges
+  if (range <= BigInt(Number.MAX_SAFE_INTEGER)) {
+    const rangeInt = Number(range);
+    return BigInt(Math.floor(prng() * (rangeInt + 1))) + min;
+  }
+
+  // Bitwise chunking with rejection sampling for arbitrary precision.
+  // We use 48 bits per chunk (Math.floor(prng() * 0x1000000000000)) because
+  // it was faster than 8-bit, 30-bit, or string-based approaches.
+  const bitLength = getBigIntBitLength(range);
+  const mask = (1n << bitLength) - 1n;
+
+  while (true) {
+    let candidate = 0n;
+    for (let bits = 0n; bits < bitLength; bits += 48n) {
+      const chunk = BigInt(Math.floor(prng() * 0x1000000000000));
+      candidate = (candidate << 48n) | chunk;
+    }
+    candidate &= mask;
+    if (candidate <= range) {
+      return candidate + min;
+    }
+  }
+}; // fn: getRandomBigint
+
+/**
  * Returns a random number >= min and <= max
  *
  * @param `prng` pseudo-random number generator
@@ -556,6 +606,7 @@ const getRandomString: PrivateRandFn = (
 
 /**
  * Generates a random byte array with a length constrained by the provided options.
+ * Uses 48-bit (6-byte) float chunking from the PRNG for high throughput.
  *
  * @param prng pseudo-random number generator
  * @param _min minimum value allowed (inclusive)
@@ -575,8 +626,35 @@ const getRandomBytes: PrivateRandFn = (
     options.byteLength.max
   );
   const outBytes = new Uint8Array(bytesLen);
-  for (let i = 0; i < bytesLen; i++) {
-    outBytes[i] = getRandomNumber(prng, 0, 255, DEFAULT_INT_OPTIONS);
+  let i = 0;
+  while (i + 6 <= bytesLen) {
+    const chunk = Math.floor(prng() * 0x1000000000000);
+    const lower = chunk >>> 0;
+    const upper = Math.floor(chunk / 0x100000000);
+    outBytes[i] = lower & 0xff;
+    outBytes[i + 1] = (lower >> 8) & 0xff;
+    outBytes[i + 2] = (lower >> 16) & 0xff;
+    outBytes[i + 3] = (lower >> 24) & 0xff;
+    outBytes[i + 4] = upper & 0xff;
+    outBytes[i + 5] = (upper >> 8) & 0xff;
+    i += 6;
+  }
+  if (i < bytesLen) {
+    const chunk = Math.floor(prng() * 0x1000000000000);
+    const lower = chunk >>> 0;
+    const upper = Math.floor(chunk / 0x100000000);
+    const remaining = [
+      lower & 0xff,
+      (lower >> 8) & 0xff,
+      (lower >> 16) & 0xff,
+      (lower >> 24) & 0xff,
+      upper & 0xff,
+      (upper >> 8) & 0xff,
+    ];
+    let remIdx = 0;
+    while (i < bytesLen) {
+      outBytes[i++] = remaining[remIdx++];
+    }
   }
   return outBytes;
 }; // fn: getRandomBytes
@@ -906,3 +984,19 @@ const FLOAT_SPECIALS: readonly number[] = Object.freeze([
   -Number.MAX_VALUE,
   -Number.EPSILON,
 ]);
+
+/**
+ * Returns the exact bit length of a non-negative BigInt without string allocation.
+ */
+function getBigIntBitLength(n: bigint): bigint {
+  let bits = 0n;
+  let temp = n;
+  while (temp >= 0x100000000n) {
+    bits += 32n;
+    temp >>= 32n;
+  }
+  if (temp > 0n) {
+    bits += BigInt(32 - Math.clz32(Number(temp)));
+  }
+  return bits;
+} // fn: getBigIntBitLength

@@ -27,6 +27,7 @@ export function removeParents(key: string, value: unknown): unknown {
  */
 export function isArgType(obj: unknown): obj is ArgType {
   return (
+    typeof obj === "bigint" ||
     typeof obj === "string" ||
     typeof obj === "number" ||
     typeof obj === "boolean" ||
@@ -48,6 +49,7 @@ export function isArgValueType(obj: unknown): obj is ArgValueType {
   if (
     obj === undefined ||
     obj === null ||
+    typeof obj === "bigint" ||
     typeof obj === "string" ||
     typeof obj === "number" ||
     typeof obj === "boolean"
@@ -83,6 +85,23 @@ export function isOptionValid(options: FuzzOptions): boolean {
     typeof options.measures === "object"
   );
 } // fn: isOptionValid()
+
+/**
+ * Returns the given interval bound as a bigint.
+ *
+ * @param value interval bound of a bigint ArgDef
+ * @returns the bound as a bigint
+ *
+ * Throws an exception if the bound is not a bigint
+ */
+export function bigIntOrThrow(value: ArgType): bigint {
+  if (typeof value !== "bigint") {
+    throw new Error(
+      `Invalid interval bound for bigint type: ${JSON.stringify(String(value))}`
+    );
+  }
+  return value;
+} // fn: bigIntOrThrow()
 
 /**
  * Returns a list of validator FunctionRefs found within the ProgramDef

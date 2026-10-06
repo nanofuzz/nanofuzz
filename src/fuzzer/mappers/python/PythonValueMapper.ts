@@ -79,15 +79,11 @@ function toPythonValues(val: unknown): unknown {
     throw new Error("Functions are not supported");
   }
 
-  if (typeof val === "bigint") {
-    throw new Error("Bigints are not supported");
-  }
-
   if (typeof val === "symbol") {
     throw new Error("Symbols are not supported");
   }
 
-  return val; // Passthrough strings, numbers, booleans
+  return val; // Passthrough strings, numbers, booleans, bigints
 }
 
 // Python's `None` value
@@ -253,7 +249,7 @@ function toPythonFormat(val: unknown): string {
   if (typeof val === "string") {
     return JSON.stringify(val); // handles strings quotes and escapes
   }
-  if (typeof val === "number") {
+  if (typeof val === "number" || typeof val === "bigint") {
     return String(val);
   }
 
