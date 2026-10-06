@@ -7,7 +7,7 @@ import {
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag } from "../../analysis/Types";
 import { NodeHost } from "./NodeHost";
-import { FuzzEnv } from "../../Fuzzer";
+import { FuzzEnv } from "../../Types";
 import { isCoverageMapData } from "../../measures/TypescriptCoverageMeasure";
 import {
   CoverageMapData,
@@ -519,6 +519,7 @@ function getBaseTypeHint(arg: ArgDef): TypeHint {
       const valHint = children[1] ? getTypeHint(children[1]) : "default";
       return { kind: "dictionary", key: keyHint, value: valHint };
     }
+    case ArgTag.BIGINT:
     case ArgTag.STRING:
     case ArgTag.BOOLEAN:
     case ArgTag.LITERAL:

@@ -1,44 +1,24 @@
-import { Tester, FuzzStopReason } from "./Fuzzer";
+import { Tester } from "./Fuzzer";
+import { FuzzBusyStatusMessage, FuzzStopReason } from "./Types";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as JSONN from "../Jsonn";
 
 describe("fuzzer: general", () => {
   beforeAll(async () => {
     await initParser();
   });
 
-  it("includes the tool version in initialized and persisted results", async () => {
-    const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-version-"));
-    const outputFile = path.join(tmpdir, "results.json5");
+  it("includes the tool version in initialized results", async () => {
+    const results = await new Tester(
+      "nanofuzz-study/examples/1.ts",
+      "minValue",
+      { ...intOptions, maxTests: 1 }
+    ).test();
 
-    try {
-      const results = await new Tester(
-        "nanofuzz-study/examples/1.ts",
-        "minValue",
-        { ...intOptions, maxTests: 1, outputFile }
-      ).testSync();
-      const persisted = JSONN.parse(fs.readFileSync(outputFile, "utf8"));
-
-      expect(results.toolVersion).toBe(getToolVersion());
-      expect(persisted).toEqual(
-        jasmine.objectContaining({ toolVersion: getToolVersion() })
-      );
-    } finally {
-      try {
-        fs.rmSync(tmpdir, {
-          recursive: true,
-          force: true,
-          maxRetries: 10,
-          retryDelay: 100,
-        });
-      } catch {
-        // Ignore residual Windows file lock cleanup errors
-      }
-    }
+    expect(results.toolVersion).toBe(getToolVersion());
   });
 
   it("mutation-only fuzzing", async () => {
@@ -56,7 +36,7 @@ describe("fuzzer: general", () => {
       "nanofuzz-study/examples/1.ts",
       "minValue",
       options
-    ).testSync();
+    ).test();
 
     expect(results.stats.outcomes.total).toBeGreaterThan(0);
     expect(results.stopReason).toBe("maxTests");
@@ -77,7 +57,7 @@ describe("fuzzer: general", () => {
       "nanofuzz-study/examples/1.ts",
       "minValue",
       options
-    ).testSync();
+    ).test();
 
     expect(results.stopReason).toBe("noMoreInputs");
   });
@@ -96,24 +76,21 @@ describe("fuzzer: general", () => {
       `
     );
 
-    const updates: { msg: string; channel: string; pct?: number }[] = [];
+    const updates: FuzzBusyStatusMessage[] = [];
     try {
       await new Tester(tsFile, "slowFn", {
         ...intOptions,
         maxTests: 2,
         fnTimeout: 1000,
-      }).testSync(undefined, { gen: true }, (payload) => {
+      }).test(undefined, { gen: true }, (payload) => {
         updates.push({ ...payload });
       });
 
-      const statusUpdates = updates.filter((u) => u.channel === "update");
-      expect(statusUpdates.length).toBeGreaterThan(2);
-
-      const example1Updates = statusUpdates.filter((u) =>
-        u.msg.includes("input# 1")
+      const statusUpdates = updates.filter(
+        (u) => u.type === "testing" || u.type === "progress-tick"
       );
-      expect(example1Updates.length).toBeGreaterThanOrEqual(2);
-      expect(example1Updates[0].msg).toEqual(example1Updates[1].msg);
+      expect(statusUpdates.length).toBeGreaterThan(2);
+      expect(statusUpdates.every((u) => typeof u.pct === "number")).toBeTrue();
     } finally {
       try {
         fs.rmSync(tmpdir, {
@@ -128,7 +105,7 @@ describe("fuzzer: general", () => {
     }
   });
 
-  it("includes test counts in waiting msg", async () => {
+  it("emits progress updates when waiting for async input generator", async () => {
     class TestableTester extends Tester {
       public get compositeInputGenerator() {
         return this._compositeInputGenerator;
@@ -148,7 +125,7 @@ describe("fuzzer: general", () => {
       `
     );
 
-    const updates: { msg: string; channel: string; pct?: number }[] = [];
+    const updates: FuzzBusyStatusMessage[] = [];
     const tester = new TestableTester(tsFile, "dummyFn", {
       ...intOptions,
       maxTests: 5,
@@ -168,18 +145,15 @@ describe("fuzzer: general", () => {
     spyOn(cig, "getPendingGeneratorNames").and.returnValue(["AI"]);
 
     try {
-      await tester.testSync(undefined, { gen: true }, (payload) => {
+      await tester.test(undefined, { gen: true }, (payload) => {
         updates.push({ ...payload });
       });
 
       const waitUpdates = updates.filter(
-        (u) =>
-          u.channel === "update" &&
-          u.msg.includes("Waiting for AI input generator...")
+        (u) => u.type === "waiting-for-generator"
       );
       expect(waitUpdates.length).toBeGreaterThan(0);
-      expect(waitUpdates[0].msg).toContain("Passed: 0");
-      expect(waitUpdates[0].msg).toContain("Failed: 0");
+      expect(waitUpdates.every((u) => typeof u.pct === "number")).toBeTrue();
     } finally {
       try {
         fs.rmSync(tmpdir, {
@@ -222,7 +196,7 @@ describe("fuzzer: general", () => {
         fnTimeout: 10000,
       });
 
-      const res = await tester.testSync(
+      const res = await tester.test(
         undefined,
         { gen: true },
         undefined,

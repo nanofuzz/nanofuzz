@@ -1,5 +1,5 @@
 import * as Config from "../../../Config";
-import { FuzzTests, Result } from "../../Fuzzer";
+import { FuzzTests, Result } from "../../Types";
 import * as ValueMapper from "../../mappers/ValueMapper";
 import * as os from "os";
 import * as path from "path";
@@ -77,7 +77,14 @@ export class JestAdapter extends AbstractTestAdapter {
       `  }`,
       `  const elapsedTime = performance.now() - startElapsedTime; // stop timer`,
       `  result.timeout = elapsedTime > timeout;`,
-      `  return validFn({...result});`,
+      `  try {`,
+      `    return validFn({...result});`,
+      `  } catch(e: unknown) {`,
+      `    if (e && typeof e === 'object' && 'name' in e && e.name === 'UnsatisfiedAssumption') {`,
+      `      return 'unknown';`,
+      `    }`,
+      `    throw e;`,
+      `  }`,
       `}`,
       ``,
       `// @ts-ignore`,
@@ -92,7 +99,14 @@ export class JestAdapter extends AbstractTestAdapter {
       `  }`,
       `  const elapsedTime = performance.now() - startElapsedTime; // stop timer`,
       `  result.timeout = elapsedTime > timeout;`,
-      `  return await validFn({...result});`,
+      `  try {`,
+      `    return await validFn({...result});`,
+      `  } catch(e: unknown) {`,
+      `    if (e && typeof e === 'object' && 'name' in e && e.name === 'UnsatisfiedAssumption') {`,
+      `      return 'unknown';`,
+      `    }`,
+      `    throw e;`,
+      `  }`,
       `}`,
       ``,
       `describe("${moduleName}", () => {`

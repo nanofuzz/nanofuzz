@@ -1,19 +1,23 @@
 import * as vscode from "vscode";
-
-export type Listener = {
-  register: () => vscode.Disposable;
-};
-
-function createListener<T>(
-  event: vscode.Event<T>,
-  fn: (e: T) => void
-): Listener {
-  return { register: () => event(fn) };
-}
 import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
-import * as fuzzer from "../fuzzer/Fuzzer";
+import * as fuzzer from "../fuzzer/Types";
+import { ArgDef } from "../fuzzer/analysis/ArgDef";
+import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
+import {
+  ArgOptions,
+  ArgTag,
+  ArgValueTypeWrapped,
+  FunctionRef,
+  Interval,
+} from "../fuzzer/analysis/Types";
+import {
+  bigIntOrThrow,
+  getTransformers,
+  getValidators,
+} from "../fuzzer/analysis/Util";
+import { getIoKey } from "../fuzzer/Util";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
@@ -29,7 +33,7 @@ import {
   encodeEscapeSequences,
   decodeEscapeSequences,
 } from "../Util";
-import { Tester } from "../fuzzer/Fuzzer";
+import { FuzzerFactory, IFuzzer } from "../fuzzer/FuzzerFactory";
 import {
   applyCoverageHeatmapToEditor,
   clearCoverageHeatmapFromEditor,
@@ -81,7 +85,7 @@ export class FuzzPanel {
   private _argOverrides: fuzzer.FuzzArgOverride[]; // The current set of argument overrides
   private _focusInput?: [fuzzer.FuzzResultCategory, number]; // Newly-added input to receive UI focus
   private _lastTab: fuzzer.FuzzResultTab | undefined; // Last tab id that had focus
-  private _tester: fuzzer.Tester; // The test generator
+  private _tester: IFuzzer; // The test generator
   private _showingCoverage = false; // Currently showing code coverage?
   private _wasShowingCoverage = false; // Was showing coverage on the prior run?
   private _coverageStats: CodeCoverageMeasureStats | undefined; // Code coverage stats
@@ -141,7 +145,7 @@ export class FuzzPanel {
       return new FuzzPanel(
         panel,
         extensionUri,
-        new Tester(moduleFile, fnName, normalizeFuzzOptions(options), {
+        FuzzerFactory(moduleFile, fnName, normalizeFuzzOptions(options), {
           precompile: true,
         })
       );
@@ -201,7 +205,7 @@ export class FuzzPanel {
         const localFuzzPanel = new FuzzPanel(
           panel,
           extensionUri,
-          new fuzzer.Tester(
+          FuzzerFactory(
             state.fnRef.module,
             state.fnRef.name,
             normalizeFuzzOptions(state.options),
@@ -290,7 +294,7 @@ export class FuzzPanel {
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
-    tester: fuzzer.Tester
+    tester: IFuzzer
   ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
@@ -365,7 +369,7 @@ export class FuzzPanel {
    */
   private resultsAreStale(
     options: fuzzer.FuzzOptions
-  ): ReturnType<fuzzer.Tester["isStale"]> {
+  ): ReturnType<IFuzzer["isStale"]> {
     return this._tester.isStale(options);
   } // fn: resultsAreStale
 
@@ -403,6 +407,18 @@ export class FuzzPanel {
   // ----------------------- Message Handling ----------------------- //
 
   /**
+   * Posts a message to the webview serialized using JSONN to safely
+   * transport BigInt, Uint8Array, Set, Map, and undefined across the VS Code boundary.
+   *
+   * @param message The message to send to the webview.
+   */
+  private _postToView(message: FuzzPanelMessageToWebView): void {
+    if (!this._isDisposed) {
+      this._panel.webview.postMessage({ jsonn: JSONN.stringify(message) });
+    }
+  } // fn: _postToView()
+
+  /**
    * Registers the message handler that allows the client side of
    * the WebView to communicate back with this extension.
    *
@@ -410,7 +426,10 @@ export class FuzzPanel {
    */
   private _setWebviewMessageListener(webview: vscode.Webview) {
     webview.onDidReceiveMessage(
-      async (message: FuzzPanelMessageFromWebView) => {
+      async (rawMessage: FuzzPanelMessageFromWebView | { jsonn: string }) => {
+        const message: FuzzPanelMessageFromWebView = isJsonnEnvelope(rawMessage)
+          ? JSONN.parse(rawMessage.jsonn)
+          : rawMessage;
         this._wasShowingCoverage = this._showingCoverage;
         switch (message.command) {
           case "fuzz.run":
@@ -683,7 +702,7 @@ export class FuzzPanel {
               const oldTestSet = thisFn.tests;
               thisFn.tests = {};
               for (const oldKey in oldTestSet) {
-                const newKey = fuzzer.getIoKey(oldTestSet[oldKey].input);
+                const newKey = getIoKey(oldTestSet[oldKey].input);
                 const thisTest = (thisFn.tests[newKey] = oldTestSet[oldKey]);
                 for (const input of thisTest.input) {
                   input.origin = {
@@ -872,7 +891,7 @@ export class FuzzPanel {
    * @param `test` test case to update
    */
   private _updateFuzzTestsForThisFn(test: fuzzer.FuzzPinnedTest): void {
-    const currInputsJson = fuzzer.getIoKey(test.input);
+    const currInputsJson = getIoKey(test.input);
     const testSet = this._getFuzzTestsForThisFn();
 
     // If input is already in pinnedSet, is not pinned, and does not have
@@ -977,7 +996,7 @@ export class FuzzPanel {
     const message: FuzzPanelMessageToWebView = {
       command: "coverage.stale",
     };
-    this._panel.webview.postMessage(message);
+    this._postToView(message);
   } // fn: _doStaleNotify
 
   /**
@@ -1080,7 +1099,7 @@ export class FuzzPanel {
     }
 
     // If a transformer already exists, navigate to it rather than creating a new one
-    const existingTransformers = fuzzer.getTransformers(program, fn);
+    const existingTransformers = getTransformers(program, fn);
     if (existingTransformers.length > 0) {
       this._fuzzEnv.transformers = existingTransformers;
       const fnDef =
@@ -1188,27 +1207,27 @@ export class FuzzPanel {
     const oldValidatorNames = JSONN.stringify(
       this._fuzzEnv.validators.map((e) => e.name)
     );
-    const newValidators = fuzzer.getValidators(program, fn);
+    const newValidators = getValidators(program, fn);
     const newValidatorNames = JSONN.stringify(newValidators.map((e) => e.name));
 
     // Only send the validators message if there has been a change
     if (oldValidatorNames !== newValidatorNames) {
       // Update the Fuzzer Environment
-      this._fuzzEnv.validators = fuzzer.getValidators(program, fn);
+      this._fuzzEnv.validators = getValidators(program, fn);
 
       // Notify webview about the change
       const message: FuzzPanelMessageToWebView = {
         command: "validator.list",
         validators: newValidators.map((e) => e.name),
       };
-      this._panel.webview.postMessage(message);
+      this._postToView(message);
     }
 
     // Transformers
     const oldTransformerNames = JSONN.stringify(
       this._fuzzEnv.transformers.map((e) => e.name)
     );
-    const newTransformers = fuzzer.getTransformers(program, fn);
+    const newTransformers = getTransformers(program, fn);
     const newTransformerNames = JSONN.stringify(
       newTransformers.map((e) => e.name)
     );
@@ -1223,7 +1242,7 @@ export class FuzzPanel {
         command: "transformer.list",
         transformers: newTransformers.map((e) => e.name),
       };
-      this._panel.webview.postMessage(message);
+      this._postToView(message);
     }
   } // fn: _doGetValidatorsAndTransformers()
 
@@ -1262,7 +1281,7 @@ export class FuzzPanel {
     // Create a new tester if the current one is stale
     if (needNewTester) {
       try {
-        this._tester = new fuzzer.Tester(
+        this._tester = FuzzerFactory(
           this._fuzzEnv.function.getModule(),
           this._fuzzEnv.function.getName(),
           this._fuzzEnv.options
@@ -1287,7 +1306,7 @@ export class FuzzPanel {
         : needNewTester
           ? this._results.results.map((i) => {
               // Inject any prior inputs into the new tester, including persisted test details
-              const inputKey = fuzzer.getIoKey(i.input);
+              const inputKey = getIoKey(i.input);
               if (inputKey in savedTests) {
                 return savedTests[inputKey];
               } else {
@@ -1356,100 +1375,74 @@ export class FuzzPanel {
       try {
         this._tester.options = this._fuzzEnv.options;
         this._pauseTesting = false;
+
         // Test the function & store the results
-        this._tester.testAsync(
+        const result = await this._tester.test(
           testsToInject,
           { gen: mode.gen },
-          async (result: fuzzer.FuzzTestResults | Error) => {
-            if (isError(result)) {
-              /* Error */
-              // Transition to error state
-              this._setErrorFromException(result);
-              this._state = FuzzPanelState.error;
-              this._retestingReason = false;
-
-              // Log the end of fuzzing
-              vscode.commands.executeCommand(
-                telemetry.commands.logTelemetry.name,
-                new telemetry.LoggerEntry(
-                  "FuzzPanel.fuzz.error",
-                  "Fuzzing failed. Target: %s. Message: %s. Stack: %s.",
-                  [
-                    this.getFnRefKey(),
-                    this._errorMessage ?? "unknown error",
-                    this._errorStack ?? "<no stack>",
-                  ]
-                )
-              );
-
-              // Update the UI
-              this._updateHtml();
-            } else {
-              /* Success */
-              this._results = result;
-
-              // If we added a test, give the new result UI focus
-              if (
-                testToAdd &&
-                result.results.length &&
-                JSONN.stringify(
-                  result.results[result.results.length - 1].input
-                ) === JSONN.stringify(testToAdd.input)
-              ) {
-                // Give focus to the newInput
-                this._focusInput = [
-                  result.results[result.results.length - 1].category,
-                  result.results.length - 1,
-                ];
-              }
-
-              // Transition to done state
-              this._errorMessage = undefined;
-              this._errorStack = undefined;
-              this._state = FuzzPanelState.done;
-              this._retestingReason = false;
-
-              // Log the end of fuzzing
-              vscode.commands.executeCommand(
-                telemetry.commands.logTelemetry.name,
-                new telemetry.LoggerEntry(
-                  "FuzzPanel.fuzz.done",
-                  "Fuzzing completed successfully. Target: %s. Results: %s",
-                  [this.getFnRefKey(), JSONN.stringify(this._results)]
-                )
-              );
-
-              // Persist the fuzz test run settings (!!!!!!! validation)
-              this._updateFuzzTests();
-
-              // Get coverage data
-              this._coverageStats = this._results.stats.measures
-                .CodeCoverageMeasure
-                ? await this._results.stats.measures.CodeCoverageMeasure()
-                : undefined;
-
-              // Update the UI
-              const message: FuzzPanelMessageToWebView = {
-                command: "busy.ending",
-              };
-              this._panel.webview.postMessage(message);
-              this._updateHtml();
-              this._focusInput = undefined;
-            }
-          },
           // Fn that provides test status feedback to the panel => {
           (payload: fuzzer.FuzzBusyStatusMessage): void => {
             const message: FuzzPanelMessageToWebView = {
               command: "busy.message",
               message: payload,
             };
-            this._panel.webview.postMessage(message);
+            this._postToView(message);
           },
           // Fn to cancel testing
           () => this._pauseTesting
         );
+
+        /* Success */
+        this._results = result;
+
+        // If we added a test, give the new result UI focus
+        if (
+          testToAdd &&
+          result.results.length &&
+          JSONN.stringify(result.results[result.results.length - 1].input) ===
+            JSONN.stringify(testToAdd.input)
+        ) {
+          // Give focus to the newInput
+          this._focusInput = [
+            result.results[result.results.length - 1].category,
+            result.results.length - 1,
+          ];
+        }
+
+        // Transition to done state
+        this._errorMessage = undefined;
+        this._errorStack = undefined;
+        this._state = FuzzPanelState.done;
+        this._retestingReason = false;
+
+        // Log the end of fuzzing
+        vscode.commands.executeCommand(
+          telemetry.commands.logTelemetry.name,
+          new telemetry.LoggerEntry(
+            "FuzzPanel.fuzz.done",
+            "Fuzzing completed successfully. Target: %s. Results: %s",
+            [this.getFnRefKey(), JSONN.stringify(this._results)]
+          )
+        );
+
+        // Persist the fuzz test run settings (!!!!!!! validation)
+        this._updateFuzzTests();
+
+        // Get coverage data
+        this._coverageStats = this._results.stats.measures.CodeCoverageMeasure
+          ? await this._results.stats.measures.CodeCoverageMeasure()
+          : undefined;
+
+        // Update the UI
+        const message: FuzzPanelMessageToWebView = {
+          command: "busy.ending",
+        };
+        this._postToView(message);
+        this._updateHtml();
+        this._focusInput = undefined;
       } catch (e: unknown) {
         this._state = FuzzPanelState.error;
+        this._retestingReason = false;
         const [errorMessage, errorStack] = this._setErrorFromException(e);
         vscode.commands.executeCommand(
           telemetry.commands.logTelemetry.name,
@@ -1479,7 +1472,7 @@ export class FuzzPanel {
   private _testClear(json: string): void {
     // Start over with a new tester
     try {
-      this._tester = new fuzzer.Tester(
+      this._tester = FuzzerFactory(
         this._fuzzEnv.function.getModule(),
         this._fuzzEnv.function.getName(),
         this._fuzzEnv.options
@@ -1532,7 +1525,7 @@ export class FuzzPanel {
       const message: FuzzPanelMessageToWebView = {
         command: "coverage.hidden",
       };
-      this._panel.webview.postMessage(message);
+      this._postToView(message);
     }
 
     // Telemetry
@@ -1704,7 +1697,7 @@ export class FuzzPanel {
         },
       },
     };
-    this._panel.webview.postMessage(message);
+    this._postToView(message);
   } //fn: onDidChangeConfiguration
 
   /**
@@ -2972,11 +2965,11 @@ export class FuzzPanel {
    * @returns html string of the argument definition form
    */
   private _argDefToHtmlForm(
-    arg: fuzzer.ArgDef,
+    arg: ArgDef,
     counter: { id: number }, // pass counter by reference
     beginSep: string,
     endSep: string,
-    parentTag?: fuzzer.ArgTag
+    parentTag?: ArgTag
   ): string {
     const id = counter.id++; // unique id for each argument
     const idBase = `argDef-${id}`; // base HTML id for this argument
@@ -3000,28 +2993,29 @@ export class FuzzPanel {
       typeString = htmlEscape(argType.toLowerCase());
 
       switch (argType) {
-        case fuzzer.ArgTag.OBJECT:
+        case ArgTag.OBJECT:
           typeString = "Object";
           break;
-        case fuzzer.ArgTag.DICTIONARY:
+        case ArgTag.DICTIONARY:
           typeString = "Dict";
           break;
-        case fuzzer.ArgTag.SET:
+        case ArgTag.SET:
           typeString = "Set";
           break;
-        case fuzzer.ArgTag.LITERAL:
+        case ArgTag.LITERAL:
           if (arg.isConstant()) {
             const constantValue = arg.getConstantValue();
             typeString = htmlEscape(ValueMapper.toLang(lang, constantValue));
           }
           break;
-        case fuzzer.ArgTag.NUMBER:
-        case fuzzer.ArgTag.STRING:
-        case fuzzer.ArgTag.BOOLEAN:
-        case fuzzer.ArgTag.UNION:
-        case fuzzer.ArgTag.TUPLE:
-        case fuzzer.ArgTag.UNRESOLVED:
-        case fuzzer.ArgTag.BYTES:
+        case ArgTag.BIGINT:
+        case ArgTag.NUMBER:
+        case ArgTag.STRING:
+        case ArgTag.BOOLEAN:
+        case ArgTag.UNION:
+        case ArgTag.TUPLE:
+        case ArgTag.UNRESOLVED:
+        case ArgTag.BYTES:
           break;
       }
     }
@@ -3042,25 +3036,26 @@ export class FuzzPanel {
 
     let sep: string;
     switch (argType) {
-      case fuzzer.ArgTag.LITERAL:
+      case ArgTag.LITERAL:
         sep = endSep;
         break;
-      case fuzzer.ArgTag.UNION:
+      case ArgTag.UNION:
         sep = ":";
         break;
-      case fuzzer.ArgTag.SET:
-      case fuzzer.ArgTag.OBJECT:
-      case fuzzer.ArgTag.DICTIONARY:
+      case ArgTag.SET:
+      case ArgTag.OBJECT:
+      case ArgTag.DICTIONARY:
         sep = ` = {` + htmlEllipsis;
         break;
-      case fuzzer.ArgTag.TUPLE:
+      case ArgTag.TUPLE:
         sep = ` = [` + htmlEllipsis;
         break;
-      case fuzzer.ArgTag.NUMBER:
-      case fuzzer.ArgTag.STRING:
-      case fuzzer.ArgTag.BOOLEAN:
-      case fuzzer.ArgTag.UNRESOLVED:
-      case fuzzer.ArgTag.BYTES:
+      case ArgTag.NUMBER:
+      case ArgTag.STRING:
+      case ArgTag.BOOLEAN:
+      case ArgTag.UNRESOLVED:
+      case ArgTag.BIGINT:
+      case ArgTag.BYTES:
         sep = " = " + htmlEllipsis;
         break;
     }
@@ -3071,8 +3066,8 @@ export class FuzzPanel {
 
     // Give the option of suppressing generation of optional members
     if (
-      parentTag === fuzzer.ArgTag.UNION ||
-      (parentTag === fuzzer.ArgTag.OBJECT && arg.isOptional())
+      parentTag === ArgTag.UNION ||
+      (parentTag === ArgTag.OBJECT && arg.isOptional())
     ) {
       // prettier-ignore
       html += /*html*/ `
@@ -3099,7 +3094,7 @@ export class FuzzPanel {
     // Argument options
     switch (arg.getType()) {
       // Number-specific Options
-      case fuzzer.ArgTag.NUMBER: {
+      case ArgTag.NUMBER: {
         // TODO: validate for ints and floats !!!
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-min" name="${idBase}-min" value="${htmlEscape(
           Number(arg.getIntervals()[0].min).toString()
@@ -3122,8 +3117,24 @@ export class FuzzPanel {
         break;
       }
 
+      // BigInt-specific Options
+      case ArgTag.BIGINT: {
+        // Note: bigints use their own control ids so that the front-end can
+        // tell them apart from numbers, which it parses with `Number()`.
+        // A bigint is always integral, so there is no Integer/Float choice.
+        const interval = arg.getIntervals()[0];
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMin" name="${idBase}-bigIntMin" value="${htmlEscape(
+          bigIntOrThrow(interval.min).toString()
+        )}">Min value</vscode-text-field>`;
+        html += " ";
+        html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-bigIntMax" name="${idBase}-bigIntMax" value="${htmlEscape(
+          bigIntOrThrow(interval.max).toString()
+        )}">Max value</vscode-text-field>`;
+        break;
+      }
+
       // String-specific Options
-      case fuzzer.ArgTag.STRING: {
+      case ArgTag.STRING: {
         // TODO: validate for ints > 0 !!!
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minStrLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().strLength.min.toString()
@@ -3144,7 +3155,7 @@ export class FuzzPanel {
       }
 
       // Bytes-specific Options
-      case fuzzer.ArgTag.BYTES: {
+      case ArgTag.BYTES: {
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minByteLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().byteLength.min.toString()
         )}">Min length</vscode-text-field>`;
@@ -3156,7 +3167,7 @@ export class FuzzPanel {
       }
 
       // Dictionary-specific Options
-      case fuzzer.ArgTag.DICTIONARY: {
+      case ArgTag.DICTIONARY: {
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minDictLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().dictLength.min.toString()
         )}">Min entries</vscode-text-field>`;
@@ -3189,7 +3200,7 @@ export class FuzzPanel {
       }
 
       // Set-specific Options
-      case fuzzer.ArgTag.SET: {
+      case ArgTag.SET: {
         html += /*html*/ `<vscode-text-field size="3" ${disabledFlag} id="${idBase}-minSetLen" name="${idBase}-min" value="${htmlEscape(
           arg.getOptions().setLength.min.toString()
         )}">Min entries</vscode-text-field>`;
@@ -3215,7 +3226,7 @@ export class FuzzPanel {
       }
 
       // Boolean-specific Options
-      case fuzzer.ArgTag.BOOLEAN: {
+      case ArgTag.BOOLEAN: {
         let intervals = arg.getIntervals();
         if (intervals.length === 0) {
           intervals = [{ min: false, max: true }];
@@ -3238,7 +3249,7 @@ export class FuzzPanel {
       }
 
       // Union-specific Options
-      case fuzzer.ArgTag.UNION: {
+      case ArgTag.UNION: {
         // Output the array form prior to the child arguments.
         // This seems odd, but the screen reads better to the user this way.
         html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
@@ -3260,7 +3271,7 @@ export class FuzzPanel {
       }
 
       // Object-specific Options
-      case fuzzer.ArgTag.OBJECT: {
+      case ArgTag.OBJECT: {
         // Output the array form prior to the child arguments.
         // This seems odd, but the screen reads better to the user this way.
         html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
@@ -3280,12 +3291,12 @@ export class FuzzPanel {
         break;
       }
 
-      case fuzzer.ArgTag.LITERAL:
+      case ArgTag.LITERAL:
         // A literal typed input has only one possible value
         break;
 
       // Tuple-specific Options
-      case fuzzer.ArgTag.TUPLE: {
+      case ArgTag.TUPLE: {
         // Output the array form prior to the child arguments.
         // This seems odd, but the screen reads better to the user this way.
         html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
@@ -3306,7 +3317,7 @@ export class FuzzPanel {
         break;
       }
 
-      case fuzzer.ArgTag.UNRESOLVED:
+      case ArgTag.UNRESOLVED:
         throw new Error(
           `Cannot render an unresolved argument definition as an HTML form.`
         );
@@ -3314,11 +3325,11 @@ export class FuzzPanel {
 
     // For composite types: array settings were already output prior to children
     if (
-      argType !== fuzzer.ArgTag.OBJECT &&
-      argType !== fuzzer.ArgTag.UNION &&
-      argType !== fuzzer.ArgTag.TUPLE &&
-      argType !== fuzzer.ArgTag.DICTIONARY &&
-      argType !== fuzzer.ArgTag.SET
+      argType !== ArgTag.OBJECT &&
+      argType !== ArgTag.UNION &&
+      argType !== ArgTag.TUPLE &&
+      argType !== ArgTag.DICTIONARY &&
+      argType !== ArgTag.SET
     ) {
       html += this._argDefArrayToHtmlForm(arg, idBase, disabledFlag);
     }
@@ -3326,12 +3337,12 @@ export class FuzzPanel {
     html += `</div>`;
     // For container types: output end character ("}" or "]") here
     if (
-      argType === fuzzer.ArgTag.OBJECT ||
-      argType === fuzzer.ArgTag.TUPLE ||
-      argType === fuzzer.ArgTag.DICTIONARY ||
-      argType === fuzzer.ArgTag.SET
+      argType === ArgTag.OBJECT ||
+      argType === ArgTag.TUPLE ||
+      argType === ArgTag.DICTIONARY ||
+      argType === ArgTag.SET
     ) {
-      const closeChar = argType === fuzzer.ArgTag.TUPLE ? "]" : "}";
+      const closeChar = argType === ArgTag.TUPLE ? "]" : "}";
       html += /*html*/ `<div class="argDef-preClose"></div><div class="argDef-close">${closeChar}${endSep}</div>`;
     }
     html += `</div>`;
@@ -3349,7 +3360,7 @@ export class FuzzPanel {
    * @returns html string representing an argument's array form
    */
   private _argDefArrayToHtmlForm(
-    arg: fuzzer.ArgDef,
+    arg: ArgDef,
     idBase: string,
     disabledFlag: string
   ): string {
@@ -3517,9 +3528,9 @@ export async function handleFuzzWithValidatorCommand(
   const fuzzOptions = getDefaultFuzzOptions();
   fuzzOptions.useProperty = true; // Enable property oracle by default
 
-  let tester: fuzzer.Tester;
+  let tester: IFuzzer;
   try {
-    tester = new fuzzer.Tester(srcFile, fnName, fuzzOptions);
+    tester = FuzzerFactory(srcFile, fnName, fuzzOptions);
   } catch (e: unknown) {
     const msg = getErrorMessageOrJson(e);
     vscode.window.showErrorMessage(
@@ -3559,9 +3570,9 @@ export async function handleFuzzWithValidatorCommand(
  * @returns The associated FUT, or undefined if not found
  */
 function findFunctionUnderTest(
-  validator: fuzzer.FunctionDef,
-  allFunctions: fuzzer.FunctionDef[]
-): fuzzer.FunctionDef | undefined {
+  validator: FunctionDef,
+  allFunctions: FunctionDef[]
+): FunctionDef | undefined {
   const validatorTarget = validator.getValidatorTargetName();
   for (const fn of allFunctions) {
     if (fn.getName() === validatorTarget) {
@@ -3580,7 +3591,7 @@ function findFunctionUnderTest(
  */
 function createStandardCodeLens(
   document: vscode.TextDocument,
-  fn: fuzzer.FunctionDef
+  fn: FunctionDef
 ): vscode.CodeLens {
   return new vscode.CodeLens(
     new vscode.Range(
@@ -3605,8 +3616,8 @@ function createStandardCodeLens(
  */
 function createFutTestCodeLens(
   document: vscode.TextDocument,
-  validator: fuzzer.FunctionDef,
-  fut: fuzzer.FunctionDef | undefined
+  validator: FunctionDef,
+  fut: FunctionDef | undefined
 ): vscode.CodeLens {
   let title;
   let argument;
@@ -3644,7 +3655,7 @@ function createFutTestCodeLens(
  */
 function createValidatorTestCodeLens(
   document: vscode.TextDocument,
-  validator: fuzzer.FunctionDef
+  validator: FunctionDef
 ): vscode.CodeLens {
   return new vscode.CodeLens(
     new vscode.Range(
@@ -3737,9 +3748,9 @@ export function provideCodeLenses(
  * @param argOverrides Overrides for default argument options
  */
 function _applyArgOverrides(
-  fn: fuzzer.FunctionDef,
+  fn: FunctionDef,
   argOverrides: fuzzer.FuzzArgOverride[],
-  argDefaults: fuzzer.ArgOptions
+  argDefaults: ArgOptions
 ) {
   // Get the flattened list of function arguments
   const argsFlat = fn.getArgDefsFlat();
@@ -3754,14 +3765,14 @@ function _applyArgOverrides(
   // Apply argument option changes
   for (const i in argOverrides) {
     const thisOverride = argOverrides[i];
-    const thisArg: fuzzer.ArgDef = argsFlat[i];
+    const thisArg: ArgDef = argsFlat[i];
     if (Number(i) + 1 > argsFlat.length) {
       break; // exit the for loop
     }
 
     // Min and max values
     switch (thisArg.getType()) {
-      case fuzzer.ArgTag.NUMBER:
+      case ArgTag.NUMBER:
         if (thisOverride.number) {
           // Min / Max
           thisArg.setIntervals([
@@ -3776,7 +3787,20 @@ function _applyArgOverrides(
           });
         }
         break;
-      case fuzzer.ArgTag.BOOLEAN:
+
+      case ArgTag.BIGINT:
+        if (thisOverride.bigInt) {
+          // Min / Max
+          thisArg.setIntervals([
+            {
+              min: thisOverride.bigInt.min,
+              max: thisOverride.bigInt.max,
+            },
+          ]);
+        }
+        break;
+
+      case ArgTag.BOOLEAN:
         if (thisOverride.boolean) {
           // Min / Max
           thisArg.setIntervals([
@@ -3787,7 +3811,7 @@ function _applyArgOverrides(
           ]);
         }
         break;
-      case fuzzer.ArgTag.STRING:
+      case ArgTag.STRING:
         if (thisOverride.string) {
           // String length
           thisArg.setOptions({
@@ -3804,7 +3828,7 @@ function _applyArgOverrides(
           });
         }
         break;
-      case fuzzer.ArgTag.BYTES:
+      case ArgTag.BYTES:
         if (thisOverride.bytes) {
           thisArg.setOptions({
             byteLength: {
@@ -3814,7 +3838,7 @@ function _applyArgOverrides(
           });
         }
         break;
-      case fuzzer.ArgTag.DICTIONARY:
+      case ArgTag.DICTIONARY:
         if (thisOverride.dictionary) {
           thisArg.setOptions({
             dictLength: {
@@ -3824,7 +3848,7 @@ function _applyArgOverrides(
           });
         }
         break;
-      case fuzzer.ArgTag.SET:
+      case ArgTag.SET:
         if (thisOverride.set) {
           thisArg.setOptions({
             setLength: {
@@ -3834,11 +3858,11 @@ function _applyArgOverrides(
           });
         }
         break;
-      case fuzzer.ArgTag.OBJECT:
-      case fuzzer.ArgTag.LITERAL:
-      case fuzzer.ArgTag.UNION:
-      case fuzzer.ArgTag.TUPLE:
-      case fuzzer.ArgTag.UNRESOLVED:
+      case ArgTag.OBJECT:
+      case ArgTag.LITERAL:
+      case ArgTag.UNION:
+      case ArgTag.TUPLE:
+      case ArgTag.UNRESOLVED:
         break;
     }
 
@@ -3849,7 +3873,7 @@ function _applyArgOverrides(
 
     // Array dimensions
     if (thisOverride.array) {
-      thisOverride.array.dimLength.forEach((e: fuzzer.Interval<number>) => {
+      thisOverride.array.dimLength.forEach((e: Interval<number>) => {
         if (!(typeof e === "object" && "min" in e && "max" in e)) {
           throw new Error(
             `Invalid interval for array dimensions: ${JSONN.stringify(e)}`
@@ -3872,7 +3896,7 @@ function _applyArgOverrides(
 export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
   return {
     outputResults: "all",
-    argDefaults: fuzzer.ArgDef.getDefaultOptions(),
+    argDefaults: ArgDef.getDefaultOptions(),
     maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
     fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 100),
     suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
@@ -3921,7 +3945,7 @@ export const normalizeFuzzOptions = (
     ...dft,
     ...options,
     outputResults: options.outputResults ?? "all",
-    argDefaults: fuzzer.ArgDef.normalizeOptions(options.argDefaults),
+    argDefaults: ArgDef.normalizeOptions(options.argDefaults),
     generators: options.generators
       ? { ...dft.generators, ...options.generators }
       : dft.generators,
@@ -3946,6 +3970,21 @@ function toPrettyList(inList: string[]): string {
         (a, b, i, array) => a + (i < array.length - 1 ? ", " : ", and ") + b
       );
 } // fn: toPrettyList()
+
+/**
+ * Type guard function that returns true if `obj` is a JSONN envelope
+ *
+ * @param obj object to check
+ * @returns true if `obj` is a JSONN envelope
+ */
+function isJsonnEnvelope(obj: unknown): obj is { jsonn: string } {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "jsonn" in obj &&
+    typeof obj.jsonn === "string"
+  );
+} // fn: isJsonnEnvelope()
 
 /**
  * Returns the number of sequential failues with the same message from
@@ -4013,6 +4052,20 @@ export function init(context: vscode.ExtensionContext): void {
 export function deinit(): void {
   // noop
 } // fn: deinit
+
+/**
+ * Creates a listener object wrapping an event subscription.
+ *
+ * @param event The VS Code event to listen to
+ * @param fn The callback function to execute on event
+ * @returns A Listener object
+ */
+function createListener<T>(
+  event: vscode.Event<T>,
+  fn: (e: T) => void
+): Listener {
+  return { register: () => event(fn) };
+} // fn: createListener()
 
 /**
  * Export this module's listeners to the extension.
@@ -4109,11 +4162,18 @@ export enum FuzzPanelState {
 }
 
 /**
+ * Event listener registration wrapper
+ */
+export type Listener = {
+  register: () => vscode.Disposable;
+};
+
+/**
  * The serialized state of a FuzzPanel
  */
 export type FuzzPanelStateSerialized = {
   tag: string;
-  fnRef: fuzzer.FunctionRef;
+  fnRef: FunctionRef;
   options: fuzzer.FuzzOptions;
 };
 
@@ -4122,7 +4182,7 @@ export type FuzzPanelStateSerialized = {
  */
 export type FunctionMatch = {
   document: vscode.TextDocument;
-  ref: fuzzer.FunctionRef;
+  ref: FunctionRef;
 };
 
 /**
@@ -4130,8 +4190,8 @@ export type FunctionMatch = {
  */
 export type ValidatorMatch = {
   document: vscode.TextDocument;
-  validator: fuzzer.FunctionRef;
-  fut: fuzzer.FunctionRef;
+  validator: FunctionRef;
+  fut: FunctionRef;
 };
 
 /**
@@ -4141,7 +4201,7 @@ export type FuzzPanelFuzzRunMessage = {
   fuzzer: Omit<fuzzer.FuzzOptions, "argDefaults">;
   args: fuzzer.FuzzArgOverride[];
   lastTab?: fuzzer.FuzzResultTab;
-  input?: fuzzer.ArgValueTypeWrapped[];
+  input?: ArgValueTypeWrapped[];
 };
 
 /**

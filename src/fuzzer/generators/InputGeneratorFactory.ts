@@ -1,11 +1,16 @@
-import { FunctionDef, FuzzTestStats } from "../Fuzzer";
+import { FunctionDef } from "../analysis/FunctionDef";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { HumanInputGenerator } from "./HumanInputGenerator";
 import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
-import { FuzzOptions, GetFuzzerFocusFn, InputAndSource } from "../Types";
+import {
+  FuzzOptions,
+  FuzzTestStats,
+  GetFuzzerFocusFn,
+  InputAndSource,
+} from "../Types";
 
 /**
  * Produces a set of concrete input generators appropriate for

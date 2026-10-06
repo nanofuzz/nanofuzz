@@ -1,6 +1,7 @@
 import { PytestAdapter } from "./PytestAdapter";
 import { FuzzOptions, FuzzTests } from "../../Types";
 import { ArgOptions, ArgTag } from "../../analysis/Types";
+import { PythonRunner } from "../../runners/python/PythonRunner";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -159,6 +160,45 @@ describe("fuzzer/adapters/pytest/PytestAdapter:", () => {
       "mymodule.py"
     ).filename;
     expect(fname).toBe("mymodule_nano_test.py");
+  });
+
+  it("emits BigInt test cases as Python integers correctly", () => {
+    const tests: FuzzTests = {
+      version: "0.0.0",
+      functions: {
+        bigIntFn: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: 100n,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: 200n,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+      },
+    };
+
+    const out = new PytestAdapter(tests, "mymodule.py").toString();
+    expect(out).toContain("def test_bigIntFn_0_expect(");
+    expect(out).toContain("assert themodule.bigIntFn(*[100]) == 200");
   });
 
   it("emits async Pytest tests when isAsync is true", () => {
@@ -431,11 +471,24 @@ def asyncPropValidator(result):
     const testPath = adapter.filename;
     fs.writeFileSync(testPath, testCode);
 
+    const pyEnv = PythonRunner.envFor(modPath);
+
     try {
-      const res = spawnSync("pytest", [testPath], {
-        cwd: tmpDir,
-        encoding: "utf8",
-      });
+      const res = spawnSync(
+        pyEnv.interpreter,
+        [
+          "-m",
+          "pytest",
+          testPath,
+          "-o",
+          "cache_dir=" + path.join(tmpDir, ".pytest_cache"),
+        ],
+        {
+          cwd: tmpDir,
+          env: pyEnv.env,
+          encoding: "utf8",
+        }
+      );
       expect(res.status).toBe(0);
       expect(res.stdout).toContain("4 passed");
     } finally {
@@ -445,5 +498,36 @@ def asyncPropValidator(result):
         // ignore
       }
     }
+  });
+
+  it("handles UnsatisfiedAssumption in property validators without failing test", () => {
+    const tests: FuzzTests = {
+      version: "0.0.0",
+      functions: {
+        myFn: {
+          options: makeOptions({ useProperty: true }),
+          validators: ["myFnValidator"],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "x",
+                  offset: 0,
+                  value: 1,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+            },
+          },
+          isVoid: false,
+        },
+      },
+    };
+
+    const out = new PytestAdapter(tests, "mymodule.py").toString();
+    expect(out).toContain("UnsatisfiedAssumption");
+    expect(out).toContain("return 'unknown'");
   });
 });

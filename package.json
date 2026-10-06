@@ -237,6 +237,23 @@
             ],
             "default": "project static",
             "description": "Code coverage scope (`directimports` is currently only supported for Python)"
+          },
+          "nanofuzz.fuzzer.engine": {
+            "title": "Fuzzer engine version",
+            "type": "string",
+            "enum": [
+              "v1",
+              "v2"
+            ],
+            "enumDescriptions": [
+              "v1: Classic fuzzer experience",
+              "v2: Updated fuzzer experience"
+            ],
+            "default": "v2",
+            "description": "Select the fuzzer engine implementation (v1=classic, v2=updated)",
+            "tags": [
+              "experimental"
+            ]
           }
         }
       },

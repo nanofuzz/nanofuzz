@@ -1,4 +1,4 @@
-import { FuzzTestResults } from "../Fuzzer";
+import { FuzzTestResults } from "../Types";
 import { AbstractRunner } from "../runners/AbstractRunner";
 import { FuzzTestResult, VmGlobals, InputAndSource } from "../Types";
 

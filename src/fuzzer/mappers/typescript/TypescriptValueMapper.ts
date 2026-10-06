@@ -105,7 +105,12 @@ function toJavascriptValues(val: unknown, argDef?: ArgDef): string {
     (argDef && argDef.getType() === ArgTag.SET && Array.isArray(val))
   ) {
     const elemDef = argDef?.getChildren()[0];
-    const rawItems = val instanceof Set ? Array.from(val.values()) : Array.isArray(val) ? val : [];
+    const rawItems =
+      val instanceof Set
+        ? Array.from(val.values())
+        : Array.isArray(val)
+          ? val
+          : [];
     const items = rawItems.map((item) => toJavascriptValues(item, elemDef));
     return `new Set([${items.join(", ")}])`;
   }
@@ -136,7 +141,7 @@ function toJavascriptValues(val: unknown, argDef?: ArgDef): string {
   }
 
   if (typeof val === "bigint") {
-    throw new Error("Bigints are not supported");
+    return String(val) + "n";
   }
 
   if (typeof val === "symbol") {
@@ -194,6 +199,39 @@ function toJavascriptValue(text: string): unknown {
         }
         break;
 
+      case "unary_expression": {
+        const text = node.text;
+        if (/^[-+]\s*(?:0x[0-9a-f]+|\d+)n$/i.test(text)) {
+          const digits = text.replace(/n$/i, "").replace(/\s+/g, "");
+          replacements.push({
+            start: node.startIndex,
+            end: node.endIndex,
+            text: `{${JSONN.PlaceHolderBigIntKey}:"${digits}"}`,
+          });
+          break;
+        }
+        // Recursively traverse children
+        for (let i = 0; i < node.childCount; i++) {
+          const child = node.child(i);
+          if (child) {
+            collectReplacements(child);
+          }
+        }
+        break;
+      }
+
+      case "number": {
+        if (/^(?:0x[0-9a-f]+|\d+)n$/i.test(node.text)) {
+          const digits = node.text.replace(/n$/i, "");
+          replacements.push({
+            start: node.startIndex,
+            end: node.endIndex,
+            text: `{${JSONN.PlaceHolderBigIntKey}:"${digits}"}`,
+          });
+        }
+        break;
+      }
+
       case "new_expression":
       case "call_expression": {
         const text = node.text;
@@ -249,13 +287,22 @@ function toJavascriptValue(text: string): unknown {
             text: `{${JSONN.PlaceHolderUint8ArrayKey}:[${bytes.join(",")}]}`,
           });
         } else {
+          const bigIntMatch = text.match(
+            /^(?:new\s+)?BigInt\s*\(\s*["']?(-?\d+)["']?\s*\)$/
+          );
           const mapMatch = text.match(
             /^new\s+(?:Readonly)?Map\s*\(\s*(\[[\s\S]*\])\s*\)/i
           );
           const setMatch = text.match(
             /^new\s+(?:Readonly)?Set\s*\(\s*(\[[\s\S]*\])\s*\)/i
           );
-          if (mapMatch) {
+          if (bigIntMatch) {
+            replacements.push({
+              start: node.startIndex,
+              end: node.endIndex,
+              text: `{${JSONN.PlaceHolderBigIntKey}:"${bigIntMatch[1]}"}`,
+            });
+          } else if (mapMatch) {
             replacements.push({
               start: node.startIndex,
               end: node.endIndex,

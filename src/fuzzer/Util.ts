@@ -1,6 +1,8 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as JSONN from "../Jsonn";
+import { CompositeOracle } from "./oracles/CompositeOracle";
+import { FuzzIoElement, FuzzResultCategory, FuzzTestResult } from "./Types";
 
 /**
  * Type guard function that returns true if the input object
@@ -119,4 +121,88 @@ export function findInDescendants(
   }
 
   return undefined;
-}
+} // fn: findInDescendants
+
+/**
+ * Returns true if all oracle judgments of two test results are identical without allocating arrays or stringifying.
+ */
+export function isSameJudgments(a: FuzzTestResult, b: FuzzTestResult): boolean {
+  if (a.passedImplicit !== b.passedImplicit) {
+    return false;
+  }
+  if (a.passedHuman !== b.passedHuman) {
+    return false;
+  }
+  const aVals = a.passedValidators;
+  const bVals = b.passedValidators;
+  if (aVals.length !== bVals.length) {
+    return false;
+  }
+  for (let i = 0; i < aVals.length; i++) {
+    if (aVals[i] !== bVals[i]) {
+      return false;
+    }
+  }
+  return true;
+} // fn: isSameJudgments
+
+/**
+ * Categorizes the result of a fuzz test according to the available
+ * categories defined in ResultType.
+ * @param result of the test
+ * @returns the category of the result
+ */
+export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
+  if (result.harnessErrors.length > 0) {
+    return "failure"; // Validator or transformer failed
+  }
+  if (result.skipped) {
+    return "skip";
+  }
+
+  // Returns the type of bad value: execption, timeout, or badvalue
+  const getBadValueType = (result: FuzzTestResult): FuzzResultCategory => {
+    if (result.exception) {
+      return "exception"; // PUT threw exception
+    } else if (result.timeout) {
+      return "timeout"; // PUT timedout
+    } else {
+      return "badValue"; // PUT returned bad value
+    }
+  };
+
+  // Use the Composite Oracle to render a single judgment from among
+  // the various oracles. We describe this in the TerzoN paper:
+  //
+  // TerzoN: Human-in-the-Loop Software Testing with a Composite Oracle
+  // https://doi.org/10.1145/3580446
+  //
+  // Subsequently, map the judgment to a FuzzResultCategory
+  switch (
+    CompositeOracle.judge([
+      [result.passedValidator, result.passedHuman],
+      [result.passedImplicit],
+    ])
+  ) {
+    case "pass":
+      return "ok";
+    case "fail":
+      return getBadValueType(result);
+    case "unknown":
+      return "disagree";
+  }
+} // fn: categorizeResult
+
+/**
+ * Gets the input key as a string from an array of `FuzzIoElement`s
+ *
+ * @param `io` array of `FuzzIoElements`
+ * @returns string representation of input key
+ */
+export function getIoKey(io: FuzzIoElement[]): string {
+  return JSONN.stringify(
+    io.map((input) => {
+      return { value: input.value };
+    })
+  );
+} // fn: getIoKey

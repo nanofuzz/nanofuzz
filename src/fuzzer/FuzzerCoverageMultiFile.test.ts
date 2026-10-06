@@ -1,4 +1,4 @@
-import { Tester } from "./Fuzzer";
+import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 
 describe("fuzzer: coverageMultiFile benchmark", () => {
@@ -7,11 +7,11 @@ describe("fuzzer: coverageMultiFile benchmark", () => {
   });
 
   it("Fuzz example 16 - coverageMultiFile", async () => {
-    const fuzzResult = await new Tester(
+    const fuzzResult = await FuzzerFactory(
       "./test_fixtures/Fuzzer.testfixtures.ts",
       "testCoverageMultiFile",
       intOptions
-    ).testSync();
+    ).test();
 
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.oracles.heuristic.pass).toBe(

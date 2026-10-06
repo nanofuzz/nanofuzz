@@ -1,5 +1,5 @@
 import * as TSWeb from "web-tree-sitter";
-import { ProgramLanguage } from "../Fuzzer";
+import { ProgramLanguage } from "../analysis/Types";
 
 /**
  * This shim provide a more consistent interface for consumers of
@@ -93,7 +93,7 @@ export function parse(lang: ProgramLanguage, text: string): Tree | null {
     );
   }
   return _getGrammarOrThrow(_langToGrammarName(lang)).parser.parse(text);
-}
+} // fn: parse()
 
 /**
  * Returns a Query for a lang and querystring.
@@ -107,7 +107,71 @@ export function query(lang: ProgramLanguage, q: string): Query {
     _getGrammarOrThrow(_langToGrammarName(lang)).grammar,
     q
   );
-}
+} // fn: query()
+
+/**
+ * Returns the named children of an AST node with all comment nodes filtered out.
+ *
+ * @param `node` Tree-sitter AST node
+ * @returns Array of non-comment named child nodes
+ */
+export function getNamedChildrenNoComments(
+  node: Node | SyntaxNode | undefined | null
+): SyntaxNode[] {
+  if (!node) {
+    return [];
+  }
+  return node.namedChildren.filter(
+    (c) =>
+      c.type !== "comment" &&
+      c.type !== "line_comment" &&
+      c.type !== "block_comment"
+  );
+} // fn: getNamedChildrenNoComments()
+
+/**
+ * Alias for getNamedChildrenNoComments
+ */
+export const getNamedChildrenFiltered = getNamedChildrenNoComments;
+
+/**
+ * Returns the nth named child of an AST node, ignoring comment nodes.
+ *
+ * @param `node` Tree-sitter AST node
+ * @param `index` 0-based index of non-comment named child
+ * @returns The nth non-comment named child node or undefined
+ */
+export function getNamedChildNoComments(
+  node: Node | SyntaxNode | undefined | null,
+  index: number
+): SyntaxNode | undefined {
+  return getNamedChildrenNoComments(node)[index];
+} // fn: getNamedChildNoComments()
+
+/**
+ * Returns the first named child of an AST node, ignoring comment nodes.
+ *
+ * @param `node` Tree-sitter AST node
+ * @returns The first non-comment named child node or undefined
+ */
+export function getFirstNamedChildNoComments(
+  node: Node | SyntaxNode | undefined | null
+): SyntaxNode | undefined {
+  return getNamedChildrenNoComments(node)[0];
+} // fn: getFirstNamedChildNoComments()
+
+/**
+ * Returns the last named child of an AST node, ignoring comment nodes.
+ *
+ * @param `node` Tree-sitter AST node
+ * @returns The last non-comment named child node or undefined
+ */
+export function getLastNamedChildNoComments(
+  node: Node | SyntaxNode | undefined | null
+): SyntaxNode | undefined {
+  const children = getNamedChildrenNoComments(node);
+  return children.length > 0 ? children[children.length - 1] : undefined;
+} // fn: getLastNamedChildNoComments()
 
 /**
  * Returns data for a grammar if it is loaded; otherwise, throws an Error.
@@ -126,7 +190,7 @@ function _getGrammarOrThrow(grammarName: string): GrammarData {
     );
   }
   return grammars[grammarName];
-}
+} // fn: _getGrammarOrThrow()
 
 /**
  * Returns a grammar nanme for a programming language
@@ -136,7 +200,7 @@ function _getGrammarOrThrow(grammarName: string): GrammarData {
  */
 function _langToGrammarName(lang: ProgramLanguage): string {
   return `tree-sitter-${lang}`;
-}
+} // fn: _langToGrammarName()
 
 type Parser = TSWeb.Parser;
 type Language = TSWeb.Language;

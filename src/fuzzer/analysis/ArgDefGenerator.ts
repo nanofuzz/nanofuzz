@@ -11,6 +11,10 @@ import {
   ArgValueTypeWrapped,
 } from "./Types";
 
+const DEFAULT_INT_OPTIONS: { readonly numInteger: boolean } = Object.freeze({
+  numInteger: true,
+});
+
 /**
  * Pseudo-randomly generates example values that conform to an ArgDef spec.
  */
@@ -103,6 +107,9 @@ function generateRandomInputFn(
 
   const argType = arg.getType();
   switch (argType) {
+    case ArgTag.BIGINT:
+      randFn = getRandomBigint;
+      break;
     case ArgTag.NUMBER:
       randFn = getRandomNumber;
       break;
@@ -135,7 +142,7 @@ function generateRandomInputFn(
           prng,
           0,
           children.length - 1,
-          ArgDef.getDefaultOptions() // use defaults for union member selection
+          DEFAULT_INT_OPTIONS // use defaults for union member selection
         );
         return generateRandomInputFn(children[rn], prng)();
       };
@@ -322,7 +329,7 @@ function generateRandomInputFn(
           prng,
           0,
           intervals.length - 1,
-          ArgDef.getDefaultOptions() // use defaults for interval selection
+          DEFAULT_INT_OPTIONS // use defaults for interval selection
         )
       ];
     return randFn(prng, interval.min, interval.max, options);
@@ -357,7 +364,7 @@ function generateRandomInputFn(
           prng,
           i,
           constantLeaves.length - 1,
-          ArgDef.getDefaultOptions()
+          DEFAULT_INT_OPTIONS
         );
         const temp = indices[i];
         indices[i] = indices[j];
@@ -391,6 +398,53 @@ function generateRandomInputFn(
 } // fn: generateRandomInput
 
 /**
+ * Returns a random bigint >= min and <= max
+ *
+ * @param `prng` pseudo-random number generator
+ * @param `min` minimum value allowed (inclusive)
+ * @param `max` maximum value allowed (inclusive)
+ * @param `options` argument option set
+ * @returns random bigint >= min and <= max
+ *
+ * Throws an exception if min and max are not bigints
+ */
+const getRandomBigint: PrivateRandFn = (
+  prng: seedrandom.prng,
+  min: ArgValueType,
+  max: ArgValueType
+): bigint => {
+  if (typeof min !== "bigint" || typeof max !== "bigint")
+    throw new Error("Min and max must be bigints");
+
+  const range = max - min;
+  if (range <= 0n) return min;
+
+  // Single-step uniform sampling for small ranges
+  if (range <= BigInt(Number.MAX_SAFE_INTEGER)) {
+    const rangeInt = Number(range);
+    return BigInt(Math.floor(prng() * (rangeInt + 1))) + min;
+  }
+
+  // Bitwise chunking with rejection sampling for arbitrary precision.
+  // We use 48 bits per chunk (Math.floor(prng() * 0x1000000000000)) because
+  // it was faster than 8-bit, 30-bit, or string-based approaches.
+  const bitLength = getBigIntBitLength(range);
+  const mask = (1n << bitLength) - 1n;
+
+  while (true) {
+    let candidate = 0n;
+    for (let bits = 0n; bits < bitLength; bits += 48n) {
+      const chunk = BigInt(Math.floor(prng() * 0x1000000000000));
+      candidate = (candidate << 48n) | chunk;
+    }
+    candidate &= mask;
+    if (candidate <= range) {
+      return candidate + min;
+    }
+  }
+}; // fn: getRandomBigint
+
+/**
  * Returns a random number >= min and <= max
  *
  * @param `prng` pseudo-random number generator
@@ -405,7 +459,7 @@ const getRandomNumber = (
   prng: seedrandom.prng,
   min: ArgValueType,
   max: ArgValueType,
-  options: ArgOptions
+  options: { numInteger?: boolean } | ArgOptions
 ): number => {
   if (typeof min !== "number" || typeof max !== "number")
     throw new Error("Min and max must be numbers");
@@ -526,7 +580,6 @@ const getRandomString: PrivateRandFn = (
     throw new Error("Min and max must be strings");
 
   const charSet = Array.from(options.strCharset);
-  const intOptions = ArgDef.getDefaultOptions(); // use default for integer selection
 
   // This generator does not currently support min and max, but we don't make
   // that option available in the UI anyway. Find the old code in v0.3.2 and fix
@@ -543,7 +596,9 @@ const getRandomString: PrivateRandFn = (
   const charSetLen = charSet.length - 1;
   const outChars: string[] = [];
   for (let i = 0; i < strLen; i++) {
-    outChars.push(charSet[getRandomNumber(prng, 0, charSetLen, intOptions)]);
+    outChars.push(
+      charSet[getRandomNumber(prng, 0, charSetLen, DEFAULT_INT_OPTIONS)]
+    );
   }
 
   return outChars.join("");
@@ -551,6 +606,7 @@ const getRandomString: PrivateRandFn = (
 
 /**
  * Generates a random byte array with a length constrained by the provided options.
+ * Uses 48-bit (6-byte) float chunking from the PRNG for high throughput.
  *
  * @param prng pseudo-random number generator
  * @param _min minimum value allowed (inclusive)
@@ -564,15 +620,41 @@ const getRandomBytes: PrivateRandFn = (
   _max: ArgValueType,
   options: ArgOptions
 ): Uint8Array => {
-  const intOptions = ArgDef.getDefaultOptions();
   const bytesLen = sampleLength(
     prng,
     options.byteLength.min,
     options.byteLength.max
   );
   const outBytes = new Uint8Array(bytesLen);
-  for (let i = 0; i < bytesLen; i++) {
-    outBytes[i] = getRandomNumber(prng, 0, 255, intOptions);
+  let i = 0;
+  while (i + 6 <= bytesLen) {
+    const chunk = Math.floor(prng() * 0x1000000000000);
+    const lower = chunk >>> 0;
+    const upper = Math.floor(chunk / 0x100000000);
+    outBytes[i] = lower & 0xff;
+    outBytes[i + 1] = (lower >> 8) & 0xff;
+    outBytes[i + 2] = (lower >> 16) & 0xff;
+    outBytes[i + 3] = (lower >> 24) & 0xff;
+    outBytes[i + 4] = upper & 0xff;
+    outBytes[i + 5] = (upper >> 8) & 0xff;
+    i += 6;
+  }
+  if (i < bytesLen) {
+    const chunk = Math.floor(prng() * 0x1000000000000);
+    const lower = chunk >>> 0;
+    const upper = Math.floor(chunk / 0x100000000);
+    const remaining = [
+      lower & 0xff,
+      (lower >> 8) & 0xff,
+      (lower >> 16) & 0xff,
+      (lower >> 24) & 0xff,
+      upper & 0xff,
+      (upper >> 8) & 0xff,
+    ];
+    let remIdx = 0;
+    while (i < bytesLen) {
+      outBytes[i++] = remaining[remIdx++];
+    }
   }
   return outBytes;
 }; // fn: getRandomBytes
@@ -656,7 +738,7 @@ export const sampleNumberHeuristic = (
   prng: seedrandom.prng,
   min: ArgValueType,
   max: ArgValueType,
-  options: ArgOptions
+  options: { numInteger?: boolean } | ArgOptions
 ): number => {
   if (typeof min !== "number" || typeof max !== "number") {
     throw new Error("Min and max must be numbers");
@@ -902,3 +984,19 @@ const FLOAT_SPECIALS: readonly number[] = Object.freeze([
   -Number.MAX_VALUE,
   -Number.EPSILON,
 ]);
+
+/**
+ * Returns the exact bit length of a non-negative BigInt without string allocation.
+ */
+function getBigIntBitLength(n: bigint): bigint {
+  let bits = 0n;
+  let temp = n;
+  while (temp >= 0x100000000n) {
+    bits += 32n;
+    temp >>= 32n;
+  }
+  if (temp > 0n) {
+    bits += BigInt(32 - Math.clz32(Number(temp)));
+  }
+  return bits;
+} // fn: getBigIntBitLength

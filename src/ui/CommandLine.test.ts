@@ -4,7 +4,7 @@ import * as os from "node:os";
 import JSON5 from "json5";
 import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
-import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Fuzzer";
+import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Types";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
 import { runCliInProcess } from "./CommandLine";
 
@@ -83,16 +83,6 @@ async function runCli(
 
 describe("cli:", () => {
   let tmpDir: string;
-  let originalTimeout: number;
-
-  beforeAll(() => {
-    originalTimeout = jasmine.DEFAULT_TIMEOUT_INTERVAL;
-    jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
-  });
-
-  afterAll(() => {
-    jasmine.DEFAULT_TIMEOUT_INTERVAL = originalTimeout;
-  });
 
   beforeEach(() => {
     Config.clearOverrides();

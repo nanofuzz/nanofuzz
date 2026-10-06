@@ -20,6 +20,7 @@ import {
   ProgramLanguage,
 } from "../fuzzer/analysis/Types";
 import {
+  FuzzEnv,
   FuzzIoElement,
   FuzzOptions,
   FuzzPinnedTest,
@@ -27,10 +28,11 @@ import {
   FuzzStatusUpdater,
   FuzzStopReason,
   FuzzTestResult,
+  FuzzTestResults,
   FuzzTests,
   HarnessError,
 } from "../fuzzer/Types";
-import { FuzzEnv, FuzzTestResults, Tester } from "../fuzzer/Fuzzer";
+import { FuzzerFactory } from "../fuzzer/FuzzerFactory";
 import { Judgment } from "../fuzzer/oracles/Types";
 import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
@@ -224,7 +226,7 @@ export async function runFuzz(
       generators: effectiveGenerators,
     });
 
-    const tester = new Tester(
+    const tester = FuzzerFactory(
       resolvedPath,
       options.functionName,
       normalizedOptions
@@ -239,7 +241,7 @@ export async function runFuzz(
     );
     const allInjected = [...convertedInputs, ...(options.injectTests ?? [])];
 
-    const rawResults = await tester.testSync(
+    const rawResults = await tester.test(
       allInjected,
       { gen: true },
       updateFn,

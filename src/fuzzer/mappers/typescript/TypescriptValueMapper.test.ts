@@ -16,6 +16,8 @@ describe("fuzzer/mappers/typescript/TypescriptValueMapper: ", () => {
       Infinity,
       -Infinity,
       3,
+      100n,
+      -42n,
       "hello",
       true,
       false,
@@ -24,6 +26,7 @@ describe("fuzzer/mappers/typescript/TypescriptValueMapper: ", () => {
         noValue: undefined,
         nullValue: null,
         nanValue: NaN,
+        bigintValue: 100n,
         arrayValue: [
           null,
           NaN,
@@ -33,6 +36,8 @@ describe("fuzzer/mappers/typescript/TypescriptValueMapper: ", () => {
           Infinity,
           -Infinity,
           3,
+          100n,
+          -42n,
           "hello",
           true,
           false,
@@ -47,6 +52,8 @@ describe("fuzzer/mappers/typescript/TypescriptValueMapper: ", () => {
         Infinity,
         -Infinity,
         3,
+        100n,
+        -42n,
         "hello",
         true,
         false,
@@ -55,6 +62,7 @@ describe("fuzzer/mappers/typescript/TypescriptValueMapper: ", () => {
           noValue: undefined,
           nullValue: null,
           nanValue: NaN,
+          bigintValue: 100n,
         },
       ],
     ].forEach((value) => {
@@ -128,8 +136,31 @@ describe("fuzzer/mappers/typescript/TypescriptValueMapper: ", () => {
     const tsCode = TypescriptValueMapper.toTypescript(setVal);
     expect(tsCode).toEqual('new Set([1, "two", true])');
 
-    const parsedSet = TypescriptValueMapper.fromTypescript<Set<unknown>>(tsCode);
+    const parsedSet =
+      TypescriptValueMapper.fromTypescript<Set<unknown>>(tsCode);
     expect(parsedSet instanceof Set).toBeTrue();
     expect(parsedSet).toEqual(setVal);
+  });
+
+  it("BigInts", () => {
+    const bigIntVal = 100n;
+    const negBigIntVal = -42n;
+
+    expect(TypescriptValueMapper.toTypescript(bigIntVal)).toEqual("100n");
+    expect(TypescriptValueMapper.toTypescript(negBigIntVal)).toEqual("-42n");
+
+    expect(TypescriptValueMapper.fromTypescript<bigint>("100n")).toEqual(100n);
+    expect(TypescriptValueMapper.fromTypescript<bigint>("-42n")).toEqual(-42n);
+    expect(TypescriptValueMapper.fromTypescript<bigint>("BigInt(100)")).toEqual(
+      100n
+    );
+    expect(
+      TypescriptValueMapper.fromTypescript<bigint>('BigInt("-42")')
+    ).toEqual(-42n);
+
+    // Round-trip nested BigInt inside object and array
+    const nestedObj = { count: 1234567890123456789n, items: [1n, -2n] };
+    const tsCode = TypescriptValueMapper.toTypescript(nestedObj);
+    expect(TypescriptValueMapper.fromTypescript(tsCode)).toEqual(nestedObj);
   });
 });

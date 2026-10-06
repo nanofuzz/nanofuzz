@@ -1,4 +1,4 @@
-import { Tester } from "./Fuzzer";
+import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { FuzzTestResult } from "./Types";
 
@@ -24,7 +24,7 @@ describe("fuzzer: coverageOneFile benchmark", () => {
 
     for (const seed of coverageSearchSeeds) {
       const capturedResults: FuzzTestResult[] = [];
-      const fuzzResult = await new Tester(
+      const fuzzResult = await FuzzerFactory(
         "./test_fixtures/Fuzzer.testfixtures.ts",
         "testCoverageOneFile",
         {
@@ -42,7 +42,7 @@ describe("fuzzer: coverageOneFile benchmark", () => {
             },
           },
         }
-      ).testSync([], { gen: true }, undefined, undefined, (r) =>
+      ).test([], { gen: true }, undefined, undefined, (r) =>
         capturedResults.push(r)
       );
 

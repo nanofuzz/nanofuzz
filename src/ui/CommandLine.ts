@@ -11,14 +11,21 @@ import * as Config from "../Config";
 import * as fs from "node:fs";
 import { SingleBar, Presets } from "cli-progress";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
-import { ArgDef, FuzzBusyStatusMessage, Tester } from "../fuzzer/Fuzzer";
+import { ArgDef } from "../fuzzer/analysis/ArgDef";
+import { FuzzBusyStatusMessage, FuzzOptions } from "../fuzzer/Types";
+import {
+  formatCompilingStatus,
+  formatInstrumentingStatus,
+  formatRunSummary,
+} from "./FuzzTextFormatter";
+import { FuzzerEngineVersion, FuzzerFactory } from "../fuzzer/FuzzerFactory";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
-import { FuzzOptions } from "../fuzzer/Types";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
 import path from "node:path";
 import * as JSONN from "../Jsonn";
 import { isError } from "../fuzzer/Util";
+import { isKeyedObject } from "../Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
 import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
@@ -111,6 +118,12 @@ function createProgram(): Commander.Command {
       `Output results mode: 'failures' (default), 'all', 'none'`,
       parseOutputResults,
       "failures"
+    )
+    .option(
+      `--engine <v1|v2>`,
+      `Fuzzer engine version: 'v1' (classic) or 'v2' (refactored)`,
+      (val: string): FuzzerEngineVersion => (val === "v2" ? "v2" : "v1"),
+      "v2"
     )
 
     // ------------------------------- Transformers ------------------------------ //
@@ -341,28 +354,44 @@ export async function runCliInProcess(
   process.on("SIGINT", sigintListener);
 
   const updateFn = (payload: FuzzBusyStatusMessage) => {
-    if (!isCancelled) {
-      switch (payload.channel) {
-        case "summary":
-        case "milestone": {
-          if (!lastWasMilestone) {
-            bar.stop();
-          }
-          console.log(payload.msg);
-          break;
+    if (isCancelled) return;
+    switch (payload.type) {
+      case "compiling": {
+        if (!lastWasMilestone) {
+          bar.stop();
         }
-        case "update": {
-          if (lastWasMilestone) {
-            bar.start(100, 0);
-          }
-          if (payload.pct) {
-            bar.update(Math.max(0, Math.min(payload.pct, 100)));
-          }
-          break;
+        console.log(formatCompilingStatus(payload));
+        lastWasMilestone = true;
+        break;
+      }
+      case "instrumenting": {
+        if (!lastWasMilestone) {
+          bar.stop();
         }
+        console.log(formatInstrumentingStatus(payload));
+        lastWasMilestone = true;
+        break;
+      }
+      case "testing":
+      case "waiting-for-generator":
+      case "progress-tick": {
+        if (lastWasMilestone) {
+          bar.start(100, 0);
+          lastWasMilestone = false;
+        }
+        if (typeof payload.pct === "number") {
+          bar.update(Math.max(0, Math.min(payload.pct, 100)));
+        }
+        break;
+      }
+      case "testing-complete": {
+        if (!lastWasMilestone) {
+          bar.stop();
+          lastWasMilestone = true;
+        }
+        break;
       }
     }
-    lastWasMilestone = payload.channel !== "update" || isCancelled;
   };
 
   // infrastructure options
@@ -565,62 +594,103 @@ export async function runCliInProcess(
       }
     }
 
-    const results = await new Tester(filename, fnname, {
-      argDefaults: ArgDef.getDefaultOptions(),
-      maxTests: getEffectiveOption("maxTests", "maxTests", options["maxTests"]),
-      fnTimeout: getEffectiveOption(
-        "fnTimeout",
-        "fnTimeout",
-        options["fnTimeout"]
-      ),
-      suiteTimeout: getEffectiveOption(
-        "maxRuntime",
-        "suiteTimeout",
-        options["maxRuntime"]
-      ),
-      seed: options["seed"],
-      maxDupeInputs: getEffectiveOption(
-        "maxDupeInputs",
-        "maxDupeInputs",
-        options["maxDupeInputs"]
-      ),
-      maxFailures: getEffectiveOption(
-        "maxFailures",
-        "maxFailures",
-        options["maxFailures"]
-      ),
-      useTransformer: options["transformer"],
-      useImplicit: options["heuristicOracle"],
-      useHuman: options["exampleOracle"],
-      useProperty: options["propertyOracle"],
-      outputResults: getEffectiveOption(
-        "outputResults",
-        "outputResults",
-        options["outputResults"] ?? "failures"
-      ),
-      outputFile: outfile,
-      measures: {
-        CoverageMeasure: {
-          enabled: options["coverageMeasure"],
-          weight: 1,
+    const fuzzer = FuzzerFactory(
+      filename,
+      fnname,
+      {
+        argDefaults: ArgDef.getDefaultOptions(),
+        maxTests: getEffectiveOption(
+          "maxTests",
+          "maxTests",
+          options["maxTests"]
+        ),
+        fnTimeout: getEffectiveOption(
+          "fnTimeout",
+          "fnTimeout",
+          options["fnTimeout"]
+        ),
+        suiteTimeout: getEffectiveOption(
+          "maxRuntime",
+          "suiteTimeout",
+          options["maxRuntime"]
+        ),
+        seed: options["seed"],
+        maxDupeInputs: getEffectiveOption(
+          "maxDupeInputs",
+          "maxDupeInputs",
+          options["maxDupeInputs"]
+        ),
+        maxFailures: getEffectiveOption(
+          "maxFailures",
+          "maxFailures",
+          options["maxFailures"]
+        ),
+        useTransformer: options["transformer"],
+        useImplicit: options["heuristicOracle"],
+        useHuman: options["exampleOracle"],
+        useProperty: options["propertyOracle"],
+        outputResults: getEffectiveOption(
+          "outputResults",
+          "outputResults",
+          options["outputResults"] ?? "failures"
+        ),
+        outputFile: outfile,
+        measures: {
+          CoverageMeasure: {
+            enabled: options["coverageMeasure"],
+            weight: 1,
+          },
+          FailedTestMeasure: {
+            enabled: options["failedTestMeasure"],
+            weight: 1,
+          },
         },
-        FailedTestMeasure: {
-          enabled: options["failedTestMeasure"],
-          weight: 1,
+        generators: {
+          AiInputGenerator: { enabled: options["aiInputGenerator"] },
+          MutationInputGenerator: {
+            enabled: options["mutationInputGenerator"],
+          },
+          RandomInputGenerator: {
+            enabled: options["randomInputGenerator"],
+          },
         },
       },
-      generators: {
-        AiInputGenerator: { enabled: options["aiInputGenerator"] },
-        MutationInputGenerator: {
-          enabled: options["mutationInputGenerator"],
-        },
-        RandomInputGenerator: {
-          enabled: options["randomInputGenerator"],
-        },
-      },
-    }).testSync(injectTests, undefined, updateFn, () => isCancelled);
+      { engine: options["engine"] }
+    );
+
+    console.log(`Target: ${fnname} of ${filename}`);
+    console.log(`Target ready to test.`);
+
+    const results = await fuzzer.test(
+      injectTests,
+      undefined,
+      updateFn,
+      () => isCancelled
+    );
 
     process.removeListener("SIGINT", sigintListener);
+
+    if (outfile) {
+      const covStats =
+        typeof results.stats.measures.CodeCoverageMeasure === "function"
+          ? await results.stats.measures.CodeCoverageMeasure()
+          : undefined;
+      JSONN.toFile(outfile, results, (k: string, v: unknown) =>
+        k === "CodeCoverageMeasure"
+          ? covStats
+          : k === "coverageMeasure" && isKeyedObject(v)
+            ? { current: v.current }
+            : v
+      );
+    }
+
+    if (!lastWasMilestone) {
+      bar.stop();
+      lastWasMilestone = true;
+    }
+
+    const diagnostics = fuzzer.getInputGeneratorDiagnostics();
+    console.log(formatRunSummary(results, diagnostics, isCancelled));
 
     if (isCancelled) {
       return USER_CANCELLED;

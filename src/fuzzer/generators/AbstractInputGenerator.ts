@@ -1,7 +1,6 @@
 import seedrandom from "seedrandom";
 import { ArgDef } from "../analysis/ArgDef";
-import { FuzzPinnedTest, InputAndSource } from "./../Types";
-import { FuzzTestResults } from "../Fuzzer";
+import { FuzzPinnedTest, FuzzTestResults, InputAndSource } from "./../Types";
 import { InputGeneratorStats, NextableStatus } from "./Types";
 import { AbstractRunner } from "../runners/AbstractRunner";
 
@@ -9,7 +8,7 @@ import { AbstractRunner } from "../runners/AbstractRunner";
  * Abstract class of an input generator
  */
 export abstract class AbstractInputGenerator {
-  protected _specs; // ArgDef specs that describe inputs.
+  protected _specs: ArgDef[]; // ArgDef specs that describe inputs.
   protected _prng; // pseudo random number generator
   protected _pendingPromise?: Promise<boolean>; // Pending promise for async input generation
 

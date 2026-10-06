@@ -79,15 +79,11 @@ function toPythonValues(val: unknown): unknown {
     throw new Error("Functions are not supported");
   }
 
-  if (typeof val === "bigint") {
-    throw new Error("Bigints are not supported");
-  }
-
   if (typeof val === "symbol") {
     throw new Error("Symbols are not supported");
   }
 
-  return val; // Passthrough strings, numbers, booleans
+  return val; // Passthrough strings, numbers, booleans, bigints
 }
 
 // Python's `None` value
@@ -253,7 +249,7 @@ function toPythonFormat(val: unknown): string {
   if (typeof val === "string") {
     return JSON.stringify(val); // handles strings quotes and escapes
   }
-  if (typeof val === "number") {
+  if (typeof val === "number" || typeof val === "bigint") {
     return String(val);
   }
 
@@ -358,14 +354,18 @@ function toJavascriptValues(text: string): unknown {
       case "call": {
         const fnNode = node.childForFieldName("function");
         const fnName = fnNode?.text;
-        if (fnName === "set" || fnName === "frozenset" || fnName === "FrozenSet") {
+        if (
+          fnName === "set" ||
+          fnName === "frozenset" ||
+          fnName === "FrozenSet"
+        ) {
           const argsNode = node.childForFieldName("arguments");
           if (argsNode) {
             for (const child of argsNode.children) {
               collectReplacements(child);
             }
           }
-          const listNode = argsNode?.namedChildren.find(
+          const listNode = Parser.getNamedChildrenNoComments(argsNode).find(
             (c) => c.type === "list" || c.type === "tuple" || c.type === "set"
           );
           if (listNode) {
@@ -382,12 +382,14 @@ function toJavascriptValues(text: string): unknown {
           }
         } else if (fnNode?.text === "bytes") {
           const argsNode = node.childForFieldName("arguments");
-          const listNode = argsNode?.namedChildren.find(
+          const listNode = Parser.getNamedChildrenNoComments(argsNode).find(
             (c) => c.type === "list" || c.type === "tuple"
           );
           if (listNode) {
             const byteValues: number[] = [];
-            for (const child of listNode.namedChildren) {
+            const nonCommentChildren =
+              Parser.getNamedChildrenNoComments(listNode);
+            for (const child of nonCommentChildren) {
               const num = Number(child.text);
               if (!isNaN(num) && num >= 0 && num <= 255) {
                 byteValues.push(num);
@@ -395,7 +397,7 @@ function toJavascriptValues(text: string): unknown {
                 break;
               }
             }
-            if (byteValues.length === listNode.namedChildren.length) {
+            if (byteValues.length === nonCommentChildren.length) {
               replacements.push({
                 start: node.startIndex,
                 end: node.endIndex,

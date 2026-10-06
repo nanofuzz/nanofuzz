@@ -1,4 +1,11 @@
 import sys
+import signal
+
+# Ignore SIGINT in child runner host; lifecycle is managed exclusively by parent process
+try:
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+except Exception:
+    pass
 
 # Send an immediate heartbeat as early as possible during startup
 # so parent process timeout timer is reset while modules load.
@@ -25,6 +32,49 @@ import inspect
 import asyncio
 from contextlib import redirect_stdout, contextmanager
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
+
+_HEARTBEAT_BYTES = b'\x00\x00\x00\x06\xa5HEART'
+
+
+def _send_heartbeat_byte() -> None:
+    if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
+        try:
+            sys.__stdout__.buffer.write(_HEARTBEAT_BYTES)
+            sys.__stdout__.buffer.flush()
+        except Exception:
+            pass
+
+
+class HostHeartbeat:
+    """Sends periodic startup heartbeat messages to the parent process.
+    Capped at max_heartbeats (default 1000).
+    Runs as a daemon thread and stops when stop() is called.
+    """
+
+    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = 1000):
+        self.interval = interval_sec
+        self.max_heartbeats = max_heartbeats
+        self.heartbeat_count = 0
+        self.stop_event = threading.Event()
+        self.thread = None
+
+    def start(self):
+        def _worker():
+            while not self.stop_event.wait(timeout=self.interval):
+                if self.heartbeat_count >= self.max_heartbeats:
+                    break
+                self.heartbeat_count += 1
+                _send_heartbeat_byte()
+
+        self.thread = threading.Thread(target=_worker, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+
+
+_startup_hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=1000)
+_startup_hb.start()
 
 # ---------------------------------------------------------------------------
 # Bootstrap NaNofuzz Vendor Dependencies (_nanofuzz_python)
@@ -169,56 +219,6 @@ real_stdout = (
 _tracer_running = False
 
 
-MAX_HEARTBEATS = 1000
-_HEARTBEAT_BYTES = struct.pack('>I', len(
-    cast(bytes, msgpack.packb("HEART")))) + cast(bytes, msgpack.packb("HEART"))
-
-
-def send_heartbeat() -> None:
-    real_stdout.write(_HEARTBEAT_BYTES)
-    real_stdout.flush()
-
-
-class HostHeartbeat:
-    """Sends periodic startup heartbeat messages to the parent process.
-    Capped at max_heartbeats (default MAX_HEARTBEATS).
-    Runs as a daemon thread and stops when stop() is called.
-    """
-
-    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = MAX_HEARTBEATS):
-        self.interval = interval_sec
-        self.max_heartbeats = max_heartbeats
-        self.heartbeat_count = 0
-        self.stop_event = threading.Event()
-        self.thread = None
-
-    def start(self):
-        def _worker():
-            try:
-                send_heartbeat()
-            except Exception as e:
-                logging.debug(f"[{pid}] Heartbeat send error: {e}")
-                return
-
-            while not self.stop_event.wait(timeout=self.interval):
-                if self.heartbeat_count >= self.max_heartbeats:
-                    logging.debug(
-                        f"[{pid}] Max heartbeats ({self.max_heartbeats}) reached during startup")
-                    break
-                self.heartbeat_count += 1
-                try:
-                    send_heartbeat()
-                except Exception as e:
-                    logging.debug(f"[{pid}] Heartbeat send error: {e}")
-                    break
-
-        self.thread = threading.Thread(target=_worker, daemon=True)
-        self.thread.start()
-
-    def stop(self):
-        self.stop_event.set()
-
-
 class PutTimeoutException(Exception):
     """Raised in the main thread when a test execution times out."""
     pass
@@ -246,7 +246,7 @@ def run_coroutine_with_timeout(coro: Any, timeout_ms: int) -> Any:
 
     try:
         return loop.run_until_complete(_waiter())
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, TimeoutError, asyncio.CancelledError):
         raise PutTimeoutException("Coroutine execution timed out")
     finally:
         # Cancel any orphan background tasks created during coroutine execution
@@ -277,18 +277,14 @@ def _raise_async_exception(target_thread_id: int, exception_cls: type) -> None:
 def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
     """Executes fn(*args) with an in-process timeout across Mac, Linux, and Windows, supporting async coroutines."""
     if inspect.iscoroutinefunction(fn):
-        def _exec():
-            coro = fn(*args)
-            return run_coroutine_with_timeout(coro, timeout_ms)
-    else:
-        def _exec():
-            res = fn(*args)
-            if inspect.iscoroutine(res):
-                return run_coroutine_with_timeout(res, timeout_ms)
-            return res
+        coro = fn(*args)
+        return run_coroutine_with_timeout(coro, timeout_ms)
 
     if not timeout_ms or timeout_ms <= 0:
-        return _exec()
+        res = fn(*args)
+        if inspect.iscoroutine(res):
+            return run_coroutine_with_timeout(res, timeout_ms)
+        return res
 
     main_thread_id = threading.get_ident()
     timer = threading.Timer(
@@ -298,7 +294,11 @@ def call_with_timeout(fn: Any, args: List[Any], timeout_ms: int) -> Any:
     )
     timer.start()
     try:
-        return _exec()
+        res = fn(*args)
+        if inspect.iscoroutine(res):
+            timer.cancel()
+            return run_coroutine_with_timeout(res, timeout_ms)
+        return res
     finally:
         timer.cancel()
 
@@ -991,10 +991,6 @@ if __name__ == "__main__":
     # Change cwd from the extension to that of the Python script
     os.chdir(os.path.dirname(filename))
 
-    # Start heartbeat thread during coverage initialization, module import, and static analysis
-    hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=MAX_HEARTBEATS)
-    hb.start()
-
     try:
         coverage_scope = sys.argv[4] if len(sys.argv) > 4 else "project"
         if coverage_scope not in VALID_COVERAGE_SCOPES:
@@ -1093,7 +1089,7 @@ if __name__ == "__main__":
         cov.get_data().erase()
         logging.debug(f"[{pid}] Pre-warmed coverage tracer")
     finally:
-        hb.stop()
+        _startup_hb.stop()
 
     # Ready for inputs
     send_msg("READY")

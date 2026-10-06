@@ -6,7 +6,7 @@ import {
   FuzzStopReason,
   FuzzTestResult,
   FuzzTestResults,
-} from "../../Fuzzer";
+} from "../../Types";
 import { ArgDef } from "../../analysis/ArgDef";
 import * as ProgramFactory from "../../analysis/ProgramFactory";
 import * as Parser from "../../adapters/ParserAdapter";
@@ -137,6 +137,100 @@ export function processTypes(bytes: Uint8Array, mySet: Set<string>, myMap: Map<s
           bytesLength: 3,
           setSize: 2,
           mapVal: 42,
+        });
+      }
+    } finally {
+      try {
+        fs.rmSync(tmpDir, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  it("processes bigint arguments and returns bigint values of various sizes", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nanofuzz-jsrunner-"));
+    const jsPath = path.join(tmpDir, "bigintModule.js");
+    const jsCode = `
+function processBigInts(a, b, c, d) {
+  if (typeof a !== "bigint") throw new Error("a must be bigint");
+  if (typeof b !== "bigint") throw new Error("b must be bigint");
+  if (typeof c !== "bigint") throw new Error("c must be bigint");
+  if (typeof d !== "bigint") throw new Error("d must be bigint");
+  return {
+    sum64: a + 1n,
+    scaled128: b * 2n,
+    shifted256: c + (1n << 200n),
+    negLarge: d - 1000n,
+    directArray: [a, b, c, d],
+  };
+}
+module.exports = { processBigInts };
+`;
+    fs.writeFileSync(jsPath, jsCode);
+
+    try {
+      const srcCode = `
+export function processBigInts(a: bigint, b: bigint, c: bigint, d: bigint) {
+}
+`;
+      const program = ProgramFactory.fromSource(
+        () => srcCode,
+        "typescript",
+        jsPath
+      );
+      const fnDef = program.functionsExported["processBigInts"];
+      const env: FuzzEnv = {
+        function: fnDef,
+        options: {
+          argDefaults: ArgDef.getDefaultOptions(),
+          maxTests: 100,
+          maxDupeInputs: 100,
+          maxFailures: 0,
+          fnTimeout: 100,
+          suiteTimeout: 0,
+          useImplicit: true,
+          useHuman: false,
+          useProperty: false,
+          useTransformer: false,
+          measures: {
+            CoverageMeasure: { enabled: true, weight: 1 },
+            FailedTestMeasure: { enabled: true, weight: 1 },
+          },
+          generators: {
+            RandomInputGenerator: { enabled: true },
+            MutationInputGenerator: { enabled: true },
+            AiInputGenerator: { enabled: false },
+          },
+        },
+        validators: [],
+        transformers: [],
+      };
+
+      const runner = new JavascriptRunner(jsPath, "processBigInts", env);
+      await runner.onRunStart();
+
+      const b64 = 0x123456789abcdef0n;
+      const b128 = 0x123456789abcdef0123456789abcdef0n;
+      const b256 = 1n << 250n;
+      const bNeg = -1000000000000000000000000000000000000n;
+
+      const res = await runner.run([b64, b128, b256, bNeg], 2000);
+      await runner.onRunEnd();
+
+      expect(res.result.tag).toBe("value");
+      if (res.result.tag === "value") {
+        expect(res.result.value).toEqual({
+          sum64: b64 + 1n,
+          scaled128: b128 * 2n,
+          shifted256: b256 + (1n << 200n),
+          negLarge: bNeg - 1000n,
+          directArray: [b64, b128, b256, bNeg],
         });
       }
     } finally {

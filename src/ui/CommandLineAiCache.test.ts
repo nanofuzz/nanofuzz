@@ -4,7 +4,7 @@ import * as os from "node:os";
 import JSON5 from "json5";
 import * as zod from "zod/v4";
 import * as Config from "../Config";
-import { FuzzTestResults } from "../fuzzer/Fuzzer";
+import { FuzzTestResults } from "../fuzzer/Types";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AiInputGenerator } from "../fuzzer/generators/AiInputGenerator";
 import { createCacheKey } from "../fuzzer/adapters/LlmCacheManager";
@@ -86,16 +86,6 @@ async function runCli(
 
 describe("cli: ai cache", () => {
   let tmpDir: string;
-  let originalTimeout: number;
-
-  beforeAll(() => {
-    originalTimeout = jasmine.DEFAULT_TIMEOUT_INTERVAL;
-    jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
-  });
-
-  afterAll(() => {
-    jasmine.DEFAULT_TIMEOUT_INTERVAL = originalTimeout;
-  });
 
   beforeEach(() => {
     Config.clearOverrides();

@@ -2,12 +2,18 @@ import * as JSONN from "../Jsonn";
 import * as ValueMapper from "../fuzzer/mappers/ValueMapper";
 import { getElementByIdOrThrow, getElementByIdWithTypeOrThrow } from "./Util";
 import {
+  formatTestingStatus,
+  formatWaitingStatus,
+  formatTestingCompleteStatus,
+} from "./FuzzTextFormatter";
+import {
   FuzzArgOverride,
   FuzzIoElement,
   FuzzPinnedTest,
   FuzzResultCategory,
   FuzzSortColumns,
   FuzzSortOrder,
+  FuzzTestResults,
   FuzzValueOrigin,
   isFuzzResultTab,
   Judgment,
@@ -17,9 +23,8 @@ import * as Parser from "../fuzzer/adapters/ParserAdapter";
 import {
   ArgValueType,
   ArgValueTypeWrapped,
-  FuzzTestResults,
   ProgramLanguage,
-} from "../fuzzer/Fuzzer";
+} from "../fuzzer/analysis/Types";
 import {
   FuzzPanelFuzzRunMessage,
   FuzzPanelMessageToWebView,
@@ -260,7 +265,7 @@ async function main() {
     const message: FuzzPanelMessageFromWebView = {
       command: "open.settings.ai",
     };
-    vscode.postMessage(message);
+    postToController(message);
 
     // Undo the the parent checkbox click
     getElementByIdOrThrow("fuzz-gen-AiInputGenerator-enabled").click();
@@ -285,7 +290,7 @@ async function main() {
   // Add event listeners for the pause button
   getElementByIdOrThrow("fuzz.pause").addEventListener("click", () => {
     const message: FuzzPanelMessageFromWebView = { command: "fuzz.pause" };
-    vscode.postMessage(message);
+    postToController(message);
     getElementByIdOrThrow("fuzz.pause").setAttribute("disabled", "true");
   });
 
@@ -456,7 +461,10 @@ async function main() {
 
   // Listen for messages from the extension
   window.addEventListener("message", async (event) => {
-    const data: FuzzPanelMessageToWebView = event.data;
+    const rawData: unknown = event.data;
+    const data: FuzzPanelMessageToWebView = isJsonnEnvelope(rawData)
+      ? JSONN.parse(rawData.jsonn)
+      : event.data;
     switch (data.command) {
       case "validator.list":
         refreshValidators(data.validators);
@@ -472,12 +480,38 @@ async function main() {
         break;
       }
       case "busy.message": {
+        const msg = data.message;
         const nonMilestone = getElementByIdOrThrow(
           "fuzzBusyMessageNonMilestone"
         );
-        nonMilestone.innerHTML = htmlEscape(data.message.msg);
-        if (data.message.channel === "update") {
-          const pct = Math.max(0.1, Math.min(data.message.pct, 100));
+        let displayText: string | undefined = undefined;
+
+        switch (msg.type) {
+          case "compiling":
+            displayText = `Compiling: ${msg.file}`;
+            break;
+          case "instrumenting":
+            displayText = `Instrumenting: ${msg.file}`;
+            break;
+          case "testing":
+            displayText = formatTestingStatus(msg);
+            break;
+          case "waiting-for-generator":
+            displayText = formatWaitingStatus(msg);
+            break;
+          case "testing-complete":
+            displayText = formatTestingCompleteStatus(msg);
+            break;
+          case "progress-tick":
+            break;
+        }
+
+        if (displayText !== undefined) {
+          nonMilestone.innerHTML = htmlEscape(displayText);
+        }
+
+        if ("pct" in msg && typeof msg.pct === "number") {
+          const pct = Math.max(0.1, Math.min(msg.pct, 100));
           const progressBar = getElementByIdOrThrow("fuzzBusyStatusBar");
           progressBar.style.width = pct + "%";
           if (pct > 0) {
@@ -971,7 +1005,7 @@ function handleAddTestInput() {
       command: "fuzz.addTestInput",
       json: JSONN.stringify(overrides),
     };
-    vscode.postMessage(message);
+    postToController(message);
   } else {
     // Input already in the grid. Hide the add input pane.
     toggleAddTestInputOptions();
@@ -1002,7 +1036,7 @@ function handleToggleCoverageHeatmap() {
   const message: FuzzPanelMessageFromWebView = {
     command: `fuzz.coverage.${showingCoverage ? "show" : "hide"}`,
   };
-  vscode.postMessage(message);
+  postToController(message);
 } // fn: handleToggleCoverageHeatmap
 
 /**
@@ -1206,7 +1240,7 @@ function handlePinToggle(id: number, type: FuzzResultCategory) {
       command: pinning ? "test.pin" : "test.unpin",
       json: JSONN.stringify(msg),
     };
-    vscode.postMessage(message);
+    postToController(message);
 
     // Update the control state
     if (pinning) {
@@ -1334,7 +1368,7 @@ function handleCorrectToggle(
       command: isPinned ? "test.pin" : "test.unpin",
       json: JSONN.stringify(msg),
     };
-    vscode.postMessage(message);
+    postToController(message);
   });
 } // fn: handleCorrectToggle
 
@@ -1382,7 +1416,7 @@ function toggleExpandColumn(type: FuzzResultCategory) {
     command: "columns.sorted",
     json: JSONN.stringify(columnSortOrders),
   };
-  vscode.postMessage(message);
+  postToController(message);
 } // fn: toggleExpandColumn
 
 /**
@@ -1578,7 +1612,7 @@ function handleColumnSort(
       command: "columns.sorted",
       json: JSONN.stringify(columnSortOrders),
     };
-    vscode.postMessage(message);
+    postToController(message);
   }
 } // fn: handleColumnSort
 
@@ -2022,7 +2056,7 @@ function handleExpectedOutput({
               command: "test.pin",
               json: JSONN.stringify(msg),
             };
-            vscode.postMessage(message);
+            postToController(message);
           });
 
           // Re-draw the expected output row again
@@ -2212,7 +2246,7 @@ function handleFuzzRun() {
     command: "fuzz.run",
     json: JSONN.stringify(getConfigFromUi()),
   };
-  vscode.postMessage(message);
+  postToController(message);
 } // fn: handleFuzzRun
 
 /**
@@ -2224,7 +2258,7 @@ function handleFuzzContinue() {
     command: "fuzz.continue",
     json: JSONN.stringify(getConfigFromUi()),
   };
-  vscode.postMessage(message);
+  postToController(message);
 } // fn: handleFuzzRun
 
 /**
@@ -2236,7 +2270,7 @@ function handleFuzzRetest() {
     command: "fuzz.retest",
     json: JSONN.stringify(getConfigFromUi()),
   };
-  vscode.postMessage(message);
+  postToController(message);
 } // fn: handleFuzzRetest
 
 /**
@@ -2248,7 +2282,7 @@ function handleFuzzClear() {
     command: "fuzz.clear",
     json: JSONN.stringify(getConfigFromUi()),
   };
-  vscode.postMessage(message);
+  postToController(message);
 } // fn: handleFuzzClear
 
 /**
@@ -2427,6 +2461,8 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     const strCharset = document.getElementById(idBase + "-strCharset");
     const strRegex = document.getElementById(idBase + "-strRegex");
     const isNoInput = document.getElementById(idBase + "-isNoInput");
+    const bigIntMin = document.getElementById(idBase + "-bigIntMin");
+    const bigIntMax = document.getElementById(idBase + "-bigIntMax");
 
     // Process numeric overrides
     if (numInteger && min && max) {
@@ -2439,6 +2475,24 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
         min: Math.min(minVal, maxVal),
         max: Math.max(minVal, maxVal),
       };
+    } // TODO: Validation !!!
+
+    // Process bigint overrides. These are sent to the back-end with JSONN,
+    // which round-trips bigints, so no lossy Number() conversion is needed.
+    if (bigIntMin && bigIntMax) {
+      disableArr.push(bigIntMin, bigIntMax);
+      const minVal = toBigIntOrUndefined(
+        bigIntMin.getAttribute("current-value")
+      );
+      const maxVal = toBigIntOrUndefined(
+        bigIntMax.getAttribute("current-value")
+      );
+      if (minVal !== undefined && maxVal !== undefined) {
+        thisOverride.bigInt = {
+          min: minVal < maxVal ? minVal : maxVal,
+          max: minVal < maxVal ? maxVal : minVal,
+        };
+      }
     } // TODO: Validation !!!
 
     // Process boolean overrides
@@ -2619,17 +2673,17 @@ function handleAddValidator() {
   const message: FuzzPanelMessageFromWebView = {
     command: "validator.add",
   };
-  vscode.postMessage(message);
+  postToController(message);
 } // fn: handleAddValidator()
 
 /**
  * Send message to back-end to add input transformer code skeleton
  */
 function handleAddTransformer() {
-  vscode.postMessage({
+  const message: FuzzPanelMessageFromWebView = {
     command: "transformer.add",
-    json: JSONN.stringify(""),
-  });
+  };
+  postToController(message);
 } // fn: handleAddTransformer()
 
 /**
@@ -2640,7 +2694,7 @@ function handleOpenSource() {
   const message: FuzzPanelMessageFromWebView = {
     command: "open.source",
   };
-  vscode.postMessage(message);
+  postToController(message);
 } // fn: handleOpenSource()
 
 /**
@@ -2650,8 +2704,21 @@ function handleGetListOfValidators() {
   const message: FuzzPanelMessageFromWebView = {
     command: "validator.getList",
   };
-  vscode.postMessage(message);
+  postToController(message);
 } // fn: handleGetListOfValidators()
+
+/**
+ * Converts a control's value to a bigint.
+ *
+ * @param value The value of the control, or null if it has none
+ * @returns The value as a bigint, or undefined if it is not an integer
+ */
+function toBigIntOrUndefined(value: string | null): bigint | undefined {
+  if (value === null || !/^\s*-?\d+\s*$/.test(value)) {
+    return undefined;
+  }
+  return BigInt(value.trim());
+} // fn: toBigIntOrUndefined()
 
 /**
  * Returns true if the DOM node is hidden using the 'hidden' class.
@@ -2795,3 +2862,27 @@ function htmlEscape(str: string) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 } // fn: htmlEscape()
+
+/**
+ * Posts a message to the VS Code extension host serialized using JSONN.
+ *
+ * @param message The message to send to the host.
+ */
+function postToController(message: FuzzPanelMessageFromWebView): void {
+  vscode.postMessage({ jsonn: JSONN.stringify(message) });
+} // fn: postToController()
+
+/**
+ * Type guard function that returns true if `obj` is a JSONN envelope
+ *
+ * @param obj object to check
+ * @returns true if `obj` is a JSONN envelope
+ */
+function isJsonnEnvelope(obj: unknown): obj is { jsonn: string } {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "jsonn" in obj &&
+    typeof obj.jsonn === "string"
+  );
+} // fn: isJsonnEnvelope()

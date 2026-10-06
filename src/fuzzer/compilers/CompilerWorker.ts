@@ -31,8 +31,8 @@ function processMessage(message: CompilerMessageToWorker): void {
           throw new Error(`No compiler found for module: ${message.module}`);
         }
         const mod = compiler.compileSync((msg) => {
-          if (msg.channel === "milestone") {
-            console.log(msg.msg);
+          if (msg.type === "compiling") {
+            console.log(` - Compile...: ${msg.file}`);
           }
         });
 
@@ -49,8 +49,8 @@ function processMessage(message: CompilerMessageToWorker): void {
             measures,
             compiler.options.tmpDir,
             (msg) => {
-              if (msg.channel === "milestone") {
-                console.log(msg.msg);
+              if (msg.type === "instrumenting") {
+                console.log(` - Instrument: ${msg.file}`);
               }
             }
           );

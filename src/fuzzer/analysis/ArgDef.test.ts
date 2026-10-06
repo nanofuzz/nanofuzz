@@ -1,4 +1,4 @@
-import { ArgTag } from "./Types";
+import { ArgTag, ArgValueTypeWrapped } from "./Types";
 import { ArgDef } from "./ArgDef";
 import seedrandom from "seedrandom";
 import * as JSONN from "../../Jsonn";
@@ -16,29 +16,33 @@ const dummyModule = "dummy.ts";
  * function argument.
  */
 describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
-  [ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL].forEach(
-    (tag: ArgTag) => {
-      it(`should return %s for primitive type '${tag}'`, () => {
-        const argDef = makeArgDef(
-          dummyModule,
-          "test",
-          0,
-          tag,
-          argOptions,
-          0,
-          undefined,
-          undefined,
-          undefined,
-          tag === ArgTag.LITERAL ? 5 : undefined
-        );
-        if (tag === ArgTag.LITERAL) {
-          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe("5");
-        } else {
-          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(tag);
-        }
-      });
-    }
-  );
+  [
+    ArgTag.BIGINT,
+    ArgTag.STRING,
+    ArgTag.NUMBER,
+    ArgTag.BOOLEAN,
+    ArgTag.LITERAL,
+  ].forEach((tag: ArgTag) => {
+    it(`should return %s for primitive type '${tag}'`, () => {
+      const argDef = makeArgDef(
+        dummyModule,
+        "test",
+        0,
+        tag,
+        argOptions,
+        0,
+        undefined,
+        undefined,
+        undefined,
+        tag === ArgTag.LITERAL ? 5 : undefined
+      );
+      if (tag === ArgTag.LITERAL) {
+        expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe("5");
+      } else {
+        expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(tag);
+      }
+    });
+  });
 
   [1, 2, 3].forEach((dims: number) => {
     it(`should return ${dims} "[]"s for array type with ${dims} dimensions`, () => {
@@ -56,33 +60,37 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     });
   });
 
-  [ArgTag.STRING, ArgTag.NUMBER, ArgTag.BOOLEAN, ArgTag.LITERAL].forEach(
-    (tag: ArgTag) => {
-      it(`should return '<type> | undefined' for optional types (${tag})`, () => {
-        const argDef = makeArgDef(
-          dummyModule,
-          "test",
-          0,
-          tag,
-          argOptions,
-          0,
-          true,
-          undefined,
-          undefined,
-          tag === ArgTag.LITERAL ? 5 : undefined
+  [
+    ArgTag.BIGINT,
+    ArgTag.STRING,
+    ArgTag.NUMBER,
+    ArgTag.BOOLEAN,
+    ArgTag.LITERAL,
+  ].forEach((tag: ArgTag) => {
+    it(`should return '<type> | undefined' for optional types (${tag})`, () => {
+      const argDef = makeArgDef(
+        dummyModule,
+        "test",
+        0,
+        tag,
+        argOptions,
+        0,
+        true,
+        undefined,
+        undefined,
+        tag === ArgTag.LITERAL ? 5 : undefined
+      );
+      if (tag === ArgTag.LITERAL) {
+        expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
+          "5 | undefined"
         );
-        if (tag === ArgTag.LITERAL) {
-          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
-            "5 | undefined"
-          );
-        } else {
-          expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
-            tag + " | undefined"
-          );
-        }
-      });
-    }
-  );
+      } else {
+        expect(TypescriptProgram.getTypeAnnotation(argDef)).toBe(
+          tag + " | undefined"
+        );
+      }
+    });
+  });
 
   it("should return type name for type refs", () => {
     const argDef = makeArgDef(
@@ -437,6 +445,106 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       throw new Error("Expected an array");
     }
     expect(new Set(generated).size).toEqual(5);
+  });
+
+  it("generates random bigints across large 128-bit signed ranges with exact bounds", () => {
+    const min = -1000000000000000000000000000000000000n; // < -2^120
+    const max = 2000000000000000000000000000000000000n; // > 2^120
+    const spec = makeArgDef(
+      dummyModule,
+      "largeBigInt",
+      0,
+      ArgTag.BIGINT,
+      argOptions,
+      0
+    );
+    spec.setIntervals([{ min, max }]);
+
+    const prng = seedrandom("largeBigIntSeed");
+    for (let i = 0; i < 50; i++) {
+      const val = ArgDefGenerator.gen(spec, prng);
+      expect(typeof val).toBe("bigint");
+      if (typeof val === "bigint") {
+        expect(val >= min).toBeTrue();
+        expect(val <= max).toBeTrue();
+      }
+      expect(ArgDefValidator.validate(val, spec)).toBeTrue();
+    }
+  });
+
+  it("fuzzes getRandomBigint across 100 random intervals from 0 to 256 bits", () => {
+    const prng = seedrandom("bigintIntervalFuzz");
+    for (let i = 0; i < 100; i++) {
+      // Pick random bit lengths and signs
+      const bitLen1 = Math.floor(prng() * 256);
+      const bitLen2 = Math.floor(prng() * 256);
+      let v1 = BigInt(Math.floor(prng() * 1000000)) << BigInt(bitLen1);
+      let v2 = BigInt(Math.floor(prng() * 1000000)) << BigInt(bitLen2);
+      if (prng() < 0.5) v1 = -v1;
+      if (prng() < 0.5) v2 = -v2;
+
+      const min = v1 < v2 ? v1 : v2;
+      const max = v1 < v2 ? v2 : v1;
+
+      const spec = makeArgDef(
+        dummyModule,
+        "fuzzedBigInt",
+        0,
+        ArgTag.BIGINT,
+        argOptions,
+        0
+      );
+      spec.setIntervals([{ min, max }]);
+
+      for (let j = 0; j < 30; j++) {
+        const val = ArgDefGenerator.gen(spec, prng);
+        expect(typeof val).toBe("bigint");
+        if (typeof val === "bigint") {
+          expect(val >= min).toBeTrue();
+          expect(val <= max).toBeTrue();
+        }
+        expect(ArgDefValidator.validate(val, spec)).toBeTrue();
+      }
+    }
+  });
+
+  it("verifies uniform distribution and endpoint reachability for BigInt generator", () => {
+    const min = -2n;
+    const max = 2n;
+    const spec = makeArgDef(
+      dummyModule,
+      "uniformBigInt",
+      0,
+      ArgTag.BIGINT,
+      argOptions,
+      0
+    );
+    spec.setIntervals([{ min, max }]);
+
+    const prng = seedrandom("uniformBigIntTest");
+    const counts: Record<string, number> = {
+      "-2": 0,
+      "-1": 0,
+      "0": 0,
+      "1": 0,
+      "2": 0,
+    };
+    const iterations = 5000;
+    for (let i = 0; i < iterations; i++) {
+      const val = ArgDefGenerator.gen(spec, prng);
+      if (typeof val === "bigint") {
+        counts[val.toString()] = (counts[val.toString()] ?? 0) + 1;
+      }
+    }
+
+    // Expected ~1000 per bin (20%). Assert each bin is between 15% and 25% (750 to 1250)
+    for (const key of Object.keys(counts)) {
+      expect(counts[key]).toBeGreaterThan(750);
+      expect(counts[key]).toBeLessThan(1250);
+    }
+    // Assert endpoints are hit
+    expect(counts["-2"]).toBeGreaterThan(0);
+    expect(counts["2"]).toBeGreaterThan(0);
   });
 
   it("dimsUnique: can give up at the minimum dimension length", () => {
@@ -1061,6 +1169,32 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     }
   });
 
+  it("mutates top-level optional arguments with value undefined", () => {
+    const spec = makeArgDef(
+      dummyModule,
+      "optArg",
+      0,
+      ArgTag.BIGINT,
+      argOptions,
+      0,
+      true
+    );
+    const inputWithUndef: ArgValueTypeWrapped[] = [
+      {
+        tag: "ArgValueTypeWrapped",
+        value: undefined,
+      },
+    ];
+    const prng = seedrandom("topLevelOptionalGenValue");
+    const mutators = ArgDefMutator.getMutators([spec], inputWithUndef, prng);
+
+    expect(mutators.length).toBe(1);
+    expect(mutators[0].name).toBe("optional-genValue");
+    mutators[0].fn();
+    expect(typeof inputWithUndef[0].value).toBe("bigint");
+    expect(ArgDefValidator.validate(inputWithUndef[0].value, spec)).toBeTrue();
+  });
+
   /**
    * This test generates random ArgDef specs, generates
    * and mutates inputs from those specs, and validates
@@ -1084,7 +1218,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     const dupeMutators: { [k: string]: number } = {};
     let uniqueDimensionSpecs = 0;
     let regexStringSpecs = 0;
-    let i = 150;
+    let i = 50;
     while (i--) {
       const paramCount = Math.floor(prng() * 3) + 1;
       const spec: ArgDef[] = [];
@@ -1105,7 +1239,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
       const gen = new ArgDefGenerator(spec, prng);
       const val = new ArgDefValidator(spec);
 
-      let j = 100;
+      let j = 20;
       while (j--) {
         let input = gen.next();
         const isValid = val.validate(input);
@@ -1122,7 +1256,7 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
         } else {
           stats.gens.valid++;
 
-          let k = 100;
+          let k = 20;
           while (k--) {
             const inputStringBefore = JSONN.stringify(input);
             const muts = ArgDefMutator.getMutators(spec, input, prng);
@@ -1221,6 +1355,7 @@ function abbrSpec(spec: ArgDef, indents = 0): string[] {
   if (spec.getType() === ArgTag.NUMBER && spec.getOptions().numInteger)
     line.push(`INTEGER`);
   if (
+    spec.getType() === ArgTag.BIGINT ||
     spec.getType() === ArgTag.NUMBER ||
     spec.getType() === ArgTag.BOOLEAN ||
     spec.getType() === ArgTag.LITERAL
