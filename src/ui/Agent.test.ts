@@ -15,6 +15,7 @@ import {
   getToolName,
   synthesizeValidator,
   synthesizeTransformer,
+  synthesizeUserGenerator,
   AgentFuzzOptions,
 } from "./Agent";
 import { FuzzTestResult } from "../fuzzer/Types";
@@ -86,6 +87,12 @@ describe("Agent", () => {
     expect(voidFn.transformerTemplate).toContain(
       "export function testStandardVoidReturnUndefinedTransformer"
     );
+
+    expect(voidFn.generatorTemplate).toBeDefined();
+    expect(voidFn.generatorTemplate).toContain(
+      "export function testStandardVoidReturnUndefinedGenerator(prng: () => number): Parameters<typeof testStandardVoidReturnUndefined> | undefined"
+    );
+    expect(voidFn.generatorTemplate).toContain("return [");
   });
 
   it("listTargets: py", async () => {
@@ -115,6 +122,14 @@ describe("Agent", () => {
       "from nanofuzz_runtime import UnsatisfiedAssumption, assume"
     );
     expect(greetingFn.transformerTemplate).toContain("def greetingTransformer");
+
+    expect(greetingFn.generatorTemplate).toBeDefined();
+    expect(greetingFn.generatorTemplate).toContain(
+      "from typing import Callable"
+    );
+    expect(greetingFn.generatorTemplate).toContain(
+      "def greetingGenerator(prng: Callable[[], float]) -> tuple["
+    );
 
     const asyncFn = fnMap.get("async_greeting");
     expect(asyncFn).toBeDefined();
@@ -158,6 +173,7 @@ describe("Agent", () => {
     expect(dft.suiteTimeout).toBeGreaterThan(0);
     expect(dft.generators.RandomInputGenerator.enabled).toBe(true);
     expect(dft.generators.AiInputGenerator.enabled).toBe(false);
+    expect(dft.generators.UserInputGenerator.enabled).toBe(true);
   });
 
   it("options: normalize", () => {
@@ -506,7 +522,7 @@ describe("Agent", () => {
     expect(LlmAdapter.getMaxOutputTokens()).toBe(4096);
   });
 
-  it("synthesis: generates validator and transformer templates for targets", async () => {
+  it("synthesis: generates validator, transformer, and generator templates for targets", async () => {
     const list = await listTargets(tsFixture);
     const targetFn = list.functions.find(
       (f) => f.name === "testStandardVoidReturnUndefined"
@@ -517,6 +533,9 @@ describe("Agent", () => {
     );
     expect(targetFn?.transformerTemplate).toContain(
       "testStandardVoidReturnUndefinedTransformer"
+    );
+    expect(targetFn?.generatorTemplate).toContain(
+      "testStandardVoidReturnUndefinedGenerator"
     );
 
     const program = ProgramFactory.fromFile(tsFixture);
@@ -538,6 +557,14 @@ describe("Agent", () => {
     expect(transSkel.name).toBe("testStandardVoidReturnUndefinedTransformer1");
     expect(transSkel.skeleton).toContain(
       "testStandardVoidReturnUndefinedTransformer1"
+    );
+
+    const genSkel = synthesizeUserGenerator(fnDef, "typescript", [
+      "testStandardVoidReturnUndefinedGenerator",
+    ]);
+    expect(genSkel.name).toBe("testStandardVoidReturnUndefinedGenerator1");
+    expect(genSkel.skeleton).toContain(
+      "testStandardVoidReturnUndefinedGenerator1"
     );
   });
 

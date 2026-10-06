@@ -39,9 +39,15 @@ import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMea
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
+import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
 import { FuzzerCodeSnippet } from "../fuzzer/synthesis/Types";
 
-export { synthesizeValidator, synthesizeTransformer, FuzzerCodeSnippet };
+export {
+  synthesizeValidator,
+  synthesizeTransformer,
+  synthesizeUserGenerator,
+  FuzzerCodeSnippet,
+};
 
 // -------------------------------------------------------------------------- //
 // Primary Public API
@@ -140,6 +146,11 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       language,
       Object.keys(program.functions)
     );
+    const genSkel = synthesizeUserGenerator(
+      fnDef,
+      language,
+      Object.keys(program.functions)
+    );
 
     functions.push({
       name: fnDef.getName(),
@@ -153,6 +164,7 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
       comment: fnDef.getCmt(),
       validatorTemplate: valSkel.fullTemplate,
       transformerTemplate: transSkel.fullTemplate,
+      generatorTemplate: genSkel.fullTemplate,
     });
   }
 
@@ -352,7 +364,7 @@ export function getDefaultFuzzOptions(): FuzzOptions {
         enabled: false,
       },
       UserInputGenerator: {
-        enabled: false,
+        enabled: true,
       },
     },
   };
@@ -1125,6 +1137,7 @@ export type TargetFunction = {
   comment?: string;
   validatorTemplate?: string;
   transformerTemplate?: string;
+  generatorTemplate?: string;
 };
 
 /**
