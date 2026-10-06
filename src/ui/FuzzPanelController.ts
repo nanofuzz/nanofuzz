@@ -6,7 +6,6 @@ import * as fuzzer from "../fuzzer/Types";
 import { ArgDef } from "../fuzzer/analysis/ArgDef";
 import { ArgDefGenerator } from "../fuzzer/analysis/ArgDefGenerator";
 import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
-import { TypescriptProgram } from "../fuzzer/analysis/typescript/TypescriptProgram";
 import {
   ArgOptions,
   ArgTag,
@@ -47,14 +46,9 @@ import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { AbstractProgram } from "../fuzzer/analysis/AbstractProgram";
 import { PythonProgram } from "../fuzzer/analysis/python/PythonProgram";
 import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
-
-// Consts for validator result arg name generation
-const resultArgCandidateNames = ["r", "result", "_r", "_result"];
-const maxResultArgSuffix = 1000;
-
-// Consts for validator out variable name generation
-const outVarCandidateNames = ["out", "output", "_out", "_output"];
-const maxOutVarSuffix = 1000;
+import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
+import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
+import { getNextAvailableFnNumber } from "../fuzzer/synthesis/Util";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -1024,7 +1018,6 @@ export class FuzzPanel {
   private async _doAddValidatorCmd() {
     const fn = this._fuzzEnv.function; // Function under test
     const module = this._fuzzEnv.function.getModule();
-    const validatorPrefix = fn.getName() + "Validator";
     let program: AbstractProgram;
 
     try {
@@ -1036,138 +1029,11 @@ export class FuzzPanel {
       return;
     }
 
-    // Determine the next available validator name
-    const fnCounter = getNextAvailableFnNumber(
-      Object.keys(program.functions),
-      validatorPrefix
-    );
-
-    const inArgs = fn.getArgDefs();
-    const validatorArgs = this._getValidatorArgs(inArgs);
-
-    // vvvvvvv Language-specific logic vvvvvvv
-    const skelGenerators = {
-      typescript: {
-        inputMapper: (argDef: ArgDef, i: number) => {
-          return `  const ${argDef.getName()}: ${TypescriptProgram.getTypeAnnotation(argDef)} = ${
-            validatorArgs.resultArgName
-          }.in[${i}];`;
-        },
-        outputMapper: (
-          inArgs: ArgDef[],
-          resultArgName: string,
-          returnType?: string
-        ): string => {
-          const outVarName = this._getIdentifierNameAvoidingConflicts(
-            inArgs,
-            outVarCandidateNames,
-            maxOutVarSuffix
-          );
-          const outVarString = `const ${outVarName.name}${
-            returnType ? ": " + returnType : ""
-          } = ${resultArgName}.out;`;
-          return outVarString;
-        },
-        importMapper: () => [
-          {
-            name: `FuzzTestResult`,
-            stmt: `import { FuzzTestResult } from "@nanofuzz/runtime";
-`,
-          },
-        ],
-        skelMapper: (
-          validatorName: string,
-          validatorArgs: ReturnType<typeof this._getValidatorArgs>,
-          inArgConsts: string,
-          outArgConst: string
-        ) => `
-
-export function ${validatorName}${validatorArgs.str}: "pass" | "fail" | "unknown" {
-${inArgConsts}
-  ${outArgConst}
-
-  return "pass";
-}`,
-        getTypeAnnotation: TypescriptProgram.getTypeAnnotation,
-      },
-      python: {
-        inputMapper: (argDef: ArgDef, i: number) => {
-          return `  ${argDef.getName()}: ${PythonProgram.getTypeAnnotation(argDef)} = ${
-            validatorArgs.resultArgName
-          }['in'][${i}]`;
-        },
-        outputMapper: (
-          inArgs: ArgDef[],
-          resultArgName: string,
-          returnType?: string
-        ): string => {
-          const outVarName = this._getIdentifierNameAvoidingConflicts(
-            inArgs,
-            outVarCandidateNames,
-            maxOutVarSuffix
-          );
-          const outVarString = `${outVarName.name}${
-            returnType ? ": " + returnType : ""
-          } = ${resultArgName}['out']`;
-          return outVarString;
-        },
-        importMapper: () => [
-          {
-            name: "FuzzTestResult",
-            stmt: `from nanofuzz_runtime import FuzzTestResult
-`,
-          },
-          {
-            name: "Literal",
-            stmt: `from typing import Literal
-`,
-          },
-        ],
-        skelMapper: (
-          validatorName: string,
-          validatorArgs: ReturnType<typeof this._getValidatorArgs>,
-          inArgConsts: string,
-          outArgConst: string
-        ) => `
-
-def ${validatorName}${validatorArgs.str} -> Literal["pass", "fail", "unknown"]:
-${inArgConsts}
-  ${outArgConst}
-
-  return "pass"
-`,
-        getTypeAnnotation: PythonProgram.getTypeAnnotation,
-      },
-    };
-    // ^^^^^^^ Language-specific logic ^^^^^^^
-
-    if (program.lang === "*") {
-      throw new Error("Internal error: program is of invalid language: *");
-    }
-    const inArgConsts = inArgs
-      .map(skelGenerators[program.lang].inputMapper)
-      .join("\n");
-
-    const outTypeAsArg = fn.getReturnArg();
-    const outArgConst = skelGenerators[program.lang].outputMapper(
-      inArgs,
-      validatorArgs.resultArgName,
-      outTypeAsArg
-        ? skelGenerators[program.lang].getTypeAnnotation(outTypeAsArg)
-        : undefined
-    );
-
-    // Name of the validator generated
-    const validatorName = `${validatorPrefix}${
-      fnCounter === 0 ? "" : fnCounter
-    }`;
-
-    const skeleton = skelGenerators[program.lang].skelMapper(
-      validatorName,
-      validatorArgs,
-      inArgConsts,
-      outArgConst
-    );
+    const {
+      name: validatorName,
+      skeleton,
+      imports,
+    } = synthesizeValidator(fn, program.lang, Object.keys(program.functions));
 
     // Save the editor if dirty
     for (const editor of vscode.window.visibleTextEditors) {
@@ -1179,7 +1045,7 @@ ${inArgConsts}
     // Append the code skeleton to the source file
     try {
       let importData = "";
-      skelGenerators[program.lang].importMapper().forEach((i) => {
+      imports.forEach((i) => {
         // If there is no import, then add it
         if (!Object.keys(program.imports).some((e) => e === i.name)) {
           importData += i.stmt;
@@ -1262,72 +1128,11 @@ ${inArgConsts}
       return;
     }
 
-    const transformerPrefix = fn.getName() + "Transformer";
-
-    // Determine the next available transformer name
-    const fnCounter = getNextAvailableFnNumber(
-      Object.keys(program.functions),
-      transformerPrefix
-    );
-
-    const inArgs = fn.getArgDefs();
-
-    const inputsTypeName = `${fn.getName()}Inputs`;
-    const transformerName = `${transformerPrefix}${
-      fnCounter === 0 ? "" : fnCounter
-    }`;
-
-    // Build the destructuring assignment for the args tuple
-    const argDestructuring = inArgs
-      .map((argDef) => argDef.getName())
-      .join(", ");
-
-    if (program.lang === "*") {
-      throw new Error("Internal error: program is of invalid language: *");
-    }
-    // vvvvvvv Language-specific logic vvvvvvv
-    let skeleton: string;
-    switch (program.lang) {
-      case "typescript": {
-        const tsDestructuring =
-          inArgs.length === 0 ? "" : `  const [${argDestructuring}] = args;\n`;
-        skeleton = `
-export function ${transformerName}(...args: Parameters<typeof ${fn.getName()}>): Parameters<typeof ${inputsTypeName}> {
-${tsDestructuring}  // 'throw new UnsatisfiedAssumption(message)' to skip this input
-  // Otherwise, return the transformed inputs
-  return [${argDestructuring}];
-}`;
-        break;
-      }
-
-      case "python": {
-        const pyParams = inArgs
-          .map(
-            (a) =>
-              `${a.getName()}: ${PythonProgram.getTypeAnnotation(a, { useTypeRefs: true })}`
-          )
-          .join(", ");
-        const pyTupleType =
-          inArgs.length === 0
-            ? "tuple[()]"
-            : `tuple[${inArgs.map((a) => PythonProgram.getTypeAnnotation(a, { useTypeRefs: true })).join(", ")}]`;
-        const pyReturnTuple =
-          inArgs.length === 0
-            ? "()"
-            : inArgs.length === 1
-              ? `(${argDestructuring},)`
-              : `(${argDestructuring})`;
-        skeleton = `
-
-def ${transformerName}(${pyParams}) -> ${pyTupleType}:
-  # 'raise UnsatisfiedAssumption(message)' to skip this input
-  # Otherwise, return the transformed inputs
-  return ${pyReturnTuple}
-`;
-        break;
-      }
-    }
-    // ^^^^^^^ Language-specific logic ^^^^^^^
+    const {
+      name: transformerName,
+      skeleton,
+      imports,
+    } = synthesizeTransformer(fn, program.lang, Object.keys(program.functions));
 
     // Save the editor
     for (const editor of vscode.window.visibleTextEditors) {
@@ -1338,9 +1143,36 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
 
     // Append the code skeleton to the source file
     try {
-      const fd = fs.openSync(module, "as+");
-      fs.writeFileSync(fd, skeleton);
-      fs.closeSync(fd);
+      let importData = "";
+      imports.forEach((i) => {
+        // If there is no import, then add it
+        if (!Object.keys(program.imports).some((e) => e === i.name)) {
+          importData += i.stmt;
+        }
+      });
+
+      if (importData.length) {
+        // Pre-pend the import & append the transformer
+        const fileData = fs.readFileSync(module);
+        const importStmt = Buffer.from(importData);
+        const transformerFn = Buffer.from(skeleton);
+        const fd = fs.openSync(module, "w+");
+
+        fs.writeSync(fd, importStmt, 0, importStmt.length, 0);
+        fs.writeSync(fd, fileData, 0, fileData.length, importStmt.length);
+        fs.writeSync(
+          fd,
+          transformerFn,
+          0,
+          transformerFn.length,
+          importStmt.length + fileData.length
+        );
+        fs.closeSync(fd);
+      } else {
+        const fd = fs.openSync(module, "as+");
+        fs.writeFileSync(fd, skeleton);
+        fs.closeSync(fd);
+      }
 
       // Change focus to the generated transformer
       try {
@@ -1541,75 +1373,6 @@ def ${userGenName}(prng: Callable[[], float]) -> ${pyTupleType}:
       `No custom input generator found for '${fn.getName()}'. Click + to create one.`
     );
   } // fn: _doShowUserGeneratorCmd()
-
-  /**
-   * Choose a name for an identifier that doesn't conflict with the input arguments
-   *
-   * @param inArgs The input arguments
-   * @param candidateNames The candidate names to choose from
-   * @param maxSuffix The maximum suffix to use when generating a new name
-   * @returns The chosen name and whether it was generated
-   */
-  private _getIdentifierNameAvoidingConflicts(
-    // The input arguments
-    inArgs: ArgDef[],
-    // The candidate names to choose from
-    candidateNames: string[],
-    // The maximum suffix to use when generating a new name
-    maxSuffix: number
-  ): {
-    // The chosen name
-    name: string;
-    // Whether the name was generated (as opposed to being in possibleResultArgNames)
-    generated: boolean;
-  } {
-    const inArgNames = inArgs.map((argDef) => argDef.getName());
-    for (const name of candidateNames) {
-      if (!inArgNames.includes(name)) {
-        return { name, generated: false };
-      }
-    }
-
-    let i = 1;
-    // Generate a new name with a suffix
-    for (const candidateName of candidateNames) {
-      while (i <= maxSuffix) {
-        const name = `${candidateName}_${i}`;
-        if (!inArgNames.includes(name)) {
-          return { name, generated: true };
-        }
-        i++;
-      }
-    }
-
-    // In the extremely unlikely event that all the names generated above are
-    // already in `inArgNames`, we'll just return `r_conflicted` and not worry
-    // about potential conflicts.
-    return { name: "r_conflicted", generated: true };
-  } // fn: getIdentifierNameAvoidingConflicts()
-
-  /**
-   * Get the string representation for the validator arguments, along with the
-   * name of the argument that will hold the result.
-   *
-   * @param inArgs The input arguments
-   * @returns An object containing the above information
-   */
-  private _getValidatorArgs(inArgs: ArgDef[]): {
-    str: string;
-    resultArgName: string;
-  } {
-    const resultArgName = this._getIdentifierNameAvoidingConflicts(
-      inArgs,
-      resultArgCandidateNames,
-      maxResultArgSuffix
-    );
-    const resultArgString = `${resultArgName.name}: FuzzTestResult`;
-    return {
-      str: `(${resultArgString})`,
-      resultArgName: resultArgName.name,
-    };
-  } // fn: getValidatorArgs()
 
   /**
    * Message handler for the `validator.getList` command. Gets the list
@@ -4510,34 +4273,6 @@ function getSequentialFailures(
     message,
   };
 } // fn: getSequentialFailures
-
-/**
- * Determines the next available integer counter suffix for a generated function name
- * given a list of existing function names and a prefix.
- *
- * @param existingFnNames Array of function names in the source module
- * @param prefix Name prefix (e.g., "myFnValidator" or "myFnTransformer")
- * @returns The next available counter value
- */
-function getNextAvailableFnNumber(
-  existingFnNames: string[],
-  prefix: string
-): number {
-  let fnCounter = 0;
-  existingFnNames
-    .filter((e) => e.startsWith(prefix))
-    .forEach((e) => {
-      if (e.endsWith(prefix)) {
-        fnCounter++;
-      } else {
-        const suffix = e.substring(prefix.length);
-        if (suffix.match(/^[0-9]+$/)) {
-          fnCounter = Math.max(fnCounter, Number(suffix)) + 1;
-        }
-      }
-    });
-  return fnCounter;
-} // fn: getNextAvailableFnNumber
 
 /**
  * Initializes the module
