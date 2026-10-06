@@ -120,10 +120,11 @@ function createProgram(): Commander.Command {
       "failures"
     )
     .option(
-      `--engine <v1|v2>`,
-      `Fuzzer engine version: 'v1' (classic) or 'v2' (refactored)`,
-      (val: string): FuzzerEngineVersion => (val === "v2" ? "v2" : "v1"),
-      "v2"
+      `--engine <v1|v2|v3>`,
+      `Fuzzer engine version: 'v1' (classic), 'v2' (refactored), or 'v3' (pipelined)`,
+      (val: string): FuzzerEngineVersion =>
+        val === "v1" ? "v1" : val === "v2" ? "v2" : "v3",
+      "v3"
     )
 
     // ------------------------------- Transformers ------------------------------ //

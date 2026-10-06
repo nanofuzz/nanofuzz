@@ -2,6 +2,7 @@ import * as Config from "../Config";
 import { CompilerStaleness } from "./compilers/Types";
 import { Tester as FuzzerV1 } from "./Fuzzer";
 import { FuzzerV2 } from "./FuzzerV2";
+import { FuzzerV3 } from "./FuzzerV3";
 import {
   FuzzEnv,
   FuzzMode,
@@ -13,7 +14,7 @@ import {
 } from "./Types";
 
 /**
- * Common public interface implemented by both Fuzzer (V1) and FuzzerV2 (V2).
+ * Common public interface implemented by Fuzzer (V1), FuzzerV2 (V2), and FuzzerV3 (V3).
  */
 export interface IFuzzer {
   readonly state: "init" | "ready" | "running" | "paused" | "crashed";
@@ -35,15 +36,15 @@ export interface IFuzzer {
   getInputGeneratorDiagnostics(): string[];
 }
 
-export type FuzzerEngineVersion = "v1" | "v2";
+export type FuzzerEngineVersion = "v1" | "v2" | "v3";
 
 /**
- * Factory that instantiates either the classic Fuzzer (V1) or the modernized FuzzerV2 (V2)
+ * Factory that instantiates Fuzzer (V1), FuzzerV2 (V2), or FuzzerV3 (V3)
  * based on parameter or configuration.
  *
  * Priority:
- *  1. `mode.engine` ("v1" | "v2")
- *  2. Configuration setting `nanofuzz.fuzzer.engine` (default: "v2")
+ *  1. `mode.engine` ("v1" | "v2" | "v3")
+ *  2. Configuration setting `nanofuzz.fuzzer.engine` (default: "v3")
  */
 export function FuzzerFactory(
   module: string,
@@ -52,13 +53,15 @@ export function FuzzerFactory(
   mode: { precompile?: true; engine?: FuzzerEngineVersion } = {}
 ): IFuzzer {
   const engine =
-    mode.engine ?? Config.get<string>("nanofuzz.fuzzer.engine", "v2");
+    mode.engine ?? Config.get<string>("nanofuzz.fuzzer.engine", "v3");
 
-  return engine === "v1"
-    ? new FuzzerV1(module, fnName, options, mode)
-    : new FuzzerV2(module, fnName, options, mode);
+  switch (engine) {
+    case "v1":
+      return new FuzzerV1(module, fnName, options, mode);
+    case "v2":
+      return new FuzzerV2(module, fnName, options, mode);
+    case "v3":
+    default:
+      return new FuzzerV3(module, fnName, options, mode);
+  }
 }
-
-export { FuzzerV1, FuzzerV2 };
-export { FuzzExecutor } from "./FuzzExecutor";
-export { FuzzStats } from "./FuzzStats";

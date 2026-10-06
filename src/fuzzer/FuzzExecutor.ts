@@ -192,7 +192,8 @@ export class FuzzExecutor {
 
     result.interestingReasons = generator.onInputFeedback(
       measurements,
-      result.timers.run + result.timers.gen
+      result.timers.run + result.timers.gen,
+      result.inputGenerated
     );
     measureTime += performance.now() - startMeasureFeedbackTime;
 

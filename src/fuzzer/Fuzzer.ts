@@ -1203,7 +1203,8 @@ export class Tester {
           result.interestingReasons =
             this._compositeInputGenerator.onInputFeedback(
               measurements,
-              result.timers.run + result.timers.gen
+              result.timers.run + result.timers.gen,
+              result.inputGenerated
             );
 
           // Measurement stats

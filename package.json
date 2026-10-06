@@ -134,14 +134,16 @@
             "type": "string",
             "enum": [
               "v1",
-              "v2"
+              "v2",
+              "v3"
             ],
             "enumDescriptions": [
               "v1: Classic fuzzer experience",
-              "v2: Updated fuzzer experience"
+              "v2: Updated fuzzer experience",
+              "v3: Advanced fuzzer experience"
             ],
-            "default": "v2",
-            "description": "Select the fuzzer engine implementation (v1=classic, v2=updated)",
+            "default": "v3",
+            "description": "Select the fuzzer engine implementation (v1=classic, v2=updated, v3=pipelined)",
             "tags": [
               "experimental"
             ]
