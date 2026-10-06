@@ -177,4 +177,23 @@ describe("fuzzer/analysis/typescript/ArgDefValidator:", () => {
     // Array with duplicates (non-canonical)
     expect(ArgDefValidator.validate([1, 1, 2], setDef)).toBe(false);
   });
+
+  it("Validates BigInt within and outside interval bounds", () => {
+    const bigIntDef = makeArgDef(
+      dummyModule,
+      "bigintArg",
+      0,
+      ArgTag.BIGINT,
+      argOptions,
+      0
+    );
+    bigIntDef.setIntervals([{ min: 10n, max: 100n }]);
+
+    expect(ArgDefValidator.validate(10n, bigIntDef)).toBe(true);
+    expect(ArgDefValidator.validate(50n, bigIntDef)).toBe(true);
+    expect(ArgDefValidator.validate(100n, bigIntDef)).toBe(true);
+    expect(ArgDefValidator.validate(9n, bigIntDef)).toBe(false);
+    expect(ArgDefValidator.validate(101n, bigIntDef)).toBe(false);
+    expect(ArgDefValidator.validate(50, bigIntDef)).toBe(false);
+  });
 });

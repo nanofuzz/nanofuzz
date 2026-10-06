@@ -163,6 +163,45 @@ describe("fuzzer/adapters/pytest/PytestAdapter:", () => {
     expect(fname).toBe("mymodule_nano_test.py");
   });
 
+  it("emits BigInt test cases as Python integers correctly", () => {
+    const tests: FuzzTests = {
+      version: "0.0.0",
+      functions: {
+        bigIntFn: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: 100n,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: 200n,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+      },
+    };
+
+    const out = new PytestAdapter(tests, "mymodule.py").toString();
+    expect(out).toContain("def test_bigIntFn_0_expect(");
+    expect(out).toContain("assert themodule.bigIntFn(*[100]) == 200");
+  });
+
   it("emits async Pytest tests when isAsync is true", () => {
     const tests: FuzzTests = {
       version: "0.0.0",

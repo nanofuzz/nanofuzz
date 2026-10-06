@@ -657,4 +657,45 @@ describe("fuzzer: typescript targets", () => {
       ).toBeTrue();
     }
   });
+
+  it("TypeScript BigInt target with property validator and pin", async () => {
+    const results: FuzzTestResult[] = [];
+    const pinned: FuzzPinnedTest = {
+      input: [
+        {
+          name: "n",
+          offset: 0,
+          value: 42n,
+          origin: { type: "user" },
+        },
+      ],
+      output: [],
+      pinned: true,
+    };
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.ts",
+      "testBigIntTarget",
+      {
+        ...intOptions,
+        useProperty: true,
+        maxTests: 10,
+      }
+    ).test([pinned], { gen: true }, undefined, undefined, (r) =>
+      results.push(r)
+    );
+
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(results.length).toBeGreaterThan(0);
+    const pinnedRes = results.find((r) => r.input[0].value === 42n);
+    expect(pinnedRes).toBeDefined();
+    expect(pinnedRes?.exception).toBeTrue();
+    expect(
+      results.every(
+        (r) =>
+          r.input.length === 1 &&
+          typeof r.input[0].value === "bigint" &&
+          (r.exception || typeof r.output[0].value === "bigint")
+      )
+    ).toBeTrue();
+  });
 });

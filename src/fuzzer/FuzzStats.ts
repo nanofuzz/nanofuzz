@@ -46,6 +46,11 @@ export class FuzzStats {
     return this._results;
   } // get: results
 
+  public set options(options: FuzzOptions) {
+    this._options = options;
+    this._results.env.options = structuredClone(options);
+  } // set: options
+
   public get currentRun(): CurrentRunStats {
     return this._currentRun;
   } // get: currentRun
@@ -56,6 +61,8 @@ export class FuzzStats {
 
   public startRun(): void {
     this._startTime = performance.now();
+    this._startGenTime = 0;
+    this._currentRun = this._getInitializedRunStats();
     this._currentRun.timers.startTime = this._startTime;
     this._results.stats.counters.testingRuns++;
   } // fn: startRun
@@ -154,11 +161,10 @@ export class FuzzStats {
 
     // Track first failing test
     if (
-      !this._results.stats.outcomes.firstFailure &&
+      !this._currentRun.outcomes.firstFailure &&
       result.category !== "ok" &&
       result.category !== "skip"
     ) {
-      this._results.stats.outcomes.firstFailure = result;
       this._currentRun.outcomes.firstFailure = result;
     }
 
@@ -309,7 +315,7 @@ export class FuzzStats {
     }
 
     return this._results;
-  }
+  } // fn: finalize
 
   /**
    * Retrieves an initialized FuzzTestResults object with default values.
@@ -393,7 +399,7 @@ export class FuzzStats {
       },
       results: [],
     };
-  } // fn: getInitializedResults
+  } // fn: _getInitializedResults
 
   /**
    * Retrieves an initialized CurrentRunStats object with default values.

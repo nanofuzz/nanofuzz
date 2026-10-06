@@ -39,14 +39,6 @@ export class ArgDefMutator {
     }
 
     // Running list of mutator functions
-    type MutationProposal = {
-      name: string;
-      value: ArgValueType;
-      path: (string | number)[];
-      deleteProperty?: boolean;
-      objectKeyOrder?: string[];
-      simplifies?: boolean;
-    };
     const mutations: MutationProposal[] = [];
     type UniqueDimensionContext = {
       siblings: ArgValueType[];
@@ -323,6 +315,37 @@ export class ArgDefMutator {
         requiresUniqueElements: false,
       });
 
+      // For top-level optional arguments (not inside an object, tuple, or array),
+      // handle generating a concrete value if undefined, or deleting/setting undefined if present.
+      if (
+        spec.isOptional() &&
+        !subInput.inArray &&
+        subInput.subPath.length === 2
+      ) {
+        if (subInput.subElement === undefined) {
+          addMutations([
+            {
+              name: "optional-genValue",
+              value: ArgDefGenerator.gen(spec, prng, true, false),
+              path: subInput.subPath,
+            },
+          ]);
+          continue; // Nothing else to mutate on an undefined value
+        } else {
+          addMutations([
+            {
+              name: "optional-setUndefined",
+              value: undefined,
+              path: subInput.subPath,
+              simplifies: true,
+            },
+          ]);
+        }
+      } else if (subInput.subElement === undefined && spec.isOptional()) {
+        // Child optional element (e.g. in object or tuple) whose genMember was already handled
+        continue;
+      }
+
       // Handle array dimensions
       if (spec.getDim() && !subInput.inArray) {
         if (Array.isArray(subInput.subElement)) {
@@ -337,84 +360,47 @@ export class ArgDefMutator {
       } else if (!spec.isNoInput()) {
         // Determine mutations according to ArgDef types
         switch (spec.getType()) {
+          case ArgTag.BIGINT: {
+            const value = subInput.subElement;
+            if (typeof value !== "bigint") {
+              throw new Error(
+                `Expected bigint input, got ${JSONN.stringify(value)}`
+              );
+            }
+            const interval = spec.getIntervals()[0];
+            if (
+              typeof interval.min !== "bigint" ||
+              typeof interval.max !== "bigint"
+            ) {
+              throw new Error(
+                `Invalid interval bounds for bigint type: ${JSONN.stringify(
+                  interval
+                )}`
+              );
+            }
+            addMutations(
+              getNumericMutations(
+                value,
+                interval.min,
+                interval.max,
+                subInput.subPath,
+                bigIntNumericOps,
+                prng
+              )
+            );
+            break;
+          }
           case ArgTag.NUMBER: {
             const value = Number(subInput.subElement);
-            const numProposals: (MutationProposal & { value: number })[] = [];
-
-            if (
-              value !== 0 &&
-              0 <= Number(spec.getIntervals()[0].max) &&
-              0 >= Number(spec.getIntervals()[0].min)
-            ) {
-              numProposals.push({
-                name: "number-setToZero",
-                value: 0,
-                path: [...subInput.subPath],
-                simplifies: true,
-              });
-            }
-
-            const plusOneVal = value + 1;
-            numProposals.push({
-              name: "number-plusOne",
-              value: plusOneVal,
-              path: [...subInput.subPath],
-              simplifies: Math.abs(plusOneVal) < Math.abs(value),
-            });
-
-            const minusOneVal = value - 1;
-            numProposals.push({
-              name: "number-minusOne",
-              value: minusOneVal,
-              path: [...subInput.subPath],
-              simplifies: Math.abs(minusOneVal) < Math.abs(value),
-            });
-
-            numProposals.push({
-              name: "number-negate",
-              value: value * -1,
-              path: [...subInput.subPath],
-            });
-
-            numProposals.push({
-              name: "number-timesTwo",
-              value: value * 2,
-              path: [...subInput.subPath],
-            });
-
-            numProposals.push({
-              name: "number-timesThree",
-              value: value * 3,
-              path: [...subInput.subPath],
-            });
-
-            const divTwoVal = options.numInteger
-              ? Math.round(value / 2)
-              : value / 2;
-            numProposals.push({
-              name: "number-divTwo",
-              value: divTwoVal,
-              path: [...subInput.subPath],
-              simplifies: Math.abs(divTwoVal) < Math.abs(value),
-            });
-
-            const divThreeVal = options.numInteger
-              ? Math.round(value / 3)
-              : value / 3;
-            numProposals.push({
-              name: "number-divThree",
-              value: divThreeVal,
-              path: [...subInput.subPath],
-              simplifies: Math.abs(divThreeVal) < Math.abs(value),
-            });
-
+            const interval = spec.getIntervals()[0];
             addMutations(
-              numProposals.filter(
-                (e) =>
-                  e.value !== value &&
-                  e.value <= Number(spec.getIntervals()[0].max) &&
-                  e.value >= Number(spec.getIntervals()[0].min) &&
-                  (Number.isInteger(e.value) || !options.numInteger)
+              getNumericMutations(
+                value,
+                Number(interval.min),
+                Number(interval.max),
+                subInput.subPath,
+                getNumberNumericOps(options.numInteger),
+                prng
               )
             );
             break;
@@ -1362,6 +1348,361 @@ export type mutatorFn = {
   simplifies?: boolean; // true if mutator simplifies/shrinks input complexity
   fn: () => ArgValueType; // mutator function
 };
+
+/**
+ * Type describing a proposed mutation before filtering and conversion to mutatorFn
+ */
+export type MutationProposal = {
+  name: string;
+  value: ArgValueType;
+  path: (string | number)[];
+  deleteProperty?: boolean;
+  objectKeyOrder?: string[];
+  simplifies?: boolean;
+};
+
+const BIGINT_BOUNDARIES: bigint[] = [
+  0n,
+  1n,
+  -1n,
+  2n,
+  -2n,
+  127n,
+  128n,
+  -128n,
+  -129n,
+  255n,
+  256n,
+  -256n,
+  32767n,
+  32768n,
+  -32768n,
+  -32769n,
+  65535n,
+  65536n,
+  2147483647n,
+  2147483648n,
+  -2147483648n,
+  -2147483649n,
+  4294967295n,
+  4294967296n,
+  BigInt(Number.MAX_SAFE_INTEGER),
+  -BigInt(Number.MAX_SAFE_INTEGER),
+  9223372036854775807n,
+  9223372036854775808n,
+  -9223372036854775808n,
+  -9223372036854775809n,
+  18446744073709551615n,
+  18446744073709551616n,
+];
+
+const NUMBER_BOUNDARIES: number[] = [
+  0,
+  1,
+  -1,
+  2,
+  -2,
+  127,
+  128,
+  -128,
+  -129,
+  255,
+  256,
+  -256,
+  32767,
+  32768,
+  -32768,
+  -32769,
+  65535,
+  65536,
+  2147483647,
+  2147483648,
+  -2147483648,
+  -2147483649,
+  4294967295,
+  4294967296,
+  Number.MAX_SAFE_INTEGER,
+  -Number.MAX_SAFE_INTEGER,
+];
+
+/**
+ * Operations table for numeric types (number and bigint)
+ */
+interface NumericOps<T extends number | bigint> {
+  prefix: "number" | "bigint";
+  zero: T;
+  add: (a: T, b: number) => T;
+  mul: (a: T, b: number) => T;
+  div: (a: T, b: number) => T;
+  abs: (a: T) => T;
+  compare: (a: T, b: T) => number;
+  isInteger: (a: T) => boolean;
+  flipBit: (a: T, bit: number) => T;
+  bitLength: (a: T) => number;
+  boundaries: T[];
+}
+
+const bigIntNumericOps: NumericOps<bigint> = {
+  prefix: "bigint",
+  zero: 0n,
+  add: (a, b) => a + BigInt(b),
+  mul: (a, b) => a * BigInt(b),
+  div: (a, b) => (b === 0 ? 0n : a / BigInt(b)),
+  abs: (a) => (a < 0n ? -a : a),
+  compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+  isInteger: () => true,
+  flipBit: (a, bit) => a ^ (1n << BigInt(bit)),
+  bitLength: (a) => {
+    const positive = a < 0n ? -a : a;
+    let bits = 0;
+    let temp = positive;
+    while (temp >= 0x100000000n) {
+      bits += 32;
+      temp >>= 32n;
+    }
+    if (temp > 0n) {
+      bits += 32 - Math.clz32(Number(temp));
+    }
+    return Math.max(1, bits);
+  },
+  boundaries: BIGINT_BOUNDARIES,
+};
+
+function getNumberNumericOps(numInteger: boolean): NumericOps<number> {
+  return {
+    prefix: "number",
+    zero: 0,
+    add: (a, b) => a + b,
+    mul: (a, b) => a * b,
+    div: (a, b) => (b === 0 ? 0 : numInteger ? Math.round(a / b) : a / b),
+    abs: Math.abs,
+    compare: (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+    isInteger: (a) =>
+      (Number.isInteger(a) && Number.isSafeInteger(a)) ||
+      (!numInteger && Number.isFinite(a)),
+    flipBit: (a, bit) => {
+      if (Number.isSafeInteger(a)) {
+        const bigVal = BigInt(Math.trunc(a));
+        const flipped = bigVal ^ (1n << BigInt(bit));
+        const asNum = Number(flipped);
+        return Number.isSafeInteger(asNum) ? asNum : a;
+      }
+      return a;
+    },
+    bitLength: (a) => {
+      const positive = Math.abs(a);
+      if (positive <= 0 || !Number.isFinite(positive)) return 1;
+      return Math.min(52, Math.floor(Math.log2(positive)) + 1);
+    },
+    boundaries: NUMBER_BOUNDARIES,
+  };
+} // fn: getNumberNumericOps
+
+/**
+ * Generates numeric mutations (and shrinks) for number and bigint values.
+ */
+function getNumericMutations<T extends number | bigint>(
+  value: T,
+  min: T,
+  max: T,
+  path: (string | number)[],
+  ops: NumericOps<T>,
+  prng?: seedrandom.prng
+): MutationProposal[] {
+  const proposals: (MutationProposal & { value: T })[] = [];
+
+  if (
+    value !== ops.zero &&
+    ops.compare(ops.zero, max) <= 0 &&
+    ops.compare(ops.zero, min) >= 0
+  ) {
+    proposals.push({
+      name: `${ops.prefix}-setToZero`,
+      value: ops.zero,
+      path: [...path],
+      simplifies: true,
+    });
+  }
+
+  const absVal = ops.abs(value);
+
+  // Micro-increments & decrements
+  const plusOneVal = ops.add(value, 1);
+  proposals.push({
+    name: `${ops.prefix}-plusOne`,
+    value: plusOneVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(plusOneVal), absVal) < 0,
+  });
+
+  const minusOneVal = ops.add(value, -1);
+  proposals.push({
+    name: `${ops.prefix}-minusOne`,
+    value: minusOneVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(minusOneVal), absVal) < 0,
+  });
+
+  proposals.push({
+    name: `${ops.prefix}-negate`,
+    value: ops.mul(value, -1),
+    path: [...path],
+  });
+
+  proposals.push({
+    name: `${ops.prefix}-timesTwo`,
+    value: ops.mul(value, 2),
+    path: [...path],
+  });
+
+  proposals.push({
+    name: `${ops.prefix}-timesThree`,
+    value: ops.mul(value, 3),
+    path: [...path],
+  });
+
+  const divTwoVal = ops.div(value, 2);
+  proposals.push({
+    name: `${ops.prefix}-divTwo`,
+    value: divTwoVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(divTwoVal), absVal) < 0,
+  });
+
+  const divThreeVal = ops.div(value, 3);
+  proposals.push({
+    name: `${ops.prefix}-divThree`,
+    value: divThreeVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(divThreeVal), absVal) < 0,
+  });
+
+  // 1. Boundary & Extremal Mutators
+  if (value !== min) {
+    proposals.push({
+      name: `${ops.prefix}-setToMin`,
+      value: min,
+      path: [...path],
+      simplifies: ops.compare(ops.abs(min), absVal) < 0,
+    });
+  }
+  if (value !== max) {
+    proposals.push({
+      name: `${ops.prefix}-setToMax`,
+      value: max,
+      path: [...path],
+      simplifies: ops.compare(ops.abs(max), absVal) < 0,
+    });
+  }
+
+  const minPlusOneVal = ops.add(min, 1);
+  if (ops.compare(minPlusOneVal, max) <= 0) {
+    proposals.push({
+      name: `${ops.prefix}-minPlusOne`,
+      value: minPlusOneVal,
+      path: [...path],
+      simplifies: ops.compare(ops.abs(minPlusOneVal), absVal) < 0,
+    });
+  }
+
+  const maxMinusOneVal = ops.add(max, -1);
+  if (ops.compare(maxMinusOneVal, min) >= 0) {
+    proposals.push({
+      name: `${ops.prefix}-maxMinusOne`,
+      value: maxMinusOneVal,
+      path: [...path],
+      simplifies: ops.compare(ops.abs(maxMinusOneVal), absVal) < 0,
+    });
+  }
+
+  if (prng) {
+    const validBoundaries = ops.boundaries.filter(
+      (b) =>
+        b !== value &&
+        ops.compare(b, max) <= 0 &&
+        ops.compare(b, min) >= 0 &&
+        ops.isInteger(b)
+    );
+    if (validBoundaries.length > 0) {
+      const chosenBoundary =
+        validBoundaries[Math.floor(prng() * validBoundaries.length)];
+      proposals.push({
+        name: `${ops.prefix}-boundary`,
+        value: chosenBoundary,
+        path: [...path],
+        simplifies: ops.compare(ops.abs(chosenBoundary), absVal) < 0,
+      });
+    }
+  }
+
+  // 2. Bitwise Mutation (AFL / libFuzzer style bit flips)
+  if (prng) {
+    const maxBits = Math.max(ops.bitLength(value), ops.bitLength(max), 1);
+    const bitToFlip = Math.floor(prng() * maxBits);
+    const flippedVal = ops.flipBit(value, bitToFlip);
+    proposals.push({
+      name: `${ops.prefix}-flipBit`,
+      value: flippedVal,
+      path: [...path],
+      simplifies: ops.compare(ops.abs(flippedVal), absVal) < 0,
+    });
+  }
+
+  // 3. Decadal & Exponential Scale Jumps
+  const plusTenVal = ops.add(value, 10);
+  proposals.push({
+    name: `${ops.prefix}-plusTen`,
+    value: plusTenVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(plusTenVal), absVal) < 0,
+  });
+
+  const minusTenVal = ops.add(value, -10);
+  proposals.push({
+    name: `${ops.prefix}-minusTen`,
+    value: minusTenVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(minusTenVal), absVal) < 0,
+  });
+
+  const plusHundredVal = ops.add(value, 100);
+  proposals.push({
+    name: `${ops.prefix}-plusHundred`,
+    value: plusHundredVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(plusHundredVal), absVal) < 0,
+  });
+
+  const minusHundredVal = ops.add(value, -100);
+  proposals.push({
+    name: `${ops.prefix}-minusHundred`,
+    value: minusHundredVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(minusHundredVal), absVal) < 0,
+  });
+
+  proposals.push({
+    name: `${ops.prefix}-timesTen`,
+    value: ops.mul(value, 10),
+    path: [...path],
+  });
+
+  const divTenVal = ops.div(value, 10);
+  proposals.push({
+    name: `${ops.prefix}-divTen`,
+    value: divTenVal,
+    path: [...path],
+    simplifies: ops.compare(ops.abs(divTenVal), absVal) < 0,
+  });
+
+  return proposals.filter(
+    (e) =>
+      e.value !== value &&
+      ops.compare(e.value, max) <= 0 &&
+      ops.compare(e.value, min) >= 0 &&
+      ops.isInteger(e.value)
+  );
+} // fn: getNumericMutations
 
 /**
  * Converts a path array to a fast lookup string key.

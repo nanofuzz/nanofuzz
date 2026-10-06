@@ -114,8 +114,12 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
     const parsedSet = PythonValueMapper.fromPython<Set<unknown>>(pySetCode);
     expect(parsedSet).toEqual(setVal);
 
-    expect(PythonValueMapper.fromPython("set([1, 'two', True])")).toEqual(setVal);
-    expect(PythonValueMapper.fromPython("frozenset([1, 'two', True])")).toEqual(setVal);
+    expect(PythonValueMapper.fromPython("set([1, 'two', True])")).toEqual(
+      setVal
+    );
+    expect(PythonValueMapper.fromPython("frozenset([1, 'two', True])")).toEqual(
+      setVal
+    );
     expect(PythonValueMapper.toPython(new Set())).toEqual("set()");
 
     const mapVal = new Map([
@@ -124,5 +128,17 @@ describe("fuzzer/mappers/python/PythonValueMapper: ", () => {
     ]);
     const pyMapCode = PythonValueMapper.toPython(mapVal);
     expect(pyMapCode).toEqual('{"a": 1, "b": 2}');
+  });
+
+  it("BigInts to Python integer expressions", () => {
+    const bigIntVal = 100n;
+    const negBigIntVal = -42n;
+
+    expect(PythonValueMapper.toPython(bigIntVal)).toEqual("100");
+    expect(PythonValueMapper.toPython(negBigIntVal)).toEqual("-42");
+
+    const nestedObj = { count: 100n, items: [1n, -2n] };
+    const pyDictStr = PythonValueMapper.toPython(nestedObj);
+    expect(pyDictStr).toEqual('{"count": 100, "items": [1, -2]}');
   });
 });

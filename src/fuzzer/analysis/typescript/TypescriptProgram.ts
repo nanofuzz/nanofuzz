@@ -271,6 +271,23 @@ export class TypescriptProgram extends AbstractProgram {
                 };
                 return; // enter function
 
+              case "BigIntLiteral":
+                defaultExport = {
+                  isExported: true,
+                  optional: false,
+                  dims: 0,
+                  module: filename,
+                  name: "default",
+                  type: {
+                    children: [],
+                    dims: 0,
+                    resolved: true,
+                    type: ArgTag.LITERAL,
+                    value: BigInt(decl.value),
+                  },
+                };
+                return; // enter function
+
               default: {
                 console.debug(
                   `Unsupported explicit default export type '${path.node.declaration.type}' in module '${filename}'`
@@ -702,7 +719,8 @@ export class TypescriptProgram extends AbstractProgram {
         case ArgTag.BYTES:
         case ArgTag.STRING:
         case ArgTag.BOOLEAN:
-        case ArgTag.NUMBER: {
+        case ArgTag.NUMBER:
+        case ArgTag.BIGINT: {
           thisType.type = {
             dims: dims,
             type: type,
@@ -774,6 +792,8 @@ export class TypescriptProgram extends AbstractProgram {
         return [ArgTag.BOOLEAN, 0];
       case "TSNumberKeyword":
         return [ArgTag.NUMBER, 0];
+      case "TSBigIntKeyword":
+        return [ArgTag.BIGINT, 0];
       case "TSTypeAnnotation":
         return this._getTypeFromAstNode(node.typeAnnotation, options);
       case "TSUnionType":
@@ -861,7 +881,27 @@ export class TypescriptProgram extends AbstractProgram {
       case "NumericLiteral": {
         return literalNode.value;
       }
-      // TODO Add support for BigIntLiteral, TemplateLiteral, UnaryExpression, UpdateExpression
+      case "BigIntLiteral": {
+        return BigInt(literalNode.value);
+      }
+      case "UnaryExpression": {
+        if (
+          (literalNode.operator === "-" || literalNode.operator === "+") &&
+          (literalNode.argument.type === "NumericLiteral" ||
+            literalNode.argument.type === "BigIntLiteral")
+        ) {
+          if (literalNode.argument.type === "NumericLiteral") {
+            return literalNode.operator === "-"
+              ? -literalNode.argument.value
+              : literalNode.argument.value;
+          } else {
+            const val = BigInt(literalNode.argument.value);
+            return literalNode.operator === "-" ? -val : val;
+          }
+        }
+        break;
+      }
+      // TODO Add support for TemplateLiteral, UpdateExpression
     }
     throw new Error(
       "Unsupported literal value type in type annotation: " +

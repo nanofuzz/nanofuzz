@@ -138,8 +138,8 @@ type literalDim2Type = literalDim1Type[];
 type literalDim1Type = "hello"[];
 
 export type FuzzTestResult = {
-  in: (number | string | boolean)[];
-  out: number | string | boolean | null | undefined;
+  in: (number | string | boolean | bigint)[];
+  out: number | string | boolean | bigint | null | undefined;
   exception: boolean;
   timeout: boolean;
 };
@@ -306,4 +306,23 @@ export async function testAsyncGreetingValidator(
   return typeof r.out === "string" && r.out.startsWith("Hello ")
     ? "pass"
     : "fail";
+}
+
+/**
+ * BigInt fuzz target and validator
+ */
+export function testBigIntTarget(n: bigint): bigint {
+  if (n === 42n) {
+    throw new Error("Target crashed on 42n");
+  }
+  return n * 2n;
+}
+export function testBigIntTargetValidator(
+  r: FuzzTestResult
+): "pass" | "fail" | "unknown" {
+  if (r.exception) return "pass";
+  if (typeof r.out === "bigint" && typeof r.in[0] === "bigint") {
+    return r.out === r.in[0] * 2n ? "pass" : "fail";
+  }
+  return "fail";
 }

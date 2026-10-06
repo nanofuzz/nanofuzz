@@ -58,7 +58,7 @@ NaNofuzz automatically generates a test suite in these formats for use in CI:
  - **Python**: pytest
 
 The following are not yet supported:
- - Generating inputs of deconstructed, `enum`, generic, intersection, some utility (e.g., TypeScript `Omit<T1,T2>`) types, `bigint`s, implicit `any`, `unknown`, and function types as well `NaN` and `Infinity`
+ - Generating inputs of deconstructed, `enum`, generic, intersection, some utility (e.g., TypeScript `Omit<T1,T2>`) types, implicit `any`, `unknown`, and function types as well `NaN` and `Infinity`
  - Testing class and object methods (write a test harness for these)
  - Compiling to module formats other than CommonJS (related to [VS Code issue 130367](https://github.com/microsoft/vscode/issues/130367))
  - Stateful, flaky, or non-deterministic tests

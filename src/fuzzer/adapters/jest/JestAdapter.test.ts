@@ -163,6 +163,46 @@ describe("fuzzer/adapters/jest/JestAdapter:", () => {
     expect(fname).toBe("mymodule.nano.test.ts");
   });
 
+  it("emits BigInt test cases correctly", () => {
+    const tests: FuzzTests = {
+      version: "0.0.0",
+      functions: {
+        bigIntFn: {
+          options: makeOptions({ useHuman: true }),
+          validators: [],
+          tests: {
+            "0": {
+              input: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: 100n,
+                  origin: { type: "user" },
+                },
+              ],
+              output: [],
+              pinned: true,
+              expectedOutput: [
+                {
+                  name: "0",
+                  offset: 0,
+                  value: 200n,
+                  origin: { type: "user" },
+                },
+              ],
+            },
+          },
+          isVoid: false,
+        },
+      },
+    };
+
+    const out = new JestAdapter(tests, "mymodule.ts").toString();
+    expect(out).toContain(
+      'it("bigIntFn.0.expect", () => {expect(themodule.bigIntFn(100n)).toEqual(200n);},100);'
+    );
+  });
+
   it("emits async Jest tests when isAsync is true", () => {
     const tests: FuzzTests = {
       version: "0.0.0",
