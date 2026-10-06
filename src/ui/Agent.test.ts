@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as Config from "../Config";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
@@ -19,6 +21,7 @@ import {
   AgentFuzzOptions,
 } from "./Agent";
 import { FuzzTestResult } from "../fuzzer/Types";
+import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
 
@@ -385,6 +388,46 @@ describe("Agent", () => {
       suiteTimeout: 3000,
     });
     expect(expectExcPass.status).toBe("success");
+  });
+
+  it("runFuzz: automatically loads pinned tests and options from companion .nano.json5", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-nano-test-"));
+    try {
+      const tsFile = path.join(tmpDir, "calculator.ts");
+      fs.writeFileSync(
+        tsFile,
+        `export function add(a: number, b: number): number {
+  if (a === 99 && b === 99) throw new Error("bad combo");
+  return a + b;
+}`
+      );
+
+      // Save a pinned test that triggers the exception
+      FuzzConfigStore.updatePinnedTest(tsFile, "add", {
+        input: [
+          { name: "a", offset: 0, value: 99, origin: { type: "user" } },
+          { name: "b", offset: 1, value: 99, origin: { type: "user" } },
+        ],
+        output: [],
+        pinned: true,
+      });
+
+      const res = await runFuzz({
+        filePath: tsFile,
+        functionName: "add",
+        maxTests: 1,
+        suiteTimeout: 3000,
+      });
+
+      expect(res.status).toBe("counterexample_found");
+      expect(res.primaryCounterexample?.category).toBe("exception");
+      expect(res.primaryCounterexample?.input[0].value === 99).toBe(true);
+      expect(res.primaryCounterexample?.input[1].value === 99).toBe(true);
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
   });
 
   it("runFuzz: cancel", async () => {

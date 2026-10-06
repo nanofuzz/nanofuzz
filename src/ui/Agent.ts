@@ -41,6 +41,7 @@ import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
 import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
 import { FuzzerCodeSnippet } from "../fuzzer/synthesis/Types";
+import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 
 export {
   synthesizeValidator,
@@ -225,7 +226,17 @@ export async function runFuzz(
       Config.override("nanofuzz.ai.vendor", options.vendor);
     }
 
+    // Load any companion .nano.json5 configuration and saved tests
+    const fnConfig = FuzzConfigStore.loadForFunction(
+      resolvedPath,
+      options.functionName
+    );
+    const persistedTests: FuzzPinnedTest[] = Object.values(
+      fnConfig.tests ?? {}
+    );
+
     const effectiveGenerators = {
+      ...(fnConfig.options?.generators ?? {}),
       ...options.generators,
       ...(shouldAutoEnableCopilot &&
       options.generators?.AiInputGenerator?.enabled === undefined
@@ -234,6 +245,7 @@ export async function runFuzz(
     };
 
     const normalizedOptions = normalizeAgentFuzzOptions({
+      ...(fnConfig.options ?? {}),
       ...options,
       generators: effectiveGenerators,
     });
@@ -251,7 +263,11 @@ export async function runFuzz(
       inputItems,
       argDefs
     );
-    const allInjected = [...convertedInputs, ...(options.injectTests ?? [])];
+    const allInjected = [
+      ...persistedTests,
+      ...convertedInputs,
+      ...(options.injectTests ?? []),
+    ];
 
     const rawResults = await tester.test(
       allInjected,

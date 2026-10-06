@@ -28,8 +28,9 @@ import { isError } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
-import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
+import { FuzzPinnedTest } from "../fuzzer/Types";
 import { InputSchedulerType } from "../fuzzer/schedulers/Types";
+import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 import pkg from "../../package.json";
 
 const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
@@ -555,6 +556,10 @@ export async function runCliInProcess(
     const fnRef = targetFnDef?.getRef();
     const fnFuzzOptions = fnRef?.fuzzOptions;
 
+    // Load companion .nano.json5 configuration and pinned tests (with version upgrade and migration)
+    const fnConfig = FuzzConfigStore.loadForFunction(filename, fnname);
+    const injectTests: FuzzPinnedTest[] = Object.values(fnConfig.tests ?? {});
+
     function getEffectiveOption<K extends keyof FuzzOptions>(
       cliOptionName: string,
       fuzzOptKey: K,
@@ -569,30 +574,14 @@ export async function runCliInProcess(
       ) {
         return fnFuzzOptions[fuzzOptKey]!;
       }
-      return cliValue;
-    }
-
-    // TODO: There is no upgrade logic here like in FuzzPanel:
-    //       We need to re-factor the nano file logic out of
-    //       FuzzPanel so that we can call it here.
-    let injectTests: FuzzPinnedTest[] = [];
-    const nanoJsonFile = fs.existsSync(filename + ".nano.json5")
-      ? filename + ".nano.json5"
-      : fs.existsSync(filenameIn + ".nano.json5")
-        ? filenameIn + ".nano.json5"
-        : undefined;
-    if (nanoJsonFile && fs.existsSync(nanoJsonFile)) {
-      try {
-        const fullSet = JSONN.parse<FuzzTests>(
-          fs.readFileSync(nanoJsonFile, "utf8")
-        );
-        const fnSet = fullSet.functions?.[fnname];
-        if (fnSet && fnSet.tests) {
-          injectTests = Object.values(fnSet.tests);
-        }
-      } catch {
-        // Ignore read or parse errors
+      if (
+        isDefault &&
+        fnConfig.options &&
+        fnConfig.options[fuzzOptKey] !== undefined
+      ) {
+        return fnConfig.options[fuzzOptKey]!;
       }
+      return cliValue;
     }
 
     const fuzzer = FuzzerFactory(
