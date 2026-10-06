@@ -12,6 +12,7 @@ import {
   ArgValueTypeWrapped,
   FunctionRef,
   Interval,
+  ProgramLanguage,
 } from "../fuzzer/analysis/Types";
 import {
   bigIntOrThrow,
@@ -3077,15 +3078,6 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             </div>`;
       }
 
-      if (this._focusInput) {
-        html += /*html*/ `
-            <!-- Fuzzer Result to receive UI focus -->
-            <div id="fuzzFocusInput" class="hidden">
-              ${htmlEscape(JSONN.stringify(this._focusInput))}
-            </div>
-        `;
-      }
-
       // Columns to hide on the front-end
       const hiddenColumns = Config.get<boolean>(
         "nanofuzz.ui.showSourceColumn",
@@ -3100,74 +3092,35 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
         hiddenColumns.push("pinned", "correct output?");
       }
 
+      const viewState: FuzzPanelViewState = {
+        results:
+          this._results !== undefined && this._state === FuzzPanelState.done
+            ? this._results
+            : undefined,
+        focusInput: this._focusInput,
+        inputCols:
+          this._results !== undefined && this._state === FuzzPanelState.done
+            ? this._fuzzEnv.function.getArgDefs().map((a) => a.getName())
+            : [],
+        sortColumns: this._sortColumns,
+        showCoverageHeatmap: Boolean(
+          this._coverageStats && this._wasShowingCoverage
+        ),
+        hiddenColumns,
+        validators: this._fuzzEnv.validators.map((e) => e.name),
+        transformers: this._fuzzEnv.transformers.map((e) => e.name),
+        lang,
+        panelState: this.getState(),
+      };
+
+      const packedViewState = Buffer.from(JSONN.pack(viewState)).toString(
+        "base64"
+      );
+
       // Hidden data for the client script to process
       html += /*html*/ `
-            <!-- Fuzzer Result Payload: for the client script to process -->
-            <div id="fuzzResultsData" class="hidden">
-              ${
-                this._results === undefined ||
-                this._state !== FuzzPanelState.done
-                  ? "{}"
-                  : htmlEscape(JSONN.stringify(this._results))
-              }
-            </div>
-
-            <!-- Current PUT arguments: for the client script to process -->
-            <div id="fuzzInputCols" class="hidden">
-              ${
-                this._results === undefined ||
-                this._state !== FuzzPanelState.done
-                  ? "{}"
-                  : htmlEscape(
-                      JSONN.stringify(
-                        this._fuzzEnv.function
-                          .getArgDefs()
-                          .map((a) => a.getName())
-                      )
-                    )
-              }
-            </div>
-
-            <!-- Fuzzer Sort Columns: for the client script to process -->
-            <div id="fuzzSortColumns" class="hidden">
-              ${
-                this._sortColumns === undefined
-                  ? "{}"
-                  : htmlEscape(JSONN.stringify(this._sortColumns))
-              }
-            </div>
-            
-            <!-- Fuzzer Coverage Heatmap Setting: for the client script to process -->
-            <div id="fuzzShowCoverageHeatmap" class="hidden">${this._coverageStats && this._wasShowingCoverage}</div>
-
-            <!-- Fuzzer Hide Columns: for the client script to process -->
-            <div id="fuzzHideColumns" class="hidden">
-              ${htmlEscape(JSONN.stringify(hiddenColumns))}
-            </div>
-
-            <!-- Validator Functions: for the client script to process -->
-            <div id="validators" class="hidden">
-              ${htmlEscape(
-                JSONN.stringify(this._fuzzEnv.validators.map((e) => e.name))
-              )}
-            </div>
-
-            <!-- Transformer Functions: for the client script to process -->
-            <div id="transformers" class="hidden">
-              ${htmlEscape(
-                JSONN.stringify(this._fuzzEnv.transformers.map((e) => e.name))
-              )}
-            </div>
-
-            <!-- Lamguage: for the client script to process -->
-            <div id="fuzzLang" class="hidden">
-              ${htmlEscape(JSONN.stringify(lang))}
-            </div>
-
-            <!-- Fuzzer State Payload: for the client script to persist -->
-            <div id="fuzzPanelState" class="hidden">
-              ${htmlEscape(JSONN.stringify(this.getState()))}
-            </div>
+            <!-- Unified Fuzzer View State (MessagePack base64) -->
+            <script id="fuzzViewState" type="application/octet-stream">${packedViewState}</script>
           </div>
           <div id="snackbarRoot" class="hidden" />
           </body>
@@ -4459,6 +4412,22 @@ export type ValidatorMatch = {
   document: vscode.TextDocument;
   validator: FunctionRef;
   fut: FunctionRef;
+};
+
+/**
+ * Unified view state payload packed and passed to FuzzPanelView
+ */
+export type FuzzPanelViewState = {
+  results?: fuzzer.FuzzTestResults;
+  focusInput?: [fuzzer.FuzzResultCategory, number];
+  inputCols: string[];
+  sortColumns?: fuzzer.FuzzSortColumns;
+  showCoverageHeatmap: boolean;
+  hiddenColumns: string[];
+  validators: string[];
+  transformers: string[];
+  lang: ProgramLanguage;
+  panelState: FuzzPanelStateSerialized;
 };
 
 /**
