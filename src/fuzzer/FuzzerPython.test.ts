@@ -289,6 +289,111 @@ describe("fuzzer: python targets", () => {
     });
   });
 
+  it("Python UserInputGenerator generation, origin tagging, and execution", async () => {
+    const results: FuzzTestResult[] = [];
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_user_gen",
+      {
+        ...intOptions,
+        maxTests: 20,
+        generators: {
+          RandomInputGenerator: { enabled: false },
+          MutationInputGenerator: { enabled: false },
+          AiInputGenerator: { enabled: false },
+          UserInputGenerator: { enabled: true },
+        },
+      }
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
+
+    expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
+    expect(fuzzResult.stats.outcomes.categories.ok).toBeGreaterThan(0);
+
+    results.forEach((r) => {
+      expect(r.input[0].origin.type).toBe("generator");
+      if (r.input[0].origin.type === "generator") {
+        expect(r.input[0].origin.generator).toBe("UserInputGenerator");
+      }
+      expect<unknown>(r.input[1].value).toBe("custom");
+      expect<unknown>(r.output[0].value).toBe(`custom:${r.input[0].value}`);
+    });
+  });
+
+  it("Python UserInputGenerator exhaustion", async () => {
+    const results: FuzzTestResult[] = [];
+    const fuzzResult = await FuzzerFactory(
+      "./test_fixtures/Fuzzer.testfixtures.py",
+      "py_user_gen_finite",
+      {
+        ...intOptions,
+        maxTests: 50,
+        generators: {
+          RandomInputGenerator: { enabled: false },
+          MutationInputGenerator: { enabled: false },
+          AiInputGenerator: { enabled: false },
+          UserInputGenerator: { enabled: true },
+        },
+      }
+    ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
+
+    expect(results.length).toBe(3);
+    expect(fuzzResult.stopReason).toBe("noMoreInputs");
+  });
+
+  it("Python UserInputGenerator exception stops testing with crash", async () => {
+    let caughtError: unknown;
+    try {
+      await FuzzerFactory(
+        "./test_fixtures/Fuzzer.testfixtures.py",
+        "py_user_gen_exception",
+        {
+          ...intOptions,
+          maxTests: 10,
+          generators: {
+            RandomInputGenerator: { enabled: false },
+            MutationInputGenerator: { enabled: false },
+            AiInputGenerator: { enabled: false },
+            UserInputGenerator: { enabled: true },
+          },
+        }
+      ).test([], { gen: true });
+    } catch (e: unknown) {
+      caughtError = e;
+    }
+
+    expect(caughtError instanceof Error).toBeTrue();
+    if (caughtError instanceof Error) {
+      expect(caughtError.message).toContain("Python user generator error");
+    }
+  });
+
+  it("Python UserInputGenerator UnsatisfiedAssumption crashes", async () => {
+    let caughtError: unknown;
+    try {
+      await FuzzerFactory(
+        "./test_fixtures/Fuzzer.testfixtures.py",
+        "py_user_gen_assumption",
+        {
+          ...intOptions,
+          maxTests: 10,
+          generators: {
+            RandomInputGenerator: { enabled: false },
+            MutationInputGenerator: { enabled: false },
+            AiInputGenerator: { enabled: false },
+            UserInputGenerator: { enabled: true },
+          },
+        }
+      ).test([], { gen: true });
+    } catch (e: unknown) {
+      caughtError = e;
+    }
+
+    expect(caughtError instanceof Error).toBeTrue();
+    if (caughtError instanceof Error) {
+      expect(caughtError.message).toContain("UnsatisfiedAssumption");
+    }
+  });
+
   it("Python async fuzz target with property validator and coverage", async () => {
     const results: FuzzTestResult[] = [];
     const fuzzResult = await FuzzerFactory(

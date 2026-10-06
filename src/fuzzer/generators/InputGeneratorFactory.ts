@@ -5,6 +5,7 @@ import { Leaderboard } from "./Leaderboard";
 import { MutationInputGenerator } from "./MutationInputGenerator";
 import { RandomInputGenerator } from "./RandomInputGenerator";
 import { AiInputGenerator } from "./AiInputGenerator";
+import { UserInputGenerator } from "./UserInputGenerator";
 import {
   FuzzOptions,
   FuzzTestStats,
@@ -47,5 +48,6 @@ export function InputGeneratorFactory(
       genStats?.MutationInputGenerator
     ),
     new AiInputGenerator(fn, rngSeed, allInputs, moduleSrc),
+    new UserInputGenerator(fn, rngSeed),
   ];
 } // fn: InputGeneratorFactory

@@ -225,6 +225,19 @@ export class FunctionDef {
     return this.isExported() && this._ref.name.endsWith("Transformer");
   } // fn: isTransformer()
 
+  /**
+   * Returns true if the function is a user-provided input generator; false, otherwise.
+   *
+   * @returns true if the function is a user input generator; false, otherwise.
+   */
+  public isUserGenerator(): boolean {
+    return (
+      this.isExported() &&
+      this._ref.name.endsWith("Generator") &&
+      !this._ref.name.endsWith("InputGenerator")
+    );
+  } // fn: isUserGenerator()
+
   /*
    * Returns the validator's target function name if isValidator()===true
    *
@@ -239,6 +252,21 @@ export class FunctionDef {
       );
     return this._ref.name.substring(0, this._ref.name.lastIndexOf("Validator"));
   } // fn: getValidatorTargetName()
+
+  /*
+   * Returns the user generator's target function name if isUserGenerator()===true
+   *
+   * Throws an exception if the function is not a user generator.
+   *
+   * @returns the name of the user generator's target function.
+   */
+  public getUserGeneratorTargetName(): string {
+    if (!this.isUserGenerator())
+      throw new Error(
+        `Function ${this.getName()} is not a user generator and, therefore, does not have a generator target`
+      );
+    return this._ref.name.substring(0, this._ref.name.lastIndexOf("Generator"));
+  } // fn: getUserGeneratorTargetName()
 
   /**
    * Applies option overrides to the function definition --

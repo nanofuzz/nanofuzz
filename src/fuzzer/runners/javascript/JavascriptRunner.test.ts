@@ -115,10 +115,12 @@ export function processTypes(bytes: Uint8Array, mySet: Set<string>, myMap: Map<s
             RandomInputGenerator: { enabled: true },
             MutationInputGenerator: { enabled: true },
             AiInputGenerator: { enabled: false },
+            UserInputGenerator: { enabled: false },
           },
         },
         validators: [],
         transformers: [],
+        userGenerators: [],
       };
 
       const runner = new JavascriptRunner(jsPath, "processTypes", env);
@@ -206,10 +208,12 @@ export function processBigInts(a: bigint, b: bigint, c: bigint, d: bigint) {
             RandomInputGenerator: { enabled: true },
             MutationInputGenerator: { enabled: true },
             AiInputGenerator: { enabled: false },
+            UserInputGenerator: { enabled: false },
           },
         },
         validators: [],
         transformers: [],
+        userGenerators: [],
       };
 
       const runner = new JavascriptRunner(jsPath, "processBigInts", env);
@@ -691,6 +695,7 @@ export function x(
               RandomInputGenerator: { enabled: true },
               MutationInputGenerator: { enabled: false },
               AiInputGenerator: { enabled: false },
+              UserInputGenerator: { enabled: false },
             },
           },
           function: ProgramFactory.fromSource(
@@ -700,6 +705,7 @@ export function x(
           ).functionsExported["x"],
           validators: [],
           transformers: [],
+          userGenerators: [],
         },
         stopReason: FuzzStopReason.MAXTESTS,
         interesting: { inputs: [] },
@@ -760,6 +766,7 @@ export function x(
             RandomInputGenerator: dummyGenStats,
             MutationInputGenerator: dummyGenStats,
             AiInputGenerator: dummyGenStats,
+            UserInputGenerator: dummyGenStats,
           },
           measures: {},
         },
@@ -1070,6 +1077,7 @@ export function x(): number {
               RandomInputGenerator: { enabled: true },
               MutationInputGenerator: { enabled: false },
               AiInputGenerator: { enabled: false },
+              UserInputGenerator: { enabled: false },
             },
           },
           function: ProgramFactory.fromSource(
@@ -1079,6 +1087,7 @@ export function x(): number {
           ).functionsExported["x"],
           validators: [],
           transformers: [],
+          userGenerators: [],
         },
         stopReason: FuzzStopReason.MAXTESTS,
         interesting: { inputs: [] },
@@ -1139,6 +1148,7 @@ export function x(): number {
             RandomInputGenerator: dummyGenStats,
             MutationInputGenerator: dummyGenStats,
             AiInputGenerator: dummyGenStats,
+            UserInputGenerator: dummyGenStats,
           },
           measures: {},
         },

@@ -29,6 +29,7 @@ describe("fuzzer: general", () => {
         RandomInputGenerator: { enabled: false },
         MutationInputGenerator: { enabled: true },
         AiInputGenerator: { enabled: false },
+        UserInputGenerator: { enabled: false },
       },
     };
 
@@ -50,6 +51,7 @@ describe("fuzzer: general", () => {
         RandomInputGenerator: { enabled: false },
         MutationInputGenerator: { enabled: false },
         AiInputGenerator: { enabled: false },
+        UserInputGenerator: { enabled: false },
       },
     };
 
@@ -133,6 +135,7 @@ describe("fuzzer: general", () => {
         RandomInputGenerator: { enabled: false },
         MutationInputGenerator: { enabled: false },
         AiInputGenerator: { enabled: true },
+        UserInputGenerator: { enabled: false },
       },
     });
 
@@ -143,6 +146,10 @@ describe("fuzzer: general", () => {
       return nextableCallCount <= 2 ? "soon" : false;
     });
     spyOn(cig, "getPendingGeneratorNames").and.returnValue(["AI"]);
+    spyOn(cig, "waitForNextInput").and.callFake(async () => {
+      await new Promise((r) => setTimeout(r, 250));
+      return false;
+    });
 
     try {
       await tester.test(undefined, { gen: true }, (payload) => {

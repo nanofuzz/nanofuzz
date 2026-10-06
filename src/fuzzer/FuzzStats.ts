@@ -20,6 +20,7 @@ export class FuzzStats {
   protected _function: FunctionDef;
   protected _validators: FunctionRef[];
   protected _transformers: FunctionRef[];
+  protected _userGenerators: FunctionRef[];
   protected _results: FuzzTestResults;
   protected _currentRun: CurrentRunStats;
   protected _startGenTime = 0;
@@ -29,12 +30,14 @@ export class FuzzStats {
     options: FuzzOptions,
     fnDef: FunctionDef,
     validators: FunctionRef[],
-    transformers: FunctionRef[] = []
+    transformers: FunctionRef[] = [],
+    userGenerators: FunctionRef[] = []
   ) {
     this._options = options;
     this._function = fnDef;
     this._validators = validators;
     this._transformers = transformers;
+    this._userGenerators = userGenerators;
     this._results = this._getInitializedResults();
     this._currentRun = this._getInitializedRunStats();
   } // fn: constructor
@@ -327,6 +330,7 @@ export class FuzzStats {
         function: this._function,
         validators: structuredClone(this._validators),
         transformers: structuredClone(this._transformers),
+        userGenerators: structuredClone(this._userGenerators),
       },
       stopReason: FuzzStopReason.CRASH,
       stats: {
@@ -380,6 +384,10 @@ export class FuzzStats {
             counters: { dupesGenerated: 0, inputsGenerated: 0, dupeTicks: [] },
           },
           AiInputGenerator: {
+            timers: { gen: 0, run: 0, val: 0, measure: 0, transform: 0 },
+            counters: { dupesGenerated: 0, inputsGenerated: 0, dupeTicks: [] },
+          },
+          UserInputGenerator: {
             timers: { gen: 0, run: 0, val: 0, measure: 0, transform: 0 },
             counters: { dupesGenerated: 0, inputsGenerated: 0, dupeTicks: [] },
           },

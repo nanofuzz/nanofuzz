@@ -24,7 +24,12 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./Types";
-import { getTransformers, getValidators, isOptionValid } from "./analysis/Util";
+import {
+  getTransformers,
+  getUserGenerators,
+  getValidators,
+  isOptionValid,
+} from "./analysis/Util";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
@@ -50,6 +55,7 @@ export class FuzzerV2 {
   protected _function: FunctionDef;
   protected _validators: FunctionRef[] = [];
   protected _transformers: FunctionRef[] = [];
+  protected _userGenerators: FunctionRef[] = [];
   protected _measures: AbstractMeasure[];
   protected _leaderboard = new Leaderboard<InputAndSource>();
   protected _allInputs: Map<string, unknown> = new Map();
@@ -114,6 +120,10 @@ export class FuzzerV2 {
 
     this._validators = getValidators(this._program, fnList[this._fnName]);
     this._transformers = getTransformers(this._program, fnList[this._fnName]);
+    this._userGenerators = getUserGenerators(
+      this._program,
+      fnList[this._fnName]
+    );
 
     if (!isOptionValid(normalizedOptions)) {
       throw new Error(
@@ -132,7 +142,8 @@ export class FuzzerV2 {
       this._options,
       this._function,
       this._validators,
-      this._transformers
+      this._transformers,
+      this._userGenerators
     );
 
     this._compositeInputGenerator = new CompositeInputGenerator(
@@ -234,6 +245,7 @@ export class FuzzerV2 {
       function: this._function,
       validators: structuredClone(this._validators),
       transformers: structuredClone(this._transformers),
+      userGenerators: structuredClone(this._userGenerators),
     };
   } // get: env
 
@@ -371,16 +383,28 @@ export class FuzzerV2 {
                     (performance.now() - this._stats!.startGenTime)
                 )
               : undefined;
-          update({
-            type: "waiting-for-generator",
-            pendingGenerators:
-              this._compositeInputGenerator.getPendingGeneratorNames(),
-            stats: this._stats!.currentRun,
-            pct: typeof stopCondition === "number" ? stopCondition : 0,
-          });
-          await this._compositeInputGenerator.waitForNextInput(
-            remainingTimeout
-          );
+          const waitTimer = setTimeout(() => {
+            update({
+              type: "waiting-for-generator",
+              pendingGenerators:
+                this._compositeInputGenerator.getPendingGeneratorNames(),
+              stats: this._stats!.currentRun,
+              pct: typeof stopCondition === "number" ? stopCondition : 0,
+            });
+          }, 200);
+          try {
+            await this._compositeInputGenerator.waitForNextInput(
+              remainingTimeout
+            );
+          } catch (e: unknown) {
+            this._state = "crashed";
+            if (this._stats) {
+              this._stats.results.stopReason = FuzzStopReason.CRASH;
+            }
+            throw e;
+          } finally {
+            clearTimeout(waitTimer);
+          }
         }
 
         if (
@@ -395,8 +419,19 @@ export class FuzzerV2 {
         let candidate: TransformedInputAndSource;
         try {
           candidate = await this._compositeInputGenerator.nextTransformed();
-        } catch {
-          continue;
+        } catch (e: unknown) {
+          if (
+            isError(e) &&
+            e.message ===
+              "Injected inputs exhausted and input generators are suppressed."
+          ) {
+            continue;
+          }
+          this._state = "crashed";
+          if (this._stats) {
+            this._stats.results.stopReason = FuzzStopReason.CRASH;
+          }
+          throw e;
         }
         const genTime = performance.now() - startGenTime;
 
@@ -538,12 +573,26 @@ export class FuzzerV2 {
       await transformRunner.onRunStart();
     }
 
+    let userGenRunner: ReturnType<typeof RunnerFactory> | undefined;
+    if (
+      this.env.options.generators.UserInputGenerator?.enabled &&
+      this.env.userGenerators.length
+    ) {
+      userGenRunner = RunnerFactory(
+        this.env,
+        targetMod,
+        this.env.userGenerators[0].name
+      );
+      await userGenRunner.onRunStart();
+    }
+
     this._compositeInputGenerator.onRunStart(
       Boolean(mode.gen),
       injectTests,
       transformRunner,
       this._options.fnTimeout,
-      this._options.maxDupeInputs
+      this._options.maxDupeInputs,
+      userGenRunner
     );
 
     const propRunners = this._validators.map((vFnRef) =>
@@ -552,9 +601,12 @@ export class FuzzerV2 {
     await Promise.all(propRunners.map((p) => p.onRunStart()));
     const propertyOracle = new PropertyOracle(propRunners);
 
-    const runners = [runner, transformRunner, ...propRunners].filter(
-      (r): r is AbstractRunner => r !== undefined
-    );
+    const runners = [
+      runner,
+      transformRunner,
+      userGenRunner,
+      ...propRunners,
+    ].filter((r): r is AbstractRunner => r !== undefined);
     this._measures.forEach((m) => {
       m.onRunStart(runners);
     });
@@ -651,6 +703,7 @@ export class FuzzerV2 {
           RandomInputGenerator: { enabled: false },
           MutationInputGenerator: { enabled: true },
           AiInputGenerator: { enabled: false },
+          UserInputGenerator: { enabled: false },
         };
       }
     }

@@ -47,6 +47,7 @@ const generators: FuzzOptions["generators"] = {
   RandomInputGenerator: { enabled: true },
   MutationInputGenerator: { enabled: false },
   AiInputGenerator: { enabled: false },
+  UserInputGenerator: { enabled: false },
 };
 
 const makeOptions = (overrides: Partial<FuzzOptions> = {}): FuzzOptions => ({

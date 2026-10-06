@@ -55,7 +55,7 @@ function cleanJsonSchema(
  */
 export class LlmAdapter {
   protected _modelConfig: Parameters<typeof nodellm.createLLM>[0] = {}; // LLM configuration
-  protected _backend: nodellm.NodeLLMCore; // LLM instance
+  protected _backend?: nodellm.NodeLLMCore; // LLM instance
   protected _cacheManager: LlmCacheManager; // Cache manager
   protected _cfgString: string; // LLM config; for detecting config changes
 
@@ -112,7 +112,9 @@ export class LlmAdapter {
     }
 
     // Create the model backend
-    this._backend = nodellm.createLLM(this._modelConfig);
+    if (cfg.provider !== "copilot") {
+      this._backend = nodellm.createLLM(this._modelConfig);
+    }
     const delayConfig = cfg.cacheDelay
       ? LlmDelayCalculator.parse(cfg.cacheDelay)
       : undefined;
@@ -130,6 +132,9 @@ export class LlmAdapter {
    * @returns a new nodellm.Chat instance
    */
   protected _createChat(): nodellm.Chat {
+    if (!this._backend) {
+      throw new Error("NodeLLMCore backend is not initialized");
+    }
     const cfg = LlmAdapter.getConfig();
     return this._backend.chat(cfg.modelName, {
       systemPrompt: prompt.system(),
@@ -151,7 +156,13 @@ export class LlmAdapter {
    * @returns a string indicating the configured provider and model id
    */
   public get id(): string | undefined {
-    return `v=${this._backend.provider?.id},n=${LlmAdapter.getConfig().modelName}`;
+    const cfg = LlmAdapter.getConfig();
+    if (cfg.provider === "copilot") {
+      const v = cfg.vendor || "copilot";
+      const m = cfg.modelName || "default";
+      return `v=${v},n=${m}`;
+    }
+    return `v=${this._backend?.provider?.id},n=${cfg.modelName}`;
   } // getter: id
 
   public get cacheStats(): LlmCacheStats {
@@ -249,8 +260,9 @@ export class LlmAdapter {
   ): Promise<LlmQueryResult> {
     LlmAdapter._handleDebug();
 
-    const provider = LlmAdapter.getConfig().provider;
-    const modelName = LlmAdapter.getConfig().modelName;
+    const cfg = LlmAdapter.getConfig();
+    const provider = cfg.provider;
+    const modelName = cfg.modelName;
     const schemaJson = schema
       ? JSON.stringify(zod.toJSONSchema(schema))
       : undefined;
@@ -278,49 +290,116 @@ export class LlmAdapter {
           )
         );
 
-        const baseChat = this._createChat();
-        const jsonSchemaObj = schema ? zod.toJSONSchema(schema) : undefined;
-        const schemaObj = jsonSchemaObj
-          ? nodellm.Schema.fromJson("output", cleanJsonSchema(jsonSchemaObj))
-          : undefined;
-        let chat = (schemaObj ? baseChat.withSchema(schemaObj) : baseChat)
-          .withRequestOptions({
-            responseFormat: { type: "json_object" },
-          })
-          .withParams({
-            max_tokens: undefined, // Overrides default 4096 with undefined
+        let text = "";
+        let inputTokens = 0;
+        let outputTokens = 0;
+
+        if (provider === "copilot") {
+          if (!vscode.lm || typeof vscode.lm.selectChatModels !== "function") {
+            throw new Error(
+              "Copilot Language Model API is not available in the current environment."
+            );
+          }
+
+          const selector: vscode.LanguageModelChatSelector = {};
+          if (cfg.vendor) {
+            selector.vendor = cfg.vendor;
+          }
+          if (modelName) {
+            selector.family = modelName;
+          }
+
+          let models = await vscode.lm.selectChatModels(
+            Object.keys(selector).length > 0 ? selector : undefined
+          );
+          if (!models || models.length === 0) {
+            models = await vscode.lm.selectChatModels();
+          }
+          if (!models || models.length === 0) {
+            throw new Error(
+              "No Language Models available in VS Code. Ensure a model provider is installed and active in VS Code."
+            );
+          }
+
+          const model = models[0];
+          if (LlmAdapter.isDebugConfigured()) {
+            console.log(
+              `[NaNofuzz Copilot AI] Sending query (${model.vendor}/${model.name || model.id || "copilot"}):\n${prompt.join("\n")}`
+            );
+          }
+
+          const messages = [
+            vscode.LanguageModelChatMessage.User(prompt.join("\n")),
+          ];
+
+          const response = await model.sendRequest(
+            messages,
+            {},
+            new vscode.CancellationTokenSource().token
+          );
+          for await (const chunk of response.text) {
+            text += chunk;
+          }
+
+          if (LlmAdapter.isDebugConfigured()) {
+            console.log(`[NaNofuzz Copilot AI] Received response:\n${text}`);
+          }
+        } else {
+          const promptParts: nodellm.ContentPart[] = [];
+          prompt.forEach((e) => {
+            promptParts.push({
+              type: "text",
+              text: e,
+            });
           });
 
-        // Provider specific settings
-        if (provider === "anthropic") {
-          if (schema) {
-            // Anthropic doesn't always respect responseFormat
-            chat = chat.withParams({
-              output_config: {
-                format: zodOutputFormat(schema),
-              },
+          const baseChat = this._createChat();
+          const jsonSchemaObj = schema ? zod.toJSONSchema(schema) : undefined;
+          const schemaObj = jsonSchemaObj
+            ? nodellm.Schema.fromJson("output", cleanJsonSchema(jsonSchemaObj))
+            : undefined;
+          let chat = (schemaObj ? baseChat.withSchema(schemaObj) : baseChat)
+            .withRequestOptions({
+              responseFormat: { type: "json_object" },
+            })
+            .withParams({
+              max_tokens: undefined, // Overrides default 4096 with undefined
             });
-          }
-        }
 
-        const response = await chat.ask(promptParts);
+          // Provider specific settings
+          if (provider === "anthropic") {
+            if (schema) {
+              // Anthropic doesn't always respect responseFormat
+              chat = chat.withParams({
+                output_config: {
+                  format: zodOutputFormat(schema),
+                },
+              });
+            }
+          }
+
+          const response = await chat.ask(promptParts);
+          text = response.toString();
+          inputTokens = response.inputTokens ?? 0;
+          outputTokens = response.outputTokens ?? 0;
+        }
 
         vscode.commands.executeCommand(
           telemetry.commands.logTelemetry.name,
           new telemetry.LoggerEntry(
             "LlmAdapter.query.response",
             "Received response from LLM (v=%s;m=%s). Response: %s.",
-            [provider, modelName, response.toString()]
+            [provider, modelName, text]
           )
         );
 
         return {
-          text: response.toString(),
+          text,
           stats: {
-            tokensSent: response.inputTokens,
-            tokensSentCost: { amt: response.input_cost ?? 0, unit: "USD" }, // USD per docs
-            tokensReceived: response.outputTokens,
-            tokensReceivedCost: { amt: response.output_cost ?? 0, unit: "USD" }, // USD per docs
+            tokensSent: inputTokens,
+            tokensSentCost: { amt: 0, unit: "USD" },
+            tokensReceived: outputTokens,
+            tokensReceivedCost: { amt: 0, unit: "USD" },
           },
         };
       }
@@ -334,7 +413,13 @@ export class LlmAdapter {
    */
   public static isConfigured(): boolean {
     const cfg = LlmAdapter.getConfig();
-    return cfg.provider !== "disabled" && cfg.modelName !== "";
+    if (cfg.provider === "disabled") {
+      return false;
+    }
+    if (cfg.provider === "copilot") {
+      return true;
+    }
+    return cfg.modelName !== "";
   } // fn: isConfigured
 
   /**
@@ -343,6 +428,9 @@ export class LlmAdapter {
    */
   public static getMaxOutputTokens(): number {
     const cfg = LlmAdapter.getConfig();
+    if (cfg.provider === "copilot") {
+      return 4096;
+    }
     const maxTokens = nodellm.ModelRegistry.getMaxOutputTokens(
       cfg.modelName,
       cfg.provider
@@ -358,6 +446,7 @@ export class LlmAdapter {
   public static getConfig(): {
     provider: string;
     modelName: string;
+    vendor: string;
     apiKey: string;
     cacheMode: LlmCacheMode;
     cacheFile: string;
@@ -366,6 +455,7 @@ export class LlmAdapter {
     return {
       provider: LlmAdapter._getConfigValue("provider", "disabled"),
       modelName: LlmAdapter._getConfigValue("model", ""),
+      vendor: LlmAdapter._getConfigValue("vendor", ""),
       apiKey: LlmAdapter._getConfigValue("apiKey", ""),
       cacheMode: LlmAdapter._getConfigValue<LlmCacheMode>(
         "cacheMode",
