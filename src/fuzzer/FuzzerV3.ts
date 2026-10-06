@@ -51,45 +51,6 @@ import { CompilerStaleness } from "./compilers/Types";
 import { FuzzStats } from "./FuzzStats";
 
 /**
- * Represents a single test candidate transitioning through pipeline stages.
- */
-export interface PipelineSlot {
-  id: number;
-  tick: number;
-
-  // Generated Input
-  candidate?: TransformedInputAndSource;
-  genTime: number;
-  injected: boolean;
-  transformTime: number;
-
-  // PUT Execution Output
-  result?: FuzzTestResult;
-  exeOutput?: RunnerResult;
-  runTime: number;
-  coverageMeasurements?: BaseMeasurement[];
-
-  // Validator & Oracle Output
-  valTime: number;
-
-  // Measure & Feedback Output
-  measureTime: number;
-
-  // Control flags
-  isBubble?: boolean;
-}
-
-/**
- * Encapsulates the execution runners for an isolated worker pipeline.
- */
-export interface WorkerContext {
-  runner: AbstractRunner;
-  transformRunner?: AbstractRunner;
-  propRunners: AbstractRunner[];
-  propertyOracle?: PropertyOracle;
-}
-
-/**
  * FuzzerV3 is a multi-worker concurrent fuzzer engine.
  * It coordinates candidate input generation across a pool of parallel runner workers.
  */
@@ -478,6 +439,16 @@ export class FuzzerV3 {
           break;
         }
 
+        if (
+          this._options.maxFailures > 0 &&
+          this._stats.currentRun.counters.failedTests +
+            this._stats.currentRun.counters.erroredTests >=
+            this._options.maxFailures &&
+          this._fuzzerFocus.mode !== "shrink"
+        ) {
+          break;
+        }
+
         const executedSlot = await this._stage2ExecuteTest(
           slot,
           worker,
@@ -485,6 +456,20 @@ export class FuzzerV3 {
         );
 
         if (executedSlot) {
+          if (
+            this._options.maxFailures > 0 &&
+            this._stats.currentRun.counters.failedTests +
+              this._stats.currentRun.counters.erroredTests >=
+              this._options.maxFailures &&
+            this._fuzzerFocus.mode !== "shrink"
+          ) {
+            isGenActive = false;
+            if (!finalStopReason) {
+              finalStopReason = FuzzStopReason.MAXFAILURES;
+            }
+            break;
+          }
+
           const shrinkTriggered = await this._stageMeasureAndRecord(
             executedSlot,
             onResultFn
@@ -1332,3 +1317,42 @@ export class FuzzerV3 {
     return results;
   } // fn: _finalizeRun
 } // class: FuzzerV3
+
+/**
+ * Represents a single test candidate transitioning through pipeline stages.
+ */
+interface PipelineSlot {
+  id: number;
+  tick: number;
+
+  // Generated Input
+  candidate?: TransformedInputAndSource;
+  genTime: number;
+  injected: boolean;
+  transformTime: number;
+
+  // PUT Execution Output
+  result?: FuzzTestResult;
+  exeOutput?: RunnerResult;
+  runTime: number;
+  coverageMeasurements?: BaseMeasurement[];
+
+  // Validator & Oracle Output
+  valTime: number;
+
+  // Measure & Feedback Output
+  measureTime: number;
+
+  // Control flags
+  isBubble?: boolean;
+}
+
+/**
+ * Encapsulates the execution runners for an isolated worker pipeline.
+ */
+interface WorkerContext {
+  runner: AbstractRunner;
+  transformRunner?: AbstractRunner;
+  propRunners: AbstractRunner[];
+  propertyOracle?: PropertyOracle;
+}
