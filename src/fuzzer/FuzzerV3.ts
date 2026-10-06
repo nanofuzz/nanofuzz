@@ -841,7 +841,8 @@ export class FuzzerV3 {
       const runner = RunnerFactory(
         this.env,
         targetMod,
-        this._function.getName()
+        this._function.getName(),
+        i === 0 ? { acceptsStaticCoverage: true } : {}
       );
       let transformRunner: AbstractRunner | undefined;
       if (this.env.options.useTransformer && this.env.transformers.length) {

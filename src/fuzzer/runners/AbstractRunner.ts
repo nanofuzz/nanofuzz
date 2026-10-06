@@ -22,14 +22,14 @@ export abstract class AbstractRunner {
    */
   public get name(): string {
     return this._name;
-  } // property: get name
+  } // get: name
 
   /**
    * Optional coverage info captured during test runner initialization or execution.
    */
   public get coverageInfo(): unknown {
     return undefined;
-  }
+  } // get: coverageInfo
 
   /**
    * Registers a callback to receive coverage hits after test execution.
@@ -38,14 +38,14 @@ export abstract class AbstractRunner {
    */
   public onCoverage(_callback: (covData: unknown) => void): void {
     // Default no-op
-  }
+  } // fn: onCoverage
 
   /**
    * Called prior to the start of the run
    */
   public onRunStart(): Promise<void> {
     return new Promise((resolve, _reject) => resolve());
-  }
+  } // fn: onRunStart
 
   /**
    * Executes the test with a set of inputs and a timeout threshold.
@@ -71,14 +71,14 @@ export abstract class AbstractRunner {
       return host.runWithInterrupt(fn, remainingSuiteTime, cancelFn);
     }
     return fn();
-  }
+  } // fn: runWithInterrupt
 
   /**
    * Internal getter for the runner's host process if one is managed.
    */
   protected async _getHost(): Promise<AbstractHost | undefined> {
     return undefined;
-  }
+  } // fn: _getHost
 
   /**
    * Terminates the active worker host process if one is running.
@@ -90,7 +90,14 @@ export abstract class AbstractRunner {
    */
   public async onRunEnd(): Promise<void> {
     return new Promise((resolve, _reject) => resolve());
-  }
+  } // fn: onRunEnd
+} // class: AbstractRunner
+
+/**
+ * Overrides for configuring runner instances.
+ */
+export interface RunnerOverrides {
+  acceptsStaticCoverage?: true;
 }
 
 /**

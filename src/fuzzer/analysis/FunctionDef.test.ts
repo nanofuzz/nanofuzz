@@ -1455,4 +1455,72 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     expect(fnAsync.isAsync()).toBeTrue();
     expect(fnDefault.isAsync()).toBeFalse();
   });
+
+  it("isValidator, isTransformer, and isInputGenerator role checks", () => {
+    const valFn = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "myPutValidator",
+      isExported: true,
+      args: [
+        {
+          name: "result",
+          module: dummyModule,
+          dims: 0,
+          optional: false,
+          isExported: false,
+          type: {
+            type: ArgTag.OBJECT,
+            dims: 0,
+            children: [],
+            resolved: true,
+          },
+          typeRefName: "FuzzTestResult",
+        },
+      ],
+    });
+    const transFn = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "myPutTransformer",
+      isExported: true,
+      args: [],
+    });
+    const genFn1 = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "myPutGenerator",
+      isExported: true,
+      args: [],
+    });
+    const genFn2 = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "myPutInputGenerator",
+      isExported: true,
+      args: [],
+    });
+    const standardFn = FunctionDef.fromFunctionRef({
+      ...dummyRef,
+      name: "myPut",
+      isExported: true,
+      args: [],
+    });
+
+    expect(valFn.isValidator()).toBeTrue();
+    expect(valFn.isTransformer()).toBeFalse();
+    expect(valFn.isInputGenerator()).toBeFalse();
+
+    expect(transFn.isValidator()).toBeFalse();
+    expect(transFn.isTransformer()).toBeTrue();
+    expect(transFn.isInputGenerator()).toBeFalse();
+
+    expect(genFn1.isValidator()).toBeFalse();
+    expect(genFn1.isTransformer()).toBeFalse();
+    expect(genFn1.isInputGenerator()).toBeTrue();
+
+    expect(genFn2.isValidator()).toBeFalse();
+    expect(genFn2.isTransformer()).toBeFalse();
+    expect(genFn2.isInputGenerator()).toBeTrue();
+
+    expect(standardFn.isValidator()).toBeFalse();
+    expect(standardFn.isTransformer()).toBeFalse();
+    expect(standardFn.isInputGenerator()).toBeFalse();
+  });
 });

@@ -1,6 +1,7 @@
 import {
   AbstractRunner,
   RunnerInput,
+  RunnerOverrides,
   RunnerResult,
   TypeHint,
 } from "../AbstractRunner";
@@ -38,6 +39,7 @@ export class JavascriptRunner extends AbstractRunner {
   protected _coverageInfo: CoverageMapData | undefined = undefined;
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
+  protected _overrides: RunnerOverrides;
 
   /**
    * Create a new Javascript function runner
@@ -45,16 +47,19 @@ export class JavascriptRunner extends AbstractRunner {
    * @param `module` loaded program module or file path
    * @param `jsFn` exported function within `module` to call
    * @param `env` optional fuzzer environment
+   * @param `overrides` optional runner configuration overrides
    */
   public constructor(
     module: NodeJS.Module | string,
     jsFn: string,
-    env?: FuzzEnv
+    env?: FuzzEnv,
+    overrides: RunnerOverrides = {}
   ) {
     super(jsFn);
 
     this._jsFn = jsFn;
     this._env = env;
+    this._overrides = overrides;
 
     let targetPath = getModuleFilename(module, env);
     this._originalFilename = targetPath;
@@ -317,13 +322,16 @@ export class JavascriptRunner extends AbstractRunner {
       "project static"
     );
     const scopeConfig = parseCoverageScope(coverageScopeRaw);
+    const collectStaticCoverage =
+      this._overrides.acceptsStaticCoverage === true &&
+      scopeConfig.collectStaticCoverage;
 
     const args = [
       runnerHost,
       this._filename,
       this._jsFn,
       scopeConfig.target,
-      String(scopeConfig.collectStaticCoverage),
+      String(collectStaticCoverage),
     ];
     const host = new NodeHost(args, path.dirname(this._filename), env);
 

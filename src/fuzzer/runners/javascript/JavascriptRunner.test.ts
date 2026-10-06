@@ -555,7 +555,9 @@ export function x(
     fs.writeFileSync(realJsPath, instJsCode);
 
     try {
-      const runner = new JavascriptRunner(realJsPath, "x");
+      const runner = new JavascriptRunner(realJsPath, "x", undefined, {
+        acceptsStaticCoverage: true,
+      });
       await runner.onRunStart();
 
       // Attach TypescriptCoverageMeasure to runner

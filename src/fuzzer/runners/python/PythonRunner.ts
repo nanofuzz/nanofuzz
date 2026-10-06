@@ -3,6 +3,7 @@ import {
   Arc,
   CoverageInfo,
   RunnerInput,
+  RunnerOverrides,
   RunnerResult,
   TypeHint,
 } from "../AbstractRunner";
@@ -27,7 +28,6 @@ import * as ChildProcess from "node:child_process";
  */
 export class PythonRunner extends AbstractRunner {
   protected _filename: string;
-  protected _timeout: number;
   protected _runDepth = 0;
   protected _fn: string;
   protected _env: FuzzEnv | undefined;
@@ -37,6 +37,7 @@ export class PythonRunner extends AbstractRunner {
   protected _pgmFiles: string[] = [];
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
+  protected _overrides: RunnerOverrides;
   protected _pythonEnv: PythonEnv | undefined;
   protected static _envs: Map<string, { env: PythonEnv; expiresAt: number }> =
     new Map();
@@ -55,19 +56,19 @@ export class PythonRunner extends AbstractRunner {
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
    * @param `env` optional fuzzer environment
-   * @param `timeout` optional timeout for each run
+   * @param `overrides` optional runner configuration overrides
    */
   constructor(
     filename: string,
     fn: string,
     env?: FuzzEnv,
-    timeout: number = 0
+    overrides: RunnerOverrides = {}
   ) {
     super(fn);
     this._filename = filename;
     this._fn = fn;
     this._env = env;
-    this._timeout = timeout;
+    this._overrides = overrides;
   } // fn: constructor
 
   /**
@@ -609,6 +610,9 @@ export class PythonRunner extends AbstractRunner {
     );
 
     const scopeConfig = parseCoverageScope(coverageScopeRaw);
+    const collectStaticCoverage =
+      this._overrides.acceptsStaticCoverage === true &&
+      scopeConfig.collectStaticCoverage;
 
     let directPkgs: string[] = [];
     if (
@@ -633,7 +637,7 @@ export class PythonRunner extends AbstractRunner {
       this._fn,
       scopeConfig.target,
       JSON.stringify(directPkgs),
-      String(scopeConfig.collectStaticCoverage),
+      String(collectStaticCoverage),
     ];
 
     const host = new PythonHost(
