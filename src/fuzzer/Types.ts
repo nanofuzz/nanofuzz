@@ -237,6 +237,7 @@ export type FuzzOptions = {
   useHuman: boolean; // use human oracle
   useProperty: boolean; // use property validator oracle
   useTransformer: boolean; // use input transformer
+  workers: number | "auto"; // number of concurrent worker processes ("auto" or >= 1)
   measures: { [k in SupportedMeasures]: BaseMeasureConfig }; // measure config
   generators: { [k in SupportedInputGenerators]: BaseGeneratorConfig }; // generator config
 };

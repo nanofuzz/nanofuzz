@@ -2,6 +2,7 @@ import { FuzzerEngineVersion, FuzzerFactory } from "./FuzzerFactory";
 import { FuzzBusyStatusMessage, FuzzStopReason } from "./Types";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
+import { resolveWorkerCount } from "./Util";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -44,6 +45,21 @@ describe("fuzzer: general & parameterized engine tests", () => {
       { engine: "v3" }
     );
     expect(testerV3.constructor.name).toBe("FuzzerV3");
+  });
+
+  describe("resolveWorkerCount calculation", () => {
+    it("respects explicit positive integer counts", () => {
+      expect(resolveWorkerCount(1, true)).toBe(1);
+      expect(resolveWorkerCount(4, false)).toBe(4);
+      expect(resolveWorkerCount("3", true)).toBe(3);
+    });
+
+    it("resolves 'auto' mode adapting for CLI (C-1) and non-CLI (C/2) with memory clamp", () => {
+      const cliAuto = resolveWorkerCount("auto", true);
+      const nonCliAuto = resolveWorkerCount("auto", false);
+      expect(cliAuto).toBeGreaterThanOrEqual(1);
+      expect(nonCliAuto).toBeGreaterThanOrEqual(1);
+    });
   });
 
   engines.forEach((engine) => {

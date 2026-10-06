@@ -107,6 +107,7 @@ export function processTypes(bytes: Uint8Array, mySet: Set<string>, myMap: Map<s
           useHuman: false,
           useProperty: false,
           useTransformer: false,
+          workers: "auto",
           measures: {
             CoverageMeasure: { enabled: true, weight: 1 },
             FailedTestMeasure: { enabled: true, weight: 1 },
@@ -198,6 +199,7 @@ export function processBigInts(a: bigint, b: bigint, c: bigint, d: bigint) {
           useHuman: false,
           useProperty: false,
           useTransformer: false,
+          workers: "auto",
           measures: {
             CoverageMeasure: { enabled: true, weight: 1 },
             FailedTestMeasure: { enabled: true, weight: 1 },
@@ -683,6 +685,7 @@ export function x(
             useHuman: false,
             useProperty: false,
             useTransformer: false,
+            workers: "auto",
             measures: {
               FailedTestMeasure: { enabled: false, weight: 0 },
               CoverageMeasure: { enabled: true, weight: 1 },
@@ -1062,6 +1065,7 @@ export function x(): number {
             useHuman: false,
             useProperty: false,
             useTransformer: false,
+            workers: "auto",
             measures: {
               FailedTestMeasure: { enabled: false, weight: 0 },
               CoverageMeasure: { enabled: true, weight: 1 },

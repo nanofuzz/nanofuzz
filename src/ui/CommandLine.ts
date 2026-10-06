@@ -126,6 +126,12 @@ function createProgram(): Commander.Command {
         val === "v1" ? "v1" : val === "v2" ? "v2" : "v3",
       "v3"
     )
+    .option(
+      `-w, --workers <integer|auto>`,
+      `Number of parallel worker processes (default: 'auto')`,
+      parseWorkersOption,
+      "auto"
+    )
 
     // ------------------------------- Transformers ------------------------------ //
 
@@ -635,6 +641,11 @@ export async function runCliInProcess(
           "outputResults",
           options["outputResults"] ?? "failures"
         ),
+        workers: getEffectiveOption(
+          "workers",
+          "workers",
+          options["workers"] ?? "auto"
+        ),
         outputFile: outfile,
         measures: {
           CoverageMeasure: {
@@ -845,3 +856,13 @@ function parseIntArgGeOne(value: string, _previous: number): number {
   }
   return parsedValue;
 } // fn: parseGeOneIntArg
+
+function parseWorkersOption(
+  value: string,
+  _previous: number | "auto"
+): number | "auto" {
+  if (value.toLowerCase() === "auto") {
+    return "auto";
+  }
+  return parseIntArgGeOne(value, 1);
+} // fn: parseWorkersOption

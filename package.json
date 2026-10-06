@@ -147,6 +147,21 @@
             "tags": [
               "experimental"
             ]
+          },
+          "nanofuzz.fuzzer.workers": {
+            "title": "Fuzzer worker concurrency",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "enum": [
+              "auto"
+            ],
+            "default": "auto",
+            "description": "Number of concurrent worker processes for test execution ('auto' or integer >= 1)",
+            "tags": [
+              "experimental"
+            ]
           }
         }
       },

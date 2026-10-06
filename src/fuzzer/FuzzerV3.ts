@@ -33,7 +33,13 @@ import {
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
-import { categorizeResult, getIoKey, isError, isSameJudgments } from "./Util";
+import {
+  categorizeResult,
+  getIoKey,
+  isError,
+  isSameJudgments,
+  resolveWorkerCount,
+} from "./Util";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { ExampleOracle } from "./oracles/ExampleOracle";
@@ -74,10 +80,18 @@ export interface PipelineSlot {
 }
 
 /**
- * FuzzerV3 is an adaptive pipelined fuzzer engine.
- * It dynamically configures its pipeline topology:
- *  - 2-Stage Overlap (Default: no property validators): Gen || (PUT -> Measure)
- *  - 3-Stage Pipeline (With property validators): Gen || PUT || (Validate -> Measure)
+ * Encapsulates the execution runners for an isolated worker pipeline.
+ */
+export interface WorkerContext {
+  runner: AbstractRunner;
+  transformRunner?: AbstractRunner;
+  propRunners: AbstractRunner[];
+  propertyOracle?: PropertyOracle;
+}
+
+/**
+ * FuzzerV3 is a multi-worker concurrent fuzzer engine.
+ * It coordinates candidate input generation across a pool of parallel runner workers.
  */
 export class FuzzerV3 {
   protected _module: string;
@@ -94,10 +108,8 @@ export class FuzzerV3 {
     "init";
 
   protected _compositeInputGenerator: CompositeInputGenerator;
-  protected _runner?: AbstractRunner;
-  protected _transformRunner?: AbstractRunner;
-  protected _propRunners: AbstractRunner[] = [];
-  protected _propertyOracle?: PropertyOracle;
+  protected _workers: WorkerContext[] = [];
+  protected _runnerPoolSize = 2;
   protected _injectMap: Map<string, FuzzPinnedTest> = new Map();
   protected _stats: FuzzStats;
   protected _lastCompiler?: ReturnType<
@@ -105,6 +117,7 @@ export class FuzzerV3 {
   >;
   protected _slotSeq = 0;
   protected _stage1InjectedCount = 0;
+  protected _injectedInFlight = 0;
 
   // Cooperative Shrink State
   protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
@@ -288,6 +301,13 @@ export class FuzzerV3 {
   } // fn: state
 
   /**
+   * Retrieves the active worker pool size for PUT test executions.
+   */
+  public get runnerPoolSize(): number {
+    return this._runnerPoolSize;
+  } // get: runnerPoolSize
+
+  /**
    * Executes the fuzzing run using a 5-stage lockstep pipeline.
    *
    * @param injectTests An array of pinned tests to inject into the fuzzing run.
@@ -356,7 +376,7 @@ export class FuzzerV3 {
     try {
       this._state = "running";
 
-      const stopReason = await this._run2StagePipeline(
+      const stopReason = await this._runMultiWorkerPipeline(
         injectTests.length,
         mode,
         update,
@@ -382,9 +402,9 @@ export class FuzzerV3 {
   } // fn: test
 
   /**
-   * Runs the 2-stage overlapped pipeline: Gen || (ExecuteTest -> Measure)
+   * Runs the concurrent multi-worker pipeline across a pool of PUT runners.
    */
-  protected async _run2StagePipeline(
+  protected async _runMultiWorkerPipeline(
     injectCount: number,
     mode: FuzzMode,
     update: FuzzStatusUpdater,
@@ -392,75 +412,131 @@ export class FuzzerV3 {
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzStopReason> {
-    let sGenOut: PipelineSlot | undefined = undefined;
     let isGenActive = true;
     let finalStopReason: FuzzStopReason | undefined = undefined;
+    let genPromise: Promise<void> = Promise.resolve();
 
-    while (isGenActive || sGenOut) {
-      checkPeriodicUpdate();
+    const fetchNextSlot = async (): Promise<{
+      slot?: PipelineSlot;
+      stopReason?: FuzzStopReason;
+    }> => {
+      let res: { slot?: PipelineSlot; stopReason?: FuzzStopReason } = {};
+      const nextGen = genPromise.then(async () => {
+        if (!isGenActive) return;
+        checkPeriodicUpdate();
 
-      const stopCondition = this._shouldGenStop(
+        // If we finished fetching injected inputs but some are still running, wait for them to finish before starting generation
+        if (
+          this._stage1InjectedCount >= injectCount &&
+          this._injectedInFlight > 0
+        ) {
+          while (this._injectedInFlight > 0 && isGenActive) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+        }
+
+        const stopCondition = this._shouldGenStop(
+          injectCount,
+          Boolean(mode.gen),
+          Boolean(cancelFn && cancelFn())
+        );
+
+        if (typeof stopCondition !== "number") {
+          if (this._fuzzerFocus.mode === "shrink") {
+            this._exitShrink();
+          } else {
+            isGenActive = false;
+            if (!finalStopReason) {
+              finalStopReason = stopCondition;
+            }
+            res = { stopReason: stopCondition };
+            return;
+          }
+        }
+
+        const stillInjecting = this._stage1InjectedCount < injectCount;
+        const slot = await this._stage1FetchAndGen(
+          update,
+          cancelFn,
+          stillInjecting,
+          stopCondition
+        );
+
+        res = { slot };
+      });
+
+      genPromise = nextGen.catch(() => {});
+      await nextGen;
+      return res;
+    };
+
+    const runWorker = async (worker: WorkerContext) => {
+      while (isGenActive) {
+        const { slot, stopReason } = await fetchNextSlot();
+
+        if (stopReason || !slot) {
+          break;
+        }
+
+        const executedSlot = await this._stage2ExecuteTest(
+          slot,
+          worker,
+          cancelFn
+        );
+
+        if (executedSlot) {
+          const shrinkTriggered = await this._stageMeasureAndRecord(
+            executedSlot,
+            onResultFn
+          );
+
+          if (
+            this._options.maxFailures > 0 &&
+            !executedSlot.candidate?.injected &&
+            this._fuzzerFocus.mode !== "shrink"
+          ) {
+            const totalFailures =
+              this._stats.currentRun.counters.failedTests +
+              this._stats.currentRun.counters.erroredTests;
+            if (totalFailures >= this._options.maxFailures) {
+              isGenActive = false;
+              if (!finalStopReason) {
+                finalStopReason = FuzzStopReason.MAXFAILURES;
+              }
+              break;
+            }
+          }
+
+          if (shrinkTriggered) {
+            isGenActive = true;
+          }
+        } else if (slot.injected) {
+          this._injectedInFlight = Math.max(0, this._injectedInFlight - 1);
+        }
+      }
+    };
+
+    await Promise.all(this._workers.map((worker) => runWorker(worker)));
+
+    if (
+      this._options.maxFailures > 0 &&
+      this._stats.currentRun.counters.failedTests +
+        this._stats.currentRun.counters.erroredTests >=
+        this._options.maxFailures
+    ) {
+      finalStopReason = FuzzStopReason.MAXFAILURES;
+    } else if (!finalStopReason) {
+      const condition = this._shouldGenStop(
         injectCount,
         Boolean(mode.gen),
         Boolean(cancelFn && cancelFn())
       );
-
-      if (typeof stopCondition !== "number") {
-        if (this._fuzzerFocus.mode === "shrink") {
-          this._exitShrink();
-        } else {
-          isGenActive = false;
-          if (!finalStopReason) {
-            finalStopReason = stopCondition;
-          }
-          if (
-            stopCondition === FuzzStopReason.PAUSE ||
-            stopCondition === FuzzStopReason.MAXTIME ||
-            stopCondition === FuzzStopReason.MAXFAILURES
-          ) {
-            break;
-          }
-        }
-      }
-
-      const stillInjecting = this._stage1InjectedCount < injectCount;
-      const currentGenInput: boolean = isGenActive;
-      const currentTestInput: PipelineSlot | undefined = sGenOut;
-
-      const [outGen, outTest]: [
-        PipelineSlot | undefined,
-        PipelineSlot | undefined,
-      ] = await Promise.all([
-        currentGenInput
-          ? this._stage1FetchAndGen(
-              update,
-              cancelFn,
-              stillInjecting,
-              stopCondition
-            )
-          : Promise.resolve(undefined),
-        currentTestInput
-          ? this._stage2ExecuteTest(currentTestInput, cancelFn)
-          : Promise.resolve(undefined),
-      ]);
-
-      if (outTest) {
-        const shrinkTriggered = await this._stageMeasureAndRecord(
-          outTest,
-          onResultFn
-        );
-        if (shrinkTriggered) {
-          sGenOut = undefined;
-          isGenActive = true;
-          continue;
-        }
-      }
-
-      sGenOut = outGen;
+      finalStopReason =
+        typeof condition !== "number" ? condition : FuzzStopReason.NOMOREINPUTS;
     }
 
-    return finalStopReason ?? FuzzStopReason.NOMOREINPUTS;
-  } // fn: _run2StagePipeline
+    return finalStopReason;
+  } // fn: _runMultiWorkerPipeline
 
   /**
    * Retrieves diagnostic messages from the input generator.
@@ -538,6 +614,7 @@ export class FuzzerV3 {
 
     if (candidate.injected) {
       this._stage1InjectedCount++;
+      this._injectedInFlight++;
     } else {
       if (this._stats.startGenTime === 0) {
         this._stats.markGenStarted(startGenTime);
@@ -571,9 +648,10 @@ export class FuzzerV3 {
    */
   protected async _stage2ExecuteTest(
     slot: PipelineSlot,
+    worker: WorkerContext,
     cancelFn?: () => boolean
   ): Promise<PipelineSlot | undefined> {
-    if (!slot || !slot.candidate || !this._runner) {
+    if (!slot || !slot.candidate || !worker.runner) {
       return slot;
     }
 
@@ -583,8 +661,12 @@ export class FuzzerV3 {
       slot.transformTime
     );
 
-    if (slot.candidate.transformerResult && this._transformRunner) {
-      this._handleTransformerResult(slot.candidate.transformerResult, result);
+    if (slot.candidate.transformerResult && worker.transformRunner) {
+      this._handleTransformerResult(
+        slot.candidate.transformerResult,
+        result,
+        worker.transformRunner.name
+      );
     }
 
     if (result.skipped || result.harnessErrors.length > 0) {
@@ -598,9 +680,9 @@ export class FuzzerV3 {
     let exeOutput: RunnerResult;
     try {
       const cancelCheck = cancelFn && !slot.injected ? cancelFn : undefined;
-      exeOutput = await this._runner.runWithInterrupt(
+      exeOutput = await worker.runner.runWithInterrupt(
         () =>
-          this._runner!.run(
+          worker.runner.run(
             result.input.map((e) => e.value),
             Math.max(this._options.fnTimeout, 0)
           ),
@@ -644,7 +726,12 @@ export class FuzzerV3 {
     if (!result.skipped) {
       const startValTime = performance.now();
       const cancelCheck = cancelFn && !slot.injected ? cancelFn : undefined;
-      const oracleSuccess = await this._evaluateOracles(result, cancelCheck);
+      const oracleSuccess = await this._evaluateOracles(
+        result,
+        worker.propertyOracle,
+        worker.propRunners,
+        cancelCheck
+      );
       if (!oracleSuccess) {
         return undefined;
       }
@@ -694,6 +781,10 @@ export class FuzzerV3 {
       measureTime,
       this._fuzzerFocus.mode
     );
+
+    if (slot.injected) {
+      this._injectedInFlight = Math.max(0, this._injectedInFlight - 1);
+    }
 
     // 4. Cooperative shrinking step
     const modeBeforeShrink: FuzzerFocus["mode"] = this._fuzzerFocus.mode;
@@ -755,39 +846,61 @@ export class FuzzerV3 {
         performance.now() - instrumentTime;
     }
 
-    this._runner = RunnerFactory(this.env, targetMod, this._function.getName());
-    await this._runner.onRunStart();
+    this._runnerPoolSize = resolveWorkerCount(
+      this._options.workers,
+      process.env.BUILD_TARGET === "node-cli"
+    );
 
-    if (this.env.options.useTransformer && this.env.transformers.length) {
-      this._transformRunner = RunnerFactory(
+    this._workers = [];
+    for (let i = 0; i < this._runnerPoolSize; i++) {
+      const runner = RunnerFactory(
         this.env,
         targetMod,
-        this.env.transformers[0].name
+        this._function.getName()
       );
-      await this._transformRunner.onRunStart();
-    } else {
-      this._transformRunner = undefined;
+      let transformRunner: AbstractRunner | undefined;
+      if (this.env.options.useTransformer && this.env.transformers.length) {
+        transformRunner = RunnerFactory(
+          this.env,
+          targetMod,
+          this.env.transformers[0].name
+        );
+      }
+      const propRunners = this._validators.map((vFnRef) =>
+        RunnerFactory(this.env, targetMod, vFnRef.name)
+      );
+      const propertyOracle = new PropertyOracle(propRunners);
+      this._workers.push({
+        runner,
+        transformRunner,
+        propRunners,
+        propertyOracle,
+      });
     }
+
+    const allRunnersToStart: Promise<void>[] = [];
+    for (const w of this._workers) {
+      allRunnersToStart.push(w.runner.onRunStart());
+      if (w.transformRunner) {
+        allRunnersToStart.push(w.transformRunner.onRunStart());
+      }
+      for (const p of w.propRunners) {
+        allRunnersToStart.push(p.onRunStart());
+      }
+    }
+    await Promise.all(allRunnersToStart);
 
     this._compositeInputGenerator.onRunStart(
       Boolean(mode.gen),
       injectTests,
-      this._transformRunner,
+      this._workers[0]?.transformRunner,
       this._options.fnTimeout,
       this._options.maxDupeInputs
     );
 
-    this._propRunners = this._validators.map((vFnRef) =>
-      RunnerFactory(this.env, targetMod, vFnRef.name)
-    );
-    await Promise.all(this._propRunners.map((p) => p.onRunStart()));
-    this._propertyOracle = new PropertyOracle(this._propRunners);
-
-    const allRunners = [
-      this._runner,
-      this._transformRunner,
-      ...this._propRunners,
-    ].filter((r): r is AbstractRunner => r !== undefined);
+    const allRunners = this._workers
+      .flatMap((w) => [w.runner, w.transformRunner, ...w.propRunners])
+      .filter((r): r is AbstractRunner => r !== undefined);
     this._measures.forEach((m) => {
       m.onRunStart(allRunners);
     });
@@ -799,12 +912,17 @@ export class FuzzerV3 {
    * Stops all active runner processes.
    */
   protected async _stopRunners(): Promise<void> {
-    const allRunners = [
-      this._runner,
-      this._transformRunner,
-      ...this._propRunners,
-    ].filter((r): r is AbstractRunner => r !== undefined);
-    await Promise.all(allRunners.map((r) => r.onRunEnd()));
+    const allRunnersToStop: Promise<void>[] = [];
+    for (const w of this._workers) {
+      allRunnersToStop.push(w.runner.onRunEnd());
+      if (w.transformRunner) {
+        allRunnersToStop.push(w.transformRunner.onRunEnd());
+      }
+      for (const p of w.propRunners) {
+        allRunnersToStop.push(p.onRunEnd());
+      }
+    }
+    await Promise.all(allRunnersToStop);
   } // fn: _stopRunners
 
   /**
@@ -826,80 +944,22 @@ export class FuzzerV3 {
     gen: boolean,
     userCancel: boolean
   ): FuzzStopReason | number {
-    this._stats.currentRun.counters.inputsGenerated =
-      this._compositeInputGenerator.inputsGenerated;
-    this._stats.currentRun.counters.dupesGenerated =
-      this._compositeInputGenerator.dupesGenerated;
-    this._stats.currentRun.counters.dupesSequential =
-      this._compositeInputGenerator.dupesSequential;
-
     const injecting = this._stage1InjectedCount < injectCount;
 
-    // End testing if the user cancels (unless still injecting pinned inputs)
-    if (userCancel && !injecting) {
-      return FuzzStopReason.PAUSE;
-    }
-
-    // Suite Timeout: measured from the time of the first generated input
-    if (this._options.suiteTimeout > 0 && this._stats.startGenTime > 0) {
-      const elapsed = performance.now() - this._stats.startGenTime;
-      if (elapsed >= this._options.suiteTimeout) {
-        return FuzzStopReason.MAXTIME;
+    return this._stats.shouldStop(
+      this._options,
+      this._compositeInputGenerator.nextable() !== false,
+      injecting,
+      injectCount,
+      userCancel,
+      this._fuzzerFocus.mode,
+      gen,
+      {
+        generated: this._compositeInputGenerator.inputsGenerated,
+        dupes: this._compositeInputGenerator.dupesGenerated,
+        sequentialDupes: this._compositeInputGenerator.dupesSequential,
       }
-    }
-
-    // Max Failures limit (inactive during injection or shrinking)
-    if (
-      this._options.maxFailures > 0 &&
-      !injecting &&
-      this._fuzzerFocus.mode !== "shrink"
-    ) {
-      const totalFailures =
-        this._stats.currentRun.counters.failedTests +
-        this._stats.currentRun.counters.erroredTests;
-      if (totalFailures >= this._options.maxFailures) {
-        return FuzzStopReason.MAXFAILURES;
-      }
-    }
-
-    // Max Sequential Duplicates
-    if (
-      this._compositeInputGenerator.dupesSequential >=
-      this._options.maxDupeInputs
-    ) {
-      return FuzzStopReason.MAXDUPES;
-    }
-
-    // Max Tests limit
-    const executedNonInjected = gen
-      ? this._compositeInputGenerator.inputsGenerated -
-        this._compositeInputGenerator.dupesGenerated
-      : 0;
-    const totalGenerated = this._stage1InjectedCount + executedNonInjected;
-    const targetCount = injectCount + (gen ? this._options.maxTests : 0);
-
-    if (totalGenerated >= targetCount) {
-      return FuzzStopReason.MAXTESTS;
-    }
-
-    // Input exhaustion
-    if (!injecting && this._compositeInputGenerator.nextable() === false) {
-      return FuzzStopReason.NOMOREINPUTS;
-    }
-
-    let maxPct = 0;
-    if (targetCount > 0) {
-      maxPct = Math.max(maxPct, totalGenerated / targetCount);
-    }
-    if (this._options.suiteTimeout > 0 && this._stats.startGenTime > 0) {
-      maxPct = Math.max(
-        maxPct,
-        (performance.now() - this._stats.startGenTime) /
-          this._options.suiteTimeout
-      );
-    }
-
-    return Math.max(0, Math.floor(maxPct * 100));
+    );
   } // fn: _shouldGenStop
 
   /**
@@ -976,9 +1036,10 @@ export class FuzzerV3 {
     transformerResult: NonNullable<
       TransformedInputAndSource["transformerResult"]
     >,
-    result: FuzzTestResult
+    result: FuzzTestResult,
+    transformerName: string = "transformer"
   ): void {
-    const fnName = this._transformRunner?.name ?? "transformer";
+    const fnName = transformerName;
     switch (transformerResult.result.tag) {
       case "skip":
         result.skipped = true;
@@ -1050,6 +1111,8 @@ export class FuzzerV3 {
    */
   protected async _evaluateOracles(
     result: FuzzTestResult,
+    propertyOracle?: PropertyOracle,
+    propRunners: AbstractRunner[] = [],
     cancelCheck?: () => boolean
   ): Promise<boolean> {
     // IMPLICIT ORACLE
@@ -1073,14 +1136,10 @@ export class FuzzerV3 {
     }
 
     // PROPERTY ORACLE
-    if (
-      this._options.useProperty &&
-      this._propertyOracle &&
-      this._propRunners.length > 0
-    ) {
+    if (this._options.useProperty && propertyOracle && propRunners.length > 0) {
       let validatorJudgments: (Judgment | Error)[];
       try {
-        validatorJudgments = await this._propertyOracle.judge(
+        validatorJudgments = await propertyOracle.judge(
           Object.freeze({
             in: result.input.map((i) => i.value),
             out:

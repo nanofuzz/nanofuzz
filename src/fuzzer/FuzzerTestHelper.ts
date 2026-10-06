@@ -46,6 +46,7 @@ export const intOptions: FuzzOptions = {
   useTransformer: true,
   useHuman: true,
   useProperty: false,
+  workers: "auto",
   measures: allMeasures,
   generators: allGenerators,
 };

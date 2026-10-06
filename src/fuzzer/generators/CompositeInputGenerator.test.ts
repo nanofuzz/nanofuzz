@@ -78,6 +78,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
       useHuman: false,
       useProperty: true,
       useTransformer: false,
+      workers: "auto",
     };
 
     const mockResults: FuzzTestResults = {
@@ -223,6 +224,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         useHuman: false,
         useProperty: true,
         useTransformer: false,
+        workers: "auto",
       };
 
       const mockResults: FuzzTestResults = {
@@ -386,6 +388,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         useHuman: false,
         useProperty: true,
         useTransformer: false,
+        workers: "auto",
       };
 
       const mockResults: FuzzTestResults = {
@@ -641,6 +644,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
         useHuman: false,
         useProperty: true,
         useTransformer: false,
+        workers: "auto",
       };
 
       const mockResults: FuzzTestResults = {

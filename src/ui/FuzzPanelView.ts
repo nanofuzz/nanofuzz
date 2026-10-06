@@ -2388,6 +2388,7 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
       useHuman: true, // always active
       useProperty: getBooleanValue("useProperty"),
       useTransformer: getBooleanValue("useTransformer"),
+      workers: "auto",
       measures: {
         CoverageMeasure: {
           enabled:

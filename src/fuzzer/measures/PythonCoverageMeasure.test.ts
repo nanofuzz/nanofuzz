@@ -182,6 +182,7 @@ const anyEnv: FuzzEnv = {
     useHuman: false,
     useProperty: false,
     useTransformer: false,
+    workers: "auto",
     measures: {
       FailedTestMeasure: { enabled: false, weight: 0 },
       CoverageMeasure: { enabled: true, weight: 1 },

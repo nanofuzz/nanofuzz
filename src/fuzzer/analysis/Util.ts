@@ -78,6 +78,8 @@ export function isOptionValid(options: FuzzOptions): boolean {
     options.maxFailures >= 0 &&
     (options.outputResults === undefined ||
       ["all", "failures", "none"].includes(options.outputResults)) &&
+    (options.workers === "auto" ||
+      (typeof options.workers === "number" && options.workers >= 1)) &&
     ArgDef.isOptionValid(options.argDefaults) &&
     typeof options.generators === "object" &&
     "RandomInputGenerator" in options.generators &&

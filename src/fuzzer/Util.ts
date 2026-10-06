@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as JSONN from "../Jsonn";
 import { CompositeOracle } from "./oracles/CompositeOracle";
 import { FuzzIoElement, FuzzResultCategory, FuzzTestResult } from "./Types";
@@ -192,6 +193,45 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
       return "disagree";
   }
 } // fn: categorizeResult
+
+/**
+ * Resolves the number of concurrent runner worker processes.
+ *
+ * In 'auto' mode:
+ *  - CLI mode (process.env.BUILD_TARGET === "node-cli"): favors throughput with (cores - 1).
+ *  - Non-CLI / IDE mode: favors responsiveness with floor(cores / 2).
+ *  - Both modes clamp to available memory assuming ~100MB per worker with 512MB safety reserve.
+ *  - Minimum of 1 worker is always guaranteed.
+ *
+ * @param configured configured worker count or "auto"
+ * @param isCli whether running in CLI mode
+ * @returns resolved integer worker count >= 1
+ */
+export function resolveWorkerCount(
+  configured: number | "auto" | string,
+  isCli: boolean = process.env.BUILD_TARGET === "node-cli"
+): number {
+  if (typeof configured === "number" && configured >= 1) {
+    return Math.floor(configured);
+  }
+  if (typeof configured === "string" && configured !== "auto") {
+    const parsed = parseInt(configured, 10);
+    if (!isNaN(parsed) && parsed >= 1) return parsed;
+  }
+
+  const cpus = os.availableParallelism
+    ? os.availableParallelism()
+    : os.cpus().length;
+  const cpuTarget = isCli
+    ? Math.max(1, cpus - 1)
+    : Math.max(1, Math.floor(cpus / 2));
+
+  // 100 MB memory clamp with 512 MB OS/IDE safety buffer
+  const freeMemMB = os.freemem() / (1024 * 1024);
+  const memClamp = Math.max(1, Math.floor(Math.max(0, freeMemMB - 512) / 100));
+
+  return Math.max(1, Math.min(cpuTarget, memClamp));
+} // fn: resolveWorkerCount
 
 /**
  * Gets the input key as a string from an array of `FuzzIoElement`s

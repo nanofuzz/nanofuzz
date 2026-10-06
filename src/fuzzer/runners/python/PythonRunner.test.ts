@@ -1383,6 +1383,7 @@ function createFuzzEnv(
       useHuman: false,
       useProperty: false,
       useTransformer: false,
+      workers: "auto",
       measures: {
         CoverageMeasure: { enabled: true, weight: 1 },
         FailedTestMeasure: { enabled: true, weight: 1 },
