@@ -2022,6 +2022,65 @@ def test_sampled_with_none(choice):
     expect(children.length).toEqual(4);
   });
 
+  it("hypothesis @given accepts standard Python types in container strategies", () => {
+    const fn = ProgramFactory.fromSource(
+      () => `
+from hypothesis import given
+from hypothesis import strategies as st
+
+@given(
+    a=st.lists(int),
+    b=st.sets(str),
+    c=st.dictionaries(keys=str, values=float),
+    d=st.fixed_dictionaries({"x": int, "y": bool}),
+    e=st.tuples(int, str, bytes),
+)
+def test_standard_types_in_strategies(a, b, c, d, e):
+    pass
+      `,
+      "python"
+    ).functionsExported["test_standard_types_in_strategies"];
+
+    expect(fn).toBeDefined();
+    const args = fn.getArgDefs();
+    expect(args.length).toEqual(5);
+
+    expect(args[0].getName()).toEqual("a");
+    expect(args[0].getType()).toEqual(ArgTag.NUMBER);
+    expect(args[0].getDim()).toEqual(1);
+    expect(args[0].getOptions().numInteger).toBeTrue();
+
+    expect(args[1].getName()).toEqual("b");
+    expect(args[1].getType()).toEqual(ArgTag.SET);
+
+    expect(args[2].getName()).toEqual("c");
+    expect(args[2].getType()).toEqual(ArgTag.DICTIONARY);
+
+    expect(args[3].getName()).toEqual("d");
+    expect(args[3].getType()).toEqual(ArgTag.OBJECT);
+
+    expect(args[4].getName()).toEqual("e");
+    expect(args[4].getType()).toEqual(ArgTag.TUPLE);
+  });
+
+  it("handles unresolvable types gracefully without crashing functionsExported", () => {
+    const pgm = ProgramFactory.fromSource(
+      () => `
+def helper_with_unknown_type(x: UnknownNonExistentClass):
+    pass
+
+@given(x=st.integers())
+def test_valid(x: int):
+    pass
+      `,
+      "python"
+    );
+
+    expect(pgm.functionsExported["test_valid"]).toBeDefined();
+    expect(pgm.functionsExported["helper_with_unknown_type"]).toBeUndefined();
+    expect(pgm.functionsNotSupported["helper_with_unknown_type"]).toBeDefined();
+  });
+
   it("hypothesis @given `lists` and `sets` uniqueness", () => {
     const fn = ProgramFactory.fromSource(
       () => `
