@@ -1084,9 +1084,7 @@ export class FuzzPanel {
     if (existingUserGenerators.length > 0) {
       this._fuzzEnv.userGenerators = existingUserGenerators;
       const targetGen = existingUserGenerators[0];
-      const fnDef =
-        program.functionsExported[targetGen.name] ??
-        program.functions[targetGen.name];
+      const fnDef = program.functions[targetGen.name];
       if (fnDef) {
         this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
         return;
@@ -3686,7 +3684,7 @@ export function provideCodeLenses(
       "nanofuzz.ui.codeLens.includeValidators",
       true
     );
-    const allFunctions = Object.values(program.functionsExported);
+    const allFunctions = Object.values(program.functions);
     const functions = (fuzzValidators === undefined ? true : fuzzValidators)
       ? allFunctions
       : allFunctions.filter((fn) => !fn.isValidator());
