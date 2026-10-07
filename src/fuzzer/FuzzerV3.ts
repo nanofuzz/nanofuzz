@@ -28,33 +28,30 @@ import {
   getTransformers,
   getUserGenerators,
   getValidators,
-  isArgValueType,
   isOptionValid,
 } from "./analysis/Util";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import {
-  categorizeResult,
   getIoKey,
   isError,
   isSameJudgments,
   determineWorkerCount,
 } from "./Util";
 import { PropertyOracle } from "./oracles/PropertyOracle";
-import { ImplicitOracle } from "./oracles/ImplicitOracle";
-import { ExampleOracle } from "./oracles/ExampleOracle";
-import { Judgment } from "./oracles/Types";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
-import { AbstractMeasure, BaseMeasurement } from "./measures/AbstractMeasure";
-import { AbstractCoverageMeasure } from "./measures/AbstractCoverageMeasure";
+import { AbstractMeasure } from "./measures/AbstractMeasure";
 import { CompilerStaleness } from "./compilers/Types";
+import { FuzzExecutor, FuzzWorkerContext } from "./FuzzExecutor";
 import { FuzzStats } from "./FuzzStats";
+
+export { FuzzWorkerContext as WorkerContext };
 
 /**
  * FuzzerV3 is a multi-worker concurrent fuzzer engine.
- * It coordinates candidate input generation across a pool of parallel runner workers.
+ * It coordinates candidate input generation across a pool of parallel runner workers via FuzzExecutor.
  */
 export class FuzzerV3 {
   protected _module: string;
@@ -72,8 +69,7 @@ export class FuzzerV3 {
     "init";
 
   protected _compositeInputGenerator: CompositeInputGenerator;
-  protected _workers: WorkerContext[] = [];
-  protected _userGenRunner?: AbstractRunner;
+  protected _executor?: FuzzExecutor;
   protected _injectMap: Map<string, FuzzPinnedTest> = new Map();
   protected _stats: FuzzStats;
   protected _lastCompiler?: ReturnType<
@@ -172,7 +168,7 @@ export class FuzzerV3 {
     if (mode.precompile) {
       CompilerFactory.fromSourcefile(module)?.compileAsync(module);
     }
-  } // fn: constructor
+  } // constructor
 
   /**
    * Retrieves the current fuzzer focus.
@@ -265,14 +261,24 @@ export class FuzzerV3 {
    */
   public get state(): typeof this._state {
     return this._state;
-  } // fn: state
+  } // get: state
 
   /**
    * Retrieves the active worker count.
    */
   public get workerCount(): number {
-    return this._workers.length || determineWorkerCount(this._options.workers);
+    return (
+      this._executor?.workers.length ||
+      determineWorkerCount(this._options.workers)
+    );
   } // get: workerCount
+
+  /**
+   * Retrieves the underlying executor instance.
+   */
+  public get executor(): FuzzExecutor | undefined {
+    return this._executor;
+  } // get: executor
 
   /**
    * Executes the fuzzing run using a 5-stage lockstep pipeline.
@@ -379,6 +385,10 @@ export class FuzzerV3 {
     cancelFn?: () => boolean,
     onResultFn?: FuzzResultCallback
   ): Promise<FuzzStopReason> {
+    if (!this._executor) {
+      throw new Error("Internal error: executor not initialized");
+    }
+
     let isGenActive = true;
     let finalStopReason: FuzzStopReason | undefined = undefined;
     let genPromise: Promise<void> = Promise.resolve();
@@ -438,7 +448,7 @@ export class FuzzerV3 {
       return res;
     };
 
-    const runWorker = async (worker: WorkerContext) => {
+    const runWorker = async (worker: FuzzWorkerContext) => {
       while (isGenActive) {
         const { slot, stopReason } = await fetchNextSlot();
 
@@ -513,7 +523,9 @@ export class FuzzerV3 {
       }
     };
 
-    await Promise.all(this._workers.map((worker) => runWorker(worker)));
+    await Promise.all(
+      this._executor.workers.map((worker) => runWorker(worker))
+    );
     await recordPromise.catch(() => {});
 
     if (
@@ -550,7 +562,7 @@ export class FuzzerV3 {
   // ---------------------------------------------------------------------------
 
   /**
-   * STAGE 1: Fetch/Generate Candidate Input (N+4)
+   * STAGE 1: Fetch/Generate Candidate Input
    */
   protected async _stage1FetchAndGen(
     update: FuzzStatusUpdater,
@@ -642,162 +654,77 @@ export class FuzzerV3 {
   } // fn: _stage1FetchAndGen
 
   /**
-   * STAGE 2: Execute Test (PUT + Validators)
+   * STAGE 2: Execute Test (PUT + Validators on assigned worker via FuzzExecutor)
    */
   protected async _stage2ExecuteTest(
     slot: PipelineSlot,
-    worker: WorkerContext,
+    worker: FuzzWorkerContext,
     cancelFn?: () => boolean
   ): Promise<PipelineSlot | undefined> {
-    if (!slot || !slot.candidate || !worker.runner) {
+    if (!slot || !slot.candidate || !this._executor) {
       return slot;
     }
 
-    const result = this._createInitialResult(
+    const exec = await this._executor.runTestOnWorker(
       slot.candidate,
+      worker,
       slot.genTime,
-      slot.transformTime
+      slot.transformTime,
+      cancelFn
     );
 
-    if (slot.candidate.transformerResult && worker.transformRunner) {
-      this._handleTransformerResult(
-        slot.candidate.transformerResult,
-        result,
-        worker.transformRunner.name
-      );
+    if (!exec) {
+      return undefined;
     }
 
-    if (result.skipped || result.harnessErrors.length > 0) {
-      slot.result = result;
-      return slot;
-    }
-
-    const startRunTime = performance.now();
-    let exeOutput: RunnerResult;
-    try {
-      const cancelCheck = cancelFn && !slot.injected ? cancelFn : undefined;
-      exeOutput = await worker.runner.runWithInterrupt(
-        () =>
-          worker.runner.run(
-            result.input.map((e) => e.value),
-            Math.max(this._options.fnTimeout, 0)
-          ),
-        this._getRemainingSuiteTime(),
-        cancelCheck
-      );
-    } catch (e: unknown) {
-      if (isError(e) && e.message === "runnerInterrupted") {
-        return undefined;
-      }
-
-      if (isError(e)) {
-        exeOutput = {
-          result: {
-            tag: "error",
-            name: e.name,
-            message: e.message,
-            stack: e.stack ?? "<no stack>",
-            seq: -1,
-          },
-          env: {},
-        };
-      } else {
-        exeOutput = {
-          result: {
-            tag: "error",
-            name: "unknown internal runner error",
-            message: "unknown",
-            stack: "<no stack>",
-            seq: -1,
-          },
-          env: {},
-        };
-      }
-    }
-    result.timers.run = performance.now() - startRunTime;
-    slot.runTime = result.timers.run;
-
-    this._applyRunnerOutput(exeOutput, result);
-
-    if (!result.skipped) {
-      const startValTime = performance.now();
-      const cancelCheck = cancelFn && !slot.injected ? cancelFn : undefined;
-      const oracleSuccess = await this._evaluateOracles(
-        result,
-        worker.propertyOracle,
-        worker.propRunners,
-        cancelCheck
-      );
-      if (!oracleSuccess) {
-        return undefined;
-      }
-      slot.valTime = performance.now() - startValTime;
-    }
-
-    slot.result = result;
-    slot.exeOutput = exeOutput;
+    slot.result = exec.result;
+    slot.exeOutput = exec.exeOutput;
     slot.worker = worker;
+    slot.runTime = exec.runTime;
+    slot.valTime = exec.valTime;
     return slot;
   } // fn: _stage2ExecuteTest
 
   /**
-   * Final Measure, Record & Feedback
+   * STAGE 3: Final Measure, Record & Feedback
    */
   protected async _stageMeasureAndRecord(
     slot: PipelineSlot,
     onResultFn?: FuzzResultCallback
   ): Promise<boolean> {
-    if (!slot || !slot.result || !slot.candidate) {
+    if (!slot || !slot.result || !slot.candidate || !this._executor) {
       return false;
     }
 
     const result = slot.result;
 
-    // 1. Categorize composite result
-    result.category = categorizeResult(result);
-
-    // 2. Take measurements & feed back to generator
-    this._prepareMeasures();
     const runnersToRecord: AbstractRunner[] = [];
     if (slot.worker) {
-      runnersToRecord.push(slot.worker.runner);
-      if (slot.worker.transformRunner) {
-        runnersToRecord.push(slot.worker.transformRunner);
-      }
-      runnersToRecord.push(...slot.worker.propRunners);
+      runnersToRecord.push(slot.worker.runner, ...slot.worker.propRunners);
     }
     if (
-      this._userGenRunner &&
+      this._executor.transformRunner &&
+      slot.candidate.source.type === "transformer"
+    ) {
+      runnersToRecord.push(this._executor.transformRunner);
+    }
+    if (
+      this._executor.userGenRunner &&
       slot.candidate.source.type === "generator" &&
       slot.candidate.source.generator === "UserInputGenerator"
     ) {
-      runnersToRecord.push(this._userGenRunner);
+      runnersToRecord.push(this._executor.userGenRunner);
     }
 
-    for (const r of runnersToRecord) {
-      if (r.lastRunCoverage) {
-        this._measures.forEach((m) => {
-          if (m instanceof AbstractCoverageMeasure) {
-            m.recordHits(r.lastRunCoverage);
-          }
-        });
-      }
-    }
-
-    const startMeasureFeedbackTime = performance.now();
-    const measurements = this._measures.map((e) =>
-      e.measure(slot.candidate!, result)
+    const { measureTime } = this._executor.recordTestFeedback(
+      result,
+      slot.candidate,
+      runnersToRecord,
+      this._compositeInputGenerator
     );
-
-    result.interestingReasons = this._compositeInputGenerator.onInputFeedback(
-      measurements,
-      result.timers.run + result.timers.gen,
-      slot.candidate
-    );
-    const measureTime = performance.now() - startMeasureFeedbackTime;
     slot.measureTime = measureTime;
 
-    // 3. Record stats and outcomes
+    // Record stats and outcomes
     this._stats.record(
       result,
       slot.candidate,
@@ -810,14 +737,14 @@ export class FuzzerV3 {
       this._injectedInFlight = Math.max(0, this._injectedInFlight - 1);
     }
 
-    // 4. Cooperative shrinking step
+    // Cooperative shrinking step
     const modeBeforeShrink: FuzzerFocus["mode"] = this._fuzzerFocus.mode;
     this._shrink(result);
     const modeAfterShrink: FuzzerFocus["mode"] = this._fuzzerFocus.mode;
     const triggeredShrink =
       modeBeforeShrink === "gen" && modeAfterShrink === "shrink";
 
-    // 5. Notify result callback
+    // Notify result callback
     if (onResultFn) {
       onResultFn(deepFreeze(result));
     }
@@ -875,19 +802,28 @@ export class FuzzerV3 {
         ? Math.max(1, Math.min(this.workerCount, this._options.maxTests))
         : this.workerCount;
 
-    this._userGenRunner = undefined;
+    let userGenRunner: AbstractRunner | undefined;
     if (
       this.env.options.generators.UserInputGenerator?.enabled &&
       this.env.userGenerators.length
     ) {
-      this._userGenRunner = RunnerFactory(
+      userGenRunner = RunnerFactory(
         this.env,
         targetMod,
         this.env.userGenerators[0].name
       );
     }
 
-    this._workers = [];
+    let transformRunner: AbstractRunner | undefined;
+    if (this.env.options.useTransformer && this.env.transformers.length) {
+      transformRunner = RunnerFactory(
+        this.env,
+        targetMod,
+        this.env.transformers[0].name
+      );
+    }
+
+    const workers: FuzzWorkerContext[] = [];
     for (let i = 0; i < workerCount; i++) {
       const runner = RunnerFactory(
         this.env,
@@ -895,95 +831,56 @@ export class FuzzerV3 {
         this._function.getName(),
         i === 0 ? { acceptsStaticCoverage: true } : {}
       );
-      let transformRunner: AbstractRunner | undefined;
-      if (this.env.options.useTransformer && this.env.transformers.length) {
-        transformRunner = RunnerFactory(
-          this.env,
-          targetMod,
-          this.env.transformers[0].name
-        );
-      }
       const propRunners = this._validators.map((vFnRef) =>
         RunnerFactory(this.env, targetMod, vFnRef.name)
       );
       const propertyOracle = new PropertyOracle(propRunners);
-      this._workers.push({
+      workers.push({
+        id: i,
         runner,
-        transformRunner,
         propRunners,
         propertyOracle,
       });
     }
 
-    const allRunnersToStart: Promise<void>[] = [];
-    if (this._userGenRunner) {
-      allRunnersToStart.push(this._userGenRunner.onRunStart());
-    }
-    for (const w of this._workers) {
-      allRunnersToStart.push(w.runner.onRunStart());
-      if (w.transformRunner) {
-        allRunnersToStart.push(w.transformRunner.onRunStart());
-      }
-      for (const p of w.propRunners) {
-        allRunnersToStart.push(p.onRunStart());
-      }
-    }
-    await Promise.all(allRunnersToStart);
+    this._injectMap = new Map(injectTests.map((t) => [getIoKey(t.input), t]));
+
+    this._executor = new FuzzExecutor(
+      workers,
+      transformRunner,
+      userGenRunner,
+      this._measures,
+      this._options,
+      this._function,
+      this._validators,
+      this._injectMap,
+      () => this._getRemainingSuiteTime()
+    );
+
+    await this._executor.onRunStart();
 
     this._compositeInputGenerator.onRunStart(
       Boolean(mode.gen),
       injectTests,
-      this._workers[0]?.transformRunner,
+      this._executor.transformRunner,
       this._options.fnTimeout,
       this._options.maxDupeInputs,
-      this._userGenRunner
+      this._executor.userGenRunner
     );
 
-    const allRunners = [
-      ...this._workers.flatMap((w) => [
-        w.runner,
-        w.transformRunner,
-        ...w.propRunners,
-      ]),
-      this._userGenRunner,
-    ].filter((r): r is AbstractRunner => r !== undefined);
     this._measures.forEach((m) => {
-      m.onRunStart(allRunners, this.env);
+      m.onRunStart(this._executor!.runners, this.env);
     });
-
-    this._injectMap = new Map(injectTests.map((t) => [getIoKey(t.input), t]));
   } // fn: _initRunners
 
   /**
    * Stops all active runner processes.
    */
   protected async _stopRunners(): Promise<void> {
-    const allRunnersToStop: Promise<void>[] = [];
-    if (this._userGenRunner) {
-      allRunnersToStop.push(this._userGenRunner.onRunEnd());
+    if (this._executor) {
+      await this._executor.stop();
     }
-    for (const w of this._workers) {
-      allRunnersToStop.push(w.runner.onRunEnd());
-      if (w.transformRunner) {
-        allRunnersToStop.push(w.transformRunner.onRunEnd());
-      }
-      for (const p of w.propRunners) {
-        allRunnersToStop.push(p.onRunEnd());
-      }
-    }
-    await Promise.all(allRunnersToStop);
   } // fn: _stopRunners
-
-  /**
-   * Prepares measures before execution of the PUT.
-   */
-  protected _prepareMeasures(): number {
-    const startMeasTime = performance.now();
-    this._measures.forEach((m) => {
-      m.onBeforeNextTestExecution();
-    });
-    return performance.now() - startMeasTime;
-  } // fn: _prepareMeasures
 
   /**
    * Evaluates stop conditions for Stage 1 input generation.
@@ -1025,224 +922,6 @@ export class FuzzerV3 {
       ? Math.max(0, this._options.suiteTimeout - timeSinceGenStart)
       : Infinity;
   } // fn: _getRemainingSuiteTime
-
-  /**
-   * Creates an initial FuzzTestResult object for a candidate.
-   */
-  protected _createInitialResult(
-    candidate: TransformedInputAndSource,
-    genTime: number,
-    transformTime: number = 0
-  ): FuzzTestResult {
-    const argDefs = this._function.getArgDefs();
-
-    const result: FuzzTestResult = {
-      pinned: false,
-      inputGenerated: candidate,
-      input: candidate.value.map((e, i) => {
-        return {
-          name: argDefs[i]?.getName() ?? "?",
-          offset: i,
-          value: e.value,
-          origin: candidate.source,
-        };
-      }),
-      output: [],
-      exception: false,
-      harnessErrors: [],
-      timeout: false,
-      skipped: false,
-      passedImplicit: "unknown",
-      passedHuman: "unknown",
-      passedValidator: "unknown",
-      passedValidators: [],
-      timers: {
-        run: 0,
-        gen: genTime,
-        transform: transformTime,
-      },
-      category: "ok",
-      interestingReasons: [],
-    };
-
-    if (candidate.injected) {
-      const pinnedTest = this._injectMap.get(getIoKey(result.input));
-      if (pinnedTest) {
-        result.pinned = Boolean(pinnedTest.pinned);
-        if (pinnedTest.expectedOutput) {
-          result.expectedOutput = pinnedTest.expectedOutput;
-        }
-      }
-    }
-
-    return result;
-  } // fn: _createInitialResult
-
-  /**
-   * Handles transformer error or skip results.
-   */
-  protected _handleTransformerResult(
-    transformerResult: NonNullable<
-      TransformedInputAndSource["transformerResult"]
-    >,
-    result: FuzzTestResult,
-    transformerName: string = "transformer"
-  ): void {
-    const fnName = transformerName;
-    switch (transformerResult.result.tag) {
-      case "skip":
-        result.skipped = true;
-        result.skipReason = `(${fnName}) ${transformerResult.result.message}`;
-        break;
-
-      case "timeout":
-        result.harnessErrors.push({
-          kind: "timeout",
-          stage: "transformer",
-          fnName,
-          message: `Timeout exceeding ${this._options.fnTimeout} ms`,
-          display: `(${fnName} timeout)`,
-        });
-        break;
-
-      case "error":
-        result.harnessErrors.push({
-          kind: "exception",
-          stage: "transformer",
-          fnName,
-          message: transformerResult.result.message,
-          display: `(${fnName} ${transformerResult.result.name}) ${transformerResult.result.message}`,
-          stack: transformerResult.result.stack ?? "<no stack>",
-        });
-        break;
-
-      case "value":
-        break;
-    }
-  } // fn: _handleTransformerResult
-
-  /**
-   * Applies runner output to the test result object.
-   */
-  protected _applyRunnerOutput(
-    exeOutput: RunnerResult,
-    result: FuzzTestResult
-  ): void {
-    switch (exeOutput.result.tag) {
-      case "value":
-        result.output.push({
-          name: "0",
-          offset: 0,
-          value: isArgValueType(exeOutput.result.value)
-            ? exeOutput.result.value
-            : undefined,
-          origin: { type: "put" },
-        });
-        break;
-      case "error":
-        result.exception = true;
-        result.exceptionMessage = exeOutput.result.message;
-        result.exceptionDisplay = `(${exeOutput.result.name}) ${exeOutput.result.message}`;
-        result.stack = exeOutput.result.stack;
-        break;
-      case "timeout":
-        result.timeout = true;
-        break;
-      case "skip":
-        result.skipped = true;
-        result.skipReason = exeOutput.result.message;
-        break;
-    }
-  } // fn: _applyRunnerOutput
-
-  /**
-   * Evaluates Implicit, Example, and Property oracles.
-   */
-  protected async _evaluateOracles(
-    result: FuzzTestResult,
-    propertyOracle?: PropertyOracle,
-    propRunners: AbstractRunner[] = [],
-    cancelCheck?: () => boolean
-  ): Promise<boolean> {
-    // IMPLICIT ORACLE
-    if (this._options.useImplicit) {
-      result.passedImplicit = ImplicitOracle.judge(
-        result.timeout,
-        result.exception,
-        this._function.isVoid(),
-        result.output
-      );
-    }
-
-    // EXAMPLE ORACLE
-    if (this._options.useHuman && result.expectedOutput) {
-      result.passedHuman = ExampleOracle.judge(
-        result.timeout,
-        result.exception,
-        result.expectedOutput,
-        result.output
-      );
-    }
-
-    // PROPERTY ORACLE
-    if (this._options.useProperty && propertyOracle && propRunners.length > 0) {
-      let validatorJudgments: (Judgment | Error)[];
-      try {
-        validatorJudgments = await propertyOracle.judge(
-          Object.freeze({
-            in: result.input.map((i) => i.value),
-            out:
-              result.output.length === 0
-                ? "timeout or exception"
-                : result.output[0].value,
-            exception: result.exception,
-            timeout: result.timeout,
-          }),
-          Math.max(this._options.fnTimeout, 0),
-          this._getRemainingSuiteTime(),
-          cancelCheck
-        );
-      } catch (e: unknown) {
-        if (isError(e) && e.message === "runnerInterrupted") {
-          return false;
-        }
-        throw e;
-      }
-
-      validatorJudgments.forEach((j, i) => {
-        if (isError(j)) {
-          result.passedValidators.push("unknown");
-          const fnName = this._validators[i].name;
-          if (j.name === "PropertyValidatorTimeout") {
-            result.harnessErrors.push({
-              kind: "timeout",
-              stage: "validator",
-              fnName,
-              message: `Timeout exceeding ${this._options.fnTimeout} ms`,
-              display: `(${fnName} timeout)`,
-            });
-          } else {
-            result.harnessErrors.push({
-              kind: "exception",
-              stage: "validator",
-              fnName,
-              message: j.message,
-              display: `(${fnName} ${j.name}) ${j.message}`,
-              stack: j.stack ?? "<no stack>",
-            });
-          }
-        } else {
-          result.passedValidators.push(j);
-        }
-      });
-
-      result.passedValidator = PropertyOracle.summarize(
-        result.passedValidators
-      );
-    }
-
-    return true;
-  } // fn: _evaluateOracles
 
   /**
    * Cooperative shrinking step.
@@ -1399,26 +1078,12 @@ interface PipelineSlot {
   // PUT Execution Output
   result?: FuzzTestResult;
   exeOutput?: RunnerResult;
-  worker?: WorkerContext;
+  worker?: FuzzWorkerContext;
   runTime: number;
-  coverageMeasurements?: BaseMeasurement[];
 
   // Validator & Oracle Output
   valTime: number;
 
   // Measure & Feedback Output
   measureTime: number;
-
-  // Control flags
-  isBubble?: boolean;
-}
-
-/**
- * Encapsulates the execution runners for an isolated worker pipeline.
- */
-export interface WorkerContext {
-  runner: AbstractRunner;
-  transformRunner?: AbstractRunner;
-  propRunners: AbstractRunner[];
-  propertyOracle?: PropertyOracle;
 }

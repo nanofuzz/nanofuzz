@@ -610,6 +610,15 @@ export class FuzzerV2 {
     await Promise.all(propRunners.map((p) => p.onRunStart()));
     const propertyOracle = new PropertyOracle(propRunners);
 
+    const workers = [
+      {
+        id: 0,
+        runner,
+        propRunners,
+        propertyOracle,
+      },
+    ];
+
     const runners = [
       runner,
       transformRunner,
@@ -635,17 +644,15 @@ export class FuzzerV2 {
     };
 
     return new FuzzExecutor(
-      runner,
+      workers,
       transformRunner,
-      propRunners,
-      propertyOracle,
+      userGenRunner,
       this._measures,
       this._options,
       this._function,
       this._validators,
       injectMap,
-      getRemainingSuiteTime,
-      userGenRunner
+      getRemainingSuiteTime
     );
   } // fn: _initExecutor
 

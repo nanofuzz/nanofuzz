@@ -1,7 +1,7 @@
 import { FuzzerFactory } from "./FuzzerFactory";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import * as ValueMapper from "./mappers/ValueMapper";
-import { FuzzPinnedTest, FuzzTestResult } from "./Types";
+import { FuzzPinnedTest, FuzzStopReason, FuzzTestResult } from "./Types";
 
 describe("fuzzer: python targets", () => {
   beforeAll(async () => {
@@ -296,7 +296,7 @@ describe("fuzzer: python targets", () => {
       "py_user_gen",
       {
         ...intOptions,
-        maxTests: 20,
+        maxTests: 100,
         generators: {
           RandomInputGenerator: { enabled: false },
           MutationInputGenerator: { enabled: false },
@@ -306,8 +306,18 @@ describe("fuzzer: python targets", () => {
       }
     ).test([], { gen: true }, undefined, undefined, (r) => results.push(r));
 
+    console.log("STOP REASON:", fuzzResult.stopReason);
+    console.log("TOTAL OUTCOMES:", fuzzResult.stats.outcomes.total);
+    console.log("RESULTS LENGTH:", results.length);
+    console.log(
+      "GENERATORS STATS:",
+      JSON.stringify(fuzzResult.stats.generators, null, 2)
+    );
+
     expect(fuzzResult.stats.outcomes.total).toBeGreaterThan(0);
     expect(fuzzResult.stats.outcomes.categories.ok).toBeGreaterThan(0);
+    expect(fuzzResult.stopReason).toBe(FuzzStopReason.MAXTESTS);
+    expect(fuzzResult.stats.outcomes.total).toBe(100);
 
     results.forEach((r) => {
       expect(r.input[0].origin.type).toBe("generator");

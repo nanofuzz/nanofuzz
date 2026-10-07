@@ -15,12 +15,16 @@ class TestableFuzzerV3 extends FuzzerV3 {
   } // fn: initRunnersForTest
 
   public get workers(): readonly WorkerContext[] {
-    return this._workers;
+    return this._executor?.workers ?? [];
   } // get: workers
 
   public get userGenRunner(): AbstractRunner | undefined {
-    return this._userGenRunner;
+    return this._executor?.userGenRunner;
   } // get: userGenRunner
+
+  public get transformRunner(): AbstractRunner | undefined {
+    return this._executor?.transformRunner;
+  } // get: transformRunner
 
   public async stopRunnersForTest(): Promise<void> {
     await this._stopRunners();
@@ -124,9 +128,9 @@ describe("fuzzer: general & parameterized engine tests", () => {
       await fuzzerBase.initRunnersForTest();
       expect(fuzzerBase.workers.length).toBe(4);
       expect(fuzzerBase.userGenRunner).toBeUndefined();
+      expect(fuzzerBase.transformRunner).toBeUndefined();
       fuzzerBase.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
-        expect(w.transformRunner).toBeUndefined();
         expect(w.propRunners.length).toBe(0);
       });
       // 4 workers * (1 PUT) + 0 user gen = 4 total runners
@@ -152,9 +156,9 @@ describe("fuzzer: general & parameterized engine tests", () => {
       await fuzzerWithValidator.initRunnersForTest();
       expect(fuzzerWithValidator.workers.length).toBe(3);
       expect(fuzzerWithValidator.userGenRunner).toBeUndefined();
+      expect(fuzzerWithValidator.transformRunner).toBeUndefined();
       fuzzerWithValidator.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
-        expect(w.transformRunner).toBeUndefined();
         expect(w.propRunners.length).toBe(1); // 1 property validator runner per worker
       });
       // 3 workers * (1 PUT + 1 Validator) + 0 user gen = 6 total runners
@@ -182,9 +186,9 @@ describe("fuzzer: general & parameterized engine tests", () => {
       await fuzzerWithUserGen.initRunnersForTest();
       expect(fuzzerWithUserGen.workers.length).toBe(3);
       expect(fuzzerWithUserGen.userGenRunner).toBeDefined(); // Centralized 1 user gen runner
+      expect(fuzzerWithUserGen.transformRunner).toBeUndefined();
       fuzzerWithUserGen.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
-        expect(w.transformRunner).toBeUndefined();
         expect(w.propRunners.length).toBe(0);
       });
       // 3 workers * (1 PUT) + 1 centralized user gen = 4 total runners
@@ -210,12 +214,12 @@ describe("fuzzer: general & parameterized engine tests", () => {
       await fuzzerWithTransformer.initRunnersForTest();
       expect(fuzzerWithTransformer.workers.length).toBe(4);
       expect(fuzzerWithTransformer.userGenRunner).toBeUndefined();
+      expect(fuzzerWithTransformer.transformRunner).toBeDefined(); // Centralized 1 transformer runner
       fuzzerWithTransformer.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
-        expect(w.transformRunner).toBeDefined(); // 1 transformer runner per worker
         expect(w.propRunners.length).toBe(0);
       });
-      // 4 workers * (1 PUT + 1 Transformer) + 0 user gen = 8 total runners
+      // 4 workers * (1 PUT) + 1 centralized transformer = 5 total runners
       await fuzzerWithTransformer.stopRunnersForTest();
     });
   });
