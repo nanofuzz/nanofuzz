@@ -2,7 +2,7 @@ import { FuzzerEngineVersion, FuzzerFactory } from "./FuzzerFactory";
 import { FuzzBusyStatusMessage, FuzzStopReason } from "./Types";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
-import { resolveWorkerCount } from "./Util";
+import { determineWorkerCount } from "./Util";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -49,16 +49,158 @@ describe("fuzzer: general & parameterized engine tests", () => {
 
   describe("resolveWorkerCount calculation", () => {
     it("respects explicit positive integer counts", () => {
-      expect(resolveWorkerCount(1, true)).toBe(1);
-      expect(resolveWorkerCount(4, false)).toBe(4);
-      expect(resolveWorkerCount("3", true)).toBe(3);
+      expect(determineWorkerCount(1, true)).toBe(1);
+      expect(determineWorkerCount(4, false)).toBe(4);
+      expect(determineWorkerCount("3", true)).toBe(3);
     });
 
     it("resolves 'auto' mode adapting for CLI (C-1) and non-CLI (C/2) with memory clamp", () => {
-      const cliAuto = resolveWorkerCount("auto", true);
-      const nonCliAuto = resolveWorkerCount("auto", false);
+      const cliAuto = determineWorkerCount("auto", true);
+      const nonCliAuto = determineWorkerCount("auto", false);
       expect(cliAuto).toBeGreaterThanOrEqual(1);
       expect(nonCliAuto).toBeGreaterThanOrEqual(1);
+    });
+
+    it("computes exact worker counts for 2-, 4-, 8-, and 16-core systems in CLI and IDE modes", () => {
+      const mem16GB = 16 * 1024 * 1024 * 1024;
+
+      // 2 Cores (16 GB)
+      expect(determineWorkerCount("auto", true, 2, mem16GB)).toBe(1); // CLI: max(1, 2 - 1) = 1
+      expect(determineWorkerCount("auto", false, 2, mem16GB)).toBe(1); // IDE: max(1, floor(2 / 2)) = 1
+
+      // 4 Cores (16 GB)
+      expect(determineWorkerCount("auto", true, 4, mem16GB)).toBe(3); // CLI: max(1, 4 - 1) = 3
+      expect(determineWorkerCount("auto", false, 4, mem16GB)).toBe(2); // IDE: max(1, floor(4 / 2)) = 2
+
+      // 8 Cores (16 GB)
+      expect(determineWorkerCount("auto", true, 8, mem16GB)).toBe(7); // CLI: max(1, 8 - 1) = 7
+      expect(determineWorkerCount("auto", false, 8, mem16GB)).toBe(4); // IDE: max(1, floor(8 / 2)) = 4
+
+      // 16 Cores (16 GB)
+      expect(determineWorkerCount("auto", true, 16, mem16GB)).toBe(15); // CLI: max(1, 16 - 1) = 15
+      expect(determineWorkerCount("auto", false, 16, mem16GB)).toBe(8); // IDE: max(1, floor(16 / 2)) = 8
+    });
+  });
+
+  describe("FuzzerV3 runner and worker allocation accounting", () => {
+    it("verifies runner instances per worker and total runners created across core configurations", async () => {
+      // 1. Base PUT target with no validator, no transformer, no user gen
+      const fuzzerBase = FuzzerFactory(
+        "nanofuzz-study/examples/1.ts",
+        "minValue",
+        {
+          ...intOptions,
+          workers: 4,
+          maxTests: 10,
+          useTransformer: false,
+          useProperty: false,
+          generators: {
+            ...intOptions.generators,
+            UserInputGenerator: { enabled: false },
+          },
+        },
+        { engine: "v3" }
+      ) as any;
+
+      await fuzzerBase._initRunners([], { gen: true });
+      expect(fuzzerBase._workers.length).toBe(4);
+      expect(fuzzerBase._userGenRunner).toBeUndefined();
+      fuzzerBase._workers.forEach((w: any) => {
+        expect(w.runner).toBeDefined();
+        expect(w.transformRunner).toBeUndefined();
+        expect(w.propRunners.length).toBe(0);
+      });
+      // 4 workers * (1 PUT) + 0 user gen = 4 total runners
+      await fuzzerBase._stopRunners();
+
+      // 2. PUT target with property validator (e.g. from Python fixture with validator)
+      const fuzzerWithValidator = FuzzerFactory(
+        "./test_fixtures/Fuzzer.testfixtures.py",
+        "async_greeting",
+        {
+          ...intOptions,
+          workers: 3,
+          maxTests: 10,
+          useProperty: true,
+          useTransformer: false,
+          generators: {
+            ...intOptions.generators,
+            UserInputGenerator: { enabled: false },
+          },
+        },
+        { engine: "v3" }
+      ) as any;
+
+      await fuzzerWithValidator._initRunners([], { gen: true });
+      expect(fuzzerWithValidator._workers.length).toBe(3);
+      expect(fuzzerWithValidator._userGenRunner).toBeUndefined();
+      fuzzerWithValidator._workers.forEach((w: any) => {
+        expect(w.runner).toBeDefined();
+        expect(w.transformRunner).toBeUndefined();
+        expect(w.propRunners.length).toBe(1); // 1 property validator runner per worker
+      });
+      // 3 workers * (1 PUT + 1 Validator) + 0 user gen = 6 total runners
+      await fuzzerWithValidator._stopRunners();
+
+      // 3. PUT target with UserInputGenerator enabled
+      const fuzzerWithUserGen = FuzzerFactory(
+        "./test_fixtures/Fuzzer.testfixtures.py",
+        "py_user_gen",
+        {
+          ...intOptions,
+          workers: 3,
+          maxTests: 10,
+          useProperty: false,
+          useTransformer: false,
+          generators: {
+            RandomInputGenerator: { enabled: false },
+            MutationInputGenerator: { enabled: false },
+            AiInputGenerator: { enabled: false },
+            UserInputGenerator: { enabled: true },
+          },
+        },
+        { engine: "v3" }
+      ) as any;
+
+      await fuzzerWithUserGen._initRunners([], { gen: true });
+      expect(fuzzerWithUserGen._workers.length).toBe(3);
+      expect(fuzzerWithUserGen._userGenRunner).toBeDefined(); // Centralized 1 user gen runner
+      fuzzerWithUserGen._workers.forEach((w: any) => {
+        expect(w.runner).toBeDefined();
+        expect(w.transformRunner).toBeUndefined();
+        expect(w.propRunners.length).toBe(0);
+      });
+      // 3 workers * (1 PUT) + 1 centralized user gen = 4 total runners
+      await fuzzerWithUserGen._stopRunners();
+
+      // 4. PUT target with Transformer enabled
+      const fuzzerWithTransformer = FuzzerFactory(
+        "./test_fixtures/Fuzzer.testfixtures.ts",
+        "targetTransformed",
+        {
+          ...intOptions,
+          workers: 4,
+          maxTests: 10,
+          useTransformer: true,
+          useProperty: false,
+          generators: {
+            ...intOptions.generators,
+            UserInputGenerator: { enabled: false },
+          },
+        },
+        { engine: "v3" }
+      ) as any;
+
+      await fuzzerWithTransformer._initRunners([], { gen: true });
+      expect(fuzzerWithTransformer._workers.length).toBe(4);
+      expect(fuzzerWithTransformer._userGenRunner).toBeUndefined();
+      fuzzerWithTransformer._workers.forEach((w: any) => {
+        expect(w.runner).toBeDefined();
+        expect(w.transformRunner).toBeDefined(); // 1 transformer runner per worker
+        expect(w.propRunners.length).toBe(0);
+      });
+      // 4 workers * (1 PUT + 1 Transformer) + 0 user gen = 8 total runners
+      await fuzzerWithTransformer._stopRunners();
     });
   });
 

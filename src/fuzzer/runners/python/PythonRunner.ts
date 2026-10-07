@@ -698,7 +698,7 @@ export class PythonRunner extends AbstractRunner {
    */
   public killHost(): void {
     this._killHost();
-  }
+  } // fn: killHost
 
   /**
    * Kill the current Python host

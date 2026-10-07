@@ -39,7 +39,7 @@ import {
   getIoKey,
   isError,
   isSameJudgments,
-  resolveWorkerCount,
+  determineWorkerCount,
 } from "./Util";
 import { PropertyOracle } from "./oracles/PropertyOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
@@ -274,7 +274,7 @@ export class FuzzerV3 {
    * Retrieves the active worker count.
    */
   public get workerCount(): number {
-    return this._workers.length || resolveWorkerCount(this._options.workers);
+    return this._workers.length || determineWorkerCount(this._options.workers);
   } // get: workerCount
 
   /**
@@ -865,7 +865,7 @@ export class FuzzerV3 {
           this._lastCompiler.getCompiledDependencies(),
           this._measures,
           this._lastCompiler.options.tmpDir,
-          updateFn
+          updateFn ?? update
         )
       : mod;
     if (this._stats) {

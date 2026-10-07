@@ -559,7 +559,7 @@ export class FuzzerV2 {
           this._lastCompiler.getCompiledDependencies(),
           this._measures,
           this._lastCompiler.options.tmpDir,
-          updateFn
+          updateFn ?? update
         )
       : mod;
     if (this._stats) {

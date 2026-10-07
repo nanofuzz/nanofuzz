@@ -195,7 +195,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
 } // fn: categorizeResult
 
 /**
- * Resolves the number of concurrent runner worker processes.
+ * Determines the number of concurrent runner worker processes.
  *
  * In 'auto' mode:
  *  - CLI mode (process.env.BUILD_TARGET === "node-cli"): favors throughput with (cores - 1).
@@ -205,11 +205,15 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
  *
  * @param configured configured worker count or "auto"
  * @param isCli whether running in CLI mode
+ * @param availableCores optional explicit core count for testing/overrides
+ * @param totalMemoryBytes optional explicit total memory in bytes for testing/overrides
  * @returns resolved integer worker count >= 1
  */
-export function resolveWorkerCount(
+export function determineWorkerCount(
   configured: number | "auto" | string,
-  isCli: boolean = process.env.BUILD_TARGET === "node-cli"
+  isCli: boolean = process.env.BUILD_TARGET === "node-cli",
+  availableCores?: number,
+  totalMemoryBytes?: number
 ): number {
   if (typeof configured === "number" && configured >= 1) {
     return Math.floor(configured);
@@ -219,22 +223,27 @@ export function resolveWorkerCount(
     if (!isNaN(parsed) && parsed >= 1) return parsed;
   }
 
-  const cpus = os.availableParallelism
-    ? os.availableParallelism()
-    : os.cpus().length;
+  const cpus =
+    availableCores !== undefined
+      ? availableCores
+      : os.availableParallelism
+        ? os.availableParallelism()
+        : os.cpus().length;
   const cpuTarget = isCli
     ? Math.max(1, cpus - 1)
     : Math.max(1, Math.floor(cpus / 2));
 
   // 100 MB memory clamp with 1024 MB OS/IDE safety buffer based on total system memory
-  const totalMemMB = os.totalmem() / (1024 * 1024);
+  const totalMemMB =
+    (totalMemoryBytes !== undefined ? totalMemoryBytes : os.totalmem()) /
+    (1024 * 1024);
   const memClamp = Math.max(
     1,
     Math.floor(Math.max(0, totalMemMB - 1024) / 100)
   );
 
   return Math.max(1, Math.min(cpuTarget, memClamp));
-} // fn: resolveWorkerCount
+} // fn: determineWorkerCount
 
 /**
  * Gets the input key as a string from an array of `FuzzIoElement`s

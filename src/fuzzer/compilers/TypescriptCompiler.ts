@@ -164,7 +164,7 @@ export class TypescriptCompiler {
   /**
    * Compile the TypeScript file
    */
-  public compileSync(updateFn: FuzzStatusUpdater): string {
+  public compileSync(updateFn: FuzzStatusUpdater = () => {}): string {
     // Determine options using the module path
     this._options = structuredClone(defaultOptions);
     this._determineOptions();
@@ -374,7 +374,10 @@ export class TypescriptCompiler {
    * @param `module` node module
    * @param `updateFn` function for client status updates
    */
-  protected _tsc(module: NodeJS.Module, updateFn: FuzzStatusUpdater): void {
+  protected _tsc(
+    module: NodeJS.Module,
+    updateFn: FuzzStatusUpdater = () => {}
+  ): void {
     let exitCode = 0;
 
     // Determine the compiled name of the module

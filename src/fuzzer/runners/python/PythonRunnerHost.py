@@ -3,7 +3,6 @@ import sys
 from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
 import signal
 
-
 # Ignore SIGINT in child runner host; lifecycle is managed exclusively by parent process
 try:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -694,14 +693,18 @@ def program_files(
 
 def transform_arg(val: Any, hint: Any) -> Any:
     if isinstance(val, dict) and val.get("__nanofuzz_type") == "prng":
-        seed = val.get("seed")
+        raw_seed = val.get("seed")
+        seed = raw_seed if isinstance(raw_seed, (int, float, str, bytes, bytearray)) else (
+            str(raw_seed) if raw_seed is not None else None)
         return random.Random(seed).random if seed is not None else random.random
 
     if val is None:
         return None
 
     if hint == "prng":
-        return random.Random(val).random if val is not None else random.random
+        seed = val if isinstance(val, (int, float, str, bytes, bytearray)) else (
+            str(val) if val is not None else None)
+        return random.Random(seed).random if seed is not None else random.random
 
     if hint == "uuid":
         if isinstance(val, str):
