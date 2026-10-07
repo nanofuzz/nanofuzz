@@ -66,10 +66,12 @@ export abstract class AbstractRunner {
    *
    * @param `inputs` test inputs
    * @param timeout  timeout threshold
+   * @param validators optional list of validator function names to execute in-host
    */
   public abstract run(
     inputs: unknown[],
-    timeout?: number
+    timeout?: number,
+    validators?: string[]
   ): Promise<RunnerResult>;
 
   /**
@@ -157,6 +159,28 @@ export type BranchExit = {
   line: number; // where to display this exit
 };
 
+/**
+ * Result of evaluating a property validator in-host.
+ */
+export type ValidatorResult =
+  | {
+      tag: "value";
+      value: unknown;
+    }
+  | {
+      tag: "error";
+      name?: string;
+      message?: string;
+      stack?: string;
+    }
+  | {
+      tag: "timeout";
+    }
+  | {
+      tag: "skip";
+      message?: string;
+    };
+
 export type RunnerResult = {
   result: (
     | {
@@ -164,6 +188,7 @@ export type RunnerResult = {
         coverageData?: Record<string, number[]>;
         coverageArcs?: Record<string, Arc[]>;
         staticCoverage?: Record<string, CoverageInfo>;
+        validators?: Record<string, ValidatorResult>;
       }
     | {
         tag: "error";
@@ -174,6 +199,7 @@ export type RunnerResult = {
         coverageData?: Record<string, number[]>; // lines executed by this call
         coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
         staticCoverage?: Record<string, CoverageInfo>;
+        validators?: Record<string, ValidatorResult>;
       }
     | {
         tag: "skip";
@@ -181,6 +207,7 @@ export type RunnerResult = {
         coverageData?: Record<string, number[]>; // lines executed by this call
         coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
         staticCoverage?: Record<string, CoverageInfo>;
+        validators?: Record<string, ValidatorResult>;
       }
     | {
         tag: "value";
@@ -188,6 +215,7 @@ export type RunnerResult = {
         coverageData?: Record<string, number[]>; // lines executed by this call
         coverageArcs?: Record<string, Arc[]>; // arcs taken by this call
         staticCoverage?: Record<string, CoverageInfo>;
+        validators?: Record<string, ValidatorResult>;
       }
   ) & { seq: number };
   env: VmGlobals;
@@ -214,6 +242,7 @@ export type RunnerInput = {
   timeout?: number;
   fnName?: string;
   filename?: string;
+  validators?: string[];
   collect?: {
     coverageData?: true;
     debugData?: true;

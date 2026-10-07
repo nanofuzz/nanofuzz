@@ -92,11 +92,13 @@ export class PythonRunner extends AbstractRunner {
    *
    * @param `inputs` inputs to function
    * @param `timeout` stop and fail after `timeout` ms
+   * @param `validators` optional list of validator function names to execute in-host
    * @returns Runner result
    */
   public async run(
     inputs: unknown[],
-    timeout: number | undefined = 0
+    timeout: number | undefined = 0,
+    validators: string[] = []
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     if (this._runDepth++ > 0) {
@@ -118,6 +120,7 @@ export class PythonRunner extends AbstractRunner {
         seq: thisSeq,
         typeHints,
         timeout: timeout ?? 0,
+        validators: validators.length > 0 ? validators : undefined,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
@@ -129,7 +132,9 @@ export class PythonRunner extends AbstractRunner {
         Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength)
       );
 
-      const hostTimeout = timeout && timeout > 0 ? timeout + 500 : Infinity;
+      const numFunctions = 1 + (validators?.length ?? 0);
+      const hostTimeout =
+        timeout && timeout > 0 ? timeout * numFunctions + 500 : Infinity;
       const rawResBuf = await host.getResponseBuffer(hostTimeout);
       const result: RunnerResult = {
         result: JSONN.unpack<RunnerResult["result"]>(rawResBuf),

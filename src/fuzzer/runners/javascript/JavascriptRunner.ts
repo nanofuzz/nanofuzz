@@ -4,6 +4,7 @@ import {
   RunnerOverrides,
   RunnerResult,
   TypeHint,
+  ValidatorResult,
 } from "../AbstractRunner";
 import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag } from "../../analysis/Types";
@@ -99,11 +100,13 @@ export class JavascriptRunner extends AbstractRunner {
    *
    * @param `inputs` inputs to function
    * @param `timeout` stop and fail after `timeout` ms
+   * @param `validators` optional list of validator function names to execute in-host
    * @returns Promise<RunnerResult>
    */
   public async run(
     inputs: unknown[],
-    timeout: number | undefined = 0
+    timeout: number | undefined = 0,
+    validators: string[] = []
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     try {
@@ -118,6 +121,7 @@ export class JavascriptRunner extends AbstractRunner {
         timeout: timeout ?? 0,
         fnName: this._jsFn,
         filename: this._filename,
+        validators: validators.length > 0 ? validators : undefined,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
@@ -127,7 +131,9 @@ export class JavascriptRunner extends AbstractRunner {
       const payload = serialize(input);
 
       host.sendMessage(payload);
-      const hostTimeout = timeout && timeout > 0 ? timeout + 200 : Infinity;
+      const numFunctions = 1 + (validators?.length ?? 0);
+      const hostTimeout =
+        timeout && timeout > 0 ? timeout * numFunctions + 500 : Infinity;
       const rawResBuf = await host.getResponseBuffer(hostTimeout);
       const parsedRes = deserialize(rawResBuf);
 
@@ -187,16 +193,19 @@ export class JavascriptRunner extends AbstractRunner {
       let resultInner: RunnerResult["result"];
       if (isParsedHostResponse(parsedRes)) {
         const seq = typeof parsedRes.seq === "number" ? parsedRes.seq : thisSeq;
+        const validators = parsedRes.validators;
         if (parsedRes.tag === "timeout") {
           resultInner = {
             tag: "timeout",
             seq,
+            validators,
           };
         } else if (parsedRes.tag === "skip") {
           resultInner = {
             tag: "skip",
             message: parsedRes.message ?? "",
             seq,
+            validators,
           };
         } else if (parsedRes.tag === "error") {
           resultInner = {
@@ -206,12 +215,14 @@ export class JavascriptRunner extends AbstractRunner {
             stack: parsedRes.stack,
             source: parsedRes.source,
             seq,
+            validators,
           };
         } else {
           resultInner = {
             tag: "value",
             value: parsedRes.value,
             seq,
+            validators,
           };
         }
       } else {
@@ -468,6 +479,7 @@ type ParsedHostResponse = {
   stack?: string;
   source?: "put" | "host";
   coverageData?: Record<string, FileCoverageData>;
+  validators?: Record<string, ValidatorResult>;
 };
 
 function isParsedHostResponse(val: unknown): val is ParsedHostResponse {

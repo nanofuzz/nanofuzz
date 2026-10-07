@@ -148,6 +148,7 @@ class RunnerInput(TypedDict):
     args: List[Any]
     seq: int
     timeout: NotRequired[int]
+    validators: NotRequired[List[str]]
     collect: NotRequired[CollectOptions]
 
 
@@ -161,6 +162,8 @@ class RunnerValueResult(TypedDict):
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
     # static coverage data
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
+    # in-host validator results
+    validators: NotRequired[dict[str, Any]]
 
 
 class RunnerErrorResult(TypedDict):
@@ -176,6 +179,8 @@ class RunnerErrorResult(TypedDict):
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
     # static coverage data
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
+    # in-host validator results
+    validators: NotRequired[dict[str, Any]]
 
 
 class RunnerSkipResult(TypedDict):
@@ -188,6 +193,8 @@ class RunnerSkipResult(TypedDict):
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
     # static coverage data
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
+    # in-host validator results
+    validators: NotRequired[dict[str, Any]]
 
 
 class RunnerTimeoutResult(TypedDict):
@@ -199,6 +206,8 @@ class RunnerTimeoutResult(TypedDict):
     coverageArcs: NotRequired[dict[str, List[List[int]]]]
     # static coverage data
     staticCoverage: NotRequired[dict[str, dict[str, List]]]
+    # in-host validator results
+    validators: NotRequired[dict[str, Any]]
 
 
 RunnerResult = Union[RunnerValueResult,
@@ -903,6 +912,75 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         else:
             error = e
 
+    validator_results = {}
+    req_validators = input.get("validators")
+    if skip is None and req_validators:
+        fuzz_result_dict = {
+            "in": list(input["args"]),
+            "out": sanitize_output(value) if not is_timeout and error is None else "timeout or exception",
+            "exception": error is not None,
+            "timeout": is_timeout,
+        }
+
+        mod_name = getattr(fn, "__module__", None)
+        mod = sys.modules.get(mod_name) if mod_name else None
+
+        for v_name in req_validators:
+            v_fn = getattr(mod, v_name, None) if mod is not None else None
+            if v_fn is None:
+                fallback_mod_name = mod_name or os.path.splitext(
+                    os.path.basename(filename))[0]
+                [load_err, loaded_fn] = loadPythonFn(
+                    filename, fallback_mod_name, v_name)
+                if load_err is not None:
+                    validator_results[v_name] = {
+                        "tag": "error",
+                        "name": "ValidatorNotFoundError",
+                        "message": f"Could not load validator function '{v_name}' in {filename}",
+                    }
+                    continue
+                v_fn = loaded_fn
+
+            v_error = None
+            v_skip = None
+            v_timeout = False
+            v_value = None
+
+            try:
+                with redirect_stdout(io.StringIO()) as f:
+                    with isolate_put_environment():
+                        if hasattr(v_fn, 'hypothesis') and hasattr(v_fn.hypothesis, 'inner_test'):
+                            v_value = call_with_timeout(
+                                v_fn.hypothesis.inner_test, [fuzz_result_dict], timeout_ms)
+                        else:
+                            v_value = call_with_timeout(
+                                v_fn, [fuzz_result_dict], timeout_ms)
+            except PutTimeoutException:
+                v_timeout = True
+            except Exception as e:
+                if e.__class__.__name__ == "UnsatisfiedAssumption":
+                    v_skip = e
+                else:
+                    v_error = e
+
+            if v_timeout:
+                validator_results[v_name] = {"tag": "timeout"}
+            elif v_skip is not None:
+                validator_results[v_name] = {
+                    "tag": "skip", "message": str(v_skip)}
+            elif v_error is not None:
+                validator_results[v_name] = {
+                    "tag": "error",
+                    "name": v_error.__class__.__name__,
+                    "message": str(v_error),
+                    "stack": "".join(traceback.format_exception(v_error)),
+                }
+            else:
+                validator_results[v_name] = {
+                    "tag": "value",
+                    "value": sanitize_output(v_value),
+                }
+
     # Read coverage after execution: a failing or timing out input still covers lines
     coverageData = {}
     coverageArcs = {}
@@ -928,13 +1006,18 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
                         coverageArcs[idx] = sorted(
                             [src, dest] for src, dest in arcs)
 
+    val_dict = validator_results if validator_results else None
+
     if is_timeout:
-        return RunnerTimeoutResult(
-            tag="timeout",
-            seq=input["seq"],
-            coverageData=coverageData,
-            coverageArcs=coverageArcs,
-        )
+        res_timeout: RunnerTimeoutResult = {
+            "tag": "timeout",
+            "seq": input["seq"],
+            "coverageData": coverageData,
+            "coverageArcs": coverageArcs,
+        }
+        if val_dict:
+            res_timeout["validators"] = val_dict
+        return res_timeout
 
     if skip is not None:
         return RunnerSkipResult(
@@ -946,24 +1029,30 @@ def run_put(input: RunnerInput, filename: str, fnname: str, fn: Any, cov: covera
         )
 
     if error is not None:
-        return RunnerErrorResult(
-            tag="error",
-            name="PythonPutError",
-            message=str(error),
-            source="put",
-            stack="".join(traceback.format_exception(error)),
-            seq=input["seq"],
-            coverageData=coverageData,
-            coverageArcs=coverageArcs,
-        )
+        res_err: RunnerErrorResult = {
+            "tag": "error",
+            "name": "PythonPutError",
+            "message": str(error),
+            "source": "put",
+            "stack": "".join(traceback.format_exception(error)),
+            "seq": input["seq"],
+            "coverageData": coverageData,
+            "coverageArcs": coverageArcs,
+        }
+        if val_dict:
+            res_err["validators"] = val_dict
+        return res_err
 
-    return RunnerValueResult(
-        tag="value",
-        value=sanitize_output(value),
-        seq=input["seq"],
-        coverageData=coverageData,
-        coverageArcs=coverageArcs,
-    )
+    res_val: RunnerValueResult = {
+        "tag": "value",
+        "value": sanitize_output(value),
+        "seq": input["seq"],
+        "coverageData": coverageData,
+        "coverageArcs": coverageArcs,
+    }
+    if val_dict:
+        res_val["validators"] = val_dict
+    return res_val
 
 
 def put_result(result: RunnerResult) -> None:

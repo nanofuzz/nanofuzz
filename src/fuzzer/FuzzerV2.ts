@@ -34,7 +34,6 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { getIoKey, isError, isSameJudgments } from "./Util";
-import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner } from "./runners/AbstractRunner";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
@@ -604,27 +603,16 @@ export class FuzzerV2 {
       userGenRunner
     );
 
-    const propRunners = this._validators.map((vFnRef) =>
-      RunnerFactory(this.env, targetMod, vFnRef.name)
-    );
-    await Promise.all(propRunners.map((p) => p.onRunStart()));
-    const propertyOracle = new PropertyOracle(propRunners);
-
     const workers = [
       {
         id: 0,
         runner,
-        propRunners,
-        propertyOracle,
       },
     ];
 
-    const runners = [
-      runner,
-      transformRunner,
-      userGenRunner,
-      ...propRunners,
-    ].filter((r): r is AbstractRunner => r !== undefined);
+    const runners = [runner, transformRunner, userGenRunner].filter(
+      (r): r is AbstractRunner => r !== undefined
+    );
     this._measures.forEach((m) => {
       m.onRunStart(runners, this.env);
     });

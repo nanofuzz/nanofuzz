@@ -104,7 +104,7 @@ function createProgram(): Commander.Command {
       `--host-startup-timeout <integer>`,
       `Maximum time in ms allowed for test runner host startup`,
       parseIntArgGeOne,
-      10000
+      20000
     )
     .option(`--seed <string>`, `Seed for pseudo-random number generator`)
     .option(`--no-shrink`, `Disable shrinking failing test inputs`)

@@ -7,8 +7,11 @@ import { AbstractCoverageMeasure } from "./measures/AbstractCoverageMeasure";
 import { ExampleOracle } from "./oracles/ExampleOracle";
 import { ImplicitOracle } from "./oracles/ImplicitOracle";
 import { PropertyOracle } from "./oracles/PropertyOracle";
-import { Judgment } from "./oracles/Types";
-import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
+import {
+  AbstractRunner,
+  RunnerResult,
+  ValidatorResult,
+} from "./runners/AbstractRunner";
 import {
   FuzzOptions,
   FuzzPinnedTest,
@@ -23,8 +26,6 @@ import { categorizeResult, getIoKey, isError } from "./Util";
 export interface FuzzWorkerContext {
   id: number;
   runner: AbstractRunner;
-  propRunners: AbstractRunner[];
-  propertyOracle?: PropertyOracle;
 }
 
 /**
@@ -103,7 +104,7 @@ export class FuzzExecutor {
    */
   public get runners(): AbstractRunner[] {
     return [
-      ...this._workers.flatMap((w) => [w.runner, ...w.propRunners]),
+      ...this._workers.map((w) => w.runner),
       this._transformRunner,
       this._userGenRunner,
     ].filter((r): r is AbstractRunner => r !== undefined);
@@ -174,6 +175,11 @@ export class FuzzExecutor {
     }
 
     // 2. Call the PUT via the worker runner
+    const validatorNames =
+      this._options.useProperty && this._validators.length > 0
+        ? this._validators.map((v) => v.name)
+        : undefined;
+
     const startRunTime = performance.now();
     let exeOutput: RunnerResult;
     try {
@@ -183,7 +189,8 @@ export class FuzzExecutor {
         () =>
           worker.runner.run(
             result.input.map((e) => e.value),
-            Math.max(this._options.fnTimeout, 0)
+            Math.max(this._options.fnTimeout, 0),
+            validatorNames
           ),
         this._getRemainingSuiteTime(),
         cancelCheck
@@ -226,17 +233,7 @@ export class FuzzExecutor {
     let valTime = 0;
     if (!result.skipped) {
       const startValTime = performance.now();
-      const cancelCheck =
-        cancelFn && !candidate.injected ? cancelFn : undefined;
-      const oracleSuccess = await this._evaluateOracles(
-        result,
-        worker.propertyOracle,
-        worker.propRunners,
-        cancelCheck
-      );
-      if (!oracleSuccess) {
-        return undefined; // interrupted
-      }
+      this._evaluateOracles(result, exeOutput.result.validators);
       valTime = performance.now() - startValTime;
     }
 
@@ -323,10 +320,7 @@ export class FuzzExecutor {
       return undefined;
     }
 
-    const runnersToRecord: AbstractRunner[] = [
-      worker0.runner,
-      ...worker0.propRunners,
-    ];
+    const runnersToRecord: AbstractRunner[] = [worker0.runner];
     if (this._transformRunner && candidate.source.type === "transformer") {
       runnersToRecord.push(this._transformRunner);
     }
@@ -497,17 +491,12 @@ export class FuzzExecutor {
    * Evaluates the results of the fuzz test against the configured oracles (implicit, human, and property).
    *
    * @param result The current fuzz test result object to be evaluated.
-   * @param propertyOracle Property oracle to evaluate.
-   * @param propRunners Property validator runners.
-   * @param cancelCheck Optional cancellation check function.
-   * @returns A promise that resolves to a boolean indicating whether evaluation completed without interruption.
+   * @param validatorResults Optional in-host validator results map.
    */
-  protected async _evaluateOracles(
+  protected _evaluateOracles(
     result: FuzzTestResult,
-    propertyOracle?: PropertyOracle,
-    propRunners: AbstractRunner[] = [],
-    cancelCheck?: () => boolean
-  ): Promise<boolean> {
+    validatorResults?: Record<string, ValidatorResult>
+  ): void {
     // IMPLICIT ORACLE
     if (this._options.useImplicit) {
       result.passedImplicit = ImplicitOracle.judge(
@@ -529,62 +518,16 @@ export class FuzzExecutor {
     }
 
     // PROPERTY ORACLE
-    if (this._options.useProperty && propertyOracle && propRunners.length > 0) {
-      let validatorJudgments: (Judgment | Error)[];
-      try {
-        validatorJudgments = await propertyOracle.judge(
-          Object.freeze({
-            in: result.input.map((i) => i.value),
-            out:
-              result.output.length === 0
-                ? "timeout or exception"
-                : result.output[0].value,
-            exception: result.exception,
-            timeout: result.timeout,
-          }),
-          Math.max(this._options.fnTimeout, 0),
-          this._getRemainingSuiteTime(),
-          cancelCheck
-        );
-      } catch (e: unknown) {
-        if (isError(e) && e.message === "runnerInterrupted") {
-          return false;
-        }
-        throw e;
-      }
-
-      validatorJudgments.forEach((j, i) => {
-        if (isError(j)) {
-          result.passedValidators.push("unknown");
-          const fnName = this._validators[i]?.name ?? `validator_${i}`;
-          if (j.name === "PropertyValidatorTimeout") {
-            result.harnessErrors.push({
-              kind: "timeout",
-              stage: "validator",
-              fnName,
-              message: `Timeout exceeding ${this._options.fnTimeout} ms`,
-              display: `(${fnName} timeout)`,
-            });
-          } else {
-            result.harnessErrors.push({
-              kind: "exception",
-              stage: "validator",
-              fnName,
-              message: j.message,
-              display: `(${fnName} ${j.name}) ${j.message}`,
-              stack: j.stack ?? "<no stack>",
-            });
-          }
-        } else {
-          result.passedValidators.push(j);
-        }
-      });
-
-      result.passedValidator = PropertyOracle.summarize(
-        result.passedValidators
+    if (this._options.useProperty && this._validators.length > 0) {
+      const { judgments, harnessErrors } = PropertyOracle.mapJudgments(
+        validatorResults,
+        this._validators,
+        this._options.fnTimeout
       );
-    }
 
-    return true;
+      result.passedValidators = judgments;
+      result.harnessErrors.push(...harnessErrors);
+      result.passedValidator = PropertyOracle.summarize(judgments);
+    }
   } // fn: _evaluateOracles
 } // class: FuzzExecutor

@@ -131,12 +131,11 @@ describe("fuzzer: general & parameterized engine tests", () => {
       expect(fuzzerBase.transformRunner).toBeUndefined();
       fuzzerBase.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
-        expect(w.propRunners.length).toBe(0);
       });
       // 4 workers * (1 PUT) + 0 user gen = 4 total runners
       await fuzzerBase.stopRunnersForTest();
 
-      // 2. PUT target with property validator (e.g. from Python fixture with validator)
+      // 2. PUT target with property validator (in-host property validators)
       const fuzzerWithValidator = new TestableFuzzerV3(
         "./test_fixtures/Fuzzer.testfixtures.py",
         "async_greeting",
@@ -159,9 +158,8 @@ describe("fuzzer: general & parameterized engine tests", () => {
       expect(fuzzerWithValidator.transformRunner).toBeUndefined();
       fuzzerWithValidator.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
-        expect(w.propRunners.length).toBe(1); // 1 property validator runner per worker
       });
-      // 3 workers * (1 PUT + 1 Validator) + 0 user gen = 6 total runners
+      // 3 workers * (1 PUT with in-host validators) = 3 total runners (0 separate validator processes)
       await fuzzerWithValidator.stopRunnersForTest();
 
       // 3. PUT target with UserInputGenerator enabled
@@ -189,7 +187,6 @@ describe("fuzzer: general & parameterized engine tests", () => {
       expect(fuzzerWithUserGen.transformRunner).toBeUndefined();
       fuzzerWithUserGen.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
-        expect(w.propRunners.length).toBe(0);
       });
       // 3 workers * (1 PUT) + 1 centralized user gen = 4 total runners
       await fuzzerWithUserGen.stopRunnersForTest();
@@ -217,7 +214,6 @@ describe("fuzzer: general & parameterized engine tests", () => {
       expect(fuzzerWithTransformer.transformRunner).toBeDefined(); // Centralized 1 transformer runner
       fuzzerWithTransformer.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
-        expect(w.propRunners.length).toBe(0);
       });
       // 4 workers * (1 PUT) + 1 centralized transformer = 5 total runners
       await fuzzerWithTransformer.stopRunnersForTest();

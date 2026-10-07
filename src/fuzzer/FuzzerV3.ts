@@ -39,7 +39,6 @@ import {
   isSameJudgments,
   determineWorkerCount,
 } from "./Util";
-import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
@@ -700,7 +699,7 @@ export class FuzzerV3 {
 
     const runnersToRecord: AbstractRunner[] = [];
     if (slot.worker) {
-      runnersToRecord.push(slot.worker.runner, ...slot.worker.propRunners);
+      runnersToRecord.push(slot.worker.runner);
     }
     if (
       this._executor.transformRunner &&
@@ -831,15 +830,9 @@ export class FuzzerV3 {
         this._function.getName(),
         i === 0 ? { acceptsStaticCoverage: true } : {}
       );
-      const propRunners = this._validators.map((vFnRef) =>
-        RunnerFactory(this.env, targetMod, vFnRef.name)
-      );
-      const propertyOracle = new PropertyOracle(propRunners);
       workers.push({
         id: i,
         runner,
-        propRunners,
-        propertyOracle,
       });
     }
 
