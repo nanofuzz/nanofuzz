@@ -73,6 +73,7 @@ export class FuzzerV3 {
 
   protected _compositeInputGenerator: CompositeInputGenerator;
   protected _workers: WorkerContext[] = [];
+  protected _userGenRunner?: AbstractRunner;
   protected _injectMap: Map<string, FuzzPinnedTest> = new Map();
   protected _stats: FuzzStats;
   protected _lastCompiler?: ReturnType<
@@ -738,12 +739,7 @@ export class FuzzerV3 {
 
     slot.result = result;
     slot.exeOutput = exeOutput;
-    slot.runners = [
-      worker.runner,
-      worker.transformRunner,
-      worker.userGenRunner,
-      ...worker.propRunners,
-    ].filter((r): r is AbstractRunner => r !== undefined);
+    slot.worker = worker;
     return slot;
   } // fn: _stage2ExecuteTest
 
@@ -765,15 +761,29 @@ export class FuzzerV3 {
 
     // 2. Take measurements & feed back to generator
     this._prepareMeasures();
-    if (slot.runners) {
-      for (const r of slot.runners) {
-        if (r.lastRunCoverage) {
-          this._measures.forEach((m) => {
-            if (m instanceof AbstractCoverageMeasure) {
-              m.recordHits(r.lastRunCoverage);
-            }
-          });
-        }
+    const runnersToRecord: AbstractRunner[] = [];
+    if (slot.worker) {
+      runnersToRecord.push(slot.worker.runner);
+      if (slot.worker.transformRunner) {
+        runnersToRecord.push(slot.worker.transformRunner);
+      }
+      runnersToRecord.push(...slot.worker.propRunners);
+    }
+    if (
+      this._userGenRunner &&
+      slot.candidate.source.type === "generator" &&
+      slot.candidate.source.generator === "UserInputGenerator"
+    ) {
+      runnersToRecord.push(this._userGenRunner);
+    }
+
+    for (const r of runnersToRecord) {
+      if (r.lastRunCoverage) {
+        this._measures.forEach((m) => {
+          if (m instanceof AbstractCoverageMeasure) {
+            m.recordHits(r.lastRunCoverage);
+          }
+        });
       }
     }
 
@@ -868,6 +878,18 @@ export class FuzzerV3 {
         ? Math.max(1, Math.min(this.workerCount, this._options.maxTests))
         : this.workerCount;
 
+    this._userGenRunner = undefined;
+    if (
+      this.env.options.generators.UserInputGenerator?.enabled &&
+      this.env.userGenerators.length
+    ) {
+      this._userGenRunner = RunnerFactory(
+        this.env,
+        targetMod,
+        this.env.userGenerators[0].name
+      );
+    }
+
     this._workers = [];
     for (let i = 0; i < workerCount; i++) {
       const runner = RunnerFactory(
@@ -884,17 +906,6 @@ export class FuzzerV3 {
           this.env.transformers[0].name
         );
       }
-      let userGenRunner: AbstractRunner | undefined;
-      if (
-        this.env.options.generators.UserInputGenerator?.enabled &&
-        this.env.userGenerators.length
-      ) {
-        userGenRunner = RunnerFactory(
-          this.env,
-          targetMod,
-          this.env.userGenerators[0].name
-        );
-      }
       const propRunners = this._validators.map((vFnRef) =>
         RunnerFactory(this.env, targetMod, vFnRef.name)
       );
@@ -902,20 +913,19 @@ export class FuzzerV3 {
       this._workers.push({
         runner,
         transformRunner,
-        userGenRunner,
         propRunners,
         propertyOracle,
       });
     }
 
     const allRunnersToStart: Promise<void>[] = [];
+    if (this._userGenRunner) {
+      allRunnersToStart.push(this._userGenRunner.onRunStart());
+    }
     for (const w of this._workers) {
       allRunnersToStart.push(w.runner.onRunStart());
       if (w.transformRunner) {
         allRunnersToStart.push(w.transformRunner.onRunStart());
-      }
-      if (w.userGenRunner) {
-        allRunnersToStart.push(w.userGenRunner.onRunStart());
       }
       for (const p of w.propRunners) {
         allRunnersToStart.push(p.onRunStart());
@@ -929,17 +939,17 @@ export class FuzzerV3 {
       this._workers[0]?.transformRunner,
       this._options.fnTimeout,
       this._options.maxDupeInputs,
-      this._workers[0]?.userGenRunner
+      this._userGenRunner
     );
 
-    const allRunners = this._workers
-      .flatMap((w) => [
+    const allRunners = [
+      ...this._workers.flatMap((w) => [
         w.runner,
         w.transformRunner,
-        w.userGenRunner,
         ...w.propRunners,
-      ])
-      .filter((r): r is AbstractRunner => r !== undefined);
+      ]),
+      this._userGenRunner,
+    ].filter((r): r is AbstractRunner => r !== undefined);
     this._measures.forEach((m) => {
       m.onRunStart(allRunners, this.env);
     });
@@ -952,13 +962,13 @@ export class FuzzerV3 {
    */
   protected async _stopRunners(): Promise<void> {
     const allRunnersToStop: Promise<void>[] = [];
+    if (this._userGenRunner) {
+      allRunnersToStop.push(this._userGenRunner.onRunEnd());
+    }
     for (const w of this._workers) {
       allRunnersToStop.push(w.runner.onRunEnd());
       if (w.transformRunner) {
         allRunnersToStop.push(w.transformRunner.onRunEnd());
-      }
-      if (w.userGenRunner) {
-        allRunnersToStop.push(w.userGenRunner.onRunEnd());
       }
       for (const p of w.propRunners) {
         allRunnersToStop.push(p.onRunEnd());
@@ -1392,7 +1402,7 @@ interface PipelineSlot {
   // PUT Execution Output
   result?: FuzzTestResult;
   exeOutput?: RunnerResult;
-  runners?: AbstractRunner[];
+  worker?: WorkerContext;
   runTime: number;
   coverageMeasurements?: BaseMeasurement[];
 
@@ -1412,7 +1422,6 @@ interface PipelineSlot {
 interface WorkerContext {
   runner: AbstractRunner;
   transformRunner?: AbstractRunner;
-  userGenRunner?: AbstractRunner;
   propRunners: AbstractRunner[];
   propertyOracle?: PropertyOracle;
 }

@@ -735,6 +735,7 @@ export class Tester {
             [
               runner.onRunEnd(),
               transformRunner?.onRunEnd(),
+              userGenRunner?.onRunEnd(),
               ...propRunners.map((p) => p.onRunEnd()),
             ].filter((e) => e !== undefined)
           );

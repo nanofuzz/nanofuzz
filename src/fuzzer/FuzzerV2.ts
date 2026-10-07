@@ -647,7 +647,8 @@ export class FuzzerV2 {
       this._function,
       this._validators,
       injectMap,
-      getRemainingSuiteTime
+      getRemainingSuiteTime,
+      userGenRunner
     );
   } // fn: _initExecutor
 

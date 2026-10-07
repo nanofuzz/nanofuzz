@@ -30,6 +30,7 @@ export type FuzzExecutionOutput = {
 export class FuzzExecutor {
   protected _runner: AbstractRunner;
   protected _transformRunner?: AbstractRunner;
+  protected _userGenRunner?: AbstractRunner;
   protected _propRunners: AbstractRunner[];
   protected _propertyOracle: PropertyOracle;
   protected _measures: AbstractMeasure[];
@@ -49,10 +50,12 @@ export class FuzzExecutor {
     functionDef: FunctionDef,
     validators: FunctionRef[],
     injectMap: Map<string, FuzzPinnedTest>,
-    getRemainingSuiteTime: () => number
+    getRemainingSuiteTime: () => number,
+    userGenRunner?: AbstractRunner
   ) {
     this._runner = runner;
     this._transformRunner = transformRunner;
+    this._userGenRunner = userGenRunner;
     this._propRunners = propRunners;
     this._propertyOracle = propertyOracle;
     this._measures = measures;
@@ -69,9 +72,12 @@ export class FuzzExecutor {
    * @returns An array of all active runners.
    */
   public get runners(): AbstractRunner[] {
-    return [this._runner, this._transformRunner, ...this._propRunners].filter(
-      (r): r is AbstractRunner => r !== undefined
-    );
+    return [
+      this._runner,
+      this._transformRunner,
+      this._userGenRunner,
+      ...this._propRunners,
+    ].filter((r): r is AbstractRunner => r !== undefined);
   } // get: runners
 
   /**
