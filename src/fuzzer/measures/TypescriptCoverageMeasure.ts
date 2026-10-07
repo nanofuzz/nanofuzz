@@ -18,9 +18,6 @@ import {
 } from "../Types";
 import { normalizePathForKey } from "../Util";
 import { AbstractRunner } from "../runners/AbstractRunner";
-import { JavascriptRunner } from "../runners/javascript/JavascriptRunner";
-import * as Config from "../../Config";
-import { parseCoverageScope } from "./Util";
 import * as fs from "fs";
 import * as path from "path";
 import {
@@ -41,14 +38,12 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   protected _lastNode: CoverageMeasurementNode | undefined = undefined;
   protected _sourceMapStore: MapStore = createSourceMapStore();
   protected _lineHitCounts: Map<string, Map<number, number>> = new Map(); // tracks per-line hit counts across test runs
-  protected _staticCoveragePromise?: Promise<unknown>;
-  protected _staticProbeRunner?: JavascriptRunner;
 
   public override onRunStart(
     runners: AbstractRunner[] | AbstractRunner,
-    env?: FuzzEnv
+    _env?: FuzzEnv
   ): void {
-    super.onRunStart(runners, env);
+    super.onRunStart(runners, _env);
     this._globalCoverageMap = createCoverageMap({});
     this._history.clear();
     this._lastNode = undefined;
@@ -60,10 +55,37 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
       if (isCoverageMapData(initialCov)) {
         for (const k of Object.keys(initialCov)) {
           const normKey = normalizePathForKey(k);
-          this._coverageData[normKey] = {
-            ...structuredClone(initialCov[k]),
-            path: normKey,
-          };
+          const raw = initialCov[k];
+          const target = this._coverageData[normKey];
+          if (!target) {
+            this._coverageData[normKey] = {
+              ...structuredClone(raw),
+              path: normKey,
+            };
+          } else {
+            if (raw.s && target.s) {
+              for (const sk of Object.keys(raw.s)) {
+                target.s[sk] = Math.max(target.s[sk] ?? 0, raw.s[sk] ?? 0);
+              }
+            }
+            if (raw.f && target.f) {
+              for (const fk of Object.keys(raw.f)) {
+                target.f[fk] = Math.max(target.f[fk] ?? 0, raw.f[fk] ?? 0);
+              }
+            }
+            if (raw.b && target.b) {
+              for (const bk of Object.keys(raw.b)) {
+                if (Array.isArray(raw.b[bk]) && Array.isArray(target.b[bk])) {
+                  for (let i = 0; i < raw.b[bk].length; i++) {
+                    target.b[bk][i] = Math.max(
+                      target.b[bk][i] ?? 0,
+                      raw.b[bk][i] ?? 0
+                    );
+                  }
+                }
+              }
+            }
+          }
         }
       }
       r.onCoverage((covData) => {
@@ -77,25 +99,6 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
       AbstractCoverageMeasure.merge(this._globalCoverageMap, this._snapshot());
       this._coverageData = this._snapshotZero();
     }
-
-    const coverageScopeRaw = Config.get<unknown>(
-      "nanofuzz.fuzzer.coverageScope",
-      "project static"
-    );
-    const scopeConfig = parseCoverageScope(coverageScopeRaw);
-    const targetModule = runnerList[0]?.filename ?? env?.function.getModule();
-    if (
-      scopeConfig.collectStaticCoverage &&
-      env?.options?.measures?.CoverageMeasure?.enabled &&
-      targetModule
-    ) {
-      this._staticCoveragePromise = this._resolveStaticCoverageAsync(
-        env,
-        targetModule
-      );
-    } else {
-      this._staticCoveragePromise = undefined;
-    }
   } // fn: onRunStart
 
   /**
@@ -104,8 +107,9 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @param coverageData a record of file coverage data
    * @returns void
    */
-  public recordHits(coverageData: Record<string, FileCoverageData>): void {
-    if (!this._coverageData) return;
+  public override recordHits(coverageData: unknown): void {
+    if (!this._coverageData || !isRecordOfFileCoverageData(coverageData))
+      return;
     for (const fileKey of Object.keys(coverageData)) {
       const normKey = normalizePathForKey(fileKey);
       const fileHits = coverageData[fileKey];
@@ -401,24 +405,8 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @param `results` all test results
    */
   public onRunEnd(results: FuzzTestResults): void {
-    if (this._staticProbeRunner) {
-      this._staticProbeRunner.killHost();
-      this._staticProbeRunner = undefined;
-    }
-
     results.stats.measures.CodeCoverageMeasure =
       async (): Promise<CodeCoverageMeasureStats> => {
-        if (this._staticCoveragePromise) {
-          try {
-            const staticCov = await this._staticCoveragePromise;
-            if (isCoverageMapData(staticCov)) {
-              AbstractCoverageMeasure.merge(this._globalCoverageMap, staticCov);
-            }
-          } catch {
-            // Ignore static coverage resolution failure
-          }
-        }
-
         // Register source maps from disk for any files in globalCoverageMap
         // that aren't already registered (e.g. from cached instrumented runs)
         for (const fileKey of this._globalCoverageMap.files()) {
@@ -612,34 +600,6 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     }
     throw new Error(`No coverahe data for "${tick}"`);
   } // fn: getCoverage
-
-  /**
-   * Resolves static code coverage baseline asynchronously in the background.
-   */
-  protected async _resolveStaticCoverageAsync(
-    env: FuzzEnv,
-    targetModule: string
-  ): Promise<unknown> {
-    const probeRunner = new JavascriptRunner(
-      targetModule,
-      env.function.getName(),
-      env,
-      { acceptsStaticCoverage: true }
-    );
-    this._staticProbeRunner = probeRunner;
-    try {
-      await probeRunner.onRunStart();
-      return probeRunner.coverageInfo;
-    } catch {
-      return undefined;
-    } finally {
-      await probeRunner.onRunEnd();
-      probeRunner.killHost();
-      if (this._staticProbeRunner === probeRunner) {
-        this._staticProbeRunner = undefined;
-      }
-    }
-  } // fn: _resolveStaticCoverageAsync
 } // class: TypescriptCoverageMeasure
 
 /**
@@ -691,7 +651,7 @@ export function emptyCoverageMapData(files: string[]): CoverageMapData {
  * @param val the value to check
  * @returns true if `val` is a record of file coverage data, false otherwise
  */
-function isRecordOfFileCoverageData(
+export function isRecordOfFileCoverageData(
   val: unknown
 ): val is Record<string, FileCoverageData> {
   return typeof val === "object" && val !== null;

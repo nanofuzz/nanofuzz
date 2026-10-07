@@ -517,7 +517,12 @@ export class Tester {
     this._results.stats.timers.instrument = performance.now() - instrumentTime;
 
     // Build a test runner for executing tests
-    const runner = RunnerFactory(this.env, targetMod, this._function.getName());
+    const runner = RunnerFactory(
+      this.env,
+      targetMod,
+      this._function.getName(),
+      { acceptsStaticCoverage: true }
+    );
     await runner.onRunStart();
 
     // Build a test runner for executing transformers, if any are present and enabled

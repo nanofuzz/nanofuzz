@@ -13,7 +13,6 @@ import vm from "node:vm";
 import { Worker } from "node:worker_threads";
 import { serialize, deserialize } from "node:v8";
 import { RunnerInput, TypeHint } from "../AbstractRunner";
-import { MAX_HEARTBEATS } from "../AbstractHost";
 import { isError } from "../../Util";
 
 const realStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -320,16 +319,9 @@ function startHeartbeat(intervalMs = 250): void {
       const fs = require("node:fs");
       const v8 = require("node:v8");
 
-      let count = 0;
-      const maxCount = ${MAX_HEARTBEATS};
       const interval = ${intervalMs};
 
       const timer = setInterval(() => {
-        count++;
-        if (count > maxCount) {
-          clearInterval(timer);
-          return;
-        }
         try {
           const payload = v8.serialize("HEART");
           const msg = Buffer.alloc(4 + payload.length);

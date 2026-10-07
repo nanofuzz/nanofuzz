@@ -70,7 +70,18 @@ async function runCli(
 
   try {
     Config.clearOverrides();
-    const status = await runCliInProcess(args);
+    const effectiveArgs = [...args];
+    if (
+      !effectiveArgs.includes("--workers") &&
+      !effectiveArgs.includes("-w") &&
+      !effectiveArgs.includes("--help") &&
+      !effectiveArgs.includes("-h") &&
+      !effectiveArgs.includes("--version") &&
+      !effectiveArgs.includes("-V")
+    ) {
+      effectiveArgs.push("--workers", "1");
+    }
+    const status = await runCliInProcess(effectiveArgs);
     return { status, stdout, stderr };
   } finally {
     process.stdout.write = origStdoutWrite;
@@ -130,6 +141,8 @@ describe("cli:", () => {
       targetFn,
       "--output-file",
       outputFile,
+      "--workers",
+      "auto",
       "--max-tests",
       maxTests.toString(),
       "--max-runtime",

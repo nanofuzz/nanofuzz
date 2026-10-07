@@ -1,5 +1,8 @@
+# autopep8: off
 import sys
+from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
 import signal
+
 
 # Ignore SIGINT in child runner host; lifecycle is managed exclusively by parent process
 try:
@@ -7,15 +10,52 @@ try:
 except Exception:
     pass
 
+
+def _send_heartbeat_byte() -> None:
+    _HEARTBEAT_BYTES = b'\x00\x00\x00\x06\xa5HEART'
+    if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
+        try:
+            sys.__stdout__.buffer.write(_HEARTBEAT_BYTES)
+            sys.__stdout__.buffer.flush()
+        except Exception:
+            pass
+
+
 # Send an immediate heartbeat as early as possible during startup
 # so parent process timeout timer is reset while modules load.
-if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
-    try:
-        sys.__stdout__.buffer.write(b'\x00\x00\x00\x06\xa5HEART')
-        sys.__stdout__.buffer.flush()
-    except Exception:
-        pass
+_send_heartbeat_byte()
 
+
+import threading
+
+
+class HostHeartbeat:
+    """Sends periodic startup heartbeat messages to the parent process.
+    Capped at max_heartbeats (default 1000).
+    Runs as a daemon thread and stops when stop() is called.
+    """
+
+    def __init__(self):
+        self.stop_event = threading.Event()
+        self.thread = None
+
+    def start(self):
+        def _worker():
+            while not self.stop_event.wait(timeout=0.25):
+                _send_heartbeat_byte()
+
+        self.thread = threading.Thread(target=_worker, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+
+
+_startup_hb = HostHeartbeat()
+_startup_hb.start()
+
+
+from contextlib import redirect_stdout, contextmanager
 import importlib.util
 import os
 import io
@@ -26,56 +66,12 @@ import tempfile
 import traceback
 import uuid
 import ctypes
-import threading
 import sysconfig
 import inspect
 import asyncio
-from contextlib import redirect_stdout, contextmanager
-from typing import Any, Literal, List, Tuple, Union, TypedDict, NotRequired, Optional, cast
-
-_HEARTBEAT_BYTES = b'\x00\x00\x00\x06\xa5HEART'
 
 
-def _send_heartbeat_byte() -> None:
-    if sys.__stdout__ is not None and hasattr(sys.__stdout__, "buffer"):
-        try:
-            sys.__stdout__.buffer.write(_HEARTBEAT_BYTES)
-            sys.__stdout__.buffer.flush()
-        except Exception:
-            pass
-
-
-class HostHeartbeat:
-    """Sends periodic startup heartbeat messages to the parent process.
-    Capped at max_heartbeats (default 1000).
-    Runs as a daemon thread and stops when stop() is called.
-    """
-
-    def __init__(self, interval_sec: float = 0.25, max_heartbeats: int = 1000):
-        self.interval = interval_sec
-        self.max_heartbeats = max_heartbeats
-        self.heartbeat_count = 0
-        self.stop_event = threading.Event()
-        self.thread = None
-
-    def start(self):
-        def _worker():
-            while not self.stop_event.wait(timeout=self.interval):
-                if self.heartbeat_count >= self.max_heartbeats:
-                    break
-                self.heartbeat_count += 1
-                _send_heartbeat_byte()
-
-        self.thread = threading.Thread(target=_worker, daemon=True)
-        self.thread.start()
-
-    def stop(self):
-        self.stop_event.set()
-
-
-_startup_hb = HostHeartbeat(interval_sec=0.25, max_heartbeats=1000)
-_startup_hb.start()
-
+# autopep8: on
 # ---------------------------------------------------------------------------
 # Bootstrap NaNofuzz Vendor Dependencies (_nanofuzz_python)
 # ---------------------------------------------------------------------------

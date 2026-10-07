@@ -9,7 +9,10 @@ import { ArgDef } from "../../analysis/ArgDef";
 import { ArgTag } from "../../analysis/Types";
 import { NodeHost } from "./NodeHost";
 import { FuzzEnv } from "../../Types";
-import { isCoverageMapData } from "../../measures/TypescriptCoverageMeasure";
+import {
+  isCoverageMapData,
+  isRecordOfFileCoverageData,
+} from "../../measures/TypescriptCoverageMeasure";
 import {
   CoverageMapData,
   Range,
@@ -37,6 +40,7 @@ export class JavascriptRunner extends AbstractRunner {
   protected _host: NodeHost | undefined = undefined;
   protected _seq = 0;
   protected _coverageInfo: CoverageMapData | undefined = undefined;
+  protected _lastRunCoverage?: Record<string, FileCoverageData>;
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
   protected _overrides: RunnerOverrides;
@@ -128,11 +132,8 @@ export class JavascriptRunner extends AbstractRunner {
       const parsedRes = deserialize(rawResBuf);
 
       if (isParsedHostResponse(parsedRes) && parsedRes.coverageData) {
-        if (
-          typeof parsedRes.coverageData === "object" &&
-          parsedRes.coverageData !== null &&
-          !Array.isArray(parsedRes.coverageData)
-        ) {
+        if (isRecordOfFileCoverageData(parsedRes.coverageData)) {
+          this._lastRunCoverage = parsedRes.coverageData;
           if (!this._coverageInfo) {
             this._coverageInfo = {};
           }
@@ -271,6 +272,15 @@ export class JavascriptRunner extends AbstractRunner {
   public override get coverageInfo(): CoverageMapData | undefined {
     return this._coverageInfo;
   } // property: get coverageInfo
+
+  /**
+   * Gets the single most recent execution's coverage data.
+   */
+  public override get lastRunCoverage():
+    | Record<string, FileCoverageData>
+    | undefined {
+    return this._lastRunCoverage;
+  } // get: lastRunCoverage
 
   /**
    * Registers a callback to be invoked when coverage data is available.

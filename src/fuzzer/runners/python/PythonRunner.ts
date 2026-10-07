@@ -248,6 +248,13 @@ export class PythonRunner extends AbstractRunner {
   } // fn: coverageInfo
 
   /**
+   * Returns the single most recent execution's coverage information.
+   */
+  public override get lastRunCoverage(): FullCoverage | undefined {
+    return this._coverageInfo;
+  } // get: lastRunCoverage
+
+  /**
    * Registers a callback to be invoked with coverage data
    *
    * @param callback the callback to register

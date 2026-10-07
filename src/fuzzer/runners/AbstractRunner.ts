@@ -39,6 +39,13 @@ export abstract class AbstractRunner {
   } // get: coverageInfo
 
   /**
+   * Optional coverage info from the most recent run execution.
+   */
+  public get lastRunCoverage(): unknown {
+    return undefined;
+  } // get: lastRunCoverage
+
+  /**
    * Registers a callback to receive coverage hits after test execution.
    *
    * @param `callback` function called when coverage hits are produced

@@ -16,8 +16,6 @@ import {
 import { FullCoverage, PythonRunner } from "../runners/python/PythonRunner";
 import { AbstractRunner, Arc } from "../runners/AbstractRunner";
 import { normalizePathForKey } from "../Util";
-import * as Config from "../../Config";
-import { parseCoverageScope } from "./Util";
 import {
   AbstractCoverageMeasure,
   CodeCoverageFileStats,
@@ -39,19 +37,17 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   protected _lastNode: CoverageMeasurementNode | undefined = undefined;
   protected _fileIndices = new Map<string, FileIndex>();
   protected _executedFilesThisTest = new Set<string>();
-  protected _staticCoveragePromise?: Promise<unknown>;
-  protected _staticProbeRunner?: PythonRunner;
 
   /**
    * Connects this measure to the run's Python runners, which are the source of
    * the coverage data reported by the host processes.
    *
    * @param `runners` test runners for this run
-   * @param `env` optional fuzzer environment
+   * @param `_env` optional fuzzer environment
    */
   public override onRunStart(
     runners: AbstractRunner[] | AbstractRunner,
-    env?: FuzzEnv
+    _env?: FuzzEnv
   ): void {
     const runnerList = Array.isArray(runners) ? runners : [runners];
     this._runners = [];
@@ -85,25 +81,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     }
     this._history.clear();
     this._lastNode = undefined;
-
-    const coverageScopeRaw = Config.get<unknown>(
-      "nanofuzz.fuzzer.coverageScope",
-      "project static"
-    );
-    const scopeConfig = parseCoverageScope(coverageScopeRaw);
-    const targetModule = runnerList[0]?.filename ?? env?.function.getModule();
-    if (
-      scopeConfig.collectStaticCoverage &&
-      env?.options?.measures?.CoverageMeasure?.enabled &&
-      targetModule
-    ) {
-      this._staticCoveragePromise = this._resolveStaticCoverageAsync(
-        env,
-        targetModule
-      );
-    } else {
-      this._staticCoveragePromise = undefined;
-    }
   } // fn: onRunStart
 
   /**
@@ -111,7 +88,8 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    *
    * @param covinfo Python coverage info
    */
-  public recordHits(covinfo: FullCoverage): void {
+  public override recordHits(covinfo: unknown): void {
+    if (!isFullCoverage(covinfo)) return;
     for (const [filename, fileCov] of Object.entries(covinfo)) {
       let index = this._fileIndices.get(filename);
       if (!index) {
@@ -335,28 +313,8 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
    * @param results The results of the test run.
    */
   public onRunEnd(results: FuzzTestResults): void {
-    if (this._staticProbeRunner) {
-      this._staticProbeRunner.killHost();
-      this._staticProbeRunner = undefined;
-    }
-
     results.stats.measures.CodeCoverageMeasure =
       async (): Promise<CodeCoverageMeasureStats> => {
-        if (this._staticCoveragePromise) {
-          try {
-            const staticCov = await this._staticCoveragePromise;
-            if (isFullCoverage(staticCov)) {
-              const staticMapData = this._toCoverageMapData(staticCov);
-              AbstractCoverageMeasure.merge(
-                this._globalCoverageMap,
-                staticMapData
-              );
-            }
-          } catch {
-            // Ignore static coverage resolution failure
-          }
-        }
-
         // Report the coverage accumulated across the entire run. Note that
         // `runner.coverageInfo` holds only the *most recent* call's lines, so
         // it cannot be used here.
@@ -448,34 +406,6 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     }
     throw new Error(`No coverahe data for "${tick}"`);
   } // fn: getCoverage
-
-  /**
-   * Resolves static code coverage baseline asynchronously in the background.
-   */
-  protected async _resolveStaticCoverageAsync(
-    env: FuzzEnv,
-    targetModule: string
-  ): Promise<unknown> {
-    const probeRunner = new PythonRunner(
-      targetModule,
-      env.function.getName(),
-      env,
-      { acceptsStaticCoverage: true }
-    );
-    this._staticProbeRunner = probeRunner;
-    try {
-      await probeRunner.onRunStart();
-      return probeRunner.coverageInfo;
-    } catch {
-      return undefined;
-    } finally {
-      await probeRunner.onRunEnd();
-      probeRunner.killHost();
-      if (this._staticProbeRunner === probeRunner) {
-        this._staticProbeRunner = undefined;
-      }
-    }
-  } // fn: _resolveStaticCoverageAsync
 
   /**
    * Returns a private copy of the current coverage data.

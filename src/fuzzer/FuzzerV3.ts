@@ -47,6 +47,7 @@ import { Judgment } from "./oracles/Types";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { AbstractMeasure, BaseMeasurement } from "./measures/AbstractMeasure";
+import { AbstractCoverageMeasure } from "./measures/AbstractCoverageMeasure";
 import { CompilerStaleness } from "./compilers/Types";
 import { FuzzStats } from "./FuzzStats";
 
@@ -375,6 +376,7 @@ export class FuzzerV3 {
     let isGenActive = true;
     let finalStopReason: FuzzStopReason | undefined = undefined;
     let genPromise: Promise<void> = Promise.resolve();
+    let recordPromise: Promise<void> = Promise.resolve();
 
     const fetchNextSlot = async (): Promise<{
       slot?: PipelineSlot;
@@ -455,45 +457,50 @@ export class FuzzerV3 {
         );
 
         if (executedSlot) {
-          if (
-            this._options.maxFailures > 0 &&
-            this._stats.currentRun.counters.failedTests +
-              this._stats.currentRun.counters.erroredTests >=
-              this._options.maxFailures &&
-            this._fuzzerFocus.mode !== "shrink"
-          ) {
-            isGenActive = false;
-            if (!finalStopReason) {
-              finalStopReason = FuzzStopReason.MAXFAILURES;
-            }
-            break;
-          }
-
-          const shrinkTriggered = await this._stageMeasureAndRecord(
-            executedSlot,
-            onResultFn
-          );
-
-          if (
-            this._options.maxFailures > 0 &&
-            !executedSlot.candidate?.injected &&
-            this._fuzzerFocus.mode !== "shrink"
-          ) {
-            const totalFailures =
+          let shrinkTriggered = false;
+          const nextRecord = recordPromise.then(async () => {
+            if (
+              this._options.maxFailures > 0 &&
               this._stats.currentRun.counters.failedTests +
-              this._stats.currentRun.counters.erroredTests;
-            if (totalFailures >= this._options.maxFailures) {
+                this._stats.currentRun.counters.erroredTests >=
+                this._options.maxFailures &&
+              this._fuzzerFocus.mode !== "shrink"
+            ) {
               isGenActive = false;
               if (!finalStopReason) {
                 finalStopReason = FuzzStopReason.MAXFAILURES;
               }
-              break;
+              return;
             }
-          }
 
-          if (shrinkTriggered) {
-            isGenActive = true;
-          }
+            shrinkTriggered = await this._stageMeasureAndRecord(
+              executedSlot,
+              onResultFn
+            );
+
+            if (
+              this._options.maxFailures > 0 &&
+              !executedSlot.candidate?.injected &&
+              this._fuzzerFocus.mode !== "shrink"
+            ) {
+              const totalFailures =
+                this._stats.currentRun.counters.failedTests +
+                this._stats.currentRun.counters.erroredTests;
+              if (totalFailures >= this._options.maxFailures) {
+                isGenActive = false;
+                if (!finalStopReason) {
+                  finalStopReason = FuzzStopReason.MAXFAILURES;
+                }
+              }
+            }
+
+            if (shrinkTriggered) {
+              isGenActive = true;
+            }
+          });
+
+          recordPromise = nextRecord.catch(() => {});
+          await nextRecord;
         } else if (slot.injected) {
           this._injectedInFlight = Math.max(0, this._injectedInFlight - 1);
         }
@@ -501,6 +508,7 @@ export class FuzzerV3 {
     };
 
     await Promise.all(this._workers.map((worker) => runWorker(worker)));
+    await recordPromise.catch(() => {});
 
     if (
       this._options.maxFailures > 0 &&
@@ -658,8 +666,6 @@ export class FuzzerV3 {
       return slot;
     }
 
-    this._prepareMeasures();
-
     const startRunTime = performance.now();
     let exeOutput: RunnerResult;
     try {
@@ -724,6 +730,11 @@ export class FuzzerV3 {
 
     slot.result = result;
     slot.exeOutput = exeOutput;
+    slot.runners = [
+      worker.runner,
+      worker.transformRunner,
+      ...worker.propRunners,
+    ].filter((r): r is AbstractRunner => r !== undefined);
     return slot;
   } // fn: _stage2ExecuteTest
 
@@ -744,6 +755,19 @@ export class FuzzerV3 {
     result.category = categorizeResult(result);
 
     // 2. Take measurements & feed back to generator
+    this._prepareMeasures();
+    if (slot.runners) {
+      for (const r of slot.runners) {
+        if (r.lastRunCoverage) {
+          this._measures.forEach((m) => {
+            if (m instanceof AbstractCoverageMeasure) {
+              m.recordHits(r.lastRunCoverage);
+            }
+          });
+        }
+      }
+    }
+
     const startMeasureFeedbackTime = performance.now();
     const measurements = this._measures.map((e) =>
       e.measure(slot.candidate!, result)
@@ -830,14 +854,18 @@ export class FuzzerV3 {
         performance.now() - instrumentTime;
     }
 
-    const workerCount = this.workerCount;
+    const workerCount =
+      this._options.maxTests > 0
+        ? Math.max(1, Math.min(this.workerCount, this._options.maxTests))
+        : this.workerCount;
 
     this._workers = [];
     for (let i = 0; i < workerCount; i++) {
       const runner = RunnerFactory(
         this.env,
         targetMod,
-        this._function.getName()
+        this._function.getName(),
+        i === 0 ? { acceptsStaticCoverage: true } : {}
       );
       let transformRunner: AbstractRunner | undefined;
       if (this.env.options.useTransformer && this.env.transformers.length) {
@@ -1330,6 +1358,7 @@ interface PipelineSlot {
   // PUT Execution Output
   result?: FuzzTestResult;
   exeOutput?: RunnerResult;
+  runners?: AbstractRunner[];
   runTime: number;
   coverageMeasurements?: BaseMeasurement[];
 

@@ -532,7 +532,12 @@ export class FuzzerV2 {
         performance.now() - instrumentTime;
     }
 
-    const runner = RunnerFactory(this.env, targetMod, this._function.getName());
+    const runner = RunnerFactory(
+      this.env,
+      targetMod,
+      this._function.getName(),
+      { acceptsStaticCoverage: true }
+    );
     await runner.onRunStart();
 
     let transformRunner: ReturnType<typeof RunnerFactory> | undefined;
