@@ -499,13 +499,15 @@ export class ArgDefMutator {
               : Array.isArray(subElem)
                 ? subElem.filter((e): e is number => typeof e === "number")
                 : [];
-            const rPos = Math.floor(prng() * Math.max(0, rawBytes.length - 1));
+            const len = rawBytes.length;
+            const rPos = Math.floor(prng() * Math.max(0, len - 1));
             const rByte = Math.floor(prng() * 256);
             const rBit = Math.floor(prng() * 8);
 
             const proposals: (MutationProposal & { value: Uint8Array })[] = [];
 
-            if (rawBytes.length > 0 && options.byteLength.min === 0) {
+            // Clear (simplification)
+            if (len > 0 && options.byteLength.min === 0) {
               proposals.push({
                 name: "bytes-clear",
                 value: new Uint8Array(0),
@@ -514,7 +516,8 @@ export class ArgDefMutator {
               });
             }
 
-            if (rawBytes.length > 0) {
+            if (len > 0) {
+              // Single-bit flip
               const bitFlipped = new Uint8Array(rawBytes);
               const bitWasSet = (rawBytes[rPos] & (1 << rBit)) !== 0;
               bitFlipped[rPos] ^= 1 << rBit;
@@ -525,6 +528,7 @@ export class ArgDefMutator {
                 simplifies: bitWasSet,
               });
 
+              // Single-byte increment
               const byteInc = new Uint8Array(rawBytes);
               byteInc[rPos] = (byteInc[rPos] + 1) % 256;
               proposals.push({
@@ -533,6 +537,61 @@ export class ArgDefMutator {
                 path: [...subInput.subPath],
               });
 
+              // Single-byte decrement
+              const byteDec = new Uint8Array(rawBytes);
+              byteDec[rPos] = (byteDec[rPos] - 1 + 256) % 256;
+              proposals.push({
+                name: "bytes-decByte",
+                value: byteDec,
+                path: [...subInput.subPath],
+                simplifies: byteDec[rPos] < rawBytes[rPos],
+              });
+
+              // Invert single byte (all 8 bits)
+              const byteInvert = new Uint8Array(rawBytes);
+              byteInvert[rPos] ^= 0xff;
+              proposals.push({
+                name: "bytes-invertByte",
+                value: byteInvert,
+                path: [...subInput.subPath],
+              });
+
+              // Set single byte to zero
+              if (rawBytes[rPos] !== 0) {
+                const byteZero = new Uint8Array(rawBytes);
+                byteZero[rPos] = 0;
+                proposals.push({
+                  name: "bytes-setZero",
+                  value: byteZero,
+                  path: [...subInput.subPath],
+                  simplifies: true,
+                });
+              }
+
+              // Set single byte to 0xFF
+              if (rawBytes[rPos] !== 0xff) {
+                const byteOnes = new Uint8Array(rawBytes);
+                byteOnes[rPos] = 0xff;
+                proposals.push({
+                  name: "bytes-setAllOnes",
+                  value: byteOnes,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // Replace single byte with random byte
+              if (rByte !== rawBytes[rPos]) {
+                const byteReplace = new Uint8Array(rawBytes);
+                byteReplace[rPos] = rByte;
+                proposals.push({
+                  name: "bytes-replaceByte",
+                  value: byteReplace,
+                  path: [...subInput.subPath],
+                  simplifies: rByte < rawBytes[rPos],
+                });
+              }
+
+              // Single-byte delete
               const deleted = new Uint8Array(
                 rawBytes.filter((_, idx) => idx !== rPos)
               );
@@ -542,10 +601,254 @@ export class ArgDefMutator {
                 path: [...subInput.subPath],
                 simplifies: true,
               });
+
+              // Magic 8-bit boundary values
+              const magic8Values = [0x00, 0x01, 0x7f, 0x80, 0xff];
+              const m8 = magic8Values[Math.floor(prng() * magic8Values.length)];
+              if (m8 !== rawBytes[rPos]) {
+                const magic8 = new Uint8Array(rawBytes);
+                magic8[rPos] = m8;
+                proposals.push({
+                  name: "bytes-insertMagic8",
+                  value: magic8,
+                  path: [...subInput.subPath],
+                  simplifies: m8 < rawBytes[rPos],
+                });
+              }
             }
 
-            if (rawBytes.length < options.byteLength.max) {
-              const inserted = new Uint8Array(rawBytes.length + 1);
+            // Multi-byte operations (2+ bytes)
+            if (len >= 2) {
+              const rPos16 = Math.floor(prng() * (len - 1));
+
+              // Swap adjacent bytes
+              if (rawBytes[rPos16] !== rawBytes[rPos16 + 1]) {
+                const adjSwap = new Uint8Array(rawBytes);
+                adjSwap[rPos16] = rawBytes[rPos16 + 1];
+                adjSwap[rPos16 + 1] = rawBytes[rPos16];
+                proposals.push({
+                  name: "bytes-swapAdjacentBytes",
+                  value: adjSwap,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // 16-bit arithmetic (LE and BE)
+              const isLE16 = prng() < 0.5;
+              const delta16 = prng() < 0.5 ? 1 : 16;
+              const cur16 = isLE16
+                ? rawBytes[rPos16] | (rawBytes[rPos16 + 1] << 8)
+                : (rawBytes[rPos16] << 8) | rawBytes[rPos16 + 1];
+              const add16Val = (cur16 + delta16) & 0xffff;
+              const sub16Val = (cur16 - delta16 + 0x10000) & 0xffff;
+
+              const bAdd16 = new Uint8Array(rawBytes);
+              bAdd16[rPos16] = isLE16
+                ? add16Val & 0xff
+                : (add16Val >> 8) & 0xff;
+              bAdd16[rPos16 + 1] = isLE16
+                ? (add16Val >> 8) & 0xff
+                : add16Val & 0xff;
+              proposals.push({
+                name: "bytes-add16",
+                value: bAdd16,
+                path: [...subInput.subPath],
+              });
+
+              const bSub16 = new Uint8Array(rawBytes);
+              bSub16[rPos16] = isLE16
+                ? sub16Val & 0xff
+                : (sub16Val >> 8) & 0xff;
+              bSub16[rPos16 + 1] = isLE16
+                ? (sub16Val >> 8) & 0xff
+                : sub16Val & 0xff;
+              proposals.push({
+                name: "bytes-sub16",
+                value: bSub16,
+                path: [...subInput.subPath],
+              });
+
+              // Magic 16-bit boundary values
+              const magic16Values = [
+                0x0000, 0x0001, 0x00ff, 0x0100, 0x7fff, 0x8000, 0xffff,
+              ];
+              const m16 =
+                magic16Values[Math.floor(prng() * magic16Values.length)];
+              const m16b0 = isLE16 ? m16 & 0xff : (m16 >> 8) & 0xff;
+              const m16b1 = isLE16 ? (m16 >> 8) & 0xff : m16 & 0xff;
+              if (
+                rawBytes[rPos16] !== m16b0 ||
+                rawBytes[rPos16 + 1] !== m16b1
+              ) {
+                const magic16 = new Uint8Array(rawBytes);
+                magic16[rPos16] = m16b0;
+                magic16[rPos16 + 1] = m16b1;
+                proposals.push({
+                  name: "bytes-insertMagic16",
+                  value: magic16,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // 16-bit endianness swap
+              if (rawBytes[rPos16] !== rawBytes[rPos16 + 1]) {
+                const swap16 = new Uint8Array(rawBytes);
+                swap16[rPos16] = rawBytes[rPos16 + 1];
+                swap16[rPos16 + 1] = rawBytes[rPos16];
+                proposals.push({
+                  name: "bytes-swapEndian16",
+                  value: swap16,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // Delete block (if removing 2+ bytes respects min)
+              const maxDel = Math.min(8, len - options.byteLength.min);
+              if (maxDel >= 2) {
+                const delLen = Math.floor(prng() * (maxDel - 1)) + 2;
+                const delStart = Math.floor(prng() * (len - delLen + 1));
+                const delBlock = new Uint8Array(len - delLen);
+                delBlock.set(rawBytes.slice(0, delStart));
+                delBlock.set(rawBytes.slice(delStart + delLen), delStart);
+                proposals.push({
+                  name: "bytes-deleteBlock",
+                  value: delBlock,
+                  path: [...subInput.subPath],
+                  simplifies: true,
+                });
+              }
+
+              // Fill block with constant byte
+              const maxFill = Math.min(8, len);
+              const fillLen = Math.floor(prng() * (maxFill - 1)) + 2;
+              const fillStart = Math.floor(prng() * (len - fillLen + 1));
+              const fillByte =
+                prng() < 0.5 ? 0x00 : prng() < 0.5 ? 0xff : rByte;
+              const filled = new Uint8Array(rawBytes);
+              filled.fill(fillByte, fillStart, fillStart + fillLen);
+              let hasChange = false;
+              for (let idx = fillStart; idx < fillStart + fillLen; idx++) {
+                if (rawBytes[idx] !== fillByte) {
+                  hasChange = true;
+                  break;
+                }
+              }
+              if (hasChange) {
+                proposals.push({
+                  name: "bytes-fillBlock",
+                  value: filled,
+                  path: [...subInput.subPath],
+                  simplifies: fillByte === 0,
+                });
+              }
+            }
+
+            // Multi-byte operations (4+ bytes)
+            if (len >= 4) {
+              const rPos32 = Math.floor(prng() * (len - 3));
+              const isLE32 = prng() < 0.5;
+
+              // 32-bit arithmetic (LE and BE)
+              const delta32 = prng() < 0.5 ? 1 : 16;
+              const cur32 = isLE32
+                ? (rawBytes[rPos32] |
+                    (rawBytes[rPos32 + 1] << 8) |
+                    (rawBytes[rPos32 + 2] << 16) |
+                    (rawBytes[rPos32 + 3] << 24)) >>>
+                  0
+                : ((rawBytes[rPos32] << 24) |
+                    (rawBytes[rPos32 + 1] << 16) |
+                    (rawBytes[rPos32 + 2] << 8) |
+                    rawBytes[rPos32 + 3]) >>>
+                  0;
+              const add32Val = (cur32 + delta32) >>> 0;
+              const sub32Val = (cur32 - delta32) >>> 0;
+
+              const bAdd32 = new Uint8Array(rawBytes);
+              const bSub32 = new Uint8Array(rawBytes);
+              if (isLE32) {
+                bAdd32[rPos32] = add32Val & 0xff;
+                bAdd32[rPos32 + 1] = (add32Val >>> 8) & 0xff;
+                bAdd32[rPos32 + 2] = (add32Val >>> 16) & 0xff;
+                bAdd32[rPos32 + 3] = (add32Val >>> 24) & 0xff;
+
+                bSub32[rPos32] = sub32Val & 0xff;
+                bSub32[rPos32 + 1] = (sub32Val >>> 8) & 0xff;
+                bSub32[rPos32 + 2] = (sub32Val >>> 16) & 0xff;
+                bSub32[rPos32 + 3] = (sub32Val >>> 24) & 0xff;
+              } else {
+                bAdd32[rPos32] = (add32Val >>> 24) & 0xff;
+                bAdd32[rPos32 + 1] = (add32Val >>> 16) & 0xff;
+                bAdd32[rPos32 + 2] = (add32Val >>> 8) & 0xff;
+                bAdd32[rPos32 + 3] = add32Val & 0xff;
+
+                bSub32[rPos32] = (sub32Val >>> 24) & 0xff;
+                bSub32[rPos32 + 1] = (sub32Val >>> 16) & 0xff;
+                bSub32[rPos32 + 2] = (sub32Val >>> 8) & 0xff;
+                bSub32[rPos32 + 3] = sub32Val & 0xff;
+              }
+              proposals.push({
+                name: "bytes-add32",
+                value: bAdd32,
+                path: [...subInput.subPath],
+              });
+              proposals.push({
+                name: "bytes-sub32",
+                value: bSub32,
+                path: [...subInput.subPath],
+              });
+
+              // Magic 32-bit boundary values
+              const magic32Values = [
+                0x00000000, 0x00000001, 0x0000ffff, 0x7fffffff, 0x80000000,
+                0xffffffff,
+              ];
+              const m32 =
+                magic32Values[Math.floor(prng() * magic32Values.length)];
+              const m32b0 = isLE32 ? m32 & 0xff : (m32 >>> 24) & 0xff;
+              const m32b1 = isLE32 ? (m32 >>> 8) & 0xff : (m32 >>> 16) & 0xff;
+              const m32b2 = isLE32 ? (m32 >>> 16) & 0xff : (m32 >>> 8) & 0xff;
+              const m32b3 = isLE32 ? (m32 >>> 24) & 0xff : m32 & 0xff;
+              if (
+                rawBytes[rPos32] !== m32b0 ||
+                rawBytes[rPos32 + 1] !== m32b1 ||
+                rawBytes[rPos32 + 2] !== m32b2 ||
+                rawBytes[rPos32 + 3] !== m32b3
+              ) {
+                const magic32 = new Uint8Array(rawBytes);
+                magic32[rPos32] = m32b0;
+                magic32[rPos32 + 1] = m32b1;
+                magic32[rPos32 + 2] = m32b2;
+                magic32[rPos32 + 3] = m32b3;
+                proposals.push({
+                  name: "bytes-insertMagic32",
+                  value: magic32,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // 32-bit endianness swap
+              if (
+                rawBytes[rPos32] !== rawBytes[rPos32 + 3] ||
+                rawBytes[rPos32 + 1] !== rawBytes[rPos32 + 2]
+              ) {
+                const swap32 = new Uint8Array(rawBytes);
+                swap32[rPos32] = rawBytes[rPos32 + 3];
+                swap32[rPos32 + 1] = rawBytes[rPos32 + 2];
+                swap32[rPos32 + 2] = rawBytes[rPos32 + 1];
+                swap32[rPos32 + 3] = rawBytes[rPos32];
+                proposals.push({
+                  name: "bytes-swapEndian32",
+                  value: swap32,
+                  path: [...subInput.subPath],
+                });
+              }
+            }
+
+            // Insertion / Growth operations
+            if (len < options.byteLength.max) {
+              // Single-byte insert
+              const inserted = new Uint8Array(len + 1);
               inserted.set(rawBytes.slice(0, rPos));
               inserted[rPos] = rByte;
               inserted.set(rawBytes.slice(rPos), rPos + 1);
@@ -554,6 +857,42 @@ export class ArgDefMutator {
                 value: inserted,
                 path: [...subInput.subPath],
               });
+
+              // Block insert (2+ bytes)
+              const maxIns = Math.min(8, options.byteLength.max - len);
+              if (maxIns >= 2) {
+                const insLen = Math.floor(prng() * (maxIns - 1)) + 2;
+                const insBlock = new Uint8Array(len + insLen);
+                insBlock.set(rawBytes.slice(0, rPos));
+                for (let k = 0; k < insLen; k++) {
+                  insBlock[rPos + k] = Math.floor(prng() * 256);
+                }
+                insBlock.set(rawBytes.slice(rPos), rPos + insLen);
+                proposals.push({
+                  name: "bytes-insertBlock",
+                  value: insBlock,
+                  path: [...subInput.subPath],
+                });
+              }
+
+              // Duplicate block
+              if (len >= 2) {
+                const maxDup = Math.min(8, len, options.byteLength.max - len);
+                if (maxDup >= 1) {
+                  const dupLen = Math.floor(prng() * maxDup) + 1;
+                  const srcPos = Math.floor(prng() * (len - dupLen + 1));
+                  const dstPos = Math.floor(prng() * (len + 1));
+                  const dupBlock = new Uint8Array(len + dupLen);
+                  dupBlock.set(rawBytes.slice(0, dstPos));
+                  dupBlock.set(rawBytes.slice(srcPos, srcPos + dupLen), dstPos);
+                  dupBlock.set(rawBytes.slice(dstPos), dstPos + dupLen);
+                  proposals.push({
+                    name: "bytes-duplicateBlock",
+                    value: dupBlock,
+                    path: [...subInput.subPath],
+                  });
+                }
+              }
             }
 
             addMutations(
