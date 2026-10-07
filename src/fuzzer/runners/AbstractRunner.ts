@@ -198,6 +198,8 @@ export type TypeHint =
   | "bytes"
   | "number"
   | "default"
+  | "prng"
+  | { kind: "prng"; seed?: string }
   | { kind: "array"; element: TypeHint }
   | { kind: "set"; element: TypeHint; frozenset?: boolean }
   | { kind: "tuple"; elements: TypeHint[] }

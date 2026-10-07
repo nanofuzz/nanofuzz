@@ -287,6 +287,20 @@ async function main() {
     handleAddTransformer
   );
 
+  // Add event listener for the user generator button
+  const userGenAddBtn = document.getElementById("userGenerator.add");
+  if (userGenAddBtn) {
+    userGenAddBtn.addEventListener("click", handleAddUserGenerator);
+  }
+  const userGenShowBtn = document.getElementById("userGenerator.show");
+  if (userGenShowBtn) {
+    userGenShowBtn.addEventListener("click", handleShowUserGenerator);
+  }
+  const userGenRefreshBtn = document.getElementById("userGenerator.getList");
+  if (userGenRefreshBtn) {
+    userGenRefreshBtn.addEventListener("click", handleGetListOfUserGenerators);
+  }
+
   // Add event listeners for the pause button
   getElementByIdOrThrow("fuzz.pause").addEventListener("click", () => {
     const message: FuzzPanelMessageFromWebView = { command: "fuzz.pause" };
@@ -440,6 +454,15 @@ async function main() {
     refreshTransformers(transformersList);
   }
 
+  // Load & display the user generator state from the HTML
+  const userGeneratorsElem = document.getElementById("userGenerators");
+  if (userGeneratorsElem) {
+    const userGeneratorsList: string[] = JSONN.parse(
+      htmlUnescape(userGeneratorsElem.innerHTML)
+    );
+    refreshUserGenerators(userGeneratorsList);
+  }
+
   // Load column sort orders from the HTML
   columnSortOrders = JSONN.parse(
     htmlUnescape(getElementByIdOrThrow("fuzzSortColumns").innerHTML)
@@ -471,6 +494,9 @@ async function main() {
         break;
       case "transformer.list":
         refreshTransformers(data.transformers);
+        break;
+      case "userGenerator.list":
+        refreshUserGenerators(data.userGenerators);
         break;
       case "config.updated": {
         getElementByIdOrThrow("llm-model").innerText =
@@ -623,6 +649,9 @@ async function main() {
               break;
             case "RandomInputGenerator":
               src = { [srcLabel]: "rnd" };
+              break;
+            case "UserInputGenerator":
+              src = { [srcLabel]: "usr" };
               break;
             default:
               throw new Error(
@@ -2322,6 +2351,9 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
   const AiInputGeneratorEnabled = getElementByIdOrThrow(
     `${fuzzBase}-gen-AiInputGenerator-enabled`
   );
+  const UserInputGeneratorEnabled = getElementByIdOrThrow(
+    `${fuzzBase}-gen-UserInputGenerator-enabled`
+  );
   const CoverageMeasureEnabled = getElementByIdOrThrow(
     `${fuzzBase}-measure-CoverageMeasure-enabled`
   );
@@ -2341,6 +2373,8 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
     document.getElementById("fuzz.addTestInput"), // may be null
     RandomInputGeneratorEnabled,
     MutationInputGeneratorEnabled,
+    AiInputGeneratorEnabled,
+    UserInputGeneratorEnabled,
     CoverageMeasureEnabled,
     CoverageMeasureWeight,
     FailedTestMeasureEnabled,
@@ -2430,6 +2464,12 @@ function getConfigFromUi(): FuzzPanelFuzzRunMessage {
           enabled:
             (AiInputGeneratorEnabled.getAttribute("value") ??
               AiInputGeneratorEnabled.getAttribute("current-checked")) ===
+            "true",
+        },
+        UserInputGenerator: {
+          enabled:
+            (UserInputGeneratorEnabled.getAttribute("value") ??
+              UserInputGeneratorEnabled.getAttribute("current-checked")) ===
             "true",
         },
       },
@@ -2665,6 +2705,58 @@ function refreshTransformers(transformerList: string[]) {
         : "Create Input Transformer";
   }
 } // fn: refreshTransformers
+
+/**
+ * Refreshes the displayed state for user input generators based on a list of
+ * user generator names provided from the back-end.
+ *
+ * @param userGeneratorList list of available user input generator names
+ */
+function refreshUserGenerators(userGeneratorList: string[]) {
+  const showBtn = document.getElementById("userGenerator.show");
+  if (showBtn) {
+    if (userGeneratorList.length > 0) {
+      showBtn.classList.remove("hidden");
+    } else {
+      showBtn.classList.add("hidden");
+    }
+  }
+  const addBtn = document.getElementById("userGenerator.add");
+  if (addBtn) {
+    if (userGeneratorList.length > 0) {
+      addBtn.classList.add("hidden");
+    } else {
+      addBtn.classList.remove("hidden");
+    }
+  }
+} // fn: refreshUserGenerators
+
+/**
+ * Send message to back-end to open user input generator in source code
+ */
+function handleShowUserGenerator() {
+  postToController({
+    command: "userGenerator.show",
+  });
+} // fn: handleShowUserGenerator()
+
+/**
+ * Send message to back-end to add user input generator code skeleton
+ */
+function handleAddUserGenerator() {
+  postToController({
+    command: "userGenerator.add",
+  });
+} // fn: handleAddUserGenerator()
+
+/**
+ * Send message to back-end to refresh the list of user input generators
+ */
+function handleGetListOfUserGenerators() {
+  postToController({
+    command: "userGenerator.getList",
+  });
+} // fn: handleGetListOfUserGenerators()
 
 /**
  * Send message to back-end to add code skeleton to source code (because the

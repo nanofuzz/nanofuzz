@@ -26,6 +26,7 @@ import {
 } from "./Types";
 import {
   getTransformers,
+  getUserGenerators,
   getValidators,
   isArgValueType,
   isOptionValid,
@@ -63,6 +64,7 @@ export class FuzzerV3 {
   protected _function: FunctionDef;
   protected _validators: FunctionRef[] = [];
   protected _transformers: FunctionRef[] = [];
+  protected _userGenerators: FunctionRef[] = [];
   protected _measures: AbstractMeasure[];
   protected _leaderboard = new Leaderboard<InputAndSource>();
   protected _allInputs: Map<string, unknown> = new Map();
@@ -131,6 +133,10 @@ export class FuzzerV3 {
 
     this._validators = getValidators(this._program, fnList[this._fnName]);
     this._transformers = getTransformers(this._program, fnList[this._fnName]);
+    this._userGenerators = getUserGenerators(
+      this._program,
+      fnList[this._fnName]
+    );
 
     if (!isOptionValid(normalizedOptions)) {
       throw new Error(
@@ -149,7 +155,8 @@ export class FuzzerV3 {
       this._options,
       this._function,
       this._validators,
-      this._transformers
+      this._transformers,
+      this._userGenerators
     );
 
     this._compositeInputGenerator = new CompositeInputGenerator(
@@ -251,6 +258,7 @@ export class FuzzerV3 {
       function: this._function,
       validators: structuredClone(this._validators),
       transformers: structuredClone(this._transformers),
+      userGenerators: structuredClone(this._userGenerators),
     };
   } // get: env
 
@@ -733,6 +741,7 @@ export class FuzzerV3 {
     slot.runners = [
       worker.runner,
       worker.transformRunner,
+      worker.userGenRunner,
       ...worker.propRunners,
     ].filter((r): r is AbstractRunner => r !== undefined);
     return slot;
@@ -875,6 +884,17 @@ export class FuzzerV3 {
           this.env.transformers[0].name
         );
       }
+      let userGenRunner: AbstractRunner | undefined;
+      if (
+        this.env.options.generators.UserInputGenerator?.enabled &&
+        this.env.userGenerators.length
+      ) {
+        userGenRunner = RunnerFactory(
+          this.env,
+          targetMod,
+          this.env.userGenerators[0].name
+        );
+      }
       const propRunners = this._validators.map((vFnRef) =>
         RunnerFactory(this.env, targetMod, vFnRef.name)
       );
@@ -882,6 +902,7 @@ export class FuzzerV3 {
       this._workers.push({
         runner,
         transformRunner,
+        userGenRunner,
         propRunners,
         propertyOracle,
       });
@@ -892,6 +913,9 @@ export class FuzzerV3 {
       allRunnersToStart.push(w.runner.onRunStart());
       if (w.transformRunner) {
         allRunnersToStart.push(w.transformRunner.onRunStart());
+      }
+      if (w.userGenRunner) {
+        allRunnersToStart.push(w.userGenRunner.onRunStart());
       }
       for (const p of w.propRunners) {
         allRunnersToStart.push(p.onRunStart());
@@ -904,11 +928,17 @@ export class FuzzerV3 {
       injectTests,
       this._workers[0]?.transformRunner,
       this._options.fnTimeout,
-      this._options.maxDupeInputs
+      this._options.maxDupeInputs,
+      this._workers[0]?.userGenRunner
     );
 
     const allRunners = this._workers
-      .flatMap((w) => [w.runner, w.transformRunner, ...w.propRunners])
+      .flatMap((w) => [
+        w.runner,
+        w.transformRunner,
+        w.userGenRunner,
+        ...w.propRunners,
+      ])
       .filter((r): r is AbstractRunner => r !== undefined);
     this._measures.forEach((m) => {
       m.onRunStart(allRunners, this.env);
@@ -926,6 +956,9 @@ export class FuzzerV3 {
       allRunnersToStop.push(w.runner.onRunEnd());
       if (w.transformRunner) {
         allRunnersToStop.push(w.transformRunner.onRunEnd());
+      }
+      if (w.userGenRunner) {
+        allRunnersToStop.push(w.userGenRunner.onRunEnd());
       }
       for (const p of w.propRunners) {
         allRunnersToStop.push(p.onRunEnd());
@@ -1265,6 +1298,7 @@ export class FuzzerV3 {
           RandomInputGenerator: { enabled: false },
           MutationInputGenerator: { enabled: true },
           AiInputGenerator: { enabled: false },
+          UserInputGenerator: { enabled: false },
         };
       }
     }
@@ -1378,6 +1412,7 @@ interface PipelineSlot {
 interface WorkerContext {
   runner: AbstractRunner;
   transformRunner?: AbstractRunner;
+  userGenRunner?: AbstractRunner;
   propRunners: AbstractRunner[];
   propertyOracle?: PropertyOracle;
 }

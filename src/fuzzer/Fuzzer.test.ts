@@ -106,6 +106,7 @@ describe("fuzzer: general & parameterized engine tests", () => {
             RandomInputGenerator: { enabled: false },
             MutationInputGenerator: { enabled: true },
             AiInputGenerator: { enabled: false },
+            UserInputGenerator: { enabled: false },
           },
         };
 
@@ -128,6 +129,7 @@ describe("fuzzer: general & parameterized engine tests", () => {
             RandomInputGenerator: { enabled: false },
             MutationInputGenerator: { enabled: false },
             AiInputGenerator: { enabled: false },
+            UserInputGenerator: { enabled: false },
           },
         };
 
@@ -207,6 +209,58 @@ describe("fuzzer: general & parameterized engine tests", () => {
         expect(
           updates.some((u) => u.type === "testing" && typeof u.pct === "number")
         ).toBeTrue();
+      });
+
+      it("posts periodic status bar updates if 200ms elapses without a new update", async () => {
+        const tmpdir = fs.mkdtempSync(
+          path.join(os.tmpdir(), `nanofuzz-update-${engine}-`)
+        );
+        const tsFile = path.join(tmpdir, "slowTarget.ts");
+        fs.writeFileSync(
+          tsFile,
+          `
+          export function slowFn(x: number): number {
+            const start = Date.now();
+            while (Date.now() - start < 350) {}
+            return x;
+          }
+          `
+        );
+
+        const updates: FuzzBusyStatusMessage[] = [];
+        try {
+          await FuzzerFactory(
+            tsFile,
+            "slowFn",
+            {
+              ...intOptions,
+              maxTests: 2,
+              fnTimeout: 1000,
+            },
+            { engine }
+          ).test(undefined, { gen: true }, (payload) => {
+            updates.push({ ...payload });
+          });
+
+          const statusUpdates = updates.filter(
+            (u) => u.type === "testing" || u.type === "progress-tick"
+          );
+          expect(statusUpdates.length).toBeGreaterThan(2);
+          expect(
+            statusUpdates.every((u) => typeof u.pct === "number")
+          ).toBeTrue();
+        } finally {
+          try {
+            fs.rmSync(tmpdir, {
+              recursive: true,
+              force: true,
+              maxRetries: 10,
+              retryDelay: 100,
+            });
+          } catch {
+            // Ignore
+          }
+        }
       });
 
       it("resuming after maxTests runs fresh tests per run and accumulates stats across runs", async () => {
@@ -382,7 +436,7 @@ describe("fuzzer: general & parameterized engine tests", () => {
           `
           export function sleepFn(x: number): number {
             const start = Date.now();
-            while (Date.now() - start < 150) {}
+            while (Date.now() - start < 40) {}
             return x;
           }
           `

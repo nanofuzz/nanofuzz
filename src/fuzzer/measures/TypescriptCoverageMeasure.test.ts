@@ -186,6 +186,7 @@ const anyEnv: FuzzEnv = {
       RandomInputGenerator: { enabled: true },
       MutationInputGenerator: { enabled: false },
       AiInputGenerator: { enabled: false },
+      UserInputGenerator: { enabled: false },
     },
   },
   function: FunctionDef.fromFunctionRef({
@@ -201,6 +202,7 @@ const anyEnv: FuzzEnv = {
   }),
   validators: [],
   transformers: [],
+  userGenerators: [],
 };
 
 /**
@@ -1404,6 +1406,7 @@ describe("fuzzer/analysis/measures/TypescriptCoverageMeasure:", () => {
           RandomInputGenerator: anyGeneratorStats(),
           MutationInputGenerator: anyGeneratorStats(),
           AiInputGenerator: anyGeneratorStats(),
+          UserInputGenerator: anyGeneratorStats(),
         },
         measures: {},
       },

@@ -29,6 +29,9 @@ export const allGenerators = {
   AiInputGenerator: {
     enabled: true,
   },
+  UserInputGenerator: {
+    enabled: true,
+  },
 };
 
 /**

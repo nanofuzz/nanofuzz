@@ -14,7 +14,7 @@
   "license": "MIT",
   "main": "build/extension/extension.js",
   "engines": {
-    "vscode": "^1.75.0",
+    "vscode": "^1.93.0",
     "node": "22"
   },
   "categories": [
@@ -55,6 +55,115 @@
         "command": "nanofuzz.telemetry.log",
         "title": "Log Telemetry Event (internal)",
         "category": "NaNofuzz"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "nanofuzz_listTargets",
+        "displayName": "List NaNofuzz Targets",
+        "modelDescription": "Discovers and lists all exported functions (synchronous and asynchronous), type signatures, parameter structures, and ready-to-use property validator and input transformer code templates (validatorTemplate and transformerTemplate) in a TypeScript or Python source file that can be targeted for structure-aware fuzzing and property testing. Functions under test with preconditions can be paired with an exported input transformer using assume(condition) or raise/throw UnsatisfiedAssumption(msg) to filter out invalid or out-of-domain inputs from the fuzzing loop. If a target function is not exported or uses unsupported signature types, you can write an exported wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "listTargets",
+        "icon": "$(symbol-method)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path to the source file (e.g. src/math.ts or test.py)."
+            }
+          },
+          "required": [
+            "filePath"
+          ]
+        }
+      },
+      {
+        "name": "nanofuzz_fuzzFunction",
+        "displayName": "Fuzz Target with NaNofuzz",
+        "modelDescription": "Runs coverage-guided, structure-aware property fuzzing on a target function (synchronous or asynchronous) in TypeScript or Python. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest or Pytest) and branch coverage metrics. To filter invalid inputs or express preconditions, write an exported transformer function (<fn>Transformer) using assume(condition) or UnsatisfiedAssumption. If a target function is not exported, is a class method, or uses unsupported signature types, you can write an exported wrapper function with type annotations in its signature that calls the target, and fuzz that wrapper function instead.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "fuzzFunction",
+        "icon": "$(beaker)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path to the source file containing the target function."
+            },
+            "functionName": {
+              "type": "string",
+              "description": "The exact name of the exported function to test."
+            },
+            "model": {
+              "type": "string",
+              "description": "The language model name or family currently used by the calling agent (e.g. 'gemini-2.0-flash', 'gemini-3.7-flash', 'claude-3.5-sonnet', 'gpt-4o'). Always pass your own model name or family here so NaNofuzz uses the same AI model for input generation."
+            },
+            "vendor": {
+              "type": "string",
+              "description": "The language model vendor/provider identifier currently used by the calling agent (e.g. 'google', 'copilot', 'gemini', 'openai'). Always pass your active vendor/provider so NaNofuzz routes queries to the exact same provider account and billing."
+            },
+            "maxTests": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum number of test cases to generate and execute (default: 1000)."
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 100,
+              "description": "Maximum suite execution timeout in milliseconds (default: 3000)."
+            },
+            "maxFailures": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum number of failures to find before stopping (default: 0 for no limit)."
+            },
+            "seed": {
+              "type": "string",
+              "description": "Optional pseudo-random generator seed for deterministic fuzzing runs."
+            },
+            "inputs": {
+              "type": "array",
+              "description": "Optional list of concrete seed inputs to test, expressed as objects mapping parameter names to argument values (e.g. [{\"name\": \"Alice\", \"age\": 30}]). Useful for targeting specific uncovered branches or edge cases.",
+              "items": {
+                "type": "object",
+                "description": "Object mapping parameter names to argument values."
+              }
+            },
+            "tests": {
+              "type": "array",
+              "description": "Optional list of unit test specifications with inputs and expected outcomes. Each test specifies 'input' (parameter object or argument array), plus optional 'expectedOutput' (expected return value), 'expectedException' (boolean), or 'expectedTimeout' (boolean). When expected outcomes are provided, NaNofuzz validates them with its Example Oracle and synthesizes direct unit assertions in reproducer tests.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "object",
+                    "description": "Object mapping parameter names to argument values."
+                  },
+                  "expectedOutput": {
+                    "description": "The expected return value of the function for these inputs."
+                  },
+                  "expectedException": {
+                    "type": "boolean",
+                    "description": "True if an exception or error is expected to be thrown for these inputs."
+                  },
+                  "expectedTimeout": {
+                    "type": "boolean",
+                    "description": "True if a timeout is expected for these inputs."
+                  }
+                },
+                "required": [
+                  "input"
+                ]
+              }
+            }
+          },
+          "required": [
+            "filePath",
+            "functionName"
+          ]
+        }
       }
     ],
     "configuration": [
@@ -186,6 +295,7 @@
             "order": 10,
             "enum": [
               "disabled",
+              "copilot",
               "openai",
               "gemini",
               "anthropic",
@@ -207,6 +317,16 @@
             "order": 20,
             "type": "string",
             "description": "Provider's model name (e.g., gemini-flash-lite-latest)",
+            "tags": [
+              "usesOnlineServices"
+            ]
+          },
+          "nanofuzz.ai.vendor": {
+            "title": "Model vendor / provider (for VS Code Language Models)",
+            "order": 25,
+            "type": "string",
+            "default": "",
+            "description": "Optional vendor identifier for VS Code Language Models (e.g., 'copilot', 'google', 'openai') to route queries to a specific provider account.",
             "tags": [
               "usesOnlineServices"
             ]
@@ -662,7 +782,7 @@
     "@types/jasmine": "^5.1.8",
     "@types/node": "22",
     "@types/seedrandom": "^2.4.28",
-    "@types/vscode": "^1.75.0",
+    "@types/vscode": "^1.93.0",
     "@types/vscode-webview": "^1.57.5",
     "@vscode/vsce": "^3.6.0",
     "cli-progress": "^3.12.0",

@@ -10,6 +10,7 @@ import * as JSONN from "../../../Jsonn";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import vm from "node:vm";
+import seedrandom from "seedrandom";
 import { Worker } from "node:worker_threads";
 import { serialize, deserialize } from "node:v8";
 import { RunnerInput, TypeHint } from "../AbstractRunner";
@@ -146,7 +147,7 @@ async function main() {
       const fnToExec = getTargetFunction(targetFilename, targetFnName);
       const typeHints = input.typeHints ?? [];
       const hydratedArgs = input.args.map((arg, i) =>
-        i < typeHints.length ? transformArg(arg, typeHints[i]) : arg
+        transformArg(arg, i < typeHints.length ? typeHints[i] : undefined)
       );
 
       const startExecTime = performance.now();
@@ -398,9 +399,26 @@ function functionTimeout(
  * @param hint The type hint guiding the transformation.
  * @returns The transformed value.
  */
+function isPrngPayload(val: unknown): val is { seed?: string } {
+  return (
+    val !== null &&
+    typeof val === "object" &&
+    "__nanofuzz_type" in val &&
+    Reflect.get(val, "__nanofuzz_type") === "prng"
+  );
+}
+
 function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
+  if (isPrngPayload(val)) {
+    return seedrandom(val.seed);
+  }
+
   if (val === null || val === undefined || hint === undefined) {
     return val;
+  }
+
+  if (hint === "prng") {
+    return seedrandom(typeof val === "string" ? val : undefined);
   }
 
   if (hint === "bytes") {
@@ -411,6 +429,11 @@ function transformArg(val: unknown, hint: TypeHint | undefined): unknown {
   }
 
   if (typeof hint === "object") {
+    if (hint.kind === "prng") {
+      const seed = typeof val === "string" ? val : hint.seed;
+      return seedrandom(seed);
+    }
+
     if (hint.kind === "array" && Array.isArray(val)) {
       return val.map((item) => transformArg(item, hint.element));
     }

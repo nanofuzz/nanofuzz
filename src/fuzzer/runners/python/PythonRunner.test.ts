@@ -946,6 +946,7 @@ def x(val: int) -> int:
             RandomInputGenerator: dummyGenStats,
             MutationInputGenerator: dummyGenStats,
             AiInputGenerator: dummyGenStats,
+            UserInputGenerator: dummyGenStats,
           },
           measures: {},
         },
@@ -1201,6 +1202,7 @@ def x(val: int) -> int:
             RandomInputGenerator: dummyGenStats,
             MutationInputGenerator: dummyGenStats,
             AiInputGenerator: dummyGenStats,
+            UserInputGenerator: dummyGenStats,
           },
           measures: {},
         },
@@ -1402,11 +1404,13 @@ function createFuzzEnv(
         RandomInputGenerator: { enabled: true },
         MutationInputGenerator: { enabled: true },
         AiInputGenerator: { enabled: false },
+        UserInputGenerator: { enabled: false },
       },
       ...optionsOverrides,
     },
     validators: [],
     transformers: [],
+    userGenerators: [],
   };
 } // fn: createFuzzEnv
 

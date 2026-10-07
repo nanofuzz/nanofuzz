@@ -203,6 +203,51 @@ export function targetTransformedCollapsingTransformer(_n: number): [number] {
   return [42];
 }
 
+/**
+ * User generator target and user generator functions for testing user generator features
+ */
+export function targetUserGen(n: number, s: string): string {
+  return `${s}:${n}`;
+}
+export function targetUserGenGenerator(
+  prng: () => number
+): [number, string] | undefined {
+  const n = Math.floor(prng() * 100);
+  return [n, "custom"];
+}
+
+let userGenFiniteCount = 0;
+export function targetUserGenFinite(n: number): number {
+  return n * 2;
+}
+export function targetUserGenFiniteGenerator(
+  _prng: () => number
+): [number] | undefined {
+  userGenFiniteCount++;
+  if (userGenFiniteCount > 3) {
+    return undefined; // Exhausted
+  }
+  return [userGenFiniteCount * 10];
+}
+
+export function targetUserGenException(n: number): number {
+  return n;
+}
+export function targetUserGenExceptionGenerator(
+  _prng: () => number
+): [number] | undefined {
+  throw new Error("User generator error message");
+}
+
+export function targetUserGenAssumption(n: number): number {
+  return n;
+}
+export function targetUserGenAssumptionGenerator(
+  _prng: () => number
+): [number] | undefined {
+  throw new UnsatisfiedAssumption("Illegal assumption in generator");
+}
+
 export function targetValidatorTimeout(n: number): number {
   return n;
 }
