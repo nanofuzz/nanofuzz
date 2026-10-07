@@ -209,7 +209,7 @@
           "nanofuzz.fuzzer.hostStartupTimeout": {
             "title": "Timeout runner host startup after (ms)",
             "type": "integer",
-            "default": 10000,
+            "default": 20000,
             "minimum": 1000,
             "description": "Maximum time (in ms) allowed for the runner host process to startup."
           },

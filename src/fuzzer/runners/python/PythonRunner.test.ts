@@ -465,7 +465,7 @@ def slow_fn(x: int) -> int:
     fs.writeFileSync(pyPath, pyCode);
     const hostStartupTimeout = Config.get(
       "nanofuzz.fuzzer.hostStartupTimeout",
-      10000
+      20000
     );
 
     try {

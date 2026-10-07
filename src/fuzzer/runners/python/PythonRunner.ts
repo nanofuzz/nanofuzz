@@ -662,7 +662,7 @@ export class PythonRunner extends AbstractRunner {
 
     const hostStartupTimeout = Config.get<number>(
       "nanofuzz.fuzzer.hostStartupTimeout",
-      10000
+      20000
     );
 
     // a longer timeout tolerance for the host to pre-warm the coverage

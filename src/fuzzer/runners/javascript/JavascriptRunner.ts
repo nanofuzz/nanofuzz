@@ -354,7 +354,7 @@ export class JavascriptRunner extends AbstractRunner {
 
     const hostStartupTimeout = Config.get<number>(
       "nanofuzz.fuzzer.hostStartupTimeout",
-      10000
+      20000
     );
     const okcodeBuf = await host.getResponseBuffer(hostStartupTimeout);
     const okcode = deserialize(okcodeBuf);
