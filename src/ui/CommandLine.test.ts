@@ -826,7 +826,9 @@ def ${targetFn}(n: int) -> int:
         "cli_seed_py_max_failures",
       ]);
 
-      expect(res.status).toBe(1);
+      expect(res.status)
+        .withContext(`stdout: ${res.stdout}\nstderr: ${res.stderr}`)
+        .toBe(1);
       expect(res.stdout).toContain("Stopped for reason: maxFailures.");
     } finally {
       if (fs.existsSync(pyFile)) {

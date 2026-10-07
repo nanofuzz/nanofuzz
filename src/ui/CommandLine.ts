@@ -748,7 +748,7 @@ export async function runCliInProcess(
     } else {
       console.error("Unknown internal error");
     }
-    return ERROR_USAGE; // internal error
+    return ERROR_INTERNAL; // internal error
   }
 }
 
