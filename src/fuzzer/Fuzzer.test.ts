@@ -1,4 +1,6 @@
 import { FuzzerEngineVersion, FuzzerFactory } from "./FuzzerFactory";
+import { FuzzerV3, WorkerContext } from "./FuzzerV3";
+import { AbstractRunner } from "./runners/AbstractRunner";
 import { FuzzBusyStatusMessage, FuzzStopReason } from "./Types";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
@@ -6,6 +8,24 @@ import { determineWorkerCount } from "./Util";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+
+class TestableFuzzerV3 extends FuzzerV3 {
+  public async initRunnersForTest(): Promise<void> {
+    await this._initRunners([], { gen: true }, () => {});
+  } // fn: initRunnersForTest
+
+  public get workers(): readonly WorkerContext[] {
+    return this._workers;
+  } // get: workers
+
+  public get userGenRunner(): AbstractRunner | undefined {
+    return this._userGenRunner;
+  } // get: userGenRunner
+
+  public async stopRunnersForTest(): Promise<void> {
+    await this._stopRunners();
+  } // fn: stopRunnersForTest
+} // class: TestableFuzzerV3
 
 const engines: FuzzerEngineVersion[] = ["v1", "v2", "v3"];
 
@@ -85,7 +105,7 @@ describe("fuzzer: general & parameterized engine tests", () => {
   describe("FuzzerV3 runner and worker allocation accounting", () => {
     it("verifies runner instances per worker and total runners created across core configurations", async () => {
       // 1. Base PUT target with no validator, no transformer, no user gen
-      const fuzzerBase = FuzzerFactory(
+      const fuzzerBase = new TestableFuzzerV3(
         "nanofuzz-study/examples/1.ts",
         "minValue",
         {
@@ -98,23 +118,22 @@ describe("fuzzer: general & parameterized engine tests", () => {
             ...intOptions.generators,
             UserInputGenerator: { enabled: false },
           },
-        },
-        { engine: "v3" }
-      ) as any;
+        }
+      );
 
-      await fuzzerBase._initRunners([], { gen: true });
-      expect(fuzzerBase._workers.length).toBe(4);
-      expect(fuzzerBase._userGenRunner).toBeUndefined();
-      fuzzerBase._workers.forEach((w: any) => {
+      await fuzzerBase.initRunnersForTest();
+      expect(fuzzerBase.workers.length).toBe(4);
+      expect(fuzzerBase.userGenRunner).toBeUndefined();
+      fuzzerBase.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
         expect(w.transformRunner).toBeUndefined();
         expect(w.propRunners.length).toBe(0);
       });
       // 4 workers * (1 PUT) + 0 user gen = 4 total runners
-      await fuzzerBase._stopRunners();
+      await fuzzerBase.stopRunnersForTest();
 
       // 2. PUT target with property validator (e.g. from Python fixture with validator)
-      const fuzzerWithValidator = FuzzerFactory(
+      const fuzzerWithValidator = new TestableFuzzerV3(
         "./test_fixtures/Fuzzer.testfixtures.py",
         "async_greeting",
         {
@@ -127,23 +146,22 @@ describe("fuzzer: general & parameterized engine tests", () => {
             ...intOptions.generators,
             UserInputGenerator: { enabled: false },
           },
-        },
-        { engine: "v3" }
-      ) as any;
+        }
+      );
 
-      await fuzzerWithValidator._initRunners([], { gen: true });
-      expect(fuzzerWithValidator._workers.length).toBe(3);
-      expect(fuzzerWithValidator._userGenRunner).toBeUndefined();
-      fuzzerWithValidator._workers.forEach((w: any) => {
+      await fuzzerWithValidator.initRunnersForTest();
+      expect(fuzzerWithValidator.workers.length).toBe(3);
+      expect(fuzzerWithValidator.userGenRunner).toBeUndefined();
+      fuzzerWithValidator.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
         expect(w.transformRunner).toBeUndefined();
         expect(w.propRunners.length).toBe(1); // 1 property validator runner per worker
       });
       // 3 workers * (1 PUT + 1 Validator) + 0 user gen = 6 total runners
-      await fuzzerWithValidator._stopRunners();
+      await fuzzerWithValidator.stopRunnersForTest();
 
       // 3. PUT target with UserInputGenerator enabled
-      const fuzzerWithUserGen = FuzzerFactory(
+      const fuzzerWithUserGen = new TestableFuzzerV3(
         "./test_fixtures/Fuzzer.testfixtures.py",
         "py_user_gen",
         {
@@ -158,23 +176,22 @@ describe("fuzzer: general & parameterized engine tests", () => {
             AiInputGenerator: { enabled: false },
             UserInputGenerator: { enabled: true },
           },
-        },
-        { engine: "v3" }
-      ) as any;
+        }
+      );
 
-      await fuzzerWithUserGen._initRunners([], { gen: true });
-      expect(fuzzerWithUserGen._workers.length).toBe(3);
-      expect(fuzzerWithUserGen._userGenRunner).toBeDefined(); // Centralized 1 user gen runner
-      fuzzerWithUserGen._workers.forEach((w: any) => {
+      await fuzzerWithUserGen.initRunnersForTest();
+      expect(fuzzerWithUserGen.workers.length).toBe(3);
+      expect(fuzzerWithUserGen.userGenRunner).toBeDefined(); // Centralized 1 user gen runner
+      fuzzerWithUserGen.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
         expect(w.transformRunner).toBeUndefined();
         expect(w.propRunners.length).toBe(0);
       });
       // 3 workers * (1 PUT) + 1 centralized user gen = 4 total runners
-      await fuzzerWithUserGen._stopRunners();
+      await fuzzerWithUserGen.stopRunnersForTest();
 
       // 4. PUT target with Transformer enabled
-      const fuzzerWithTransformer = FuzzerFactory(
+      const fuzzerWithTransformer = new TestableFuzzerV3(
         "./test_fixtures/Fuzzer.testfixtures.ts",
         "targetTransformed",
         {
@@ -187,20 +204,19 @@ describe("fuzzer: general & parameterized engine tests", () => {
             ...intOptions.generators,
             UserInputGenerator: { enabled: false },
           },
-        },
-        { engine: "v3" }
-      ) as any;
+        }
+      );
 
-      await fuzzerWithTransformer._initRunners([], { gen: true });
-      expect(fuzzerWithTransformer._workers.length).toBe(4);
-      expect(fuzzerWithTransformer._userGenRunner).toBeUndefined();
-      fuzzerWithTransformer._workers.forEach((w: any) => {
+      await fuzzerWithTransformer.initRunnersForTest();
+      expect(fuzzerWithTransformer.workers.length).toBe(4);
+      expect(fuzzerWithTransformer.userGenRunner).toBeUndefined();
+      fuzzerWithTransformer.workers.forEach((w) => {
         expect(w.runner).toBeDefined();
         expect(w.transformRunner).toBeDefined(); // 1 transformer runner per worker
         expect(w.propRunners.length).toBe(0);
       });
       // 4 workers * (1 PUT + 1 Transformer) + 0 user gen = 8 total runners
-      await fuzzerWithTransformer._stopRunners();
+      await fuzzerWithTransformer.stopRunnersForTest();
     });
   });
 
