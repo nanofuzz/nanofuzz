@@ -245,6 +245,13 @@ export class FuzzerV2 {
   } // fn: state
 
   /**
+   * Retrieves the active worker count.
+   */
+  public get workerCount(): number {
+    return 1;
+  } // get: workerCount
+
+  /**
    * Executes the fuzzing run and returns the finalized results.
    *
    * @param injectTests An array of pinned tests to inject into the fuzzing run.

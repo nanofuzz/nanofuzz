@@ -200,7 +200,7 @@ export function categorizeResult(result: FuzzTestResult): FuzzResultCategory {
  * In 'auto' mode:
  *  - CLI mode (process.env.BUILD_TARGET === "node-cli"): favors throughput with (cores - 1).
  *  - Non-CLI / IDE mode: favors responsiveness with floor(cores / 2).
- *  - Both modes clamp to available memory assuming ~100MB per worker with 512MB safety reserve.
+ *  - Both modes clamp to total system memory assuming ~100MB per worker with 1024MB safety reserve.
  *  - Minimum of 1 worker is always guaranteed.
  *
  * @param configured configured worker count or "auto"
@@ -226,9 +226,12 @@ export function resolveWorkerCount(
     ? Math.max(1, cpus - 1)
     : Math.max(1, Math.floor(cpus / 2));
 
-  // 100 MB memory clamp with 512 MB OS/IDE safety buffer
-  const freeMemMB = os.freemem() / (1024 * 1024);
-  const memClamp = Math.max(1, Math.floor(Math.max(0, freeMemMB - 512) / 100));
+  // 100 MB memory clamp with 1024 MB OS/IDE safety buffer based on total system memory
+  const totalMemMB = os.totalmem() / (1024 * 1024);
+  const memClamp = Math.max(
+    1,
+    Math.floor(Math.max(0, totalMemMB - 1024) / 100)
+  );
 
   return Math.max(1, Math.min(cpuTarget, memClamp));
 } // fn: resolveWorkerCount

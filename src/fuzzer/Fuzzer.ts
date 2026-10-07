@@ -366,6 +366,13 @@ export class Tester {
   } // property: get state
 
   /**
+   * Returns the active worker count.
+   */
+  public get workerCount(): number {
+    return 1;
+  } // get: workerCount
+
+  /**
    * Runs the tester and returns its results.
    *
    * @param `injectTests` tests to inject

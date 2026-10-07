@@ -70,7 +70,6 @@ export class FuzzerV3 {
 
   protected _compositeInputGenerator: CompositeInputGenerator;
   protected _workers: WorkerContext[] = [];
-  protected _runnerPoolSize = 2;
   protected _injectMap: Map<string, FuzzPinnedTest> = new Map();
   protected _stats: FuzzStats;
   protected _lastCompiler?: ReturnType<
@@ -262,11 +261,11 @@ export class FuzzerV3 {
   } // fn: state
 
   /**
-   * Retrieves the active worker pool size for PUT test executions.
+   * Retrieves the active worker count.
    */
-  public get runnerPoolSize(): number {
-    return this._runnerPoolSize;
-  } // get: runnerPoolSize
+  public get workerCount(): number {
+    return this._workers.length || resolveWorkerCount(this._options.workers);
+  } // get: workerCount
 
   /**
    * Executes the fuzzing run using a 5-stage lockstep pipeline.
@@ -831,13 +830,10 @@ export class FuzzerV3 {
         performance.now() - instrumentTime;
     }
 
-    this._runnerPoolSize = resolveWorkerCount(
-      this._options.workers,
-      process.env.BUILD_TARGET === "node-cli"
-    );
+    const workerCount = this.workerCount;
 
     this._workers = [];
-    for (let i = 0; i < this._runnerPoolSize; i++) {
+    for (let i = 0; i < workerCount; i++) {
       const runner = RunnerFactory(
         this.env,
         targetMod,

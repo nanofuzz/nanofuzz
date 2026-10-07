@@ -368,6 +368,9 @@ describe("cli:", () => {
 
     expect(res.status).toBe(0);
     expect(fs.existsSync(outputFile)).toBeTrue();
+    expect(res.stdout).toContain(
+      "Target ready to test (3 workers, v3 engine, mab scheduler)"
+    );
 
     const outputData = JSON5.parse<FuzzTestResults>(
       fs.readFileSync(outputFile, "utf8")

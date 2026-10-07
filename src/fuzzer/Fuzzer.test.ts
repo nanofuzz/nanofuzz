@@ -382,7 +382,7 @@ describe("fuzzer: general & parameterized engine tests", () => {
           `
           export function sleepFn(x: number): number {
             const start = Date.now();
-            while (Date.now() - start < 20) {}
+            while (Date.now() - start < 150) {}
             return x;
           }
           `

@@ -670,8 +670,16 @@ export async function runCliInProcess(
       { engine: options["engine"] }
     );
 
+    const engine = options["engine"] ?? "v3";
+    const scheduler = options["cigScheduler"] ?? "mab";
+    const workersCount = fuzzer.workerCount;
+    const workerWord =
+      workersCount === 1 ? "1 worker" : `${workersCount} workers`;
+
     console.log(`Target: ${fnname} of ${filename}`);
-    console.log(`Target ready to test.`);
+    console.log(
+      `Target ready to test (${workerWord}, ${engine} engine, ${scheduler} scheduler)`
+    );
 
     const results = await fuzzer.test(
       injectTests,

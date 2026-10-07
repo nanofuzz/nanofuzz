@@ -2798,6 +2798,16 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             this._results.stats.outcomes.total ||
             this._results.results.length ||
             1;
+          const workersCount = this._tester.workerCount;
+          const engine = Config.get<string>("nanofuzz.fuzzer.engine", "v3");
+          const scheduler =
+            this._results.stats.generators.CompositeInputGenerator?.config
+              ?.scheduler ??
+            Config.get<string>("nanofuzz.generators.scheduler.impl", "mab");
+          const coverageScope = Config.get<string>(
+            "nanofuzz.fuzzer.coverageScope",
+            "project static"
+          );
 
           // Add the run info tab to the panel
           tabs.push({
@@ -2949,6 +2959,13 @@ def ${transformerName}(${pyParams}) -> ${pyTupleType}:
             <p>${aiGeneratorText.join(" ")}</p>`
                 : ``
             }
+            
+            <div class="fuzzResultHeading">What are some internal details?</div>
+            <p>
+              ${toolName} used the ${engine} engine and ${scheduler} scheduler to coordinate test execution with ${workersCount} worker${
+                workersCount === 1 ? "" : "s"
+              } and ${coverageScope} coverage scope.
+            </p>
             `,
             hasGrid: false,
           });

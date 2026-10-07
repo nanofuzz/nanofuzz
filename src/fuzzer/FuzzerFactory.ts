@@ -19,6 +19,7 @@ import {
 export interface IFuzzer {
   readonly state: "init" | "ready" | "running" | "paused" | "crashed";
   readonly env: FuzzEnv;
+  readonly workerCount: number;
   options: FuzzOptions;
 
   isStale(
