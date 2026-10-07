@@ -625,6 +625,7 @@ export class PythonRunner extends AbstractRunner {
 
     const scopeConfig = parseCoverageScope(coverageScopeRaw);
     const collectStaticCoverage =
+      this._coverageEnabled &&
       this._overrides.acceptsStaticCoverage === true &&
       scopeConfig.collectStaticCoverage;
 

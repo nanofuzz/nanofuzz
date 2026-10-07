@@ -104,7 +104,7 @@ export class FuzzerV2 {
       );
     }
 
-    const fnList = this._program.functionsExported;
+    const fnList = this._program.functions;
     if (!(this._fnName in fnList)) {
       if (this._fnName in this._program.functionsNotSupported) {
         const reason = this._program.functionsNotSupported[this._fnName].reason;
@@ -113,17 +113,14 @@ export class FuzzerV2 {
         );
       }
       throw new Error(
-        `Could not find exported function ${this._fnName} in: ${this._module}`
+        `Could not find function ${this._fnName} in: ${this._module}`
       );
     }
     this._function = fnList[this._fnName];
 
-    this._validators = getValidators(this._program, fnList[this._fnName]);
-    this._transformers = getTransformers(this._program, fnList[this._fnName]);
-    this._userGenerators = getUserGenerators(
-      this._program,
-      fnList[this._fnName]
-    );
+    this._validators = getValidators(this._program, this._function);
+    this._transformers = getTransformers(this._program, this._function);
+    this._userGenerators = getUserGenerators(this._program, this._function);
 
     if (!isOptionValid(normalizedOptions)) {
       throw new Error(

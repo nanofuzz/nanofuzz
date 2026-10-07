@@ -106,7 +106,7 @@ export class Tester {
         { cause: e }
       );
     }
-    const fnList = this._program.functionsExported;
+    const fnList = this._program.functions;
     if (!(this._fnName in fnList)) {
       if (this._fnName in this._program.functionsNotSupported) {
         const reason = this._program.functionsNotSupported[this._fnName].reason;
@@ -115,22 +115,19 @@ export class Tester {
         );
       }
       throw new Error(
-        `Could not find exported function ${this._fnName} in: ${this._module}`
+        `Could not find function ${this._fnName} in: ${this._module}`
       );
     }
     this._function = fnList[this._fnName];
 
     // Get the list of property validators
-    this._validators = getValidators(this._program, fnList[this._fnName]);
+    this._validators = getValidators(this._program, this._function);
 
     // Get the list of input transformers
-    this._transformers = getTransformers(this._program, fnList[this._fnName]);
+    this._transformers = getTransformers(this._program, this._function);
 
     // Get the list of user generators
-    this._userGenerators = getUserGenerators(
-      this._program,
-      fnList[this._fnName]
-    );
+    this._userGenerators = getUserGenerators(this._program, this._function);
 
     // Options
     if (!isOptionValid(normalizedOptions)) {

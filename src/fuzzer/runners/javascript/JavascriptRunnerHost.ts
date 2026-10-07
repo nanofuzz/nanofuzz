@@ -77,14 +77,27 @@ async function main() {
     const mod = loadedModules[resolvedPath];
     let fnToExec: unknown;
     if (isRecord(mod)) {
+      // Check exported function
       fnToExec = mod[fnNameToLoad];
+
+      // Use __nanofuzz_get__ accessor for unexported functions)
+      if (
+        typeof fnToExec !== "function" &&
+        typeof mod.__nanofuzz_get__ === "function"
+      ) {
+        try {
+          fnToExec = Reflect.apply(mod.__nanofuzz_get__, mod, [fnNameToLoad]);
+        } catch {
+          // Identifier not found or evaluation failed
+        }
+      }
     } else if (typeof mod === "function") {
       fnToExec = mod;
     }
 
     if (typeof fnToExec !== "function") {
       throw new Error(
-        `Could not find exported function ${fnNameToLoad} in ${resolvedPath}`
+        `Could not find function '${fnNameToLoad}' in ${resolvedPath}`
       );
     }
 

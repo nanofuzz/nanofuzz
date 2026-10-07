@@ -117,7 +117,7 @@ export function getValidators(
   fnUnderTest: FunctionDef
 ): FunctionRef[] {
   const fnUnderTestName = fnUnderTest.getName();
-  return Object.values(program.functionsExported)
+  return Object.values(program.functions)
     .filter(
       (fn) =>
         fn.isValidator() && fn.getValidatorTargetName() === fnUnderTestName
@@ -136,7 +136,7 @@ export function getTransformers(
   program: AbstractProgram,
   fnUnderTest: FunctionDef
 ): FunctionRef[] {
-  return Object.values(program.functionsExported)
+  return Object.values(program.functions)
     .filter(
       (fn) =>
         fn.isTransformer() && fn.getName().startsWith(fnUnderTest.getName())
@@ -164,7 +164,7 @@ export function getUserGenerators(
     name !== fnUnderTestName &&
     name.startsWith(fnUnderTestName);
 
-  const fromExported = Object.values(program.functionsExported)
+  const fromSupported = Object.values(program.functions)
     .filter((fn) => isUserGen(fn.getName(), fn.isExported()))
     .map((fn) => fn.getRef());
 
@@ -176,5 +176,5 @@ export function getUserGenerators(
     .map((entry) => entry.function)
     .filter((fnRef) => isUserGen(fnRef.name, fnRef.isExported));
 
-  return [...fromExported, ...fromUnsupported];
+  return [...fromSupported, ...fromUnsupported];
 } // fn: getUserGenerators()
