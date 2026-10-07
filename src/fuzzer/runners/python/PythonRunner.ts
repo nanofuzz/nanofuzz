@@ -234,6 +234,13 @@ export class PythonRunner extends AbstractRunner {
   } // fn: onRunEnd
 
   /**
+   * Returns the module/target filename associated with this runner
+   */
+  public override get filename(): string {
+    return this._filename;
+  } // get: filename
+
+  /**
    * Returns the current coverage information, if any
    */
   public override get coverageInfo(): FullCoverage | undefined {

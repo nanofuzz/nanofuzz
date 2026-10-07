@@ -81,6 +81,22 @@ describe("fuzzer: general & parameterized engine tests", () => {
         }
       });
 
+      it("static coverage with 0 tests across engines", async () => {
+        const results = await FuzzerFactory(
+          "nanofuzz-study/examples/1.ts",
+          "minValue",
+          { ...intOptions, maxTests: 0 },
+          { engine }
+        ).test([], {});
+
+        const cov = await results.stats.measures.CodeCoverageMeasure?.();
+        expect(cov).toBeDefined();
+        if (cov) {
+          expect(cov.counters.statementsTotal).toBeGreaterThan(0);
+          expect(cov.counters.statementsCovered).toBe(1);
+        }
+      });
+
       it("mutation-only fuzzing", async () => {
         const options = {
           ...intOptions,

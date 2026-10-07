@@ -257,6 +257,13 @@ export class JavascriptRunner extends AbstractRunner {
   } // fn: run
 
   /**
+   * Gets the module/target filename associated with this runner.
+   */
+  public override get filename(): string {
+    return this._filename;
+  } // get: filename
+
+  /**
    * Gets the current code coverage information.
    *
    * @returns the current code coverage information, or `undefined` if not available

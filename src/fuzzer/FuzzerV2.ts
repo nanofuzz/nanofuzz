@@ -556,7 +556,7 @@ export class FuzzerV2 {
       (r): r is AbstractRunner => r !== undefined
     );
     this._measures.forEach((m) => {
-      m.onRunStart(runners);
+      m.onRunStart(runners, this.env);
     });
 
     const injectMap = new Map(injectTests.map((t) => [getIoKey(t.input), t]));

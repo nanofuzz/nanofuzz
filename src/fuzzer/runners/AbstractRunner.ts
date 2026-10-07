@@ -25,6 +25,13 @@ export abstract class AbstractRunner {
   } // get: name
 
   /**
+   * Returns the module/target filename associated with this runner, if any.
+   */
+  public get filename(): string | undefined {
+    return undefined;
+  } // get: filename
+
+  /**
    * Optional coverage info captured during test runner initialization or execution.
    */
   public get coverageInfo(): unknown {

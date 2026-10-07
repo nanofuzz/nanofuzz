@@ -548,7 +548,7 @@ export class Tester {
       (r): r is AbstractRunner => r !== undefined
     );
     this._measures.forEach((m) => {
-      m.onRunStart(runners);
+      m.onRunStart(runners, this.env);
     });
 
     // Injected tests lookup map

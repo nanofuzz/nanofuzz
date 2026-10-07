@@ -178,15 +178,6 @@ export abstract class AbstractCoverageMeasure extends AbstractMeasure {
 
     return delta;
   } // fn: mergeCoverageIntoAccum
-
-  /**
-   * Sets an asynchronous promise for resolving static coverage in the background.
-   *
-   * @param promise promise resolving static coverage data
-   */
-  public setStaticCoveragePromise(_promise: Promise<unknown>): void {
-    return;
-  } // fn: setStaticCoveragePromise
 } // class: AbstractCoverageMeasure
 
 /**

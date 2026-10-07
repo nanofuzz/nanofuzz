@@ -12,11 +12,15 @@ import {
 import {
   VmGlobals,
   InputAndSource,
+  FuzzEnv,
   FuzzTestResult,
   FuzzTestResults,
 } from "../Types";
 import { normalizePathForKey } from "../Util";
 import { AbstractRunner } from "../runners/AbstractRunner";
+import { JavascriptRunner } from "../runners/javascript/JavascriptRunner";
+import * as Config from "../../Config";
+import { parseCoverageScope } from "./Util";
 import * as fs from "fs";
 import * as path from "path";
 import {
@@ -38,9 +42,13 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   protected _sourceMapStore: MapStore = createSourceMapStore();
   protected _lineHitCounts: Map<string, Map<number, number>> = new Map(); // tracks per-line hit counts across test runs
   protected _staticCoveragePromise?: Promise<unknown>;
+  protected _staticProbeRunner?: JavascriptRunner;
 
-  public override onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
-    super.onRunStart(runners);
+  public override onRunStart(
+    runners: AbstractRunner[] | AbstractRunner,
+    env?: FuzzEnv
+  ): void {
+    super.onRunStart(runners, env);
     this._globalCoverageMap = createCoverageMap({});
     this._history.clear();
     this._lastNode = undefined;
@@ -68,6 +76,25 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     if (Object.keys(this._coverageData).length > 0) {
       AbstractCoverageMeasure.merge(this._globalCoverageMap, this._snapshot());
       this._coverageData = this._snapshotZero();
+    }
+
+    const coverageScopeRaw = Config.get<unknown>(
+      "nanofuzz.fuzzer.coverageScope",
+      "project static"
+    );
+    const scopeConfig = parseCoverageScope(coverageScopeRaw);
+    const targetModule = runnerList[0]?.filename ?? env?.function.getModule();
+    if (
+      scopeConfig.collectStaticCoverage &&
+      env?.options?.measures?.CoverageMeasure?.enabled &&
+      targetModule
+    ) {
+      this._staticCoveragePromise = this._resolveStaticCoverageAsync(
+        env,
+        targetModule
+      );
+    } else {
+      this._staticCoveragePromise = undefined;
     }
   } // fn: onRunStart
 
@@ -374,6 +401,11 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
    * @param `results` all test results
    */
   public onRunEnd(results: FuzzTestResults): void {
+    if (this._staticProbeRunner) {
+      this._staticProbeRunner.killHost();
+      this._staticProbeRunner = undefined;
+    }
+
     results.stats.measures.CodeCoverageMeasure =
       async (): Promise<CodeCoverageMeasureStats> => {
         if (this._staticCoveragePromise) {
@@ -582,14 +614,33 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   } // fn: getCoverage
 
   /**
-   * Sets an asynchronous promise for resolving static coverage in the background.
-   *
-   * @param promise promise resolving static coverage data
+   * Resolves static code coverage baseline asynchronously in the background.
    */
-  public override setStaticCoveragePromise(promise: Promise<unknown>): void {
-    this._staticCoveragePromise = promise;
-  } // fn: setStaticCoveragePromise
-} // class: CoverageMeasure
+  protected async _resolveStaticCoverageAsync(
+    env: FuzzEnv,
+    targetModule: string
+  ): Promise<unknown> {
+    const probeRunner = new JavascriptRunner(
+      targetModule,
+      env.function.getName(),
+      env,
+      { acceptsStaticCoverage: true }
+    );
+    this._staticProbeRunner = probeRunner;
+    try {
+      await probeRunner.onRunStart();
+      return probeRunner.coverageInfo;
+    } catch {
+      return undefined;
+    } finally {
+      await probeRunner.onRunEnd();
+      probeRunner.killHost();
+      if (this._staticProbeRunner === probeRunner) {
+        this._staticProbeRunner = undefined;
+      }
+    }
+  } // fn: _resolveStaticCoverageAsync
+} // class: TypescriptCoverageMeasure
 
 /**
  * Type guard function that returns true if `obj` is a CoverageMapData type
