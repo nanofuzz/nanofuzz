@@ -10,7 +10,6 @@ import {
   ArgTag,
   ArgValueTypeWrapped,
   FunctionRef,
-  Interval,
 } from "../fuzzer/analysis/Types";
 import {
   bigIntOrThrow,
@@ -22,18 +21,13 @@ import { getIoKey } from "../fuzzer/Util";
 import * as fs from "fs";
 import { htmlEscape } from "escape-goat";
 import * as telemetry from "../telemetry/Telemetry";
-import * as TestAdapterFactory from "../fuzzer/adapters/TestAdapterFactory";
 import {
   isError,
   getErrorMessageOrJson,
   normalizePathForKey,
 } from "../fuzzer/Util";
 import { parseCoverageScope } from "../fuzzer/measures/Util";
-import {
-  removeTickFromOrigin,
-  encodeEscapeSequences,
-  decodeEscapeSequences,
-} from "../Util";
+import { removeTickFromOrigin, encodeEscapeSequences } from "../Util";
 import { FuzzerFactory, IFuzzer } from "../fuzzer/FuzzerFactory";
 import {
   applyCoverageHeatmapToEditor,
@@ -46,6 +40,7 @@ import * as CompilerFactory from "../fuzzer/compilers/CompilerFactory";
 import { synthesizeValidator } from "../fuzzer/synthesis/ValidatorSynthesizer";
 import { synthesizeTransformer } from "../fuzzer/synthesis/TransformerSynthesizer";
 import { synthesizeUserGenerator } from "../fuzzer/synthesis/UserGeneratorSynthesizer";
+import { FuzzConfigStore, CURR_FILE_FMT_VER } from "../fuzzer/FuzzConfigStore";
 
 /**
  * FuzzPanel displays fuzzer options, actions, and the last results for a
@@ -565,8 +560,8 @@ export class FuzzPanel {
    * @returns filename of pinned tests
    */
   private _getFuzzTestsFilename(): string {
-    return this._fuzzEnv.function.getModule() + ".nano.json5";
-  } // fn: _getPinnedTestFilename()
+    return FuzzConfigStore.getNanoFilename(this._fuzzEnv.function.getModule());
+  } // fn: _getFuzzTestsFilename()
 
   /**
    * Returns the filename where pinned tests were persisted
@@ -575,10 +570,10 @@ export class FuzzPanel {
    * @returns filename of pinned tests
    */
   private _getFuzzTestsFilenameOld(): string {
-    let module = this._fuzzEnv.function.getModule();
-    module = module.split(".").slice(0, -1).join(".") || module;
-    return module + ".nano.test.json";
-  } // fn: _getPinnedTestFilename()
+    return FuzzConfigStore.getLegacyNanoFilename(
+      this._fuzzEnv.function.getModule()
+    );
+  } // fn: _getFuzzTestsFilenameOld()
 
   /**
    * Returns pinned tests for all functions in the current module.
@@ -586,172 +581,7 @@ export class FuzzPanel {
    * @returns all pinned tests for all functions in the current module
    */
   private _getFuzzTestsForModule(): fuzzer.FuzzTests {
-    const jsonFileOld = this._getFuzzTestsFilenameOld();
-    const jsonFile = this._getFuzzTestsFilename();
-    let inputTests, testSet: fuzzer.FuzzTests;
-
-    // Migrate to the v0.4 naming convention, which avoids
-    // collisions between Typescript and Python modules.
-    if (fs.existsSync(jsonFileOld) && !fs.existsSync(jsonFile)) {
-      fs.renameSync(jsonFileOld, jsonFile);
-      console.info(`Moved test set in file ${jsonFileOld} to ${jsonFile}`);
-    }
-
-    // Read the file; if it doesn't exist, load default values
-    try {
-      inputTests = JSONN.parse<fuzzer.FuzzTests>(
-        fs.readFileSync(jsonFile).toString()
-      );
-      testSet = inputTests;
-    } catch (_e: unknown) {
-      return this._initFuzzTestsForThisFn();
-    }
-
-    // Handle any version conversions needed
-    while (inputTests.version !== CURR_FILE_FMT_VER) {
-      if (!("version" in inputTests)) {
-        // v0.1.0 format -- convert to current format
-        testSet = this._initFuzzTestsForThisFn();
-        const fnName = this._fuzzEnv.function.getName();
-        if (fnName in inputTests) {
-          testSet.functions[fnName].tests = inputTests[fnName];
-        }
-        console.info(
-          `Upgraded test set in file ${jsonFile} from ${testSet.version} to current version`
-        );
-        inputTests = testSet;
-      } else {
-        switch (inputTests.version) {
-          case "0.2.0": {
-            // v0.2.0 format -- add maxFailures and onlyFailure options
-            testSet = { ...inputTests, version: "0.2.1" };
-            for (const fn in testSet.functions) {
-              testSet.functions[fn].options.maxFailures = 0;
-              testSet.functions[fn].options.useHuman = true;
-              testSet.functions[fn].options.useImplicit = true;
-            }
-            console.info(
-              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
-            );
-            inputTests = testSet;
-            break;
-          }
-          case "0.2.1": {
-            // v0.2.1 format -- infer useProperty option & turn on useHuman (the latter
-            // is req'd b/c we eliminated the UI button that controls this)
-            testSet = { ...inputTests, version: "0.3.0" };
-            for (const fn in testSet.functions) {
-              testSet.functions[fn].options.useProperty =
-                "validator" in testSet.functions[fn];
-              testSet.functions[fn].options.useHuman = true;
-            }
-            console.info(
-              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
-            );
-            inputTests = testSet;
-            break;
-          }
-          case "0.3.0": {
-            // v0.3.0 format -- infer arg strCharset override from function default
-            testSet = { ...inputTests, version: "0.3.3" };
-            for (const fn in testSet.functions) {
-              const thisFn = testSet.functions[fn];
-              if (thisFn.argOverrides) {
-                for (const i in thisFn.argOverrides) {
-                  const arg = thisFn.argOverrides[i];
-                  // strings overrides only
-                  if (arg.string && !arg.string.strCharset) {
-                    arg.string.strCharset =
-                      thisFn.options.argDefaults.strCharset;
-                  }
-                }
-              }
-              break;
-            }
-            console.info(
-              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
-            );
-            inputTests = testSet;
-            break;
-          }
-          case "0.3.3": {
-            // v0.3.3 format -- only additions such as isVoid and literal types that
-            // older versions of NaNofuzz will not interpret. Also check for missing
-            // maxDupeInputs value
-            testSet = { ...inputTests, version: "0.3.6" };
-            for (const fn in testSet.functions) {
-              const thisFn = testSet.functions[fn];
-              const thisOpt: Partial<fuzzer.FuzzOptions> = thisFn.options;
-              if (
-                !("maxDupeInputs" in thisOpt) ||
-                thisOpt.maxDupeInputs === undefined ||
-                isNaN(thisOpt.maxDupeInputs)
-              ) {
-                thisOpt.maxDupeInputs = Config.get(
-                  "nanofuzz.fuzzer.maxDupeInputs",
-                  500
-                );
-              }
-            }
-            console.info(
-              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
-            );
-            inputTests = testSet;
-            break;
-          }
-          case "0.3.6": {
-            // v0.3.6 format -- add configuration for measures and generators,
-            //        re-key and add origin info to saved test inputs
-            testSet = { ...inputTests, version: "0.4.0" }; // !!!!!!!!
-            for (const fn in testSet.functions) {
-              const thisFn = testSet.functions[fn];
-              thisFn.options.measures = getDefaultFuzzOptions().measures;
-              thisFn.options.generators = getDefaultFuzzOptions().generators;
-              thisFn.options.useTransformer = true;
-
-              const oldTestSet = thisFn.tests;
-              thisFn.tests = {};
-              for (const oldKey in oldTestSet) {
-                const newKey = getIoKey(oldTestSet[oldKey].input);
-                const thisTest = (thisFn.tests[newKey] = oldTestSet[oldKey]);
-                for (const input of thisTest.input) {
-                  input.origin = {
-                    type: "generator",
-                    generator: "RandomInputGenerator",
-                  };
-                }
-                for (const output of thisTest.output) {
-                  output.origin = { type: "put" };
-                }
-                if (thisTest.expectedOutput) {
-                  for (const expectedOutput of thisTest.expectedOutput) {
-                    expectedOutput.origin = { type: "user" };
-                  }
-                }
-              }
-            }
-            console.info(
-              `Upgraded test set in file ${jsonFile} from ${inputTests.version} to ${testSet.version}`
-            );
-            inputTests = testSet;
-            break;
-          }
-          case "0.3.9": {
-            // same as v0.4.0; only used for testing
-            inputTests = { ...inputTests, version: "0.4.0" };
-            break;
-          }
-          default: {
-            // unknown format; stop to avoid losing data
-            throw new Error(
-              `Unknown version ${inputTests.version} in test file ${jsonFile}. Update your ${toolName} extension or delete/rename the file to continue.`
-            );
-          }
-        }
-      }
-    }
-
-    return this._pruneTestSet(testSet);
+    return FuzzConfigStore.loadForModule(this._fuzzEnv.function.getModule());
   } // fn: _getFuzzTestsForModule()
 
   /**
@@ -763,16 +593,7 @@ export class FuzzPanel {
    *          tests with an expected output.
    */
   private _pruneTestSet(testSet: fuzzer.FuzzTests): fuzzer.FuzzTests {
-    const prunedTestSet = structuredClone(testSet);
-    for (const fn in prunedTestSet.functions) {
-      for (const test in prunedTestSet.functions[fn].tests) {
-        const thisTest = prunedTestSet.functions[fn].tests[test];
-        if (!thisTest.pinned && thisTest.expectedOutput === undefined) {
-          delete prunedTestSet.functions[fn].tests[test];
-        }
-      }
-    }
-    return prunedTestSet;
+    return FuzzConfigStore.prune(testSet);
   } // fn: _pruneTestSet
 
   /**
@@ -783,24 +604,26 @@ export class FuzzPanel {
    */
   private _initFuzzTestsForThisFn(): fuzzer.FuzzTests {
     const fnRef = this._fuzzEnv.function.getRef();
+    const fnConfig = FuzzConfigStore.createDefaultFunctionConfig(
+      this._fuzzEnv.function.getName(),
+      {
+        options: {
+          ...this._fuzzEnv.options,
+          ...(fnRef.fuzzOptions ?? {}),
+        },
+        argOverrides: this._argOverrides,
+        validators: this._fuzzEnv.validators.map((ref) => ref.name),
+        userGenerators: this._fuzzEnv.userGenerators.map((ref) => ref.name),
+        tests: {},
+        isVoid: this._fuzzEnv.function.isVoid(),
+        ...(this._fuzzEnv.function.isAsync() ? { isAsync: true as const } : {}),
+      }
+    );
 
     return {
       version: CURR_FILE_FMT_VER,
       functions: {
-        [this._fuzzEnv.function.getName()]: {
-          options: {
-            ...this._fuzzEnv.options,
-            ...(fnRef.fuzzOptions ?? {}),
-          },
-          argOverrides: this._argOverrides,
-          validators: this._fuzzEnv.validators.map((ref) => ref.name),
-          userGenerators: this._fuzzEnv.userGenerators.map((ref) => ref.name),
-          tests: {},
-          isVoid: this._fuzzEnv.function.isVoid(),
-          ...(this._fuzzEnv.function.isAsync()
-            ? { isAsync: true as const }
-            : {}),
-        },
+        [this._fuzzEnv.function.getName()]: fnConfig,
       },
     };
   } // fn: _initFuzzTestsForThisFn()
@@ -811,18 +634,29 @@ export class FuzzPanel {
    * @returns saved tests for the current function
    */
   private _getFuzzTestsForThisFn(): fuzzer.FuzzTestsFunction {
-    // Get the tests for the entire module
-    const moduleSet = this._getFuzzTestsForModule();
-
-    // Get the persistent tests for the function, if it exists
+    const fnRef = this._fuzzEnv.function.getRef();
     const fnName = this._fuzzEnv.function.getName();
-    const fnSet = // persistent tests
-      fnName in moduleSet.functions
-        ? moduleSet.functions[fnName]
-        : this._initFuzzTestsForThisFn().functions[fnName];
+    const defaultOptions = {
+      ...this._fuzzEnv.options,
+      ...(fnRef.fuzzOptions ?? {}),
+    };
 
-    if (fnSet.options) {
-      fnSet.options = normalizeFuzzOptions(fnSet.options);
+    const fnSet = FuzzConfigStore.loadForFunction(
+      this._fuzzEnv.function.getModule(),
+      fnName,
+      defaultOptions
+    );
+
+    if (fnSet.argOverrides === undefined) {
+      fnSet.argOverrides = this._argOverrides;
+    }
+    if (fnSet.validators === undefined) {
+      fnSet.validators = this._fuzzEnv.validators.map((ref) => ref.name);
+    }
+    if (fnSet.userGenerators === undefined) {
+      fnSet.userGenerators = this._fuzzEnv.userGenerators.map(
+        (ref) => ref.name
+      );
     }
 
     return fnSet;
@@ -834,67 +668,21 @@ export class FuzzPanel {
    * @param testSet the pinned tests for the current function
    */
   private _putFuzzTestsForThisFn(testSet: fuzzer.FuzzTestsFunction): void {
-    const jsonFile = this._getFuzzTestsFilename();
-    let fullSet = this._getFuzzTestsForModule();
-
-    // Update the function in the dataset
-    fullSet.functions[this._fuzzEnv.function.getName()] = testSet;
-
-    // Prune unused tests
-    fullSet = this._pruneTestSet(fullSet);
-
-    // Count the number of pinned tests for the module
-    let pinnedCount = 0;
-    Object.values(fullSet.functions).forEach((fn) => {
-      pinnedCount += Object.values(fn.tests).filter((e) => e.pinned).length;
-    });
-
-    // Persist the test set
-    try {
-      fs.writeFileSync(jsonFile, JSONN.stringify(fullSet)); // Update the file
-    } catch (e: unknown) {
-      const msg = isError(e) ? e.message : JSONN.stringify(e);
-      vscode.window.showErrorMessage(
-        `Unable to update json file: ${jsonFile} (${msg})`
-      );
-    }
-
-    // Build the Test Adapter
-    const testAdapter = TestAdapterFactory.fromSourceFilename(
+    FuzzConfigStore.saveForFunction(
       this._fuzzEnv.function.getModule(),
-      this._getFuzzTestsForModule()
+      this._fuzzEnv.function.getName(),
+      testSet,
+      {
+        syncTestAdapter: true,
+        onError: (e: unknown) => {
+          const msg = isError(e) ? e.message : JSONN.stringify(e);
+          vscode.window.showErrorMessage(
+            `Unable to update test configuration / files (${msg})`
+          );
+        },
+      }
     );
-
-    if (pinnedCount) {
-      // Generate the Jest test data for CI
-      // The Jest file should contain all tests that are pinned
-      const jestTests = testAdapter.toString();
-
-      // Persist the Jest tests for CI
-      try {
-        fs.writeFileSync(testAdapter.filename, jestTests);
-      } catch (e: unknown) {
-        const msg = isError(e) ? e.message : JSONN.stringify(e);
-
-        vscode.window.showErrorMessage(
-          `Unable to update ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
-        );
-      }
-    } else if (fs.existsSync(testAdapter.filename)) {
-      // Delete the test file: it would contain no tests
-      try {
-        fs.rmSync(testAdapter.filename);
-      } catch (e: unknown) {
-        const msg = isError(e) ? e.message : JSONN.stringify(e);
-        vscode.window.showErrorMessage(
-          `Unable to remove ${testAdapter.toolname} test file: ${testAdapter.filename} (${msg})`
-        );
-      }
-    }
-
-    // Return
-    return;
-  } // fn: _putFuzzTestsForFn
+  } // fn: _putFuzzTestsForThisFn()
 
   /**
    * Add and/or delete from the persisted set of tests.
@@ -902,34 +690,20 @@ export class FuzzPanel {
    * @param `test` test case to update
    */
   private _updateFuzzTestsForThisFn(test: fuzzer.FuzzPinnedTest): void {
-    const currInputsJson = getIoKey(test.input);
-    const testSet = this._getFuzzTestsForThisFn();
-
-    // If input is already in pinnedSet, is not pinned, and does not have
-    // an expected value assigned, then delete it
-    if (
-      currInputsJson in testSet.tests &&
-      !test.pinned &&
-      !test.expectedOutput
-    ) {
-      delete testSet.tests[currInputsJson];
-    } else {
-      // Else, save to pinnedSet w/o ticks or output
-      testSet.tests[currInputsJson] = {
-        ...test,
-        output: [],
-        input: test.input.map((i) => {
-          return {
-            ...i,
-            // ticks are tester-specific
-            origin: removeTickFromOrigin(i.origin),
-          };
-        }),
-      };
-    }
-
-    // Persist the updated set of tests
-    this._putFuzzTestsForThisFn(testSet);
+    FuzzConfigStore.updatePinnedTest(
+      this._fuzzEnv.function.getModule(),
+      this._fuzzEnv.function.getName(),
+      test,
+      {
+        syncTestAdapter: true,
+        onError: (e: unknown) => {
+          const msg = isError(e) ? e.message : JSONN.stringify(e);
+          vscode.window.showErrorMessage(
+            `Unable to update test configuration / files (${msg})`
+          );
+        },
+      }
+    );
   } // fn: _updateFuzzTestsForThisFn()
 
   /**
@@ -1113,9 +887,7 @@ export class FuzzPanel {
     const existingTransformers = getTransformers(program, fn);
     if (existingTransformers.length > 0) {
       this._fuzzEnv.transformers = existingTransformers;
-      const fnDef =
-        program.functionsExported[existingTransformers[0].name] ??
-        program.functions[existingTransformers[0].name];
+      const fnDef = program.functions[existingTransformers[0].name];
       if (fnDef) {
         this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
         return;
@@ -1175,7 +947,7 @@ export class FuzzPanel {
       // Change focus to the generated transformer
       try {
         const pgm = ProgramFactory.fromFile(module);
-        const fn = pgm.functionsExported[transformerName];
+        const fn = pgm.functions[transformerName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (e: unknown) {
         this._setErrorFromException(e);
@@ -1267,8 +1039,7 @@ export class FuzzPanel {
         if (targetGen && targetGen.startOffset !== undefined) {
           this._navigateToSource(targetGen.module, targetGen.startOffset);
         } else {
-          const fnDef =
-            pgm.functionsExported[userGenName] ?? pgm.functions[userGenName];
+          const fnDef = pgm.functions[userGenName];
           if (fnDef) {
             this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
           } else {
@@ -1313,9 +1084,7 @@ export class FuzzPanel {
     if (existingUserGenerators.length > 0) {
       this._fuzzEnv.userGenerators = existingUserGenerators;
       const targetGen = existingUserGenerators[0];
-      const fnDef =
-        program.functionsExported[targetGen.name] ??
-        program.functions[targetGen.name];
+      const fnDef = program.functions[targetGen.name];
       if (fnDef) {
         this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
         return;
@@ -3915,7 +3684,7 @@ export function provideCodeLenses(
       "nanofuzz.ui.codeLens.includeValidators",
       true
     );
-    const allFunctions = Object.values(program.functionsExported);
+    const allFunctions = Object.values(program.functions);
     const functions = (fuzzValidators === undefined ? true : fuzzValidators)
       ? allFunctions
       : allFunctions.filter((fn) => !fn.isValidator());
@@ -3971,129 +3740,7 @@ function _applyArgOverrides(
   }
 
   // Apply argument option changes
-  for (const i in argOverrides) {
-    const thisOverride = argOverrides[i];
-    const thisArg: ArgDef = argsFlat[i];
-    if (Number(i) + 1 > argsFlat.length) {
-      break; // exit the for loop
-    }
-
-    // Min and max values
-    switch (thisArg.getType()) {
-      case ArgTag.NUMBER:
-        if (thisOverride.number) {
-          // Min / Max
-          thisArg.setIntervals([
-            {
-              min: Number(thisOverride.number.min),
-              max: Number(thisOverride.number.max),
-            },
-          ]);
-          // Number is integer
-          thisArg.setOptions({
-            numInteger: !!thisOverride.number.numInteger,
-          });
-        }
-        break;
-
-      case ArgTag.BIGINT:
-        if (thisOverride.bigInt) {
-          // Min / Max
-          thisArg.setIntervals([
-            {
-              min: thisOverride.bigInt.min,
-              max: thisOverride.bigInt.max,
-            },
-          ]);
-        }
-        break;
-
-      case ArgTag.BOOLEAN:
-        if (thisOverride.boolean) {
-          // Min / Max
-          thisArg.setIntervals([
-            {
-              min: !!thisOverride.boolean.min,
-              max: !!thisOverride.boolean.max,
-            },
-          ]);
-        }
-        break;
-      case ArgTag.STRING:
-        if (thisOverride.string) {
-          // String length
-          thisArg.setOptions({
-            strLength: {
-              min: Number(thisOverride.string.minStrLen),
-              max: Number(thisOverride.string.maxStrLen),
-            },
-            // Character set. Note: empty sets are invalid
-            strCharset:
-              thisOverride.string.strCharset === ""
-                ? argDefaults.strCharset
-                : decodeEscapeSequences(thisOverride.string.strCharset),
-            strRegex: thisOverride.string.strRegex,
-          });
-        }
-        break;
-      case ArgTag.BYTES:
-        if (thisOverride.bytes) {
-          thisArg.setOptions({
-            byteLength: {
-              min: Number(thisOverride.bytes.minByteLen),
-              max: Number(thisOverride.bytes.maxByteLen),
-            },
-          });
-        }
-        break;
-      case ArgTag.DICTIONARY:
-        if (thisOverride.dictionary) {
-          thisArg.setOptions({
-            dictLength: {
-              min: Number(thisOverride.dictionary.minDictLen),
-              max: Number(thisOverride.dictionary.maxDictLen),
-            },
-          });
-        }
-        break;
-      case ArgTag.SET:
-        if (thisOverride.set) {
-          thisArg.setOptions({
-            setLength: {
-              min: Number(thisOverride.set.minSetLen),
-              max: Number(thisOverride.set.maxSetLen),
-            },
-          });
-        }
-        break;
-      case ArgTag.OBJECT:
-      case ArgTag.LITERAL:
-      case ArgTag.UNION:
-      case ArgTag.TUPLE:
-      case ArgTag.UNRESOLVED:
-        break;
-    }
-
-    // isNoInput
-    thisArg.setOptions({
-      isNoInput: thisOverride.isNoInput ?? false,
-    });
-
-    // Array dimensions
-    if (thisOverride.array) {
-      thisOverride.array.dimLength.forEach((e: Interval<number>) => {
-        if (!(typeof e === "object" && "min" in e && "max" in e)) {
-          throw new Error(
-            `Invalid interval for array dimensions: ${JSONN.stringify(e)}`
-          );
-        }
-      });
-      thisArg.setOptions({
-        dimLength: thisOverride.array.dimLength,
-        dimsUnique: !!thisOverride.array.dimsUnique,
-      });
-    }
-  } // for: each argument
+  FuzzConfigStore.applyArgOverrides(fn, argOverrides, argDefaults);
 } // fn: _applyArgOverrides()
 
 /**
@@ -4102,43 +3749,7 @@ function _applyArgOverrides(
  * @returns default set of fuzzer options
  */
 export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
-  return {
-    outputResults: "all",
-    argDefaults: ArgDef.getDefaultOptions(),
-    maxTests: Config.get("nanofuzz.fuzzer.maxTests", 1000),
-    fnTimeout: Config.get("nanofuzz.fuzzer.fnTimeout", 100),
-    suiteTimeout: Config.get("nanofuzz.fuzzer.suiteTimeout", 3000),
-    maxDupeInputs: Config.get("nanofuzz.fuzzer.maxDupeInputs", 500),
-    maxFailures: Config.get("nanofuzz.fuzzer.maxFailures", 0),
-    useTransformer: true,
-    useHuman: true,
-    useImplicit: true,
-    useProperty: false,
-    measures: {
-      FailedTestMeasure: {
-        enabled: true,
-        weight: 1,
-      },
-      CoverageMeasure: {
-        enabled: true,
-        weight: 1,
-      },
-    },
-    generators: {
-      RandomInputGenerator: {
-        enabled: true,
-      },
-      MutationInputGenerator: {
-        enabled: true,
-      },
-      AiInputGenerator: {
-        enabled: true,
-      },
-      UserInputGenerator: {
-        enabled: true,
-      },
-    },
-  };
+  return FuzzConfigStore.getDefaultFuzzOptions();
 }; // fn: getDefaultFuzzOptions()
 
 /**
@@ -4150,20 +3761,7 @@ export const getDefaultFuzzOptions = (): fuzzer.FuzzOptions => {
 export const normalizeFuzzOptions = (
   options?: Partial<fuzzer.FuzzOptions>
 ): fuzzer.FuzzOptions => {
-  const dft = getDefaultFuzzOptions();
-  if (!options) return dft;
-  return {
-    ...dft,
-    ...options,
-    outputResults: options.outputResults ?? "all",
-    argDefaults: ArgDef.normalizeOptions(options.argDefaults),
-    generators: options.generators
-      ? { ...dft.generators, ...options.generators }
-      : dft.generators,
-    measures: options.measures
-      ? { ...dft.measures, ...options.measures }
-      : dft.measures,
-  };
+  return FuzzConfigStore.normalizeFuzzOptions(options);
 }; // fn: normalizeFuzzOptions()
 
 /**
@@ -4326,11 +3924,6 @@ export const languages = ["typescript", "typescriptreact", "python"];
  * The Fuzzer State Version we currently support.
  */
 const fuzzPanelStateVer = "FuzzPanelStateSerialized-0.4.0"; // !!!!!!! Increment if fmt changes
-
-/**
- * Current file format version for persisting test sets / pinned test cases
- */
-const CURR_FILE_FMT_VER = "0.4.0"; // !!!!!!! Increment if fmt changes
 
 // ----------------------------- Types ----------------------------- //
 

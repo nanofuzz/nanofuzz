@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as Config from "../Config";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
@@ -10,14 +12,18 @@ import {
   getDefaultFuzzOptions,
   normalizeAgentFuzzOptions,
   synthesizeReproducer,
+  synthesizeTestSuite,
+  selectCoveringResults,
   buildSummaryMarkdown,
   formatLineRanges,
   getToolName,
   synthesizeValidator,
   synthesizeTransformer,
+  synthesizeUserGenerator,
   AgentFuzzOptions,
 } from "./Agent";
 import { FuzzTestResult } from "../fuzzer/Types";
+import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 
 jasmine.DEFAULT_TIMEOUT_INTERVAL = 60000;
 
@@ -53,12 +59,17 @@ describe("Agent", () => {
 
     const voidFn = fnMap.get("testStandardVoidReturnUndefined")!;
     expect(voidFn.isVoid).toBe(true);
+    expect(voidFn.isExported).toBe(true);
     expect(voidFn.args.length).toBe(1);
     expect(voidFn.args[0].name).toBe("_x");
     expect(voidFn.args[0].type).toBe("number");
     expect(voidFn.signature).toContain(
       "function testStandardVoidReturnUndefined"
     );
+
+    const unexportedFn = fnMap.get("testUnexportedFunction");
+    expect(unexportedFn).toBeDefined();
+    expect(unexportedFn?.isExported).toBe(false);
 
     const changeInputFn = fnMap.get("testChangeInput");
     expect(changeInputFn).toBeDefined();
@@ -86,6 +97,12 @@ describe("Agent", () => {
     expect(voidFn.transformerTemplate).toContain(
       "export function testStandardVoidReturnUndefinedTransformer"
     );
+
+    expect(voidFn.generatorTemplate).toBeDefined();
+    expect(voidFn.generatorTemplate).toContain(
+      "export function testStandardVoidReturnUndefinedGenerator(prng: () => number): Parameters<typeof testStandardVoidReturnUndefined> | undefined"
+    );
+    expect(voidFn.generatorTemplate).toContain("return [");
   });
 
   it("listTargets: py", async () => {
@@ -115,6 +132,14 @@ describe("Agent", () => {
       "from nanofuzz_runtime import UnsatisfiedAssumption, assume"
     );
     expect(greetingFn.transformerTemplate).toContain("def greetingTransformer");
+
+    expect(greetingFn.generatorTemplate).toBeDefined();
+    expect(greetingFn.generatorTemplate).toContain(
+      "from typing import Callable"
+    );
+    expect(greetingFn.generatorTemplate).toContain(
+      "def greetingGenerator(prng: Callable[[], float]) -> tuple["
+    );
 
     const asyncFn = fnMap.get("async_greeting");
     expect(asyncFn).toBeDefined();
@@ -158,6 +183,7 @@ describe("Agent", () => {
     expect(dft.suiteTimeout).toBeGreaterThan(0);
     expect(dft.generators.RandomInputGenerator.enabled).toBe(true);
     expect(dft.generators.AiInputGenerator.enabled).toBe(false);
+    expect(dft.generators.UserInputGenerator.enabled).toBe(true);
   });
 
   it("options: normalize", () => {
@@ -217,6 +243,100 @@ describe("Agent", () => {
     expect(code).toContain("it(");
   });
 
+  it("selectCoveringResults: selects failures and interesting branch-covering inputs", () => {
+    const dummyResults: FuzzTestResult[] = [
+      {
+        pinned: false,
+        inputGenerated: {
+          tick: 0,
+          value: [{ tag: "ArgValueTypeWrapped", value: 1 }],
+          source: { type: "user" },
+        },
+        input: [{ name: "x", offset: 0, value: 1, origin: { type: "user" } }],
+        output: [{ name: "0", offset: 0, value: 2, origin: { type: "put" } }],
+        exception: false,
+        timeout: false,
+        passedImplicit: "pass",
+        passedHuman: "unknown",
+        passedValidator: "unknown",
+        passedValidators: [],
+        harnessErrors: [],
+        timers: { gen: 0, transform: 0, run: 1 },
+        category: "ok",
+        interestingReasons: ["CoverageMeasure"],
+      },
+      {
+        pinned: false,
+        inputGenerated: {
+          tick: 1,
+          value: [{ tag: "ArgValueTypeWrapped", value: 2 }],
+          source: { type: "user" },
+        },
+        input: [{ name: "x", offset: 0, value: 2, origin: { type: "user" } }],
+        output: [],
+        exception: true,
+        exceptionMessage: "Error 2",
+        timeout: false,
+        passedImplicit: "fail",
+        passedHuman: "unknown",
+        passedValidator: "unknown",
+        passedValidators: [],
+        harnessErrors: [],
+        timers: { gen: 0, transform: 0, run: 1 },
+        category: "exception",
+        interestingReasons: [],
+      },
+      {
+        pinned: false,
+        inputGenerated: {
+          tick: 2,
+          value: [{ tag: "ArgValueTypeWrapped", value: 3 }],
+          source: { type: "user" },
+        },
+        input: [{ name: "x", offset: 0, value: 3, origin: { type: "user" } }],
+        output: [{ name: "0", offset: 0, value: 6, origin: { type: "put" } }],
+        exception: false,
+        timeout: false,
+        passedImplicit: "pass",
+        passedHuman: "unknown",
+        passedValidator: "unknown",
+        passedValidators: [],
+        harnessErrors: [],
+        timers: { gen: 0, transform: 0, run: 1 },
+        category: "ok",
+        interestingReasons: [], // not interesting, should be omitted
+      },
+    ];
+
+    const selected = selectCoveringResults(dummyResults);
+    expect(selected.length).toBe(2);
+    expect(selected[0].category).toBe("exception");
+    expect(selected[1].category).toBe("ok");
+    expect(selected[1].interestingReasons).toContain("CoverageMeasure");
+  });
+
+  it("synthesizeTestSuite: directly synthesizes multi-test suite from results", async () => {
+    const rawFuzz = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testCoverageOneFile",
+      maxTests: 20,
+      suiteTimeout: 3000,
+    });
+
+    expect(rawFuzz.rawResults).toBeDefined();
+    if (rawFuzz.rawResults) {
+      const suite = await synthesizeTestSuite(
+        tsFixture,
+        "testCoverageOneFile",
+        rawFuzz.rawResults,
+        { shrink: true }
+      );
+      expect(suite).toBeDefined();
+      expect(suite).toContain("describe(");
+      expect(suite).toContain("testCoverageOneFile");
+    }
+  });
+
   it("runFuzz: ts pass", async () => {
     const result = await runFuzz({
       filePath: tsFixture,
@@ -253,6 +373,22 @@ describe("Agent", () => {
     expect(result.reproducerCode).toContain("testStandardVoidReturnException");
     expect(result.summaryText).toContain(
       "❌ NaNofuzz Counterexample Discovered"
+    );
+  });
+
+  it("runFuzz: ts unexported function", async () => {
+    const result = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testUnexportedFunction",
+      inputs: [{ x: 42, y: 42 }],
+      maxTests: 1,
+      suiteTimeout: 3000,
+    });
+
+    expect(result.status).toBe("counterexample_found");
+    expect(result.primaryCounterexample?.exception).toBe(true);
+    expect(result.primaryCounterexample?.exceptionMessage).toContain(
+      "unexported secret hit"
     );
   });
 
@@ -369,6 +505,88 @@ describe("Agent", () => {
       suiteTimeout: 3000,
     });
     expect(expectExcPass.status).toBe("success");
+  });
+
+  it("runFuzz: automatically loads pinned tests and options from companion .nano.json5", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-nano-test-"));
+    try {
+      const tsFile = path.join(tmpDir, "calculator.ts");
+      fs.writeFileSync(
+        tsFile,
+        `export function add(a: number, b: number): number {
+  if (a === 99 && b === 99) throw new Error("bad combo");
+  return a + b;
+}`
+      );
+
+      // Save a pinned test that triggers the exception
+      FuzzConfigStore.updatePinnedTest(tsFile, "add", {
+        input: [
+          { name: "a", offset: 0, value: 99, origin: { type: "user" } },
+          { name: "b", offset: 1, value: 99, origin: { type: "user" } },
+        ],
+        output: [],
+        pinned: true,
+      });
+
+      const res = await runFuzz({
+        filePath: tsFile,
+        functionName: "add",
+        maxTests: 1,
+        suiteTimeout: 3000,
+      });
+
+      expect(res.status).toBe("counterexample_found");
+      expect(res.primaryCounterexample?.category).toBe("exception");
+      expect(res.primaryCounterexample?.input[0].value === 99).toBe(true);
+      expect(res.primaryCounterexample?.input[1].value === 99).toBe(true);
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("runFuzz: exportSuite generates synthesized test suite with covering inputs", async () => {
+    const result = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testCoverageOneFile",
+      maxTests: 20,
+      suiteTimeout: 3000,
+      exportSuite: true,
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.testSuiteCode).toBeDefined();
+    expect(result.testSuiteCode).toContain("describe(");
+    expect(result.testSuiteCode).toContain("testCoverageOneFile");
+    expect(result.summaryText).toContain(
+      "Synthesized Branch-Covering Test Suite"
+    );
+  });
+
+  it("runFuzz: exportFilePath writes synthesized test suite directly to file", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-test-"));
+    try {
+      const outTestFile = path.join(tmpDir, "generated.test.ts");
+      const result = await runFuzz({
+        filePath: tsFixture,
+        functionName: "testCoverageOneFile",
+        maxTests: 20,
+        suiteTimeout: 3000,
+        exportFilePath: outTestFile,
+      });
+
+      expect(result.testSuiteFilePath).toBe(outTestFile);
+      expect(fs.existsSync(outTestFile)).toBe(true);
+      const content = fs.readFileSync(outTestFile, "utf8");
+      expect(content).toContain("testCoverageOneFile");
+      expect(result.summaryText).toContain(outTestFile);
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
   });
 
   it("runFuzz: cancel", async () => {
@@ -506,7 +724,7 @@ describe("Agent", () => {
     expect(LlmAdapter.getMaxOutputTokens()).toBe(4096);
   });
 
-  it("synthesis: generates validator and transformer templates for targets", async () => {
+  it("synthesis: generates validator, transformer, and generator templates for targets", async () => {
     const list = await listTargets(tsFixture);
     const targetFn = list.functions.find(
       (f) => f.name === "testStandardVoidReturnUndefined"
@@ -517,6 +735,9 @@ describe("Agent", () => {
     );
     expect(targetFn?.transformerTemplate).toContain(
       "testStandardVoidReturnUndefinedTransformer"
+    );
+    expect(targetFn?.generatorTemplate).toContain(
+      "testStandardVoidReturnUndefinedGenerator"
     );
 
     const program = ProgramFactory.fromFile(tsFixture);
@@ -538,6 +759,14 @@ describe("Agent", () => {
     expect(transSkel.name).toBe("testStandardVoidReturnUndefinedTransformer1");
     expect(transSkel.skeleton).toContain(
       "testStandardVoidReturnUndefinedTransformer1"
+    );
+
+    const genSkel = synthesizeUserGenerator(fnDef, "typescript", [
+      "testStandardVoidReturnUndefinedGenerator",
+    ]);
+    expect(genSkel.name).toBe("testStandardVoidReturnUndefinedGenerator1");
+    expect(genSkel.skeleton).toContain(
+      "testStandardVoidReturnUndefinedGenerator1"
     );
   });
 

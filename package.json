@@ -61,7 +61,7 @@
       {
         "name": "nanofuzz_listTargets",
         "displayName": "List NaNofuzz Targets",
-        "modelDescription": "Discovers and lists all exported functions (synchronous and asynchronous), type signatures, parameter structures, and ready-to-use property validator and input transformer code templates (validatorTemplate and transformerTemplate) in a TypeScript or Python source file that can be targeted for structure-aware fuzzing and property testing. Functions under test with preconditions can be paired with an exported input transformer using assume(condition) or raise/throw UnsatisfiedAssumption(msg) to filter out invalid or out-of-domain inputs from the fuzzing loop. If a target function is not exported or uses unsupported signature types, you can write an exported wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
+        "modelDescription": "Discovers and lists functions (exported and unexported, synchronous and asynchronous), type signatures, parameter structures, and ready-to-use property validator, input transformer, and custom input generator code templates (validatorTemplate, transformerTemplate, and generatorTemplate) in a TypeScript or Python source file that can be targeted for structure-aware fuzzing and property testing. Functions under test with preconditions can be paired with an input transformer using assume(condition) or raise/throw UnsatisfiedAssumption(msg) to filter out invalid or out-of-domain inputs from the fuzzing loop. Functions with domain-specific input distributions or sequences can be paired with a custom generator (<fn>Generator) taking a pseudo-random number generator prng: () => number or prng: Callable[[], float] and returning an argument tuple (or None/undefined when exhausted). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target function, and list or test that wrapper function instead.",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "listTargets",
         "icon": "$(symbol-method)",
@@ -81,7 +81,7 @@
       {
         "name": "nanofuzz_fuzzFunction",
         "displayName": "Fuzz Target with NaNofuzz",
-        "modelDescription": "Runs coverage-guided, structure-aware property fuzzing on a target function (synchronous or asynchronous) in TypeScript or Python. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest or Pytest) and branch coverage metrics. To filter invalid inputs or express preconditions, write an exported transformer function (<fn>Transformer) using assume(condition) or UnsatisfiedAssumption. If a target function is not exported, is a class method, or uses unsupported signature types, you can write an exported wrapper function with type annotations in its signature that calls the target, and fuzz that wrapper function instead.",
+        "modelDescription": "Runs coverage-guided, structure-aware property fuzzing on a target function (synchronous or asynchronous, exported or unexported) in TypeScript or Python. Uses dynamic branch-coverage feedback loops, type-aware/grammar generation, coverage-directed mutation, AI input generation, and automated input shrinking (minimization) to find minimal counterexamples, crashes, and edge cases. Returns synthesized executable regression tests (Jest or Pytest) and branch coverage metrics. To filter invalid inputs or express preconditions, write an input transformer function (<fn>Transformer) using assume(condition) or UnsatisfiedAssumption. To supply custom domain-specific inputs or sequences, write a generator function (<fn>Generator). If a target function is a class method or uses unsupported signature types, you can write a wrapper function with type annotations in its signature that calls the target, and fuzz that wrapper function instead.",
         "canBeReferencedInPrompt": true,
         "toolReferenceName": "fuzzFunction",
         "icon": "$(beaker)",
@@ -94,7 +94,7 @@
             },
             "functionName": {
               "type": "string",
-              "description": "The exact name of the exported function to test."
+              "description": "The exact name of the function to test."
             },
             "model": {
               "type": "string",
@@ -157,6 +157,14 @@
                   "input"
                 ]
               }
+            },
+            "exportSuite": {
+              "type": "boolean",
+              "description": "If true, synthesizes a complete, minimal branch-covering regression test suite (using shrunken inputs and counterexamples) formatted for Jest or Pytest and includes it in the response."
+            },
+            "exportFilePath": {
+              "type": "string",
+              "description": "Optional destination file path (e.g. 'tests/test_math.py' or 'src/math.test.ts') where the synthesized test suite will be written directly to disk."
             }
           },
           "required": [

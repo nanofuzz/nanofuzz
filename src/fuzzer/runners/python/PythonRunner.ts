@@ -609,6 +609,8 @@ export class PythonRunner extends AbstractRunner {
     );
 
     const scopeConfig = parseCoverageScope(coverageScopeRaw);
+    const collectStatic =
+      this._coverageEnabled && scopeConfig.collectStaticCoverage;
 
     let directPkgs: string[] = [];
     if (
@@ -633,7 +635,7 @@ export class PythonRunner extends AbstractRunner {
       this._fn,
       scopeConfig.target,
       JSON.stringify(directPkgs),
-      String(scopeConfig.collectStaticCoverage),
+      String(collectStatic),
     ];
 
     const host = new PythonHost(

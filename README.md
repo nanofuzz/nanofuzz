@@ -34,8 +34,9 @@ To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuz
 ## What's new in v0.4
 
 - **Python**: Test Python functions and export the saved tests to `pytest` for use in CI.
-- **Input transformers**: Programatically modify or skip inputs before they are dispatched for test execution.
+- **Custom input generators**: Programatically generate, modify, or skip inputs before they are dispatched for test execution.
 - **More types**: Tuples, Unions, `Map`s, `Set`s, unique Arrays/`List`s, dictionaries, regex strings, `null`s, binary data like `Uint8Array`/`bytes`, and select Typescript utility types, like `Record<K,V>`, `Required<T>` and `Partial<T>`.
+- **Unexported functions**: NaNofuzz will test them, too! 
 - **Composite input generation**: Random-, mutation-, human-, and an opt-in ai input generator are coordinated automatically, so you can get better testing results with a single button click.
 - **Code coverage visualizations**: See in your editor which lines of code were actually executed (and missed!) by the generated test examples.
 - **Stop-and-go**: Pause and resume testing runs and add your own inputs mid-run without losing the accumulated results, pinned inputs, or input generator state.
@@ -45,7 +46,7 @@ To export a NaNofuzz test to CI, click the pin button beside an example. NaNofuz
 
 NaNofuzz is an **experimental** testing platform developed by the Accelerated Testing Research Program at Carnegie Mellon University's School of Computer Science based on empirical and theoretical scientific research, including extensive user studies with professional software engineers. While NaNofuzz is **not** intended for production use, contributions are welcome to address the limitations below as well as those described in our issue list.
 
-NaNofuzz supports exported functions with any mixture of the following parameter types:
+NaNofuzz supports functions with any mixture of the following parameter types:
  - Numbers (ints and floats)
  - Strings
  - Booleans
@@ -65,7 +66,7 @@ The following are not yet supported:
  - Sandboxing external side-effects of the program under test, mocks, or stubs 
  - Custom generators and input filters
 
-If the `NaNofuzz...` button does not appear above the function you want to test, that usually means the function is not exported or one of its inputs is comprised of types that are not yet supported. For these cases, write a test hardness function that accepts NaNofuzz' supported inputs and calls the function you want to test.
+If the `NaNofuzz...` button does not appear above the function you want to test, that usually means one of its inputs is comprised of types that are not yet supported. For unsupported functions or class methods, write a test harness function that accepts NaNofuzz' supported inputs and calls the function you want to test.
 
 ## Contributing
 

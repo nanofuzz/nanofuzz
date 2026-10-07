@@ -317,13 +317,15 @@ export class JavascriptRunner extends AbstractRunner {
       "project static"
     );
     const scopeConfig = parseCoverageScope(coverageScopeRaw);
+    const collectStatic =
+      this._coverageEnabled && scopeConfig.collectStaticCoverage;
 
     const args = [
       runnerHost,
       this._filename,
       this._jsFn,
       scopeConfig.target,
-      String(scopeConfig.collectStaticCoverage),
+      String(collectStatic),
     ];
     const host = new NodeHost(args, path.dirname(this._filename), env);
 

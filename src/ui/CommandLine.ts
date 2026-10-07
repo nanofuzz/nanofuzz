@@ -28,8 +28,9 @@ import { isError } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { LlmAdapter } from "../fuzzer/adapters/LlmAdapter";
 import { LlmDelayCalculator } from "../fuzzer/adapters/LlmDelayCalculator";
-import { FuzzPinnedTest, FuzzTests } from "../fuzzer/Types";
+import { FuzzPinnedTest } from "../fuzzer/Types";
 import { InputSchedulerType } from "../fuzzer/schedulers/Types";
+import { FuzzConfigStore } from "../fuzzer/FuzzConfigStore";
 import pkg from "../../package.json";
 
 const nanofuzzVersion = process.env.NANOFUZZ_VERSION ?? pkg.version;
@@ -118,6 +119,10 @@ function createProgram(): Commander.Command {
       `Output results mode: 'failures' (default), 'all', 'none'`,
       parseOutputResults,
       "failures"
+    )
+    .option(
+      `--no-config-file`,
+      `Don't load configuration and saved tests from .nano.json5 file`
     )
     .option(
       `--engine <v1|v2>`,
@@ -551,9 +556,16 @@ export async function runCliInProcess(
     await ParserAdapter.init();
 
     const programObj = ProgramFactory.fromFile(filename);
-    const targetFnDef = programObj.functionsExported[fnname];
+    const targetFnDef = programObj.functions[fnname];
     const fnRef = targetFnDef?.getRef();
     const fnFuzzOptions = fnRef?.fuzzOptions;
+
+    // Load companion .nano.json5 configuration and pinned tests (with version upgrade and migration)
+    const useConfigFile = options["configFile"] !== false;
+    const fnConfig = useConfigFile
+      ? FuzzConfigStore.loadForFunction(filename, fnname)
+      : FuzzConfigStore.createDefaultFunctionConfig(fnname);
+    const injectTests: FuzzPinnedTest[] = Object.values(fnConfig.tests ?? {});
 
     function getEffectiveOption<K extends keyof FuzzOptions>(
       cliOptionName: string,
@@ -569,30 +581,15 @@ export async function runCliInProcess(
       ) {
         return fnFuzzOptions[fuzzOptKey]!;
       }
-      return cliValue;
-    }
-
-    // TODO: There is no upgrade logic here like in FuzzPanel:
-    //       We need to re-factor the nano file logic out of
-    //       FuzzPanel so that we can call it here.
-    let injectTests: FuzzPinnedTest[] = [];
-    const nanoJsonFile = fs.existsSync(filename + ".nano.json5")
-      ? filename + ".nano.json5"
-      : fs.existsSync(filenameIn + ".nano.json5")
-        ? filenameIn + ".nano.json5"
-        : undefined;
-    if (nanoJsonFile && fs.existsSync(nanoJsonFile)) {
-      try {
-        const fullSet = JSONN.parse<FuzzTests>(
-          fs.readFileSync(nanoJsonFile, "utf8")
-        );
-        const fnSet = fullSet.functions?.[fnname];
-        if (fnSet && fnSet.tests) {
-          injectTests = Object.values(fnSet.tests);
-        }
-      } catch {
-        // Ignore read or parse errors
+      if (
+        useConfigFile &&
+        isDefault &&
+        fnConfig.options &&
+        fnConfig.options[fuzzOptKey] !== undefined
+      ) {
+        return fnConfig.options[fuzzOptKey]!;
       }
+      return cliValue;
     }
 
     const fuzzer = FuzzerFactory(
@@ -661,6 +658,15 @@ export async function runCliInProcess(
       },
       { engine: options["engine"] }
     );
+
+    // Apply custom argument overrides from companion .nano.json5
+    if (useConfigFile && fnConfig.argOverrides?.length) {
+      FuzzConfigStore.applyArgOverrides(
+        fuzzer.env.function,
+        fnConfig.argOverrides,
+        fuzzer.env.options.argDefaults
+      );
+    }
 
     console.log(`Target: ${fnname} of ${filename}`);
     console.log(`Target ready to test.`);
