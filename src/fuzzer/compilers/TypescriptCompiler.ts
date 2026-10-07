@@ -512,6 +512,18 @@ export class TypescriptCompiler {
       this._getCompilationRecordFilename(module.filename),
       JSON.stringify(this._newCompilationRecord(module.filename))
     );
+
+    // Append rewire accessor to compiled JavaScript to support testing unexported functions
+    if (fs.existsSync(jsname)) {
+      const cleanSrc = fs.readFileSync(jsname, "utf8");
+      if (!cleanSrc.includes("__nanofuzz_get__")) {
+        fs.writeFileSync(
+          jsname,
+          TypescriptCompiler.appendRewireAccessor(cleanSrc),
+          "utf8"
+        );
+      }
+    }
   } // fn: _tsc
 
   /**
@@ -829,6 +841,36 @@ export class TypescriptCompiler {
       }
     }
   } // fn: clean
+
+  /**
+   * Appends the __nanofuzz_get__ accessor to compiled JavaScript so the test
+   * runner host can access unexported module-level functions and symbols.
+   *
+   * @param jsSource JavaScript source code
+   * @returns transformed JavaScript code with __nanofuzz_get__ attached
+   */
+  public static appendRewireAccessor(jsSource: string): string {
+    if (jsSource.includes("__nanofuzz_get__")) {
+      return jsSource;
+    }
+    const rewireSnippet = [
+      "",
+      "/* NaNofuzz: accessor for unexported module symbols */",
+      "/* istanbul ignore next */",
+      'if (typeof module !== "undefined" && module.exports) {',
+      "  try {",
+      "    module.exports.__nanofuzz_get__ = function (name) {",
+      "      return eval(name);",
+      "    };",
+      "  } catch (_e) {",
+      "    /* Ignore if module.exports is frozen */",
+      "  }",
+      "}",
+      "",
+    ].join("\n");
+
+    return `${jsSource}\n${rewireSnippet}`;
+  } // fn: appendRewireAccessor
 } // class: TypeScriptCompiler
 
 /**

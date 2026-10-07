@@ -127,10 +127,10 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
 
   const program = ProgramFactory.fromFile(resolvedPath);
   const language = program.lang;
-  const exported = program.functionsExported;
+  const allFunctions = program.functions;
   const functions: TargetFunction[] = [];
 
-  for (const fnDef of Object.values(exported)) {
+  for (const fnDef of Object.values(allFunctions)) {
     const argDefs = fnDef.getArgDefs();
     const args: TargetFunctionArg[] = argDefs.map((arg) => ({
       name: arg.getName(),
@@ -159,6 +159,7 @@ export async function listTargets(filePath: string): Promise<TargetListResult> {
     functions.push({
       name: fnDef.getName(),
       signature: formatFunctionSignature(fnDef, language),
+      isExported: fnDef.isExported(),
       args,
       returnType: fnDef.getReturnType()?.name,
       isVoid: fnDef.isVoid(),
@@ -1449,6 +1450,7 @@ export type TargetFunctionArg = {
 export type TargetFunction = {
   name: string;
   signature: string;
+  isExported: boolean;
   args: TargetFunctionArg[];
   returnType?: string;
   isVoid: boolean;

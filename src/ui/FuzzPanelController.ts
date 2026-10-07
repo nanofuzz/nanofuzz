@@ -887,9 +887,7 @@ export class FuzzPanel {
     const existingTransformers = getTransformers(program, fn);
     if (existingTransformers.length > 0) {
       this._fuzzEnv.transformers = existingTransformers;
-      const fnDef =
-        program.functionsExported[existingTransformers[0].name] ??
-        program.functions[existingTransformers[0].name];
+      const fnDef = program.functions[existingTransformers[0].name];
       if (fnDef) {
         this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
         return;
@@ -949,7 +947,7 @@ export class FuzzPanel {
       // Change focus to the generated transformer
       try {
         const pgm = ProgramFactory.fromFile(module);
-        const fn = pgm.functionsExported[transformerName];
+        const fn = pgm.functions[transformerName];
         this._navigateToSource(fn.getModule(), fn.getStartOffset());
       } catch (e: unknown) {
         this._setErrorFromException(e);
@@ -1041,8 +1039,7 @@ export class FuzzPanel {
         if (targetGen && targetGen.startOffset !== undefined) {
           this._navigateToSource(targetGen.module, targetGen.startOffset);
         } else {
-          const fnDef =
-            pgm.functionsExported[userGenName] ?? pgm.functions[userGenName];
+          const fnDef = pgm.functions[userGenName];
           if (fnDef) {
             this._navigateToSource(fnDef.getModule(), fnDef.getStartOffset());
           } else {

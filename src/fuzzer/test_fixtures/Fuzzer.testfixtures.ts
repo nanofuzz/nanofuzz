@@ -248,6 +248,28 @@ export function targetUserGenAssumptionGenerator(
   throw new UnsatisfiedAssumption("Illegal assumption in generator");
 }
 
+/**
+ * Unexported (module-private) fuzz targets
+ */
+function testUnexportedFunction(x: number, y: number): number {
+  if (x === 42 && y === 42) {
+    throw new Error("unexported secret hit");
+  }
+  return x + y;
+}
+
+const testUnexportedArrowFunction = (s: string): string => {
+  if (s === "private") {
+    throw new Error("unexported arrow hit");
+  }
+  return `hello ${s}`;
+};
+
+export const _unexportedReferenceSink = [
+  testUnexportedFunction,
+  testUnexportedArrowFunction,
+];
+
 export function targetValidatorTimeout(n: number): number {
   return n;
 }

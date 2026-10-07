@@ -556,7 +556,7 @@ export async function runCliInProcess(
     await ParserAdapter.init();
 
     const programObj = ProgramFactory.fromFile(filename);
-    const targetFnDef = programObj.functionsExported[fnname];
+    const targetFnDef = programObj.functions[fnname];
     const fnRef = targetFnDef?.getRef();
     const fnFuzzOptions = fnRef?.fuzzOptions;
 

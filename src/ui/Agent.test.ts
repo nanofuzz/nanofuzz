@@ -59,12 +59,17 @@ describe("Agent", () => {
 
     const voidFn = fnMap.get("testStandardVoidReturnUndefined")!;
     expect(voidFn.isVoid).toBe(true);
+    expect(voidFn.isExported).toBe(true);
     expect(voidFn.args.length).toBe(1);
     expect(voidFn.args[0].name).toBe("_x");
     expect(voidFn.args[0].type).toBe("number");
     expect(voidFn.signature).toContain(
       "function testStandardVoidReturnUndefined"
     );
+
+    const unexportedFn = fnMap.get("testUnexportedFunction");
+    expect(unexportedFn).toBeDefined();
+    expect(unexportedFn?.isExported).toBe(false);
 
     const changeInputFn = fnMap.get("testChangeInput");
     expect(changeInputFn).toBeDefined();
@@ -368,6 +373,22 @@ describe("Agent", () => {
     expect(result.reproducerCode).toContain("testStandardVoidReturnException");
     expect(result.summaryText).toContain(
       "❌ NaNofuzz Counterexample Discovered"
+    );
+  });
+
+  it("runFuzz: ts unexported function", async () => {
+    const result = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testUnexportedFunction",
+      inputs: [{ x: 42, y: 42 }],
+      maxTests: 1,
+      suiteTimeout: 3000,
+    });
+
+    expect(result.status).toBe("counterexample_found");
+    expect(result.primaryCounterexample?.exception).toBe(true);
+    expect(result.primaryCounterexample?.exceptionMessage).toContain(
+      "unexported secret hit"
     );
   });
 
