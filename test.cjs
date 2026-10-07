@@ -249,7 +249,7 @@ async function main() {
   );
 
   console.log(
-    `Running ${totalFiles} test file${totalFiles > 1 ? "s" : ""} across ${maxConcurrency} worker${maxConcurrency > 1 ? "s" : ""} in parallel (${innerWorkers} fuzzer workers per test)...\n`
+    `Running ${totalFiles} test file${totalFiles > 1 ? "s" : ""} across ${maxConcurrency} test worker${maxConcurrency > 1 ? "s" : ""} (${innerWorkers} NaNofuzz workers per test)...\n`
   );
 
   const overallStartTime = Date.now();
