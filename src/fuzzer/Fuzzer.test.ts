@@ -305,6 +305,29 @@ describe("fuzzer: general & parameterized engine tests", () => {
         expect(results.stopReason).toBe(FuzzStopReason.NOMOREINPUTS);
       });
 
+      it("user generator completes maxTests w/o exhaustion", async () => {
+        const options = {
+          ...intOptions,
+          maxTests: 25,
+          generators: {
+            RandomInputGenerator: { enabled: false },
+            MutationInputGenerator: { enabled: false },
+            AiInputGenerator: { enabled: false },
+            UserInputGenerator: { enabled: true },
+          },
+        };
+
+        const results = await FuzzerFactory(
+          "./test_fixtures/Fuzzer.testfixtures.ts",
+          "targetUserGen",
+          options,
+          { engine }
+        ).test();
+
+        expect(results.stats.outcomes.total).toBe(25);
+        expect(results.stopReason).toBe(FuzzStopReason.MAXTESTS);
+      });
+
       it("retests injected pinned tests identically", async () => {
         const options = {
           ...intOptions,

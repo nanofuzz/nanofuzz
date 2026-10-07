@@ -316,11 +316,6 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
    * @returns the next transformed input, including its source metadata and transformer result
    */
   public async nextTransformed(): Promise<TransformedInputAndSource> {
-    // If no transformer is active, fast-path to standard synchronous next()
-    if (!this._transformRunner) {
-      return this.next();
-    }
-
     // Make sure we are permitted to generate inputs
     if (!this.nextable()) {
       throw new Error(
@@ -329,6 +324,17 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
+      if (this.nextable() === "soon") {
+        const ready = await this.waitForNextInput();
+        if (!ready) {
+          break;
+        }
+      }
+
+      if (this.nextable() !== "now" && this.nextable() !== "now!") {
+        break;
+      }
+
       const {
         candidate: untransformedCandidate,
         genCost,

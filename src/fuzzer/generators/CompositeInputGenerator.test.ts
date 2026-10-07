@@ -13,6 +13,7 @@ import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { NextableStatus } from "./Types";
 import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
+import * as ValueMapper from "../mappers/ValueMapper";
 import * as Config from "../../Config";
 
 function createGenStats(): FuzzTestStats["generators"] {
@@ -1450,5 +1451,124 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     expect<unknown>(second.value[0].value).toBe(50);
     expect(second.source.type).toBe("transformer");
     expect(cig.dupesGenerated).toBe(0);
+  });
+
+  it("nextTransformed() awaits async generator when dupes drain queue w/o transformer", async () => {
+    class MockAsyncDupeGen extends AbstractInputGenerator {
+      private _queue: InputAndSource[] = [];
+      private _inFlight = false;
+      private _callCount = 0;
+      private _resolveInFlight?: () => void;
+
+      public constructor(specs: ArgDef[], rngSeed?: string) {
+        super(specs, rngSeed);
+      }
+
+      public override get isTransformable(): boolean {
+        return false;
+      }
+
+      public override nextable(): NextableStatus {
+        if (this._queue.length > 0) {
+          return "now";
+        }
+        if (this._inFlight) {
+          return "soon";
+        }
+        if (this._callCount < 2) {
+          this._startFetch();
+          return "soon";
+        }
+        return false;
+      }
+
+      private _startFetch(): void {
+        this._inFlight = true;
+        this._callCount++;
+        const val = this._callCount === 1 ? 42 : 99; // 1st is dupe (42), 2nd is unique (99)
+        setTimeout(() => {
+          this._queue.push({
+            tick: 0,
+            value: [{ tag: "ArgValueTypeWrapped", value: val }],
+            source: {
+              type: "generator",
+              generator: "UserInputGenerator",
+              fnName: "dummyFnGenerator",
+            },
+          });
+          this._inFlight = false;
+          this._resolveInFlight?.();
+          this._resolveInFlight = undefined;
+        }, 10);
+      }
+
+      public override async waitUntilReady(): Promise<boolean> {
+        if (this.nextable() === "now") return true;
+        if (this.nextable() === "soon") {
+          await new Promise<void>((resolve) => {
+            this._resolveInFlight = resolve;
+          });
+          return true;
+        }
+        return false;
+      }
+
+      public override next(): InputAndSource {
+        const item = this._queue.shift();
+        if (!item) {
+          throw new Error("Queue empty in next()");
+        }
+        return item;
+      }
+    }
+
+    class TestAsyncCompositeInputGenerator extends CompositeInputGenerator {
+      public constructor(
+        fnDef: FunctionDef,
+        genStats: FuzzTestStats["generators"],
+        allInputs: Map<string, unknown>,
+        src: string
+      ) {
+        super(
+          createGenOptions(),
+          fnDef,
+          "test-seed",
+          [],
+          new Leaderboard<InputAndSource>(),
+          genStats,
+          allInputs,
+          src
+        );
+        this._subgens = [new MockAsyncDupeGen(this._specs, this._rngSeed)];
+        this._activeSubgens = [true];
+      }
+    }
+
+    const program = ProgramFactory.fromSource(
+      () => `export function dummyFn(x: number) {}`,
+      "typescript"
+    );
+    const fnDef = program.functionsExported["dummyFn"];
+    const genStats = createGenStats();
+
+    // Pre-populate allInputs with 42 so the 1st generated input is an immediate duplicate
+    const allInputs = new Map<string, unknown>();
+    allInputs.set(ValueMapper.toLang("typescript", [42]), true);
+
+    const cig = new TestAsyncCompositeInputGenerator(
+      fnDef,
+      genStats,
+      allInputs,
+      program.src
+    );
+
+    // Start with NO transformer configured (tests the standalone UserInputGenerator path)
+    cig.onRunStart(true, [], undefined, 200, 100);
+
+    // When nextTransformed() runs, it must encounter the dupe (42), await in-flight (99),
+    // and return 99 without throwing exhaustion
+    const result = await cig.nextTransformed();
+    expect<unknown>(result.value[0].value).toBe(99);
+    expect(cig.dupesGenerated).toBe(1);
   });
 });
