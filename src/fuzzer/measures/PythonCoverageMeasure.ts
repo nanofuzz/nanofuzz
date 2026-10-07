@@ -32,6 +32,7 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   protected _lastNode: CoverageMeasurementNode | undefined = undefined;
   protected _fileIndices = new Map<string, FileIndex>();
   protected _executedFilesThisTest = new Set<string>();
+  protected _staticCoveragePromise?: Promise<unknown>;
 
   /**
    * Connects this measure to the run's Python runners, which are the source of
@@ -305,6 +306,21 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
   public onRunEnd(results: FuzzTestResults): void {
     results.stats.measures.CodeCoverageMeasure =
       async (): Promise<CodeCoverageMeasureStats> => {
+        if (this._staticCoveragePromise) {
+          try {
+            const staticCov = await this._staticCoveragePromise;
+            if (isFullCoverage(staticCov)) {
+              const staticMapData = this._toCoverageMapData(staticCov);
+              AbstractCoverageMeasure.merge(
+                this._globalCoverageMap,
+                staticMapData
+              );
+            }
+          } catch {
+            // Ignore static coverage resolution failure
+          }
+        }
+
         // Report the coverage accumulated across the entire run. Note that
         // `runner.coverageInfo` holds only the *most recent* call's lines, so
         // it cannot be used here.
@@ -436,6 +452,15 @@ export class PythonCoverageMeasure extends AbstractCoverageMeasure {
     }
     return snapshot;
   } // fn: _snapshotZero
+
+  /**
+   * Sets an asynchronous promise for resolving static coverage in the background.
+   *
+   * @param promise promise resolving static coverage data
+   */
+  public override setStaticCoveragePromise(promise: Promise<unknown>): void {
+    this._staticCoveragePromise = promise;
+  } // fn: setStaticCoveragePromise
 } // class: PythonCoverageMeasure
 
 /**

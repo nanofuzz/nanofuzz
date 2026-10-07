@@ -37,6 +37,7 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   protected _lastNode: CoverageMeasurementNode | undefined = undefined;
   protected _sourceMapStore: MapStore = createSourceMapStore();
   protected _lineHitCounts: Map<string, Map<number, number>> = new Map(); // tracks per-line hit counts across test runs
+  protected _staticCoveragePromise?: Promise<unknown>;
 
   public override onRunStart(runners: AbstractRunner[] | AbstractRunner): void {
     super.onRunStart(runners);
@@ -375,6 +376,17 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
   public onRunEnd(results: FuzzTestResults): void {
     results.stats.measures.CodeCoverageMeasure =
       async (): Promise<CodeCoverageMeasureStats> => {
+        if (this._staticCoveragePromise) {
+          try {
+            const staticCov = await this._staticCoveragePromise;
+            if (isCoverageMapData(staticCov)) {
+              AbstractCoverageMeasure.merge(this._globalCoverageMap, staticCov);
+            }
+          } catch {
+            // Ignore static coverage resolution failure
+          }
+        }
+
         // Register source maps from disk for any files in globalCoverageMap
         // that aren't already registered (e.g. from cached instrumented runs)
         for (const fileKey of this._globalCoverageMap.files()) {
@@ -568,6 +580,15 @@ export class TypescriptCoverageMeasure extends AbstractCoverageMeasure {
     }
     throw new Error(`No coverahe data for "${tick}"`);
   } // fn: getCoverage
+
+  /**
+   * Sets an asynchronous promise for resolving static coverage in the background.
+   *
+   * @param promise promise resolving static coverage data
+   */
+  public override setStaticCoveragePromise(promise: Promise<unknown>): void {
+    this._staticCoveragePromise = promise;
+  } // fn: setStaticCoveragePromise
 } // class: CoverageMeasure
 
 /**

@@ -73,6 +73,12 @@ describe("fuzzer: general & parameterized engine tests", () => {
         ).test();
 
         expect(results.toolVersion).toBe(getToolVersion());
+        const cov = await results.stats.measures.CodeCoverageMeasure?.();
+        expect(cov).toBeDefined();
+        if (cov) {
+          expect(cov.counters.statementsTotal).toBeGreaterThan(0);
+          expect(cov.counters.statementsCovered).toBeGreaterThan(0);
+        }
       });
 
       it("mutation-only fuzzing", async () => {

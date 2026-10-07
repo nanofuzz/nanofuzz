@@ -30,6 +30,7 @@ import {
   isArgValueType,
   isOptionValid,
 } from "./analysis/Util";
+import { parseCoverageScope } from "./measures/Util";
 import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
@@ -47,6 +48,7 @@ import { Judgment } from "./oracles/Types";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner, RunnerResult } from "./runners/AbstractRunner";
 import { AbstractMeasure, BaseMeasurement } from "./measures/AbstractMeasure";
+import { AbstractCoverageMeasure } from "./measures/AbstractCoverageMeasure";
 import { CompilerStaleness } from "./compilers/Types";
 import { FuzzStats } from "./FuzzStats";
 
@@ -79,6 +81,7 @@ export class FuzzerV3 {
   protected _slotSeq = 0;
   protected _stage1InjectedCount = 0;
   protected _injectedInFlight = 0;
+  protected _staticCoveragePromise?: Promise<unknown>;
 
   // Cooperative Shrink State
   protected _fuzzerFocus: FuzzerFocus = deepFreeze({ mode: "gen" });
@@ -841,8 +844,7 @@ export class FuzzerV3 {
       const runner = RunnerFactory(
         this.env,
         targetMod,
-        this._function.getName(),
-        i === 0 ? { acceptsStaticCoverage: true } : {}
+        this._function.getName()
       );
       let transformRunner: AbstractRunner | undefined;
       if (this.env.options.useTransformer && this.env.transformers.length) {
@@ -891,13 +893,57 @@ export class FuzzerV3 {
       m.onRunStart(allRunners);
     });
 
+    const coverageScopeRaw = Config.get<unknown>(
+      "nanofuzz.fuzzer.coverageScope",
+      "project static"
+    );
+    const scopeConfig = parseCoverageScope(coverageScopeRaw);
+    if (
+      scopeConfig.collectStaticCoverage &&
+      this._options.measures?.CoverageMeasure?.enabled
+    ) {
+      this._staticCoveragePromise = this._startAsyncStaticCoverage(targetMod);
+      this._measures.forEach((m) => {
+        if (m instanceof AbstractCoverageMeasure) {
+          m.setStaticCoveragePromise(this._staticCoveragePromise!);
+        }
+      });
+    }
+
     this._injectMap = new Map(injectTests.map((t) => [getIoKey(t.input), t]));
   } // fn: _initRunners
+
+  /**
+   * Resolves static code coverage baseline asynchronously in the background.
+   */
+  protected async _startAsyncStaticCoverage(
+    targetMod: string
+  ): Promise<unknown> {
+    const staticRunner = RunnerFactory(
+      this.env,
+      targetMod,
+      this._function.getName(),
+      { acceptsStaticCoverage: true }
+    );
+    try {
+      await staticRunner.onRunStart();
+      return staticRunner.coverageInfo;
+    } catch {
+      return undefined;
+    } finally {
+      await staticRunner.onRunEnd();
+      staticRunner.killHost();
+    }
+  } // fn: _startAsyncStaticCoverage
 
   /**
    * Stops all active runner processes.
    */
   protected async _stopRunners(): Promise<void> {
+    if (this._staticCoveragePromise) {
+      await this._staticCoveragePromise.catch(() => {});
+      this._staticCoveragePromise = undefined;
+    }
     const allRunnersToStop: Promise<void>[] = [];
     for (const w of this._workers) {
       allRunnersToStop.push(w.runner.onRunEnd());

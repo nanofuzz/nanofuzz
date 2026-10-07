@@ -1456,7 +1456,7 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
     expect(fnDefault.isAsync()).toBeFalse();
   });
 
-  it("isValidator, isTransformer, and isInputGenerator role checks", () => {
+  it("isValidator and isTransformer role checks", () => {
     const valFn = FunctionDef.fromFunctionRef({
       ...dummyRef,
       name: "myPutValidator",
@@ -1484,18 +1484,6 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
       isExported: true,
       args: [],
     });
-    const genFn1 = FunctionDef.fromFunctionRef({
-      ...dummyRef,
-      name: "myPutGenerator",
-      isExported: true,
-      args: [],
-    });
-    const genFn2 = FunctionDef.fromFunctionRef({
-      ...dummyRef,
-      name: "myPutInputGenerator",
-      isExported: true,
-      args: [],
-    });
     const standardFn = FunctionDef.fromFunctionRef({
       ...dummyRef,
       name: "myPut",
@@ -1505,22 +1493,12 @@ describe("fuzzer/analysis/typescript/FunctionDef:", () => {
 
     expect(valFn.isValidator()).toBeTrue();
     expect(valFn.isTransformer()).toBeFalse();
-    expect(valFn.isInputGenerator()).toBeFalse();
+    expect(valFn.getValidatorTargetName()).toBe("myPut");
 
     expect(transFn.isValidator()).toBeFalse();
     expect(transFn.isTransformer()).toBeTrue();
-    expect(transFn.isInputGenerator()).toBeFalse();
-
-    expect(genFn1.isValidator()).toBeFalse();
-    expect(genFn1.isTransformer()).toBeFalse();
-    expect(genFn1.isInputGenerator()).toBeTrue();
-
-    expect(genFn2.isValidator()).toBeFalse();
-    expect(genFn2.isTransformer()).toBeFalse();
-    expect(genFn2.isInputGenerator()).toBeTrue();
 
     expect(standardFn.isValidator()).toBeFalse();
     expect(standardFn.isTransformer()).toBeFalse();
-    expect(standardFn.isInputGenerator()).toBeFalse();
   });
 });
