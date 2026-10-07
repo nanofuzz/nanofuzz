@@ -12,6 +12,8 @@ import {
   getDefaultFuzzOptions,
   normalizeAgentFuzzOptions,
   synthesizeReproducer,
+  synthesizeTestSuite,
+  selectCoveringResults,
   buildSummaryMarkdown,
   formatLineRanges,
   getToolName,
@@ -236,6 +238,100 @@ describe("Agent", () => {
     expect(code).toContain("it(");
   });
 
+  it("selectCoveringResults: selects failures and interesting branch-covering inputs", () => {
+    const dummyResults: FuzzTestResult[] = [
+      {
+        pinned: false,
+        inputGenerated: {
+          tick: 0,
+          value: [{ tag: "ArgValueTypeWrapped", value: 1 }],
+          source: { type: "user" },
+        },
+        input: [{ name: "x", offset: 0, value: 1, origin: { type: "user" } }],
+        output: [{ name: "0", offset: 0, value: 2, origin: { type: "put" } }],
+        exception: false,
+        timeout: false,
+        passedImplicit: "pass",
+        passedHuman: "unknown",
+        passedValidator: "unknown",
+        passedValidators: [],
+        harnessErrors: [],
+        timers: { gen: 0, transform: 0, run: 1 },
+        category: "ok",
+        interestingReasons: ["CoverageMeasure"],
+      },
+      {
+        pinned: false,
+        inputGenerated: {
+          tick: 1,
+          value: [{ tag: "ArgValueTypeWrapped", value: 2 }],
+          source: { type: "user" },
+        },
+        input: [{ name: "x", offset: 0, value: 2, origin: { type: "user" } }],
+        output: [],
+        exception: true,
+        exceptionMessage: "Error 2",
+        timeout: false,
+        passedImplicit: "fail",
+        passedHuman: "unknown",
+        passedValidator: "unknown",
+        passedValidators: [],
+        harnessErrors: [],
+        timers: { gen: 0, transform: 0, run: 1 },
+        category: "exception",
+        interestingReasons: [],
+      },
+      {
+        pinned: false,
+        inputGenerated: {
+          tick: 2,
+          value: [{ tag: "ArgValueTypeWrapped", value: 3 }],
+          source: { type: "user" },
+        },
+        input: [{ name: "x", offset: 0, value: 3, origin: { type: "user" } }],
+        output: [{ name: "0", offset: 0, value: 6, origin: { type: "put" } }],
+        exception: false,
+        timeout: false,
+        passedImplicit: "pass",
+        passedHuman: "unknown",
+        passedValidator: "unknown",
+        passedValidators: [],
+        harnessErrors: [],
+        timers: { gen: 0, transform: 0, run: 1 },
+        category: "ok",
+        interestingReasons: [], // not interesting, should be omitted
+      },
+    ];
+
+    const selected = selectCoveringResults(dummyResults);
+    expect(selected.length).toBe(2);
+    expect(selected[0].category).toBe("exception");
+    expect(selected[1].category).toBe("ok");
+    expect(selected[1].interestingReasons).toContain("CoverageMeasure");
+  });
+
+  it("synthesizeTestSuite: directly synthesizes multi-test suite from results", async () => {
+    const rawFuzz = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testCoverageOneFile",
+      maxTests: 20,
+      suiteTimeout: 3000,
+    });
+
+    expect(rawFuzz.rawResults).toBeDefined();
+    if (rawFuzz.rawResults) {
+      const suite = await synthesizeTestSuite(
+        tsFixture,
+        "testCoverageOneFile",
+        rawFuzz.rawResults,
+        { shrink: true }
+      );
+      expect(suite).toBeDefined();
+      expect(suite).toContain("describe(");
+      expect(suite).toContain("testCoverageOneFile");
+    }
+  });
+
   it("runFuzz: ts pass", async () => {
     const result = await runFuzz({
       filePath: tsFixture,
@@ -423,6 +519,48 @@ describe("Agent", () => {
       expect(res.primaryCounterexample?.category).toBe("exception");
       expect(res.primaryCounterexample?.input[0].value === 99).toBe(true);
       expect(res.primaryCounterexample?.input[1].value === 99).toBe(true);
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("runFuzz: exportSuite generates synthesized test suite with covering inputs", async () => {
+    const result = await runFuzz({
+      filePath: tsFixture,
+      functionName: "testCoverageOneFile",
+      maxTests: 20,
+      suiteTimeout: 3000,
+      exportSuite: true,
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.testSuiteCode).toBeDefined();
+    expect(result.testSuiteCode).toContain("describe(");
+    expect(result.testSuiteCode).toContain("testCoverageOneFile");
+    expect(result.summaryText).toContain(
+      "Synthesized Branch-Covering Test Suite"
+    );
+  });
+
+  it("runFuzz: exportFilePath writes synthesized test suite directly to file", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-export-test-"));
+    try {
+      const outTestFile = path.join(tmpDir, "generated.test.ts");
+      const result = await runFuzz({
+        filePath: tsFixture,
+        functionName: "testCoverageOneFile",
+        maxTests: 20,
+        suiteTimeout: 3000,
+        exportFilePath: outTestFile,
+      });
+
+      expect(result.testSuiteFilePath).toBe(outTestFile);
+      expect(fs.existsSync(outTestFile)).toBe(true);
+      const content = fs.readFileSync(outTestFile, "utf8");
+      expect(content).toContain("testCoverageOneFile");
+      expect(result.summaryText).toContain(outTestFile);
     } finally {
       if (fs.existsSync(tmpDir)) {
         fs.rmSync(tmpDir, { recursive: true, force: true });

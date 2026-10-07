@@ -160,6 +160,30 @@ describe("VscodeLmAdapter", () => {
     expect(getTextContent(result)).toContain("42");
   });
 
+  it("fuzz: invoke with exportSuite", async () => {
+    const tool = new FuzzFunctionTool();
+    const token = new vscode.CancellationTokenSource().token;
+    const result = await tool.invoke(
+      {
+        input: {
+          filePath: tsFixture,
+          functionName: "testCoverageOneFile",
+          maxTests: 20,
+          timeoutMs: 3000,
+          exportSuite: true,
+        },
+        toolInvocationToken: undefined,
+      },
+      token
+    );
+
+    expect(result).toBeDefined();
+    expect(result.content.length).toBeGreaterThan(0);
+    expect(getTextContent(result)).toContain(
+      "Synthesized Branch-Covering Test Suite"
+    );
+  });
+
   it("fuzz: invoke with expected output test specifications", async () => {
     const tool = new FuzzFunctionTool();
     const token = new vscode.CancellationTokenSource().token;

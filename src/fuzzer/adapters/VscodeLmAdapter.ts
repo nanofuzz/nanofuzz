@@ -152,6 +152,8 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
       vendor,
       inputs,
       tests,
+      exportSuite,
+      exportFilePath,
     } = options.input;
 
     const resolved = await resolveMatchingModel(vendor, model);
@@ -168,6 +170,8 @@ export class FuzzFunctionTool implements vscode.LanguageModelTool<FuzzFunctionIn
         vendor: resolved.vendor,
         inputs,
         tests,
+        exportSuite,
+        exportFilePath,
         enableCopilotAi: true,
       },
       () => token.isCancellationRequested
@@ -231,4 +235,6 @@ export type FuzzFunctionInput = {
   vendor?: string;
   inputs?: (Record<string, unknown> | unknown[])[];
   tests?: (AgentTestCase | Record<string, unknown> | unknown[])[];
+  exportSuite?: boolean;
+  exportFilePath?: string;
 };

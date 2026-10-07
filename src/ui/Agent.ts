@@ -2,17 +2,20 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import vscode from "vscode";
-import pkg from "../../package.json";
+import seedrandom from "seedrandom";
 import * as Config from "../Config";
 import * as JSONN from "../Jsonn";
 import { getToolVersion } from "../ToolVersion";
-import { isError, normalizePathForKey } from "../fuzzer/Util";
+import { getIoKey, isError, normalizePathForKey } from "../fuzzer/Util";
 import { isKeyedObject } from "../Util";
 import { isArgValueType } from "../fuzzer/analysis/Util";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import * as ProgramFactory from "../fuzzer/analysis/ProgramFactory";
 import { FunctionDef } from "../fuzzer/analysis/FunctionDef";
 import { ArgDef } from "../fuzzer/analysis/ArgDef";
+import { ArgDefShrinker } from "../fuzzer/analysis/ArgDefShrinker";
+import { RunnerFactory } from "../fuzzer/runners/RunnerFactory";
+import { AbstractRunner } from "../fuzzer/runners/AbstractRunner";
 import {
   ArgOptions,
   ArgValueType,
@@ -289,10 +292,36 @@ export async function runFuzz(
       rawResults.stopReason = FuzzStopReason.PAUSE;
     }
 
+    let testSuiteCode: string | undefined = undefined;
+    let testSuiteFilePath: string | undefined = undefined;
+
+    if (options.exportSuite || options.exportFilePath) {
+      testSuiteCode = await synthesizeTestSuite(
+        resolvedPath,
+        options.functionName,
+        rawResults,
+        { shrink: true }
+      );
+
+      if (options.exportFilePath && testSuiteCode) {
+        const outPath = resolveFilePath(options.exportFilePath);
+        const dir = path.dirname(outPath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(outPath, testSuiteCode, "utf8");
+        testSuiteFilePath = outPath;
+      }
+    }
+
     return await formatFuzzResult(
       rawResults,
       resolvedPath,
-      options.functionName
+      options.functionName,
+      {
+        testSuiteCode,
+        testSuiteFilePath,
+      }
     );
   } catch (e: unknown) {
     const errorMsg = isError(e) ? e.message : String(e);
@@ -637,7 +666,7 @@ export function synthesizeReproducer(
   const options = fuzzEnv?.options ?? getDefaultFuzzOptions();
   const validators = fuzzEnv?.validators?.map((v: FunctionRef) => v.name) ?? [];
   const isVoid = fuzzEnv?.function?.isVoid() ?? false;
-  const version = process.env.NANOFUZZ_VERSION ?? pkg.version;
+  const version = FuzzConfigStore.CURR_FILE_FMT_VER;
 
   const fuzzTests: FuzzTests = {
     version,
@@ -647,6 +676,7 @@ export function synthesizeReproducer(
         validators,
         tests: testsObj,
         isVoid,
+        ...(fuzzEnv?.function?.isAsync() ? { isAsync: true as const } : {}),
       },
     },
   };
@@ -662,6 +692,258 @@ export function synthesizeReproducer(
     return `// Reproducer test for ${functionName}\n${functionName}(${inputVals});\n`;
   }
 } // fn: synthesizeReproducer
+
+/**
+ * Selects candidate test results that cover distinct branches or represent failing counterexamples.
+ */
+export function selectCoveringResults(
+  results: FuzzTestResult[]
+): FuzzTestResult[] {
+  if (!results || results.length === 0) return [];
+
+  const selected: FuzzTestResult[] = [];
+  const seenInputs = new Set<string>();
+
+  // 1. All failing counterexamples
+  const failures = results.filter((r) => r.category !== "ok");
+  for (const f of failures) {
+    const key = getIoKey(f.input);
+    if (!seenInputs.has(key)) {
+      seenInputs.add(key);
+      selected.push(f);
+    }
+  }
+
+  // 2. Passing inputs that were marked as interesting (e.g. branch coverage expansion)
+  const interesting = results.filter(
+    (r) =>
+      r.category === "ok" &&
+      r.interestingReasons &&
+      r.interestingReasons.length > 0
+  );
+  for (const item of interesting) {
+    const key = getIoKey(item.input);
+    if (!seenInputs.has(key)) {
+      seenInputs.add(key);
+      selected.push(item);
+    }
+  }
+
+  // 3. Fallback: if no interesting or failing inputs, take the first non-skipped passing result
+  if (selected.length === 0) {
+    const firstOk = results.find((r) => r.category === "ok" && !r.skipped);
+    if (firstOk) {
+      selected.push(firstOk);
+    }
+  }
+
+  return selected;
+} // fn: selectCoveringResults
+
+/**
+ * Shrinks a set of covering fuzz test results to minimal, canonical input values.
+ */
+export async function shrinkCoveringResults(
+  candidates: FuzzTestResult[],
+  env: FuzzEnv
+): Promise<FuzzTestResult[]> {
+  const argDefs = env.function.getArgDefs();
+  if (argDefs.length === 0) {
+    return candidates;
+  }
+
+  // Disable coverage measurement and static coverage collection on the shrink runner
+  const shrinkEnv: FuzzEnv = {
+    ...env,
+    options: {
+      ...env.options,
+      measures: {
+        ...env.options.measures,
+        CoverageMeasure: { enabled: false, weight: 0 },
+      },
+    },
+  };
+
+  let runner: AbstractRunner | undefined;
+  try {
+    runner = RunnerFactory(
+      shrinkEnv,
+      env.function.getModule(),
+      env.function.getName()
+    );
+    await runner.onRunStart();
+  } catch {
+    return candidates;
+  }
+
+  const shrunkenResults: FuzzTestResult[] = [];
+  const prng = seedrandom("suite-shrink-seed");
+  const maxSteps = 30;
+
+  try {
+    for (const cand of candidates) {
+      if (
+        cand.category === "ok" &&
+        cand.inputGenerated?.value &&
+        cand.inputGenerated.value.length > 0
+      ) {
+        let currentValues = structuredClone(cand.inputGenerated.value);
+        let currentOutput = cand.output;
+        let shrinkSteps = 0;
+
+        for (let step = 0; step < maxSteps; step++) {
+          const candidateValues = structuredClone(currentValues);
+          const shrinkers = ArgDefShrinker.getShrinkers(
+            argDefs,
+            candidateValues,
+            prng
+          );
+          if (shrinkers.length === 0) break;
+
+          let improved = false;
+          for (const shrinker of shrinkers) {
+            const testValues = structuredClone(candidateValues);
+            shrinker.fn();
+
+            try {
+              const runRes = await runner.run(
+                testValues.map((w) => w.value),
+                Math.max(env.options.fnTimeout, 100)
+              );
+              if (runRes.result.tag === "value") {
+                currentValues = testValues;
+                currentOutput = [
+                  {
+                    name: "0",
+                    offset: 0,
+                    value: cast<ArgValueType>(runRes.result.value),
+                    origin: { type: "put" },
+                  },
+                ];
+                improved = true;
+                shrinkSteps++;
+                break;
+              }
+            } catch {
+              // Ignore execution error during shrinking
+            }
+          }
+
+          if (!improved) break;
+        }
+
+        shrunkenResults.push({
+          ...cand,
+          input: currentValues.map((w, idx) => ({
+            name: argDefs[idx] ? argDefs[idx].getName() : String(idx),
+            offset: idx,
+            value: cast<ArgValueType>(w.value),
+            origin: cand.input[idx]?.origin ?? { type: "user" },
+          })),
+          output: currentOutput,
+          shrinkStep: shrinkSteps,
+        });
+      } else {
+        shrunkenResults.push(cand);
+      }
+    }
+  } finally {
+    try {
+      await runner.onRunEnd();
+    } catch {
+      // Ignore shutdown errors
+    }
+  }
+
+  return shrunkenResults;
+} // fn: shrinkCoveringResults
+
+/**
+ * Synthesizes an executable test suite (Jest or Pytest) from branch-covering inputs and counterexamples.
+ */
+export async function synthesizeTestSuite(
+  filePath: string,
+  functionName: string,
+  rawResults: FuzzTestResults,
+  options?: {
+    shrink?: boolean;
+  }
+): Promise<string | undefined> {
+  const env = rawResults.env;
+  const executedResults = rawResults.results ?? [];
+  if (executedResults.length === 0) {
+    return undefined;
+  }
+
+  const selectedCandidates = selectCoveringResults(executedResults);
+  if (selectedCandidates.length === 0) {
+    return undefined;
+  }
+
+  const finalCandidates =
+    options?.shrink !== false
+      ? await shrinkCoveringResults(selectedCandidates, env)
+      : selectedCandidates;
+
+  const testsObj: Record<string, FuzzPinnedTest> = {};
+  finalCandidates.forEach((res, idx) => {
+    let expectedOutput: FuzzIoElement[] | undefined = res.expectedOutput;
+    if (!expectedOutput) {
+      if (res.exception) {
+        expectedOutput = [
+          {
+            name: "0",
+            offset: 0,
+            isException: true,
+            value: undefined,
+            origin: { type: "user" },
+          },
+        ];
+      } else if (
+        res.category === "ok" &&
+        !env.function.isVoid() &&
+        res.output &&
+        res.output.length > 0
+      ) {
+        expectedOutput = [
+          {
+            name: "0",
+            offset: 0,
+            value: res.output[0].value,
+            origin: { type: "user" },
+          },
+        ];
+      }
+    }
+
+    testsObj[String(idx)] = {
+      input: res.input,
+      output: res.output,
+      pinned: true,
+      expectedOutput,
+    };
+  });
+
+  const fuzzTests: FuzzTests = {
+    version: FuzzConfigStore.CURR_FILE_FMT_VER,
+    functions: {
+      [functionName]: {
+        options: env.options,
+        validators: env.validators.map((v: FunctionRef) => v.name),
+        tests: testsObj,
+        isVoid: env.function.isVoid(),
+        ...(env.function.isAsync() ? { isAsync: true as const } : {}),
+      },
+    },
+  };
+
+  try {
+    const adapter = TestAdapterFactory.fromSourceFilename(filePath, fuzzTests);
+    return adapter.toString();
+  } catch (_e) {
+    return synthesizeReproducer(filePath, functionName, finalCandidates, env);
+  }
+} // fn: synthesizeTestSuite
 
 /**
  * Computes coverage summary statistics from FuzzTestResults.
@@ -968,6 +1250,14 @@ export function buildSummaryMarkdown(
     }
   }
 
+  if (result.testSuiteCode) {
+    const lang = result.language === "python" ? "python" : "typescript";
+    const header = result.testSuiteFilePath
+      ? `\n**Synthesized Branch-Covering Test Suite** (written to \`${result.testSuiteFilePath}\`):`
+      : `\n**Synthesized Branch-Covering Test Suite**:`;
+    parts.push(header, `\`\`\`${lang}`, result.testSuiteCode.trim(), `\`\`\``);
+  }
+
   if (result.diagnostics && result.diagnostics.length > 0) {
     parts.push(
       `\n**Diagnostics & Guidance**:`,
@@ -984,7 +1274,11 @@ export function buildSummaryMarkdown(
 export async function formatFuzzResult(
   results: FuzzTestResults,
   filePath: string,
-  functionName: string
+  functionName: string,
+  options?: {
+    testSuiteCode?: string;
+    testSuiteFilePath?: string;
+  }
 ): Promise<AgentFuzzResult> {
   const language = results.env.function.getLang();
   const allResults = results.results ?? [];
@@ -1073,6 +1367,8 @@ export async function formatFuzzResult(
     counterexamples,
     primaryCounterexample,
     reproducerCode,
+    testSuiteCode: options?.testSuiteCode,
+    testSuiteFilePath: options?.testSuiteFilePath,
     coverage,
     generators,
     diagnostics: diagnostics.length > 0 ? diagnostics : undefined,
@@ -1210,6 +1506,8 @@ export type AgentFuzzOptions = {
   inputs?: (Record<string, unknown> | unknown[])[];
   tests?: (AgentTestCase | Record<string, unknown> | unknown[])[];
   enableCopilotAi?: boolean;
+  exportSuite?: boolean;
+  exportFilePath?: string;
 };
 
 /**
@@ -1302,9 +1600,20 @@ export type AgentFuzzResult = {
   counterexamples: AgentCounterexample[];
   primaryCounterexample?: AgentCounterexample;
   reproducerCode?: string;
+  testSuiteCode?: string;
+  testSuiteFilePath?: string;
   coverage?: AgentCoverageSummary;
   generators?: AgentGeneratorSummary;
   diagnostics?: string[];
   rawResults?: FuzzTestResults;
   summaryText: string;
 };
+
+// -------------------------------------------------------------------------- //
+// Helper Functions
+// -------------------------------------------------------------------------- //
+
+function cast<T>(val: unknown): T;
+function cast(val: unknown): unknown {
+  return val;
+} // fn: cast()

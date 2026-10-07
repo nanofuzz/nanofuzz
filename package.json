@@ -157,6 +157,14 @@
                   "input"
                 ]
               }
+            },
+            "exportSuite": {
+              "type": "boolean",
+              "description": "If true, synthesizes a complete, minimal branch-covering regression test suite (using shrunken inputs and counterexamples) formatted for Jest or Pytest and includes it in the response."
+            },
+            "exportFilePath": {
+              "type": "string",
+              "description": "Optional destination file path (e.g. 'tests/test_math.py' or 'src/math.test.ts') where the synthesized test suite will be written directly to disk."
             }
           },
           "required": [
