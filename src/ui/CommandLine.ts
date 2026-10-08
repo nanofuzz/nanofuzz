@@ -120,10 +120,7 @@ function createProgram(): Commander.Command {
       parseOutputResults,
       "failures"
     )
-    .option(
-      `--no-config-file`,
-      `Ignore .nano.json5 config`
-    )
+    .option(`--no-config-file`, `Ignore .nano.json5 config`)
     .option(
       `--engine <v1|v2>`,
       `Fuzzer engine: v1, v2`,
@@ -264,21 +261,12 @@ function createProgram(): Commander.Command {
       parseIntArgGeZero,
       1
     )
-    .option(
-      `--cig-stats-checkpoints`,
-      `Track generator selection statistics`
-    )
+    .option(`--cig-stats-checkpoints`, `Track generator selection statistics`)
 
     // ------------------------------ System Cleanup ----------------------------- //
 
-    .option(
-      `--debug [scope]`,
-      `Debug logging: *, runners, ai (default: *)`
-    )
-    .option(
-      `--clear-compile-cache`,
-      `Clear compiler cache before run`
-    );
+    .option(`--debug [scope]`, `Debug logging: *, runners, ai (default: *)`)
+    .option(`--clear-compile-cache`, `Clear compiler cache before run`);
 
   return program;
 } // fn: createProgram
