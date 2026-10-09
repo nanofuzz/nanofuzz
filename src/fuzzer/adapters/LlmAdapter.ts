@@ -111,6 +111,40 @@ export class LlmAdapter {
       }
     }
 
+    // If endpoint is defined, add it to the config.
+    // Otherwise, let @node-llm use its default endpoint
+    const endpoint = cfg.endpoint.trim();
+    if (endpoint !== "") {
+      switch (cfg.provider) {
+        case "openai":
+          this._modelConfig.openaiApiBase = endpoint;
+          break;
+        case "anthropic":
+          this._modelConfig.anthropicApiBase = endpoint;
+          break;
+        case "gemini":
+          this._modelConfig.geminiApiBase = endpoint;
+          break;
+        case "deepseek":
+          this._modelConfig.deepseekApiBase = endpoint;
+          break;
+        case "ollama":
+          this._modelConfig.ollamaApiBase = endpoint;
+          break;
+        case "openrouter":
+          this._modelConfig.openrouterApiBase = endpoint;
+          break;
+        case "xai":
+          this._modelConfig.xaiApiBase = endpoint;
+          break;
+        case "mistral":
+          this._modelConfig.mistralApiBase = endpoint;
+          break;
+        default:
+          break;
+      }
+    }
+
     // Create the model backend
     if (cfg.provider !== "copilot") {
       this._backend = nodellm.createLLM(this._modelConfig);
@@ -138,6 +172,7 @@ export class LlmAdapter {
     const cfg = LlmAdapter.getConfig();
     return this._backend.chat(cfg.modelName, {
       systemPrompt: prompt.system(),
+      assumeModelExists: true,
     });
   } // fn: createChat
 
@@ -448,6 +483,7 @@ export class LlmAdapter {
     modelName: string;
     vendor: string;
     apiKey: string;
+    endpoint: string;
     cacheMode: LlmCacheMode;
     cacheFile: string;
     cacheDelay: string;
@@ -457,6 +493,7 @@ export class LlmAdapter {
       modelName: LlmAdapter._getConfigValue("model", ""),
       vendor: LlmAdapter._getConfigValue("vendor", ""),
       apiKey: LlmAdapter._getConfigValue("apiKey", ""),
+      endpoint: LlmAdapter._getConfigValue("endpoint", ""),
       cacheMode: LlmAdapter._getConfigValue<LlmCacheMode>(
         "cacheMode",
         "passthrough"

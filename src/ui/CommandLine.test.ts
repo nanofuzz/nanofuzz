@@ -487,6 +487,30 @@ describe("cli:", () => {
     ).toBeFalse();
   });
 
+  it("--model-endpoint flag overrides nanofuzz.ai.endpoint", async () => {
+    const outputFile = path.join(tmpDir, "model_endpoint_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-endpoint",
+      "http://test-endpoint:11434/v1",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_model_endpoint",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(Config.get<string>("nanofuzz.ai.endpoint", "")).toBe(
+      "http://test-endpoint:11434/v1"
+    );
+  });
+
   it("--cig-* flags: composite input generator parameters", async () => {
     const outputFile = path.join(tmpDir, "cig_flags_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
