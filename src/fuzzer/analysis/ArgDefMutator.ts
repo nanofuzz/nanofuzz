@@ -30,10 +30,10 @@ export class ArgDefMutator {
     prng: seedrandom.prng
   ): mutatorFn[] {
     // Sanity check: ensure we have specs to cover our inputs
-    if (ArgDef.length < value.length) {
+    if (specs.length < value.length) {
       throw new Error(
         `Different number of inputs (${value.length}) relative to ArgDefs (${
-          ArgDef.length
+          specs.length
         }) for input: ${JSONN.stringify(value)}`
       );
     }
