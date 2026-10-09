@@ -1,6 +1,7 @@
 import { FuzzerEngineVersion, FuzzerFactory } from "./FuzzerFactory";
 import { FuzzerV3, WorkerContext } from "./FuzzerV3";
 import { AbstractRunner } from "./runners/AbstractRunner";
+import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
 import { FuzzBusyStatusMessage, FuzzStopReason } from "./Types";
 import { intOptions, initParser } from "./FuzzerTestHelper";
 import { getToolVersion } from "../ToolVersion";
@@ -346,6 +347,30 @@ describe("fuzzer: general & parameterized engine tests", () => {
         ).test();
 
         expect(results.stopReason).toBe(FuzzStopReason.NOMOREINPUTS);
+      });
+
+      it("propagates generator exceptions not NOMOREINPUTS", async () => {
+        spyOn(
+          CompositeInputGenerator.prototype,
+          "nextTransformed"
+        ).and.callFake(async () => {
+          throw new Error("Simulated unexpected generator bug");
+        });
+        spyOn(CompositeInputGenerator.prototype, "next").and.callFake(() => {
+          throw new Error("Simulated unexpected generator bug");
+        });
+
+        const tester = FuzzerFactory(
+          "nanofuzz-study/examples/1.ts",
+          "minValue",
+          { ...intOptions, maxTests: 10 },
+          { engine }
+        );
+
+        await expectAsync(tester.test()).toBeRejectedWithError(
+          /Simulated unexpected generator bug/
+        );
+        expect(tester.state).toBe("crashed");
       });
 
       it("user generator completes maxTests w/o exhaustion", async () => {

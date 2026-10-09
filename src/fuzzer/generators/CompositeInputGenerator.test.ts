@@ -11,7 +11,7 @@ import {
 import * as ProgramFactory from "../analysis/ProgramFactory";
 import { ArgDef } from "../analysis/ArgDef";
 import { FunctionDef } from "../analysis/FunctionDef";
-import { NextableStatus } from "./Types";
+import { GeneratorExhaustedError, NextableStatus } from "./Types";
 import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
 import * as ValueMapper from "../mappers/ValueMapper";
 import * as Config from "../../Config";
@@ -1227,7 +1227,7 @@ describe("src/fuzzer/generators/CompositeInputGenerator:", () => {
     // It must suppress generators and throw.
     expect(() => cig.next()).toThrowMatching(
       (err: unknown) =>
-        err instanceof Error &&
+        err instanceof GeneratorExhaustedError &&
         err.message.includes(
           "Injected inputs exhausted and input generators are suppressed"
         )
