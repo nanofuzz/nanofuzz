@@ -73,7 +73,7 @@ def process_bytes(data: bytes) -> bytes:
       const fnDef = program.functionsExported["process_bytes"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_bytes", env, 10000);
+      const runner = new PythonRunner(pyPath, "process_bytes", env);
       await runner.onRunStart();
 
       const inputBytes = new Uint8Array([104, 101, 108, 108, 111]); // "hello"
@@ -135,7 +135,7 @@ def process_nested(uuids_list: list[uuid.UUID], obj_data: UserObj, tuple_data: t
       const fnDef = program.functionsExported["process_nested"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_nested", env, 10000);
+      const runner = new PythonRunner(pyPath, "process_nested", env);
       await runner.onRunStart();
 
       const uuidStr1 = "12345678-1234-4123-8123-123456789abc";
@@ -200,7 +200,7 @@ def process_sets(s_data: set[int], f_data: FrozenSet[str]):
       const fnDef = program.functionsExported["process_sets"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_sets", env, 10000);
+      const runner = new PythonRunner(pyPath, "process_sets", env);
       await runner.onRunStart();
 
       const inputSet = new Set([1, 2, 3]);
@@ -268,7 +268,7 @@ def process_data(t: tuple[int, str], d: dict[int, str]):
       const fnDef = program.functionsExported["process_data"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_data", env, 10000);
+      const runner = new PythonRunner(pyPath, "process_data", env);
       await runner.onRunStart();
 
       const res = await runner.run(
@@ -326,7 +326,7 @@ def process_floats(nan_val: float, inf_val: float):
       const fnDef = program.functionsExported["process_floats"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_floats", env, 10000);
+      const runner = new PythonRunner(pyPath, "process_floats", env);
       await runner.onRunStart();
 
       const res = await runner.run(["NaN", "Infinity"], 10000);
@@ -377,7 +377,7 @@ def add_one(x: int) -> int:
       const env = createFuzzEnv(fnDef);
       env.options.measures.CoverageMeasure.enabled = false;
 
-      const runner = new PythonRunner(pyPath, "add_one", env, 10000);
+      const runner = new PythonRunner(pyPath, "add_one", env);
       await runner.onRunStart();
 
       const res = await runner.run([5], 10000);
@@ -426,7 +426,7 @@ def loop_timeout(n: int) -> int:
       const fnDef = program.functionsExported["loop_timeout"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "loop_timeout", env, 100);
+      const runner = new PythonRunner(pyPath, "loop_timeout", env);
       await runner.onRunStart();
 
       // First run times out in-host
@@ -465,7 +465,7 @@ def slow_fn(x: int) -> int:
     fs.writeFileSync(pyPath, pyCode);
     const hostStartupTimeout = Config.get(
       "nanofuzz.fuzzer.hostStartupTimeout",
-      10000
+      20000
     );
 
     try {
@@ -481,7 +481,7 @@ def slow_fn(x: int) -> int:
       // allowing the 7.5s import to succeed cleanly.
       Config.override("nanofuzz.fuzzer.hostStartupTimeout", 5000);
 
-      const runner = new PythonRunner(pyPath, "slow_fn", env, 15000);
+      const runner = new PythonRunner(pyPath, "slow_fn", env);
       const start = performance.now();
       await runner.onRunStart();
       const elapsed = performance.now() - start;
@@ -572,7 +572,9 @@ def calculate(x: int) -> int:
 
         // Case 1: Default 'project static' scope
         Config.override("nanofuzz.fuzzer.coverageScope", "project static");
-        const runnerProject = new PythonRunner(pyPath, "calculate", env, 30000);
+        const runnerProject = new PythonRunner(pyPath, "calculate", env, {
+          acceptsStaticCoverage: true,
+        });
         await runnerProject.onRunStart();
         const resProject = await runnerProject.run([1], 30000);
         const covProject = runnerProject.coverageInfo;
@@ -601,7 +603,9 @@ def calculate(x: int) -> int:
           "nanofuzz.fuzzer.coverageScope",
           "project directimports static"
         );
-        const runnerImports = new PythonRunner(pyPath, "calculate", env, 30000);
+        const runnerImports = new PythonRunner(pyPath, "calculate", env, {
+          acceptsStaticCoverage: true,
+        });
         await runnerImports.onRunStart();
         const resImports = await runnerImports.run([1], 30000);
         const covImports = runnerImports.coverageInfo;
@@ -665,7 +669,7 @@ def calculate(x: int) -> int:
 
       // Set bad coverageScope input
       Config.override("nanofuzz.fuzzer.coverageScope", "invalid-scope-value");
-      const runner = new PythonRunner(pyPath, "fn", env, 2000);
+      const runner = new PythonRunner(pyPath, "fn", env);
 
       await expectAsync(runner.onRunStart()).toBeRejectedWithError(
         /Invalid coverageScope configuration 'invalid-scope-value'/
@@ -716,7 +720,9 @@ def uncalled_func(y: int) -> int:
       const fnDef = program.functionsExported["process_val"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "process_val", env, 10000);
+      const runner = new PythonRunner(pyPath, "process_val", env, {
+        acceptsStaticCoverage: true,
+      });
       await runner.onRunStart();
 
       // 1. Check runner.coverageInfo immediately after onRunStart before running any test inputs.
@@ -755,7 +761,9 @@ def process_val(x: int) -> int:
         pass
 `;
       fs.writeFileSync(pyPath2, pyTimeoutCode);
-      const runner2 = new PythonRunner(pyPath2, "process_val", env, 200);
+      const runner2 = new PythonRunner(pyPath2, "process_val", env, {
+        acceptsStaticCoverage: true,
+      });
       await runner2.onRunStart();
       const timeoutRes = await runner2.run([1], 100);
       expect(timeoutRes.result.tag).toBe("timeout");
@@ -811,7 +819,9 @@ def x(val: int) -> int:
     const measure = new PythonCoverageMeasure();
 
     try {
-      const runner = new PythonRunner(realPyPath, "x", env, 10000);
+      const runner = new PythonRunner(realPyPath, "x", env, {
+        acceptsStaticCoverage: true,
+      });
       await runner.onRunStart();
 
       // Attach PythonCoverageMeasure to runner
@@ -1061,7 +1071,7 @@ def x(val: int) -> int:
     const measure = new PythonCoverageMeasure();
 
     try {
-      const runner = new PythonRunner(realPyPath, "x", env, 10000);
+      const runner = new PythonRunner(realPyPath, "x", env);
       await runner.onRunStart();
       measure.onRunStart([runner]);
 
@@ -1246,7 +1256,7 @@ async def async_add(a: int, b: int) -> int:
       const fnDef = program.functionsExported["async_add"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "async_add", env, 10000);
+      const runner = new PythonRunner(pyPath, "async_add", env);
       await runner.onRunStart();
 
       const res = await runner.run([12, 30], 10000);
@@ -1294,7 +1304,7 @@ async def async_fail(msg: str):
       const fnDef = program.functionsExported["async_fail"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "async_fail", env, 10000);
+      const runner = new PythonRunner(pyPath, "async_fail", env);
       await runner.onRunStart();
 
       const res = await runner.run(["boom"], 10000);
@@ -1342,7 +1352,7 @@ async def async_hang():
       const fnDef = program.functionsExported["async_hang"];
       const env = createFuzzEnv(fnDef);
 
-      const runner = new PythonRunner(pyPath, "async_hang", env, 100);
+      const runner = new PythonRunner(pyPath, "async_hang", env);
       await runner.onRunStart();
 
       const res = await runner.run([], 100);
@@ -1385,6 +1395,7 @@ function createFuzzEnv(
       useHuman: false,
       useProperty: false,
       useTransformer: false,
+      workers: "auto",
       measures: {
         CoverageMeasure: { enabled: true, weight: 1 },
         FailedTestMeasure: { enabled: true, weight: 1 },

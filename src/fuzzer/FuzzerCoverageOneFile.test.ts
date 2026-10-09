@@ -29,6 +29,7 @@ describe("fuzzer: coverageOneFile benchmark", () => {
         "testCoverageOneFile",
         {
           ...intOptions,
+          workers: 1,
           useProperty: true,
           seed,
           maxTests: 12000,

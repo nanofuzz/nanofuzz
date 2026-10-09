@@ -34,7 +34,6 @@ import { MeasureFactory } from "./measures/MeasureFactory";
 import { RunnerFactory } from "./runners/RunnerFactory";
 import { Leaderboard } from "./generators/Leaderboard";
 import { getIoKey, isError, isSameJudgments } from "./Util";
-import { PropertyOracle } from "./oracles/PropertyOracle";
 import { AbstractProgram } from "./analysis/AbstractProgram";
 import { AbstractRunner } from "./runners/AbstractRunner";
 import { AbstractMeasure } from "./measures/AbstractMeasure";
@@ -252,6 +251,20 @@ export class FuzzerV2 {
   public get state(): typeof this._state {
     return this._state;
   } // fn: state
+
+  /**
+   * Retrieves the active worker count.
+   */
+  public get workerCount(): number {
+    return 1;
+  } // get: workerCount
+
+  /**
+   * Retrieves the fuzzer engine version.
+   */
+  public get engine(): "v2" {
+    return "v2";
+  } // fn: engine
 
   /**
    * Executes the fuzzing run and returns the finalized results.
@@ -549,7 +562,7 @@ export class FuzzerV2 {
           this._lastCompiler.getCompiledDependencies(),
           this._measures,
           this._lastCompiler.options.tmpDir,
-          updateFn
+          updateFn ?? update
         )
       : mod;
     if (this._stats) {
@@ -557,7 +570,12 @@ export class FuzzerV2 {
         performance.now() - instrumentTime;
     }
 
-    const runner = RunnerFactory(this.env, targetMod, this._function.getName());
+    const runner = RunnerFactory(
+      this.env,
+      targetMod,
+      this._function.getName(),
+      { acceptsStaticCoverage: true }
+    );
     await runner.onRunStart();
 
     let transformRunner: ReturnType<typeof RunnerFactory> | undefined;
@@ -592,20 +610,18 @@ export class FuzzerV2 {
       userGenRunner
     );
 
-    const propRunners = this._validators.map((vFnRef) =>
-      RunnerFactory(this.env, targetMod, vFnRef.name)
-    );
-    await Promise.all(propRunners.map((p) => p.onRunStart()));
-    const propertyOracle = new PropertyOracle(propRunners);
+    const workers = [
+      {
+        id: 0,
+        runner,
+      },
+    ];
 
-    const runners = [
-      runner,
-      transformRunner,
-      userGenRunner,
-      ...propRunners,
-    ].filter((r): r is AbstractRunner => r !== undefined);
+    const runners = [runner, transformRunner, userGenRunner].filter(
+      (r): r is AbstractRunner => r !== undefined
+    );
     this._measures.forEach((m) => {
-      m.onRunStart(runners);
+      m.onRunStart(runners, this.env);
     });
 
     const injectMap = new Map(injectTests.map((t) => [getIoKey(t.input), t]));
@@ -623,10 +639,9 @@ export class FuzzerV2 {
     };
 
     return new FuzzExecutor(
-      runner,
+      workers,
       transformRunner,
-      propRunners,
-      propertyOracle,
+      userGenRunner,
       this._measures,
       this._options,
       this._function,

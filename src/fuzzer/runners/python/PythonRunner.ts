@@ -3,6 +3,7 @@ import {
   Arc,
   CoverageInfo,
   RunnerInput,
+  RunnerOverrides,
   RunnerResult,
   TypeHint,
 } from "../AbstractRunner";
@@ -27,7 +28,6 @@ import * as ChildProcess from "node:child_process";
  */
 export class PythonRunner extends AbstractRunner {
   protected _filename: string;
-  protected _timeout: number;
   protected _runDepth = 0;
   protected _fn: string;
   protected _env: FuzzEnv | undefined;
@@ -37,6 +37,7 @@ export class PythonRunner extends AbstractRunner {
   protected _pgmFiles: string[] = [];
   protected _coverageEnabled = true;
   protected _coverageCallback?: (covData: unknown) => void;
+  protected _overrides: RunnerOverrides;
   protected _pythonEnv: PythonEnv | undefined;
   protected static _envs: Map<string, { env: PythonEnv; expiresAt: number }> =
     new Map();
@@ -55,19 +56,19 @@ export class PythonRunner extends AbstractRunner {
    * @param `filename` path and filename of Python program module
    * @param `fn` exported Python function within `module` to call
    * @param `env` optional fuzzer environment
-   * @param `timeout` optional timeout for each run
+   * @param `overrides` optional runner configuration overrides
    */
   constructor(
     filename: string,
     fn: string,
     env?: FuzzEnv,
-    timeout: number = 0
+    overrides: RunnerOverrides = {}
   ) {
     super(fn);
     this._filename = filename;
     this._fn = fn;
     this._env = env;
-    this._timeout = timeout;
+    this._overrides = overrides;
   } // fn: constructor
 
   /**
@@ -91,11 +92,13 @@ export class PythonRunner extends AbstractRunner {
    *
    * @param `inputs` inputs to function
    * @param `timeout` stop and fail after `timeout` ms
+   * @param `validators` optional list of validator function names to execute in-host
    * @returns Runner result
    */
   public async run(
     inputs: unknown[],
-    timeout: number | undefined = 0
+    timeout: number | undefined = 0,
+    validators: string[] = []
   ): Promise<RunnerResult> {
     const thisSeq = this._seq++;
     if (this._runDepth++ > 0) {
@@ -117,6 +120,7 @@ export class PythonRunner extends AbstractRunner {
         seq: thisSeq,
         typeHints,
         timeout: timeout ?? 0,
+        validators: validators.length > 0 ? validators : undefined,
         collect: {
           coverageData: this._coverageEnabled ? true : undefined,
           debugData: debugEnabled ? true : undefined,
@@ -128,7 +132,9 @@ export class PythonRunner extends AbstractRunner {
         Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength)
       );
 
-      const hostTimeout = timeout && timeout > 0 ? timeout + 500 : Infinity;
+      const numFunctions = 1 + (validators?.length ?? 0);
+      const hostTimeout =
+        timeout && timeout > 0 ? timeout * numFunctions + 500 : Infinity;
       const rawResBuf = await host.getResponseBuffer(hostTimeout);
       const result: RunnerResult = {
         result: JSONN.unpack<RunnerResult["result"]>(rawResBuf),
@@ -233,11 +239,25 @@ export class PythonRunner extends AbstractRunner {
   } // fn: onRunEnd
 
   /**
+   * Returns the module/target filename associated with this runner
+   */
+  public override get filename(): string {
+    return this._filename;
+  } // get: filename
+
+  /**
    * Returns the current coverage information, if any
    */
   public override get coverageInfo(): FullCoverage | undefined {
     return this._coverageInfo;
   } // fn: coverageInfo
+
+  /**
+   * Returns the single most recent execution's coverage information.
+   */
+  public override get lastRunCoverage(): FullCoverage | undefined {
+    return this._coverageInfo;
+  } // get: lastRunCoverage
 
   /**
    * Registers a callback to be invoked with coverage data
@@ -609,8 +629,10 @@ export class PythonRunner extends AbstractRunner {
     );
 
     const scopeConfig = parseCoverageScope(coverageScopeRaw);
-    const collectStatic =
-      this._coverageEnabled && scopeConfig.collectStaticCoverage;
+    const collectStaticCoverage =
+      this._coverageEnabled &&
+      this._overrides.acceptsStaticCoverage === true &&
+      scopeConfig.collectStaticCoverage;
 
     let directPkgs: string[] = [];
     if (
@@ -635,7 +657,7 @@ export class PythonRunner extends AbstractRunner {
       this._fn,
       scopeConfig.target,
       JSON.stringify(directPkgs),
-      String(collectStatic),
+      String(collectStaticCoverage),
     ];
 
     const host = new PythonHost(
@@ -646,7 +668,7 @@ export class PythonRunner extends AbstractRunner {
 
     const hostStartupTimeout = Config.get<number>(
       "nanofuzz.fuzzer.hostStartupTimeout",
-      10000
+      20000
     );
 
     // a longer timeout tolerance for the host to pre-warm the coverage
@@ -682,7 +704,7 @@ export class PythonRunner extends AbstractRunner {
    */
   public killHost(): void {
     this._killHost();
-  }
+  } // fn: killHost
 
   /**
    * Kill the current Python host

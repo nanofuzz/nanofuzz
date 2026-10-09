@@ -217,7 +217,7 @@
           "nanofuzz.fuzzer.hostStartupTimeout": {
             "title": "Timeout runner host startup after (ms)",
             "type": "integer",
-            "default": 10000,
+            "default": 20000,
             "minimum": 1000,
             "description": "Maximum time (in ms) allowed for the runner host process to startup."
           },
@@ -250,15 +250,34 @@
             "title": "Fuzzer engine version",
             "type": "string",
             "enum": [
+              "auto",
               "v1",
-              "v2"
+              "v2",
+              "v3"
             ],
             "enumDescriptions": [
+              "auto: Automatic engine selection (v2 for single worker, v3 for multi-worker)",
               "v1: Classic fuzzer experience",
-              "v2: Updated fuzzer experience"
+              "v2: Updated fuzzer experience",
+              "v3: Advanced fuzzer experience"
             ],
-            "default": "v2",
-            "description": "Select the fuzzer engine implementation (v1=classic, v2=updated)",
+            "default": "auto",
+            "description": "Select the fuzzer engine implementation (auto=automatic, v1=classic, v2=updated, v3=pipelined)",
+            "tags": [
+              "experimental"
+            ]
+          },
+          "nanofuzz.fuzzer.workers": {
+            "title": "Fuzzer worker concurrency",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "enum": [
+              "auto"
+            ],
+            "default": "auto",
+            "description": "Number of concurrent worker processes for test execution ('auto' or integer >= 1)",
             "tags": [
               "experimental"
             ]
@@ -327,6 +346,16 @@
             "order": 30,
             "type": "string",
             "description": "API key for accessing provider's model. If not provided, an attempt will be made to read it from the environment.",
+            "tags": [
+              "usesOnlineServices"
+            ]
+          },
+          "nanofuzz.ai.endpoint": {
+            "title": "Model provider endpoint URL",
+            "order": 35,
+            "type": "string",
+            "default": "",
+            "description": "Optional endpoint URL for the model provider.",
             "tags": [
               "usesOnlineServices"
             ]

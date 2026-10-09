@@ -25,13 +25,23 @@ const isVerbose = process.argv.includes("--verbose");
 
 // Determine test files to run
 function getTestFiles() {
-  const args = process.argv.slice(2).filter((arg) => arg !== "--verbose");
+  const fileArgs = [];
+  for (let i = 2; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    if (arg === "--verbose") continue;
+    if (arg === "-j" || arg === "--jobs") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-j=") || arg.startsWith("--jobs=")) continue;
+    fileArgs.push(arg);
+  }
 
   // If specific files or filter keywords were passed via CLI args
-  if (args.length > 0) {
+  if (fileArgs.length > 0) {
     const allFiles = findTestFiles("src");
     return allFiles.filter((file) =>
-      args.some((arg) => file.includes(arg) || path.basename(file) === arg)
+      fileArgs.some((arg) => file.includes(arg) || path.basename(file) === arg)
     );
   }
 
@@ -210,20 +220,36 @@ async function main() {
   const testFiles = sortTestFiles(rawFiles);
   const totalFiles = testFiles.length;
 
-  // Use OS available parallelism (number of CPU cores) or JOBS env var
-  // Do not exceed the number of test files to avoid idle workers
+  let jobsOverride = process.env.JOBS
+    ? parseInt(process.env.JOBS, 10)
+    : undefined;
+  for (let i = 2; i < process.argv.length; i++) {
+    if (process.argv[i] === "-j" || process.argv[i] === "--jobs") {
+      if (i + 1 < process.argv.length) {
+        jobsOverride = parseInt(process.argv[i + 1], 10);
+      }
+    } else if (process.argv[i].startsWith("-j=")) {
+      jobsOverride = parseInt(process.argv[i].slice(3), 10);
+    } else if (process.argv[i].startsWith("--jobs=")) {
+      jobsOverride = parseInt(process.argv[i].slice(7), 10);
+    }
+  }
+
+  const cpus = os.availableParallelism
+    ? os.availableParallelism()
+    : os.cpus().length;
+  const innerWorkers = 2;
+
+  // Allocate outer workers assuming 2 inner fuzzer workers per test file (floor(cpus / 2))
   const maxConcurrency = Math.min(
-    process.env.JOBS
-      ? parseInt(process.env.JOBS, 10)
-      : Math.max(
-          1,
-          os.availableParallelism ? os.availableParallelism() : os.cpus().length
-        ),
+    jobsOverride && !isNaN(jobsOverride) && jobsOverride >= 1
+      ? jobsOverride
+      : Math.max(1, Math.floor(cpus / innerWorkers)),
     totalFiles
   );
 
   console.log(
-    `Running ${totalFiles} test file(s) in parallel using ${maxConcurrency} worker(s)...\n`
+    `Running ${totalFiles} test file${totalFiles > 1 ? "s" : ""} across ${maxConcurrency} test worker${maxConcurrency > 1 ? "s" : ""} (${innerWorkers} NaNofuzz workers per test)...\n`
   );
 
   const overallStartTime = Date.now();
@@ -276,16 +302,16 @@ async function main() {
   console.log("\n" + "=".repeat(60));
   if (failedResults.length > 0) {
     console.error(
-      `❌ TEST RUN FAILED: ${failedResults.length}/${totalFiles} file(s) failed.`
+      `❌ TEST RUN FAILED: ${failedResults.length}/${totalFiles} file${totalFiles > 1 ? "s" : ""} failed.`
     );
     console.error(
-      `Summary: ${totalSpecsRun} specs total, ${totalFailures} failed across ${totalFiles} file(s) in ${totalTimeSec}s.\n`
+      `Summary: ${totalSpecsRun} specs total, ${totalFailures} failed across ${totalFiles} file${totalFiles > 1 ? "s" : ""} in ${totalTimeSec}s.\n`
     );
     process.exit(1);
   } else {
     console.log(`✅ ALL TESTS PASSED!`);
     console.log(
-      `Summary: ${totalSpecsRun} specs total across ${totalFiles} file(s) in ${totalTimeSec}s.\n`
+      `Summary: ${totalSpecsRun} specs total across ${totalFiles} file${totalFiles > 1 ? "s" : ""} in ${totalTimeSec}s.\n`
     );
     process.exit(0);
   }

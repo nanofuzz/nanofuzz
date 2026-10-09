@@ -61,74 +61,77 @@ function createProgram(): Commander.Command {
   program
     .name("nanofuzz")
     .version(`NaNofuzz ${nanofuzzVersion}`)
-    .argument(`<filename>`, `The Python or Typescript module to test`)
-    .argument(`<function>`, `The entrypoint function to test`)
+    .argument(`<filename>`, `Python or TypeScript module to test`)
+    .argument(`<function>`, `Function to test`)
 
     // -------------------------- Fuzzer Run Parameters -------------------------- //
 
     .option(
       `--output-file <filename>`,
-      `Path and filename to output file for test results (in JSONN format)`
+      `Output file for test results (.json5 or .mpk)`
     )
     .option(
       `--max-runtime <integer>`,
-      `Maximum time in ms NaNofuzz may run (0=no limit)`,
+      `Max runtime in ms (0=no limit)`,
       parseIntArgGeZero,
       3000
     )
     .option(
       `--max-tests <integer>`,
-      `Maximum number of tests NaNofuzz may run`,
+      `Max tests to run`,
       parseIntArgGeZero,
       1000
     )
     .option(
       `--max-dupe-inputs <integer>`,
-      `Maximum number of sequential duplicate inputs`,
+      `Max duplicate input streak`,
       parseIntArgGeZero,
       1000
     )
     .option(
       `--max-failures <integer>`,
-      `Maximum number of test failures (0=no limit)`,
+      `Max test failures (0=no limit)`,
       parseIntArgGeZero,
       0
     )
     .option(
       `--fn-timeout <integer>`,
-      `Maximum time in ms allowed for a tested function to run`,
+      `Per-test timeout (ms)`,
       parseIntArgGeZero,
       200
     )
     .option(
       `--host-startup-timeout <integer>`,
-      `Maximum time in ms allowed for test runner host startup`,
+      `Runner startup timeout (ms)`,
       parseIntArgGeOne,
-      10000
+      20000
     )
-    .option(`--seed <string>`, `Seed for pseudo-random number generator`)
-    .option(`--no-shrink`, `Disable shrinking failing test inputs`)
+    .option(`--seed <string>`, `PRNG seed for deterministic runs`)
+    .option(`--no-shrink`, `Don't shrink failing inputs`)
     .option(
       `--max-shrink-time <integer>`,
-      `Maximum time in ms allowed for shrinking failing test inputs (0=no limit)`,
+      `Max shrinking time (ms, 0=no limit)`,
       parseIntArgGeZero,
       2000
     )
     .option(
-      `--output-results <all|failures|none>`,
-      `Output results mode: 'failures' (default), 'all', 'none'`,
+      `--output-results <mode>`,
+      `Return test results: all, failures, none`,
       parseOutputResults,
       "failures"
     )
+    .option(`--no-config-file`, `Ignore .nano.json5 config`)
     .option(
-      `--no-config-file`,
-      `Don't load configuration and saved tests from .nano.json5 file`
+      `--engine <v1|v2|v3|auto>`,
+      `Fuzzer engine: auto,v1,v2,v3`,
+      parseEngineOption,
+      "auto"
     )
     .option(
-      `--engine <v1|v2>`,
-      `Fuzzer engine version: 'v1' (classic) or 'v2' (refactored)`,
-      (val: string): FuzzerEngineVersion => (val === "v2" ? "v2" : "v1"),
-      "v2"
+      `--workers <integer|auto>`,
+      `Number of worker processes`,
+      parseWorkersOption,
+      "auto"
     )
 
     // ------------------------------- Transformers ------------------------------ //
@@ -143,145 +146,137 @@ function createProgram(): Commander.Command {
 
     // --------------------------------- Measures -------------------------------- //
 
-    .option(`--no-coverage-measure`, `Disable code coverage measure`)
+    .option(`--no-coverage-measure`, `Don't measure code coverage`)
     .option(
-      `--coverage-scope <scope>`,
-      `Code coverage scope: 'project static' (default), 'project directimports static', etc.`,
+      `--coverage-scope <tokens>`,
+      `Combine: project, directimports, static`,
       parseCoverageScopeOption,
       "project static"
     )
-    .option(`--no-failed-test-measure`, `Disable failed test measure`)
+    .option(`--no-failed-test-measure`, `Don't measure test failures`)
 
     // ----------------------------- Input Generators ---------------------------- //
 
-    .option(`--no-ai-input-generator`, `Disable AI input generator`)
-    .option(`--no-mutation-input-generator`, `Disable mutation input generator`)
-    .option(`--no-random-input-generator`, `Disable random input generator`)
-    .option(`--no-user-input-generator`, `Disable custom user input generator`)
+    .option(`--no-ai-input-generator`, `Disable AI generator`)
+    .option(`--no-mutation-input-generator`, `Disable mutation generator`)
+    .option(`--no-random-input-generator`, `Disable random generator`)
+    .option(`--no-user-input-generator`, `Disable user generator`)
 
-    .option(`--model-provider <string>`, `AI model provider`)
+    .option(`--model-provider <string>`, `AI provider (e.g. openai, copilot)`)
     .option(`--model-name <string>`, `AI model name`)
     .option(`--model-key <string>`, `AI model API key`)
+    .option(`--model-endpoint <string>`, `AI model endpoint base URL`)
     .option(
       `--ai-cache-mode <mode>`,
-      `LLM cache mode (passthrough, record, replay-record, replay-error, replay-passthrough)`,
+      `AI cache mode: record, replay-*, passthrough`,
       parseAiCacheMode
     )
-    .option(`--ai-cache-file <path>`, `Path to LLM cache file`)
+    .option(`--ai-cache-file <path>`, `AI cache file`)
     .option(
       `--ai-cache-delay <spec>`,
-      `Replay latency rule: '0' (instant), '500ms' (fixed), '0.5x' (scale), '+50ms' (offset), '100..500ms' (window), '~20%' or '~50ms' (jitter), '[50..500ms]' (clamp), or composed '0.5x ~20% [50..500ms]'`,
+      `Alter AI replay latency (e.g. '500ms', '0.5x ~20% [50..500ms]')`,
       parseAiCacheDelay
     )
     .option(
       `--no-ai-input-backfeed`,
-      `Disable backfeeding prior inputs to the AI model`
+      `Don't send prior inputs to AI input generator`
     )
 
     // ------------------------ Composite Input Generator ------------------------ //
 
     .option(
-      `--cig-scheduler <mab|random|round-robin|ucb1|thompson|ewma|mopt>`,
-      `Scheduler algorithm for choosing the next input generator (mab, random, round-robin, ucb1, thompson, ewma, mopt)`,
+      `--cig-scheduler <algo>`,
+      `Scheduler: mab, ucb1, thompson, ewma, mopt, random, round-robin`,
       parseCigScheduler,
       "mab"
     )
     .option(
       `--cig-scheduler-ucb1-exploration <float>`,
-      `Exploration constant (c) for UCB1 scheduler`,
+      `UCB1 exploration constant (c)`,
       parseFloatArgGeZero,
       1.414
     )
     .option(
       `--cig-scheduler-thompson-prior-variance <float>`,
-      `Prior variance for Thompson Sampling scheduler`,
+      `Thompson Sampling prior variance`,
       parseFloatArgGeZero,
       1.0
     )
     .option(
       `--cig-scheduler-ewma-alpha <float>`,
-      `Smoothing factor (alpha) for EWMA scheduler`,
+      `EWMA smoothing factor (alpha)`,
       parseFloatArgZeroToOne,
       0.2
     )
     .option(
       `--cig-scheduler-ewma-exploration <float>`,
-      `Exploration chance (epsilon) for EWMA scheduler`,
+      `EWMA exploration rate (epsilon)`,
       parseFloatArgZeroToOne,
       0.1
     )
     .option(
       `--cig-scheduler-mopt-swarm-size <integer>`,
-      `Swarm size (number of particles) for MOpt scheduler`,
+      `MOpt particle swarm size`,
       parseIntArgGeOne,
       5
     )
     .option(
       `--cig-scheduler-mopt-period <integer>`,
-      `Pilot evaluation period length for MOpt scheduler`,
+      `MOpt pilot evaluation period`,
       parseIntArgGeOne,
       50
     )
     .option(
       `--cig-scheduler-mopt-inertia <float>`,
-      `Inertia weight (w) for MOpt scheduler`,
+      `MOpt inertia weight (w)`,
       parseFloatArgZeroToOne,
       0.7
     )
     .option(
       `--cig-scheduler-mopt-exploration <float>`,
-      `Minimum generator probability for MOpt scheduler`,
+      `MOpt minimum generator probability`,
       parseFloatArgZeroToOne,
       0.05
     )
     .option(
       `--cig-scheduler-mab-lookback <integer>`,
-      `Lookback window when choosing the next input generator in MAB`,
+      `MAB reward lookback window`,
       parseIntArgGeOne,
       500
     )
     .option(
       `--cig-scheduler-mab-exploration <float>`,
-      `Chance of choosing the next input generator randomly in MAB`,
+      `MAB random exploration rate`,
       parseFloatArgZeroToOne,
       0.1
     )
     .option(
       `--cig-input-chunk-size <integer>`,
-      `Inputs to generate before choosing the next input generator`,
+      `Inputs generated per scheduler interrupt`,
       parseIntArgGeOne,
       20
     )
     .option(
       `--cig-input-focus <integer>`,
-      `Extra focus for new interesting inputs`,
+      `Bonus for newly interesting inputs`,
       parseIntArgGeOne,
       200
     )
     .option(
       `--cig-input-focus-decay <integer>`,
-      `Focus decay as interesting inputs age`,
+      `Decay rate for interesting input bonus`,
       parseIntArgGeZero,
       1
     )
-    .option(
-      `--cig-stats-checkpoints`,
-      `Track composite generator subgen selection statistics`
-    )
+    .option(`--cig-stats-checkpoints`, `Track generator selection statistics`)
 
     // ------------------------------ System Cleanup ----------------------------- //
 
-    .option(
-      `--debug [scope]`,
-      `Enable debug logging (scopes: * (default), runners, ai)`
-    )
-    .option(
-      `--clear-compile-cache`,
-      `Force clearing the compile cache prior to testing`
-    );
+    .option(`--debug [scope]`, `Debug logging: *, runners, ai (default: *)`)
+    .option(`--clear-compile-cache`, `Clear compiler cache before run`);
 
   return program;
-}
+} // fn: createProgram
 
 export async function runCliInProcess(
   args: string[] = process.argv.slice(2)
@@ -427,6 +422,9 @@ export async function runCliInProcess(
   }
   if (options["modelKey"] !== undefined) {
     Config.override("nanofuzz.ai.apiKey", options["modelKey"]);
+  }
+  if (options["modelEndpoint"] !== undefined) {
+    Config.override("nanofuzz.ai.endpoint", options["modelEndpoint"]);
   }
   if (options["aiCacheMode"] !== undefined) {
     Config.override("nanofuzz.ai.cacheMode", options["aiCacheMode"]);
@@ -632,6 +630,11 @@ export async function runCliInProcess(
           "outputResults",
           options["outputResults"] ?? "failures"
         ),
+        workers: getEffectiveOption(
+          "workers",
+          "workers",
+          options["workers"] ?? "auto"
+        ),
         outputFile: outfile,
         measures: {
           CoverageMeasure: {
@@ -668,8 +671,16 @@ export async function runCliInProcess(
       );
     }
 
+    const engine = fuzzer.engine;
+    const scheduler = options["cigScheduler"] ?? "mab";
+    const workersCount = fuzzer.workerCount;
+    const workerWord =
+      workersCount === 1 ? "1 worker" : `${workersCount} workers`;
+
     console.log(`Target: ${fnname} of ${filename}`);
-    console.log(`Target ready to test.`);
+    console.log(
+      `Target ready to test with ${workerWord}, ${engine} engine, ${scheduler} scheduler.`
+    );
 
     const results = await fuzzer.test(
       injectTests,
@@ -734,7 +745,7 @@ export async function runCliInProcess(
     } else {
       console.error("Unknown internal error");
     }
-    return ERROR_USAGE; // internal error
+    return ERROR_INTERNAL; // internal error
   }
 }
 
@@ -854,3 +865,31 @@ function parseIntArgGeOne(value: string, _previous: number): number {
   }
   return parsedValue;
 } // fn: parseGeOneIntArg
+
+function parseWorkersOption(
+  value: string,
+  _previous: number | "auto"
+): number | "auto" {
+  if (value.toLowerCase() === "auto") {
+    return "auto";
+  }
+  return parseIntArgGeOne(value, 1);
+} // fn: parseWorkersOption
+
+function parseEngineOption(
+  value: string,
+  _previous: FuzzerEngineVersion
+): FuzzerEngineVersion {
+  const normalized = value.toLowerCase();
+  if (
+    normalized === "v1" ||
+    normalized === "v2" ||
+    normalized === "v3" ||
+    normalized === "auto"
+  ) {
+    return normalized;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid engine '${value}'. Allowed: v1, v2, v3, auto`
+  );
+} // fn: parseEngineOption

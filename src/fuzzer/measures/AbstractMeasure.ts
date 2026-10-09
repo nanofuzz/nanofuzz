@@ -1,4 +1,4 @@
-import { FuzzTestResults } from "../Types";
+import { FuzzEnv, FuzzTestResults } from "../Types";
 import { AbstractRunner } from "../runners/AbstractRunner";
 import { FuzzTestResult, VmGlobals, InputAndSource } from "../Types";
 
@@ -35,10 +35,14 @@ export abstract class AbstractMeasure {
    * rather than from instrumented code.
    *
    * @param `runners` test runners for this run
+   * @param `env` optional fuzzer environment
    */
-  public onRunStart(_runners: AbstractRunner[] | AbstractRunner): void {
+  public onRunStart(
+    _runners: AbstractRunner[] | AbstractRunner,
+    _env?: FuzzEnv
+  ): void {
     return;
-  }
+  } // fn: onRunStart
 
   /**
    * Hook for instrumenting code after compilation but prior to load.
