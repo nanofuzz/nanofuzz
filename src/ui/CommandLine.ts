@@ -12,7 +12,11 @@ import * as fs from "node:fs";
 import { SingleBar, Presets } from "cli-progress";
 import * as ParserAdapter from "../fuzzer/adapters/ParserAdapter";
 import { ArgDef } from "../fuzzer/analysis/ArgDef";
-import { FuzzBusyStatusMessage, FuzzOptions } from "../fuzzer/Types";
+import {
+  CurrentRunStats,
+  FuzzBusyStatusMessage,
+  FuzzOptions,
+} from "../fuzzer/Types";
 import {
   formatCompilingStatus,
   formatInstrumentingStatus,
@@ -330,9 +334,10 @@ export async function runCliInProcess(
   // Setup update message handler & the progress bar
   let isCancelled = false;
   let lastWasMilestone = true;
+  let lastStats: CurrentRunStats | undefined;
   const bar = new SingleBar(
     {
-      format: " - Testing [{bar}] {percentage}%",
+      format: " - Testing [{bar}] {percentage}% @ {runtime}{counts}",
       clearOnComplete: true,
       linewrap: true,
     },
@@ -376,12 +381,25 @@ export async function runCliInProcess(
       case "testing":
       case "waiting-for-generator":
       case "progress-tick": {
+        if ("stats" in payload && payload.stats) {
+          lastStats = payload.stats;
+        }
+        const elapsedSec =
+          lastStats?.timers.startTime && lastStats.timers.startTime > 0
+            ? (performance.now() - lastStats.timers.startTime) / 1000
+            : 0;
         if (lastWasMilestone) {
-          bar.start(100, 0);
+          bar.start(100, 0, {
+            runtime: formatDuration(elapsedSec),
+            counts: formatTestCounts(lastStats),
+          });
           lastWasMilestone = false;
         }
         if (typeof payload.pct === "number") {
-          bar.update(Math.max(0, Math.min(payload.pct, 100)));
+          bar.update(Math.max(0, Math.min(payload.pct, 100)), {
+            runtime: formatDuration(elapsedSec),
+            counts: formatTestCounts(lastStats),
+          });
         }
         break;
       }
@@ -677,9 +695,20 @@ export async function runCliInProcess(
     const workerWord =
       workersCount === 1 ? "1 worker" : `${workersCount} workers`;
 
+    const isAiGenEnabled = options["aiInputGenerator"] !== false;
+    const isModelConfigured = LlmAdapter.isConfigured();
+    const modelConfig = LlmAdapter.getConfig();
+    const modelName =
+      modelConfig.modelName ||
+      (modelConfig.provider === "copilot" ? "copilot" : "");
+    const modelWord =
+      isAiGenEnabled && isModelConfigured && modelName
+        ? `, ${modelName} model`
+        : "";
+
     console.log(`Target: ${fnname} of ${filename}`);
     console.log(
-      `Target ready to test with ${workerWord}, ${engine} engine, ${scheduler} scheduler.`
+      `Ready to test: ${workerWord}, ${engine} engine, ${scheduler} scheduler${modelWord}.`
     );
 
     const results = await fuzzer.test(
@@ -893,3 +922,54 @@ function parseEngineOption(
     `Invalid engine '${value}'. Allowed: v1, v2, v3, auto`
   );
 } // fn: parseEngineOption
+
+// ------------------------------ Format Helpers ----------------------------- //
+
+export function formatDuration(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(isNaN(totalSeconds) ? 0 : totalSeconds));
+  if (s < 60) {
+    return `${s}s`;
+  }
+  const minutes = Math.floor(s / 60);
+  const remainingSeconds = s % 60;
+  const secStr = remainingSeconds.toString().padStart(2, "0");
+  if (minutes < 60) {
+    return `${minutes}m${secStr}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  const minStr = remainingMinutes.toString().padStart(2, "0");
+  return `${hours}h${minStr}m${secStr}s`;
+} // fn: formatDuration
+
+export type TestCounters = {
+  failedTests?: number;
+  passedTests?: number;
+  inputsSkipped?: number;
+  erroredTests?: number;
+};
+
+export function formatTestCounts(
+  countersOrStats?: CurrentRunStats | TestCounters
+): string {
+  if (!countersOrStats) return "";
+  const c: TestCounters =
+    "counters" in countersOrStats ? countersOrStats.counters : countersOrStats;
+  const parts: string[] = [];
+  if ((c.failedTests ?? 0) > 0) {
+    parts.push(`Fail: ${c.failedTests}`);
+  }
+  if ((c.passedTests ?? 0) > 0) {
+    parts.push(`Pass: ${c.passedTests}`);
+  }
+  if ((c.inputsSkipped ?? 0) > 0) {
+    parts.push(`Skip: ${c.inputsSkipped}`);
+  }
+  if ((c.erroredTests ?? 0) > 0) {
+    parts.push(`Err: ${c.erroredTests}`);
+  }
+  if (parts.length === 0) {
+    return "";
+  }
+  return ` [${parts.join(", ")}]`;
+} // fn: formatTestCounts

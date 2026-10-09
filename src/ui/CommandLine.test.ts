@@ -6,7 +6,11 @@ import * as JSONN from "../Jsonn";
 import * as Config from "../Config";
 import { FuzzStopReason, FuzzTestResults } from "../fuzzer/Types";
 import { CodeCoverageMeasureStats } from "../fuzzer/measures/AbstractCoverageMeasure";
-import { runCliInProcess } from "./CommandLine";
+import {
+  formatDuration,
+  formatTestCounts,
+  runCliInProcess,
+} from "./CommandLine";
 
 async function runCli(
   args: string[]
@@ -509,6 +513,156 @@ describe("cli:", () => {
     expect(Config.get<string>("nanofuzz.ai.endpoint", "")).toBe(
       "http://test-endpoint:11434/v1"
     );
+  });
+
+  it("shows model name on target ready line when model is configured and AI generator is enabled", async () => {
+    const outputFile = path.join(tmpDir, "model_ready_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-provider",
+      "ollama",
+      "--model-name",
+      "qwen2.5-coder:7b",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_model_ready",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain(
+      "Target ready to test with 1 worker, v2 engine, mab scheduler, qwen2.5-coder:7b model."
+    );
+  });
+
+  it("omits model name on target ready line when --no-ai-input-generator is passed", async () => {
+    const outputFile = path.join(tmpDir, "model_ready_no_ai_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const res = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--model-provider",
+      "ollama",
+      "--model-name",
+      "qwen2.5-coder:7b",
+      "--no-ai-input-generator",
+      "--max-tests",
+      "1",
+      "--seed",
+      "cli_seed_model_ready_no_ai",
+    ]);
+
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain(
+      "Target ready to test with 1 worker, v2 engine, mab scheduler."
+    );
+    expect(res.stdout).not.toContain("qwen2.5-coder:7b model");
+  });
+
+  it("formatDuration: formats seconds, minutes, and hours correctly", () => {
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(2)).toBe("2s");
+    expect(formatDuration(59)).toBe("59s");
+    expect(formatDuration(60)).toBe("1m00s");
+    expect(formatDuration(120)).toBe("2m00s");
+    expect(formatDuration(125)).toBe("2m05s");
+    expect(formatDuration(3600)).toBe("1h00m00s");
+    expect(formatDuration(19325)).toBe("5h22m05s");
+  });
+
+  it("formatTestCounts: formats non-zero groups and omits empty/zero groups", () => {
+    expect(formatTestCounts(undefined)).toBe("");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        erroredTests: 0,
+      })
+    ).toBe("");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 959,
+        inputsSkipped: 0,
+        erroredTests: 0,
+      })
+    ).toBe(" [Pass: 959]");
+    expect(
+      formatTestCounts({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 0,
+        erroredTests: 0,
+      })
+    ).toBe(" [Fail: 1, Pass: 959]");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 959,
+        inputsSkipped: 999,
+        erroredTests: 0,
+      })
+    ).toBe(" [Pass: 959, Skip: 999]");
+    expect(
+      formatTestCounts({
+        failedTests: 1,
+        passedTests: 959,
+        inputsSkipped: 999,
+        erroredTests: 2,
+      })
+    ).toBe(" [Fail: 1, Pass: 959, Skip: 999, Err: 2]");
+    expect(
+      formatTestCounts({
+        failedTests: 0,
+        passedTests: 0,
+        inputsSkipped: 0,
+        erroredTests: 5,
+      })
+    ).toBe(" [Err: 5]");
+  });
+
+  it("progress bar includes runtime and test counts in stderr", async () => {
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    const origIsTTY = process.stderr.isTTY;
+    try {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: true,
+        configurable: true,
+        writable: true,
+      });
+      const res = await runCli([
+        targetFile,
+        targetFn,
+        "--max-tests",
+        "5",
+        "--seed",
+        "cli_seed_bar_runtime",
+      ]);
+
+      expect(res.status).toBe(0);
+      expect(res.stderr).toMatch(/Testing \[.*\] \d+%/);
+      expect(res.stderr).toMatch(/@ \d+s/);
+      expect(res.stderr).toContain("Pass:");
+    } finally {
+      Object.defineProperty(process.stderr, "isTTY", {
+        value: origIsTTY,
+        configurable: true,
+        writable: true,
+      });
+    }
   });
 
   it("--cig-* flags: composite input generator parameters", async () => {
