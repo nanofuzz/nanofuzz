@@ -331,6 +331,16 @@
               "usesOnlineServices"
             ]
           },
+          "nanofuzz.ai.endpoint": {
+            "title": "Model provider endpoint URL",
+            "order": 35,
+            "type": "string",
+            "default": "",
+            "description": "Optional endpoint URL for the model provider.",
+            "tags": [
+              "usesOnlineServices"
+            ]
+          },
           "nanofuzz.ai.retries": {
             "title": "Maximum retries",
             "order": 40,

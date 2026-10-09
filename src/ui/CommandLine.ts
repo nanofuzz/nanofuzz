@@ -162,6 +162,7 @@ function createProgram(): Commander.Command {
     .option(`--model-provider <string>`, `AI model provider`)
     .option(`--model-name <string>`, `AI model name`)
     .option(`--model-key <string>`, `AI model API key`)
+    .option(`--model-endpoint <string>`, `AI model endpoint base URL`)
     .option(
       `--ai-cache-mode <mode>`,
       `LLM cache mode (passthrough, record, replay-record, replay-error, replay-passthrough)`,
@@ -427,6 +428,9 @@ export async function runCliInProcess(
   }
   if (options["modelKey"] !== undefined) {
     Config.override("nanofuzz.ai.apiKey", options["modelKey"]);
+  }
+  if (options["modelEndpoint"] !== undefined) {
+    Config.override("nanofuzz.ai.endpoint", options["modelEndpoint"]);
   }
   if (options["aiCacheMode"] !== undefined) {
     Config.override("nanofuzz.ai.cacheMode", options["aiCacheMode"]);
