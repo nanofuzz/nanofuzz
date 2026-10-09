@@ -451,6 +451,8 @@ export class TypescriptCompilerError extends Error {
   }
 }
 
+export { GeneratorExhaustedError } from "./generators/Types";
+
 /**
  * Throw to skip a test input due to an unsatisfied assumption.
  */

@@ -5,6 +5,7 @@ import { deepFreeze } from "../Util";
 import { ArgDef } from "./analysis/ArgDef";
 import { FunctionRef } from "./analysis/Types";
 import { CompositeInputGenerator } from "./generators/CompositeInputGenerator";
+import { GeneratorExhaustedError } from "./generators/Types";
 import * as CompilerFactory from "./compilers/CompilerFactory";
 import { Instrumenter } from "./compilers/Instrumenter";
 import * as ProgramFactory from "./analysis/ProgramFactory";
@@ -430,11 +431,7 @@ export class FuzzerV2 {
         try {
           candidate = await this._compositeInputGenerator.nextTransformed();
         } catch (e: unknown) {
-          if (
-            isError(e) &&
-            e.message ===
-              "Injected inputs exhausted and input generators are suppressed."
-          ) {
+          if (e instanceof GeneratorExhaustedError) {
             continue;
           }
           this._state = "crashed";

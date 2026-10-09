@@ -136,3 +136,20 @@ export type InputGeneratorStats = {
     | InputGeneratorStats
     | InputGeneratorStats[];
 };
+
+/**
+ * Thrown when autonomous input generation is suppressed (e.g., when reaching the
+ * sequential duplicate input threshold or when all input generators are disabled)
+ * and all injected/pinned inputs have already been exhausted.
+ *
+ * This dedicated error subclass allows fuzzer engines to cleanly differentiate normal
+ * input generator exhaustion from internal generator bugs, arity mismatches, or crashes.
+ */
+export class GeneratorExhaustedError extends Error {
+  public constructor(
+    message: string = "Injected inputs exhausted and input generators are suppressed."
+  ) {
+    super(message);
+    this.name = "GeneratorExhaustedError";
+  } // fn: constructor
+} // class: GeneratorExhaustedError

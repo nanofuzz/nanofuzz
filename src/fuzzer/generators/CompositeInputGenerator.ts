@@ -2,7 +2,7 @@ import * as Config from "../../Config";
 import { AbstractInputGenerator } from "./AbstractInputGenerator";
 import { AbstractMeasure, BaseMeasurement } from "../measures/AbstractMeasure";
 import { Leaderboard } from "./Leaderboard";
-import { ScoredInput } from "./Types";
+import { GeneratorExhaustedError, NextableStatus, ScoredInput } from "./Types";
 import {
   FuzzOptions,
   FuzzPinnedTest,
@@ -12,7 +12,6 @@ import {
   InputAndSource,
   TransformedInputAndSource,
 } from "./../Types";
-import { NextableStatus } from "./Types";
 import { FunctionDef } from "../analysis/FunctionDef";
 import { InputGeneratorFactory } from "./InputGeneratorFactory";
 import { AbstractRunner, RunnerResult } from "../runners/AbstractRunner";
@@ -278,16 +277,12 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
     // Make sure we are permitted to generate inputs
     if (!this.nextable()) {
-      throw new Error(
-        "Injected inputs exhausted and input generators are suppressed."
-      );
+      throw new GeneratorExhaustedError();
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
       if (this.nextable() !== "now" && this.nextable() !== "now!") {
-        throw new Error(
-          "Injected inputs exhausted and input generators are suppressed."
-        );
+        throw new GeneratorExhaustedError();
       }
       const { candidate, genCost } = this._generateCandidate();
 
@@ -307,9 +302,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       return this._acceptCandidate(candidate);
     }
 
-    throw new Error(
-      "Injected inputs exhausted and input generators are suppressed."
-    );
+    throw new GeneratorExhaustedError();
   } // fn: next
 
   /**
@@ -320,9 +313,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
   public async nextTransformed(): Promise<TransformedInputAndSource> {
     // Make sure we are permitted to generate inputs
     if (!this.nextable()) {
-      throw new Error(
-        "Injected inputs exhausted and input generators are suppressed."
-      );
+      throw new GeneratorExhaustedError();
     }
 
     while (this._permitSubgens || this._hasPrioritySubgen()) {
@@ -397,9 +388,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
       return this._acceptCandidate(candidate);
     } // while (generate & dupe check inputs)
 
-    throw new Error(
-      "Injected inputs exhausted and input generators are suppressed."
-    );
+    throw new GeneratorExhaustedError();
   } // fn: nextTransformed
 
   /**
@@ -735,9 +724,7 @@ export class CompositeInputGenerator extends AbstractInputGenerator {
 
     // 2. Guard: If priority is exhausted and autonomous generation is suppressed
     if (!this._permitSubgens) {
-      throw new Error(
-        "Injected inputs exhausted and input generators are suppressed."
-      );
+      throw new GeneratorExhaustedError();
     }
 
     // 3. Reset standard chunk size for autonomous generation
