@@ -38,37 +38,84 @@ describe("fuzzer: general & parameterized engine tests", () => {
     await initParser();
   });
 
-  it("FuzzerFactory instantiates v1, v2, or v3 based on engine option and defaults to v3", () => {
-    const testerDefault = FuzzerFactory(
+  it("FuzzerFactory instantiates v1, v2, or v3 based on engine option and auto logic", () => {
+    // Default engine ("auto") with workers !== 1 (intOptions has workers: 2) -> FuzzerV3
+    const testerDefaultMulti = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
       intOptions
     );
-    expect(testerDefault.constructor.name).toBe("FuzzerV3");
+    expect(testerDefaultMulti.constructor.name).toBe("FuzzerV3");
+    expect(testerDefaultMulti.engine).toBe("v3");
 
+    // Default engine ("auto") with workers === 1 -> FuzzerV2
+    const testerDefaultSingle = FuzzerFactory(
+      "nanofuzz-study/examples/1.ts",
+      "minValue",
+      { ...intOptions, workers: 1 }
+    );
+    expect(testerDefaultSingle.constructor.name).toBe("FuzzerV2");
+    expect(testerDefaultSingle.engine).toBe("v2");
+
+    // Explicit engine "auto" with workers === 1 -> FuzzerV2
+    const testerAutoSingle = FuzzerFactory(
+      "nanofuzz-study/examples/1.ts",
+      "minValue",
+      { ...intOptions, workers: 1 },
+      { engine: "auto" }
+    );
+    expect(testerAutoSingle.constructor.name).toBe("FuzzerV2");
+    expect(testerAutoSingle.engine).toBe("v2");
+
+    // Explicit engine "auto" with workers !== 1 -> FuzzerV3
+    const testerAutoMulti = FuzzerFactory(
+      "nanofuzz-study/examples/1.ts",
+      "minValue",
+      { ...intOptions, workers: 4 },
+      { engine: "auto" }
+    );
+    expect(testerAutoMulti.constructor.name).toBe("FuzzerV3");
+    expect(testerAutoMulti.engine).toBe("v3");
+
+    // Explicit engine "auto" with workers: "auto" -> FuzzerV3
+    const testerAutoWorkersAuto = FuzzerFactory(
+      "nanofuzz-study/examples/1.ts",
+      "minValue",
+      { ...intOptions, workers: "auto" },
+      { engine: "auto" }
+    );
+    expect(testerAutoWorkersAuto.constructor.name).toBe("FuzzerV3");
+    expect(testerAutoWorkersAuto.engine).toBe("v3");
+
+    // Explicit engine "v1" regardless of workers
     const testerV1 = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      intOptions,
+      { ...intOptions, workers: 1 },
       { engine: "v1" }
     );
     expect(testerV1.constructor.name).toBe("Tester");
+    expect(testerV1.engine).toBe("v1");
 
+    // Explicit engine "v2" regardless of workers
     const testerV2 = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      intOptions,
+      { ...intOptions, workers: 4 },
       { engine: "v2" }
     );
     expect(testerV2.constructor.name).toBe("FuzzerV2");
+    expect(testerV2.engine).toBe("v2");
 
+    // Explicit engine "v3" regardless of workers
     const testerV3 = FuzzerFactory(
       "nanofuzz-study/examples/1.ts",
       "minValue",
-      intOptions,
+      { ...intOptions, workers: 1 },
       { engine: "v3" }
     );
     expect(testerV3.constructor.name).toBe("FuzzerV3");
+    expect(testerV3.engine).toBe("v3");
   });
 
   describe("resolveWorkerCount calculation", () => {

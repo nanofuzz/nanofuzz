@@ -273,6 +273,13 @@ export class FuzzerV3 {
   } // get: workerCount
 
   /**
+   * Retrieves the fuzzer engine version.
+   */
+  public get engine(): "v3" {
+    return "v3";
+  } // fn: engine
+
+  /**
    * Retrieves the underlying executor instance.
    */
   public get executor(): FuzzExecutor | undefined {

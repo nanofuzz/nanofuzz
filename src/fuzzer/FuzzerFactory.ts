@@ -20,6 +20,7 @@ export interface IFuzzer {
   readonly state: "init" | "ready" | "running" | "paused" | "crashed";
   readonly env: FuzzEnv;
   readonly workerCount: number;
+  readonly engine: "v1" | "v2" | "v3";
   options: FuzzOptions;
 
   isStale(
@@ -37,15 +38,19 @@ export interface IFuzzer {
   getInputGeneratorDiagnostics(): string[];
 }
 
-export type FuzzerEngineVersion = "v1" | "v2" | "v3";
+export type FuzzerEngineVersion = "v1" | "v2" | "v3" | "auto";
 
 /**
  * Factory that instantiates Fuzzer (V1), FuzzerV2 (V2), or FuzzerV3 (V3)
  * based on parameter or configuration.
  *
  * Priority:
- *  1. `mode.engine` ("v1" | "v2" | "v3")
- *  2. Configuration setting `nanofuzz.fuzzer.engine` (default: "v3")
+ *  1. `mode.engine` ("v1" | "v2" | "v3" | "auto")
+ *  2. Configuration setting `nanofuzz.fuzzer.engine` (default: "auto")
+ *
+ * When engine is "auto":
+ *  - If `options.workers === 1`, use engine "v2"
+ *  - If `options.workers !== 1`, use engine "v3"
  */
 export function FuzzerFactory(
   module: string,
@@ -54,9 +59,14 @@ export function FuzzerFactory(
   mode: { precompile?: true; engine?: FuzzerEngineVersion } = {}
 ): IFuzzer {
   const engine =
-    mode.engine ?? Config.get<string>("nanofuzz.fuzzer.engine", "v3");
+    mode.engine ?? Config.get<string>("nanofuzz.fuzzer.engine", "auto");
 
-  switch (engine) {
+  let effectiveEngine = engine;
+  if (engine === "auto") {
+    effectiveEngine = options?.workers === 1 ? "v2" : "v3";
+  }
+
+  switch (effectiveEngine) {
     case "v1":
       return new FuzzerV1(module, fnName, options, mode);
     case "v2":

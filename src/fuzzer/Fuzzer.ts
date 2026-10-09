@@ -394,6 +394,13 @@ export class Tester {
   } // get: workerCount
 
   /**
+   * Retrieves the fuzzer engine version.
+   */
+  public get engine(): "v1" {
+    return "v1";
+  } // fn: engine
+
+  /**
    * Runs the tester and returns its results.
    *
    * @param `injectTests` tests to inject

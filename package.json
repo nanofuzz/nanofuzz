@@ -250,17 +250,19 @@
             "title": "Fuzzer engine version",
             "type": "string",
             "enum": [
+              "auto",
               "v1",
               "v2",
               "v3"
             ],
             "enumDescriptions": [
+              "auto: Automatic engine selection (v2 for single worker, v3 for multi-worker)",
               "v1: Classic fuzzer experience",
               "v2: Updated fuzzer experience",
               "v3: Advanced fuzzer experience"
             ],
-            "default": "v3",
-            "description": "Select the fuzzer engine implementation (v1=classic, v2=updated, v3=pipelined)",
+            "default": "auto",
+            "description": "Select the fuzzer engine implementation (auto=automatic, v1=classic, v2=updated, v3=pipelined)",
             "tags": [
               "experimental"
             ]

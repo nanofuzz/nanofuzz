@@ -2530,7 +2530,9 @@ export class FuzzPanel {
             this._results.results.length ||
             1;
           const workersCount = this._tester.workerCount;
-          const engine = Config.get<string>("nanofuzz.fuzzer.engine", "v3");
+          const engine =
+            this._tester.engine ??
+            Config.get<string>("nanofuzz.fuzzer.engine", "auto");
           const scheduler =
             this._results.stats.generators.CompositeInputGenerator?.config
               ?.scheduler ??

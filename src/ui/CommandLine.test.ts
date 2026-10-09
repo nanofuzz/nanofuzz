@@ -392,6 +392,54 @@ describe("cli:", () => {
     expect(outputData.env.options.workers).toBe(3);
   });
 
+  it("--engine auto selects v2 for 1 worker and v3 for multiple workers", async () => {
+    const outputFile = path.join(tmpDir, "engine_auto_output.json5");
+    const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";
+    const targetFn = "testCoverageOneFile";
+
+    // 1 worker -> v2 engine
+    const res1 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--engine",
+      "auto",
+      "--workers",
+      "1",
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_engine_auto_1",
+    ]);
+
+    expect(res1.status).toBe(0);
+    expect(res1.stdout).toContain(
+      "Target ready to test with 1 worker, v2 engine, mab scheduler."
+    );
+
+    // 2 workers -> v3 engine
+    const res2 = await runCli([
+      targetFile,
+      targetFn,
+      "--output-file",
+      outputFile,
+      "--engine",
+      "auto",
+      "--workers",
+      "2",
+      "--max-tests",
+      "2",
+      "--seed",
+      "cli_seed_engine_auto_2",
+    ]);
+
+    expect(res2.status).toBe(0);
+    expect(res2.stdout).toContain(
+      "Target ready to test with 2 workers, v3 engine, mab scheduler."
+    );
+  });
+
   it("--no-shrink and --max-shrink-time flags", async () => {
     const outputFile = path.join(tmpDir, "no_shrink_output.json5");
     const targetFile = "src/fuzzer/test_fixtures/Fuzzer.testfixtures.ts";

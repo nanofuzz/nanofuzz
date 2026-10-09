@@ -260,6 +260,13 @@ export class FuzzerV2 {
   } // get: workerCount
 
   /**
+   * Retrieves the fuzzer engine version.
+   */
+  public get engine(): "v2" {
+    return "v2";
+  } // fn: engine
+
+  /**
    * Executes the fuzzing run and returns the finalized results.
    *
    * @param injectTests An array of pinned tests to inject into the fuzzing run.

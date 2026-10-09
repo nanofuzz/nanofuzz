@@ -125,11 +125,10 @@ function createProgram(): Commander.Command {
       `Don't load configuration and saved tests from .nano.json5 file`
     )
     .option(
-      `--engine <v1|v2|v3>`,
-      `Fuzzer engine version: 'v1' (classic), 'v2' (refactored), or 'v3' (pipelined)`,
-      (val: string): FuzzerEngineVersion =>
-        val === "v1" ? "v1" : val === "v2" ? "v2" : "v3",
-      "v3"
+      `--engine <v1|v2|v3|auto>`,
+      `Fuzzer engine version: 'v1' (classic), 'v2' (refactored), 'v3' (pipelined), or 'auto' (default)`,
+      parseEngineOption,
+      "auto"
     )
     .option(
       `-w, --workers <integer|auto>`,
@@ -680,7 +679,7 @@ export async function runCliInProcess(
       );
     }
 
-    const engine = options["engine"] ?? "v3";
+    const engine = fuzzer.engine;
     const scheduler = options["cigScheduler"] ?? "mab";
     const workersCount = fuzzer.workerCount;
     const workerWord =
@@ -884,3 +883,21 @@ function parseWorkersOption(
   }
   return parseIntArgGeOne(value, 1);
 } // fn: parseWorkersOption
+
+function parseEngineOption(
+  value: string,
+  _previous: FuzzerEngineVersion
+): FuzzerEngineVersion {
+  const normalized = value.toLowerCase();
+  if (
+    normalized === "v1" ||
+    normalized === "v2" ||
+    normalized === "v3" ||
+    normalized === "auto"
+  ) {
+    return normalized;
+  }
+  throw new Commander.InvalidArgumentError(
+    `Invalid engine '${value}'. Allowed: v1, v2, v3, auto`
+  );
+} // fn: parseEngineOption
