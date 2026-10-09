@@ -1249,6 +1249,19 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
     expect(ArgDefValidator.validate(inputWithUndef[0].value, spec)).toBeTrue();
   });
 
+  it("getMutators handles functions with more than 10 arguments without constructor arity error", () => {
+    const specs: ArgDef[] = Array.from({ length: 12 }, (_, i) =>
+      new ArgDef(`arg${i}`, i, ArgTag.NUMBER, argOptions)
+    );
+    const input: ArgValueTypeWrapped[] = Array.from({ length: 12 }, (_, i) => ({
+      tag: "ArgValueTypeWrapped",
+      value: i,
+    }));
+    const prng = seedrandom("manyArgsMutator");
+    const mutators = ArgDefMutator.getMutators(specs, input, prng);
+    expect(mutators.length).toBeGreaterThan(0);
+  });
+
   /**
    * This test generates random ArgDef specs, generates
    * and mutates inputs from those specs, and validates
