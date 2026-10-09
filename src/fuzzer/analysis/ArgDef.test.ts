@@ -1250,8 +1250,9 @@ describe("fuzzer/analysis/typescript/getTypeAnnotation: ", () => {
   });
 
   it("getMutators handles functions with more than 10 arguments without constructor arity error", () => {
-    const specs: ArgDef[] = Array.from({ length: 12 }, (_, i) =>
-      new ArgDef(`arg${i}`, i, ArgTag.NUMBER, argOptions)
+    const specs: ArgDef[] = Array.from(
+      { length: 12 },
+      (_, i) => new ArgDef(`arg${i}`, i, ArgTag.NUMBER, argOptions)
     );
     const input: ArgValueTypeWrapped[] = Array.from({ length: 12 }, (_, i) => ({
       tag: "ArgValueTypeWrapped",
