@@ -66,18 +66,23 @@ function findTestFiles(dir) {
     .map((f) => path.join(dir, f).replace(/\\/g, "/"));
 }
 
-// Prioritize known longer running test files to run early in the queue
+// Prioritize known longer running test files to run early in the queue.
+// Interleave TypeScript-heavy and Python-heavy suites so workers do not
+// all contend for Python runner host process spawns simultaneously at t=0.
 function sortTestFiles(files) {
   const priority = [
     "FuzzerCoverageOneFile.test.ts",
-    "FuzzerPython.test.ts",
-    "FuzzerExamples1.test.ts",
+    "PythonRunner.test.ts",
     "FuzzerExamples2.test.ts",
-    "FuzzerTypescript.test.ts",
-    "ArgDef.test.ts",
     "CommandLine.test.ts",
-    "TypescriptCoverageMeasure.test.ts",
-    "PythonCoverageMeasure.test.ts",
+    "FuzzerExamples1.test.ts",
+    "PytestAdapter.test.ts",
+    "FuzzerTypescript.test.ts",
+    "Fuzzer.test.ts",
+    "FuzzerCoverageMultiFile.test.ts",
+    "FuzzerPython.test.ts",
+    "CommandLineAiCache.test.ts",
+    "Agent.test.ts",
   ];
 
   return [...files].sort((a, b) => {
